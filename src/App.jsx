@@ -127,6 +127,15 @@ function LandingPage() {
             <nav className={`h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 ${s.bg}`}>
                 <div className="font-display text-xl tracking-tighter">{t('nav.brand')}</div>
 
+                {/* Navigation Links - Hidden on Mobile */}
+                <div className="hidden md:flex gap-6 items-center">
+                    <a href="#metodo" className="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.method')}</a>
+                    <a href="#progreso" className="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.progress')}</a>
+                    <a href="#planes" className="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.plans')}</a>
+                    <a href="#equipo" className="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.team')}</a>
+                    <a href="#faq" className="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.faq')}</a>
+                </div>
+
                 {/* Language Switcher */}
                 <div className="flex items-center gap-1 font-mono text-xs font-bold">
                     {supportedLanguages.map((lng) => (
@@ -146,11 +155,11 @@ function LandingPage() {
             </nav>
 
             {/* Hero */}
-            <header className={`border-b-2 ${s.border}`}>
-                <div className="grid grid-cols-1 lg:grid-cols-12 h-[calc(100vh-112px)]">
+            <header className={`border-b-2 ${s.border} relative z-20 bg-[#E0F7FA]`}>
+                <div className="grid grid-cols-1 lg:grid-cols-12 h-auto lg:h-[calc(100vh-112px)]">
                     <div className={`lg:col-span-7 p-6 md:p-12 flex flex-col justify-start border-b-2 lg:border-b-0 lg:border-r-2 ${s.border}`}>
                         <div>
-                            <h1 className="font-display text-[13vw] lg:text-[8vw] leading-[1.21] tracking-tighter break-words">
+                            <h1 className="font-display text-[12vw] md:text-[9vw] lg:text-[7.5vw] leading-[1.1] lg:leading-[1.1] tracking-tighter break-words">
                                 {t('hero.headline1')} <br />
                                 <span className="italic">{t('hero.headline2')}</span> <br />
                                 {t('hero.headline3')}
@@ -161,11 +170,11 @@ function LandingPage() {
                             <p className="text-lg md:text-xl font-bold leading-tight">{t('hero.subtitle')}</p>
                         </div>
                     </div>
-                    <div className="lg:col-span-5 flex flex-col h-full overflow-hidden">
-                        <div className={`flex-1 border-b-2 ${s.border} relative overflow-hidden group`}>
+                    <div className="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden">
+                        <div className={`h-80 lg:h-auto lg:flex-1 border-b-2 ${s.border} relative overflow-hidden group`}>
                             <img src={heroImage} alt="Estudiante practicando español en un café de Madrid" className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
                         </div>
-                        <div className={`flex-1 ${s.secondaryBg} p-8 flex flex-col justify-center items-center text-center`}>
+                        <div className={`lg:flex-1 ${s.secondaryBg} p-8 flex flex-col justify-center items-center text-center`}>
                             <h2 className="font-display text-4xl mb-6">{t('hero.ready')}</h2>
                             <a
                                 href="mailto:hola@espanolhonesto.com"
@@ -214,7 +223,7 @@ function LandingPage() {
             </section>
 
             {/* El Método (Manifesto 003) */}
-            <section className="bg-[#006064] py-24 px-6 border-b-2 border-[#006064]">
+            <section id="metodo" className="bg-[#006064] py-24 px-6 border-b-2 border-[#006064]">
                 <div className="max-w-6xl mx-auto">
                     {/* Header */}
                     <div className="mb-16">
@@ -257,7 +266,7 @@ function LandingPage() {
             </div>
 
             {/* Tu Progreso (Manifesto 004) */}
-            <section className="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+            <section id="progreso" className="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
                 <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-12">
                     {/* Left Column */}
                     <div className="lg:col-span-2">
@@ -296,7 +305,7 @@ function LandingPage() {
             </section>
 
             {/* Pricing */}
-            <section className={`bg-white py-24 px-4 md:px-8 border-b-2 ${s.border}`}>
+            <section id="planes" className={`bg-white py-24 px-4 md:px-8 border-b-2 ${s.border}`}>
                 <div className="max-w-7xl mx-auto">
                     <div className={`flex items-end justify-between mb-12 border-b-4 ${s.border} pb-4`}>
                         <h2 className="font-display text-6xl md:text-8xl tracking-tighter">{t('pricing.title')}</h2>
@@ -339,7 +348,7 @@ function LandingPage() {
             </section>
 
             {/* Quiénes Somos (Team) */}
-            <section className="bg-white py-24 px-6 border-b-2 border-[#006064]">
+            <section id="equipo" className="bg-white py-24 px-6 border-b-2 border-[#006064]">
                 <div className="max-w-6xl mx-auto">
                     <div className="text-center mb-16">
                         <h2 className="font-display text-4xl lg:text-5xl text-[#006064] mb-8">{t('team.headline')}</h2>
@@ -385,7 +394,7 @@ function LandingPage() {
             </section>
 
             {/* FAQ */}
-            <section className="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+            <section id="faq" className="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
                 <div className="max-w-4xl mx-auto">
                     <div className="text-center mb-16">
                         <h2 className="font-display text-4xl lg:text-5xl text-[#006064]">{t('faq.headline')}</h2>

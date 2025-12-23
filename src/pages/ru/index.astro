@@ -1,0 +1,67 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import LandingPage from '../../components/LandingPage.astro';
+import { useTranslations } from '../../i18n/utils';
+
+const lang = 'ru';
+const t = useTranslations(lang);
+
+const schema = {
+    "@context": "https://schema.org",
+    "@graph": [
+        {
+            "@type": "EducationalOrganization",
+            "name": "Español Honesto",
+            "description": t('meta.description'),
+            "url": "https://espanolhonesto.com",
+            "address": {
+                "@type": "PostalAddress",
+                "addressLocality": "Madrid",
+                "addressCountry": "ES"
+            },
+            "email": "hola@espanolhonesto.com"
+        },
+        {
+            "@type": "FAQPage",
+            "mainEntity": (t('faq.items') as unknown as any[]).map(item => ({
+                "@type": "Question",
+                "name": item.question,
+                "acceptedAnswer": {
+                    "@type": "Answer",
+                    "text": item.answer
+                }
+            }))
+        },
+        {
+            "@type": "Course",
+            "name": t('pricing.plans.essential.name'),
+            "description": t('pricing.plans.essential.description'),
+            "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
+            "offers": { "@type": "Offer", "price": "160", "priceCurrency": "EUR" }
+        },
+        {
+            "@type": "Course",
+            "name": t('pricing.plans.intensive.name'),
+            "description": t('pricing.plans.intensive.description'),
+            "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
+            "offers": { "@type": "Offer", "price": "280", "priceCurrency": "EUR" }
+        },
+        {
+            "@type": "Course",
+            "name": t('pricing.plans.premium.name'),
+            "description": t('pricing.plans.premium.description'),
+            "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
+            "offers": { "@type": "Offer", "price": "300", "priceCurrency": "EUR" }
+        }
+    ]
+};
+---
+
+<BaseLayout 
+  title={t('meta.title')} 
+  description={t('meta.description')} 
+  lang={lang}
+>
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)} />
+    <LandingPage lang={lang} />
+</BaseLayout>

@@ -8,6 +8,11 @@ export default {
         established: "EST. 2025",
         login: "Login",
         start: "Get Started",
+        method: "Method",
+        progress: "Progress",
+        plans: "Plans",
+        team: "Team",
+        faq: "FAQ",
     },
     hero: {
         headline1: "LIVE",
@@ -34,8 +39,8 @@ export default {
         headline: "HOW IT WORKS",
         subtitle: "Real work. But not suffering.",
         columns: [
-            { number: "01", title: "FLIPPED CLASSROOM", description: "You review the theory before. Class is for speaking. Your time with us is too valuable to read PowerPoints." },
-            { number: "02", title: "SPACING EFFECT", description: "We review at the exact moment before you forget. Science, not intuition." },
+            { number: "01", title: "FLIPPED CLASSROOM", description: "Theory at home. Practice with us. Every minute of class is for speaking." },
+            { number: "02", title: "SPACING EFFECT", description: "We review at the exact moment before you forget it. Science, not intuition." },
             { number: "03", title: "REAL SITUATIONS", description: "Doctor, bureaucracy, work, bars. What you need to really live here." }
         ],
         closing: "Your time with us is too valuable to read PowerPoints. Review before. Speak in class. That's how it works."
@@ -63,7 +68,7 @@ export default {
             {
                 name: "ALEJANDRO",
                 role: "HEAD TEACHER",
-                languages: ["ES", "AST", "EN", "IT", "PT", "FR", "RU"],
+                languages: ["ES", "AST", "EN", "IT", "PT", "FR", "RU", "CA"],
                 bio: "UCM Linguist. Specialist in Spanish teaching. If something can be explained better, he finds the way."
             },
             {

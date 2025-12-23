@@ -1,0 +1,30 @@
+---
+import '../styles/global.css';
+
+interface Props {
+	title: string;
+    description?: string;
+    lang?: string;
+}
+
+const { title, description = "Aprende español para vivir en España", lang = "es" } = Astro.props;
+---
+
+<!doctype html>
+<html lang={lang}>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<meta name="generator" content={Astro.generator} />
+        <meta name="description" content={description} />
+		<title>{title}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Boldonse&family=Unbounded:wght@400;700;900&display=swap" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/pretendard/1.3.9/static/pretendard.min.css">
+	</head>
+	<body>
+		<slot />
+	</body>
+</html>

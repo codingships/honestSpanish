@@ -1,0 +1,108 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import { useTranslations, getLocalizedPath } from '../i18n/utils';
+import type { CollectionEntry } from 'astro:content';
+
+interface Props {
+  post: CollectionEntry<'blog'>;
+  lang: 'es' | 'en' | 'ru';
+}
+
+const { post, lang } = Astro.props;
+const t = useTranslations(lang);
+const { title, description, publishedAt, image, category, author } = post.data;
+
+const formattedDate = new Date(publishedAt).toLocaleDateString(lang, {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric'
+});
+
+// Schema for Article
+const articleSchema = {
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": title,
+  "image": image ? [image] : [],
+  "datePublished": publishedAt.toISOString(),
+  "dateModified": post.data.updatedAt?.toISOString() || publishedAt.toISOString(),
+  "author": [{
+      "@type": "Person",
+      "name": author === 'alejandro' ? 'Alejandro' : 'Alin',
+      "url": "https://espanolhonesto.com"
+  }]
+};
+---
+
+<BaseLayout 
+  title={`${title} | Español Honesto Blog`} 
+  description={description} 
+  lang={lang}
+  ogImage={image}
+>
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
+
+    <div class="bg-white min-h-screen text-[#006064] font-sans">
+        
+        {/* Navigation / Breadcrumbs */}
+        <nav class="bg-[#E0F7FA] py-4 px-6 border-b-2 border-[#006064]">
+            <div class="max-w-4xl mx-auto flex items-center text-sm font-mono uppercase tracking-wide opacity-70">
+                <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
+                <span class="mx-2">/</span>
+                <a href={getLocalizedPath('/blog', lang)} class="hover:underline">{t('common.blog')}</a>
+                <span class="mx-2">/</span>
+                <span class="truncate">{title}</span>
+            </div>
+        </nav>
+
+        <article class="max-w-4xl mx-auto px-6 py-12">
+            
+            {/* Header */}
+            <header class="mb-12 text-center">
+                <div class="inline-block bg-[#006064]/10 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-6">
+                    {category}
+                </div>
+                <h1 class="font-display text-4xl md:text-5xl lg:text-6xl mb-6 leading-tight">
+                    {title}
+                </h1>
+                <div class="flex items-center justify-center gap-4 text-sm font-mono opacity-60 uppercase">
+                    <span>{formattedDate}</span>
+                    <span>•</span>
+                    <span>{author}</span>
+                </div>
+            </header>
+
+            {/* Featured Image */}
+            {image && (
+                <div class="mb-12 border-2 border-[#006064] overflow-hidden rounded-lg aspect-video">
+                    <img src={image} alt={post.data.imageAlt || title} class="w-full h-full object-cover" />
+                </div>
+            )}
+
+            {/* Content Slot */}
+            <div class="prose prose-lg prose-headings:font-display prose-headings:text-[#006064] prose-p:text-[#006064]/80 prose-a:text-[#006064] prose-strong:text-[#006064] prose-blockquote:border-l-[#006064] max-w-none">
+                <slot />
+            </div>
+
+            {/* Tags */}
+            <div class="mt-12 pt-6 border-t font-mono text-xs uppercase flex gap-2">
+                {post.data.tags.map(tag => (
+                   <span class="bg-gray-100 px-2 py-1">#{tag}</span> 
+                ))}
+            </div>
+
+        </article>
+
+        {/* CTA Section */}
+        <section class="bg-[#006064] text-white py-24 text-center px-6">
+            <h2 class="font-display text-4xl mb-6">{t('common.ctaReady')}</h2>
+             <a
+                href="mailto:hola@espanolhonesto.com"
+                class="inline-block bg-white text-[#006064] px-8 py-4 text-lg font-bold border-2 border-transparent hover:bg-[#E0F7FA] transition-all uppercase tracking-wider"
+            >
+                {t('common.ctaContact')}
+            </a>
+        </section>
+
+    </div>
+</BaseLayout>

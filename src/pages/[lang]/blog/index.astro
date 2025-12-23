@@ -1,0 +1,102 @@
+---
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
+import { getCollection } from 'astro:content';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params;
+const t = useTranslations(lang as any);
+
+const posts = await getCollection('blog', ({ data }) => {
+    return data.lang === lang;
+});
+
+const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf());
+---
+
+<BaseLayout 
+    title={`${t('common.blog')} | Español Honesto`} 
+    description={t('meta.description')} 
+    lang={lang}
+>
+    <div class="bg-white min-h-screen font-sans text-[#006064]">
+        
+        {/* Header */}
+        <header class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+            <div class="max-w-6xl mx-auto text-center">
+                <nav class="flex justify-center text-sm font-mono uppercase tracking-wide opacity-70 mb-8">
+                     <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
+                     <span class="mx-2">/</span>
+                     <span>{t('common.blog')}</span>
+                </nav>
+                <h1 class="font-display text-6xl md:text-8xl mb-4 text-[#006064]">{t('common.blog')}</h1>
+                <p class="text-xl max-w-2xl mx-auto opacity-70">
+                    {lang === 'es' ? 'Artículos sobre aprendizaje, cultura y vida en España.' : 
+                     lang === 'en' ? 'Articles about learning, culture, and life in Spain.' : 
+                     'Статьи об обучении, культуре и жизни в Испании.'}
+                </p>
+            </div>
+        </header>
+
+        {/* Blog Grid */}
+        <div class="max-w-7xl mx-auto px-6 py-24">
+            {sortedPosts.length > 0 ? (
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
+                    {sortedPosts.map((post) => (
+                        <article class="flex flex-col group">
+                            <a href={getLocalizedPath(`/blog/${post.slug.split('/').pop()}`, lang)} class="block mb-6 overflow-hidden border-2 border-[#006064] rounded-lg aspect-[4/3]">
+                                {post.data.image ? (
+                                    <img 
+                                        src={post.data.image} 
+                                        alt={post.data.imageAlt || post.data.title}
+                                        class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                    />
+                                ) : (
+                                    <div class="w-full h-full bg-[#E0F7FA] flex items-center justify-center font-display text-4xl text-[#006064]/20">
+                                        EH
+                                    </div>
+                                )}
+                            </a>
+                            
+                            <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wide opacity-60">
+                                <span class="bg-[#006064]/10 px-2 py-1 rounded">{post.data.category}</span>
+                                <span>•</span>
+                                <span>{new Date(post.data.publishedAt).toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                            </div>
+
+                            <a href={getLocalizedPath(`/blog/${post.slug.split('/').pop()}`, lang)} class="group-hover:opacity-70 transition-opacity">
+                                <h2 class="font-display text-3xl mb-3 leading-tight text-[#006064]">
+                                    {post.data.title}
+                                </h2>
+                            </a>
+                            
+                            <p class="text-[#006064]/70 mb-6 line-clamp-3">
+                                {post.data.description}
+                            </p>
+
+                            <a href={getLocalizedPath(`/blog/${post.slug.split('/').pop()}`, lang)} class="mt-auto inline-flex items-center text-sm font-bold uppercase tracking-wider hover:underline">
+                                {t('common.readMore')} →
+                            </a>
+                        </article>
+                    ))}
+                </div>
+            ) : (
+                <div class="text-center py-24">
+                    <p class="text-xl opacity-60">
+                         {lang === 'es' ? 'No hay artículos todavía.' : 
+                          lang === 'en' ? 'No articles yet.' : 
+                          'Статей пока нет.'}
+                    </p>
+                </div>
+            )}
+        </div>
+
+    </div>
+</BaseLayout>

@@ -8,6 +8,11 @@ export default {
         established: "EST. 2025",
         login: "Login",
         start: "Empieza ahora",
+        method: "Método",
+        progress: "Progreso",
+        plans: "Planes",
+        team: "Equipo",
+        faq: "FAQ",
     },
     hero: {
         headline1: "VIVIR",
@@ -34,8 +39,8 @@ export default {
         headline: "CÓMO FUNCIONA",
         subtitle: "Trabajo real. Pero no sufrimiento.",
         columns: [
-            { number: "01", title: "CLASE INVERTIDA", description: "Revisas la teoría antes. La clase es para hablar. Tu tiempo con nosotros es demasiado valioso para leer PowerPoints." },
-            { number: "02", title: "SPACING EFFECT", description: "Repasamos en el momento exacto antes de que olvides. Ciencia, no intuición." },
+            { number: "01", title: "CLASE INVERTIDA", description: "La teoría, en tu casa. La práctica, con nosotros. Así aprovechas cada minuto de clase para hablar." },
+            { number: "02", title: "SPACING EFFECT", description: "Repasamos en el momento exacto antes de que lo olvides. Ciencia, no intuición." },
             { number: "03", title: "SITUACIONES REALES", description: "Médico, burocracia, trabajo, bares. Lo que necesitas para vivir aquí de verdad." }
         ],
         closing: "Tu tiempo con nosotros es demasiado valioso para leer PowerPoints. Revisa antes. Habla en clase. Así funciona."
@@ -63,7 +68,7 @@ export default {
             {
                 name: "ALEJANDRO",
                 role: "PROFESOR PRINCIPAL",
-                languages: ["ES", "AST", "EN", "IT", "PT", "FR", "RU"],
+                languages: ["ES", "AST", "EN", "IT", "PT", "FR", "RU", "CA"],
                 bio: "Lingüista UCM. Especialista en enseñanza de español. Si algo puede explicarse mejor, él encuentra la manera."
             },
             {
