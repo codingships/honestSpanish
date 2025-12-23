@@ -49,10 +49,78 @@ function LandingPage() {
                 <html lang={lang} />
                 <title>{t('meta.title')}</title>
                 <meta name="description" content={t('meta.description')} />
-                <link rel="alternate" hrefLang="es" href="/es" />
-                <link rel="alternate" hrefLang="en" href="/en" />
-                <link rel="alternate" hrefLang="ru" href="/ru" />
-                <link rel="alternate" hrefLang="x-default" href="/es" />
+
+                {/* Open Graph */}
+                <meta property="og:title" content={t('meta.title')} />
+                <meta property="og:description" content={t('meta.description')} />
+                <meta property="og:url" content={`https://espanolhonesto.com/${lang}`} />
+                <meta property="og:image" content="https://espanolhonesto.com/og-image.jpg" />
+                <meta property="og:locale" content={lang === 'en' ? 'en_US' : lang === 'ru' ? 'ru_RU' : 'es_ES'} />
+
+                {/* Twitter */}
+                <meta name="twitter:card" content="summary_large_image" />
+                <meta name="twitter:title" content={t('meta.title')} />
+                <meta name="twitter:description" content={t('meta.description')} />
+
+                {/* Canonical & Alternates */}
+                <link rel="canonical" href={`https://espanolhonesto.com/${lang}`} />
+                <link rel="alternate" hrefLang="es" href="https://espanolhonesto.com/es" />
+                <link rel="alternate" hrefLang="en" href="https://espanolhonesto.com/en" />
+                <link rel="alternate" hrefLang="ru" href="https://espanolhonesto.com/ru" />
+                <link rel="alternate" hrefLang="x-default" href="https://espanolhonesto.com/es" />
+
+                {/* Schema.org JSON-LD */}
+                <script type="application/ld+json">
+                    {JSON.stringify({
+                        "@context": "https://schema.org",
+                        "@graph": [
+                            {
+                                "@type": "EducationalOrganization",
+                                "name": "Español Honesto",
+                                "description": t('meta.description'),
+                                "url": "https://espanolhonesto.com",
+                                "address": {
+                                    "@type": "PostalAddress",
+                                    "addressLocality": "Madrid",
+                                    "addressCountry": "ES"
+                                },
+                                "email": "hola@espanolhonesto.com"
+                            },
+                            {
+                                "@type": "FAQPage",
+                                "mainEntity": t('faq.items', { returnObjects: true }).map(item => ({
+                                    "@type": "Question",
+                                    "name": item.question,
+                                    "acceptedAnswer": {
+                                        "@type": "Answer",
+                                        "text": item.answer
+                                    }
+                                }))
+                            },
+                            {
+                                "@type": "Course",
+                                "name": t('pricing.plans.essential.name'),
+                                "description": t('pricing.plans.essential.description'),
+                                "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
+                                "offers": { "@type": "Offer", "price": "160", "priceCurrency": "EUR" }
+                            },
+                            {
+                                "@type": "Course",
+                                "name": t('pricing.plans.intensive.name'),
+                                "description": t('pricing.plans.intensive.description'),
+                                "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
+                                "offers": { "@type": "Offer", "price": "280", "priceCurrency": "EUR" }
+                            },
+                            {
+                                "@type": "Course",
+                                "name": t('pricing.plans.premium.name'),
+                                "description": t('pricing.plans.premium.description'),
+                                "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
+                                "offers": { "@type": "Offer", "price": "300", "priceCurrency": "EUR" }
+                            }
+                        ]
+                    })}
+                </script>
             </Helmet>
 
             {/* Navbar */}
@@ -95,7 +163,7 @@ function LandingPage() {
                     </div>
                     <div className="lg:col-span-5 flex flex-col h-full overflow-hidden">
                         <div className={`flex-1 border-b-2 ${s.border} relative overflow-hidden group`}>
-                            <img src={heroImage} alt="Lifestyle" className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
+                            <img src={heroImage} alt="Estudiante practicando español en un café de Madrid" className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
                         </div>
                         <div className={`flex-1 ${s.secondaryBg} p-8 flex flex-col justify-center items-center text-center`}>
                             <h2 className="font-display text-4xl mb-6">{t('hero.ready')}</h2>
@@ -184,7 +252,7 @@ function LandingPage() {
 
             {/* Atmosphere Break */}
             <div className={`w-full h-64 md:h-96 overflow-hidden border-b-2 ${s.border} relative`}>
-                <img src={madridAtmosphere} alt="Madrid Atmosphere" className="w-full h-full object-cover grayscale" />
+                <img src={madridAtmosphere} alt="Vista atmosférica del centro de Madrid" className="w-full h-full object-cover grayscale" />
                 <div className="absolute inset-0 bg-[#006064]/20 mix-blend-multiply"></div>
             </div>
 
@@ -291,7 +359,7 @@ function LandingPage() {
                                 <div className="aspect-square bg-gray-200 rounded-lg mb-4 w-full overflow-hidden border-2 border-[#006064]">
                                     <img
                                         src={index === 0 ? avatarAlejandro : avatarAlin}
-                                        alt={member.name}
+                                        alt={index === 0 ? "Alejandro - Profesor principal de Español Honesto" : "Alin - Profesor y desarrollador de Español Honesto"}
                                         className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
                                     />
                                 </div>
