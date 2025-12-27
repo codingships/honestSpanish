@@ -1,5 +1,5 @@
 ---
-import { useTranslations } from '../i18n/utils';
+import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import heroImage from '../assets/hero.png';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
 import noiseTexture from '../assets/noise_texture.png';
@@ -56,6 +56,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             <a href="#planes" class="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.plans')}</a>
             <a href="#equipo" class="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.team')}</a>
             <a href="#faq" class="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.faq')}</a>
+            <a href={getLocalizedPath('/blog', lang)} class="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.blog')}</a>
         </div>
 
         {/* Language Switcher */}

@@ -36,7 +36,7 @@ const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.p
                      <span class="mx-2">/</span>
                      <span>{t('common.blog')}</span>
                 </nav>
-                <h1 class="font-display text-6xl md:text-8xl mb-4 text-[#006064]">{t('common.blog')}</h1>
+                <h1 class="font-display text-5xl md:text-7xl mb-4 text-[#006064] tracking-tighter">{t('common.blog')}</h1>
                 <p class="text-xl max-w-2xl mx-auto opacity-70">
                     {lang === 'es' ? 'Artículos sobre aprendizaje, cultura y vida en España.' : 
                      lang === 'en' ? 'Articles about learning, culture, and life in Spain.' : 
@@ -72,7 +72,7 @@ const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.p
                             </div>
 
                             <a href={getLocalizedPath(`/blog/${post.slug.split('/').pop()}`, lang)} class="group-hover:opacity-70 transition-opacity">
-                                <h2 class="font-display text-3xl mb-3 leading-tight text-[#006064]">
+                                <h2 class="font-display text-2xl mb-3 leading-snug text-[#006064]">
                                     {post.data.title}
                                 </h2>
                             </a>

@@ -5,7 +5,7 @@ publishedAt: 2025-01-20
 author: alin
 category: niveles
 tags: ["B1", "B2", "plateau", "intermediate"]
-image: "/images/blog/atascado-b1.jpg"
+image: "/images/blog/atascado-b1.png"
 imageAlt: "Person thinking while studying Spanish"
 lang: en
 translationKey: "stuck-at-b1"

@@ -5,7 +5,7 @@ publishedAt: 2025-01-15
 author: alejandro
 category: aprendizaje
 tags: ["беглость", "время", "уровни", "B2"]
-image: "/images/blog/tiempo-fluidez.jpg"
+image: "/images/blog/tiempo-fluidez.png"
 imageAlt: "Часы рядом с учебниками испанского"
 lang: ru
 translationKey: "time-to-fluency"

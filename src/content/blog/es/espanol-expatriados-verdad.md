@@ -5,7 +5,7 @@ publishedAt: 2025-01-25
 author: alejandro
 category: expatriados
 tags: ["expatriados", "vivir en España", "inmersión"]
-image: "/images/blog/expatriados-espana.jpg"
+image: "/images/blog/expatriados-espana.png"
 imageAlt: "Expatriados conversando en una terraza de Madrid"
 lang: es
 translationKey: "expats-truth"

@@ -5,7 +5,7 @@ publishedAt: 2025-01-25
 author: alejandro
 category: expatriados
 tags: ["экспаты", "жизнь в Испании", "погружение"]
-image: "/images/blog/expatriados-espana.jpg"
+image: "/images/blog/expatriados-espana.png"
 imageAlt: "Экспаты беседуют на террасе в Мадриде"
 lang: ru
 translationKey: "expats-truth"

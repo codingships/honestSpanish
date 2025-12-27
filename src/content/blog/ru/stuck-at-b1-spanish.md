@@ -5,7 +5,7 @@ publishedAt: 2025-01-20
 author: alin
 category: niveles
 tags: ["B1", "B2", "плато", "средний уровень"]
-image: "/images/blog/atascado-b1.jpg"
+image: "/images/blog/atascado-b1.png"
 imageAlt: "Человек задумался, изучая испанский"
 lang: ru
 translationKey: "stuck-at-b1"
