@@ -1,0 +1,203 @@
+---
+import BaseLayout from './BaseLayout.astro';
+import { useTranslations } from '../i18n/utils';
+
+interface Props {
+  title: string;
+  user: {
+    email?: string;
+    full_name?: string;
+    role?: string;
+  };
+  lang: string;
+}
+
+const { title, user, lang } = Astro.props;
+const t = useTranslations(lang);
+const role = user.role || 'student';
+
+const getInitials = (nameOrEmail: string = '') => {
+    return nameOrEmail.slice(0, 2).toUpperCase();
+};
+
+const userLabel = user.full_name || user.email || 'User';
+
+// Role badge colors
+const roleBadges: Record<string, { bg: string; text: string; label: string }> = {
+    student: { bg: 'bg-gray-200', text: 'text-gray-700', label: t('campus.role.student') },
+    teacher: { bg: 'bg-blue-100', text: 'text-blue-700', label: t('campus.role.teacher') },
+    admin: { bg: 'bg-green-100', text: 'text-green-700', label: t('campus.role.admin') },
+};
+const badge = roleBadges[role] || roleBadges.student;
+
+// Navigation items based on role
+type NavItem = { href: string; icon: string; label: string; active?: boolean; disabled?: boolean };
+
+const studentNav: NavItem[] = [
+    { href: `/${lang}/campus`, icon: '🏠', label: t('campus.nav.dashboard'), active: true },
+    { href: '#', icon: '📅', label: t('campus.nav.classes'), disabled: true },
+    { href: '#', icon: '📂', label: t('campus.nav.materials'), disabled: true },
+    { href: '#', icon: '👤', label: t('campus.nav.account'), disabled: true },
+];
+
+const teacherNav: NavItem[] = [
+    { href: `/${lang}/campus/teacher`, icon: '👥', label: t('campus.nav.myStudents'), active: true },
+    { href: '#', icon: '📅', label: t('campus.nav.myCalendar'), disabled: true },
+    { href: '#', icon: '👤', label: t('campus.nav.account'), disabled: true },
+];
+
+const adminNav: NavItem[] = [
+    { href: `/${lang}/campus/admin`, icon: '📊', label: t('campus.nav.adminDashboard'), active: true, disabled: true },
+    { href: '#', icon: '👥', label: t('campus.nav.students'), disabled: true },
+    { href: '#', icon: '🎓', label: t('campus.nav.teachers'), disabled: true },
+    { href: '#', icon: '💳', label: t('campus.nav.payments'), disabled: true },
+    { href: '#', icon: '⚙️', label: t('campus.nav.settings'), disabled: true },
+];
+
+// Select nav based on role
+const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav : studentNav;
+const showViewAsStudent = role === 'teacher' || role === 'admin';
+---
+
+<BaseLayout title={title} description="Campus" lang={lang}>
+    <div class="flex h-screen bg-[#E0F7FA] overflow-hidden">
+        
+        <!-- Sidebar (Desktop & Mobile) -->
+        <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-[#006064] text-white transition-transform transform -translate-x-full md:translate-x-0 md:static md:flex md:flex-col">
+            <!-- Logo -->
+            <div class="flex items-center justify-center h-16 border-b border-[#004d40]">
+                <a href={`/${lang}`} class="font-display text-xl tracking-wider hover:text-[#E0F7FA] transition-colors">ESPAÑOL HONESTO</a>
+            </div>
+
+            <!-- Nav -->
+            <nav class="flex-1 overflow-y-auto py-4">
+                <ul class="space-y-1 px-2">
+                    {navItems.map((item) => (
+                        <li>
+                            <a 
+                                href={item.disabled ? '#' : item.href} 
+                                class={`flex items-center px-4 py-3 rounded-md transition-colors group ${
+                                    item.disabled 
+                                        ? 'opacity-50 cursor-not-allowed' 
+                                        : 'hover:bg-[#004d40]'
+                                } ${item.active && !item.disabled ? 'bg-[#004d40]/50 border-l-4 border-white' : ''}`}
+                            >
+                               <span class="mr-3 text-xl">{item.icon}</span>
+                               <span class="font-bold">{item.label}</span>
+                            </a>
+                        </li>
+                    ))}
+                </ul>
+
+                {/* View as Student link for teachers/admins */}
+                {showViewAsStudent && (
+                    <div class="mt-4 px-2">
+                        <div class="border-t border-[#004d40] pt-4">
+                            <a 
+                                href={`/${lang}/campus`} 
+                                class="flex items-center px-4 py-2 text-sm text-[#E0F7FA]/70 hover:text-white hover:bg-[#004d40] rounded-md transition-colors"
+                            >
+                                <span class="mr-3 text-lg">👁️</span>
+                                <span>{t('campus.nav.viewAsStudent')}</span>
+                            </a>
+                        </div>
+                    </div>
+                )}
+            </nav>
+
+            <!-- Bottom Actions -->
+            <div class="p-4 border-t border-[#004d40]">
+                 <a href={`/${lang}/logout`} class="flex items-center px-4 py-2 hover:bg-[#004d40] rounded-md transition-colors text-red-200 hover:text-red-100 group">
+                    <span class="mr-3 text-xl group-hover:-translate-x-1 transition-transform">🚪</span>
+                    <span class="font-bold">{t('campus.nav.logout')}</span>
+                 </a>
+            </div>
+        </aside>
+
+        <!-- Overlay for mobile -->
+        <div id="sidebar-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden md:hidden cursor-pointer"></div>
+
+        <!-- Main Content Wrapper -->
+        <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+            
+            <!-- Header -->
+            <header class="bg-white border-b-2 border-[#006064] h-16 flex items-center justify-between px-4 sm:px-6 lg:px-8 shadow-sm relative z-30">
+                
+                <!-- Left: Hamburger & Breadcrumb -->
+                <div class="flex items-center">
+                    <button id="mobile-menu-btn" class="md:hidden p-2 text-[#006064] hover:bg-gray-100 rounded-md mr-2 focus:outline-none">
+                       <span class="text-2xl">☰</span>
+                    </button>
+                    <h1 class="text-xl font-display text-[#006064] uppercase truncate">{title}</h1>
+                </div>
+
+                <!-- Right: User Info & Dropdown -->
+                <div class="relative ml-3">
+                    <div class="flex items-center gap-3">
+                        <!-- Role Badge -->
+                        <span class={`hidden sm:inline-flex px-2 py-0.5 text-xs font-bold uppercase rounded ${badge.bg} ${badge.text}`}>
+                            {badge.label}
+                        </span>
+                        <span class="hidden md:block text-sm font-bold text-[#006064] tracking-wide">{userLabel}</span>
+                         <button id="user-menu-btn" class="bg-[#006064] text-white rounded-full flex items-center justify-center text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#006064] h-10 w-10 font-bold border-2 border-[#004d40] shadow-md hover:scale-105 transition-transform">
+                            {getInitials(userLabel)}
+                        </button>
+                    </div>
+
+                    <!-- Dropdown Menu -->
+                    <div id="user-menu" class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-[4px_4px_0px_0px_#006064] py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none border-2 border-[#006064] z-50">
+                        <div class="px-4 py-2 border-b border-gray-100">
+                            <p class="text-xs text-gray-500 truncate">{user.email}</p>
+                            <p class={`text-xs font-bold uppercase mt-1 ${badge.text}`}>{badge.label}</p>
+                        </div>
+                        <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 font-bold">{t('campus.nav.account')}</a>
+                        <a href={`/${lang}/logout`} class="block px-4 py-2 text-sm text-red-700 hover:bg-red-50 font-bold">{t('campus.nav.logout')}</a>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content Area -->
+            <main class="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 relative">
+                 <slot />
+            </main>
+        </div>
+    </div>
+</BaseLayout>
+
+<script>
+    // Elements
+    const btn = document.getElementById('mobile-menu-btn');
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebar-overlay');
+    const userBtn = document.getElementById('user-menu-btn');
+    const userMenu = document.getElementById('user-menu');
+
+    // Sidebar Toggle
+    function toggleSidebar() {
+        if (!sidebar || !overlay) return;
+        const isClosed = sidebar.classList.contains('-translate-x-full');
+        if (isClosed) {
+            sidebar.classList.remove('-translate-x-full');
+            overlay.classList.remove('hidden');
+        } else {
+            sidebar.classList.add('-translate-x-full');
+            overlay.classList.add('hidden');
+        }
+    }
+
+    btn?.addEventListener('click', toggleSidebar);
+    overlay?.addEventListener('click', toggleSidebar);
+
+    // User Dropdown Toggle
+    userBtn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        userMenu?.classList.toggle('hidden');
+    });
+
+    // Close dropdown on click outside
+    document.addEventListener('click', (e) => {
+        if (userMenu && !userMenu.classList.contains('hidden') && userBtn && !userBtn.contains(e.target as Node)) {
+            userMenu.classList.add('hidden');
+        }
+    });
+</script>

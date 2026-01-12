@@ -1,0 +1,533 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { useTranslations } from '../../i18n/utils';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+// Legal content by language
+const content = {
+    es: {
+        terms: {
+            title: "Aviso Legal",
+            sections: [
+                {
+                    title: "1. Datos identificativos",
+                    content: `En cumplimiento del artículo 10 de la Ley 34/2002, de 11 de julio, de Servicios de la Sociedad de la Información y Comercio Electrónico, se informa:
+
+• **Denominación social:** Español Honesto
+• **NIF:** [PENDIENTE]
+• **Domicilio:** Madrid, España
+• **Email de contacto:** hola@espanolhonesto.com`
+                },
+                {
+                    title: "2. Objeto y ámbito de aplicación",
+                    content: `El presente Aviso Legal regula el uso del sitio web espanolhonesto.com (en adelante, "el Sitio Web"), del que es titular Español Honesto.
+
+La navegación por el Sitio Web atribuye la condición de usuario del mismo e implica la aceptación plena y sin reservas de todas y cada una de las disposiciones incluidas en este Aviso Legal.`
+                },
+                {
+                    title: "3. Servicios ofrecidos",
+                    content: `Español Honesto ofrece servicios de enseñanza de español como lengua extranjera a través de clases particulares online. Los servicios incluyen:
+
+• Clases individuales de español
+• Acceso a materiales didácticos
+• Seguimiento personalizado del progreso`
+                },
+                {
+                    title: "4. Propiedad intelectual",
+                    content: `Todos los contenidos del Sitio Web, incluyendo textos, fotografías, gráficos, imágenes, iconos, tecnología, software, links y demás contenidos audiovisuales, así como su diseño gráfico y códigos fuente, son propiedad intelectual de Español Honesto.
+
+Queda prohibida la reproducción, distribución, comunicación pública y transformación de estos contenidos sin autorización expresa.`
+                },
+                {
+                    title: "5. Limitación de responsabilidad",
+                    content: `Español Honesto no garantiza la disponibilidad y continuidad del funcionamiento del Sitio Web. Cuando sea razonablemente posible, se advertirá previamente de las interrupciones en el funcionamiento.
+
+Español Honesto no se hace responsable de los daños y perjuicios de toda naturaleza que pudieran derivarse de la falta de disponibilidad o de continuidad del funcionamiento del Sitio Web.`
+                }
+            ]
+        },
+        privacy: {
+            title: "Política de Privacidad",
+            sections: [
+                {
+                    title: "1. Responsable del tratamiento",
+                    content: `• **Responsable:** Español Honesto
+• **Domicilio:** Madrid, España
+• **Email:** privacidad@espanolhonesto.com
+
+Nos comprometemos a proteger la privacidad de nuestros usuarios y clientes.`
+                },
+                {
+                    title: "2. Datos que recogemos",
+                    content: `Recogemos los siguientes datos personales:
+
+• **Datos de identificación:** nombre, email, teléfono
+• **Datos de facturación:** información de pago procesada por Stripe
+• **Datos de uso:** preferencias de idioma, zona horaria
+• **Datos de progreso:** notas del profesor, historial de clases`
+                },
+                {
+                    title: "3. Finalidad del tratamiento",
+                    content: `Tratamos tus datos para:
+
+• Prestación del servicio de clases de español
+• Gestión de pagos y facturación
+• Comunicaciones relacionadas con el servicio
+• Mejora de nuestros servicios`
+                },
+                {
+                    title: "4. Base legal",
+                    content: `El tratamiento de tus datos se basa en:
+
+• **Ejecución de contrato:** para la prestación de los servicios contratados
+• **Consentimiento:** para comunicaciones comerciales
+• **Obligación legal:** para cumplir obligaciones fiscales`
+                },
+                {
+                    title: "5. Destinatarios",
+                    content: `Tus datos pueden ser comunicados a:
+
+• **Stripe:** procesamiento de pagos
+• **Supabase:** almacenamiento de datos
+• **Google:** servicios de videollamada y almacenamiento
+• **Autoridades competentes:** cuando sea legalmente exigible`
+                },
+                {
+                    title: "6. Tus derechos",
+                    content: `Puedes ejercer tus derechos de:
+
+• Acceso a tus datos
+• Rectificación de datos incorrectos
+• Supresión de tus datos
+• Oposición al tratamiento
+• Portabilidad de tus datos
+• Limitación del tratamiento
+
+Para ejercer estos derechos, contacta: privacidad@espanolhonesto.com`
+                },
+                {
+                    title: "7. Conservación de datos",
+                    content: `Conservaremos tus datos durante la relación contractual y, posteriormente, durante los plazos legalmente establecidos para atender posibles responsabilidades.`
+                }
+            ]
+        },
+        cookies: {
+            title: "Política de Cookies",
+            sections: [
+                {
+                    title: "¿Qué son las cookies?",
+                    content: `Las cookies son pequeños archivos de texto que se almacenan en tu dispositivo cuando visitas un sitio web. Sirven para recordar tus preferencias y mejorar tu experiencia de navegación.`
+                },
+                {
+                    title: "Cookies que utilizamos",
+                    content: `**Cookies técnicas (necesarias):**
+• Cookies de sesión de autenticación
+• Cookies de preferencia de idioma
+
+**Cookies analíticas:**
+• Actualmente no utilizamos cookies analíticas de terceros
+
+**Cookies de terceros:**
+• Stripe: para el procesamiento seguro de pagos`
+                },
+                {
+                    title: "Cómo gestionar las cookies",
+                    content: `Puedes configurar tu navegador para rechazar cookies o para que te avise cuando se envíen. Sin embargo, si desactivas las cookies, algunas funcionalidades del sitio pueden no funcionar correctamente.
+
+Consulta la ayuda de tu navegador para más información sobre cómo gestionar las cookies.`
+                }
+            ]
+        }
+    },
+    en: {
+        terms: {
+            title: "Terms of Service",
+            sections: [
+                {
+                    title: "1. Identification",
+                    content: `• **Company name:** Español Honesto
+• **Tax ID:** [PENDING]
+• **Address:** Madrid, Spain
+• **Contact email:** hola@espanolhonesto.com`
+                },
+                {
+                    title: "2. Purpose and scope",
+                    content: `These Terms of Service govern the use of the website espanolhonesto.com (hereinafter, "the Website"), owned by Español Honesto.
+
+Browsing the Website implies full and unreserved acceptance of all provisions included in these Terms of Service.`
+                },
+                {
+                    title: "3. Services offered",
+                    content: `Español Honesto offers Spanish language teaching services through private online classes. Services include:
+
+• Individual Spanish classes
+• Access to learning materials
+• Personalized progress tracking`
+                },
+                {
+                    title: "4. Intellectual property",
+                    content: `All content on the Website, including texts, photographs, graphics, images, icons, technology, software, links and other audiovisual content, as well as its graphic design and source code, are the intellectual property of Español Honesto.
+
+Reproduction, distribution, public communication and transformation of these contents without express authorization is prohibited.`
+                },
+                {
+                    title: "5. Limitation of liability",
+                    content: `Español Honesto does not guarantee the availability and continuity of the Website's operation. When reasonably possible, prior notice will be given of interruptions in operation.
+
+Español Honesto is not responsible for damages of any nature that may arise from the lack of availability or continuity of the Website's operation.`
+                }
+            ]
+        },
+        privacy: {
+            title: "Privacy Policy",
+            sections: [
+                {
+                    title: "1. Data controller",
+                    content: `• **Controller:** Español Honesto
+• **Address:** Madrid, Spain
+• **Email:** privacidad@espanolhonesto.com
+
+We are committed to protecting the privacy of our users and customers.`
+                },
+                {
+                    title: "2. Data we collect",
+                    content: `We collect the following personal data:
+
+• **Identification data:** name, email, phone
+• **Billing data:** payment information processed by Stripe
+• **Usage data:** language preferences, timezone
+• **Progress data:** teacher notes, class history`
+                },
+                {
+                    title: "3. Purpose of processing",
+                    content: `We process your data for:
+
+• Providing Spanish class services
+• Payment and billing management
+• Service-related communications
+• Improving our services`
+                },
+                {
+                    title: "4. Legal basis",
+                    content: `The processing of your data is based on:
+
+• **Contract execution:** for providing contracted services
+• **Consent:** for commercial communications
+• **Legal obligation:** to comply with tax obligations`
+                },
+                {
+                    title: "5. Recipients",
+                    content: `Your data may be shared with:
+
+• **Stripe:** payment processing
+• **Supabase:** data storage
+• **Google:** video call and storage services
+• **Competent authorities:** when legally required`
+                },
+                {
+                    title: "6. Your rights",
+                    content: `You can exercise your rights to:
+
+• Access your data
+• Rectify incorrect data
+• Delete your data
+• Object to processing
+• Data portability
+• Restrict processing
+
+To exercise these rights, contact: privacidad@espanolhonesto.com`
+                },
+                {
+                    title: "7. Data retention",
+                    content: `We will retain your data during the contractual relationship and, subsequently, for the legally established periods to address possible liabilities.`
+                }
+            ]
+        },
+        cookies: {
+            title: "Cookie Policy",
+            sections: [
+                {
+                    title: "What are cookies?",
+                    content: `Cookies are small text files that are stored on your device when you visit a website. They are used to remember your preferences and improve your browsing experience.`
+                },
+                {
+                    title: "Cookies we use",
+                    content: `**Technical cookies (necessary):**
+• Authentication session cookies
+• Language preference cookies
+
+**Analytics cookies:**
+• We currently do not use third-party analytics cookies
+
+**Third-party cookies:**
+• Stripe: for secure payment processing`
+                },
+                {
+                    title: "How to manage cookies",
+                    content: `You can configure your browser to reject cookies or to notify you when cookies are sent. However, if you disable cookies, some website functionalities may not work properly.
+
+Check your browser's help for more information on how to manage cookies.`
+                }
+            ]
+        }
+    },
+    ru: {
+        terms: {
+            title: "Условия использования",
+            sections: [
+                {
+                    title: "1. Идентификация",
+                    content: `• **Название компании:** Español Honesto
+• **ИНН:** [ОЖИДАЕТ]
+• **Адрес:** Мадрид, Испания
+• **Контактный email:** hola@espanolhonesto.com`
+                },
+                {
+                    title: "2. Цель и область применения",
+                    content: `Настоящие Условия использования регулируют использование веб-сайта espanolhonesto.com (далее «Веб-сайт»), владельцем которого является Español Honesto.
+
+Просмотр Веб-сайта подразумевает полное и безоговорочное принятие всех положений, включённых в настоящие Условия.`
+                },
+                {
+                    title: "3. Предоставляемые услуги",
+                    content: `Español Honesto предлагает услуги по обучению испанскому языку через частные онлайн-занятия. Услуги включают:
+
+• Индивидуальные занятия испанским
+• Доступ к учебным материалам
+• Персональное отслеживание прогресса`
+                },
+                {
+                    title: "4. Интеллектуальная собственность",
+                    content: `Весь контент на Веб-сайте, включая тексты, фотографии, графику, изображения, иконки, технологии, программное обеспечение, ссылки и другой аудиовизуальный контент, а также его графический дизайн и исходный код, являются интеллектуальной собственностью Español Honesto.
+
+Воспроизведение, распространение, публичная коммуникация и преобразование этого контента без явного разрешения запрещены.`
+                },
+                {
+                    title: "5. Ограничение ответственности",
+                    content: `Español Honesto не гарантирует доступность и непрерывность работы Веб-сайта. По возможности будет дано предварительное уведомление о перерывах в работе.
+
+Español Honesto не несёт ответственности за ущерб любого характера, который может возникнуть из-за недоступности или прерывания работы Веб-сайта.`
+                }
+            ]
+        },
+        privacy: {
+            title: "Политика конфиденциальности",
+            sections: [
+                {
+                    title: "1. Контролёр данных",
+                    content: `• **Контролёр:** Español Honesto
+• **Адрес:** Мадрид, Испания
+• **Email:** privacidad@espanolhonesto.com
+
+Мы обязуемся защищать конфиденциальность наших пользователей и клиентов.`
+                },
+                {
+                    title: "2. Данные, которые мы собираем",
+                    content: `Мы собираем следующие персональные данные:
+
+• **Данные идентификации:** имя, email, телефон
+• **Данные для оплаты:** платёжная информация, обрабатываемая Stripe
+• **Данные использования:** языковые предпочтения, часовой пояс
+• **Данные прогресса:** заметки преподавателя, история занятий`
+                },
+                {
+                    title: "3. Цель обработки",
+                    content: `Мы обрабатываем ваши данные для:
+
+• Предоставления услуг по обучению испанскому
+• Управления платежами и выставлением счетов
+• Коммуникаций, связанных с услугами
+• Улучшения наших услуг`
+                },
+                {
+                    title: "4. Правовая основа",
+                    content: `Обработка ваших данных основана на:
+
+• **Исполнение договора:** для предоставления заказанных услуг
+• **Согласие:** для коммерческих коммуникаций
+• **Юридическое обязательство:** для соблюдения налоговых обязательств`
+                },
+                {
+                    title: "5. Получатели",
+                    content: `Ваши данные могут быть переданы:
+
+• **Stripe:** обработка платежей
+• **Supabase:** хранение данных
+• **Google:** услуги видеозвонков и хранения
+• **Компетентные органы:** когда это требуется по закону`
+                },
+                {
+                    title: "6. Ваши права",
+                    content: `Вы можете воспользоваться правами на:
+
+• Доступ к вашим данным
+• Исправление неверных данных
+• Удаление ваших данных
+• Возражение против обработки
+• Переносимость данных
+• Ограничение обработки
+
+Для реализации этих прав свяжитесь: privacidad@espanolhonesto.com`
+                },
+                {
+                    title: "7. Хранение данных",
+                    content: `Мы будем хранить ваши данные в течение срока договорных отношений и впоследствии в течение установленных законом сроков для устранения возможных обязательств.`
+                }
+            ]
+        },
+        cookies: {
+            title: "Политика cookies",
+            sections: [
+                {
+                    title: "Что такое cookies?",
+                    content: `Cookies — это небольшие текстовые файлы, которые сохраняются на вашем устройстве при посещении веб-сайта. Они используются для запоминания ваших предпочтений и улучшения опыта просмотра.`
+                },
+                {
+                    title: "Cookies, которые мы используем",
+                    content: `**Технические cookies (необходимые):**
+• Cookies сессии аутентификации
+• Cookies языковых предпочтений
+
+**Аналитические cookies:**
+• В настоящее время мы не используем сторонние аналитические cookies
+
+**Сторонние cookies:**
+• Stripe: для безопасной обработки платежей`
+                },
+                {
+                    title: "Как управлять cookies",
+                    content: `Вы можете настроить свой браузер на отклонение cookies или на уведомление при отправке cookies. Однако, если вы отключите cookies, некоторые функции сайта могут работать неправильно.
+
+Обратитесь к справке вашего браузера для получения информации об управлении cookies.`
+                }
+            ]
+        }
+    }
+};
+
+const legalContent = content[lang];
+const lastUpdated = "12 de enero de 2026";
+---
+
+<BaseLayout title={t('legal.title')} description="Información legal de Español Honesto" lang={lang}>
+    <div class="min-h-screen bg-[#FFF8F0]">
+        <!-- Header -->
+        <header class="border-b-2 border-[#006064] bg-white">
+            <div class="max-w-4xl mx-auto px-4 py-4 flex justify-between items-center">
+                <a href={`/${lang}`} class="font-display text-xl text-[#006064] uppercase">
+                    Español Honesto
+                </a>
+                <a 
+                    href={`/${lang}`}
+                    class="text-sm font-bold text-[#006064] hover:underline"
+                >
+                    ← {t('legal.backToHome')}
+                </a>
+            </div>
+        </header>
+
+        <main class="max-w-4xl mx-auto px-4 py-12">
+            <!-- Title -->
+            <h1 class="font-display text-4xl text-[#006064] uppercase mb-2">
+                {t('legal.title')}
+            </h1>
+            <p class="text-sm text-[#006064]/60 mb-8">
+                {t('legal.lastUpdated')}: {lastUpdated}
+            </p>
+
+            <!-- Table of Contents -->
+            <nav class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] mb-8">
+                <h2 class="font-display text-lg text-[#006064] uppercase mb-4">Índice</h2>
+                <ul class="space-y-2">
+                    <li>
+                        <a href="#terms" class="text-[#006064] hover:underline font-bold">
+                            1. {legalContent.terms.title}
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#privacy" class="text-[#006064] hover:underline font-bold">
+                            2. {legalContent.privacy.title}
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#cookies" class="text-[#006064] hover:underline font-bold">
+                            3. {legalContent.cookies.title}
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- Terms Section -->
+            <section id="terms" class="mb-12">
+                <h2 class="font-display text-2xl text-[#006064] uppercase mb-6 pb-2 border-b-2 border-[#006064]">
+                    {legalContent.terms.title}
+                </h2>
+                <div class="space-y-6">
+                    {legalContent.terms.sections.map(section => (
+                        <div class="bg-white p-6 border border-[#006064]/20">
+                            <h3 class="font-bold text-[#006064] mb-3">{section.title}</h3>
+                            <div class="text-[#006064]/80 prose prose-sm max-w-none" set:html={section.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>')} />
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <!-- Privacy Section -->
+            <section id="privacy" class="mb-12">
+                <h2 class="font-display text-2xl text-[#006064] uppercase mb-6 pb-2 border-b-2 border-[#006064]">
+                    {legalContent.privacy.title}
+                </h2>
+                <div class="space-y-6">
+                    {legalContent.privacy.sections.map(section => (
+                        <div class="bg-white p-6 border border-[#006064]/20">
+                            <h3 class="font-bold text-[#006064] mb-3">{section.title}</h3>
+                            <div class="text-[#006064]/80 prose prose-sm max-w-none" set:html={section.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>')} />
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <!-- Cookies Section -->
+            <section id="cookies" class="mb-12">
+                <h2 class="font-display text-2xl text-[#006064] uppercase mb-6 pb-2 border-b-2 border-[#006064]">
+                    {legalContent.cookies.title}
+                </h2>
+                <div class="space-y-6">
+                    {legalContent.cookies.sections.map(section => (
+                        <div class="bg-white p-6 border border-[#006064]/20">
+                            <h3 class="font-bold text-[#006064] mb-3">{section.title}</h3>
+                            <div class="text-[#006064]/80 prose prose-sm max-w-none" set:html={section.content.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br/>')} />
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <!-- Back to top -->
+            <div class="text-center">
+                <a 
+                    href="#"
+                    class="inline-block px-6 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
+                >
+                    ↑ Volver arriba
+                </a>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="border-t-2 border-[#006064] bg-white py-6 mt-12">
+            <div class="max-w-4xl mx-auto px-4 text-center text-sm text-[#006064]/60">
+                © 2026 Español Honesto. Todos los derechos reservados.
+            </div>
+        </footer>
+    </div>
+</BaseLayout>

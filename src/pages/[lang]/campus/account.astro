@@ -1,0 +1,225 @@
+---
+import CampusLayout from '../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import ProfileForm from '../../../components/account/ProfileForm';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+// Get Supabase client and verify user
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get profile
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+if (!profile) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get active subscription for students
+let subscription = null;
+if (profile.role === 'student') {
+    const { data: sub } = await supabase
+        .from('subscriptions')
+        .select(`
+            *,
+            packages (
+                name,
+                display_name
+            )
+        `)
+        .eq('student_id', user.id)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+    subscription = sub;
+}
+
+// Helpers
+const getPackageName = (sub: any) => {
+    if (!sub?.packages?.display_name) return '—';
+    const displayName = sub.packages.display_name;
+    return displayName[lang] || displayName['es'] || sub.packages.name;
+};
+
+const formatDate = (dateStr: string) => {
+    if (!dateStr) return '—';
+    return new Date(dateStr).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+    });
+};
+
+// Form translations
+const formTranslations = {
+    fullName: t('campus.account.fullName'),
+    email: t('campus.account.email'),
+    phone: t('campus.account.phone'),
+    language: t('campus.account.language'),
+    timezone: t('campus.account.timezone'),
+    save: t('campus.account.save'),
+    saved: t('campus.account.saved'),
+};
+---
+
+<CampusLayout 
+    title={t('campus.account.title')}
+    user={{ ...user, ...profile }}
+    lang={lang}
+>
+    <div class="max-w-2xl mx-auto space-y-6">
+        <!-- Personal Information -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-6">
+                {t('campus.account.personalInfo')}
+            </h2>
+            
+            <ProfileForm 
+                client:load
+                profile={{
+                    full_name: profile.full_name,
+                    email: profile.email,
+                    phone: profile.phone,
+                    preferred_language: profile.preferred_language || 'es',
+                    timezone: profile.timezone || 'Europe/Madrid',
+                }}
+                translations={formTranslations}
+            />
+        </div>
+
+        <!-- Security -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                {t('campus.account.security')}
+            </h2>
+            
+            <button
+                id="change-password-btn"
+                class="px-4 py-2 bg-[#E0F7FA] text-[#006064] font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+            >
+                {t('campus.account.changePassword')}
+            </button>
+            
+            <p class="text-xs text-[#006064]/50 mt-2">
+                Próximamente
+            </p>
+        </div>
+
+        <!-- Subscription (only for students) -->
+        {profile.role === 'student' && (
+            <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                    {t('campus.account.subscription')}
+                </h2>
+                
+                {subscription ? (
+                    <div class="space-y-4">
+                        <div class="flex justify-between items-center">
+                            <div>
+                                <p class="font-bold text-[#006064] text-lg">{getPackageName(subscription)}</p>
+                                <p class="text-sm text-[#006064]/60">
+                                    {subscription.status === 'active' ? (
+                                        <span class="text-green-600">● Activo</span>
+                                    ) : (
+                                        <span class="text-gray-500">● {subscription.status}</span>
+                                    )}
+                                </p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xs text-[#006064]/60 uppercase">Expira</p>
+                                <p class="font-mono text-[#006064]">{formatDate(subscription.ends_at)}</p>
+                            </div>
+                        </div>
+                        
+                        {profile.stripe_customer_id && (
+                            <button
+                                id="manage-stripe-btn"
+                                class="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
+                            >
+                                {t('campus.account.manageStripe')}
+                            </button>
+                        )}
+                    </div>
+                ) : (
+                    <div>
+                        <p class="text-[#006064]/60 font-mono mb-4">{t('campus.dashboard.noPlan')}</p>
+                        <a 
+                            href={`/${lang}#precios`}
+                            class="inline-block px-4 py-2 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
+                        >
+                            {t('campus.dashboard.viewPlans')}
+                        </a>
+                    </div>
+                )}
+            </div>
+        )}
+
+        <!-- Danger Zone -->
+        <div class="bg-white p-6 border-2 border-red-500 shadow-[4px_4px_0px_0px_#ef4444]">
+            <h2 class="font-display text-xl text-red-600 uppercase mb-4">
+                {t('campus.account.danger')}
+            </h2>
+            
+            <div class="space-y-3">
+                <a 
+                    href={`/${lang}/logout`}
+                    class="block w-full px-4 py-2 bg-white text-red-600 font-bold uppercase text-sm border-2 border-red-500 hover:bg-red-500 hover:text-white transition-colors text-center"
+                >
+                    {t('campus.account.logoutAll')}
+                </a>
+                
+                <button
+                    id="delete-account-btn"
+                    disabled
+                    class="w-full px-4 py-2 bg-red-100 text-red-400 font-bold uppercase text-sm border-2 border-red-300 cursor-not-allowed opacity-50"
+                >
+                    {t('campus.account.deleteAccount')}
+                </button>
+                <p class="text-xs text-red-400">Contacta con soporte para eliminar tu cuenta</p>
+            </div>
+        </div>
+    </div>
+</CampusLayout>
+
+<script>
+    // Stripe Customer Portal
+    const stripeBtn = document.getElementById('manage-stripe-btn');
+    stripeBtn?.addEventListener('click', async () => {
+        try {
+            stripeBtn.textContent = '...';
+            const response = await fetch('/api/account/create-portal-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                if (data.url) {
+                    window.location.href = data.url;
+                }
+            }
+        } catch (error) {
+            console.error('Error opening Stripe portal:', error);
+        }
+    });
+</script>

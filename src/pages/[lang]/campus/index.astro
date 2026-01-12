@@ -1,0 +1,187 @@
+---
+import CampusLayout from '../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../i18n/utils';
+import { createSupabaseServerClient } from "../../../lib/supabase-server";
+
+export const prerender = false;
+
+const { lang } = Astro.params;
+const t = useTranslations(lang);
+
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+// Middleware should protect this, but good to double check
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// 1. Fetch User Profile (for drive folder)
+let profile = null;
+const { data: profileData } = await supabase
+  .from('profiles')
+  .select('*')
+  .eq('id', user.id)
+  .single();
+
+if (profileData) profile = profileData;
+
+// 2. Fetch Active Subscription
+let subscription = null;
+try {
+  const { data: subData } = await supabase
+    .from('subscriptions')
+    .select(`
+      *,
+      packages (
+        name,
+        display_name,
+        sessions_per_month
+      )
+    `)
+    .eq('student_id', user.id)
+    .eq('status', 'active')
+    .gte('ends_at', new Date().toISOString())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+  if (subData) subscription = subData;
+} catch (e) {
+  console.error("Error fetching subscription:", e);
+  // Fail gracefully if tables don't exist yet
+}
+
+const formatDate = (dateString: string) => {
+    if (!dateString) return '';
+    return new Date(dateString).toLocaleDateString(lang === 'es' ? 'es-ES' : (lang === 'ru' ? 'ru-RU' : 'en-US'), {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+    });
+};
+
+// Handle JSONB display_name
+// Note: display_name is typed as any/json in Supabase result usually, so we access by key
+const packageName = subscription?.packages?.display_name ? 
+    subscription.packages.display_name[lang] || subscription.packages.display_name['es'] || subscription.packages.name 
+    : 'Plan';
+
+// Calculate sessions used percentage
+const sessionsTotal = subscription?.sessions_total || subscription?.packages?.sessions_per_month || 8;
+const sessionsUsed = subscription?.sessions_used || 0;
+const sessionsPercentage = Math.min(100, Math.round((sessionsUsed / sessionsTotal) * 100));
+---
+
+<CampusLayout 
+    title={`${t('campus.dashboard.title')} | Español Honesto`} 
+    user={user}
+    lang={lang}
+>
+    <!-- Page Header -->
+    <div class="mb-8">
+         <h1 class="font-display text-4xl text-[#006064] uppercase">{t('campus.dashboard.title')}</h1>
+         <p class="font-mono text-[#006064]/60">Bienvenido de nuevo, {profile?.full_name || user.email}</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
+         
+         <!-- CARD 1: TU PLAN -->
+         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
+             <div>
+                 <div class="flex items-center justify-between mb-4">
+                     <h3 class="font-bold text-lg text-[#006064] uppercase tracking-wide">{t('campus.dashboard.yourPlan')}</h3>
+                     <span class="text-2xl">🎟️</span>
+                 </div>
+                 
+                 {subscription ? (
+                     <div>
+                         <p class="font-display text-2xl text-[#006064] mb-1">{packageName}</p>
+                         <div class="flex items-center gap-2 mb-4">
+                             <span class="px-2 py-0.5 bg-green-100 text-green-800 text-xs font-bold uppercase rounded border border-green-200">Active</span>
+                             <span class="text-xs text-[#006064]/60">Hasta {formatDate(subscription.ends_at)}</span>
+                         </div>
+                     </div>
+                 ) : (
+                     <div class="mb-4">
+                         <p class="text-[#006064]/70 italic">{t('campus.dashboard.noPlan')}</p>
+                     </div>
+                 )}
+             </div>
+
+             <div>
+                 {subscription ? (
+                      <button class="w-full py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors">
+                          {t('campus.dashboard.manageSub')}
+                      </button>
+                 ) : (
+                      <a href={`/${lang}/#pricing`} class="block w-full text-center py-2 bg-[#006064] text-white text-xs font-bold uppercase border border-[#006064] hover:bg-[#004d40] transition-colors">
+                          {t('campus.dashboard.viewPlans')}
+                      </a>
+                 )}
+             </div>
+         </div>
+
+         <!-- CARD 2: SESIONES -->
+         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
+             <div class="flex items-center justify-between mb-4">
+                 <h3 class="font-bold text-lg text-[#006064] uppercase tracking-wide">{t('campus.dashboard.sessions')}</h3>
+                 <span class="text-2xl">📊</span>
+             </div>
+
+             {subscription ? (
+                <div>
+                    <div class="flex items-end gap-2 mb-2">
+                         <span class="font-display text-4xl text-[#006064]">{sessionsUsed}</span>
+                         <span class="text-lg text-[#006064]/50 font-bold mb-1">/ {sessionsTotal}</span>
+                    </div>
+                    <p class="text-xs text-[#006064]/60 uppercase font-bold mb-4">{t('campus.dashboard.sessionsUsed')}</p>
+                    
+                    <div class="h-3 w-full bg-[#E0F7FA] border border-[#006064]/20 rounded-full overflow-hidden">
+                        <div style={{ width: `${sessionsPercentage}%` }} class="h-full bg-[#006064]"></div>
+                    </div>
+                </div>
+             ) : (
+                <div class="flex-1 flex items-center justify-center">
+                    <p class="text-4xl text-[#006064]/20 font-display">—</p>
+                </div>
+             )}
+         </div>
+
+         <!-- CARD 3: PROXIMA CLASE (Placeholder) -->
+         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full opacity-75">
+             <div class="flex items-center justify-between mb-4">
+                 <h3 class="font-bold text-lg text-[#006064] uppercase tracking-wide">{t('campus.dashboard.nextClass')}</h3>
+                 <span class="text-2xl">📅</span>
+             </div>
+             
+             <div class="flex-1 flex flex-col items-center justify-center text-center p-4 border-2 border-dashed border-[#006064]/20 bg-[#E0F7FA]/30 rounded">
+                 <p class="text-sm font-bold text-[#006064]/50">{t('campus.dashboard.noClasses')}</p>
+             </div>
+         </div>
+
+         <!-- CARD 4: DRIVE (Profile dependent) -->
+         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
+             <div>
+                 <div class="flex items-center justify-between mb-4">
+                     <h3 class="font-bold text-lg text-[#006064] uppercase tracking-wide">Drive</h3>
+                     <span class="text-2xl">📂</span>
+                 </div>
+                 <p class="text-sm text-[#006064]/70 mb-4">{t('campus.dashboard.driveFolder')}</p>
+             </div>
+
+             <div>
+                 {profile?.drive_folder_id ? (
+                     <a href={`https://drive.google.com/drive/folders/${profile.drive_folder_id}`} target="_blank" rel="noopener noreferrer" class="flex items-center justify-center w-full py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors gap-2">
+                         <span>🔗</span> {t('campus.dashboard.openFolder')}
+                     </a>
+                 ) : (
+                     <div class="w-full py-2 bg-gray-100 text-gray-400 text-xs font-bold uppercase border border-gray-200 text-center cursor-not-allowed">
+                         {t('campus.dashboard.folderPending')}
+                     </div>
+                 )}
+             </div>
+         </div>
+
+    </div>
+</CampusLayout>

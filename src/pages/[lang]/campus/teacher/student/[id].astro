@@ -1,0 +1,220 @@
+---
+import CampusLayout from '../../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
+import TeacherNotes from '../../../../../components/TeacherNotes';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es', id: 'placeholder' } },
+        { params: { lang: 'en', id: 'placeholder' } },
+        { params: { lang: 'ru', id: 'placeholder' } }
+    ];
+}
+
+const { lang, id: studentId } = Astro.params as { lang: 'es' | 'en' | 'ru'; id: string };
+const t = useTranslations(lang);
+
+// Get Supabase client and user
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get current user's profile with role
+const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single();
+
+// Check if user is teacher or admin
+if (!currentProfile || (currentProfile.role !== 'teacher' && currentProfile.role !== 'admin')) {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+// If not admin, verify student is assigned to this teacher
+if (currentProfile.role !== 'admin') {
+    const { data: assignment } = await supabase
+        .from('student_teachers')
+        .select('id')
+        .eq('teacher_id', user.id)
+        .eq('student_id', studentId)
+        .single();
+
+    if (!assignment) {
+        return Astro.redirect(`/${lang}/campus/teacher`);
+    }
+}
+
+// Get student profile
+const { data: student, error: studentError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', studentId)
+    .single();
+
+if (studentError || !student) {
+    return Astro.redirect(`/${lang}/campus/teacher`);
+}
+
+// Get active subscription with package info
+const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select(`
+        *,
+        packages (
+            name,
+            display_name
+        )
+    `)
+    .eq('student_id', studentId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+// Helper function for package name
+const getPackageName = (sub: any) => {
+    if (!sub?.packages?.display_name) return t('campus.teacher.noPlan');
+    const displayName = sub.packages.display_name;
+    return displayName[lang] || displayName['es'] || sub.packages.name;
+};
+
+// Format dates
+const formatDate = (dateStr: string) => {
+    if (!dateStr) return '—';
+    return new Date(dateStr).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US');
+};
+
+// Calculate progress percentage
+const progressPercent = subscription 
+    ? Math.round((subscription.sessions_used / subscription.sessions_total) * 100) 
+    : 0;
+
+// Language display
+const languageNames: Record<string, string> = {
+    es: 'Español',
+    en: 'English',
+    ru: 'Русский'
+};
+---
+
+<CampusLayout 
+    title={`${student.full_name || student.email} | Español Honesto`}
+    user={user}
+    lang={lang}
+>
+    <!-- Header -->
+    <div class="mb-8">
+        <a 
+            href={`/${lang}/campus/teacher`}
+            class="inline-flex items-center gap-2 text-[#006064] hover:opacity-70 transition-opacity mb-4 font-mono text-sm"
+        >
+            ← {t('campus.teacher.back')}
+        </a>
+        
+        <h1 class="font-display text-4xl text-[#006064] mb-2">
+            {student.full_name || student.email}
+        </h1>
+        
+        <div class="flex flex-wrap gap-4 text-sm text-[#006064]/70">
+            <span>{student.email}</span>
+            {student.phone && <span>• {student.phone}</span>}
+            {student.preferred_language && (
+                <span>• {languageNames[student.preferred_language] || student.preferred_language}</span>
+            )}
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Current Plan Card -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                {t('campus.teacher.currentPlan')}
+            </h2>
+            
+            {subscription ? (
+                <div class="space-y-4">
+                    <div>
+                        <p class="text-2xl font-display text-[#006064]">{getPackageName(subscription)}</p>
+                        <p class="text-sm text-[#006064]/60">
+                            {formatDate(subscription.starts_at)} — {formatDate(subscription.ends_at)}
+                        </p>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="font-mono">{t('campus.teacher.sessions')}</span>
+                            <span class="font-bold">{subscription.sessions_used} / {subscription.sessions_total}</span>
+                        </div>
+                        <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
+                            <div 
+                                class="bg-[#006064] h-full transition-all"
+                                style={`width: ${progressPercent}%`}
+                            ></div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <p class="text-[#006064]/60 font-mono">{t('campus.teacher.noPlan')}</p>
+            )}
+        </div>
+
+        <!-- Materials Folder Card -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                {t('campus.teacher.materials')}
+            </h2>
+            
+            {student.drive_folder_id ? (
+                <a 
+                    href={`https://drive.google.com/drive/folders/${student.drive_folder_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-2 px-6 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] shadow-[4px_4px_0px_0px_#004d40] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all"
+                >
+                    📁 {t('campus.teacher.openDrive')}
+                </a>
+            ) : (
+                <p class="text-[#006064]/60 font-mono">{t('campus.dashboard.folderPending')}</p>
+            )}
+        </div>
+
+        <!-- Notes Card -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] lg:col-span-2">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                {t('campus.teacher.notes')}
+            </h2>
+            
+            <TeacherNotes 
+                client:load
+                studentId={studentId}
+                initialNotes={student.notes || ''}
+                translations={{
+                    placeholder: t('campus.teacher.notesPlaceholder'),
+                    save: t('campus.teacher.saveNotes'),
+                    saved: t('campus.teacher.notesSaved'),
+                }}
+            />
+        </div>
+
+        <!-- Upcoming Classes Card (Placeholder) -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                {t('campus.teacher.upcomingClasses')}
+            </h2>
+            <p class="text-[#006064]/60 font-mono">{t('campus.teacher.comingSoon')}</p>
+        </div>
+
+        <!-- Session History Card (Placeholder) -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                {t('campus.teacher.history')}
+            </h2>
+            <p class="text-[#006064]/60 font-mono">{t('campus.teacher.comingSoon')}</p>
+        </div>
+    </div>
+</CampusLayout>

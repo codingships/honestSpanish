@@ -1,11 +1,13 @@
 ---
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
+import { createSupabaseServerClient } from '../lib/supabase-server';
+import PricingSection from './PricingSection';
 import heroImage from '../assets/hero.png';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
 import noiseTexture from '../assets/noise_texture.png';
 import avatarAlejandro from '../assets/avatar_alejandro.png';
 import avatarAlin from '../assets/avatar_alin.png';
-import iconEsencial from '../assets/icon-esencial.png'; // Keeping for potential usage, though mapped dynamically usually
+import iconEsencial from '../assets/icon-esencial.png';
 import iconIntensivo from '../assets/icon-intensivo.png';
 import iconPremium from '../assets/icon-premium.png';
 
@@ -16,16 +18,31 @@ interface Props {
 const { lang } = Astro.props;
 const t = useTranslations(lang);
 
+// Fetch packages from Supabase
+const supabase = createSupabaseServerClient(Astro);
+const { data: packages, error: packagesError } = await supabase
+    .from('packages')
+    .select('id, name, display_name, price_monthly, sessions_per_month, stripe_price_1m, stripe_price_3m, stripe_price_6m')
+    .eq('is_active', true)
+    .order('price_monthly', { ascending: true });
+
+// Debug: Log what we got from Supabase
+console.log('Packages fetched:', packages?.length || 0, 'items');
+if (packagesError) {
+    console.error('Packages fetch error:', packagesError);
+}
+
+// Check if user is logged in
+const { data: { user } } = await supabase.auth.getUser();
+const isLoggedIn = !!user;
+
 // Data structure helper for complex arrays 
-// Since t() returns string or object, we need to cast for array mapping
 const problemsStatements = t('problems.statements') as unknown as string[];
 const methodColumns = t('method.columns') as unknown as any[];
 const progressMilestones = t('progress.milestones') as unknown as any[];
-const pricingFeaturesEssential = t('pricing.plans.essential.features') as unknown as string[];
-const pricingFeaturesIntensive = t('pricing.plans.intensive.features') as unknown as string[];
-const pricingFeaturesPremium = t('pricing.plans.premium.features') as unknown as string[];
 const teamMembers = t('team.members') as unknown as any[];
 const faqItems = t('faq.items') as unknown as any[];
+const pricingTranslations = t('pricing') as unknown as any;
 
 const s = {
     bg: 'bg-[#E0F7FA]',
@@ -71,9 +88,9 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             ))}
         </div>
 
-        <button class={`px-4 py-1 text-xs font-bold uppercase border ${s.border} hover:opacity-50 transition-opacity hidden md:block`}>
+        <a href={`/${lang}/login`} class={`px-4 py-1 text-xs font-bold uppercase border ${s.border} hover:opacity-50 transition-opacity hidden md:block`}>
             {t('nav.login')}
-        </button>
+        </a>
     </nav>
 
     {/* Hero */}
@@ -218,47 +235,13 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     </section>
 
     {/* Pricing */}
-    <section id="planes" class={`bg-white py-24 px-4 md:px-8 border-b-2 ${s.border}`}>
-        <div class="max-w-7xl mx-auto">
-            <div class={`flex items-end justify-between mb-12 border-b-4 ${s.border} pb-4`}>
-                <h2 class="font-display text-6xl md:text-8xl tracking-tighter">{t('pricing.title')}</h2>
-                <span class="font-mono text-sm mb-2 hidden md:block">{t('pricing.subtitle')}</span>
-            </div>
-            <div class={`border-t-2 ${s.border}`}>
-                <div class="hidden md:grid grid-cols-12 gap-4 py-4 font-mono text-xs uppercase tracking-widest opacity-60">
-                    <div class="col-span-3">{t('pricing.headers.name')}</div>
-                    <div class="col-span-2">{t('pricing.headers.price')}</div>
-                    <div class="col-span-5">{t('pricing.headers.includes')}</div>
-                    <div class="col-span-2 text-center">{t('pricing.headers.action')}</div>
-                </div>
-
-                {/* Essential */}
-                <div class={`grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-4 py-8 border-t-2 ${s.border} items-center`}>
-                    <div class="col-span-3"><h3 class="font-display text-3xl">{t('pricing.plans.essential.name')}</h3><p class="text-sm opacity-70 mt-1">{t('pricing.plans.essential.description')}</p></div>
-                    <div class="col-span-2 font-mono text-2xl font-bold">€160<span class="text-sm font-normal">{t('pricing.month')}</span></div>
-                    <div class="col-span-5 text-sm font-medium space-y-1">{pricingFeaturesEssential.map((f) => <p>• {f}</p>)}</div>
-                    <div class="col-span-2 flex justify-center"><button class={`w-auto px-6 py-2 border ${s.border} font-bold text-xs uppercase hover:${s.accent} hover:${s.accentText} transition-colors`}>{t('pricing.select')}</button></div>
-                </div>
-
-                {/* Intensive */}
-                <div class={`grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-4 py-12 border-t-2 border-b-2 ${s.border} items-center relative ${s.secondaryBg}`}>
-                    <div class={`absolute top-0 left-0 ${s.accent} ${s.accentText} px-2 py-1 text-[10px] font-bold uppercase tracking-widest`}>{t('pricing.recommended')}</div>
-                    <div class="col-span-3"><h3 class="font-display text-4xl">{t('pricing.plans.intensive.name')}</h3><p class="text-sm opacity-70 mt-1">{t('pricing.plans.intensive.description')}</p></div>
-                    <div class="col-span-2 font-mono text-3xl font-bold">€280<span class="text-sm font-normal">{t('pricing.month')}</span></div>
-                    <div class="col-span-5 text-sm font-bold space-y-1">{pricingFeaturesIntensive.map((f) => <p>• {f}</p>)}</div>
-                    <div class="col-span-2 flex justify-center"><button class={`w-auto px-6 py-4 ${s.accent} ${s.accentText} font-bold text-sm uppercase border ${s.border} shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] transition-all`}>{t('pricing.select')}</button></div>
-                </div>
-
-                {/* Premium */}
-                <div class={`grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-4 py-8 border-b-2 ${s.border} items-center`}>
-                    <div class="col-span-3"><h3 class="font-display text-3xl">{t('pricing.plans.premium.name')}</h3><p class="text-sm opacity-70 mt-1">{t('pricing.plans.premium.description')}</p></div>
-                    <div class="col-span-2 font-mono text-2xl font-bold">€300<span class="text-sm font-normal">{t('pricing.month')}</span></div>
-                    <div class="col-span-5 text-sm font-medium space-y-1">{pricingFeaturesPremium.map((f) => <p>• {f}</p>)}</div>
-                    <div class="col-span-2 flex justify-center"><button class={`w-auto px-6 py-2 border ${s.border} font-bold text-xs uppercase hover:${s.accent} hover:${s.accentText} transition-colors`}>{t('pricing.select')}</button></div>
-                </div>
-            </div>
-        </div>
-    </section>
+    <PricingSection 
+        client:load
+        packages={packages || []}
+        lang={lang}
+        isLoggedIn={isLoggedIn}
+        translations={pricingTranslations}
+    />
 
     {/* Quiénes Somos (Team) */}
     <section id="equipo" class="bg-white py-24 px-6 border-b-2 border-[#006064]">
@@ -346,6 +329,11 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             <div class="flex flex-col justify-end items-start md:items-end">
                 <div class="font-mono text-sm uppercase tracking-widest mb-8 text-left md:text-right">
                     {t('footer.address')}<br />{t('footer.city')}<br />{t('footer.email')}
+                </div>
+                <div class="flex gap-4 mb-4">
+                    <a href={`/${lang}/legal`} class="font-mono text-xs uppercase opacity-60 hover:opacity-100 transition-opacity">
+                        {t('legal.title')}
+                    </a>
                 </div>
                 <p class="font-sans text-xs opacity-60">&copy; {new Date().getFullYear()} {t('footer.copyright')}</p>
             </div>

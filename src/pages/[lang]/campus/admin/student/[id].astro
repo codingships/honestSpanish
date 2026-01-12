@@ -1,0 +1,357 @@
+---
+import CampusLayout from '../../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
+import TeacherNotes from '../../../../../components/TeacherNotes';
+import AssignTeacherButton from '../../../../../components/admin/AssignTeacherButton';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es', id: 'placeholder' } },
+        { params: { lang: 'en', id: 'placeholder' } },
+        { params: { lang: 'ru', id: 'placeholder' } }
+    ];
+}
+
+const { lang, id: studentId } = Astro.params as { lang: 'es' | 'en' | 'ru'; id: string };
+const t = useTranslations(lang);
+
+// Get Supabase client and verify user
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get current user's profile with role
+const { data: currentProfile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+// Check if user is admin
+if (!currentProfile || currentProfile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+// Get student profile
+const { data: student, error: studentError } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', studentId)
+    .single();
+
+if (studentError || !student) {
+    return Astro.redirect(`/${lang}/campus/admin/students`);
+}
+
+// Get active subscription with package info
+const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select(`
+        *,
+        packages (
+            name,
+            display_name
+        )
+    `)
+    .eq('student_id', studentId)
+    .eq('status', 'active')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .single();
+
+// Get all subscriptions (history)
+const { data: subscriptionHistory } = await supabase
+    .from('subscriptions')
+    .select(`
+        id,
+        status,
+        starts_at,
+        ends_at,
+        sessions_used,
+        sessions_total,
+        created_at,
+        packages (
+            name,
+            display_name
+        )
+    `)
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false });
+
+// Get assigned teacher
+const { data: teacherAssignment } = await supabase
+    .from('student_teachers')
+    .select(`
+        id,
+        is_primary,
+        profiles!student_teachers_teacher_id_fkey (
+            id,
+            full_name,
+            email
+        )
+    `)
+    .eq('student_id', studentId)
+    .eq('is_primary', true)
+    .single();
+
+// Get all teachers for assignment dropdown
+const { data: allTeachers } = await supabase
+    .from('profiles')
+    .select('id, full_name, email')
+    .eq('role', 'teacher')
+    .order('full_name');
+
+// Get payment history
+const { data: payments } = await supabase
+    .from('payments')
+    .select('id, amount, status, created_at')
+    .eq('student_id', studentId)
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+// Helper functions
+const getPackageName = (sub: any) => {
+    if (!sub?.packages?.display_name) return '—';
+    const displayName = sub.packages.display_name;
+    return displayName[lang] || displayName['es'] || sub.packages.name;
+};
+
+const formatDate = (dateStr: string) => {
+    if (!dateStr) return '—';
+    return new Date(dateStr).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+    });
+};
+
+const formatCurrency = (cents: number) => `€${(cents / 100).toLocaleString(lang === 'es' ? 'es-ES' : 'en-US')}`;
+
+const languageNames: Record<string, string> = {
+    es: 'Español',
+    en: 'English',
+    ru: 'Русский'
+};
+
+const progressPercent = subscription 
+    ? Math.round((subscription.sessions_used / subscription.sessions_total) * 100) 
+    : 0;
+
+const teacher = (teacherAssignment as any)?.profiles;
+
+// Modal translations
+const assignModalTranslations = {
+    title: t('campus.admin.assignTeacher.title'),
+    select: t('campus.admin.assignTeacher.select'),
+    primary: t('campus.admin.assignTeacher.primary'),
+    assign: t('campus.admin.assignTeacher.assign'),
+    remove: t('campus.admin.assignTeacher.remove'),
+    success: t('campus.admin.assignTeacher.success'),
+    current: t('campus.admin.assignTeacher.current'),
+    none: t('campus.admin.assignTeacher.none'),
+};
+---
+
+<CampusLayout 
+    title={`${student.full_name || student.email} | Admin`}
+    user={{ ...user, ...currentProfile }}
+    lang={lang}
+>
+    <!-- Header -->
+    <div class="mb-8">
+        <a 
+            href={`/${lang}/campus/admin/students`}
+            class="inline-flex items-center gap-2 text-[#006064] hover:opacity-70 transition-opacity mb-4 font-mono text-sm"
+        >
+            ← Volver a estudiantes
+        </a>
+        
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+                <h1 class="font-display text-4xl text-[#006064] mb-2">
+                    {student.full_name || student.email}
+                </h1>
+                <div class="flex flex-wrap gap-4 text-sm text-[#006064]/70">
+                    <span>{student.email}</span>
+                    {student.phone && <span>• {student.phone}</span>}
+                    {student.preferred_language && (
+                        <span>• {languageNames[student.preferred_language] || student.preferred_language}</span>
+                    )}
+                </div>
+            </div>
+            
+            <div class="flex gap-2">
+                {student.drive_folder_id && (
+                    <a 
+                        href={`https://drive.google.com/drive/folders/${student.drive_folder_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="px-4 py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+                    >
+                        📁 Drive
+                    </a>
+                )}
+            </div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Current Subscription -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Plan Actual</h2>
+            
+            {subscription ? (
+                <div class="space-y-4">
+                    <div>
+                        <p class="text-2xl font-display text-[#006064]">{getPackageName(subscription)}</p>
+                        <p class="text-sm text-[#006064]/60">
+                            {formatDate(subscription.starts_at)} — {formatDate(subscription.ends_at)}
+                        </p>
+                    </div>
+                    
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="font-mono">Sesiones</span>
+                            <span class="font-bold">{subscription.sessions_used} / {subscription.sessions_total}</span>
+                        </div>
+                        <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
+                            <div 
+                                class="bg-[#006064] h-full transition-all"
+                                style={`width: ${progressPercent}%`}
+                            ></div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <p class="text-[#006064]/60 font-mono">Sin plan activo</p>
+            )}
+        </div>
+
+        <!-- Assigned Teacher -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Profesor Asignado</h2>
+            
+            {teacher ? (
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="font-bold text-[#006064]">{teacher.full_name}</p>
+                        <p class="text-sm text-[#006064]/60">{teacher.email}</p>
+                    </div>
+                    <a 
+                        href={`/${lang}/campus/teacher/student/${studentId}`}
+                        class="px-3 py-1 text-xs font-bold text-[#006064] border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+                    >
+                        Ver como profesor
+                    </a>
+                </div>
+            ) : (
+                <div>
+                    <p class="text-[#006064]/60 font-mono mb-4">Sin profesor asignado</p>
+                </div>
+            )}
+            
+            <div class="mt-4 pt-4 border-t border-[#006064]/20">
+                <AssignTeacherButton
+                    client:load
+                    studentId={studentId}
+                    studentName={student.full_name || student.email}
+                    currentTeacherId={teacher?.id}
+                    teachers={allTeachers || []}
+                    buttonText={teacher ? t('campus.admin.assignTeacher.title') : t('campus.admin.students.assignTeacher')}
+                    translations={assignModalTranslations}
+                />
+            </div>
+        </div>
+
+        <!-- Notes -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Notas Internas</h2>
+            
+            <TeacherNotes 
+                client:load
+                studentId={studentId}
+                initialNotes={student.notes || ''}
+                translations={{
+                    placeholder: t('campus.teacher.notesPlaceholder'),
+                    save: t('campus.teacher.saveNotes'),
+                    saved: t('campus.teacher.notesSaved'),
+                }}
+            />
+        </div>
+
+        <!-- Payment History -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Historial de Pagos</h2>
+            
+            {payments && payments.length > 0 ? (
+                <div class="space-y-2">
+                    {payments.map(payment => (
+                        <div class="flex items-center justify-between py-2 border-b border-[#006064]/10 last:border-0">
+                            <div>
+                                <p class="text-sm text-[#006064]/60">{formatDate(payment.created_at)}</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class={`px-2 py-0.5 text-xs font-bold rounded ${
+                                    payment.status === 'succeeded' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                                }`}>
+                                    {payment.status}
+                                </span>
+                                <span class="font-mono font-bold text-[#006064]">{formatCurrency(payment.amount)}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p class="text-[#006064]/60 font-mono text-sm">Sin pagos registrados</p>
+            )}
+        </div>
+
+        <!-- Subscription History -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] lg:col-span-2">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Historial de Suscripciones</h2>
+            
+            {subscriptionHistory && subscriptionHistory.length > 0 ? (
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr class="border-b-2 border-[#006064]">
+                                <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Plan</th>
+                                <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Periodo</th>
+                                <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Sesiones</th>
+                                <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-[#006064]/10">
+                            {subscriptionHistory.map(sub => (
+                                <tr>
+                                    <td class="py-2 font-bold text-[#006064]">{getPackageName(sub)}</td>
+                                    <td class="py-2 text-[#006064]/70">
+                                        {formatDate(sub.starts_at)} — {formatDate(sub.ends_at)}
+                                    </td>
+                                    <td class="py-2 text-[#006064]/70">
+                                        {sub.sessions_used} / {sub.sessions_total}
+                                    </td>
+                                    <td class="py-2">
+                                        <span class={`px-2 py-0.5 text-xs font-bold rounded ${
+                                            sub.status === 'active' ? 'bg-green-100 text-green-700' :
+                                            sub.status === 'expired' ? 'bg-gray-100 text-gray-700' :
+                                            'bg-yellow-100 text-yellow-700'
+                                        }`}>
+                                            {sub.status}
+                                        </span>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            ) : (
+                <p class="text-[#006064]/60 font-mono text-sm">Sin historial de suscripciones</p>
+            )}
+        </div>
+    </div>
+</CampusLayout>

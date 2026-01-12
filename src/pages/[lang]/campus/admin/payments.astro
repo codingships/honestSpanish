@@ -1,0 +1,306 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+// Get Supabase client and verify user
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get profile with role
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+// Check if user is admin
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+// Get all payments with related data
+const { data: paymentsRaw } = await supabase
+    .from('payments')
+    .select(`
+        id,
+        amount,
+        currency,
+        status,
+        created_at,
+        stripe_payment_intent_id,
+        profiles!payments_student_id_fkey (
+            full_name,
+            email
+        ),
+        subscriptions (
+            duration_months,
+            packages (
+                name,
+                display_name
+            )
+        )
+    `)
+    .order('created_at', { ascending: false });
+
+const payments = (paymentsRaw || []).map((pay: any) => ({
+    id: pay.id,
+    amount: pay.amount,
+    currency: pay.currency || 'eur',
+    status: pay.status,
+    created_at: pay.created_at,
+    stripe_payment_intent_id: pay.stripe_payment_intent_id,
+    student_name: pay.profiles?.full_name,
+    student_email: pay.profiles?.email,
+    package_name: pay.subscriptions?.packages?.name,
+    package_display_name: pay.subscriptions?.packages?.display_name,
+    duration_months: pay.subscriptions?.duration_months,
+}));
+
+// Calculate metrics for this month
+const startOfMonth = new Date();
+startOfMonth.setDate(1);
+startOfMonth.setHours(0, 0, 0, 0);
+
+const thisMonthPayments = payments.filter(p => 
+    p.status === 'succeeded' && new Date(p.created_at) >= startOfMonth
+);
+const totalThisMonth = thisMonthPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+const transactionsThisMonth = thisMonthPayments.length;
+const avgTicket = transactionsThisMonth > 0 ? Math.round(totalThisMonth / transactionsThisMonth) : 0;
+
+// Helpers
+const formatCurrency = (cents: number) => {
+    return new Intl.NumberFormat(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+        style: 'currency',
+        currency: 'EUR',
+    }).format(cents / 100);
+};
+
+const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const getPackageDisplay = (pay: any) => {
+    if (!pay.package_name) return '—';
+    const name = pay.package_display_name?.[lang] || pay.package_display_name?.['es'] || pay.package_name;
+    const duration = pay.duration_months ? ` - ${pay.duration_months}m` : '';
+    return name + duration;
+};
+
+const getStatusBadge = (status: string) => {
+    switch (status) {
+        case 'succeeded':
+            return { text: t('campus.admin.payments.succeeded'), class: 'bg-green-100 text-green-700' };
+        case 'failed':
+            return { text: t('campus.admin.payments.failed'), class: 'bg-red-100 text-red-700' };
+        case 'refunded':
+            return { text: t('campus.admin.payments.refunded'), class: 'bg-yellow-100 text-yellow-700' };
+        default:
+            return { text: status, class: 'bg-gray-100 text-gray-700' };
+    }
+};
+
+const getStripeUrl = (paymentIntentId: string | null) => {
+    if (!paymentIntentId) return null;
+    return `https://dashboard.stripe.com/test/payments/${paymentIntentId}`;
+};
+---
+
+<CampusLayout 
+    title={t('campus.admin.payments.title')}
+    user={{ ...user, ...profile }}
+    lang={lang}
+>
+    <!-- Header with Metrics -->
+    <div class="mb-8">
+        <h1 class="font-display text-3xl text-[#006064] uppercase mb-6">{t('campus.admin.payments.title')}</h1>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <p class="text-3xl font-display text-[#006064]">{formatCurrency(totalThisMonth)}</p>
+                <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.payments.totalMonth')}</p>
+            </div>
+            <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <p class="text-3xl font-display text-[#006064]">{transactionsThisMonth}</p>
+                <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.payments.transactions')}</p>
+            </div>
+            <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <p class="text-3xl font-display text-[#006064]">{formatCurrency(avgTicket)}</p>
+                <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.payments.avgTicket')}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] mb-6">
+        <div class="flex flex-col md:flex-row gap-4">
+            <select 
+                id="date-filter"
+                class="p-3 border-2 border-[#006064] bg-white text-[#006064] font-mono text-sm"
+            >
+                <option value="month">{t('campus.admin.payments.thisMonth')}</option>
+                <option value="3months">{t('campus.admin.payments.last3Months')}</option>
+                <option value="all" selected>{t('campus.admin.payments.allTime')}</option>
+            </select>
+            
+            <select 
+                id="status-filter"
+                class="p-3 border-2 border-[#006064] bg-white text-[#006064] font-mono text-sm"
+            >
+                <option value="all">{t('campus.admin.students.filterStatus')}: {t('campus.admin.students.all')}</option>
+                <option value="succeeded">{t('campus.admin.payments.succeeded')}</option>
+                <option value="failed">{t('campus.admin.payments.failed')}</option>
+                <option value="refunded">{t('campus.admin.payments.refunded')}</option>
+            </select>
+            
+            <input
+                type="text"
+                id="search-filter"
+                placeholder={t('campus.teacher.search')}
+                class="flex-1 p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-[#006064] placeholder-[#006064]/40"
+            />
+            
+            <button 
+                disabled
+                class="px-6 py-3 bg-[#E0F7FA] text-[#006064] font-bold uppercase text-sm border-2 border-[#006064] opacity-50 cursor-not-allowed"
+            >
+                {t('campus.admin.payments.export')}
+            </button>
+        </div>
+    </div>
+
+    <!-- Table -->
+    <div class="bg-white border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full" id="payments-table">
+                <thead class="bg-[#006064] text-white">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Fecha</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Estudiante</th>
+                        <th class="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden md:table-cell">Plan</th>
+                        <th class="px-4 py-3 text-right text-xs font-bold uppercase tracking-wider">Monto</th>
+                        <th class="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider">Estado</th>
+                        <th class="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-[#006064]/20">
+                    {payments.map((payment) => {
+                        const statusBadge = getStatusBadge(payment.status);
+                        const stripeUrl = getStripeUrl(payment.stripe_payment_intent_id);
+                        
+                        return (
+                            <tr 
+                                class="hover:bg-[#E0F7FA]/50 transition-colors payment-row"
+                                data-status={payment.status}
+                                data-date={payment.created_at}
+                                data-email={payment.student_email?.toLowerCase() || ''}
+                            >
+                                <td class="px-4 py-3 text-sm text-[#006064]/80 font-mono">
+                                    {formatDate(payment.created_at)}
+                                </td>
+                                <td class="px-4 py-3">
+                                    <p class="font-bold text-[#006064] text-sm">{payment.student_name || payment.student_email?.split('@')[0]}</p>
+                                    <p class="text-xs text-[#006064]/60">{payment.student_email}</p>
+                                </td>
+                                <td class="px-4 py-3 text-sm text-[#006064]/80 hidden md:table-cell">
+                                    {getPackageDisplay(payment)}
+                                </td>
+                                <td class="px-4 py-3 text-right font-mono font-bold text-[#006064]">
+                                    {formatCurrency(payment.amount)}
+                                </td>
+                                <td class="px-4 py-3 text-center">
+                                    <span class={`px-2 py-1 text-xs font-bold rounded ${statusBadge.class}`}>
+                                        {statusBadge.text}
+                                    </span>
+                                </td>
+                                <td class="px-4 py-3 text-center">
+                                    {stripeUrl ? (
+                                        <a
+                                            href={stripeUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            class="inline-flex items-center gap-1 px-3 py-1 text-xs font-bold text-[#006064] border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+                                        >
+                                            Stripe ↗
+                                        </a>
+                                    ) : (
+                                        <span class="text-xs text-[#006064]/40">—</span>
+                                    )}
+                                </td>
+                            </tr>
+                        );
+                    })}
+                </tbody>
+            </table>
+        </div>
+        
+        {payments.length === 0 && (
+            <div class="text-center py-12 text-[#006064]/60 font-mono">
+                No hay pagos registrados
+            </div>
+        )}
+    </div>
+</CampusLayout>
+
+<script>
+    // Client-side filtering
+    const dateFilter = document.getElementById('date-filter') as HTMLSelectElement;
+    const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
+    const searchFilter = document.getElementById('search-filter') as HTMLInputElement;
+    const rows = document.querySelectorAll('.payment-row');
+
+    function filterRows() {
+        const dateValue = dateFilter?.value || 'all';
+        const statusValue = statusFilter?.value || 'all';
+        const searchValue = searchFilter?.value.toLowerCase() || '';
+
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const threeMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 3, 1);
+
+        rows.forEach((row) => {
+            const rowStatus = row.getAttribute('data-status') || '';
+            const rowDate = new Date(row.getAttribute('data-date') || '');
+            const rowEmail = row.getAttribute('data-email') || '';
+
+            let showByDate = true;
+            if (dateValue === 'month') {
+                showByDate = rowDate >= startOfMonth;
+            } else if (dateValue === '3months') {
+                showByDate = rowDate >= threeMonthsAgo;
+            }
+
+            const showByStatus = statusValue === 'all' || rowStatus === statusValue;
+            const showBySearch = !searchValue || rowEmail.includes(searchValue);
+
+            (row as HTMLElement).style.display = (showByDate && showByStatus && showBySearch) ? '' : 'none';
+        });
+    }
+
+    dateFilter?.addEventListener('change', filterRows);
+    statusFilter?.addEventListener('change', filterRows);
+    searchFilter?.addEventListener('input', filterRows);
+</script>

@@ -1,0 +1,267 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+// Get Supabase client and verify user
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get profile with role
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+// Check if user is admin
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+// Fetch metrics
+
+// 1. Revenue this month
+const startOfMonth = new Date();
+startOfMonth.setDate(1);
+startOfMonth.setHours(0, 0, 0, 0);
+
+const { data: revenueData } = await supabase
+    .from('payments')
+    .select('amount')
+    .eq('status', 'succeeded')
+    .gte('created_at', startOfMonth.toISOString());
+
+const totalRevenue = revenueData?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
+const totalPayments = revenueData?.length || 0;
+
+// 2. User counts
+const { data: studentCount } = await supabase
+    .from('profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('role', 'student');
+
+const { data: teacherCount } = await supabase
+    .from('profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('role', 'teacher');
+
+// 3. Active subscriptions count
+const { data: activeSubsCount } = await supabase
+    .from('subscriptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'active');
+
+// 4. Subscriptions by package
+const { data: packages } = await supabase
+    .from('packages')
+    .select('id, name, display_name')
+    .eq('is_active', true);
+
+const subscriptionsByPlan: { name: string; displayName: string; count: number }[] = [];
+for (const pkg of packages || []) {
+    const { count } = await supabase
+        .from('subscriptions')
+        .select('id', { count: 'exact', head: true })
+        .eq('package_id', pkg.id)
+        .eq('status', 'active');
+    
+    subscriptionsByPlan.push({
+        name: pkg.name,
+        displayName: pkg.display_name[lang] || pkg.display_name['es'] || pkg.name,
+        count: count || 0,
+    });
+}
+
+const totalActiveSubs = subscriptionsByPlan.reduce((sum, p) => sum + p.count, 0);
+
+// 5. Recent payments
+const { data: recentPayments } = await supabase
+    .from('payments')
+    .select(`
+        id,
+        amount,
+        created_at,
+        profiles!payments_student_id_fkey (
+            full_name,
+            email
+        )
+    `)
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+// 6. Recent registrations
+const { data: recentRegistrations } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, created_at')
+    .eq('role', 'student')
+    .order('created_at', { ascending: false })
+    .limit(5);
+
+// Format helpers
+const formatCurrency = (cents: number) => `€${(cents / 100).toLocaleString(lang === 'es' ? 'es-ES' : 'en-US')}`;
+const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+        day: 'numeric',
+        month: 'short',
+    });
+};
+
+// Revenue goal
+const revenueGoal = 1500000; // €15,000 in cents
+const goalProgress = Math.min(100, Math.round((totalRevenue / revenueGoal) * 100));
+---
+
+<CampusLayout 
+    title={t('campus.admin.title')}
+    user={{ ...user, ...profile }}
+    lang={lang}
+>
+    <!-- Metrics Row -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <!-- Revenue -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-[#006064]">{formatCurrency(totalRevenue)}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.revenueMonth')}</p>
+        </div>
+        
+        <!-- Total Students -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-[#006064]">{studentCount?.length || 0}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.totalStudents')}</p>
+        </div>
+        
+        <!-- Active Subscriptions -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-[#006064]">{totalActiveSubs}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.activeSubscriptions')}</p>
+        </div>
+        
+        <!-- Teachers -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-[#006064]">{teacherCount?.length || 0}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.totalTeachers')}</p>
+        </div>
+    </div>
+
+    <!-- Subscriptions & Revenue Goal Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+        <!-- Subscriptions by Plan -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">{t('campus.admin.subscriptionsByPlan')}</h2>
+            <div class="space-y-4">
+                {subscriptionsByPlan.map((plan) => {
+                    const percentage = totalActiveSubs > 0 ? Math.round((plan.count / totalActiveSubs) * 100) : 0;
+                    return (
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="font-bold text-[#006064]">{plan.displayName}</span>
+                                <span class="font-mono text-[#006064]/70">{plan.count}</span>
+                            </div>
+                            <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
+                                <div 
+                                    class="bg-[#006064] h-full transition-all"
+                                    style={`width: ${percentage}%`}
+                                ></div>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+
+        <!-- Revenue Goal -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">{t('campus.admin.revenueGoal')}</h2>
+            <div class="text-center mb-4">
+                <p class="text-4xl font-display text-[#006064]">{goalProgress}%</p>
+                <p class="text-sm text-[#006064]/60 font-mono">{t('campus.admin.goalProgress')}</p>
+            </div>
+            <div class="mb-2">
+                <div class="w-full bg-[#E0F7FA] h-6 border-2 border-[#006064] relative">
+                    <div 
+                        class={`h-full transition-all ${goalProgress >= 100 ? 'bg-green-500' : goalProgress >= 50 ? 'bg-[#006064]' : 'bg-yellow-500'}`}
+                        style={`width: ${goalProgress}%`}
+                    ></div>
+                </div>
+            </div>
+            <div class="flex justify-between text-sm font-mono text-[#006064]/70">
+                <span>{formatCurrency(totalRevenue)}</span>
+                <span>{formatCurrency(revenueGoal)}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Recent Payments -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="font-display text-xl text-[#006064] uppercase">{t('campus.admin.recentPayments')}</h2>
+                <a href={`/${lang}/campus/admin/payments`} class="text-xs font-bold text-[#006064] hover:underline">
+                    {t('campus.admin.viewAll')} →
+                </a>
+            </div>
+            
+            {recentPayments && recentPayments.length > 0 ? (
+                <div class="space-y-3">
+                    {recentPayments.map((payment: any) => (
+                        <div class="flex items-center justify-between py-2 border-b border-[#006064]/10 last:border-0">
+                            <div>
+                                <p class="font-bold text-[#006064] text-sm">
+                                    {payment.profiles?.full_name || payment.profiles?.email || 'Unknown'}
+                                </p>
+                                <p class="text-xs text-[#006064]/60">{formatDate(payment.created_at)}</p>
+                            </div>
+                            <span class="font-mono font-bold text-green-600">{formatCurrency(payment.amount)}</span>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p class="text-[#006064]/60 font-mono text-sm">No hay pagos recientes</p>
+            )}
+        </div>
+
+        <!-- New Registrations -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="font-display text-xl text-[#006064] uppercase">{t('campus.admin.newRegistrations')}</h2>
+                <a href={`/${lang}/campus/admin/students`} class="text-xs font-bold text-[#006064] hover:underline">
+                    {t('campus.admin.viewAll')} →
+                </a>
+            </div>
+            
+            {recentRegistrations && recentRegistrations.length > 0 ? (
+                <div class="space-y-3">
+                    {recentRegistrations.map((student) => (
+                        <div class="py-2 border-b border-[#006064]/10 last:border-0">
+                            <p class="font-bold text-[#006064] text-sm">{student.full_name || student.email}</p>
+                            <div class="flex justify-between text-xs text-[#006064]/60">
+                                <span>{student.email}</span>
+                                <span>{formatDate(student.created_at)}</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p class="text-[#006064]/60 font-mono text-sm">No hay registros recientes</p>
+            )}
+        </div>
+    </div>
+</CampusLayout>

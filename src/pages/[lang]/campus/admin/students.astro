@@ -1,0 +1,149 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+import StudentFilters from '../../../../components/admin/StudentFilters';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+// Get Supabase client and verify user
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get profile with role
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+// Check if user is admin
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+// Get all students with their subscriptions and teachers
+const { data: studentsRaw } = await supabase
+    .from('profiles')
+    .select('id, full_name, email, phone, created_at, preferred_language')
+    .eq('role', 'student')
+    .order('created_at', { ascending: false });
+
+// For each student, get their active subscription and primary teacher
+const students = await Promise.all(
+    (studentsRaw || []).map(async (student) => {
+        // Get active subscription
+        const { data: subscription } = await supabase
+            .from('subscriptions')
+            .select(`
+                status,
+                ends_at,
+                packages (
+                    name,
+                    display_name
+                )
+            `)
+            .eq('student_id', student.id)
+            .eq('status', 'active')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        // Get primary teacher
+        const { data: assignment } = await supabase
+            .from('student_teachers')
+            .select(`
+                profiles!student_teachers_teacher_id_fkey (
+                    full_name
+                )
+            `)
+            .eq('student_id', student.id)
+            .eq('is_primary', true)
+            .limit(1)
+            .single();
+
+        return {
+            ...student,
+            subscription_status: subscription?.status || null,
+            subscription_ends: subscription?.ends_at || null,
+            package_name: subscription?.packages?.name || null,
+            package_display_name: subscription?.packages?.display_name || null,
+            teacher_name: (assignment as any)?.profiles?.full_name || null,
+        };
+    })
+);
+
+// Get packages for filter dropdown
+const { data: packages } = await supabase
+    .from('packages')
+    .select('name, display_name')
+    .eq('is_active', true);
+
+const packagesList = (packages || []).map(pkg => ({
+    name: pkg.name,
+    displayName: pkg.display_name[lang] || pkg.display_name['es'] || pkg.name,
+}));
+
+const studentCount = students?.length || 0;
+
+// Translations for the component
+const filterTranslations = {
+    search: t('campus.teacher.search'),
+    filterStatus: t('campus.admin.students.filterStatus'),
+    filterPlan: t('campus.admin.students.filterPlan'),
+    all: t('campus.admin.students.all'),
+    withPlan: t('campus.admin.students.withPlan'),
+    noPlan: t('campus.admin.students.noPlan'),
+    expired: t('campus.admin.students.expired'),
+    assignTeacher: t('campus.admin.students.assignTeacher'),
+    registered: t('campus.admin.students.registered'),
+    viewDetails: t('campus.teacher.viewDetails'),
+};
+---
+
+<CampusLayout 
+    title={t('campus.admin.students.title')}
+    user={{ ...user, ...profile }}
+    lang={lang}
+>
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <div>
+            <h1 class="font-display text-3xl text-[#006064] uppercase">{t('campus.admin.students.title')}</h1>
+            <p class="text-sm text-[#006064]/60 font-mono mt-1">
+                {studentCount} {t('campus.admin.students.count')}
+            </p>
+        </div>
+        
+        <button 
+            disabled
+            class="px-6 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] opacity-50 cursor-not-allowed"
+        >
+            + {t('campus.admin.students.addStudent')}
+        </button>
+    </div>
+
+    <!-- Filters and Table -->
+    <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+        <StudentFilters 
+            client:load
+            students={students}
+            lang={lang}
+            translations={filterTranslations}
+            packages={packagesList}
+        />
+    </div>
+</CampusLayout>

@@ -1,0 +1,240 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+// Get Supabase client and user
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+// Get profile with role
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+// Check if user is teacher or admin
+if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+// Get assigned students with subscriptions
+const { data: students } = await supabase
+    .from('student_teachers')
+    .select(`
+        student_id,
+        is_primary,
+        profiles!student_teachers_student_id_fkey (
+            id,
+            full_name,
+            email,
+            phone,
+            preferred_language,
+            drive_folder_id,
+            notes
+        )
+    `)
+    .eq('teacher_id', user.id);
+
+// For each student, get their active subscription
+const studentsWithSubs = await Promise.all(
+    (students || []).map(async (st: any) => {
+        const studentProfile = st.profiles;
+        
+        const { data: subscription } = await supabase
+            .from('subscriptions')
+            .select(`
+                status,
+                sessions_used,
+                sessions_total,
+                ends_at,
+                packages (
+                    name,
+                    display_name
+                )
+            `)
+            .eq('student_id', studentProfile.id)
+            .eq('status', 'active')
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        return {
+            ...studentProfile,
+            subscription,
+            isPrimary: st.is_primary
+        };
+    })
+);
+
+// Calculate stats
+const totalStudents = studentsWithSubs.length;
+const activeStudents = studentsWithSubs.filter(s => s.subscription?.status === 'active').length;
+
+// Helper functions
+const getPackageName = (sub: any) => {
+    if (!sub?.packages?.display_name) return t('campus.teacher.noPlan');
+    const displayName = sub.packages.display_name;
+    return displayName[lang] || displayName['es'] || sub.packages.name;
+};
+
+const getStatusBadge = (sub: any) => {
+    if (!sub) return { text: t('campus.teacher.noPlan'), color: 'bg-gray-200 text-gray-700' };
+    
+    const endsAt = new Date(sub.ends_at);
+    const now = new Date();
+    const daysUntilExpiry = Math.ceil((endsAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (daysUntilExpiry <= 7) {
+        return { text: `${t('campus.teacher.expiresOn')} ${daysUntilExpiry}d`, color: 'bg-yellow-100 text-yellow-800 border-yellow-300' };
+    }
+    return { text: 'Activo', color: 'bg-green-100 text-green-800 border-green-300' };
+};
+---
+
+<CampusLayout 
+    title={`${t('campus.teacher.title')} | Español Honesto`} 
+    user={user}
+    lang={lang}
+>
+    <!-- Header with Stats -->
+    <div class="mb-8">
+        <h1 class="font-display text-4xl text-[#006064] uppercase mb-4">{t('campus.teacher.title')}</h1>
+        
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <p class="text-3xl font-display text-[#006064]">{totalStudents}</p>
+                <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.totalStudents')}</p>
+            </div>
+            <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <p class="text-3xl font-display text-[#006064]">{activeStudents}</p>
+                <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.activeStudents')}</p>
+            </div>
+            <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <p class="text-3xl font-display text-[#006064]">—</p>
+                <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.sessions')}</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search Bar -->
+    <div class="mb-6">
+        <input 
+            type="text" 
+            id="student-search"
+            placeholder={t('campus.teacher.search')}
+            class="w-full md:w-96 p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-[#006064] placeholder-[#006064]/40"
+        />
+    </div>
+
+    <!-- Students List -->
+    {studentsWithSubs.length === 0 ? (
+        <div class="bg-white p-12 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] text-center">
+            <p class="text-[#006064]/60 font-mono">{t('campus.teacher.noStudents')}</p>
+        </div>
+    ) : (
+        <div class="space-y-4" id="students-container">
+            {studentsWithSubs.map((student) => {
+                const status = getStatusBadge(student.subscription);
+                const packageName = getPackageName(student.subscription);
+                const sessionsUsed = student.subscription?.sessions_used || 0;
+                const sessionsTotal = student.subscription?.sessions_total || 0;
+                
+                return (
+                    <div 
+                        class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] student-card"
+                        data-name={student.full_name?.toLowerCase() || ''}
+                        data-email={student.email?.toLowerCase() || ''}
+                    >
+                        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                            <!-- Student Info -->
+                            <div class="flex-1">
+                                <div class="flex items-center gap-3 mb-2">
+                                    <h3 class="font-display text-xl text-[#006064]">
+                                        {student.full_name || student.email}
+                                    </h3>
+                                    <span class={`px-2 py-0.5 text-xs font-bold uppercase border ${status.color}`}>
+                                        {status.text}
+                                    </span>
+                                </div>
+                                <p class="text-sm text-[#006064]/60 font-mono">{student.email}</p>
+                                {student.phone && (
+                                    <p class="text-sm text-[#006064]/60">{student.phone}</p>
+                                )}
+                            </div>
+                            
+                            <!-- Subscription Info -->
+                            <div class="flex-shrink-0 text-left md:text-right">
+                                <p class="font-bold text-[#006064]">{packageName}</p>
+                                {student.subscription && (
+                                    <p class="text-sm text-[#006064]/60">
+                                        {t('campus.teacher.sessions')}: {sessionsUsed}/{sessionsTotal}
+                                    </p>
+                                )}
+                            </div>
+                            
+                            <!-- Actions -->
+                            <div class="flex gap-2 flex-shrink-0">
+                                <a 
+                                    href={`/${lang}/campus/teacher/student/${student.id}`}
+                                    class="px-4 py-2 bg-[#006064] text-white text-xs font-bold uppercase border border-[#006064] hover:bg-[#004d40] transition-colors"
+                                >
+                                    {t('campus.teacher.viewDetails')}
+                                </a>
+                                {student.drive_folder_id && (
+                                    <a 
+                                        href={`https://drive.google.com/drive/folders/${student.drive_folder_id}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="px-4 py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+                                    >
+                                        {t('campus.teacher.openDrive')}
+                                    </a>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    )}
+</CampusLayout>
+
+<script>
+    // Client-side search filtering
+    const searchInput = document.getElementById('student-search') as HTMLInputElement;
+    const studentCards = document.querySelectorAll('.student-card');
+
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            const query = (e.target as HTMLInputElement).value.toLowerCase();
+            
+            studentCards.forEach((card) => {
+                const name = card.getAttribute('data-name') || '';
+                const email = card.getAttribute('data-email') || '';
+                
+                if (name.includes(query) || email.includes(query)) {
+                    (card as HTMLElement).style.display = 'block';
+                } else {
+                    (card as HTMLElement).style.display = 'none';
+                }
+            });
+        });
+    }
+</script>
