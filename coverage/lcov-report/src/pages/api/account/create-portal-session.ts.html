@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">85.71% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/14</span>
+                <span class='fraction'>12/14</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">83.33% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/6</span>
+                <span class='fraction'>5/6</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">85.71% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/14</span>
+                <span class='fraction'>12/14</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -119,43 +119,43 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -171,43 +171,43 @@
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { stripe } from '../../../lib/stripe';
 &nbsp;
-export const POST: APIRoute = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >async (c</span>ontext) =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    try {</span>
+export const POST: APIRoute = async (context) =&gt; {
+    try {
         // Get Supabase client and verify user
-        const <span class="cstat-no" title="statement not covered" >supabase = createSupabaseServerClient(context);</span>
-        const { data: { user } } = <span class="cstat-no" title="statement not covered" >await supabase.auth.getUser();</span>
+        const supabase = createSupabaseServerClient(context);
+        const { data: { user } } = await supabase.auth.getUser();
 &nbsp;
-<span class="cstat-no" title="statement not covered" >        if (!user) {</span>
-<span class="cstat-no" title="statement not covered" >            return new Response(JSON.stringify({ error: 'Unauthorized' }), {</span>
+        if (!user) {
+            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
                 status: 401,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
 &nbsp;
         // Get user's stripe_customer_id
-        const { data: profile } = <span class="cstat-no" title="statement not covered" >await supabase</span>
+        const { data: profile } = await supabase
             .from('profiles')
             .select('stripe_customer_id')
             .eq('id', user.id)
             .single();
 &nbsp;
-<span class="cstat-no" title="statement not covered" >        if (!profile?.stripe_customer_id) {</span>
-<span class="cstat-no" title="statement not covered" >            return new Response(JSON.stringify({ error: 'No Stripe customer found' }), {</span>
+        if (!profile?.stripe_customer_id) {
+            return new Response(JSON.stringify({ error: 'No Stripe customer found' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
 &nbsp;
         // Get origin for return URL
-        const origin = <span class="cstat-no" title="statement not covered" >context.request.headers.get('origin') || 'http://localhost:4321';</span>
+        const origin = context.request.headers.get('origin') || <span class="branch-1 cbranch-no" title="branch not covered" >'http://localhost:4321';</span>
 &nbsp;
         // Create Stripe Customer Portal session
-        const portalSession = <span class="cstat-no" title="statement not covered" >await stripe.billingPortal.sessions.create({</span>
+        const portalSession = await stripe.billingPortal.sessions.create({
             customer: profile.stripe_customer_id,
             return_url: `${origin}/es/campus/account`,
         });
 &nbsp;
-<span class="cstat-no" title="statement not covered" >        return new Response(JSON.stringify({ url: portalSession.url }), {</span>
+        return new Response(JSON.stringify({ url: portalSession.url }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
         });
@@ -226,7 +226,7 @@ export const POST: APIRoute = <span class="cstat-no" title="statement not covere
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-01-14T14:10:04.093Z
+                at 2026-01-14T16:43:24.019Z
             </div>
         <script src="../../../../prettify.js"></script>
         <script>

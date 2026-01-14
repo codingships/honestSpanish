@@ -435,7 +435,10 @@
 <a name='L370'></a><a href='#L370'>370</a>
 <a name='L371'></a><a href='#L371'>371</a>
 <a name='L372'></a><a href='#L372'>372</a>
-<a name='L373'></a><a href='#L373'>373</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L373'></a><a href='#L373'>373</a>
+<a name='L374'></a><a href='#L374'>374</a>
+<a name='L375'></a><a href='#L375'>375</a>
+<a name='L376'></a><a href='#L376'>376</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -472,6 +475,22 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -485,29 +504,11 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
@@ -524,6 +525,11 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -826,13 +832,16 @@ interface Slot {
     slot_end: string;
 }
 &nbsp;
+&nbsp;
 interface AdminScheduleModalProps {
     isOpen: boolean;
+&nbsp;
     onClose: () =&gt; void;
     teachers: Teacher[];
     students: Student[];
     lang: string;
-    translations: Record&lt;string, any&gt;;
+    translations: Record&lt;string, string&gt;;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onSessionCreated: (session: any) =&gt; void;
 }
 &nbsp;
@@ -875,30 +884,30 @@ export default function <span class="fstat-no" title="function not covered" >Adm
     }, [isOpen]);
 &nbsp;
 <span class="cstat-no" title="statement not covered" >    useEffect(<span class="fstat-no" title="function not covered" >() =&gt; {</span></span>
+        const fetchAvailableSlots = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >async () =&gt; {</span></span>
+<span class="cstat-no" title="statement not covered" >            setIsLoading(true);</span>
+<span class="cstat-no" title="statement not covered" >            setError(null);</span>
+&nbsp;
+<span class="cstat-no" title="statement not covered" >            try {</span>
+                const response = <span class="cstat-no" title="statement not covered" >await fetch(</span>
+                    `/api/calendar/available-slots?teacherId=${selectedTeacher}&amp;date=${selectedDate}&amp;duration=${duration}`
+                );
+&nbsp;
+<span class="cstat-no" title="statement not covered" >                if (!response.ok) <span class="cstat-no" title="statement not covered" >throw new Error('Failed to fetch slots');</span></span>
+&nbsp;
+                const data = <span class="cstat-no" title="statement not covered" >await response.json();</span>
+<span class="cstat-no" title="statement not covered" >                setAvailableSlots(data.slots || []);</span>
+            } catch {
+<span class="cstat-no" title="statement not covered" >                setError('Error al cargar horarios disponibles');</span>
+            } finally {
+<span class="cstat-no" title="statement not covered" >                setIsLoading(false);</span>
+            }
+        };
+&nbsp;
 <span class="cstat-no" title="statement not covered" >        if (selectedDate &amp;&amp; selectedTeacher &amp;&amp; !useCustomTime) {</span>
 <span class="cstat-no" title="statement not covered" >            fetchAvailableSlots();</span>
         }
-    }, [selectedDate, selectedTeacher]);
-&nbsp;
-    const fetchAvailableSlots = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >async () =&gt; {</span></span>
-<span class="cstat-no" title="statement not covered" >        setIsLoading(true);</span>
-<span class="cstat-no" title="statement not covered" >        setError(null);</span>
-&nbsp;
-<span class="cstat-no" title="statement not covered" >        try {</span>
-            const response = <span class="cstat-no" title="statement not covered" >await fetch(</span>
-                `/api/calendar/available-slots?teacherId=${selectedTeacher}&amp;date=${selectedDate}&amp;duration=${duration}`
-            );
-&nbsp;
-<span class="cstat-no" title="statement not covered" >            if (!response.ok) <span class="cstat-no" title="statement not covered" >throw new Error('Failed to fetch slots');</span></span>
-&nbsp;
-            const data = <span class="cstat-no" title="statement not covered" >await response.json();</span>
-<span class="cstat-no" title="statement not covered" >            setAvailableSlots(data.slots || []);</span>
-        } catch (err) {
-<span class="cstat-no" title="statement not covered" >            setError('Error al cargar horarios disponibles');</span>
-        } finally {
-<span class="cstat-no" title="statement not covered" >            setIsLoading(false);</span>
-        }
-    };
+    }, [selectedDate, selectedTeacher, useCustomTime, duration]);
 &nbsp;
     const handleSubmit = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >async () =&gt; {</span></span>
 <span class="cstat-no" title="statement not covered" >        if (!selectedStudent || !selectedTeacher) <span class="cstat-no" title="statement not covered" >return;</span></span>
@@ -938,7 +947,7 @@ export default function <span class="fstat-no" title="function not covered" >Adm
 <span class="cstat-no" title="statement not covered" >            onSessionCreated(data.session);</span>
 <span class="cstat-no" title="statement not covered" >            onClose();</span>
 <span class="cstat-no" title="statement not covered" >            window.location.reload();</span>
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
 <span class="cstat-no" title="statement not covered" >            setError(err.message || 'Error al programar la clase');</span>
         } finally {
 <span class="cstat-no" title="statement not covered" >            setIsLoading(false);</span>
@@ -1112,8 +1121,8 @@ export default function <span class="fstat-no" title="function not covered" >Adm
                                                 key={index}
                                                 onClick={<span class="fstat-no" title="function not covered" >() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etSelectedSlot(slot)}</span>
                                                 className={`p-3 border-2 text-sm font-mono transition-colors ${selectedSlot?.slot_start === slot.slot_start
-                                                        ? 'bg-[#006064] text-white border-[#006064]'
-                                                        : 'border-[#006064]/30 text-[#006064] hover:border-[#006064]'
+                                                    ? 'bg-[#006064] text-white border-[#006064]'
+                                                    : 'border-[#006064]/30 text-[#006064] hover:border-[#006064]'
                                                     }`}
                                             &gt;
                                                 {formatTime(slot.slot_start)}
@@ -1186,7 +1195,7 @@ export default function <span class="fstat-no" title="function not covered" >Adm
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-01-14T14:10:04.093Z
+                at 2026-01-14T16:43:24.019Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

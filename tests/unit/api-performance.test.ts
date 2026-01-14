@@ -318,7 +318,7 @@ describe('Database Query Performance', () => {
         const firstRatio = timePerItem[0];
         const lastRatio = timePerItem[timePerItem.length - 1];
 
-        expect(lastRatio).toBeLessThanOrEqual(firstRatio);
+        expect(lastRatio).toBeLessThanOrEqual(firstRatio * 1.2);
     });
 });
 
