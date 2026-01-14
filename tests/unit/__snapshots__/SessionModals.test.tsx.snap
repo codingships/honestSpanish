@@ -172,7 +172,7 @@ exports[`Session Modal Tests > StudentCancelModal > matches snapshot 1`] = `
         <p
           class="font-bold text-[#006064]"
         >
-          miércoles, 14 de enero, 17:53
+          miércoles, 14 de enero, 12:00
         </p>
         <p
           class="text-sm text-[#006064]/70"

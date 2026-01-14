@@ -254,7 +254,7 @@ describe('Session Modal Tests', () => {
 
         const mockSession = {
             id: 'session-1',
-            scheduled_at: new Date().toISOString(),
+            scheduled_at: '2026-01-14T12:00:00.000Z', // Fixed ISO date for consistent snapshots
             teacher: {
                 full_name: 'Teacher',
                 email: 't@test.com'

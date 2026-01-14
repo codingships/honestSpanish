@@ -360,10 +360,23 @@ describe('StudentClassList', () => {
     });
 
     it('matches snapshot', () => {
-        const sessions = [createSession()];
+        // Use fixed session for consistent snapshots across timezones
+        const fixedSession = {
+            id: 'session-snapshot',
+            scheduled_at: '2026-01-15T12:00:00.000Z', // Fixed: Jan 15, 12:00 UTC
+            duration_minutes: 60,
+            status: 'scheduled',
+            meet_link: 'https://meet.google.com/abc-defg-hij',
+            teacher_notes: null,
+            teacher: {
+                id: 'teacher-1',
+                full_name: 'María García',
+                email: 'maria@test.com',
+            },
+        };
         const { asFragment } = render(
             <StudentClassList
-                upcomingSessions={sessions}
+                upcomingSessions={[fixedSession]}
                 pastSessions={[]}
                 lang="es"
                 translations={mockTranslations}

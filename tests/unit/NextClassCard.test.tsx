@@ -248,7 +248,7 @@ describe('NextClassCard', () => {
 
         const mockSession = {
             id: 'session-1',
-            scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            scheduled_at: '2026-01-15T12:00:00.000Z', // Fixed: 24h after mocked time (Jan 14, 12:00 UTC)
             duration_minutes: 60,
             status: 'scheduled',
             meet_link: null,

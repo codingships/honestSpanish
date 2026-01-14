@@ -1,4 +1,7 @@
 /// <reference types="@testing-library/jest-dom" />
+// Force UTC timezone for consistent snapshot tests across different systems
+process.env.TZ = 'UTC';
+
 import { beforeAll, afterAll, afterEach } from 'vitest';
 import { setupServer } from 'msw/node';
 import { handlers } from './mocks/handlers';
