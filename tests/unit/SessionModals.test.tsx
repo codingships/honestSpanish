@@ -80,6 +80,12 @@ describe('Session Modal Tests', () => {
                 return HttpResponse.json({ slots: [] });
             })
         );
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(2026, 0, 14, 12, 0, 0));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     describe('SessionDetailModal', () => {

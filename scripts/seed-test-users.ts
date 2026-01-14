@@ -68,8 +68,9 @@ async function createUser(
 
         createdUsers.push({ id: userId, email, role });
         return userId;
-    } catch (err: any) {
-        console.error(`  ❌ Error creating ${email}:`, err.message);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        console.error(`  ❌ Error creating ${email}:`, message);
         return null;
     }
 }

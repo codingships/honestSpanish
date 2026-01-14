@@ -24,7 +24,7 @@ interface SessionDetailModalProps {
     onClose: () => void;
     session: Session;
     lang: string;
-    translations: Record<string, any>;
+    translations: Record<string, unknown>;
     onSessionUpdate: (session: Session) => void;
     canEdit: boolean;
 }
@@ -34,10 +34,11 @@ export default function SessionDetailModal({
     onClose,
     session,
     lang,
-    translations: t,
+    translations: tProp,
     onSessionUpdate,
     canEdit
 }: SessionDetailModalProps) {
+    const t = tProp as any;
     const [notes, setNotes] = useState(session.teacher_notes || '');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -88,8 +89,8 @@ export default function SessionDetailModal({
                     window.location.reload();
                 }, 1000);
             }
-        } catch (err: any) {
-            setMessage({ type: 'error', text: err.message || 'Error' });
+        } catch (err: unknown) {
+            setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error' });
         } finally {
             setIsLoading(false);
         }

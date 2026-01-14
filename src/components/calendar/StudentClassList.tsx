@@ -19,15 +19,16 @@ interface StudentClassListProps {
     upcomingSessions: Session[];
     pastSessions: Session[];
     lang: string;
-    translations: Record<string, any>;
+    translations: Record<string, unknown>;
 }
 
 export default function StudentClassList({
     upcomingSessions: initialUpcoming,
     pastSessions: initialPast,
     lang,
-    translations: t
+    translations: tProp
 }: StudentClassListProps) {
+    const t = tProp as any;
     const [upcomingSessions, setUpcomingSessions] = useState(initialUpcoming);
     const [pastSessions, setPastSessions] = useState(initialPast);
     const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
@@ -197,8 +198,8 @@ export default function StudentClassList({
                 <button
                     onClick={() => setActiveTab('upcoming')}
                     className={`px-6 py-3 font-bold text-sm uppercase transition-colors ${activeTab === 'upcoming'
-                            ? 'border-b-4 border-[#006064] text-[#006064] bg-white -mb-[2px]'
-                            : 'text-[#006064]/60 hover:text-[#006064]'
+                        ? 'border-b-4 border-[#006064] text-[#006064] bg-white -mb-[2px]'
+                        : 'text-[#006064]/60 hover:text-[#006064]'
                         }`}
                 >
                     📅 {t.upcoming} ({upcomingSessions.length})
@@ -206,8 +207,8 @@ export default function StudentClassList({
                 <button
                     onClick={() => setActiveTab('past')}
                     className={`px-6 py-3 font-bold text-sm uppercase transition-colors ${activeTab === 'past'
-                            ? 'border-b-4 border-[#006064] text-[#006064] bg-white -mb-[2px]'
-                            : 'text-[#006064]/60 hover:text-[#006064]'
+                        ? 'border-b-4 border-[#006064] text-[#006064] bg-white -mb-[2px]'
+                        : 'text-[#006064]/60 hover:text-[#006064]'
                         }`}
                 >
                     📚 {t.past} ({pastSessions.length})

@@ -317,7 +317,7 @@ export async function updateCalendarEvent(
     const calendar = getCalendarClient();
 
     try {
-        const patch: any = {};
+        const patch: calendar_v3.Schema$Event = {};
 
         if (updates.startTime) {
             patch.start = {

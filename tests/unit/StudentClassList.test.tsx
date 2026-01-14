@@ -9,7 +9,7 @@
  * - Join class functionality
  */
 import React from 'react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import StudentClassList from '../../src/components/calendar/StudentClassList';
 
@@ -61,6 +61,13 @@ describe('StudentClassList', () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.useFakeTimers({ toFake: ['Date'] });
+        // Set a fixed date: Jan 14, 2026, 12:00:00
+        vi.setSystemTime(new Date(2026, 0, 14, 12, 0, 0));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
     });
 
     describe('Empty States', () => {

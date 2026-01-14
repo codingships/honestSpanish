@@ -8,7 +8,7 @@
  * - Empty state when no sessions
  */
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import NextClassCard from '../../src/components/calendar/NextClassCard';
 
@@ -22,6 +22,15 @@ const mockTranslations = {
 };
 
 describe('NextClassCard', () => {
+
+    beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date(2026, 0, 14, 12, 0, 0));
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
 
     describe('Empty State', () => {
 

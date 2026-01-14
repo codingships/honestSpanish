@@ -27,7 +27,7 @@ interface TeacherCalendarProps {
     students: Student[];
     teacherId: string;
     lang: string;
-    translations: Record<string, any>;
+    translations: Record<string, unknown>;
 }
 
 export default function TeacherCalendar({
@@ -35,8 +35,9 @@ export default function TeacherCalendar({
     students,
     teacherId,
     lang,
-    translations: t
+    translations: tProp
 }: TeacherCalendarProps) {
+    const t = tProp as any;
     const [sessions, setSessions] = useState<Session[]>(initialSessions);
     const [currentWeekStart, setCurrentWeekStart] = useState(() => {
         const today = new Date();
@@ -191,8 +192,8 @@ export default function TeacherCalendar({
                     <div
                         key={index}
                         className={`p-3 text-center border-2 ${isToday(day)
-                                ? 'bg-[#006064] text-white border-[#006064]'
-                                : 'bg-white border-[#006064]/30'
+                            ? 'bg-[#006064] text-white border-[#006064]'
+                            : 'bg-white border-[#006064]/30'
                             }`}
                     >
                         <p className="font-bold text-xs uppercase">

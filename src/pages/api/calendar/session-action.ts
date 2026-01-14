@@ -44,7 +44,15 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
-    const updateData: any = { updated_at: new Date().toISOString() };
+    const updateData: {
+        updated_at: string;
+        status?: string;
+        completed_at?: string;
+        teacher_notes?: string;
+        cancelled_at?: string;
+        cancelled_by?: string;
+        cancellation_reason?: string;
+    } = { updated_at: new Date().toISOString() };
     let shouldUpdateSessionCount = false;
     let shouldCancelCalendarEvent = false;
 

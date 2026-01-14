@@ -14,7 +14,7 @@ interface StudentCancelModalProps {
     onClose: () => void;
     session: Session;
     lang: string;
-    translations: Record<string, any>;
+    translations: Record<string, unknown>;
     onSuccess: (sessionId: string) => void;
 }
 
@@ -23,9 +23,10 @@ export default function StudentCancelModal({
     onClose,
     session,
     lang,
-    translations: t,
+    translations: tProp,
     onSuccess
 }: StudentCancelModalProps) {
+    const t = tProp as any;
     const [reason, setReason] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -61,8 +62,8 @@ export default function StudentCancelModal({
             }
 
             onSuccess(session.id);
-        } catch (err: any) {
-            setError(err.message || 'Error al cancelar la clase');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Error al cancelar la clase');
         } finally {
             setIsLoading(false);
         }
