@@ -2,6 +2,7 @@
 import CampusLayout from '../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../i18n/utils';
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import NextClassCard from '../../../components/calendar/NextClassCard';
 
 export const prerender = false;
 
@@ -11,12 +12,11 @@ const t = useTranslations(lang);
 const supabase = createSupabaseServerClient(Astro);
 const { data: { user } } = await supabase.auth.getUser();
 
-// Middleware should protect this, but good to double check
 if (!user) {
     return Astro.redirect(`/${lang}/login`);
 }
 
-// 1. Fetch User Profile (for drive folder)
+// 1. Fetch User Profile
 let profile = null;
 const { data: profileData } = await supabase
   .from('profiles')
@@ -48,8 +48,28 @@ try {
 
   if (subData) subscription = subData;
 } catch (e) {
-  console.error("Error fetching subscription:", e);
-  // Fail gracefully if tables don't exist yet
+  // Fail gracefully
+}
+
+// 3. Fetch Next Scheduled Session
+let nextSession = null;
+try {
+    const { data: sessionData } = await supabase
+        .from('sessions')
+        .select(`
+            *,
+            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+        `)
+        .eq('student_id', user.id)
+        .eq('status', 'scheduled')
+        .gte('scheduled_at', new Date().toISOString())
+        .order('scheduled_at', { ascending: true })
+        .limit(1)
+        .single();
+
+    if (sessionData) nextSession = sessionData;
+} catch (e) {
+    // No upcoming session
 }
 
 const formatDate = (dateString: string) => {
@@ -61,16 +81,23 @@ const formatDate = (dateString: string) => {
     });
 };
 
-// Handle JSONB display_name
-// Note: display_name is typed as any/json in Supabase result usually, so we access by key
 const packageName = subscription?.packages?.display_name ? 
     subscription.packages.display_name[lang] || subscription.packages.display_name['es'] || subscription.packages.name 
     : 'Plan';
 
-// Calculate sessions used percentage
 const sessionsTotal = subscription?.sessions_total || subscription?.packages?.sessions_per_month || 8;
 const sessionsUsed = subscription?.sessions_used || 0;
 const sessionsPercentage = Math.min(100, Math.round((sessionsUsed / sessionsTotal) * 100));
+
+// Traducciones para NextClassCard
+const nextClassTranslations = {
+    nextClass: t('campus.dashboard.nextClass'),
+    noClasses: t('campus.dashboard.noClasses'),
+    joinClass: t('campus.student.classes.joinClass'),
+    with: t('campus.student.classes.with'),
+    in: t('campus.student.classes.in'),
+    viewAll: t('campus.student.classes.viewAll'),
+};
 ---
 
 <CampusLayout 
@@ -148,19 +175,15 @@ const sessionsPercentage = Math.min(100, Math.round((sessionsUsed / sessionsTota
              )}
          </div>
 
-         <!-- CARD 3: PROXIMA CLASE (Placeholder) -->
-         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full opacity-75">
-             <div class="flex items-center justify-between mb-4">
-                 <h3 class="font-bold text-lg text-[#006064] uppercase tracking-wide">{t('campus.dashboard.nextClass')}</h3>
-                 <span class="text-2xl">📅</span>
-             </div>
-             
-             <div class="flex-1 flex flex-col items-center justify-center text-center p-4 border-2 border-dashed border-[#006064]/20 bg-[#E0F7FA]/30 rounded">
-                 <p class="text-sm font-bold text-[#006064]/50">{t('campus.dashboard.noClasses')}</p>
-             </div>
-         </div>
+         <!-- CARD 3: PROXIMA CLASE (Ahora funcional) -->
+         <NextClassCard 
+            client:load
+            session={nextSession}
+            lang={lang}
+            translations={nextClassTranslations}
+         />
 
-         <!-- CARD 4: DRIVE (Profile dependent) -->
+         <!-- CARD 4: DRIVE -->
          <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
              <div>
                  <div class="flex items-center justify-between mb-4">

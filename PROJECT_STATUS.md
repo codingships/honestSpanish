@@ -63,7 +63,7 @@ const t = useTranslations(lang);
 
 **`astro.config.mjs`**
 -   **Integrations**: React, Tailwind, Sitemap.
--   **Adapter**: Netlify (static output).
+-   **Adapter**: Vercel (server output).
 -   **i18n**: Configured for sitemap generation.
 ```javascript
 export default defineConfig({
@@ -139,4 +139,4 @@ The architecture is pragmatic and flat, favoring simplicity for this scale.
 -   **Legal Pages**: No Privacy Policy or Terms of Service pages exist.
 -   **Forms**: "Hablemos" buttons are `mailto:` links, not actual forms.
 -   **Login**: The "Login" button is a non-functional placeholder.
--   **404 Page**: No custom 404 page (Netlify will show default).
+-   **404 Page**: No custom 404 page (Vercel will show default).

@@ -1,0 +1,90 @@
+---
+import CampusLayout from '../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import StudentClassList from '../../../components/calendar/StudentClassList';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: string };
+const t = useTranslations(lang);
+
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+// Obtener todas las sesiones del estudiante
+const { data: sessions } = await supabase
+    .from('sessions')
+    .select(`
+        *,
+        teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+    `)
+    .eq('student_id', user.id)
+    .order('scheduled_at', { ascending: false });
+
+// Separar en futuras y pasadas
+const now = new Date();
+const upcomingSessions = (sessions || [])
+    .filter(s => new Date(s.scheduled_at) >= now && s.status === 'scheduled')
+    .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+
+const pastSessions = (sessions || [])
+    .filter(s => new Date(s.scheduled_at) < now || s.status !== 'scheduled')
+    .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+
+// Traducciones para el componente
+const classTranslations = {
+    upcoming: t('campus.student.classes.upcoming'),
+    past: t('campus.student.classes.past'),
+    noUpcoming: t('campus.student.classes.noUpcoming'),
+    noPast: t('campus.student.classes.noPast'),
+    joinClass: t('campus.student.classes.joinClass'),
+    cancelClass: t('campus.student.classes.cancelClass'),
+    cancelConfirm: t('campus.student.classes.cancelConfirm'),
+    cancelWarning: t('campus.student.classes.cancelWarning'),
+    with: t('campus.student.classes.with'),
+    duration: t('campus.student.classes.duration'),
+    minutes: t('campus.teacher.calendar.minutes'),
+    status: {
+        scheduled: t('campus.teacher.calendar.scheduled'),
+        completed: t('campus.teacher.calendar.completed'),
+        cancelled: t('campus.teacher.calendar.cancelled'),
+        noShow: t('campus.teacher.calendar.noShow'),
+    },
+    teacherNotes: t('campus.student.classes.teacherNotes'),
+    cancel: t('common.cancel'),
+    confirm: t('campus.teacher.calendar.confirm'),
+};
+---
+
+<CampusLayout 
+    title={t('campus.student.classes.title')}
+    user={{ ...user, ...profile }}
+    lang={lang}
+>
+    <!-- Header -->
+    <div class="mb-8">
+        <h1 class="font-display text-3xl text-[#006064] uppercase">{t('campus.student.classes.title')}</h1>
+        <p class="text-sm text-[#006064]/60 font-mono mt-1">
+            {t('campus.student.classes.subtitle')}
+        </p>
+    </div>
+
+    <StudentClassList 
+        client:load
+        upcomingSessions={upcomingSessions}
+        pastSessions={pastSessions}
+        lang={lang}
+        translations={classTranslations}
+    />
+</CampusLayout>

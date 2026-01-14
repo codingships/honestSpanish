@@ -1,0 +1,65 @@
+---
+interface Props {
+    lang: string;
+}
+
+const { lang } = Astro.props;
+
+const texts = {
+    es: {
+        message: 'Utilizamos cookies técnicas para el funcionamiento del sitio.',
+        accept: 'Aceptar',
+        more: 'Más información'
+    },
+    en: {
+        message: 'We use technical cookies for the site to function.',
+        accept: 'Accept',
+        more: 'More info'
+    },
+    ru: {
+        message: 'Мы используем технические файлы cookie для работы сайта.',
+        accept: 'Принять',
+        more: 'Подробнее'
+    }
+};
+
+const t = texts[lang as keyof typeof texts] || texts.es;
+---
+
+<div 
+    id="cookie-banner" 
+    class="fixed bottom-0 left-0 right-0 bg-[#006064] text-white p-4 z-50 transform translate-y-full transition-transform duration-300"
+    data-visible="false"
+>
+    <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+        <p class="text-sm text-center sm:text-left">
+            {t.message}
+            <a href={`/${lang}/legal/cookies`} class="underline hover:no-underline ml-1">{t.more}</a>
+        </p>
+        <button 
+            id="accept-cookies"
+            class="px-6 py-2 bg-white text-[#006064] font-bold text-sm uppercase hover:bg-[#E0F7FA] transition-colors whitespace-nowrap border-2 border-white"
+        >
+            {t.accept}
+        </button>
+    </div>
+</div>
+
+<script>
+    const banner = document.getElementById('cookie-banner');
+    const acceptBtn = document.getElementById('accept-cookies');
+    
+    // Check if already accepted
+    if (!localStorage.getItem('cookie_consent')) {
+        setTimeout(() => {
+            banner?.classList.remove('translate-y-full');
+            banner?.setAttribute('data-visible', 'true');
+        }, 1000);
+    }
+    
+    acceptBtn?.addEventListener('click', () => {
+        localStorage.setItem('cookie_consent', 'accepted');
+        localStorage.setItem('cookie_consent_date', new Date().toISOString());
+        banner?.classList.add('translate-y-full');
+    });
+</script>

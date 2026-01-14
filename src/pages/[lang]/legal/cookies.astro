@@ -1,0 +1,184 @@
+---
+import LegalLayout from '../../../layouts/LegalLayout.astro';
+
+export function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params;
+
+const content = {
+    es: {
+        title: 'Política de Cookies',
+        description: 'Información sobre las cookies que utilizamos',
+        lastUpdated: 'Última actualización: 13 de enero de 2026',
+    },
+    en: {
+        title: 'Cookie Policy',
+        description: 'Information about the cookies we use',
+        lastUpdated: 'Last updated: January 13, 2026',
+    },
+    ru: {
+        title: 'Политика файлов cookie',
+        description: 'Информация о файлах cookie, которые мы используем',
+        lastUpdated: 'Последнее обновление: 13 января 2026',
+    },
+};
+
+const t = content[lang as keyof typeof content] || content.es;
+---
+
+<LegalLayout 
+    title={t.title}
+    description={t.description}
+    lastUpdated={t.lastUpdated}
+    lang={lang!}
+>
+    {lang === 'es' && (
+        <>
+            <h2>1. ¿Qué son las cookies?</h2>
+            <p>Las cookies son pequeños archivos de texto que se almacenan en tu dispositivo cuando visitas un sitio web. Permiten recordar tus preferencias y mejorar tu experiencia de navegación.</p>
+
+            <h2>2. Cookies que utilizamos</h2>
+            
+            <h3>Cookies técnicas (necesarias)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Proveedor</th>
+                        <th>Finalidad</th>
+                        <th>Duración</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>sb-*-auth-token</td>
+                        <td>Supabase</td>
+                        <td>Autenticación de usuario</td>
+                        <td>1 año</td>
+                    </tr>
+                    <tr>
+                        <td>cookie_consent</td>
+                        <td>Español Honesto</td>
+                        <td>Recordar preferencias de cookies</td>
+                        <td>1 año</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Cookies analíticas (opcionales)</h3>
+            <p>Actualmente no utilizamos cookies analíticas. Si en el futuro las implementamos, actualizaremos esta política.</p>
+
+            <h2>3. Gestión de cookies</h2>
+            <p>Puedes configurar tu navegador para bloquear o eliminar cookies:</p>
+            <ul>
+                <li><a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a></li>
+                <li><a href="https://support.mozilla.org/es/kb/cookies-informacion-que-los-sitios-web-guardan-en-" target="_blank" rel="noopener">Firefox</a></li>
+                <li><a href="https://support.apple.com/es-es/guide/safari/sfri11471/mac" target="_blank" rel="noopener">Safari</a></li>
+                <li><a href="https://support.microsoft.com/es-es/microsoft-edge" target="_blank" rel="noopener">Edge</a></li>
+            </ul>
+
+            <h2>4. Actualizaciones</h2>
+            <p>Esta política puede actualizarse para reflejar cambios en las cookies que utilizamos. Te recomendamos revisarla periódicamente.</p>
+        </>
+    )}
+
+    {lang === 'en' && (
+        <>
+            <h2>1. What are cookies?</h2>
+            <p>Cookies are small text files stored on your device when you visit a website. They help remember your preferences and improve your browsing experience.</p>
+
+            <h2>2. Cookies we use</h2>
+            
+            <h3>Technical cookies (necessary)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Provider</th>
+                        <th>Purpose</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>sb-*-auth-token</td>
+                        <td>Supabase</td>
+                        <td>User authentication</td>
+                        <td>1 year</td>
+                    </tr>
+                    <tr>
+                        <td>cookie_consent</td>
+                        <td>Español Honesto</td>
+                        <td>Remember cookie preferences</td>
+                        <td>1 year</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Analytics cookies (optional)</h3>
+            <p>We currently do not use analytics cookies. If we implement them in the future, we will update this policy.</p>
+
+            <h2>3. Managing cookies</h2>
+            <p>You can configure your browser to block or delete cookies:</p>
+            <ul>
+                <li><a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener">Chrome</a></li>
+                <li><a href="https://support.mozilla.org/en-US/kb/cookies" target="_blank" rel="noopener">Firefox</a></li>
+                <li><a href="https://support.apple.com/guide/safari/sfri11471/mac" target="_blank" rel="noopener">Safari</a></li>
+                <li><a href="https://support.microsoft.com/microsoft-edge" target="_blank" rel="noopener">Edge</a></li>
+            </ul>
+
+            <h2>4. Updates</h2>
+            <p>This policy may be updated to reflect changes in the cookies we use. We recommend reviewing it periodically.</p>
+        </>
+    )}
+
+    {lang === 'ru' && (
+        <>
+            <h2>1. Что такое cookies?</h2>
+            <p>Cookies — это небольшие текстовые файлы, которые сохраняются на вашем устройстве при посещении веб-сайта.</p>
+
+            <h2>2. Используемые cookies</h2>
+            
+            <h3>Технические cookies (обязательные)</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>Поставщик</th>
+                        <th>Цель</th>
+                        <th>Срок</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>sb-*-auth-token</td>
+                        <td>Supabase</td>
+                        <td>Аутентификация</td>
+                        <td>1 год</td>
+                    </tr>
+                    <tr>
+                        <td>cookie_consent</td>
+                        <td>Español Honesto</td>
+                        <td>Запоминание настроек</td>
+                        <td>1 год</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <h3>Аналитические cookies</h3>
+            <p>В настоящее время мы не используем аналитические cookies.</p>
+
+            <h2>3. Управление cookies</h2>
+            <p>Вы можете настроить браузер для блокировки или удаления cookies.</p>
+
+            <h2>4. Обновления</h2>
+            <p>Эта политика может обновляться. Рекомендуем периодически её просматривать.</p>
+        </>
+    )}
+</LegalLayout>

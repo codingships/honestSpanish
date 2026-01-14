@@ -34,23 +34,24 @@ const badge = roleBadges[role] || roleBadges.student;
 type NavItem = { href: string; icon: string; label: string; active?: boolean; disabled?: boolean };
 
 const studentNav: NavItem[] = [
-    { href: `/${lang}/campus`, icon: '🏠', label: t('campus.nav.dashboard'), active: true },
-    { href: '#', icon: '📅', label: t('campus.nav.classes'), disabled: true },
+    { href: `/${lang}/campus`, icon: '🏠', label: t('campus.nav.dashboard') },
+    { href: `/${lang}/campus/classes`, icon: '📅', label: t('campus.student.classes.title') },
     { href: '#', icon: '📂', label: t('campus.nav.materials'), disabled: true },
-    { href: '#', icon: '👤', label: t('campus.nav.account'), disabled: true },
+    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account'), disabled: true },
 ];
 
 const teacherNav: NavItem[] = [
-    { href: `/${lang}/campus/teacher`, icon: '👥', label: t('campus.nav.myStudents'), active: true },
-    { href: '#', icon: '📅', label: t('campus.nav.myCalendar'), disabled: true },
-    { href: '#', icon: '👤', label: t('campus.nav.account'), disabled: true },
+    { href: `/${lang}/campus/teacher`, icon: '👥', label: t('campus.nav.myStudents') },
+    { href: `/${lang}/campus/teacher/calendar`, icon: '📅', label: t('campus.teacher.calendar.title') },
+    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account'), disabled: true },
 ];
 
 const adminNav: NavItem[] = [
-    { href: `/${lang}/campus/admin`, icon: '📊', label: t('campus.nav.adminDashboard'), active: true, disabled: true },
-    { href: '#', icon: '👥', label: t('campus.nav.students'), disabled: true },
+    { href: `/${lang}/campus/admin`, icon: '📊', label: t('campus.nav.adminDashboard') },
+    { href: `/${lang}/campus/admin/calendar`, icon: '📅', label: t('campus.admin.calendar.title') },
+    { href: `/${lang}/campus/admin/students`, icon: '👥', label: t('campus.nav.students') },
+    { href: `/${lang}/campus/admin/payments`, icon: '💳', label: t('campus.nav.payments') },
     { href: '#', icon: '🎓', label: t('campus.nav.teachers'), disabled: true },
-    { href: '#', icon: '💳', label: t('campus.nav.payments'), disabled: true },
     { href: '#', icon: '⚙️', label: t('campus.nav.settings'), disabled: true },
 ];
 

@@ -1,0 +1,163 @@
+---
+import LegalLayout from '../../../layouts/LegalLayout.astro';
+
+export function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params;
+
+const content = {
+    es: {
+        title: 'Aviso Legal',
+        description: 'Información legal sobre Español Honesto',
+        lastUpdated: 'Última actualización: 13 de enero de 2026',
+    },
+    en: {
+        title: 'Legal Notice',
+        description: 'Legal information about Español Honesto',
+        lastUpdated: 'Last updated: January 13, 2026',
+    },
+    ru: {
+        title: 'Правовая информация',
+        description: 'Юридическая информация о Español Honesto',
+        lastUpdated: 'Последнее обновление: 13 января 2026',
+    },
+};
+
+const t = content[lang as keyof typeof content] || content.es;
+---
+
+<LegalLayout 
+    title={t.title}
+    description={t.description}
+    lastUpdated={t.lastUpdated}
+    lang={lang!}
+>
+    {lang === 'es' && (
+        <>
+            <h2>1. Datos identificativos</h2>
+            <p>En cumplimiento del artículo 10 de la Ley 34/2002, de 11 de julio, de Servicios de la Sociedad de la Información y Comercio Electrónico, se informa:</p>
+            <ul>
+                <li><strong>Titular:</strong> [NOMBRE COMPLETO O RAZÓN SOCIAL]</li>
+                <li><strong>NIF/CIF:</strong> [NÚMERO]</li>
+                <li><strong>Domicilio:</strong> [DIRECCIÓN COMPLETA], Madrid, España</li>
+                <li><strong>Email:</strong> hola@espanolhonesto.com</li>
+                <li><strong>Actividad:</strong> Servicios de enseñanza de español para extranjeros</li>
+            </ul>
+
+            <h2>2. Objeto</h2>
+            <p>El presente sitio web tiene como finalidad ofrecer información sobre los servicios de enseñanza de español de Español Honesto, así como facilitar la contratación de dichos servicios.</p>
+
+            <h2>3. Propiedad intelectual e industrial</h2>
+            <p>Todos los contenidos del sitio web (textos, fotografías, gráficos, imágenes, iconos, tecnología, software, diseño y demás contenidos) son propiedad intelectual de Español Honesto o de terceros que han autorizado su uso, sin que puedan entenderse cedidos al usuario ninguno de los derechos de explotación sobre los mismos.</p>
+
+            <h2>4. Condiciones de uso</h2>
+            <p>El usuario se compromete a hacer un uso adecuado de los contenidos y servicios que Español Honesto ofrece, absteniéndose de:</p>
+            <ul>
+                <li>Emplearlos para incurrir en actividades ilícitas o contrarias a la buena fe</li>
+                <li>Difundir contenidos que atenten contra los derechos de terceros</li>
+                <li>Provocar daños en los sistemas físicos y lógicos de Español Honesto</li>
+            </ul>
+
+            <h2>5. Exclusión de garantías y responsabilidad</h2>
+            <p>Español Honesto no se hace responsable de:</p>
+            <ul>
+                <li>Los daños que pudieran ocasionarse por el uso inadecuado de los servicios</li>
+                <li>La falta de disponibilidad, continuidad o calidad de los contenidos</li>
+                <li>Los daños producidos por terceros mediante intromisiones ilegítimas</li>
+            </ul>
+
+            <h2>6. Enlaces externos</h2>
+            <p>Este sitio web puede contener enlaces a sitios de terceros. Español Honesto no asume ninguna responsabilidad sobre el contenido de dichos sitios.</p>
+
+            <h2>7. Legislación aplicable y jurisdicción</h2>
+            <p>Las relaciones entre Español Honesto y el usuario se regirán por la legislación española, sometiéndose cualquier controversia a los Juzgados y Tribunales de Madrid.</p>
+        </>
+    )}
+
+    {lang === 'en' && (
+        <>
+            <h2>1. Identification</h2>
+            <p>In compliance with Spanish Law 34/2002, the following information is provided:</p>
+            <ul>
+                <li><strong>Owner:</strong> [FULL NAME OR COMPANY NAME]</li>
+                <li><strong>Tax ID:</strong> [NUMBER]</li>
+                <li><strong>Address:</strong> [FULL ADDRESS], Madrid, Spain</li>
+                <li><strong>Email:</strong> hola@espanolhonesto.com</li>
+                <li><strong>Activity:</strong> Spanish language teaching services for foreigners</li>
+            </ul>
+
+            <h2>2. Purpose</h2>
+            <p>This website aims to provide information about Español Honesto's Spanish teaching services and facilitate their contracting.</p>
+
+            <h2>3. Intellectual Property</h2>
+            <p>All website content (texts, photos, graphics, images, icons, technology, software, design) is intellectual property of Español Honesto or authorized third parties.</p>
+
+            <h2>4. Terms of Use</h2>
+            <p>Users agree to properly use the content and services, refraining from:</p>
+            <ul>
+                <li>Using them for illegal activities or in bad faith</li>
+                <li>Spreading content that violates third-party rights</li>
+                <li>Causing damage to Español Honesto's systems</li>
+            </ul>
+
+            <h2>5. Disclaimer</h2>
+            <p>Español Honesto is not responsible for:</p>
+            <ul>
+                <li>Damages caused by improper use of services</li>
+                <li>Lack of availability or continuity of content</li>
+                <li>Damages caused by third parties through illegitimate intrusions</li>
+            </ul>
+
+            <h2>6. External Links</h2>
+            <p>This website may contain links to third-party sites. Español Honesto assumes no responsibility for their content.</p>
+
+            <h2>7. Applicable Law</h2>
+            <p>Relations between Español Honesto and users are governed by Spanish law, with any disputes submitted to the Courts of Madrid.</p>
+        </>
+    )}
+
+    {lang === 'ru' && (
+        <>
+            <h2>1. Идентификация</h2>
+            <p>В соответствии с испанским законодательством (Закон 34/2002) предоставляется следующая информация:</p>
+            <ul>
+                <li><strong>Владелец:</strong> [ПОЛНОЕ ИМЯ ИЛИ НАЗВАНИЕ КОМПАНИИ]</li>
+                <li><strong>ИНН:</strong> [НОМЕР]</li>
+                <li><strong>Адрес:</strong> [ПОЛНЫЙ АДРЕС], Мадрид, Испания</li>
+                <li><strong>Email:</strong> hola@espanolhonesto.com</li>
+                <li><strong>Деятельность:</strong> Услуги по обучению испанскому языку для иностранцев</li>
+            </ul>
+
+            <h2>2. Цель</h2>
+            <p>Данный веб-сайт предназначен для предоставления информации об услугах Español Honesto по обучению испанскому языку.</p>
+
+            <h2>3. Интеллектуальная собственность</h2>
+            <p>Весь контент сайта является интеллектуальной собственностью Español Honesto или уполномоченных третьих лиц.</p>
+
+            <h2>4. Условия использования</h2>
+            <p>Пользователи обязуются правильно использовать контент и услуги, воздерживаясь от:</p>
+            <ul>
+                <li>Использования в незаконных целях</li>
+                <li>Распространения контента, нарушающего права третьих лиц</li>
+                <li>Причинения ущерба системам Español Honesto</li>
+            </ul>
+
+            <h2>5. Отказ от ответственности</h2>
+            <p>Español Honesto не несёт ответственности за:</p>
+            <ul>
+                <li>Ущерб от ненадлежащего использования услуг</li>
+                <li>Отсутствие доступности контента</li>
+                <li>Ущерб от действий третьих лиц</li>
+            </ul>
+
+            <h2>6. Применимое право</h2>
+            <p>Отношения между Español Honesto и пользователями регулируются испанским законодательством.</p>
+        </>
+    )}
+</LegalLayout>

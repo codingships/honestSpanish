@@ -1,0 +1,140 @@
+import React from 'react';
+
+interface Session {
+    id: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    status: string;
+    meet_link: string | null;
+    teacher: {
+        full_name: string | null;
+        email: string;
+    } | null;
+}
+
+interface NextClassCardProps {
+    session: Session | null;
+    lang: string;
+    translations: {
+        nextClass: string;
+        noClasses: string;
+        joinClass: string;
+        with: string;
+        in: string;
+        viewAll: string;
+    };
+}
+
+export default function NextClassCard({ session, lang, translations: t }: NextClassCardProps) {
+    if (!session) {
+        return (
+            <div className="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-lg text-[#006064] uppercase tracking-wide">{t.nextClass}</h3>
+                    <span className="text-2xl">📅</span>
+                </div>
+
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-4 border-2 border-dashed border-[#006064]/20 bg-[#E0F7FA]/30 rounded">
+                    <p className="text-sm font-bold text-[#006064]/50">{t.noClasses}</p>
+                </div>
+            </div>
+        );
+    }
+
+    const sessionDate = new Date(session.scheduled_at);
+    const now = new Date();
+    const diffMs = sessionDate.getTime() - now.getTime();
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffDays = Math.floor(diffHours / 24);
+
+    const formatDate = () => {
+        return sessionDate.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short'
+        });
+    };
+
+    const formatTime = () => {
+        return sessionDate.toLocaleTimeString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    };
+
+    const getTimeUntil = () => {
+        if (diffDays > 0) {
+            return `${diffDays} día${diffDays > 1 ? 's' : ''}`;
+        } else if (diffHours > 0) {
+            return `${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+        } else {
+            const diffMinutes = Math.floor(diffMs / (1000 * 60));
+            if (diffMinutes > 0) {
+                return `${diffMinutes} min`;
+            }
+            return '¡Ahora!';
+        }
+    };
+
+    const canJoin = () => {
+        if (!session.meet_link) return false;
+        const minutesUntil = diffMs / (1000 * 60);
+        return minutesUntil <= 15 && minutesUntil >= -60;
+    };
+
+    const isStartingSoon = diffHours <= 2 && diffHours >= 0;
+
+    return (
+        <div className={`bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full ${isStartingSoon ? 'ring-2 ring-yellow-400' : ''
+            }`}>
+            <div>
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-bold text-lg text-[#006064] uppercase tracking-wide">{t.nextClass}</h3>
+                    <span className="text-2xl">📅</span>
+                </div>
+
+                {isStartingSoon && (
+                    <div className="mb-3 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold inline-block">
+                        ⏰ {t.in} {getTimeUntil()}
+                    </div>
+                )}
+
+                <div className="mb-4">
+                    <p className="font-display text-2xl text-[#006064]">{formatDate()}</p>
+                    <p className="font-mono text-3xl text-[#006064]">{formatTime()}</p>
+                </div>
+
+                <p className="text-sm text-[#006064]/70">
+                    <span className="text-[#006064]/50">{t.with}:</span>{' '}
+                    <strong>{session.teacher?.full_name || session.teacher?.email || 'Por asignar'}</strong>
+                </p>
+
+                {!isStartingSoon && (
+                    <p className="text-xs text-[#006064]/50 mt-2">
+                        {t.in} {getTimeUntil()}
+                    </p>
+                )}
+            </div>
+
+            <div className="mt-4">
+                {canJoin() && session.meet_link ? (
+                    <a
+                        href={session.meet_link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block w-full text-center py-3 bg-green-600 text-white text-sm font-bold uppercase hover:bg-green-700 transition-colors"
+                    >
+                        🎥 {t.joinClass}
+                    </a>
+                ) : (
+                    <a
+                        href={`/${lang}/campus/classes`}
+                        className="block w-full text-center py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+                    >
+                        {t.viewAll} →
+                    </a>
+                )}
+            </div>
+        </div>
+    );
+}

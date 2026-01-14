@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
 import { createClient } from '@supabase/supabase-js';
+import { createStudentFolderStructure } from '../../lib/google/student-folder';
+import { sendWelcomeEmail } from '../../lib/email';
 
 // Use service role key for webhook (bypasses RLS)
 const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
@@ -126,4 +128,97 @@ async function handleCheckoutCompleted(session: any) {
     }
 
     console.log(`Successfully processed payment for user ${userId}, subscription ${subscription.id}`);
+
+    // Create Google Drive folder structure for the student and send welcome email
+    await createDriveFolderForStudent(userId, pkg);
+}
+
+/**
+ * Create Drive folder structure for a student (after successful payment)
+ * Also sends welcome email after folder creation
+ */
+async function createDriveFolderForStudent(userId: string, pkg: any): Promise<void> {
+    let driveFolderLink: string | null = null;
+    try {
+        // Get student data with assigned teacher
+        const { data: student, error: studentError } = await supabaseAdmin
+            .from('profiles')
+            .select(`
+                id,
+                full_name,
+                email,
+                drive_folder_id,
+                student_teachers!student_teachers_student_id_fkey(
+                    is_primary,
+                    teacher:profiles!student_teachers_teacher_id_fkey(full_name)
+                )
+            `)
+            .eq('id', userId)
+            .single();
+
+        if (studentError || !student) {
+            console.error('[Webhook] Could not fetch student for folder creation:', studentError);
+            return;
+        }
+
+        // Skip if already has folder
+        if (student.drive_folder_id) {
+            console.log(`[Webhook] Student ${userId} already has Drive folder, skipping`);
+            return;
+        }
+
+        // Get primary teacher name
+        const primaryTeacher = (student.student_teachers as any[])?.find((st: any) => st.is_primary);
+        const teacherName = primaryTeacher?.teacher?.full_name || null;
+
+        console.log(`[Webhook] Creating Drive folder for ${student.full_name || student.email}`);
+
+        // Create folder structure
+        const result = await createStudentFolderStructure({
+            studentName: student.full_name || student.email?.split('@')[0] || 'Estudiante',
+            studentEmail: student.email,
+            teacherName,
+            level: 'A1', // Default level for new students
+        });
+
+        // Update profile with folder ID
+        const { error: updateError } = await supabaseAdmin
+            .from('profiles')
+            .update({ drive_folder_id: result.rootFolderId })
+            .eq('id', userId);
+
+        if (updateError) {
+            console.error('[Webhook] Error updating profile with folder ID:', updateError);
+        } else {
+            console.log(`[Webhook] Successfully created Drive folder for student ${userId}: ${result.rootFolderId}`);
+            driveFolderLink = result.rootFolderLink;
+        }
+
+    } catch (error) {
+        // Log error but don't throw - folder creation shouldn't block payment
+        console.error('[Webhook] Error creating Drive folder (non-blocking):',
+            error instanceof Error ? error.message : 'Unknown error');
+    }
+
+    // Send welcome email
+    try {
+        const { data: student } = await supabaseAdmin
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', userId)
+            .single();
+
+        if (student?.email) {
+            const publicUrl = import.meta.env.PUBLIC_URL || 'https://espanolhonesto.com';
+            await sendWelcomeEmail(student.email, {
+                studentName: student.full_name || 'Estudiante',
+                packageName: pkg.display_name?.es || pkg.name || 'Español',
+                loginUrl: `${publicUrl}/es/login`,
+                driveFolderUrl: driveFolderLink || undefined,
+            });
+        }
+    } catch (error) {
+        console.error('[Webhook] Error sending welcome email (non-blocking):',
+            error instanceof Error ? error.message : 'Unknown error');
+    }
 }

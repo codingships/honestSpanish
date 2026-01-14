@@ -79,7 +79,12 @@ CREATE TABLE sessions (
     status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'completed', 'cancelled', 'no_show')),
     teacher_notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    -- Session lifecycle tracking
+    completed_at TIMESTAMPTZ,
+    cancelled_at TIMESTAMPTZ,
+    cancelled_by UUID REFERENCES profiles(id),
+    cancellation_reason TEXT
 );
 
 -- 7. PAYMENTS
