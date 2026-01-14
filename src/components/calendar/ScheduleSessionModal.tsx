@@ -17,7 +17,9 @@ interface ScheduleSessionModalProps {
     students: Student[];
     teacherId: string;
     lang: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     translations: Record<string, any>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onSessionCreated: (session: any) => void;
 }
 
@@ -55,33 +57,34 @@ export default function ScheduleSessionModal({
     }, [isOpen]);
 
     // Cargar slots disponibles cuando se selecciona fecha
+    // Cargar slots disponibles cuando se selecciona fecha
     useEffect(() => {
+        const fetchAvailableSlots = async () => {
+            setIsLoading(true);
+            setError(null);
+
+            try {
+                const response = await fetch(
+                    `/api/calendar/available-slots?teacherId=${teacherId}&date=${selectedDate}&duration=${duration}`
+                );
+
+                if (!response.ok) {
+                    throw new Error('Failed to fetch slots');
+                }
+
+                const data = await response.json();
+                setAvailableSlots(data.slots || []);
+            } catch {
+                setError('Error al cargar horarios disponibles');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
         if (selectedDate) {
             fetchAvailableSlots();
         }
-    }, [selectedDate]);
-
-    const fetchAvailableSlots = async () => {
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const response = await fetch(
-                `/api/calendar/available-slots?teacherId=${teacherId}&date=${selectedDate}&duration=${duration}`
-            );
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch slots');
-            }
-
-            const data = await response.json();
-            setAvailableSlots(data.slots || []);
-        } catch (err) {
-            setError('Error al cargar horarios disponibles');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    }, [selectedDate, teacherId, duration]);
 
     const handleSubmit = async () => {
         if (!selectedStudent || !selectedSlot) return;
@@ -113,7 +116,7 @@ export default function ScheduleSessionModal({
 
             // Recargar la página para mostrar la nueva sesión
             window.location.reload();
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message || 'Error al programar la clase');
         } finally {
             setIsLoading(false);
@@ -239,8 +242,8 @@ export default function ScheduleSessionModal({
                                         key={index}
                                         onClick={() => setSelectedSlot(slot)}
                                         className={`p-3 border-2 text-sm font-mono transition-colors ${selectedSlot?.slot_start === slot.slot_start
-                                                ? 'bg-[#006064] text-white border-[#006064]'
-                                                : 'border-[#006064]/30 text-[#006064] hover:border-[#006064]'
+                                            ? 'bg-[#006064] text-white border-[#006064]'
+                                            : 'border-[#006064]/30 text-[#006064] hover:border-[#006064]'
                                             }`}
                                     >
                                         {formatTime(slot.slot_start)}

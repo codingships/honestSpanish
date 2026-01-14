@@ -27,7 +27,7 @@ interface AvailabilityManagerProps {
 export default function AvailabilityManager({
     initialAvailability,
     teacherId,
-    lang,
+
     translations: t
 }: AvailabilityManagerProps) {
     const [availability, setAvailability] = useState<AvailabilitySlot[]>(initialAvailability);
@@ -76,7 +76,7 @@ export default function AvailabilityManager({
             setMessage({ type: 'success', text: 'Horario añadido' });
 
             setTimeout(() => setMessage(null), 3000);
-        } catch (error) {
+        } catch {
             setMessage({ type: 'error', text: 'Error al añadir horario' });
         } finally {
             setIsLoading(false);
@@ -102,7 +102,7 @@ export default function AvailabilityManager({
             setMessage({ type: 'success', text: 'Horario eliminado' });
 
             setTimeout(() => setMessage(null), 3000);
-        } catch (error) {
+        } catch {
             setMessage({ type: 'error', text: 'Error al eliminar horario' });
         } finally {
             setIsLoading(false);

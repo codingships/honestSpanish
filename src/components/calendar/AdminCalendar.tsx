@@ -38,6 +38,7 @@ interface AdminCalendarProps {
     teachers: Teacher[];
     students: Student[];
     lang: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     translations: Record<string, any>;
 }
 

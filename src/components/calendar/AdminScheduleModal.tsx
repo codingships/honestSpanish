@@ -17,6 +17,7 @@ interface Slot {
     slot_end: string;
 }
 
+
 interface AdminScheduleModalProps {
     isOpen: boolean;
 
@@ -24,7 +25,8 @@ interface AdminScheduleModalProps {
     teachers: Teacher[];
     students: Student[];
     lang: string;
-    translations: Record<string, any>;
+    translations: Record<string, string>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onSessionCreated: (session: any) => void;
 }
 
@@ -67,30 +69,30 @@ export default function AdminScheduleModal({
     }, [isOpen]);
 
     useEffect(() => {
+        const fetchAvailableSlots = async () => {
+            setIsLoading(true);
+            setError(null);
+
+            try {
+                const response = await fetch(
+                    `/api/calendar/available-slots?teacherId=${selectedTeacher}&date=${selectedDate}&duration=${duration}`
+                );
+
+                if (!response.ok) throw new Error('Failed to fetch slots');
+
+                const data = await response.json();
+                setAvailableSlots(data.slots || []);
+            } catch {
+                setError('Error al cargar horarios disponibles');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
         if (selectedDate && selectedTeacher && !useCustomTime) {
             fetchAvailableSlots();
         }
-    }, [selectedDate, selectedTeacher]);
-
-    const fetchAvailableSlots = async () => {
-        setIsLoading(true);
-        setError(null);
-
-        try {
-            const response = await fetch(
-                `/api/calendar/available-slots?teacherId=${selectedTeacher}&date=${selectedDate}&duration=${duration}`
-            );
-
-            if (!response.ok) throw new Error('Failed to fetch slots');
-
-            const data = await response.json();
-            setAvailableSlots(data.slots || []);
-        } catch (err) {
-            setError('Error al cargar horarios disponibles');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    }, [selectedDate, selectedTeacher, useCustomTime, duration]);
 
     const handleSubmit = async () => {
         if (!selectedStudent || !selectedTeacher) return;
@@ -130,7 +132,7 @@ export default function AdminScheduleModal({
             onSessionCreated(data.session);
             onClose();
             window.location.reload();
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message || 'Error al programar la clase');
         } finally {
             setIsLoading(false);

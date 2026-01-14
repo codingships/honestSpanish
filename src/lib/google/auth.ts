@@ -2,7 +2,7 @@
  * Google Auth with Service Account and Domain-Wide Delegation
  * Impersonates admin email for all API calls
  */
-import { google } from 'googleapis';
+
 import { JWT } from 'google-auth-library';
 import { googleConfig, validateGoogleConfig } from './config';
 

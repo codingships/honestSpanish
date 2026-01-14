@@ -416,7 +416,7 @@ test.describe('Interactive Elements', () => {
         log('Total buttons', { count: buttons.length });
 
         let accessibleButtons = 0;
-        let issues: string[] = [];
+        const issues: string[] = [];
 
         for (const button of buttons.slice(0, 20)) {
             const text = await button.textContent();

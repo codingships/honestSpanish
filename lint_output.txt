@@ -1,0 +1,448 @@
+
+> pruebas@0.0.0 lint
+> eslint .
+
+
+C:\Users\Alin\Desktop\Academia\pruebas\scripts\seed-test-users.ts
+  71:19  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\components\calendar\AdminCalendar.tsx
+  198:43  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\components\calendar\AdminScheduleModal.tsx
+  20:11  warning  'Session' is defined but never used                                                                                     @typescript-eslint/no-unused-vars
+  22:20  warning  Unexpected any. Specify a different type                                                                                @typescript-eslint/no-explicit-any
+  79:8   warning  React Hook useEffect has a missing dependency: 'fetchAvailableSlots'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\components\calendar\ScheduleSessionModal.tsx
+   20:34  warning  Unexpected any. Specify a different type                                                                                @typescript-eslint/no-explicit-any
+   21:33  warning  Unexpected any. Specify a different type                                                                                @typescript-eslint/no-explicit-any
+   62:8   warning  React Hook useEffect has a missing dependency: 'fetchAvailableSlots'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   79:18  warning  'err' is defined but never used                                                                                         @typescript-eslint/no-unused-vars
+  116:23  warning  Unexpected any. Specify a different type                                                                                @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\components\calendar\SessionDetailModal.tsx
+  27:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  91:23  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\components\calendar\StudentCancelModal.tsx
+  17:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  64:23  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\components\calendar\StudentClassList.tsx
+  22:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\components\calendar\TeacherCalendar.tsx
+  30:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\i18n\utils.ts
+  12:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\lib\email\templates.ts
+  132:11  warning  'roleText' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\lib\google\auth.ts
+  5:10  warning  'google' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\lib\google\calendar.ts
+  320:22  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\lib\google\class-document.ts
+  8:20  warning  'moveFile' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\pages\api\calendar\session-action.ts
+  47:23  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\pages\api\calendar\sessions.ts
+  179:15  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  180:14  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  268:42  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  337:10  warning  'formatDateSpanish' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\pages\api\google\create-student-folder.ts
+  90:57  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  90:75  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\pages\api\google\process-recording.ts
+  92:40  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\src\pages\api\stripe-webhook.ts
+   33:19  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+   56:49  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+   57:30  warning  'lang' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  140:65  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  171:61  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+  171:79  warning  Unexpected any. Specify a different type   @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\assign-teacher.test.ts
+  16:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  28:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  41:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  53:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  68:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  80:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\available-slots.test.ts
+   45:19  warning  'queryParams' is assigned a value but never used      @typescript-eslint/no-unused-vars
+   52:26  warning  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+   68:51  warning  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+   77:43  warning  'startMin' is assigned a value but never used         @typescript-eslint/no-unused-vars
+   78:41  warning  'endMin' is assigned a value but never used           @typescript-eslint/no-unused-vars
+  169:19  warning  'studentTimezone' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  195:39  warning  Unexpected any. Specify a different type              @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\calendar-session-action.test.ts
+   16:100  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   26:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   40:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   50:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   64:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   74:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  100:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  110:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  144:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  154:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  187:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  197:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  233:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  243:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  278:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  288:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  331:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  345:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  388:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  398:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\calendar-sessions.test.ts
+   16:100  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   24:51   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   59:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   67:51   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  104:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  112:51   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  145:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  153:51   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  169:100  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  180:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  194:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  205:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  219:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  230:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  246:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  257:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  286:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  300:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\create-checkout.test.ts
+  21:93   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  34:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  43:100  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  55:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  63:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  75:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\create-portal-session.test.ts
+    3:10   warning  'createMockStripeClient' is defined but never used  @typescript-eslint/no-unused-vars
+   28:100  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+   42:52   warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+   56:79   warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+   70:52   warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+   89:79   warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  103:52   warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\remove-teacher.test.ts
+   16:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   28:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   43:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   55:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   69:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   81:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  108:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  120:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\stripe-webhook.test.ts
+    2:10  warning  'createMockStripeClient' is defined but never used  @typescript-eslint/no-unused-vars
+   56:52  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+   81:52  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  104:14  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  118:52  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  130:14  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  144:52  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\teacher-availability.test.ts
+   69:27  warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  107:37  warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  145:43  warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  145:59  warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  226:19  warning  'teacherId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\update-profile.test.ts
+  15:100  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  27:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  40:79   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  57:52   warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\api\update-student-notes.test.ts
+   16:79   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   28:52   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   37:100  warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   49:52   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   64:79   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   76:52   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   83:15   warning  'callCount' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  103:79   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  115:52   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  136:79   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  148:52   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\accessibility.public.spec.ts
+  17:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  26:40  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\accessibility.student.spec.ts
+  16:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  24:40  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\admin-dashboard.spec.ts
+  21:15  warning  'statsSection' is assigned a value but never used     @typescript-eslint/no-unused-vars
+  58:15  warning  'teacherFilter' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  67:15  warning  'paymentsLink' is assigned a value but never used     @typescript-eslint/no-unused-vars
+  88:15  warning  'createFolderBtn' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\admin-management-mocked.admin.spec.ts
+    1:24  warning  'Page' is defined but never used                     @typescript-eslint/no-unused-vars
+    4:38  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   83:15  warning  'successMessage' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  136:19  warning  'successBox' is assigned a value but never used      @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\admin-management.admin.spec.ts
+  10:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\auth.spec.ts
+  5:10  warning  'TEST_USERS' is defined but never used       @typescript-eslint/no-unused-vars
+  6:19  warning  'logout' is defined but never used           @typescript-eslint/no-unused-vars
+  6:27  warning  'getDashboardUrl' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\calendar.admin.spec.ts
+  134:15  warning  'statsSection' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\calendar.spec.ts
+   30:19  warning  'tabsContainer' is assigned a value but never used        @typescript-eslint/no-unused-vars
+   52:19  warning  'meetLink' is assigned a value but never used             @typescript-eslint/no-unused-vars
+   75:19  warning  'availabilitySection' is assigned a value but never used  @typescript-eslint/no-unused-vars
+   90:23  warning  'completeBtn' is assigned a value but never used          @typescript-eslint/no-unused-vars
+  105:23  warning  'notesField' is assigned a value but never used           @typescript-eslint/no-unused-vars
+  146:23  warning  'studentSelect' is assigned a value but never used        @typescript-eslint/no-unused-vars
+  147:23  warning  'teacherSelect' is assigned a value but never used        @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\calendar.student.spec.ts
+   63:19  warning  'hasJoinButton' is assigned a value but never used  @typescript-eslint/no-unused-vars
+   64:19  warning  'hasMeetLink' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  116:15  warning  'statusBadge' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  126:15  warning  'notesSection' is assigned a value but never used   @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\calendar.teacher.spec.ts
+  41:15  warning  'currentWeekText' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\classes-flow.student.spec.ts
+  10:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\error-handling.public.spec.ts
+    9:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  332:18  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+  385:18  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\fixtures\auth.ts
+  12:5  warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/rules-of-hooks')
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\helpers\auth.ts
+  4:16  warning  'expect' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\keyboard-navigation.public.spec.ts
+    9:41  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  355:19  warning  'pseudoStyles' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\payment-flow.public.spec.ts
+   10:38  warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+  202:53  warning  'expectedPrice' is assigned a value but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\payment.spec.ts
+  21:15  warning  'planCards' is assigned a value but never used                          @typescript-eslint/no-unused-vars
+  30:15  warning  'esencial' is assigned a value but never used                           @typescript-eslint/no-unused-vars
+  31:15  warning  'intensivo' is assigned a value but never used                          @typescript-eslint/no-unused-vars
+  32:15  warning  'premium' is assigned a value but never used                            @typescript-eslint/no-unused-vars
+  49:19  warning  'modal' is assigned a value but never used                              @typescript-eslint/no-unused-vars
+  66:19  warning  'discount' is assigned a value but never used                           @typescript-eslint/no-unused-vars
+  87:62  warning  'page' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\performance.public.spec.ts
+   27:41  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+   72:16  warning  'response' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  159:24  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  162:36  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  163:36  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  163:60  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  174:58  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  229:26  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  271:24  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+  313:27  warning  Unexpected any. Specify a different type       @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\performance.student.spec.ts
+    8:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  316:26  warning  'e' is defined but never used             @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\scheduling-flow.teacher.spec.ts
+  10:38  warning  Unexpected any. Specify a different type                                @typescript-eslint/no-explicit-any
+  28:30  warning  'page' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  78:15  warning  'endTime' is assigned a value but never used                            @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\security.public.spec.ts
+   12:41  warning  Unexpected any. Specify a different type                                @typescript-eslint/no-explicit-any
+  121:15  warning  'hasError' is assigned a value but never used                           @typescript-eslint/no-unused-vars
+  194:35  warning  Unexpected any. Specify a different type                                @typescript-eslint/no-explicit-any
+  252:68  warning  'page' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  272:18  warning  'error' is defined but never used                                       @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\student-dashboard.spec.ts
+  41:15  warning  'exists' is assigned a value but never used     @typescript-eslint/no-unused-vars
+  58:15  warning  'logoutBtn' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\teacher-dashboard.spec.ts
+  25:15  warning  'studentsSection' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  53:15  warning  'availabilityTab' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  63:15  warning  'scheduleBtn' is assigned a value but never used      @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\e2e\visual-regression.public.spec.ts
+  18:17  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\integration\checkout-flow.test.ts
+  39:83  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  51:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\integration\error-recovery.test.ts
+   11:34  warning  'stripeErrors' is defined but never used                                   @typescript-eslint/no-unused-vars
+   12:32  warning  'googleErrors' is defined but never used                                   @typescript-eslint/no-unused-vars
+   40:29  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+   87:61  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  116:29  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  135:29  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  180:29  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  198:29  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  217:29  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  242:44  warning  'eventId' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  259:22  warning  'error' is defined but never used                                          @typescript-eslint/no-unused-vars
+  284:19  warning  'session' is assigned a value but never used                               @typescript-eslint/no-unused-vars
+  288:22  warning  'emailError' is defined but never used                                     @typescript-eslint/no-unused-vars
+  308:26  warning  'e' is defined but never used                                              @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\integration\payment-flow.test.ts
+   14:5   warning  'mockCheckoutSession' is defined but never used    @typescript-eslint/no-unused-vars
+   16:5   warning  'mockCustomer' is defined but never used           @typescript-eslint/no-unused-vars
+   18:5   warning  'stripeErrors' is defined but never used           @typescript-eslint/no-unused-vars
+   20:10  warning  'createMockGoogleDrive' is defined but never used  @typescript-eslint/no-unused-vars
+  151:19  warning  'stripe' is assigned a value but never used        @typescript-eslint/no-unused-vars
+  158:42  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  163:43  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  208:42  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  212:43  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  213:46  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  293:29  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\integration\session-scheduling.test.ts
+   13:5   warning  'createMockGoogleDrive' is defined but never used  @typescript-eslint/no-unused-vars
+   14:5   warning  'createMockGoogleDocs' is defined but never used   @typescript-eslint/no-unused-vars
+   17:5   warning  'mockDriveFolder' is defined but never used        @typescript-eslint/no-unused-vars
+   47:13  warning  'driveModule' is defined but never used            @typescript-eslint/no-unused-vars
+   65:19  warning  'mockCalendar' is assigned a value but never used  @typescript-eslint/no-unused-vars
+   66:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  102:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  120:49  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  137:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  172:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  249:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  255:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  261:57  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  321:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  326:52  warning  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\integration\teacher-assignment.test.ts
+   26:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   27:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   50:83  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   66:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   76:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   77:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  106:83  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  121:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  129:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  130:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  149:83  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  164:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  174:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  175:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  198:83  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  213:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\mocks\google.ts
+  158:47  warning  'params' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\mocks\stripe.ts
+   65:60  warning  Unexpected any. Specify a different type                                  @typescript-eslint/no-explicit-any
+  166:71  warning  'secret' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+  193:67  warning  Unexpected any. Specify a different type                                  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\mocks\supabase.ts
+  24:22  warning  'table' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\unit\NextClassCard.test.tsx
+  11:32  warning  'vi' is defined but never used  @typescript-eslint/no-unused-vars
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\unit\SessionModals.test.tsx
+   10:48  warning  'afterEach' is defined but never used     @typescript-eslint/no-unused-vars
+  142:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  259:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\unit\api-performance.test.ts
+    6:32  warning  'vi' is defined but never used                                             @typescript-eslint/no-unused-vars
+    6:36  warning  'beforeEach' is defined but never used                                     @typescript-eslint/no-unused-vars
+   17:41  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+   22:10  warning  'createTimedFetch' is defined but never used                               @typescript-eslint/no-unused-vars
+   23:19  warning  'url' is defined but never used. Allowed unused args must match /^_/u      @typescript-eslint/no-unused-vars
+   23:32  warning  'options' is defined but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+   23:42  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+  264:19  warning  'data' is assigned a value but never used                                  @typescript-eslint/no-unused-vars
+  303:24  warning  Unexpected any. Specify a different type                                   @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\unit\api-security.test.ts
+  174:44  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  192:42  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  215:44  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  233:23  warning  'UserProfile' is defined but never used             @typescript-eslint/no-unused-vars
+  243:61  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  243:83  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  244:49  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  307:45  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  308:25  warning  'internal_id' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  308:38  warning  'password_hash' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  377:42  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  377:48  warning  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+
+C:\Users\Alin\Desktop\Academia\pruebas\tests\unit\database.test.ts
+   11:32  warning  'vi' is defined but never used                                                      @typescript-eslint/no-unused-vars
+   11:36  warning  'beforeEach' is defined but never used                                              @typescript-eslint/no-unused-vars
+   15:29  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+   37:22  warning  'columns' is assigned a value but never used. Allowed unused args must match /^_/u  @typescript-eslint/no-unused-vars
+   38:40  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+   52:27  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+   58:31  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+   59:40  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+   69:40  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+  228:56  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+  263:44  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+  334:71  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+  452:50  warning  'timezone' is defined but never used. Allowed unused args must match /^_/u          @typescript-eslint/no-unused-vars
+  490:41  warning  Unexpected any. Specify a different type                                            @typescript-eslint/no-explicit-any
+
+✖ 308 problems (0 errors, 308 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

@@ -54,7 +54,7 @@ export const POST: APIRoute = async ({ request }) => {
 };
 
 async function handleCheckoutCompleted(session: any) {
-    const { userId, priceId, lang } = session.metadata || {};
+    const { userId, priceId } = session.metadata || {};
 
     if (!userId || !priceId) {
         console.error('Missing metadata in checkout session');

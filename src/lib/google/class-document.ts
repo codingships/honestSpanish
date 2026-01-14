@@ -5,7 +5,7 @@
 import { google } from 'googleapis';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
-import { copyFile, moveFile, getFileLink } from './drive';
+import { copyFile, getFileLink } from './drive';
 
 export interface CreateClassDocumentOptions {
     studentId: string;

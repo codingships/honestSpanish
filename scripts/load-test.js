@@ -138,6 +138,6 @@ export default function () {
 }
 
 // Cleanup function
-export function teardown(data) {
+export function teardown() {
     console.log('Load test completed!');
 }

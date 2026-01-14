@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/rules-of-hooks */
 import { test as base, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
@@ -8,7 +9,7 @@ type AuthFixtures = {
 
 // Extend base test with authentication fixture
 export const test = base.extend<AuthFixtures>({
-    // eslint-disable-next-line react-hooks/rules-of-hooks
+
     authenticatedPage: async ({ page }, use) => {
         // This would require setting up test user credentials
         // For now, this is a placeholder showing the pattern

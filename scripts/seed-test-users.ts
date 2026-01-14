@@ -208,8 +208,7 @@ async function main() {
         email: u.email,
         password: u.role === 'student' ? 'Student123!' :
             u.role === 'teacher' ? `Teacher123!${u.email.match(/\d+/)![0]}` :
-                .map((row: any) => row.email);.match(/\d+/)![0]
-    }`,
+                `Admin123!${u.email.match(/\d+/)![0]}`,
         role: u.role
     }));
 

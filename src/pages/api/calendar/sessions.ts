@@ -331,14 +331,4 @@ async function createClassDocumentForSession(
     }
 }
 
-/**
- * Format date for Spanish locale
- */
-function formatDateSpanish(date: Date): string {
-    return date.toLocaleDateString('es-ES', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-    });
-}
+

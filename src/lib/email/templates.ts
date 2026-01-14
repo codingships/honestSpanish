@@ -129,7 +129,7 @@ export interface ClassConfirmationData {
 }
 
 export function classConfirmationTemplate(data: ClassConfirmationData): string {
-    const roleText = data.isTeacher ? 'alumno' : 'profesor';
+
     const title = data.isTeacher ? '📅 Nueva clase programada' : '🎉 ¡Tu clase está confirmada!';
 
     const content = `
