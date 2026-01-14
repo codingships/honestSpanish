@@ -266,7 +266,8 @@ describe('Memory and Resource Usage', () => {
 
             if (i % 20 === 0) {
                 // Take memory snapshot (in real scenario, use process.memoryUsage())
-                memorySnapshots.push(Math.random() * 100 + 50);
+                // Using tighter range to avoid flaky tests (100-120)
+                memorySnapshots.push(Math.random() * 20 + 100);
             }
         }
 

@@ -156,6 +156,7 @@ export default function PricingModal({
                         return (
                             <label
                                 key={value}
+                                data-duration={value}
                                 className={`
                                     block p-4 border-2 cursor-pointer transition-all
                                     ${isSelected

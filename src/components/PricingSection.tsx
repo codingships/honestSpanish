@@ -83,7 +83,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
     const handleSelectPlan = (pkg: Package) => {
         setSelectedPlan({
             name: pkg.name,
-            displayName: pkg.display_name[lang] || pkg.display_name['es'] || pkg.name,
+            displayName: pkg.display_name?.[lang] || pkg.display_name?.['es'] || pkg.name,
             priceMonthly: pkg.price_monthly / 100, // Convert from cents to euros
             stripe_price_1m: pkg.stripe_price_1m,
             stripe_price_3m: pkg.stripe_price_3m,
@@ -95,7 +95,10 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
     // Map packages by name for easy access
     const packageMap: Record<string, Package> = {};
     packages.forEach(pkg => {
-        packageMap[pkg.name] = pkg;
+        // Ensure display_name exists before mapping
+        if (pkg && pkg.name) {
+            packageMap[pkg.name] = pkg;
+        }
     });
 
     // Get package data or use fallback
@@ -129,14 +132,19 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
                             <div className="col-span-2 text-center">{t.headers.action}</div>
                         </div>
 
-                        {planConfig.map(({ key, isRecommended, highlight }) => {
-                            const pkg = getPackage(key);
-                            const planTranslations = t.plans[key];
+                        {packages.map((pkg, index) => {
+                            const key = pkg.name || `plan-${index}`;
+                            const highlight = pkg.name === 'essential';
+                            // Determine isRecommended based on the original planConfig logic if pkg.name matches
+                            const configEntry = planConfig.find(config => config.key === pkg.name);
+                            const isRecommended = configEntry ? configEntry.isRecommended : false;
+                            const planTranslations = t.plans[key as PlanKey];
 
                             return (
                                 <div
                                     key={key}
                                     className={`
+                                        pricing-plan-card
                                         grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-4 
                                         ${highlight ? 'py-12' : 'py-8'} 
                                         border-t-2 ${highlight ? 'border-b-2' : ''} ${s.border} 
@@ -176,6 +184,8 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
                                         <button
                                             onClick={() => pkg && handleSelectPlan(pkg)}
                                             disabled={!pkg}
+                                            data-plan={key}
+                                            data-testid={`select-plan-${key}`}
                                             className={`
                                                 w-auto px-6 ${highlight ? 'py-4' : 'py-2'} 
                                                 ${highlight

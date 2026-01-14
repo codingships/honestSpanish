@@ -1,0 +1,213 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Session Modal Tests > SessionDetailModal > matches snapshot 1`] = `
+<DocumentFragment>
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center"
+  >
+    <div
+      class="absolute inset-0 bg-black/50"
+    />
+    <div
+      class="relative bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] p-6 max-w-md w-full mx-4"
+    >
+      <div
+        class="flex justify-between items-start mb-6"
+      >
+        <div>
+          <h2
+            class="font-display text-xl text-[#006064]"
+          >
+            John Doe
+          </h2>
+          <p
+            class="text-sm text-[#006064]/60"
+          >
+            john@test.com
+          </p>
+        </div>
+        <button
+          class="text-[#006064] hover:opacity-70 text-2xl"
+        >
+          ×
+        </button>
+      </div>
+      <div
+        class="space-y-4 mb-6"
+      >
+        <div
+          class="flex items-center justify-between"
+        >
+          <span
+            class="text-sm text-[#006064]/60"
+          >
+            Estado
+          </span>
+          <span
+            class="px-2 py-1 text-xs font-bold rounded bg-blue-100 text-blue-700"
+          >
+            Programada
+          </span>
+        </div>
+        <div
+          class="flex items-center justify-between"
+        >
+          <span
+            class="text-sm text-[#006064]/60"
+          >
+            Fecha y hora
+          </span>
+          <span
+            class="font-bold text-[#006064]"
+          >
+            jueves, 15 de enero, 10:00
+          </span>
+        </div>
+        <div
+          class="flex items-center justify-between"
+        >
+          <span
+            class="text-sm text-[#006064]/60"
+          >
+            Duración
+          </span>
+          <span
+            class="font-mono text-[#006064]"
+          >
+            60 min
+          </span>
+        </div>
+        <div>
+          <span
+            class="text-sm text-[#006064]/60 block mb-1"
+          >
+            Link de Meet
+          </span>
+          <a
+            class="text-sm text-blue-600 hover:underline break-all"
+            href="https://meet.google.com/abc-defg-hij"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            https://meet.google.com/abc-defg-hij
+          </a>
+        </div>
+      </div>
+      <div
+        class="mb-6"
+      >
+        <label
+          class="block text-xs font-mono uppercase text-[#006064]/60 mb-2"
+        >
+          AÑADIR NOTAS
+        </label>
+        <textarea
+          class="w-full p-3 border-2 border-[#006064] text-[#006064] h-24 resize-none"
+          placeholder="Notas de la clase..."
+        >
+          Focus on past tense
+        </textarea>
+        <button
+          class="mt-2 px-4 py-2 text-xs font-bold text-[#006064] border border-[#006064] hover:bg-[#E0F7FA] transition-colors"
+        >
+          Guardar notas
+        </button>
+      </div>
+      <div
+        class="space-y-2"
+      >
+        <button
+          class="w-full px-4 py-3 bg-gray-600 text-white font-bold uppercase text-sm hover:bg-gray-700 transition-colors disabled:opacity-50"
+        >
+          Cancelar Clase
+        </button>
+      </div>
+    </div>
+  </div>
+</DocumentFragment>
+`;
+
+exports[`Session Modal Tests > StudentCancelModal > matches snapshot 1`] = `
+<DocumentFragment>
+  <div
+    class="fixed inset-0 z-50 flex items-center justify-center"
+  >
+    <div
+      class="absolute inset-0 bg-black/50"
+    />
+    <div
+      class="relative bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] p-6 max-w-md w-full mx-4"
+    >
+      <div
+        class="flex justify-between items-center mb-6"
+      >
+        <h2
+          class="font-display text-xl text-[#006064] uppercase"
+        >
+          CANCELAR CLASE
+        </h2>
+        <button
+          class="text-[#006064] hover:opacity-70 text-2xl"
+        >
+          ×
+        </button>
+      </div>
+      <div
+        class="mb-6 p-4 bg-yellow-50 border-2 border-yellow-400"
+      >
+        <p
+          class="text-sm text-yellow-800 font-bold mb-2"
+        >
+          ⚠️ ¿Estás seguro?
+        </p>
+        <p
+          class="text-xs text-yellow-700"
+        >
+          Esta acción no se puede deshacer
+        </p>
+      </div>
+      <div
+        class="mb-6 p-4 bg-[#E0F7FA] border border-[#006064]/20"
+      >
+        <p
+          class="font-bold text-[#006064]"
+        >
+          miércoles, 14 de enero, 15:05
+        </p>
+        <p
+          class="text-sm text-[#006064]/70"
+        >
+          Con: Teacher
+        </p>
+      </div>
+      <div
+        class="mb-6"
+      >
+        <label
+          class="block text-xs font-mono uppercase text-[#006064]/60 mb-2"
+        >
+          Motivo (opcional)
+        </label>
+        <textarea
+          class="w-full p-3 border-2 border-[#006064] text-[#006064] h-20 resize-none"
+          placeholder="¿Por qué cancelas la clase?"
+        />
+      </div>
+      <div
+        class="flex gap-2"
+      >
+        <button
+          class="flex-1 px-4 py-3 bg-white text-[#006064] font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#E0F7FA] transition-colors"
+        >
+          No, cerrar
+        </button>
+        <button
+          class="flex-1 px-4 py-3 bg-red-600 text-white font-bold uppercase text-sm border-2 border-red-600 hover:bg-red-700 transition-colors disabled:opacity-50"
+        >
+          Sí, cancelar
+        </button>
+      </div>
+    </div>
+  </div>
+</DocumentFragment>
+`;

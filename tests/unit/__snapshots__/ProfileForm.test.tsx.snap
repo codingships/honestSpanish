@@ -1,0 +1,174 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ProfileForm > matches snapshot 1`] = `
+<DocumentFragment>
+  <form
+    class="space-y-4"
+  >
+    <div>
+      <label
+        class="block text-xs font-mono uppercase text-[#006064]/60 mb-1"
+      >
+        Nombre completo
+      </label>
+      <input
+        class="w-full p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 text-[#006064]"
+        name="fullName"
+        type="text"
+        value="Test User"
+      />
+    </div>
+    <div>
+      <label
+        class="block text-xs font-mono uppercase text-[#006064]/60 mb-1"
+      >
+        Email
+      </label>
+      <input
+        class="w-full p-3 border-2 border-[#006064]/30 bg-gray-100 text-[#006064]/60 cursor-not-allowed"
+        disabled=""
+        type="email"
+        value="test@example.com"
+      />
+    </div>
+    <div>
+      <label
+        class="block text-xs font-mono uppercase text-[#006064]/60 mb-1"
+      >
+        Teléfono
+      </label>
+      <input
+        class="w-full p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 text-[#006064]"
+        name="phone"
+        placeholder="+34 600 000 000"
+        type="tel"
+        value="+34612345678"
+      />
+    </div>
+    <div>
+      <label
+        class="block text-xs font-mono uppercase text-[#006064]/60 mb-1"
+      >
+        Idioma
+      </label>
+      <select
+        class="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
+        name="preferredLanguage"
+      >
+        <option
+          value="es"
+        >
+          Español
+        </option>
+        <option
+          value="en"
+        >
+          English
+        </option>
+        <option
+          value="ru"
+        >
+          Русский
+        </option>
+      </select>
+    </div>
+    <div>
+      <label
+        class="block text-xs font-mono uppercase text-[#006064]/60 mb-1"
+      >
+        Zona horaria
+      </label>
+      <select
+        class="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
+        name="timezone"
+      >
+        <option
+          value="Europe/Madrid"
+        >
+          Madrid (UTC+1/+2)
+        </option>
+        <option
+          value="Europe/London"
+        >
+          London (UTC+0/+1)
+        </option>
+        <option
+          value="Europe/Paris"
+        >
+          Paris (UTC+1/+2)
+        </option>
+        <option
+          value="Europe/Berlin"
+        >
+          Berlin (UTC+1/+2)
+        </option>
+        <option
+          value="Europe/Rome"
+        >
+          Rome (UTC+1/+2)
+        </option>
+        <option
+          value="Europe/Amsterdam"
+        >
+          Amsterdam (UTC+1/+2)
+        </option>
+        <option
+          value="Europe/Brussels"
+        >
+          Brussels (UTC+1/+2)
+        </option>
+        <option
+          value="Europe/Lisbon"
+        >
+          Lisbon (UTC+0/+1)
+        </option>
+        <option
+          value="Europe/Warsaw"
+        >
+          Warsaw (UTC+1/+2)
+        </option>
+        <option
+          value="Europe/Moscow"
+        >
+          Moscow (UTC+3)
+        </option>
+        <option
+          value="America/New_York"
+        >
+          New York (UTC-5/-4)
+        </option>
+        <option
+          value="America/Los_Angeles"
+        >
+          Los Angeles (UTC-8/-7)
+        </option>
+        <option
+          value="America/Mexico_City"
+        >
+          Mexico City (UTC-6/-5)
+        </option>
+        <option
+          value="America/Bogota"
+        >
+          Bogotá (UTC-5)
+        </option>
+        <option
+          value="America/Buenos_Aires"
+        >
+          Buenos Aires (UTC-3)
+        </option>
+      </select>
+    </div>
+    <div
+      class="flex items-center gap-4 pt-2"
+    >
+      <button
+        class="px-6 py-3 font-bold uppercase text-sm border-2 border-[#006064] transition-colors bg-[#006064] text-white hover:bg-[#004d40]"
+        type="submit"
+      >
+        Guardar
+      </button>
+    </div>
+  </form>
+</DocumentFragment>
+`;

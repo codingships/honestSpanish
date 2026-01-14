@@ -288,5 +288,16 @@ describe('NextClassCard', () => {
 
             expect(screen.getByText('Следующий урок')).toBeDefined();
         });
+
+        it('matches snapshot', () => {
+            const { asFragment } = render(
+                <NextClassCard
+                    session={mockSession}
+                    lang="es"
+                    translations={mockTranslations}
+                />
+            );
+            expect(asFragment()).toMatchSnapshot();
+        });
     });
 });

@@ -351,4 +351,17 @@ describe('StudentClassList', () => {
             expect(screen.getByText('Earlier Teacher')).toBeDefined();
         });
     });
+
+    it('matches snapshot', () => {
+        const sessions = [createSession()];
+        const { asFragment } = render(
+            <StudentClassList
+                upcomingSessions={sessions}
+                pastSessions={[]}
+                lang="es"
+                translations={mockTranslations}
+            />
+        );
+        expect(asFragment()).toMatchSnapshot();
+    });
 });

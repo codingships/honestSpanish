@@ -166,6 +166,21 @@ describe('Session Modal Tests', () => {
                 expect(requestBody?.action).toBe('cancel');
             });
         });
+
+        it('matches snapshot', () => {
+            const { asFragment } = render(
+                <SessionDetailModal
+                    isOpen={true}
+                    onClose={() => { }}
+                    session={mockSession}
+                    lang="es"
+                    translations={mockTranslations.sessionDetails}
+                    onSessionUpdate={() => { }}
+                    canEdit={true}
+                />
+            );
+            expect(asFragment()).toMatchSnapshot();
+        });
     });
 
     describe('ScheduleSessionModal', () => {
@@ -268,5 +283,26 @@ describe('Session Modal Tests', () => {
                 expect(requestBody?.action).toBe('cancel');
             });
         });
+        it('matches snapshot', () => {
+            const { asFragment } = render(
+                <StudentCancelModal
+                    isOpen={true}
+                    onClose={() => { }}
+                    session={mockSession}
+                    lang="es"
+                    translations={mockTranslations.cancel}
+                    onSuccess={() => { }}
+                />
+            );
+            expect(asFragment()).toMatchSnapshot();
+        });
     });
+
+    // Add snapshots for other modals in their respective describe blocks
+    // We need to target specific lines for those, but since I'm editing the end of the file, 
+    // I'll just add one for StudentCancelModal here and use separate calls for the others if needed,
+    // OR arguably since I have the context of the whole file structure I can try to find the other closing braces.
+    // However, replace_file_content works best on contiguous blocks. 
+    // Let's stick to adding to the last block (StudentCancelModal) for now and I'll do a separate edit for the others if I can't reach them easily or if I want to be safe.
+    // Actually, I can use multi_replace to target multiple locations!
 });

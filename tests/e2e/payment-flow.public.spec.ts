@@ -4,7 +4,7 @@
  * Tests the complete payment journey from pricing to checkout
  * NOTE: Actual Stripe checkout cannot be fully tested in E2E without Stripe CLI
  */
-import { test, expect, Page } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 // Helper for detailed logging
 function log(step: string, details?: any) {
@@ -22,11 +22,32 @@ async function captureState(page: Page, stepName: string) {
     return { url, title };
 }
 
+async function acceptCookies(page: Page) {
+    try {
+        const acceptBtn = page.locator('button:has-text("Aceptar"), button:has-text("Accept")').first();
+        if (await acceptBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+            // Use force click to ensure we hit it even if animating
+            await acceptBtn.click({ force: true, timeout: 2000 });
+            await page.waitForTimeout(300); // Wait for banner to disappear
+        }
+    } catch (e) {
+        // Ignore cookie click failures as it might be already dismissed or non-blocking
+        console.log('Cookie acceptance skipped or failed:', e);
+    }
+}
+
 test.describe('Pricing Section - Public', () => {
 
-    test('should display all three pricing plans with correct information', async ({ page }) => {
-        log('Step 1: Navigate to homepage');
+    test.beforeEach(async ({ page }) => {
+        // Ensure cookies are accepted before each test interactions
         await page.goto('/es', { waitUntil: 'networkidle' });
+        await acceptCookies(page);
+    });
+
+    test('should display all three pricing plans with correct information', async ({ page }) => {
+        // Page navigation handled in beforeEach, but some tests navigate specific langs
+        // We'll keep explicit navigation for clarity or just ensure cookies are gone
+        log('Step 1: Check pricing section visibility');
 
         log('Step 2: Scroll to pricing section');
         const pricingSection = page.locator('#pricing, #planes, [data-section="pricing"]').first();
@@ -37,7 +58,7 @@ test.describe('Pricing Section - Public', () => {
         await captureState(page, 'Pricing Section');
 
         log('Step 3: Find all plan cards');
-        const planCards = page.locator('[class*="plan"], [class*="pricing-card"], [data-plan]');
+        const planCards = page.locator('.pricing-plan-card, [class*="plan"], [class*="pricing-card"], [data-plan]');
         const planCount = await planCards.count();
         log('Plan cards found', { planCount });
 
@@ -111,13 +132,23 @@ test.describe('Pricing Section - Public', () => {
 
         if (hasBtn) {
             log('Step 3: Click select button');
-            await selectBtn.click();
-            await page.waitForTimeout(500);
+            // Wait for hydration
+            await page.waitForTimeout(1000);
+
+            const btn = page.locator('button:has-text("Elegir"), button:has-text("Seleccionar")').first();
+            await expect(btn).toBeEnabled();
+
+            // USE JS CLICK TO BYPASS OVERLAYS/SCROLL ISSUES
+            await btn.evaluate(node => node.click());
+
+            await page.waitForTimeout(1000);
             await captureState(page, 'After clicking select');
 
             log('Step 4: Check for duration modal');
-            const modal = page.locator('[role="dialog"], .modal, [class*="modal"]').first();
-            const hasModal = await modal.isVisible().catch(() => false);
+            const modal = page.locator('[role="dialog"], .modal, [class*="modal"] .fixed').first();
+            // Assert modal visibility to catch failures here vs later
+            await expect(modal).toBeVisible({ timeout: 5000 });
+            const hasModal = await modal.isVisible();
             log('Duration modal appeared', { hasModal });
 
             if (hasModal) {
@@ -125,74 +156,87 @@ test.describe('Pricing Section - Public', () => {
                 log('Modal content', { content: modalContent?.substring(0, 200) });
 
                 log('Step 5: Look for duration options');
-                const options = modal.locator('button, [class*="option"]');
+                const options = modal.locator('label[data-duration]');
                 const optionCount = await options.count();
+                expect(optionCount).toBeGreaterThan(0);
                 log('Duration options', { optionCount });
-
-                // Check for discount badges
-                const discounts = modal.locator('[class*="discount"], :has-text("%")');
-                const discountCount = await discounts.count();
-                log('Discount badges', { discountCount });
             }
+        } else {
+            // Fail if no button found (essential for test validity)
+            throw new Error('Select button not found');
         }
 
         log('✅ Duration selection flow tested');
     });
 
     test('should calculate prices correctly for each duration', async ({ page }) => {
-        log('Step 1: Navigate to pricing');
-        await page.goto('/es', { waitUntil: 'networkidle' });
+        // Navigation done in beforeEach
+        log('Step 1: Navigate to pricing (handled in beforeEach)');
 
-        const pricingSection = page.locator('#pricing, #planes').first();
-        if (await pricingSection.isVisible()) {
-            await pricingSection.scrollIntoViewIfNeeded();
-        }
+        // Wait specifically for hydration of interactive elements
+        await page.waitForTimeout(1000);
 
-        log('Step 2: Open plan modal');
-        const selectBtn = page.locator('button:has-text("Elegir"), button:has-text("Seleccionar")').first();
-        if (await selectBtn.isVisible()) {
-            await selectBtn.click();
-            await page.waitForTimeout(500);
-        }
+        // Accept cookies again just in case (though beforeEach should cover it)
+        await acceptCookies(page);
 
-        log('Step 3: Check 1 month price');
-        const oneMonthBtn = page.locator('button:has-text("1 mes"), [data-duration="1"]').first();
-        if (await oneMonthBtn.isVisible()) {
-            await oneMonthBtn.click();
-            await page.waitForTimeout(300);
+        // Ensure we target the Essential plan specifically if possible, or the first available
+        // Note: Waiting for networkidle might not be enough for dynamic content
+        await page.waitForSelector('.pricing-plan-card');
 
+        log('Step 2: Open "Essential" plan modal');
+        // Try to find the Essential plan specifically, or fallback to the first one
+        const selectPlanSelector = '[data-testid="select-plan-essential"], [data-testid^="select-plan-"]';
+        const selectBtn = page.locator(selectPlanSelector).first();
+
+        await selectBtn.waitFor({ state: 'attached', timeout: 10000 });
+
+        // USE JS CLICK
+        await selectBtn.evaluate(node => (node as HTMLElement).click());
+
+        // Wait for modal explicitly
+        const modalSelector = '.fixed.inset-0.z-50';
+        await page.waitForSelector(modalSelector, { state: 'visible', timeout: 10000 });
+        await page.waitForTimeout(500); // Animation buffer
+
+        // Helper to check price
+        const checkPrice = async (duration: string, expectedPrice: string | null = null) => {
+            log(`Checking ${duration} month(s) price`);
+
+            // 1. Select duration
+            const radioInput = page.locator(`input[name="duration"][value="${duration}"]`);
+            const labelBtn = page.locator(`[data-duration="${duration}"]`);
+
+            // Try check input first, fallback to label click
+            if (await radioInput.count() > 0) {
+                await radioInput.check({ force: true });
+            } else {
+                // Use JS click for label fallback as well to avoid interception
+                await labelBtn.evaluate(node => (node as HTMLElement).click());
+            }
+
+            await page.waitForTimeout(300); // Wait for React state update
+
+            // 2. Capture price
             const priceDisplay = page.locator('[class*="price"], [class*="total"]').first();
-            const oneMonthPrice = await priceDisplay.textContent();
-            log('1 month price', { price: oneMonthPrice });
-        }
+            const price = await priceDisplay.textContent();
+            log(`${duration} month price: ${price}`);
 
-        log('Step 4: Check 3 months price (should have 10% discount)');
-        const threeMonthBtn = page.locator('button:has-text("3 meses"), [data-duration="3"]').first();
-        if (await threeMonthBtn.isVisible()) {
-            await threeMonthBtn.click();
-            await page.waitForTimeout(300);
+            return price;
+        };
 
-            const priceDisplay = page.locator('[class*="price"], [class*="total"]').first();
-            const threeMonthPrice = await priceDisplay.textContent();
-            const discountBadge = page.locator(':has-text("10%")');
-            const hasDiscount = await discountBadge.isVisible().catch(() => false);
+        // Step 3: Check 1 month (default)
+        const price1 = await checkPrice('1');
+        expect(price1).toBeTruthy();
 
-            log('3 month price', { price: threeMonthPrice, hasDiscount });
-        }
+        // Step 4: Check 3 months
+        const price3 = await checkPrice('3');
+        expect(price3).toBeTruthy();
+        expect(price3).not.toBe(price1); // Should change
 
-        log('Step 5: Check 6 months price (should have 20% discount)');
-        const sixMonthBtn = page.locator('button:has-text("6 meses"), [data-duration="6"]').first();
-        if (await sixMonthBtn.isVisible()) {
-            await sixMonthBtn.click();
-            await page.waitForTimeout(300);
-
-            const priceDisplay = page.locator('[class*="price"], [class*="total"]').first();
-            const sixMonthPrice = await priceDisplay.textContent();
-            const discountBadge = page.locator(':has-text("20%")');
-            const hasDiscount = await discountBadge.isVisible().catch(() => false);
-
-            log('6 month price', { price: sixMonthPrice, hasDiscount });
-        }
+        // Step 5: Check 6 months
+        const price6 = await checkPrice('6');
+        expect(price6).toBeTruthy();
+        expect(price6).not.toBe(price3);
 
         log('✅ Price calculations verified');
     });

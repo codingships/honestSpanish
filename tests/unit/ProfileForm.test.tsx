@@ -142,4 +142,9 @@ describe('ProfileForm', () => {
 
         expect(saveButton).toBeDisabled();
     });
+
+    it('matches snapshot', () => {
+        const { asFragment } = render(<ProfileForm profile={mockProfile} translations={mockTranslations} />);
+        expect(asFragment()).toMatchSnapshot();
+    });
 });

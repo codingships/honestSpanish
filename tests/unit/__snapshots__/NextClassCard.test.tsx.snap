@@ -1,0 +1,68 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`NextClassCard > Internationalization > matches snapshot 1`] = `
+<DocumentFragment>
+  <div
+    class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full "
+  >
+    <div>
+      <div
+        class="flex items-center justify-between mb-4"
+      >
+        <h3
+          class="font-bold text-lg text-[#006064] uppercase tracking-wide"
+        >
+          Próxima Clase
+        </h3>
+        <span
+          class="text-2xl"
+        >
+          📅
+        </span>
+      </div>
+      <div
+        class="mb-4"
+      >
+        <p
+          class="font-display text-2xl text-[#006064]"
+        >
+          jue, 15 ene
+        </p>
+        <p
+          class="font-mono text-3xl text-[#006064]"
+        >
+          15:05
+        </p>
+      </div>
+      <p
+        class="text-sm text-[#006064]/70"
+      >
+        <span
+          class="text-[#006064]/50"
+        >
+          Con:
+        </span>
+         
+        <strong>
+          Test Teacher
+        </strong>
+      </p>
+      <p
+        class="text-xs text-[#006064]/50 mt-2"
+      >
+        En 23 horas
+      </p>
+    </div>
+    <div
+      class="mt-4"
+    >
+      <a
+        class="block w-full text-center py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+        href="/es/campus/classes"
+      >
+        Ver todas →
+      </a>
+    </div>
+  </div>
+</DocumentFragment>
+`;

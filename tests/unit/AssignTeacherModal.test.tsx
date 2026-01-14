@@ -242,4 +242,18 @@ describe('AssignTeacherModal', () => {
         const assignButton = screen.getByText('Asignar');
         expect(assignButton).toBeDisabled();
     });
+
+    it('matches snapshot', () => {
+        const { asFragment } = render(
+            <AssignTeacherModal
+                isOpen={true}
+                onClose={() => { }}
+                studentId="student-123"
+                studentName="Test Student"
+                teachers={mockTeachers}
+                translations={mockTranslations}
+            />
+        );
+        expect(asFragment()).toMatchSnapshot();
+    });
 });

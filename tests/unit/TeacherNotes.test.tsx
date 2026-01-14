@@ -144,4 +144,15 @@ describe('TeacherNotes', () => {
 
         expect(saveButton).toBeDisabled();
     });
+
+    it('matches snapshot', () => {
+        const { asFragment } = render(
+            <TeacherNotes
+                studentId="student-123"
+                initialNotes="Notas"
+                translations={mockTranslations}
+            />
+        );
+        expect(asFragment()).toMatchSnapshot();
+    });
 });

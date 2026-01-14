@@ -192,4 +192,16 @@ describe('StudentFilters', () => {
         expect(screen.queryByText('John Smith')).not.toBeInTheDocument();
         expect(screen.queryByText('Pedro Martínez')).not.toBeInTheDocument();
     });
+
+    it('matches snapshot', () => {
+        const { asFragment } = render(
+            <StudentFilters
+                students={mockStudents}
+                lang="es"
+                translations={mockTranslations}
+                packages={mockPackages}
+            />
+        );
+        expect(asFragment()).toMatchSnapshot();
+    });
 });

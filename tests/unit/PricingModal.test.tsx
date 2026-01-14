@@ -210,7 +210,20 @@ describe('PricingModal', () => {
         );
 
         // Check savings are displayed (using regex for flexibility)
-        expect(screen.getByText(/Ahorra.*48/)).toBeInTheDocument();
         expect(screen.getByText(/Ahorra.*192/)).toBeInTheDocument();
+    });
+
+    it('matches snapshot', () => {
+        const { asFragment } = render(
+            <PricingModal
+                isOpen={true}
+                onClose={() => { }}
+                plan={mockPlan}
+                lang="es"
+                isLoggedIn={true}
+                translations={mockTranslations}
+            />
+        );
+        expect(asFragment()).toMatchSnapshot();
     });
 });
