@@ -1,0 +1,247 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]: ESPAÑOL HONESTO
+      - generic [ref=e5]:
+        - link "Method" [ref=e6] [cursor=pointer]:
+          - /url: "#metodo"
+        - link "Progress" [ref=e7] [cursor=pointer]:
+          - /url: "#progreso"
+        - link "Plans" [ref=e8] [cursor=pointer]:
+          - /url: "#planes"
+        - link "Team" [ref=e9] [cursor=pointer]:
+          - /url: "#equipo"
+        - link "FAQ" [ref=e10] [cursor=pointer]:
+          - /url: "#faq"
+        - link "Blog" [ref=e11] [cursor=pointer]:
+          - /url: /en/blog
+      - generic [ref=e12]:
+        - link "es" [ref=e13] [cursor=pointer]:
+          - /url: /es
+        - link "en" [ref=e14] [cursor=pointer]:
+          - /url: /en
+        - link "ru" [ref=e15] [cursor=pointer]:
+          - /url: /ru
+      - link "Login" [ref=e16] [cursor=pointer]:
+        - /url: /en/login
+    - banner [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - heading "LIVE IN SPAIN" [level=1] [ref=e21]:
+            - text: LIVE
+            - text: IN
+            - text: SPAIN
+          - generic [ref=e22]:
+            - paragraph [ref=e23]: / Manifesto 001
+            - paragraph [ref=e24]: No shortcuts. No tricks. 8-10 months of real work for authentic conversational fluency.
+        - generic [ref=e25]:
+          - img "Estudiante practicando español" [ref=e27]
+          - generic [ref=e28]:
+            - heading "Are you ready?" [level=2] [ref=e29]
+            - link "LET'S TALK" [ref=e30] [cursor=pointer]:
+              - /url: mailto:hola@espanolhonesto.com
+    - generic [ref=e32]: No Shortcuts • Real Work • Real Results • No Shortcuts • Real Work • Real Results • No Shortcuts • Real Work • Real Results • No Shortcuts • Real Work • Real Results • No Shortcuts • Real Work • Real Results • No Shortcuts • Real Work • Real Results • No Shortcuts • Real Work • Real Results • No Shortcuts • Real Work • Real Results •
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - heading "AFTER TWO YEARS IN SPAIN" [level=2] [ref=e36]
+        - paragraph [ref=e37]: You still don't understand.
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - generic: "01"
+          - paragraph [ref=e40]: You've been saying 'vale' in meetings for two years without understanding half of it.
+        - generic [ref=e41]:
+          - generic: "02"
+          - paragraph [ref=e42]: The waiter asks you something. You say 'vale'. You don't know if you asked for the bill or more bread.
+        - generic [ref=e43]:
+          - generic: "03"
+          - paragraph [ref=e44]: You nod in conversations. You laugh when others laugh. You don't always know why.
+        - generic [ref=e45]:
+          - generic: "04"
+          - paragraph [ref=e46]: Your landlord explains something about the contract. You nod. You sign. You pray.
+    - generic [ref=e48]:
+      - generic [ref=e49]:
+        - heading "HOW IT WORKS" [level=2] [ref=e50]
+        - generic [ref=e51]:
+          - paragraph [ref=e52]: / MANIFESTO 002
+          - paragraph [ref=e53]: Your time with us is too valuable to read PowerPoints. Review before. Speak in class. That's how it works.
+        - paragraph [ref=e54]: Real work. But not suffering.
+      - generic [ref=e55]:
+        - generic [ref=e56]:
+          - generic [ref=e57]: "01"
+          - heading "FLIPPED CLASSROOM" [level=3] [ref=e58]
+          - paragraph [ref=e59]: Theory at home. Practice with us. Every minute of class is for speaking.
+        - generic [ref=e60]:
+          - generic [ref=e61]: "02"
+          - heading "SPACING EFFECT" [level=3] [ref=e62]
+          - paragraph [ref=e63]: We review at the exact moment before you forget it. Science, not intuition.
+        - generic [ref=e64]:
+          - generic [ref=e65]: "03"
+          - heading "REAL SITUATIONS" [level=3] [ref=e66]
+          - paragraph [ref=e67]: Doctor, bureaucracy, work, bars. What you need to really live here.
+    - img "Vista atmosférica" [ref=e70]
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - heading "8-10 MONTHS" [level=2] [ref=e75]
+        - generic [ref=e76]:
+          - paragraph [ref=e77]: / MANIFESTO 003
+          - paragraph [ref=e78]: Speaking Spanish is the door. Knowing Spain is what's behind it.
+        - heading "For real conversational fluency." [level=3] [ref=e79]
+        - paragraph [ref=e80]: We don't promise magic. We promise a plan. With daily practice, honest feedback, and real situations, you will reach a point where you can maintain fluid conversations on any everyday topic.
+      - generic [ref=e82]:
+        - generic [ref=e83]:
+          - heading "MONTH 1-2" [level=4] [ref=e85]
+          - paragraph [ref=e86]: You understand basic structures. You start thinking in Spanish.
+        - generic [ref=e87]:
+          - heading "MONTH 3-4" [level=4] [ref=e89]
+          - paragraph [ref=e90]: You maintain simple conversations. You lose the fear.
+        - generic [ref=e91]:
+          - heading "MONTH 5-7" [level=4] [ref=e93]
+          - paragraph [ref=e94]: You talk about complex topics. You understand humor and expressions.
+        - generic [ref=e95]:
+          - heading "MONTH 8-10" [level=4] [ref=e97]
+          - paragraph [ref=e98]: Conversational fluency. You live in Spanish without translating in your head.
+    - generic [ref=e101]:
+      - generic [ref=e102]:
+        - heading "PLANS" [level=2] [ref=e103]
+        - generic [ref=e104]: SELECT YOUR LEVEL OF COMMITMENT
+      - generic [ref=e105]:
+        - generic [ref=e106]:
+          - generic [ref=e107]: Name
+          - generic [ref=e108]: Price
+          - generic [ref=e109]: Includes
+          - generic [ref=e110]: Action
+        - generic [ref=e111]:
+          - generic [ref=e112]:
+            - heading "Essential" [level=3] [ref=e113]
+            - paragraph [ref=e114]: For the autonomous learner
+          - generic [ref=e115]: €160/month
+          - generic [ref=e116]:
+            - paragraph [ref=e117]: • 2 weekly classes
+            - paragraph [ref=e118]: • Materials included
+            - paragraph [ref=e119]: • Community access
+          - button "Select" [ref=e121] [cursor=pointer]
+        - generic [ref=e122]:
+          - generic [ref=e123]: Recommended
+          - generic [ref=e124]:
+            - heading "Intensive" [level=3] [ref=e125]
+            - paragraph [ref=e126]: Total commitment
+          - generic [ref=e127]: €280/month
+          - generic [ref=e128]:
+            - paragraph [ref=e129]: • 4 weekly classes
+            - paragraph [ref=e130]: • Personalized tutoring
+            - paragraph [ref=e131]: • Everything in Essential
+          - button "Select" [ref=e133] [cursor=pointer]
+        - generic [ref=e134]:
+          - generic [ref=e135]:
+            - heading "Premium" [level=3] [ref=e136]
+            - paragraph [ref=e137]: Exclusive attention
+          - generic [ref=e138]: €300/month
+          - generic [ref=e139]:
+            - paragraph [ref=e140]: • Unlimited 1-on-1 classes
+            - paragraph [ref=e141]: • Flexible schedule
+            - paragraph [ref=e142]: • Exam preparation
+          - button "Select" [ref=e144] [cursor=pointer]
+    - generic [ref=e146]:
+      - generic [ref=e147]:
+        - heading "TWO LINGUISTS. ONE GOAL." [level=2] [ref=e148]
+        - generic [ref=e149]:
+          - paragraph [ref=e150]: / MANIFESTO 004
+          - paragraph [ref=e151]: Linguists tired of courses that lead nowhere. You know what works when you've lived it.
+        - paragraph [ref=e152]: We met at the Complutense University of Madrid. We became friends. Now we teach Spanish together.
+      - generic [ref=e153]:
+        - generic [ref=e154]:
+          - img "ALEJANDRO" [ref=e156]
+          - heading "ALEJANDRO" [level=3] [ref=e157]
+          - paragraph [ref=e158]: HEAD TEACHER
+          - generic [ref=e159]:
+            - generic [ref=e160]: ES
+            - generic [ref=e161]: AST
+            - generic [ref=e162]: EN
+            - generic [ref=e163]: IT
+            - generic [ref=e164]: PT
+            - generic [ref=e165]: FR
+            - generic [ref=e166]: RU
+            - generic [ref=e167]: CA
+          - paragraph [ref=e168]: UCM Linguist. Specialist in Spanish teaching. If something can be explained better, he finds the way.
+        - generic [ref=e169]:
+          - img "ALIN" [ref=e171]
+          - heading "ALIN" [level=3] [ref=e172]
+          - paragraph [ref=e173]: TEACHER & DEVELOPMENT
+          - generic [ref=e174]:
+            - generic [ref=e175]: ES
+            - generic [ref=e176]: RO
+            - generic [ref=e177]: EN
+            - generic [ref=e178]: IT
+            - generic [ref=e179]: RU
+          - paragraph [ref=e180]: UCM Linguist. Self-taught polyglot. Builds the systems that make everything work.
+    - generic [ref=e182]:
+      - heading "FREQUENTLY ASKED QUESTIONS" [level=2] [ref=e184]
+      - generic [ref=e185]:
+        - generic [ref=e186]:
+          - button "What level do I need to start? +" [ref=e187] [cursor=pointer]:
+            - generic [ref=e188]: What level do I need to start?
+            - generic [ref=e189]: +
+          - paragraph [ref=e190]: We recommend a minimum A2 level. If you are starting from absolute zero, there are better options for the first steps. Our strength is getting you unstuck from B1-B2.
+        - generic [ref=e191]:
+          - button "How are the online classes? +" [ref=e192] [cursor=pointer]:
+            - generic [ref=e193]: How are the online classes?
+            - generic [ref=e194]: +
+          - paragraph [ref=e195]: Video call, one hour. You have already worked on the material before (flipped classroom). The session is 100% conversation, correction, and practice of real situations.
+        - generic [ref=e196]:
+          - button "What happens if I have to cancel a class? +" [ref=e197] [cursor=pointer]:
+            - generic [ref=e198]: What happens if I have to cancel a class?
+            - generic [ref=e199]: +
+          - paragraph [ref=e200]: Notify us 24 hours in advance and we reschedule without problem. Less than 24 hours, the class is lost. We are flexible, but the commitment is mutual.
+        - generic [ref=e201]:
+          - button "Can I change plans? +" [ref=e202] [cursor=pointer]:
+            - generic [ref=e203]: Can I change plans?
+            - generic [ref=e204]: +
+          - paragraph [ref=e205]: Yes. You can upgrade or downgrade at any time. The change applies in the next billing cycle.
+        - generic [ref=e206]:
+          - button "Do you offer classes for companies? +" [ref=e207] [cursor=pointer]:
+            - generic [ref=e208]: Do you offer classes for companies?
+            - generic [ref=e209]: +
+          - paragraph [ref=e210]: Yes, but it is a different service. Write to us and we can talk about the specific needs of your team.
+        - generic [ref=e211]:
+          - button "Can I learn Spanish in 3 months? +" [ref=e212] [cursor=pointer]:
+            - generic [ref=e213]: Can I learn Spanish in 3 months?
+            - generic [ref=e214]: +
+          - paragraph [ref=e215]: Technically, you will learn something. Practically, not enough. Honestly, no. That's why we say 8-10 months.
+    - contentinfo [ref=e216]:
+      - generic [ref=e217]:
+        - generic [ref=e218]:
+          - heading "START" [level=2] [ref=e219]
+          - heading "NOW" [level=2] [ref=e220]
+        - generic [ref=e221]:
+          - generic [ref=e222]:
+            - text: Calle de la Verdad, 12
+            - text: Madrid, Spain
+            - text: hola@espanolhonesto.com
+          - link "Legal Information" [ref=e224] [cursor=pointer]:
+            - /url: /en/legal
+          - paragraph [ref=e225]: © 2026 Español Honesto. All rights reserved.
+  - generic [ref=e227]:
+    - paragraph [ref=e228]:
+      - text: We use technical cookies for the site to function.
+      - link "More info" [ref=e229] [cursor=pointer]:
+        - /url: /en/legal/cookies
+    - button "Accept" [ref=e230] [cursor=pointer]
+  - generic [ref=e233]:
+    - button "Menu" [ref=e234]:
+      - img [ref=e236]
+      - generic: Menu
+    - button "Inspect" [ref=e240]:
+      - img [ref=e242]
+      - generic: Inspect
+    - button "Audit" [ref=e244]:
+      - generic [ref=e245]:
+        - img [ref=e246]
+        - img [ref=e249]
+      - generic: Audit
+    - button "Settings" [ref=e252]:
+      - img [ref=e254]
+      - generic: Settings
+```

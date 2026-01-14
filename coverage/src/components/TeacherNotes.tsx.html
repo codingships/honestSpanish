@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">94.44% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/18</span>
+                <span class='fraction'>17/18</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/12</span>
+                <span class='fraction'>12/12</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">75% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>3/4</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/17</span>
+                <span class='fraction'>17/17</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -159,40 +159,40 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-yes">15x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">4x</span>
+<span class="cline-any cline-yes">4x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">3x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">15x</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -241,41 +241,41 @@ interface TeacherNotesProps {
     };
 }
 &nbsp;
-export default function <span class="fstat-no" title="function not covered" >TeacherNotes({</span> studentId, initialNotes, translations: t }: TeacherNotesProps) {
-    const [notes, setNotes<span class="cstat-no" title="statement not covered" >] = useState(initialNotes || '');</span>
-    const [isSaving, setIsSaving<span class="cstat-no" title="statement not covered" >] = useState(false);</span>
-    const [saveStatus, setSaveStatus<span class="cstat-no" title="statement not covered" >] = useState&lt;'idle' | 'saved' | 'error'&gt;('idle');</span>
+export default function TeacherNotes({ studentId, initialNotes, translations: t }: TeacherNotesProps) {
+    const [notes, setNotes] = useState(initialNotes || '');
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveStatus, setSaveStatus] = useState&lt;'idle' | 'saved' | 'error'&gt;('idle');
 &nbsp;
-    const handleSave = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >async () =&gt; {</span></span>
-<span class="cstat-no" title="statement not covered" >        setIsSaving(true);</span>
-<span class="cstat-no" title="statement not covered" >        setSaveStatus('idle');</span>
+    const handleSave = async () =&gt; {
+        setIsSaving(true);
+        setSaveStatus('idle');
 &nbsp;
-<span class="cstat-no" title="statement not covered" >        try {</span>
-            const response = <span class="cstat-no" title="statement not covered" >await fetch('/api/update-student-notes', {</span>
+        try {
+            const response = await fetch('/api/update-student-notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ studentId, notes }),
             });
 &nbsp;
-<span class="cstat-no" title="statement not covered" >            if (!response.ok) {</span>
-<span class="cstat-no" title="statement not covered" >                throw new Error('Failed to save');</span>
+            if (!response.ok) {
+                throw new Error('Failed to save');
             }
 &nbsp;
-<span class="cstat-no" title="statement not covered" >            setSaveStatus('saved');</span>
-<span class="cstat-no" title="statement not covered" >            setTimeout(<span class="fstat-no" title="function not covered" >() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etSaveStatus('idle'), 3</span>000);</span>
+            setSaveStatus('saved');
+            setTimeout(<span class="fstat-no" title="function not covered" >() =&gt; <span class="cstat-no" title="statement not covered" >s</span>etSaveStatus('idle'), 3</span>000);
         } catch (error) {
-<span class="cstat-no" title="statement not covered" >            console.error('Error saving notes:', error);</span>
-<span class="cstat-no" title="statement not covered" >            setSaveStatus('error');</span>
+            console.error('Error saving notes:', error);
+            setSaveStatus('error');
         } finally {
-<span class="cstat-no" title="statement not covered" >            setIsSaving(false);</span>
+            setIsSaving(false);
         }
     };
 &nbsp;
-<span class="cstat-no" title="statement not covered" >    return (</span>
+    return (
         &lt;div className="space-y-4"&gt;
             &lt;textarea
                 value={notes}
-                onChange={<span class="fstat-no" title="function not covered" >(e</span>) =&gt; <span class="cstat-no" title="statement not covered" >setNotes(e.target.value)}</span>
+                onChange={(e) =&gt; setNotes(e.target.value)}
                 placeholder={t.placeholder}
                 className="w-full h-40 p-4 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-[#006064] placeholder-[#006064]/40 resize-none"
             /&gt;
@@ -319,7 +319,7 @@ export default function <span class="fstat-no" title="function not covered" >Tea
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-01-13T09:58:04.342Z
+                at 2026-01-14T13:48:05.374Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

@@ -12,12 +12,20 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:html": "vitest run --coverage && start coverage/index.html",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:debug": "playwright test --debug",
     "test:e2e:report": "playwright show-report",
     "test:e2e:auth": "playwright test auth.spec.ts",
-    "test:e2e:calendar": "playwright test calendar.spec.ts"
+    "test:e2e:calendar": "playwright test calendar.spec.ts",
+    "test:e2e:firefox": "playwright test --project=public-firefox",
+    "test:e2e:safari": "playwright test --project=public-webkit",
+    "test:e2e:mobile": "playwright test --project=public-mobile-chrome --project=public-mobile-safari",
+    "test:e2e:all-browsers": "playwright test --project=public --project=public-firefox --project=public-webkit",
+    "test:all": "vitest run && playwright test --project=public",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@astrojs/react": "^4.0.0",
@@ -36,6 +44,7 @@
     "stripe": "^20.1.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.11.0",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.57.0",
     "@tailwindcss/typography": "^0.5.19",
@@ -57,6 +66,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
+    "typescript-eslint": "^8.53.0",
     "vitest": "^4.0.17"
   }
 }

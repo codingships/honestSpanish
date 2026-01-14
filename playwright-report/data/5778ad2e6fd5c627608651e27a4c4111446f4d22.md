@@ -1,0 +1,247 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]: ESPAÑOL HONESTO
+      - generic [ref=e5]:
+        - link "Метод" [ref=e6] [cursor=pointer]:
+          - /url: "#metodo"
+        - link "Прогресс" [ref=e7] [cursor=pointer]:
+          - /url: "#progreso"
+        - link "Планы" [ref=e8] [cursor=pointer]:
+          - /url: "#planes"
+        - link "Команда" [ref=e9] [cursor=pointer]:
+          - /url: "#equipo"
+        - link "FAQ" [ref=e10] [cursor=pointer]:
+          - /url: "#faq"
+        - link "Блог" [ref=e11] [cursor=pointer]:
+          - /url: /ru/blog
+      - generic [ref=e12]:
+        - link "es" [ref=e13] [cursor=pointer]:
+          - /url: /es
+        - link "en" [ref=e14] [cursor=pointer]:
+          - /url: /en
+        - link "ru" [ref=e15] [cursor=pointer]:
+          - /url: /ru
+      - link "Войти" [ref=e16] [cursor=pointer]:
+        - /url: /ru/login
+    - banner [ref=e17]:
+      - generic [ref=e18]:
+        - generic [ref=e19]:
+          - heading "ЖИТЬ В ИСПАНИИ" [level=1] [ref=e21]:
+            - text: ЖИТЬ
+            - text: В
+            - text: ИСПАНИИ
+          - generic [ref=e22]:
+            - paragraph [ref=e23]: / Манифест 001
+            - paragraph [ref=e24]: Без сокращений. Без уловок. 8-10 месяцев реальной работы для подлинной разговорной беглости.
+        - generic [ref=e25]:
+          - img "Estudiante practicando español" [ref=e27]
+          - generic [ref=e28]:
+            - heading "Вы готовы?" [level=2] [ref=e29]
+            - link "ПОГОВОРИМ" [ref=e30] [cursor=pointer]:
+              - /url: mailto:hola@espanolhonesto.com
+    - generic [ref=e32]: Без Сокращений • Реальная Работа • Реальные Результаты • Без Сокращений • Реальная Работа • Реальные Результаты • Без Сокращений • Реальная Работа • Реальные Результаты • Без Сокращений • Реальная Работа • Реальные Результаты • Без Сокращений • Реальная Работа • Реальные Результаты • Без Сокращений • Реальная Работа • Реальные Результаты • Без Сокращений • Реальная Работа • Реальные Результаты • Без Сокращений • Реальная Работа • Реальные Результаты •
+    - generic [ref=e34]:
+      - generic [ref=e35]:
+        - heading "ПОСЛЕ ДВУХ ЛЕТ В ИСПАНИИ" [level=2] [ref=e36]
+        - paragraph [ref=e37]: Ты всё ещё не понимаешь.
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - generic: "01"
+          - paragraph [ref=e40]: Ты два года говоришь 'vale' на встречах, не понимая и половины.
+        - generic [ref=e41]:
+          - generic: "02"
+          - paragraph [ref=e42]: Официант что-то спрашивает. Ты говоришь 'vale'. Не знаешь, попросил ли счет или еще хлеба.
+        - generic [ref=e43]:
+          - generic: "03"
+          - paragraph [ref=e44]: Ты киваешь в разговорах. Смеешься, когда смеются другие. Не всегда знаешь почему.
+        - generic [ref=e45]:
+          - generic: "04"
+          - paragraph [ref=e46]: Твой арендодатель объясняет что-то о контракте. Киваешь. Подписываешь. Молишься.
+    - generic [ref=e48]:
+      - generic [ref=e49]:
+        - heading "КАК ЭТО РАБОТАЕТ" [level=2] [ref=e50]
+        - generic [ref=e51]:
+          - paragraph [ref=e52]: / МАНИФЕСТ 002
+          - paragraph [ref=e53]: Ваше время с нами слишком ценно, чтобы читать презентации. Изучайте заранее. Говорите на уроке. Так это работает.
+        - paragraph [ref=e54]: Реальная работа. Но не страдания.
+      - generic [ref=e55]:
+        - generic [ref=e56]:
+          - generic [ref=e57]: "01"
+          - heading "ПЕРЕВЕРНУТЫЙ КЛАСС" [level=3] [ref=e58]
+          - paragraph [ref=e59]: Теорию изучаешь дома. Практикуешь с нами. Каждая минута урока — для разговора.
+        - generic [ref=e60]:
+          - generic [ref=e61]: "02"
+          - heading "ИНТЕРВАЛЬНОЕ ПОВТОРЕНИЕ" [level=3] [ref=e62]
+          - paragraph [ref=e63]: Повторяем в точный момент, прежде чем забудешь. Наука, а не интуиция.
+        - generic [ref=e64]:
+          - generic [ref=e65]: "03"
+          - heading "РЕАЛЬНЫЕ СИТУАЦИИ" [level=3] [ref=e66]
+          - paragraph [ref=e67]: Врач, бюрократия, работа, бары. То, что вам нужно, чтобы по-настоящему жить здесь.
+    - img "Vista atmosférica" [ref=e70]
+    - generic [ref=e73]:
+      - generic [ref=e74]:
+        - heading "8-10 МЕСЯЦЕВ" [level=2] [ref=e75]
+        - generic [ref=e76]:
+          - paragraph [ref=e77]: / МАНИФЕСТ 003
+          - paragraph [ref=e78]: Говорить по-испански — это дверь. Знать Испанию — вот что за ней.
+        - heading "Для настоящей разговорной беглости." [level=3] [ref=e79]
+        - paragraph [ref=e80]: Мы не обещаем магии. Мы обещаем план. С ежедневной практикой, честной обратной связью и реальными ситуациями вы сможете поддерживать беглые разговоры на любую повседневную тему.
+      - generic [ref=e82]:
+        - generic [ref=e83]:
+          - heading "МЕСЯЦ 1-2" [level=4] [ref=e85]
+          - paragraph [ref=e86]: Вы понимаете базовые структуры. Начинаете думать на испанском.
+        - generic [ref=e87]:
+          - heading "МЕСЯЦ 3-4" [level=4] [ref=e89]
+          - paragraph [ref=e90]: Поддерживаете простые разговоры. Теряете страх.
+        - generic [ref=e91]:
+          - heading "МЕСЯЦ 5-7" [level=4] [ref=e93]
+          - paragraph [ref=e94]: Говорите на сложные темы. Понимаете юмор и выражения.
+        - generic [ref=e95]:
+          - heading "МЕСЯЦ 8-10" [level=4] [ref=e97]
+          - paragraph [ref=e98]: Разговорная беглость. Живете на испанском, не переводя в уме.
+    - generic [ref=e101]:
+      - generic [ref=e102]:
+        - heading "ПЛАНЫ" [level=2] [ref=e103]
+        - generic [ref=e104]: ВЫБЕРИТЕ ВАШ УРОВЕНЬ ОБЯЗАТЕЛЬСТВ
+      - generic [ref=e105]:
+        - generic [ref=e106]:
+          - generic [ref=e107]: Название
+          - generic [ref=e108]: Цена
+          - generic [ref=e109]: Включает
+          - generic [ref=e110]: Действие
+        - generic [ref=e111]:
+          - generic [ref=e112]:
+            - heading "Базовый" [level=3] [ref=e113]
+            - paragraph [ref=e114]: Для самостоятельного ученика
+          - generic [ref=e115]: €160/месяц
+          - generic [ref=e116]:
+            - paragraph [ref=e117]: • 2 занятия в неделю
+            - paragraph [ref=e118]: • Материалы включены
+            - paragraph [ref=e119]: • Доступ к сообществу
+          - button "Выбрать" [ref=e121] [cursor=pointer]
+        - generic [ref=e122]:
+          - generic [ref=e123]: Рекомендуемый
+          - generic [ref=e124]:
+            - heading "Интенсивный" [level=3] [ref=e125]
+            - paragraph [ref=e126]: Полная отдача
+          - generic [ref=e127]: €280/месяц
+          - generic [ref=e128]:
+            - paragraph [ref=e129]: • 4 занятия в неделю
+            - paragraph [ref=e130]: • Персональное руководство
+            - paragraph [ref=e131]: • Всё из Базового
+          - button "Выбрать" [ref=e133] [cursor=pointer]
+        - generic [ref=e134]:
+          - generic [ref=e135]:
+            - heading "Премиум" [level=3] [ref=e136]
+            - paragraph [ref=e137]: Эксклюзивное внимание
+          - generic [ref=e138]: €300/месяц
+          - generic [ref=e139]:
+            - paragraph [ref=e140]: • Неограниченные индивидуальные занятия
+            - paragraph [ref=e141]: • Гибкий график
+            - paragraph [ref=e142]: • Подготовка к экзаменам
+          - button "Выбрать" [ref=e144] [cursor=pointer]
+    - generic [ref=e146]:
+      - generic [ref=e147]:
+        - heading "ДВА ЛИНГВИСТА. ОДНА ЦЕЛЬ." [level=2] [ref=e148]
+        - generic [ref=e149]:
+          - paragraph [ref=e150]: / МАНИФЕСТ 004
+          - paragraph [ref=e151]: Лингвисты, уставшие от курсов, которые никуда не ведут. Ты знаешь, что работает, когда прожил это.
+        - paragraph [ref=e152]: Мы встретились в Университете Комплутенсе в Мадриде. Стали друзьями. Теперь мы преподаем испанский вместе.
+      - generic [ref=e153]:
+        - generic [ref=e154]:
+          - img "АЛЕХАНДРО" [ref=e156]
+          - heading "АЛЕХАНДРО" [level=3] [ref=e157]
+          - paragraph [ref=e158]: ГЛАВНЫЙ ПРЕПОДАВАТЕЛЬ
+          - generic [ref=e159]:
+            - generic [ref=e160]: ES
+            - generic [ref=e161]: AST
+            - generic [ref=e162]: EN
+            - generic [ref=e163]: IT
+            - generic [ref=e164]: PT
+            - generic [ref=e165]: FR
+            - generic [ref=e166]: RU
+            - generic [ref=e167]: CA
+          - paragraph [ref=e168]: Лингвист UCM. Специалист по преподаванию испанского. Если что-то можно объяснить лучше, он найдет способ.
+        - generic [ref=e169]:
+          - img "АЛИН" [ref=e171]
+          - heading "АЛИН" [level=3] [ref=e172]
+          - paragraph [ref=e173]: ПРЕПОДАВАТЕЛЬ И РАЗРАБОТКА
+          - generic [ref=e174]:
+            - generic [ref=e175]: ES
+            - generic [ref=e176]: RO
+            - generic [ref=e177]: EN
+            - generic [ref=e178]: IT
+            - generic [ref=e179]: RU
+          - paragraph [ref=e180]: Лингвист UCM. Полиглот-самоучка. Создает системы, благодаря которым всё работает.
+    - generic [ref=e182]:
+      - heading "ЧАСТО ЗАДАВАЕМЫЕ ВОПРОСЫ" [level=2] [ref=e184]
+      - generic [ref=e185]:
+        - generic [ref=e186]:
+          - button "Какой уровень мне нужен для начала? +" [ref=e187] [cursor=pointer]:
+            - generic [ref=e188]: Какой уровень мне нужен для начала?
+            - generic [ref=e189]: +
+          - paragraph [ref=e190]: Мы рекомендуем минимум уровень A2. Если вы начинаете с нуля, есть лучшие варианты для первых шагов. Наша сила — вытащить вас из застоя B1-B2.
+        - generic [ref=e191]:
+          - button "Как проходят онлайн-уроки? +" [ref=e192] [cursor=pointer]:
+            - generic [ref=e193]: Как проходят онлайн-уроки?
+            - generic [ref=e194]: +
+          - paragraph [ref=e195]: Видеозвонок, один час. Вы уже проработали материал заранее (перевернутый класс). Сессия — это 100% разговор, исправления и практика реальных ситуаций.
+        - generic [ref=e196]:
+          - button "Что произойдет, если мне нужно отменить урок? +" [ref=e197] [cursor=pointer]:
+            - generic [ref=e198]: Что произойдет, если мне нужно отменить урок?
+            - generic [ref=e199]: +
+          - paragraph [ref=e200]: Сообщите нам за 24 часа, и мы перенесем урок без проблем. Менее чем за 24 часа урок сгорает. Мы гибки, но обязательства взаимны.
+        - generic [ref=e201]:
+          - button "Могу ли я сменить план? +" [ref=e202] [cursor=pointer]:
+            - generic [ref=e203]: Могу ли я сменить план?
+            - generic [ref=e204]: +
+          - paragraph [ref=e205]: Да. Вы можете повысить или понизить план в любое время. Изменения вступают в силу в следующем расчетном цикле.
+        - generic [ref=e206]:
+          - button "Предлагаете ли вы уроки для компаний? +" [ref=e207] [cursor=pointer]:
+            - generic [ref=e208]: Предлагаете ли вы уроки для компаний?
+            - generic [ref=e209]: +
+          - paragraph [ref=e210]: Да, но это отдельная услуга. Напишите нам, и мы обсудим конкретные потребности вашей команды.
+        - generic [ref=e211]:
+          - button "Могу ли я выучить испанский за 3 месяца? +" [ref=e212] [cursor=pointer]:
+            - generic [ref=e213]: Могу ли я выучить испанский за 3 месяца?
+            - generic [ref=e214]: +
+          - paragraph [ref=e215]: Технически, вы чему-то научитесь. Практически, недостаточно. Честно говоря, нет. Поэтому мы говорим 8-10 месяцев.
+    - contentinfo [ref=e216]:
+      - generic [ref=e217]:
+        - generic [ref=e218]:
+          - heading "НАЧНИ" [level=2] [ref=e219]
+          - heading "СЕЙЧАС" [level=2] [ref=e220]
+        - generic [ref=e221]:
+          - generic [ref=e222]:
+            - text: Calle de la Verdad, 12
+            - text: Мадрид, Испания
+            - text: privet@espanolhonesto.com
+          - link "Правовая информация" [ref=e224] [cursor=pointer]:
+            - /url: /ru/legal
+          - paragraph [ref=e225]: © 2026 Español Honesto. Все права защищены.
+  - generic [ref=e227]:
+    - paragraph [ref=e228]:
+      - text: Мы используем технические файлы cookie для работы сайта.
+      - link "Подробнее" [ref=e229] [cursor=pointer]:
+        - /url: /ru/legal/cookies
+    - button "Принять" [ref=e230] [cursor=pointer]
+  - generic [ref=e233]:
+    - button "Menu" [ref=e234]:
+      - img [ref=e236]
+      - generic: Menu
+    - button "Inspect" [ref=e240]:
+      - img [ref=e242]
+      - generic: Inspect
+    - button "Audit" [ref=e244]:
+      - generic [ref=e245]:
+        - img [ref=e246]
+        - img [ref=e249]
+      - generic: Audit
+    - button "Settings" [ref=e252]:
+      - img [ref=e254]
+      - generic: Settings
+```

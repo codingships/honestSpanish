@@ -25,28 +25,28 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>0/11</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/6</span>
+                <span class='fraction'>0/8</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/4</span>
+                <span class='fraction'>0/5</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/9</span>
+                <span class='fraction'>0/10</span>
             </div>
         
             
@@ -86,19 +86,23 @@
 <a name='L21'></a><a href='#L21'>21</a>
 <a name='L22'></a><a href='#L22'>22</a>
 <a name='L23'></a><a href='#L23'>23</a>
-<a name='L24'></a><a href='#L24'>24</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<a name='L24'></a><a href='#L24'>24</a>
+<a name='L25'></a><a href='#L25'>25</a>
+<a name='L26'></a><a href='#L26'>26</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -110,8 +114,9 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { createServerClient, parseCookieHeader } from '@supabase/ssr';
+import type { APIContext } from 'astro';
 &nbsp;
-export const createSupabaseServerClient = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(c</span>ontext) =&gt; {</span>
+export const createSupabaseServerClient = <span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" >(c</span>ontext: APIContext) =&gt; {</span>
     const supabaseUrl = <span class="cstat-no" title="statement not covered" >import.meta.env.PUBLIC_SUPABASE_URL;</span>
     const supabaseKey = <span class="cstat-no" title="statement not covered" >import.meta.env.PUBLIC_SUPABASE_ANON_KEY;</span>
 &nbsp;
@@ -122,7 +127,8 @@ export const createSupabaseServerClient = <span class="cstat-no" title="statemen
 <span class="cstat-no" title="statement not covered" >    return createServerClient(supabaseUrl, supabaseKey, {</span>
         cookies: {
 <span class="fstat-no" title="function not covered" >            getAll() {</span>
-<span class="cstat-no" title="statement not covered" >                return parseCookieHeader(context.request.headers.get('Cookie') ?? '');</span>
+                const <span class="cstat-no" title="statement not covered" >cookies = parseCookieHeader(context.request.headers.get('Cookie') ?? '');</span>
+<span class="cstat-no" title="statement not covered" >                return cookies.map(<span class="fstat-no" title="function not covered" >c =&gt; (<span class="cstat-no" title="statement not covered" >{</span> name: c.name, value: c.value ?? '' }))</span>;</span>
             },
 <span class="fstat-no" title="function not covered" >            setAll(c</span>ookiesToSet) {
 <span class="cstat-no" title="statement not covered" >                cookiesToSet.forEach(<span class="fstat-no" title="function not covered" >({</span> name, value, options }) =&gt;</span>
@@ -139,7 +145,7 @@ export const createSupabaseServerClient = <span class="cstat-no" title="statemen
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-01-13T09:58:04.342Z
+                at 2026-01-14T13:48:05.374Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

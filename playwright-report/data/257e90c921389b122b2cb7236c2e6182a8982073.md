@@ -1,0 +1,225 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e4]: ESPAÑOL HONESTO
+      - generic [ref=e5]:
+        - link "es" [ref=e6] [cursor=pointer]:
+          - /url: /es
+        - link "en" [ref=e7] [cursor=pointer]:
+          - /url: /en
+        - link "ru" [ref=e8] [cursor=pointer]:
+          - /url: /ru
+    - banner [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - heading "VIVIR EN ESPAÑA" [level=1] [ref=e13]:
+            - text: VIVIR
+            - text: EN
+            - text: ESPAÑA
+          - generic [ref=e14]:
+            - paragraph [ref=e15]: / Manifiesto 001
+            - paragraph [ref=e16]: Sin atajos. Sin trucos. 8-10 meses de trabajo real para una fluidez conversacional auténtica. Sin atajos, solo resultados reales.
+        - generic [ref=e17]:
+          - img "Estudiante practicando español" [ref=e19]
+          - generic [ref=e20]:
+            - heading "¿Estás listo?" [level=2] [ref=e21]
+            - link "HABLEMOS" [ref=e22] [cursor=pointer]:
+              - /url: mailto:hola@espanolhonesto.com
+    - generic [ref=e24]: Sin Atajos • Trabajo Real • Resultados Reales • Sin Atajos • Trabajo Real • Resultados Reales • Sin Atajos • Trabajo Real • Resultados Reales • Sin Atajos • Trabajo Real • Resultados Reales • Sin Atajos • Trabajo Real • Resultados Reales • Sin Atajos • Trabajo Real • Resultados Reales • Sin Atajos • Trabajo Real • Resultados Reales • Sin Atajos • Trabajo Real • Resultados Reales •
+    - generic [ref=e26]:
+      - generic [ref=e27]:
+        - heading "DESPUÉS DE DOS AÑOS EN ESPAÑA" [level=2] [ref=e28]
+        - paragraph [ref=e29]: Sigues sin entender.
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic: "01"
+          - paragraph [ref=e32]: Llevas dos años diciendo 'vale' en reuniones sin enterarte de la mitad.
+        - generic [ref=e33]:
+          - generic: "02"
+          - paragraph [ref=e34]: El camarero te pregunta algo. Dices 'vale'. No sabes si has pedido la cuenta o más pan.
+        - generic [ref=e35]:
+          - generic: "03"
+          - paragraph [ref=e36]: Asientes en las conversaciones. Ríes cuando los demás ríen. No siempre sabes de qué.
+        - generic [ref=e37]:
+          - generic: "04"
+          - paragraph [ref=e38]: Tu casero te explica algo del contrato. Asientes. Firmas. Rezas.
+    - generic [ref=e40]:
+      - generic [ref=e41]:
+        - heading "CÓMO FUNCIONA" [level=2] [ref=e42]
+        - generic [ref=e43]:
+          - paragraph [ref=e44]: / MANIFIESTO 002
+          - paragraph [ref=e45]: Tu tiempo con nosotros es demasiado valioso para leer PowerPoints. Revisa antes. Habla en clase. Así funciona.
+        - paragraph [ref=e46]: Trabajo real. Pero no sufrimiento.
+      - generic [ref=e47]:
+        - generic [ref=e48]:
+          - generic [ref=e49]: "01"
+          - heading "CLASE INVERTIDA" [level=3] [ref=e50]
+          - paragraph [ref=e51]: La teoría, en tu casa. La práctica, con nosotros. Así aprovechas cada minuto de clase para hablar.
+        - generic [ref=e52]:
+          - generic [ref=e53]: "02"
+          - heading "SPACING EFFECT" [level=3] [ref=e54]
+          - paragraph [ref=e55]: Repasamos en el momento exacto antes de que lo olvides. Ciencia, no intuición.
+        - generic [ref=e56]:
+          - generic [ref=e57]: "03"
+          - heading "SITUACIONES REALES" [level=3] [ref=e58]
+          - paragraph [ref=e59]: Médico, burocracia, trabajo, bares. Lo que necesitas para vivir aquí de verdad.
+    - img "Vista atmosférica" [ref=e62]
+    - generic [ref=e65]:
+      - generic [ref=e66]:
+        - heading "8-10 MESES" [level=2] [ref=e67]
+        - generic [ref=e68]:
+          - paragraph [ref=e69]: / MANIFIESTO 003
+          - paragraph [ref=e70]: Hablar español es la puerta. Conocer España es lo que hay detrás.
+        - heading "Para una fluidez conversacional real." [level=3] [ref=e71]
+        - paragraph [ref=e72]: No prometemos magia. Prometemos un plan. Con práctica diaria, feedback honesto, y situaciones reales, llegarás a mantener conversaciones fluidas sobre cualquier tema cotidiano.
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - heading "MES 1-2" [level=4] [ref=e77]
+          - paragraph [ref=e78]: Entiendes las estructuras básicas. Empiezas a pensar en español.
+        - generic [ref=e79]:
+          - heading "MES 3-4" [level=4] [ref=e81]
+          - paragraph [ref=e82]: Mantienes conversaciones simples. Pierdes el miedo.
+        - generic [ref=e83]:
+          - heading "MES 5-7" [level=4] [ref=e85]
+          - paragraph [ref=e86]: Hablas de temas complejos. Entiendes el humor y las expresiones.
+        - generic [ref=e87]:
+          - heading "MES 8-10" [level=4] [ref=e89]
+          - paragraph [ref=e90]: Fluidez conversacional. Vives en español sin traducir mentalmente.
+    - generic [ref=e93]:
+      - heading "PLANES" [level=2] [ref=e95]
+      - generic [ref=e96]:
+        - generic [ref=e97]:
+          - generic [ref=e98]:
+            - heading "Esencial" [level=3] [ref=e99]
+            - paragraph [ref=e100]: Para el estudiante autónomo
+          - generic [ref=e101]: €160/mes
+          - generic [ref=e102]:
+            - paragraph [ref=e103]: • 2 clases semanales
+            - paragraph [ref=e104]: • Material incluido
+            - paragraph [ref=e105]: • Acceso a comunidad
+          - button "Seleccionar" [ref=e107] [cursor=pointer]
+        - generic [ref=e108]:
+          - generic [ref=e109]: Recomendado
+          - generic [ref=e110]:
+            - heading "Intensivo" [level=3] [ref=e111]
+            - paragraph [ref=e112]: Compromiso total
+          - generic [ref=e113]: €280/mes
+          - generic [ref=e114]:
+            - paragraph [ref=e115]: • 4 clases semanales
+            - paragraph [ref=e116]: • Tutoría personalizada
+            - paragraph [ref=e117]: • Todo lo de Esencial
+          - button "Seleccionar" [ref=e119] [cursor=pointer]
+        - generic [ref=e120]:
+          - generic [ref=e121]:
+            - heading "Premium" [level=3] [ref=e122]
+            - paragraph [ref=e123]: Atención exclusiva
+          - generic [ref=e124]: €300/mes
+          - generic [ref=e125]:
+            - paragraph [ref=e126]: • Clases 1 a 1 ilimitadas
+            - paragraph [ref=e127]: • Horario flexible
+            - paragraph [ref=e128]: • Preparación exámenes
+          - button "Seleccionar" [ref=e130] [cursor=pointer]
+    - generic [ref=e132]:
+      - generic [ref=e133]:
+        - heading "DOS LINGÜISTAS. UN OBJETIVO." [level=2] [ref=e134]
+        - generic [ref=e135]:
+          - paragraph [ref=e136]: / MANIFIESTO 004
+          - paragraph [ref=e137]: Lingüistas cansados de cursos que no llevan a nada. Sabes qué funciona cuando lo has vivido.
+        - paragraph [ref=e138]: Nos conocimos en la Universidad Complutense de Madrid. Nos hicimos amigos. Ahora enseñamos español juntos.
+      - generic [ref=e139]:
+        - generic [ref=e140]:
+          - img "ALEJANDRO" [ref=e142]
+          - heading "ALEJANDRO" [level=3] [ref=e143]
+          - paragraph [ref=e144]: PROFESOR PRINCIPAL
+          - generic [ref=e145]:
+            - generic [ref=e146]: ES
+            - generic [ref=e147]: AST
+            - generic [ref=e148]: EN
+            - generic [ref=e149]: IT
+            - generic [ref=e150]: PT
+            - generic [ref=e151]: FR
+            - generic [ref=e152]: RU
+            - generic [ref=e153]: CA
+          - paragraph [ref=e154]: Lingüista UCM. Especialista en enseñanza de español. Si algo puede explicarse mejor, él encuentra la manera.
+        - generic [ref=e155]:
+          - img "ALIN" [ref=e157]
+          - heading "ALIN" [level=3] [ref=e158]
+          - paragraph [ref=e159]: PROFESOR & DESARROLLO
+          - generic [ref=e160]:
+            - generic [ref=e161]: ES
+            - generic [ref=e162]: RO
+            - generic [ref=e163]: EN
+            - generic [ref=e164]: IT
+            - generic [ref=e165]: RU
+          - paragraph [ref=e166]: Lingüista UCM. Políglota autodidacta. Construye los sistemas que hacen que todo funcione.
+    - generic [ref=e168]:
+      - heading "PREGUNTAS FRECUENTES" [level=2] [ref=e170]
+      - generic [ref=e171]:
+        - generic [ref=e172]:
+          - button "¿Qué nivel necesito para empezar? +" [ref=e173] [cursor=pointer]:
+            - generic [ref=e174]: ¿Qué nivel necesito para empezar?
+            - generic [ref=e175]: +
+          - paragraph [ref=e176]: Recomendamos un nivel A2 mínimo. Si estás en cero absoluto, hay opciones mejores que nosotros para los primeros pasos. Nuestro fuerte es sacarte del atasco del B1-B2.
+        - generic [ref=e177]:
+          - button "¿Cómo son las clases online? +" [ref=e178] [cursor=pointer]:
+            - generic [ref=e179]: ¿Cómo son las clases online?
+            - generic [ref=e180]: +
+          - paragraph [ref=e181]: Por videollamada, una hora. Tú ya has trabajado el material antes (clase invertida). La sesión es 100% conversación, corrección y práctica de situaciones reales.
+        - generic [ref=e182]:
+          - button "¿Qué pasa si tengo que cancelar una clase? +" [ref=e183] [cursor=pointer]:
+            - generic [ref=e184]: ¿Qué pasa si tengo que cancelar una clase?
+            - generic [ref=e185]: +
+          - paragraph [ref=e186]: Avisa con 24 horas de antelación y la reprogramamos sin problema. Menos de 24 horas, la clase se pierde. Somos flexibles, pero el compromiso es mutuo.
+        - generic [ref=e187]:
+          - button "¿Puedo cambiar de plan? +" [ref=e188] [cursor=pointer]:
+            - generic [ref=e189]: ¿Puedo cambiar de plan?
+            - generic [ref=e190]: +
+          - paragraph [ref=e191]: Sí. Puedes subir o bajar de plan en cualquier momento. El cambio se aplica en el siguiente ciclo de facturación.
+        - generic [ref=e192]:
+          - button "¿Ofrecéis clases para empresas? +" [ref=e193] [cursor=pointer]:
+            - generic [ref=e194]: ¿Ofrecéis clases para empresas?
+            - generic [ref=e195]: +
+          - paragraph [ref=e196]: Sí, pero es un servicio diferente. Escríbenos y hablamos de las necesidades específicas de tu equipo.
+        - generic [ref=e197]:
+          - button "¿Puedo aprender español en 3 meses? +" [ref=e198] [cursor=pointer]:
+            - generic [ref=e199]: ¿Puedo aprender español en 3 meses?
+            - generic [ref=e200]: +
+          - paragraph [ref=e201]: Técnicamente, algo aprenderás. Prácticamente, no lo suficiente. Honestamente, no. Por eso decimos 8-10 meses.
+    - contentinfo [ref=e202]:
+      - generic [ref=e203]:
+        - generic [ref=e204]:
+          - heading "EMPIEZA" [level=2] [ref=e205]
+          - heading "AHORA" [level=2] [ref=e206]
+        - generic [ref=e207]:
+          - generic [ref=e208]:
+            - text: Calle de la Verdad, 12
+            - text: Madrid, España
+            - text: hola@espanolhonesto.com
+          - link "Información legal" [ref=e210] [cursor=pointer]:
+            - /url: /es/legal
+          - paragraph [ref=e211]: © 2026 Español Honesto. Todos los derechos reservados.
+  - generic [ref=e213]:
+    - paragraph [ref=e214]:
+      - text: Utilizamos cookies técnicas para el funcionamiento del sitio.
+      - link "Más información" [ref=e215] [cursor=pointer]:
+        - /url: /es/legal/cookies
+    - button "Aceptar" [ref=e216] [cursor=pointer]
+  - generic [ref=e219]:
+    - button "Menu" [ref=e220]:
+      - img [ref=e222]
+      - generic: Menu
+    - button "Inspect" [ref=e226]:
+      - img [ref=e228]
+      - generic: Inspect
+    - button "Audit" [ref=e230]:
+      - generic [ref=e231]:
+        - img [ref=e232]
+        - img [ref=e235]
+      - generic: Audit
+    - button "Settings" [ref=e238]:
+      - img [ref=e240]
+      - generic: Settings
+```

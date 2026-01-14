@@ -1,0 +1,2053 @@
+{
+  "config": {
+    "configFile": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\playwright.config.ts",
+    "rootDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 14
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "list",
+        {
+          "printSteps": true
+        }
+      ],
+      [
+        "html",
+        {
+          "open": "never",
+          "outputFolder": "playwright-report"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "public",
+        "name": "public",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.public\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "student",
+        "name": "student",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.student\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "teacher",
+        "name": "teacher",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.teacher\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "admin",
+        "name": "admin",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.admin\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "public-firefox",
+        "name": "public-firefox",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.public\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "student-firefox",
+        "name": "student-firefox",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.student\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "public-webkit",
+        "name": "public-webkit",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.public\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "student-webkit",
+        "name": "student-webkit",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.student\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "public-mobile-chrome",
+        "name": "public-mobile-chrome",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.public\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "public-mobile-safari",
+        "name": "public-mobile-safari",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*\\.public\\.spec\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "student-setup",
+        "name": "student-setup",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/student\\.setup\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "teacher-setup",
+        "name": "teacher-setup",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/teacher\\.setup\\.ts/"
+        ],
+        "timeout": 60000
+      },
+      {
+        "outputDir": "C:/Users/Alin/Desktop/Academia/pruebas/test-results/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 14
+        },
+        "id": "admin-setup",
+        "name": "admin-setup",
+        "testDir": "C:/Users/Alin/Desktop/Academia/pruebas/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/admin\\.setup\\.ts/"
+        ],
+        "timeout": 60000
+      }
+    ],
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.57.0",
+    "workers": 14,
+    "webServer": {
+      "command": "npm run dev",
+      "url": "http://localhost:4321",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "accessibility.public.spec.ts",
+      "file": "accessibility.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Homepage Accessibility",
+          "file": "accessibility.public.spec.ts",
+          "line": 53,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should have no critical accessibility violations",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 11595,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m0\u001b[39m\nReceived: \u001b[31m1\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m0\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts:68:34",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts",
+                          "column": 34,
+                          "line": 68
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 66 |\u001b[39m         \u001b[90m// Allow minor/moderate issues, but no critical or serious\u001b[39m\n \u001b[90m 67 |\u001b[39m         expect(analysis\u001b[33m.\u001b[39mcritical)\u001b[33m.\u001b[39mtoBe(\u001b[35m0\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 68 |\u001b[39m         expect(analysis\u001b[33m.\u001b[39mserious)\u001b[33m.\u001b[39mtoBe(\u001b[35m0\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                  \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 69 |\u001b[39m\n \u001b[90m 70 |\u001b[39m         log(\u001b[32m'✅ Homepage passes critical accessibility checks'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 71 |\u001b[39m     })\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts",
+                            "column": 34,
+                            "line": 68
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m0\u001b[39m\nReceived: \u001b[31m1\u001b[39m\n\n  66 |         // Allow minor/moderate issues, but no critical or serious\n  67 |         expect(analysis.critical).toBe(0);\n> 68 |         expect(analysis.serious).toBe(0);\n     |                                  ^\n  69 |\n  70 |         log('✅ Homepage passes critical accessibility checks');\n  71 |     });\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts:68:34"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:46.424Z] ♿ Testing homepage accessibility\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.594Z] ♿ Homepage a11y results\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"summary\": \"1 violations found\",\n  \"critical\": 0,\n  \"serious\": 1,\n  \"moderate\": 0,\n  \"minor\": 0,\n  \"details\": [\n    {\n      \"id\": \"color-contrast\",\n      \"impact\": \"serious\",\n      \"description\": \"Ensure the contrast between foreground and background colors meets WCAG 2 AA minimum contrast ratio thresholds\",\n      \"nodes\": 28\n    }\n  ]\n}\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.804Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-5abb9-al-accessibility-violations-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-5abb9-al-accessibility-violations-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-5abb9-al-accessibility-violations-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts",
+                        "column": 34,
+                        "line": 68
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "03c1b01dd6293e3f0921-f66b370af947a89a76af",
+              "file": "accessibility.public.spec.ts",
+              "line": 55,
+              "column": 5
+            },
+            {
+              "title": "should have proper heading hierarchy",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "failed",
+                      "duration": 16021,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m4\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m4\u001b[39m\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts:80:21",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts",
+                          "column": 21,
+                          "line": 80
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 78 |\u001b[39m         \u001b[36mconst\u001b[39m h1s \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'h1'\u001b[39m)\u001b[33m.\u001b[39mcount()\u001b[33m;\u001b[39m\n \u001b[90m 79 |\u001b[39m         log(\u001b[32m'H1 count'\u001b[39m\u001b[33m,\u001b[39m { count\u001b[33m:\u001b[39m h1s })\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 80 |\u001b[39m         expect(h1s)\u001b[33m.\u001b[39mtoBe(\u001b[35m1\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                     \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 81 |\u001b[39m\n \u001b[90m 82 |\u001b[39m         \u001b[90m// Check headings follow logical order\u001b[39m\n \u001b[90m 83 |\u001b[39m         \u001b[36mconst\u001b[39m headings \u001b[33m=\u001b[39m \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mevaluate(() \u001b[33m=>\u001b[39m {\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts",
+                            "column": 21,
+                            "line": 80
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m1\u001b[39m\nReceived: \u001b[31m4\u001b[39m\n\n  78 |         const h1s = await page.locator('h1').count();\n  79 |         log('H1 count', { count: h1s });\n> 80 |         expect(h1s).toBe(1);\n     |                     ^\n  81 |\n  82 |         // Check headings follow logical order\n  83 |         const headings = await page.evaluate(() => {\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts:80:21"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:46.867Z] ♿ Testing heading hierarchy\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:33:01.538Z] ♿ H1 count\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"count\": 4\n}\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.811Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-edbee-ve-proper-heading-hierarchy-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-edbee-ve-proper-heading-hierarchy-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-edbee-ve-proper-heading-hierarchy-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\accessibility.public.spec.ts",
+                        "column": 21,
+                        "line": 80
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "03c1b01dd6293e3f0921-9cdf678c6318c54fb15e",
+              "file": "accessibility.public.spec.ts",
+              "line": 73,
+              "column": 5
+            },
+            {
+              "title": "should have accessible navigation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "passed",
+                      "duration": 13693,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:48.359Z] ♿ Testing navigation accessibility\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:33:00.427Z] ♿ Navigation landmarks\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"count\": 1\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:33:00.438Z] ♿ Skip link\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"exists\": false\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:33:00.631Z] ♿ ✅ Navigation accessibility checked\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.776Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-6febd--have-accessible-navigation-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-6febd--have-accessible-navigation-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "03c1b01dd6293e3f0921-b2a031940d11ea724ada",
+              "file": "accessibility.public.spec.ts",
+              "line": 107,
+              "column": 5
+            },
+            {
+              "title": "should have accessible images",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "passed",
+                      "duration": 8762,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:44.931Z] ♿ Testing image accessibility\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:52.688Z] ♿ Total images\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"count\": 4\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:52.776Z] ♿ Image analysis\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"total\": 4,\n  \"missingAlt\": 0,\n  \"decorativeImages\": 0,\n  \"withAlt\": 4\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:52.779Z] ♿ ✅ Image accessibility verified\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.792Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-9488d-ould-have-accessible-images-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Homep-9488d-ould-have-accessible-images-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "03c1b01dd6293e3f0921-e433cbd667f396fbae58",
+              "file": "accessibility.public.spec.ts",
+              "line": 137,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "title": "Color Contrast",
+          "file": "accessibility.public.spec.ts",
+          "line": 327,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should have sufficient color contrast on homepage",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "passed",
+                      "duration": 8419,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:47.308Z] ♿ Testing color contrast\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:54.422Z] ♿ Contrast violations\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"count\": 1,\n  \"details\": [\n    {\n      \"id\": \"color-contrast\",\n      \"nodes\": 28\n    }\n  ]\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:54.422Z] ♿ ⚠️ Contrast issues found that may need review\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:54.422Z] ♿ ✅ Color contrast analyzed\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.811Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Color-70e82--color-contrast-on-homepage-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\accessibility.public-Color-70e82--color-contrast-on-homepage-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "03c1b01dd6293e3f0921-4fe6afa93f74e57bc0e3",
+              "file": "accessibility.public.spec.ts",
+              "line": 329,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "error-handling.public.spec.ts",
+      "file": "error-handling.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Performance and Loading",
+          "file": "error-handling.public.spec.ts",
+          "line": 234,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should load homepage within acceptable time",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
+                      "status": "passed",
+                      "duration": 9137,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:44.560Z] 📋 Step 1: Start timing homepage load\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:52.827Z] 📋 Homepage load time\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"loadTimeMs\": 8266,\n  \"loadTimeSec\": \"8.27\"\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:52.831Z] 📋 ✅ Homepage loads within acceptable time\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.734Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\error-handling.public-Perf-973c3-page-within-acceptable-time-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\error-handling.public-Perf-973c3-page-within-acceptable-time-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "8313b887fbc2101552bb-e6fe4f6b919117cca429",
+              "file": "error-handling.public.spec.ts",
+              "line": 236,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "keyboard-navigation.public.spec.ts",
+      "file": "keyboard-navigation.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Keyboard Navigation - Public Pages",
+          "file": "keyboard-navigation.public.spec.ts",
+          "line": 17,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should navigate entire homepage with keyboard",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "passed",
+                      "duration": 11627,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:45.945Z] ⌨️ Testing full keyboard navigation on homepage\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.332Z] ⌨️ Keyboard navigation complete\n"
+                        },
+                        {
+                          "text": "   Details: {\n  \"uniqueElements\": 22,\n  \"timeMs\": 952,\n  \"sample\": [\n    \"A: Método\",\n    \"A: Progreso\",\n    \"A: Planes\",\n    \"A: Equipo\",\n    \"A: FAQ\",\n    \"A: Blog\",\n    \"A: es\",\n    \"A: en\",\n    \"A: ru\",\n    \"A: Login\"\n  ]\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.334Z] ⌨️ ✅ Homepage keyboard navigation works\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.764Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\keyboard-navigation.public-956cb-tire-homepage-with-keyboard-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\keyboard-navigation.public-956cb-tire-homepage-with-keyboard-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "fc22dcafc2aac3731eaa-ad3d6fcf46d53decdc5e",
+              "file": "keyboard-navigation.public.spec.ts",
+              "line": 19,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "landing.public.spec.ts",
+      "file": "landing.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Public Landing Page",
+          "file": "landing.public.spec.ts",
+          "line": 10,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should load Spanish homepage by default",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
+                      "status": "passed",
+                      "duration": 9369,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.749Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\landing.public-Public-Land-0bd98-Spanish-homepage-by-default-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\landing.public-Public-Land-0bd98-Spanish-homepage-by-default-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "ea98fd16d82729849dae-8e0ade8d7965ab0cb50e",
+              "file": "landing.public.spec.ts",
+              "line": 11,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "performance.public.spec.ts",
+      "file": "performance.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Homepage Performance",
+          "file": "performance.public.spec.ts",
+          "line": 48,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should load homepage within acceptable time",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
+                      "status": "passed",
+                      "duration": 8506,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:44.240Z] ⚡ Testing homepage load performance\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:51.880Z] ⚡ Page load complete\n"
+                        },
+                        {
+                          "text": "   Metrics: {\n  \"loadTime\": \"7640ms\"\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:51.884Z] ⚡ ✅ Total Page Load: 7640ms (threshold: 10000ms)\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:51.885Z] ⚡ ✅ Homepage load performance verified\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.764Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-3551d-page-within-acceptable-time-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-3551d-page-within-acceptable-time-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a7155ac0589397caa02a-47d2d980d4b8ddba3383",
+              "file": "performance.public.spec.ts",
+              "line": 50,
+              "column": 5
+            },
+            {
+              "title": "should have acceptable TTFB",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 9,
+                      "parallelIndex": 9,
+                      "status": "passed",
+                      "duration": 7656,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:43.074Z] ⚡ Measuring Time to First Byte\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:49.791Z] ⚡ TTFB Metrics\n"
+                        },
+                        {
+                          "text": "   Metrics: {\n  \"ttfb\": 1432,\n  \"dnsLookup\": 1,\n  \"tcpConnect\": 1,\n  \"serverTime\": 3530\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:49.791Z] ⚡ ✅ TTFB: 1432ms (threshold: 2000ms)\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:49.791Z] ⚡ ✅ TTFB measured\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.748Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-a734d-should-have-acceptable-TTFB-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-a734d-should-have-acceptable-TTFB-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a7155ac0589397caa02a-9406de2dd78d02514c49",
+              "file": "performance.public.spec.ts",
+              "line": 69,
+              "column": 5
+            },
+            {
+              "title": "should measure Core Web Vitals",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 10,
+                      "parallelIndex": 10,
+                      "status": "passed",
+                      "duration": 10457,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:47.902Z] ⚡ Measuring Core Web Vitals\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.981Z] ⚡ Core Web Vitals\n"
+                        },
+                        {
+                          "text": "   Metrics: {\n  \"fcp\": 3127,\n  \"domContentLoaded\": 3063,\n  \"domInteractive\": 3052,\n  \"loadComplete\": 6357\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.981Z] ⚡ ✅ First Contentful Paint: 3127ms (threshold: 4000ms)\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.981Z] ⚡ ✅ Core Web Vitals measured\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.749Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-e12f5-uld-measure-Core-Web-Vitals-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-e12f5-uld-measure-Core-Web-Vitals-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a7155ac0589397caa02a-f9389ef7af7702cf30a8",
+              "file": "performance.public.spec.ts",
+              "line": 94,
+              "column": 5
+            },
+            {
+              "title": "should have minimal layout shift",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 11,
+                      "parallelIndex": 11,
+                      "status": "passed",
+                      "duration": 14463,
+                      "errors": [],
+                      "stdout": [
+                        {
+                          "text": "\n[2026-01-14T13:32:43.273Z] ⚡ Measuring Cumulative Layout Shift\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.800Z] ⚡ CLS Measurement\n"
+                        },
+                        {
+                          "text": "   Metrics: {\n  \"cls\": \"0.0000\",\n  \"threshold\": 0.1\n}\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.800Z] ⚡ ✅ CLS is within acceptable range\n"
+                        },
+                        {
+                          "text": "\n[2026-01-14T13:32:56.803Z] ⚡ ✅ Layout shift measured\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.750Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-eb304-d-have-minimal-layout-shift-public-firefox\\test-finished-1.png"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\performance.public-Homepag-eb304-d-have-minimal-layout-shift-public-firefox\\trace.zip"
+                        }
+                      ]
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "a7155ac0589397caa02a-89ac749b0dc070f0eaf1",
+              "file": "performance.public.spec.ts",
+              "line": 154,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "visual-regression.public.spec.ts",
+      "file": "visual-regression.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Homepage Visual Regression",
+          "file": "visual-regression.public.spec.ts",
+          "line": 26,
+          "column": 6,
+          "specs": [
+            {
+              "title": "homepage full page screenshot",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 12,
+                      "parallelIndex": 12,
+                      "status": "failed",
+                      "duration": 17838,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-full-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-full-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:37:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 37
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 35 |\u001b[39m         log(\u001b[32m'Capturing homepage full page'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 36 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 37 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-full.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 38 |\u001b[39m             \u001b[33m...\u001b[39m\u001b[33mSCREENSHOT_OPTIONS\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 39 |\u001b[39m             maxDiffPixels\u001b[33m:\u001b[39m \u001b[35m100\u001b[39m\u001b[33m,\u001b[39m \u001b[90m// Allow small differences\u001b[39m\n \u001b[90m 40 |\u001b[39m         })\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 37
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-full-public-firefox-win32.png, writing actual.\n\n  35 |         log('Capturing homepage full page');\n  36 |\n> 37 |         await expect(page).toHaveScreenshot('homepage-full.png', {\n     |         ^\n  38 |             ...SCREENSHOT_OPTIONS,\n  39 |             maxDiffPixels: 100, // Allow small differences\n  40 |         });\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:37:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing homepage full page\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.765Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-full-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-full-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-full-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-412d7-mepage-full-page-screenshot-public-firefox\\homepage-full-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-412d7-mepage-full-page-screenshot-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-412d7-mepage-full-page-screenshot-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-412d7-mepage-full-page-screenshot-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 37
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-0bb3793dc44af74eff6e",
+              "file": "visual-regression.public.spec.ts",
+              "line": 34,
+              "column": 5
+            },
+            {
+              "title": "homepage header section",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 13,
+                      "parallelIndex": 13,
+                      "status": "failed",
+                      "duration": 12010,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-header-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-header-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:47:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 47
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 45 |\u001b[39m\n \u001b[90m 46 |\u001b[39m         \u001b[36mconst\u001b[39m header \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'header'\u001b[39m)\u001b[33m.\u001b[39mfirst()\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 47 |\u001b[39m         \u001b[36mawait\u001b[39m expect(header)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-header.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 48 |\u001b[39m             animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 49 |\u001b[39m         })\u001b[33m;\u001b[39m\n \u001b[90m 50 |\u001b[39m     })\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 47
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-header-public-firefox-win32.png, writing actual.\n\n  45 |\n  46 |         const header = page.locator('header').first();\n> 47 |         await expect(header).toHaveScreenshot('homepage-header.png', {\n     |         ^\n  48 |             animations: 'disabled',\n  49 |         });\n  50 |     });\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:47:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing header section\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:41.765Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-header-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-header-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-header-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-a40c9-ion-homepage-header-section-public-firefox\\homepage-header-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-a40c9-ion-homepage-header-section-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-a40c9-ion-homepage-header-section-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-a40c9-ion-homepage-header-section-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 47
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-7880d48532a5f4195ab4",
+              "file": "visual-regression.public.spec.ts",
+              "line": 43,
+              "column": 5
+            },
+            {
+              "title": "homepage hero section",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 9,
+                      "parallelIndex": 9,
+                      "status": "failed",
+                      "duration": 8589,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-hero-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-hero-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:58:13",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 13,
+                          "line": 58
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 56 |\u001b[39m         \u001b[36mconst\u001b[39m hero \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'section'\u001b[39m)\u001b[33m.\u001b[39mfirst()\u001b[33m;\u001b[39m\n \u001b[90m 57 |\u001b[39m         \u001b[36mif\u001b[39m (\u001b[36mawait\u001b[39m hero\u001b[33m.\u001b[39misVisible()) {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 58 |\u001b[39m             \u001b[36mawait\u001b[39m expect(hero)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-hero.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m             \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 59 |\u001b[39m                 animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 60 |\u001b[39m             })\u001b[33m;\u001b[39m\n \u001b[90m 61 |\u001b[39m         }\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 13,
+                            "line": 58
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-hero-public-firefox-win32.png, writing actual.\n\n  56 |         const hero = page.locator('section').first();\n  57 |         if (await hero.isVisible()) {\n> 58 |             await expect(hero).toHaveScreenshot('homepage-hero.png', {\n     |             ^\n  59 |                 animations: 'disabled',\n  60 |             });\n  61 |         }\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:58:13"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing hero section\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:50.639Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-hero-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-hero-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-hero-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-e6a37-ssion-homepage-hero-section-public-firefox\\homepage-hero-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-e6a37-ssion-homepage-hero-section-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-e6a37-ssion-homepage-hero-section-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-e6a37-ssion-homepage-hero-section-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 13,
+                        "line": 58
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-4c471ff1de5b37a46502",
+              "file": "visual-regression.public.spec.ts",
+              "line": 52,
+              "column": 5
+            },
+            {
+              "title": "homepage pricing section",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 8,
+                      "parallelIndex": 8,
+                      "status": "failed",
+                      "duration": 8032,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-pricing-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-pricing-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:73:13",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 13,
+                          "line": 73
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 71 |\u001b[39m         \u001b[36mconst\u001b[39m pricing \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'#pricing, [id*=\"precio\"], section:has-text(\"precio\")'\u001b[39m)\u001b[33m.\u001b[39mfirst()\u001b[33m;\u001b[39m\n \u001b[90m 72 |\u001b[39m         \u001b[36mif\u001b[39m (\u001b[36mawait\u001b[39m pricing\u001b[33m.\u001b[39misVisible()) {\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 73 |\u001b[39m             \u001b[36mawait\u001b[39m expect(pricing)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-pricing.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m             \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 74 |\u001b[39m                 animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 75 |\u001b[39m             })\u001b[33m;\u001b[39m\n \u001b[90m 76 |\u001b[39m         }\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 13,
+                            "line": 73
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-pricing-public-firefox-win32.png, writing actual.\n\n  71 |         const pricing = page.locator('#pricing, [id*=\"precio\"], section:has-text(\"precio\")').first();\n  72 |         if (await pricing.isVisible()) {\n> 73 |             await expect(pricing).toHaveScreenshot('homepage-pricing.png', {\n     |             ^\n  74 |                 animations: 'disabled',\n  75 |             });\n  76 |         }\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:73:13"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing pricing section\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:52.660Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-pricing-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-pricing-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-pricing-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-ee40f-on-homepage-pricing-section-public-firefox\\homepage-pricing-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-ee40f-on-homepage-pricing-section-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-ee40f-on-homepage-pricing-section-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-ee40f-on-homepage-pricing-section-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 13,
+                        "line": 73
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-fb0562fbaaa8f8937cdd",
+              "file": "visual-regression.public.spec.ts",
+              "line": 64,
+              "column": 5
+            },
+            {
+              "title": "homepage footer",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 7,
+                      "parallelIndex": 7,
+                      "status": "failed",
+                      "duration": 9973,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-footer-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-footer-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:83:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 83
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 81 |\u001b[39m\n \u001b[90m 82 |\u001b[39m         \u001b[36mconst\u001b[39m footer \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'footer'\u001b[39m)\u001b[33m.\u001b[39mfirst()\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 83 |\u001b[39m         \u001b[36mawait\u001b[39m expect(footer)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-footer.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m    |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 84 |\u001b[39m             animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 85 |\u001b[39m         })\u001b[33m;\u001b[39m\n \u001b[90m 86 |\u001b[39m     })\u001b[33m;\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 83
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-footer-public-firefox-win32.png, writing actual.\n\n  81 |\n  82 |         const footer = page.locator('footer').first();\n> 83 |         await expect(footer).toHaveScreenshot('homepage-footer.png', {\n     |         ^\n  84 |             animations: 'disabled',\n  85 |         });\n  86 |     });\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:83:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing footer\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:53.184Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-footer-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-footer-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-footer-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-f9f06--Regression-homepage-footer-public-firefox\\homepage-footer-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-f9f06--Regression-homepage-footer-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-f9f06--Regression-homepage-footer-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-H-f9f06--Regression-homepage-footer-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 83
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-c0c2666c0c22c5d70633",
+              "file": "visual-regression.public.spec.ts",
+              "line": 79,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "title": "Responsive Visual Regression",
+          "file": "visual-regression.public.spec.ts",
+          "line": 169,
+          "column": 6,
+          "specs": [
+            {
+              "title": "homepage mobile view",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 3,
+                      "status": "failed",
+                      "duration": 8346,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-mobile-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-mobile-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:178:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 178
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 176 |\u001b[39m         \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForTimeout(\u001b[35m500\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 177 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 178 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-mobile.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m     |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 179 |\u001b[39m             fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 180 |\u001b[39m             animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 181 |\u001b[39m             maxDiffPixels\u001b[33m:\u001b[39m \u001b[35m150\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 178
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-mobile-public-firefox-win32.png, writing actual.\n\n  176 |         await page.waitForTimeout(500);\n  177 |\n> 178 |         await expect(page).toHaveScreenshot('homepage-mobile.png', {\n      |         ^\n  179 |             fullPage: true,\n  180 |             animations: 'disabled',\n  181 |             maxDiffPixels: 150,\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:178:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing mobile homepage\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:53.556Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-mobile-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-mobile-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-mobile-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-e3158-ession-homepage-mobile-view-public-firefox\\homepage-mobile-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-e3158-ession-homepage-mobile-view-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-e3158-ession-homepage-mobile-view-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-e3158-ession-homepage-mobile-view-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 178
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-5c78e1cab45c0b2c334d",
+              "file": "visual-regression.public.spec.ts",
+              "line": 171,
+              "column": 5
+            },
+            {
+              "title": "homepage tablet view",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 5,
+                      "status": "failed",
+                      "duration": 8396,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-tablet-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-tablet-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:192:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 192
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 190 |\u001b[39m         \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForTimeout(\u001b[35m500\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 191 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 192 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-tablet.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m     |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 193 |\u001b[39m             fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 194 |\u001b[39m             animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 195 |\u001b[39m             maxDiffPixels\u001b[33m:\u001b[39m \u001b[35m150\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 192
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-tablet-public-firefox-win32.png, writing actual.\n\n  190 |         await page.waitForTimeout(500);\n  191 |\n> 192 |         await expect(page).toHaveScreenshot('homepage-tablet.png', {\n      |         ^\n  193 |             fullPage: true,\n  194 |             animations: 'disabled',\n  195 |             maxDiffPixels: 150,\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:192:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing tablet homepage\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:53.647Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-tablet-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-tablet-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-tablet-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-9d918-ession-homepage-tablet-view-public-firefox\\homepage-tablet-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-9d918-ession-homepage-tablet-view-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-9d918-ession-homepage-tablet-view-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-R-9d918-ession-homepage-tablet-view-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 192
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-d5c69131aa82f77175cc",
+              "file": "visual-regression.public.spec.ts",
+              "line": 185,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "title": "Dark Mode Visual Regression",
+          "file": "visual-regression.public.spec.ts",
+          "line": 261,
+          "column": 6,
+          "specs": [
+            {
+              "title": "homepage in dark mode (if supported)",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 4,
+                      "status": "failed",
+                      "duration": 7624,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-dark-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-dark-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:271:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 271
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 269 |\u001b[39m         \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForTimeout(\u001b[35m500\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 270 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 271 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-dark.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m     |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 272 |\u001b[39m             fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 273 |\u001b[39m             animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 274 |\u001b[39m             maxDiffPixels\u001b[33m:\u001b[39m \u001b[35m200\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 271
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-dark-public-firefox-win32.png, writing actual.\n\n  269 |         await page.waitForTimeout(500);\n  270 |\n> 271 |         await expect(page).toHaveScreenshot('homepage-dark.png', {\n      |         ^\n  272 |             fullPage: true,\n  273 |             animations: 'disabled',\n  274 |             maxDiffPixels: 200,\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:271:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing dark mode homepage\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:55.524Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-dark-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-dark-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-dark-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-D-fb0a6--in-dark-mode-if-supported--public-firefox\\homepage-dark-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-D-fb0a6--in-dark-mode-if-supported--public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-D-fb0a6--in-dark-mode-if-supported--public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-D-fb0a6--in-dark-mode-if-supported--public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 271
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-407012baadbb1777b6bd",
+              "file": "visual-regression.public.spec.ts",
+              "line": 263,
+              "column": 5
+            }
+          ]
+        },
+        {
+          "title": "Internationalization Visual Regression",
+          "file": "visual-regression.public.spec.ts",
+          "line": 292,
+          "column": 6,
+          "specs": [
+            {
+              "title": "homepage in English",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 14,
+                      "parallelIndex": 13,
+                      "status": "failed",
+                      "duration": 7006,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-en-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-en-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:300:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 300
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 298 |\u001b[39m         \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForTimeout(\u001b[35m500\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 299 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 300 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-en.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m     |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 301 |\u001b[39m             fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 302 |\u001b[39m             animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 303 |\u001b[39m             maxDiffPixels\u001b[33m:\u001b[39m \u001b[35m150\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 300
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-en-public-firefox-win32.png, writing actual.\n\n  298 |         await page.waitForTimeout(500);\n  299 |\n> 300 |         await expect(page).toHaveScreenshot('homepage-en.png', {\n      |         ^\n  301 |             fullPage: true,\n  302 |             animations: 'disabled',\n  303 |             maxDiffPixels: 150,\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:300:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing English homepage\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:56.863Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-en-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-en-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-en-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-80e72-ression-homepage-in-English-public-firefox\\homepage-en-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-80e72-ression-homepage-in-English-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-80e72-ression-homepage-in-English-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-80e72-ression-homepage-in-English-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 300
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-0db8d44a41be1f0a9100",
+              "file": "visual-regression.public.spec.ts",
+              "line": 294,
+              "column": 5
+            },
+            {
+              "title": "homepage in Russian",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "public-firefox",
+                  "projectName": "public-firefox",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 6,
+                      "status": "failed",
+                      "duration": 6157,
+                      "error": {
+                        "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-ru-public-firefox-win32.png, writing actual.",
+                        "stack": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-ru-public-firefox-win32.png, writing actual.\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:313:9",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                          "column": 9,
+                          "line": 313
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 311 |\u001b[39m         \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForTimeout(\u001b[35m500\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 312 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 313 |\u001b[39m         \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveScreenshot(\u001b[32m'homepage-ru.png'\u001b[39m\u001b[33m,\u001b[39m {\n \u001b[90m     |\u001b[39m         \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 314 |\u001b[39m             fullPage\u001b[33m:\u001b[39m \u001b[36mtrue\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 315 |\u001b[39m             animations\u001b[33m:\u001b[39m \u001b[32m'disabled'\u001b[39m\u001b[33m,\u001b[39m\n \u001b[90m 316 |\u001b[39m             maxDiffPixels\u001b[33m:\u001b[39m \u001b[35m150\u001b[39m\u001b[33m,\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                            "column": 9,
+                            "line": 313
+                          },
+                          "message": "Error: A snapshot doesn't exist at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-ru-public-firefox-win32.png, writing actual.\n\n  311 |         await page.waitForTimeout(500);\n  312 |\n> 313 |         await expect(page).toHaveScreenshot('homepage-ru.png', {\n      |         ^\n  314 |             fullPage: true,\n  315 |             animations: 'disabled',\n  316 |             maxDiffPixels: 150,\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts:313:9"
+                        }
+                      ],
+                      "stdout": [
+                        {
+                          "text": "📸 Capturing Russian homepage\n"
+                        }
+                      ],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-01-14T13:32:57.276Z",
+                      "annotations": [],
+                      "attachments": [
+                        {
+                          "name": "homepage-ru-expected.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts-snapshots\\homepage-ru-public-firefox-win32.png"
+                        },
+                        {
+                          "name": "homepage-ru-actual.png",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-dd9b6-ression-homepage-in-Russian-public-firefox\\homepage-ru-actual.png"
+                        },
+                        {
+                          "name": "screenshot",
+                          "contentType": "image/png",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-dd9b6-ression-homepage-in-Russian-public-firefox\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-dd9b6-ression-homepage-in-Russian-public-firefox\\error-context.md"
+                        },
+                        {
+                          "name": "trace",
+                          "contentType": "application/zip",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\visual-regression.public-I-dd9b6-ression-homepage-in-Russian-public-firefox\\trace.zip"
+                        }
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\visual-regression.public.spec.ts",
+                        "column": 9,
+                        "line": 313
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "ee3c02357e7deab43b8a-dcf095de6212966dda62",
+              "file": "visual-regression.public.spec.ts",
+              "line": 307,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-01-14T13:32:38.266Z",
+    "duration": 26750.156,
+    "expected": 10,
+    "skipped": 0,
+    "unexpected": 12,
+    "flaky": 0
+  }
+}
