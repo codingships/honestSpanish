@@ -10,7 +10,7 @@ interface Student {
     subscription_status: string | null;
     subscription_ends: string | null;
     package_name: string | null;
-    package_display_name: any | null;
+    package_display_name: any;
     teacher_name: string | null;
 }
 

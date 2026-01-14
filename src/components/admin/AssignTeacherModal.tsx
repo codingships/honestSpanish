@@ -67,7 +67,7 @@ export default function AssignTeacherModal({
                 onClose();
                 window.location.reload();
             }, 1000);
-        } catch (error) {
+        } catch {
             setMessage({ type: 'error', text: 'Error assigning teacher' });
         } finally {
             setIsLoading(false);
@@ -98,7 +98,7 @@ export default function AssignTeacherModal({
                 onClose();
                 window.location.reload();
             }, 500);
-        } catch (error) {
+        } catch {
             setMessage({ type: 'error', text: 'Error removing teacher' });
         } finally {
             setIsLoading(false);
@@ -186,8 +186,8 @@ export default function AssignTeacherModal({
                         onClick={handleAssign}
                         disabled={!selectedTeacherId || isLoading}
                         className={`flex-1 px-4 py-3 font-bold uppercase text-sm border-2 border-[#006064] transition-colors ${!selectedTeacherId || isLoading
-                                ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                                : 'bg-[#006064] text-white hover:bg-[#004d40]'
+                            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                            : 'bg-[#006064] text-white hover:bg-[#004d40]'
                             }`}
                     >
                         {isLoading ? '...' : t.assign}

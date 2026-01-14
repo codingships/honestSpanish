@@ -102,7 +102,6 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
     });
 
     // Get package data or use fallback
-    const getPackage = (name: PlanKey): Package | undefined => packageMap[name];
     const getPriceDisplay = (pkg: Package | undefined): string => {
         if (!pkg) return '€—';
         return `€${pkg.price_monthly / 100}`;

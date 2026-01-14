@@ -356,7 +356,7 @@ describe('Error Recovery Tests', () => {
 
         it('should handle race condition in session booking', async () => {
             // Simulate two users trying to book same slot
-            let slot = { available: true, bookedBy: null as string | null };
+            const slot = { available: true, bookedBy: null as string | null };
 
             const bookSlot = async (userId: string): Promise<boolean> => {
                 // Simulate read-check-write

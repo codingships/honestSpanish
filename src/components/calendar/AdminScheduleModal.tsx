@@ -19,6 +19,7 @@ interface Slot {
 
 interface AdminScheduleModalProps {
     isOpen: boolean;
+
     onClose: () => void;
     teachers: Teacher[];
     students: Student[];
@@ -303,8 +304,8 @@ export default function AdminScheduleModal({
                                                 key={index}
                                                 onClick={() => setSelectedSlot(slot)}
                                                 className={`p-3 border-2 text-sm font-mono transition-colors ${selectedSlot?.slot_start === slot.slot_start
-                                                        ? 'bg-[#006064] text-white border-[#006064]'
-                                                        : 'border-[#006064]/30 text-[#006064] hover:border-[#006064]'
+                                                    ? 'bg-[#006064] text-white border-[#006064]'
+                                                    : 'border-[#006064]/30 text-[#006064] hover:border-[#006064]'
                                                     }`}
                                             >
                                                 {formatTime(slot.slot_start)}

@@ -10,8 +10,6 @@ const credentials = new SharedArray('credentials', function () {
 
 // Get users by role
 const students = credentials.filter(c => c.role === 'student');
-const teachers = credentials.filter(c => c.role === 'teacher');
-const admins = credentials.filter(c => c.role === 'admin');
 
 // Test configuration
 export const options = {

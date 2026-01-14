@@ -80,7 +80,7 @@ describe('POST /api/update-student-notes', () => {
 
     it('should return 403 if teacher tries to update unassigned student', async () => {
         const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
+        const callCount = 0;
         mockSupabase.from = vi.fn().mockImplementation((table) => {
             if (table === 'profiles') {
                 return {
