@@ -4,7 +4,10 @@ import { supabase } from '../lib/supabase';
 // Since this is a client-side component, we need to handle translations manually or pass them as props.
 // For simplicity and better integration with your setup, we'll accept a dictionary of translations as props.
 
-export default function AuthForm({ lang, translations }) {
+export default function AuthForm({ lang: langProp, translations }) {
+    // Fallback: get lang from URL if prop is not available
+    const lang = langProp || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : 'es') || 'es';
+
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
