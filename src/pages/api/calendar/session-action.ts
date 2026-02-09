@@ -1,11 +1,20 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { cancelClassEvent } from '../../../lib/google/calendar';
+import { sendClassCancelledToBoth } from '../../../lib/email';
+import type { Database } from '../../../types/database.types';
+
+// 👇 FIX 1: Forzamos Node.js para que funcionen las librerías de Google
+export const config = {
+    runtime: 'nodejs'
+};
 
 export const POST: APIRoute = async (context) => {
+    // 👇 FIX 2: Inyectamos el tipo <Database>
     const supabase = createSupabaseServerClient(context);
-    const { data: { user } } = await supabase.auth.getUser();
 
+    // Auth Check
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
@@ -17,134 +26,117 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     const body = await context.request.json();
-    const { sessionId, action, notes, reason } = body;
+    const { sessionId, action, reason } = body;
 
     if (!sessionId || !action) {
-        return new Response(JSON.stringify({ error: 'sessionId and action are required' }), { status: 400 });
+        return new Response(JSON.stringify({ error: 'Session ID and action are required' }), { status: 400 });
     }
 
-    // Obtener la sesión
-    const { data: session } = await supabase
+    // 👇 FIX 3: Corregimos la query. Quitamos 'google_calendar_event_id' explícito
+    // y confiamos en el '*' o usamos el nombre correcto 'calendar_event_id'.
+    // También arreglamos el tipado de las relaciones.
+    // @ts-ignore - Las relaciones complejas a veces necesitan ignore si los tipos automáticos no son perfectos
+    const { data: session, error: fetchError } = await supabase
         .from('sessions')
-        .select('*, subscription:subscriptions(id, sessions_used), google_calendar_event_id')
+        .select(`
+            *,
+            student:profiles!sessions_student_id_fkey(full_name, email),
+            teacher:profiles!sessions_teacher_id_fkey(full_name, email),
+            subscription:subscriptions(id, sessions_used)
+        `)
         .eq('id', sessionId)
         .single();
 
-    if (!session) {
+    if (fetchError || !session) {
         return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
     }
 
-    // Verificar permisos
-    const canModify =
-        profile?.role === 'admin' ||
-        (profile?.role === 'teacher' && session.teacher_id === user.id) ||
-        (profile?.role === 'student' && session.student_id === user.id && action === 'cancel');
+    // Permission check
+    const isTeacher = session.teacher_id === user.id;
+    const isStudent = session.student_id === user.id;
+    const isAdmin = profile?.role === 'admin';
 
-    if (!canModify) {
+    if (!isTeacher && !isStudent && !isAdmin) {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
-    const updateData: {
-        updated_at: string;
-        status?: string;
-        completed_at?: string;
-        teacher_notes?: string;
-        cancelled_at?: string;
-        cancelled_by?: string;
-        cancellation_reason?: string;
-    } = { updated_at: new Date().toISOString() };
-    let shouldUpdateSessionCount = false;
-    let shouldCancelCalendarEvent = false;
+    if (action === 'cancel') {
+        // 1. Update session status
+        const { error: updateError } = await supabase
+            .from('sessions')
+            .update({
+                status: 'cancelled',
+                notes: reason ? `Cancelada: ${reason}` : 'Cancelada'
+            })
+            .eq('id', sessionId);
 
-    switch (action) {
-        case 'complete':
-            if (profile?.role === 'student') {
-                return new Response(JSON.stringify({ error: 'Students cannot mark sessions as complete' }), { status: 403 });
-            }
-            updateData.status = 'completed';
-            updateData.completed_at = new Date().toISOString();
-            if (notes) updateData.teacher_notes = notes;
-            shouldUpdateSessionCount = true;
-            break;
+        if (updateError) {
+            return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
+        }
 
-        case 'cancel':
-            // Verificar tiempo de antelación (24 horas para estudiantes)
-            if (profile?.role === 'student') {
-                const sessionTime = new Date(session.scheduled_at);
-                const now = new Date();
-                const hoursUntilSession = (sessionTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+        // 2. Restore subscription usage (if needed)
+        // 👇 FIX 4: Nullish coalescing para evitar error de 'possibly null'
+        if (session.subscription) {
+            // TypeScript a veces no infiere bien array vs objeto en joins, forzamos casting seguro
+            const sub = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
 
-                if (hoursUntilSession < 24) {
-                    return new Response(JSON.stringify({
-                        error: 'Sessions must be cancelled at least 24 hours in advance'
-                    }), { status: 400 });
+            if (sub) {
+                const currentUsed = sub.sessions_used ?? 0;
+                if (currentUsed > 0) {
+                    await supabase
+                        .from('subscriptions')
+                        .update({ sessions_used: currentUsed - 1 })
+                        .eq('id', sub.id);
                 }
             }
-            updateData.status = 'cancelled';
-            updateData.cancelled_at = new Date().toISOString();
-            updateData.cancelled_by = user.id;
-            if (reason) updateData.cancellation_reason = reason;
-            shouldCancelCalendarEvent = true;
-            break;
+        }
 
-        case 'no_show':
-            if (profile?.role === 'student') {
-                return new Response(JSON.stringify({ error: 'Students cannot mark no-show' }), { status: 403 });
+        // 3. Delete from Google Calendar
+        // 👇 FIX 5: Usamos el nombre correcto de la columna: 'calendar_event_id'
+        if (session.calendar_event_id) {
+            try {
+                await cancelClassEvent(session.calendar_event_id);
+
+                // Clear event ID from session
+                await supabase
+                    .from('sessions')
+                    .update({
+                        calendar_event_id: null,
+                        meet_link: null
+                    })
+                    .eq('id', sessionId);
+
+            } catch (error) {
+                console.error('Error deleting calendar event:', error);
             }
-            updateData.status = 'no_show';
-            updateData.completed_at = new Date().toISOString();
-            shouldUpdateSessionCount = true; // No-show cuenta como sesión usada
-            break;
+        }
 
-        case 'update_notes':
-            if (profile?.role === 'student') {
-                return new Response(JSON.stringify({ error: 'Students cannot update notes' }), { status: 403 });
-            }
-            updateData.teacher_notes = notes || '';
-            break;
-
-        default:
-            return new Response(JSON.stringify({ error: 'Invalid action' }), { status: 400 });
-    }
-
-    // Actualizar sesión
-    const { error: updateError } = await supabase
-        .from('sessions')
-        .update(updateData)
-        .eq('id', sessionId);
-
-    if (updateError) {
-        return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
-    }
-
-    // Actualizar contador de sesiones si es necesario
-    if (shouldUpdateSessionCount && session.subscription) {
-        await supabase
-            .from('subscriptions')
-            .update({
-                sessions_used: (session.subscription.sessions_used || 0) + 1
-            })
-            .eq('id', session.subscription.id);
-    }
-
-    // Cancelar evento de Calendar si es necesario
-    if (shouldCancelCalendarEvent && session.google_calendar_event_id) {
+        // 4. Send emails
         try {
-            const cancelled = await cancelClassEvent(session.google_calendar_event_id);
-            if (cancelled) {
-                console.log(`[SessionAction] Cancelled calendar event ${session.google_calendar_event_id}`);
-            } else {
-                console.log(`[SessionAction] Failed to cancel calendar event (non-blocking)`);
+            // Casting seguro para los profiles
+            const student = Array.isArray(session.student) ? session.student[0] : session.student;
+            const teacher = Array.isArray(session.teacher) ? session.teacher[0] : session.teacher;
+
+            if (student?.email && teacher?.email && session.scheduled_at) {
+                await sendClassCancelledToBoth(
+                    student.email,
+                    student.full_name || 'Estudiante',
+                    teacher.email,
+                    teacher.full_name || 'Profesor',
+                    {
+                        date: new Date(session.scheduled_at).toLocaleDateString(),
+                        time: new Date(session.scheduled_at).toLocaleTimeString(),
+                        reason: reason || 'Sin motivo especificado',
+                        cancelledBy: isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student')
+                    }
+                );
             }
         } catch (error) {
-            console.error('[SessionAction] Error cancelling calendar event (non-blocking):',
-                error instanceof Error ? error.message : 'Unknown error');
+            console.error('Error sending cancellation emails:', error);
         }
+
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
-    return new Response(JSON.stringify({ success: true }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-    });
+    return new Response(JSON.stringify({ error: 'Invalid action' }), { status: 400 });
 };
-

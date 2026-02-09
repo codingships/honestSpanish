@@ -1,0 +1,10 @@
+name = "espanol-honesto-reminders"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+
+[triggers]
+crons = ["0 * * * *"]  # Cada hora, minuto 0
+
+[vars]
+APP_URL = "https://espanolhonesto.com"
+# CRON_SECRET se configura en el dashboard de Cloudflare

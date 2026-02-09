@@ -14,4 +14,4 @@ export const resend = new Resend(apiKey || 'dummy_key');
 
 export const EMAIL_FROM = import.meta.env.EMAIL_FROM ||
     process.env.EMAIL_FROM ||
-    'Español Honesto <hola@espanolhonesto.com>';
+    'Español Honesto <alejandro@espanolhonesto.com>';

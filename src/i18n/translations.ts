@@ -406,7 +406,7 @@ export const ui = {
             cta2: "AHORA",
             address: "Calle de la Verdad, 12",
             city: "Madrid, España",
-            email: "hola@espanolhonesto.com",
+            email: "alejandro@espanolhonesto.com",
             copyright: "Español Honesto. Todos los derechos reservados.",
         },
         styleSwitcher: {
@@ -843,7 +843,7 @@ export const ui = {
             cta2: "NOW",
             address: "Calle de la Verdad, 12",
             city: "Madrid, Spain",
-            email: "hola@espanolhonesto.com",
+            email: "alejandro@espanolhonesto.com",
             copyright: "Español Honesto. All rights reserved.",
         },
         styleSwitcher: {

@@ -26,14 +26,8 @@ const { data: profileData } = await supabase
 
 if (profileData) profile = profileData;
 
-// Redirect teachers and admins to their specific areas
-// This page (/campus) is for students only
-if (profile?.role === 'admin') {
-    return Astro.redirect(`/${lang}/campus/admin`);
-}
-if (profile?.role === 'teacher') {
-    return Astro.redirect(`/${lang}/campus/teacher`);
-}
+// Note: Role-based redirects are now handled by /api/auth/post-login endpoint
+// This page is the student dashboard - teachers/admins should be redirected via the endpoint
 
 // 2. Fetch Active Subscription
 let subscription = null;

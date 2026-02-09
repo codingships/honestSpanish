@@ -58,3 +58,23 @@ export async function testAuth(): Promise<boolean> {
         return false;
     }
 }
+
+/**
+ * Get authenticated Google API client for Drive or Calendar
+ * @param service - 'drive' or 'calendar'
+ * @returns Authenticated Google API client
+ */
+export async function getGoogleClient(service: 'drive' | 'calendar') {
+    const auth = getAuthClient();
+
+    // Ensure the client is authorized
+    await auth.authorize();
+
+    if (service === 'drive') {
+        const { drive } = await import('@googleapis/drive');
+        return drive({ version: 'v3', auth });
+    } else {
+        const { calendar } = await import('@googleapis/calendar');
+        return calendar({ version: 'v3', auth });
+    }
+}

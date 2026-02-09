@@ -95,7 +95,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 
     {/* Hero */}
     <header class={`border-b-2 ${s.border} relative z-20 bg-[#E0F7FA]`}>
-        <div class="grid grid-cols-1 lg:grid-cols-12 h-auto lg:h-[calc(100vh-112px)]">
+        <div class="grid grid-cols-1 lg:grid-cols-12 h-auto lg:min-h-[calc(100vh-112px)]">
             <div class={`lg:col-span-7 p-6 md:p-12 flex flex-col justify-start border-b-2 lg:border-b-0 lg:border-r-2 ${s.border}`}>
                 <div>
                     <h1 class="font-display text-[12vw] md:text-[9vw] lg:text-[7.5vw] leading-[1.1] lg:leading-[1.1] tracking-tighter break-words">
@@ -109,15 +109,15 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                     <p class="text-lg md:text-xl font-bold leading-tight">{t('hero.subtitle')}</p>
                 </div>
             </div>
-            <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden">
-                <div class={`h-80 lg:h-auto lg:flex-1 border-b-2 ${s.border} relative overflow-hidden group`}>
+            <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden min-h-0">
+                <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
                     <img src={heroImage.src} alt="Estudiante practicando español" class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
                 </div>
-                <div class={`lg:flex-1 ${s.secondaryBg} p-8 flex flex-col justify-center items-center text-center`}>
-                    <h2 class="font-display text-4xl mb-6">{t('hero.ready')}</h2>
+                <div class={`flex-1 ${s.secondaryBg} p-8 lg:p-12 flex flex-col justify-center items-center text-center`}>
+                    <h2 class="font-display text-3xl lg:text-4xl mb-4 lg:mb-6">{t('hero.ready')}</h2>
                     <a
-                        href="mailto:hola@espanolhonesto.com"
-                        class={`inline-block ${s.button} px-8 py-4 text-lg font-bold border-2 ${s.border} shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all uppercase tracking-wider`}
+                        href="mailto:alejandro@espanolhonesto.com"
+                        class={`inline-block ${s.button} px-6 lg:px-8 py-3 lg:py-4 text-base lg:text-lg font-bold border-2 ${s.border} shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all uppercase tracking-wider`}
                     >
                         {t('hero.cta')}
                     </a>

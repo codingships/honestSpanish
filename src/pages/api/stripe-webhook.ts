@@ -1,14 +1,22 @@
+export const config = {
+    runtime: 'nodejs'
+};
 import type { APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
 import { createClient } from '@supabase/supabase-js';
 import { createStudentFolderStructure } from '../../lib/google/student-folder';
 import { sendWelcomeEmail } from '../../lib/email';
+// 👇 1. Importamos tus tipos generados
+import type { Database } from '../../types/database.types';
+// 👇 2. Importamos tipos de Stripe para evitar 'any' en la sesión
+import type Stripe from 'stripe';
 
 // Use service role key for webhook (bypasses RLS)
 const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+// 👇 3. Inyectamos <Database> al cliente Admin
+const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceKey);
 
 export const POST: APIRoute = async ({ request }) => {
     const webhookSecret = import.meta.env.STRIPE_WEBHOOK_SECRET;
@@ -26,18 +34,21 @@ export const POST: APIRoute = async ({ request }) => {
         return new Response('Missing stripe-signature header', { status: 400 });
     }
 
-    let event;
+    let event: Stripe.Event;
 
     try {
         event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
-    } catch (err: any) {
-        console.error('Webhook signature verification failed:', err.message);
-        return new Response(`Webhook Error: ${err.message}`, { status: 400 });
+    } catch (err) {
+        // Manejo de error tipado
+        const errorMessage = err instanceof Error ? err.message : 'Unknown Error';
+        console.error('Webhook signature verification failed:', errorMessage);
+        return new Response(`Webhook Error: ${errorMessage}`, { status: 400 });
     }
 
     // Handle the event
     if (event.type === 'checkout.session.completed') {
-        const session = event.data.object;
+        // 👇 TypeScript ahora sabe que esto es una Session
+        const session = event.data.object as Stripe.Checkout.Session;
 
         try {
             await handleCheckoutCompleted(session);
@@ -53,7 +64,8 @@ export const POST: APIRoute = async ({ request }) => {
     });
 };
 
-async function handleCheckoutCompleted(session: any) {
+// 👇 Definimos el tipo de entrada correctamente
+async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const { userId, priceId } = session.metadata || {};
 
     if (!userId || !priceId) {
@@ -62,6 +74,7 @@ async function handleCheckoutCompleted(session: any) {
     }
 
     // Find the package that matches the priceId
+    // 👇 'pkg' ahora tiene autocompletado y tipo
     const { data: pkg, error: pkgError } = await supabaseAdmin
         .from('packages')
         .select('*')
@@ -100,7 +113,7 @@ async function handleCheckoutCompleted(session: any) {
             ends_at: endsAt.toISOString().split('T')[0],
             sessions_total: sessionsTotal,
             sessions_used: 0,
-            stripe_invoice_id: session.invoice,
+            stripe_invoice_id: session.invoice as string | null, // Stripe type matching
         })
         .select()
         .single();
@@ -116,10 +129,10 @@ async function handleCheckoutCompleted(session: any) {
         .insert({
             student_id: userId,
             subscription_id: subscription.id,
-            amount: session.amount_total,
-            currency: session.currency,
+            amount: session.amount_total ?? 0, // Fallback si es null
+            currency: session.currency ?? 'eur',
             status: 'succeeded',
-            stripe_payment_intent_id: session.payment_intent,
+            stripe_payment_intent_id: session.payment_intent as string | null,
             description: `${pkg.name} - ${durationMonths} month(s)`,
         });
 
@@ -137,7 +150,11 @@ async function handleCheckoutCompleted(session: any) {
  * Create Drive folder structure for a student (after successful payment)
  * Also sends welcome email after folder creation
  */
-async function createDriveFolderForStudent(userId: string, pkg: any): Promise<void> {
+// 👇 Tipamos 'pkg' usando los tipos de la DB directamente
+async function createDriveFolderForStudent(
+    userId: string,
+    pkg: Database['public']['Tables']['packages']['Row']
+): Promise<void> {
     let driveFolderLink: string | null = null;
     try {
         // Get student data with assigned teacher
@@ -168,17 +185,22 @@ async function createDriveFolderForStudent(userId: string, pkg: any): Promise<vo
         }
 
         // Get primary teacher name
-        const primaryTeacher = (student.student_teachers as any[])?.find((st: any) => st.is_primary);
+        // 👇 TypeScript infiere que student_teachers es un Array gracias a los tipos generados
+        // Si falla, es porque la relación en Supabase devuelve un objeto único, pero usualmente es array.
+        const teachers = student.student_teachers as unknown as any[];
+        // Nota: Mantenemos un casting ligero aquí porque las relaciones anidadas profundas 
+        // a veces son difíciles de inferir automáticamente sin un helper de tipos extra.
+
+        const primaryTeacher = teachers?.find((st: any) => st.is_primary);
         const teacherName = primaryTeacher?.teacher?.full_name || null;
 
         console.log(`[Webhook] Creating Drive folder for ${student.full_name || student.email}`);
 
-        // Create folder structure
+        // Create folder structure (creates all levels: A2, B1, B2, C1)
         const result = await createStudentFolderStructure({
             studentName: student.full_name || student.email?.split('@')[0] || 'Estudiante',
             studentEmail: student.email,
             teacherName,
-            level: 'A1', // Default level for new students
         });
 
         // Update profile with folder ID
@@ -210,9 +232,14 @@ async function createDriveFolderForStudent(userId: string, pkg: any): Promise<vo
 
         if (student?.email) {
             const publicUrl = import.meta.env.PUBLIC_URL || 'https://espanolhonesto.com';
+
+            // 👇 SOLUCIÓN: Hacemos un casting explícito del JSON
+            const displayNameObj = pkg.display_name as unknown as { es?: string };
+
             await sendWelcomeEmail(student.email, {
                 studentName: student.full_name || 'Estudiante',
-                packageName: pkg.display_name?.es || pkg.name || 'Español',
+                // 👇 Usamos el objeto tipeado
+                packageName: displayNameObj?.es || pkg.name || 'Español',
                 loginUrl: `${publicUrl}/es/login`,
                 driveFolderUrl: driveFolderLink || undefined,
             });

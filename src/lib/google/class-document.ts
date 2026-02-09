@@ -2,7 +2,7 @@
  * Class Document Creation
  * Creates exercise documents for each scheduled class from template
  */
-import { google } from 'googleapis';
+import { docs } from '@googleapis/docs';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
 import { copyFile, getFileLink } from './drive';
@@ -90,11 +90,11 @@ async function addEntryToIndexDocument(
     dateStr: string,
     documentLink: string
 ): Promise<void> {
-    const docs = google.docs({ version: 'v1', auth: getAuthClient() });
+    const docsClient = docs({ version: 'v1', auth: getAuthClient() });
 
     try {
         // Get document to find end index
-        const doc = await docs.documents.get({ documentId: indexDocId });
+        const doc = await docsClient.documents.get({ documentId: indexDocId });
         const endIndex = doc.data.body?.content?.slice(-1)[0]?.endIndex || 1;
 
         // Text to insert
@@ -102,7 +102,7 @@ async function addEntryToIndexDocument(
         const linkText = 'Ver ejercicios';
 
         // Insert text first
-        await docs.documents.batchUpdate({
+        await docsClient.documents.batchUpdate({
             documentId: indexDocId,
             requestBody: {
                 requests: [
@@ -117,7 +117,7 @@ async function addEntryToIndexDocument(
         });
 
         // Get updated document to find link position
-        const updatedDoc = await docs.documents.get({ documentId: indexDocId });
+        const updatedDoc = await docsClient.documents.get({ documentId: indexDocId });
         const newEndIndex = updatedDoc.data.body?.content?.slice(-1)[0]?.endIndex || 1;
 
         // Calculate position of "Ver ejercicios" text
@@ -125,7 +125,7 @@ async function addEntryToIndexDocument(
         const linkEndIndex = newEndIndex - 1;
 
         // Add hyperlink to the text
-        await docs.documents.batchUpdate({
+        await docsClient.documents.batchUpdate({
             documentId: indexDocId,
             requestBody: {
                 requests: [
@@ -182,17 +182,17 @@ export async function linkRecordingToDocument(
     recordingLink: string
 ): Promise<void> {
     try {
-        const docs = google.docs({ version: 'v1', auth: getAuthClient() });
+        const docsClient = docs({ version: 'v1', auth: getAuthClient() });
 
         // Get document to find end index
-        const doc = await docs.documents.get({ documentId });
+        const doc = await docsClient.documents.get({ documentId });
         const endIndex = doc.data.body?.content?.slice(-1)[0]?.endIndex || 1;
 
         // Content to append
         const recordingSection = `\n\n---\n🎥 Grabación de la clase: ${recordingLink}`;
 
         // Append recording section
-        await docs.documents.batchUpdate({
+        await docsClient.documents.batchUpdate({
             documentId,
             requestBody: {
                 requests: [

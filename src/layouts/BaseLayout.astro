@@ -7,6 +7,8 @@ interface Props {
   description: string;
   lang: string;
   canonicalUrl?: string;
+  canonicalPath?: string;
+  noindex?: boolean;
   ogImage?: string;
 }
 
@@ -15,10 +17,27 @@ const {
     description, 
     lang, 
     canonicalUrl = Astro.url.href, 
+    canonicalPath,
+    noindex = false,
     ogImage = '/og-image.jpg' 
 } = Astro.props;
 
 const siteUrl = 'https://espanolhonesto.com';
+
+// Generate proper canonical and hreflang URLs
+// If canonicalPath is provided, use it for dynamic hreflang
+// Otherwise, try to extract from current URL
+const getAlternateUrl = (targetLang: string): string => {
+    if (canonicalPath) {
+        // For explicit paths (e.g., "/" for landing, "/blog/my-post" for blog)
+        const path = canonicalPath === '/' ? '' : canonicalPath;
+        return `${siteUrl}/${targetLang}${path}`;
+    }
+    // Fallback: extract path from current URL and replace lang
+    const currentPath = Astro.url.pathname;
+    const pathWithoutLang = currentPath.replace(/^\/(es|en|ru)/, '');
+    return `${siteUrl}/${targetLang}${pathWithoutLang}`;
+};
 ---
 
 <!doctype html>
@@ -31,29 +50,32 @@ const siteUrl = 'https://espanolhonesto.com';
     <title>{title}</title>
     <meta name="description" content={description} />
     
+    <!-- Robots: noindex for private pages -->
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Español Honesto" />
     <meta property="og:url" content={canonicalUrl} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:image" content={ogImage} />
-    <meta property="og:locale" content={`${lang}_${lang.toUpperCase()}`} />
+    <meta property="og:image" content={ogImage.startsWith('http') ? ogImage : `${siteUrl}${ogImage}`} />
+    <meta property="og:locale" content={lang === 'es' ? 'es_ES' : lang === 'en' ? 'en_US' : 'ru_RU'} />
 
     <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content={ogImage} />
+    <meta name="twitter:image" content={ogImage.startsWith('http') ? ogImage : `${siteUrl}${ogImage}`} />
 
     <!-- Canonical -->
     <link rel="canonical" href={canonicalUrl} />
 
-    <!-- Alternates -->
-    <link rel="alternate" hreflang="es" href={`${siteUrl}/es`} />
-    <link rel="alternate" hreflang="en" href={`${siteUrl}/en`} />
-    <link rel="alternate" hreflang="ru" href={`${siteUrl}/ru`} />
-    <link rel="alternate" hreflang="x-default" href={`${siteUrl}/es`} />
+    <!-- hreflang for internationalization -->
+    <link rel="alternate" hreflang="es" href={getAlternateUrl('es')} />
+    <link rel="alternate" hreflang="en" href={getAlternateUrl('en')} />
+    <link rel="alternate" hreflang="ru" href={getAlternateUrl('ru')} />
+    <link rel="alternate" hreflang="x-default" href={getAlternateUrl('es')} />
 
     <!-- RSS -->
     <link rel="alternate" type="application/rss+xml" title="Español Honesto Blog" href={`/${lang}/blog/rss.xml`} />

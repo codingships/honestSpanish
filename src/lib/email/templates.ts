@@ -197,15 +197,19 @@ export function classConfirmationTemplate(data: ClassConfirmationData): string {
 
 export interface ClassReminderData {
     recipientName: string;
-    isTeacher: boolean;
-    otherPartyName: string;
     date: string;
     time: string;
+    teacherName?: string;  // If recipient is student
+    studentName?: string;  // If recipient is teacher
     meetLink?: string;
     documentLink?: string;
 }
 
 export function classReminderTemplate(data: ClassReminderData): string {
+    const isTeacher = !!data.studentName;
+    const otherPartyLabel = isTeacher ? 'tu alumno' : 'tu profesor';
+    const otherPartyName = isTeacher ? data.studentName : data.teacherName;
+
     const content = `
         <h2 style="color: #006064; margin: 0 0 20px 0;">⏰ Tu clase es mañana</h2>
         
@@ -221,17 +225,19 @@ export function classReminderTemplate(data: ClassReminderData): string {
             <p style="margin: 0 0 10px 0; font-size: 18px; color: #006064; font-weight: bold;">
                 ${data.date} a las ${data.time}
             </p>
+            ${otherPartyName ? `
             <p style="margin: 0; color: #333333; font-size: 14px;">
-                Con ${data.isTeacher ? 'tu alumno' : 'tu profesor'} ${data.otherPartyName}
+                Con ${otherPartyLabel} ${otherPartyName}
             </p>
+            ` : ''}
         </div>
         
         ${data.meetLink ? `
         <table width="100%" cellpadding="0" cellspacing="0" style="margin: 25px 0;">
             <tr>
                 <td align="center">
-                    <a href="${data.meetLink}" style="display: inline-block; background-color: #006064; color: #ffffff; padding: 15px 40px; text-decoration: none; font-weight: bold; font-size: 16px;">
-                        🎥 LINK DE LA VIDEOLLAMADA
+                    <a href="${data.meetLink}" style="display: inline-block; background-color: #00897B; color: #ffffff; padding: 15px 40px; text-decoration: none; font-weight: bold; font-size: 16px; border-radius: 4px;">
+                        🎥 UNIRSE A LA VIDEOLLAMADA
                     </a>
                 </td>
             </tr>
@@ -239,9 +245,15 @@ export function classReminderTemplate(data: ClassReminderData): string {
         ` : ''}
         
         ${data.documentLink ? `
-        <p style="color: #666666; font-size: 14px;">
-            📄 <a href="${data.documentLink}" style="color: #006064;">Ver documento de la clase</a>
-        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 15px 0;">
+            <tr>
+                <td align="center">
+                    <a href="${data.documentLink}" style="display: inline-block; background-color: #4285F4; color: #ffffff; padding: 12px 30px; text-decoration: none; font-weight: bold; font-size: 14px; border-radius: 4px;">
+                        📄 VER DOCUMENTO DE LA CLASE
+                    </a>
+                </td>
+            </tr>
+        </table>
         ` : ''}
         
         <p style="color: #333333; font-size: 16px; line-height: 1.6; margin-top: 30px;">

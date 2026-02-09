@@ -3,7 +3,7 @@
  * Future-proof infrastructure for processing Meet recordings
  * Will fail silently until Workspace license supports recordings
  */
-import { google } from 'googleapis';
+import { drive } from '@googleapis/drive';
 import { getAuthClient } from './auth';
 import { findOrCreateFolder, moveFile, getFileLink } from './drive';
 
@@ -37,10 +37,10 @@ function formatDateSpanish(date: Date): string {
  * This folder is auto-created by Google when recordings are enabled
  */
 async function findMeetRecordingsFolder(): Promise<string | null> {
-    const drive = google.drive({ version: 'v3', auth: getAuthClient() });
+    const driveClient = drive({ version: 'v3', auth: getAuthClient() });
 
     try {
-        const response = await drive.files.list({
+        const response = await driveClient.files.list({
             q: "name = 'Meet Recordings' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
             fields: 'files(id, name)',
             spaces: 'drive',
@@ -63,7 +63,7 @@ async function findRecordingByMeetLink(
     meetRecordingsFolderId: string,
     meetLink: string
 ): Promise<{ id: string; name: string } | null> {
-    const drive = google.drive({ version: 'v3', auth: getAuthClient() });
+    const driveClient = drive({ version: 'v3', auth: getAuthClient() });
 
     try {
         // Extract meeting code from Meet link (e.g., abc-defg-hij from meet.google.com/abc-defg-hij)
@@ -75,7 +75,7 @@ async function findRecordingByMeetLink(
         const meetCode = meetCodeMatch[1];
 
         // Search for recent video files in Meet Recordings folder
-        const response = await drive.files.list({
+        const response = await driveClient.files.list({
             q: `'${meetRecordingsFolderId}' in parents and mimeType contains 'video' and trashed = false`,
             fields: 'files(id, name, createdTime)',
             orderBy: 'createdTime desc',
@@ -103,11 +103,11 @@ async function findRecordingByMeetLink(
  * Find the level folder within student's root folder
  */
 async function findLevelFolder(studentRootFolderId: string, studentName: string, level: string): Promise<string | null> {
-    const drive = google.drive({ version: 'v3', auth: getAuthClient() });
+    const driveClient = drive({ version: 'v3', auth: getAuthClient() });
 
     try {
         const levelFolderName = `${level} - ${studentName}`;
-        const response = await drive.files.list({
+        const response = await driveClient.files.list({
             q: `name = '${levelFolderName}' and '${studentRootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
             fields: 'files(id, name)',
             spaces: 'drive',
@@ -125,10 +125,10 @@ async function findLevelFolder(studentRootFolderId: string, studentName: string,
  * Rename a file in Drive
  */
 async function renameFile(fileId: string, newName: string): Promise<void> {
-    const drive = google.drive({ version: 'v3', auth: getAuthClient() });
+    const driveClient = drive({ version: 'v3', auth: getAuthClient() });
 
     try {
-        await drive.files.update({
+        await driveClient.files.update({
             fileId,
             requestBody: { name: newName },
         });

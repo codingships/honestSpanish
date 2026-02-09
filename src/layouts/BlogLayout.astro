@@ -32,6 +32,10 @@ const articleSchema = {
       "url": "https://espanolhonesto.com"
   }]
 };
+// Get the slug without the language prefix for canonical path
+const slugParts = post.slug.split('/');
+const postSlug = slugParts.length > 1 ? slugParts.slice(1).join('/') : post.slug;
+const canonicalPath = `/blog/${postSlug}`;
 ---
 
 <BaseLayout 
@@ -39,6 +43,7 @@ const articleSchema = {
   description={description} 
   lang={lang}
   ogImage={image}
+  canonicalPath={canonicalPath}
 >
     <script is:inline type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
 
@@ -97,7 +102,7 @@ const articleSchema = {
         <section class="bg-[#006064] text-white py-24 text-center px-6">
             <h2 class="font-display text-4xl mb-6">{t('common.ctaReady')}</h2>
              <a
-                href="mailto:hola@espanolhonesto.com"
+                href="mailto:alejandro@espanolhonesto.com"
                 class="inline-block bg-white text-[#006064] px-8 py-4 text-lg font-bold border-2 border-transparent hover:bg-[#E0F7FA] transition-all uppercase tracking-wider"
             >
                 {t('common.ctaContact')}

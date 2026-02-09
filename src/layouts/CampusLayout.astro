@@ -60,7 +60,7 @@ const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav :
 const showViewAsStudent = role === 'teacher' || role === 'admin';
 ---
 
-<BaseLayout title={title} description="Campus" lang={lang}>
+<BaseLayout title={title} description="Campus" lang={lang} noindex={true}>
     <div class="flex h-screen bg-[#E0F7FA] overflow-hidden">
         
         <!-- Sidebar (Desktop & Mobile) -->

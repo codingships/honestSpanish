@@ -2,7 +2,8 @@
  * Student Folder Structure Creation
  * Creates the complete Drive folder hierarchy for a student
  */
-import { google } from 'googleapis';
+import { drive } from '@googleapis/drive';
+import { docs } from '@googleapis/docs';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
 import { findOrCreateFolder, shareWithUser, getFileLink } from './drive';
@@ -11,96 +12,129 @@ export interface CreateStudentFolderOptions {
     studentName: string;
     studentEmail: string;
     teacherName?: string | null;
-    level?: string;
+}
+
+export interface LevelFolderInfo {
+    folderId: string;
+    exercisesFolderId: string;
+    audioFolderId: string;
+    indexDocId: string;
 }
 
 export interface StudentFolderResult {
     rootFolderId: string;
-    levelFolderId: string;
-    exercisesFolderId: string;
-    audioFolderId: string;
-    indexDocId: string;
     rootFolderLink: string;
+    levels: {
+        A2: LevelFolderInfo;
+        B1: LevelFolderInfo;
+        B2: LevelFolderInfo;
+        C1: LevelFolderInfo;
+    };
 }
 
+const LEVELS = ['A2', 'B1', 'B2', 'C1'] as const;
+
 /**
- * Create the complete folder structure for a student
+ * Create the complete folder structure for a student with ALL levels
  * 
  * Structure:
- * 📁 [Nombre] - Español (root)
- * └── 📁 [Nivel] - [Nombre] (level folder)
- *     ├── 📁 Ejercicios
- *     │   └── 📁 Audio
- *     └── 📄 [Nombre] / [Profe] - Español ([Nivel]) (index doc)
+ * 📁 [Nombre Estudiante] - [Email]
+ * ├── 📁 A2
+ * │   └── 📁 Ejercicios
+ * │       └── 📁 Audio
+ * │       └── 📄 Índice de ejercicios
+ * ├── 📁 B1
+ * │   └── 📁 Ejercicios
+ * │       └── 📁 Audio
+ * │       └── 📄 Índice de ejercicios
+ * ├── 📁 B2
+ * │   └── 📁 Ejercicios
+ * │       └── 📁 Audio
+ * │       └── 📄 Índice de ejercicios
+ * └── 📁 C1
+ *     └── 📁 Ejercicios
+ *         └── 📁 Audio
+ *         └── 📄 Índice de ejercicios
  */
 export async function createStudentFolderStructure(
     options: CreateStudentFolderOptions
 ): Promise<StudentFolderResult> {
-    const { studentName, studentEmail, teacherName, level = 'A1' } = options;
+    const { studentName, studentEmail, teacherName } = options;
     const teacherDisplay = teacherName || 'Por asignar';
 
-    console.log(`[StudentFolder] Creating structure for ${studentName} (${level})`);
+    console.log(`[StudentFolder] Creating complete structure for ${studentName}`);
 
-    // 1. Create or find root folder: "[Nombre] - Español"
-    const rootFolderName = `${studentName} - Español`;
+    // 1. Create root folder: "[Nombre] - [Email]"
+    const rootFolderName = `${studentName} - ${studentEmail}`;
     const rootFolder = await findOrCreateFolder(rootFolderName, googleConfig.driveRootFolderId);
 
     if (!rootFolder.id) {
         throw new Error('Failed to create root folder');
     }
 
-    // 2. Create level folder: "[Nivel] - [Nombre]"
-    const levelFolderName = `${level} - ${studentName}`;
-    const levelFolder = await findOrCreateFolder(levelFolderName, rootFolder.id);
+    // 2. Create all level folders
+    const levels: Record<string, LevelFolderInfo> = {};
 
-    if (!levelFolder.id) {
-        throw new Error('Failed to create level folder');
+    for (const level of LEVELS) {
+        try {
+            console.log(`[StudentFolder] Creating level ${level} for ${studentName}`);
+
+            // Create level folder
+            const levelFolder = await findOrCreateFolder(level, rootFolder.id);
+            if (!levelFolder.id) {
+                throw new Error(`Failed to create ${level} folder`);
+            }
+
+            // Create Ejercicios folder
+            const exercisesFolder = await findOrCreateFolder('Ejercicios', levelFolder.id);
+            if (!exercisesFolder.id) {
+                throw new Error(`Failed to create Ejercicios folder for ${level}`);
+            }
+
+            // Create Audio subfolder
+            const audioFolder = await findOrCreateFolder('Audio', exercisesFolder.id);
+
+            // Create index document
+            const indexDoc = await createIndexDocument({
+                studentName,
+                teacherName: teacherDisplay,
+                level,
+                parentFolderId: exercisesFolder.id,
+            });
+
+            levels[level] = {
+                folderId: levelFolder.id,
+                exercisesFolderId: exercisesFolder.id,
+                audioFolderId: audioFolder.id || '',
+                indexDocId: indexDoc.id,
+            };
+
+            console.log(`[StudentFolder] Level ${level} created successfully`);
+        } catch (error) {
+            console.error(`[StudentFolder] Error creating level ${level}:`,
+                error instanceof Error ? error.message : 'Unknown error');
+            // Continue with other levels even if one fails
+        }
     }
 
-    // 3. Create Ejercicios folder
-    const exercisesFolder = await findOrCreateFolder('Ejercicios', levelFolder.id);
-
-    if (!exercisesFolder.id) {
-        throw new Error('Failed to create exercises folder');
-    }
-
-    // 4. Create Audio subfolder inside Ejercicios
-    const audioFolder = await findOrCreateFolder('Audio', exercisesFolder.id);
-
-    if (!audioFolder.id) {
-        throw new Error('Failed to create audio folder');
-    }
-
-    // 5. Create index document
-    const indexDoc = await createIndexDocument({
-        studentName,
-        teacherName: teacherDisplay,
-        level,
-        parentFolderId: levelFolder.id,
-    });
-
-    // 6. Share root folder with student (as viewer)
+    // 3. Share root folder with student (as viewer)
     try {
         await shareWithUser(rootFolder.id, studentEmail, 'reader');
         console.log(`[StudentFolder] Shared folder with ${studentEmail}`);
     } catch (error) {
-        // Don't fail if sharing fails - log and continue
         console.error(`[StudentFolder] Warning: Could not share folder with ${studentEmail}:`,
             error instanceof Error ? error.message : 'Unknown error');
     }
 
-    // 7. Get shareable link
+    // 4. Get shareable link
     const rootFolderLink = await getFileLink(rootFolder.id);
 
-    console.log(`[StudentFolder] Structure created successfully for ${studentName}`);
+    console.log(`[StudentFolder] Complete structure created for ${studentName}`);
 
     return {
         rootFolderId: rootFolder.id,
-        levelFolderId: levelFolder.id!,
-        exercisesFolderId: exercisesFolder.id!,
-        audioFolderId: audioFolder.id!,
-        indexDocId: indexDoc.id,
         rootFolderLink,
+        levels: levels as StudentFolderResult['levels'],
     };
 }
 
@@ -116,14 +150,14 @@ interface CreateIndexDocOptions {
  */
 async function createIndexDocument(options: CreateIndexDocOptions): Promise<{ id: string }> {
     const { studentName, teacherName, level, parentFolderId } = options;
-    const docs = google.docs({ version: 'v1', auth: getAuthClient() });
-    const drive = google.drive({ version: 'v3', auth: getAuthClient() });
+    const docsClient = docs({ version: 'v1', auth: getAuthClient() });
+    const driveClient = drive({ version: 'v3', auth: getAuthClient() });
 
     // Document title
     const docTitle = `${studentName} / ${teacherName} - Español (${level})`;
 
     // Create empty document
-    const createResponse = await docs.documents.create({
+    const createResponse = await docsClient.documents.create({
         requestBody: {
             title: docTitle,
         },
@@ -135,7 +169,7 @@ async function createIndexDocument(options: CreateIndexDocOptions): Promise<{ id
     }
 
     // Move document to the correct folder
-    await drive.files.update({
+    await driveClient.files.update({
         fileId: docId,
         addParents: parentFolderId,
         removeParents: 'root',
@@ -150,7 +184,7 @@ async function createIndexDocument(options: CreateIndexDocOptions): Promise<{ id
 [Las entradas se añadirán automáticamente]
 `;
 
-    await docs.documents.batchUpdate({
+    await docsClient.documents.batchUpdate({
         documentId: docId,
         requestBody: {
             requests: [
@@ -234,14 +268,14 @@ export async function getStudentFolderStructure(
     studentName: string,
     level: string
 ): Promise<StudentFolderStructure | null> {
-    const drive = google.drive({ version: 'v3', auth: getAuthClient() });
+    const driveClient = drive({ version: 'v3', auth: getAuthClient() });
 
     try {
         // Find level folder: "[Nivel] - [Nombre]"
         const levelFolderName = `${level} - ${studentName}`;
         const levelQuery = `name = '${levelFolderName}' and '${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
-        const levelResponse = await drive.files.list({
+        const levelResponse = await driveClient.files.list({
             q: levelQuery,
             fields: 'files(id, name)',
             spaces: 'drive',
@@ -256,7 +290,7 @@ export async function getStudentFolderStructure(
         // Find Ejercicios folder
         const exercisesQuery = `name = 'Ejercicios' and '${levelFolder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
-        const exercisesResponse = await drive.files.list({
+        const exercisesResponse = await driveClient.files.list({
             q: exercisesQuery,
             fields: 'files(id, name)',
             spaces: 'drive',
@@ -271,7 +305,7 @@ export async function getStudentFolderStructure(
         // Find Audio folder
         const audioQuery = `name = 'Audio' and '${exercisesFolder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
-        const audioResponse = await drive.files.list({
+        const audioResponse = await driveClient.files.list({
             q: audioQuery,
             fields: 'files(id, name)',
             spaces: 'drive',
@@ -282,7 +316,7 @@ export async function getStudentFolderStructure(
         // Find index document (Google Doc in level folder)
         const indexQuery = `'${levelFolder.id}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false`;
 
-        const indexResponse = await drive.files.list({
+        const indexResponse = await driveClient.files.list({
             q: indexQuery,
             fields: 'files(id, name)',
             spaces: 'drive',

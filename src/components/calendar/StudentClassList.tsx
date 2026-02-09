@@ -7,6 +7,7 @@ interface Session {
     duration_minutes: number;
     status: string;
     meet_link: string | null;
+    drive_doc_url: string | null;
     teacher_notes: string | null;
     teacher: {
         id: string;
@@ -158,16 +159,34 @@ export default function StudentClassList({
                                     href={session.meet_link}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="px-6 py-3 bg-green-600 text-white font-bold uppercase text-sm text-center hover:bg-green-700 transition-colors"
+                                    className="flex items-center justify-center gap-2 px-6 py-3 bg-[#00897B] text-white font-bold uppercase text-sm hover:bg-[#00796B] transition-colors rounded"
                                 >
-                                    🎥 {t.joinClass}
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+                                    </svg>
+                                    {t.joinClass}
                                 </a>
                             )}
 
                             {!showJoinButton && session.meet_link && (
-                                <div className="px-6 py-3 bg-gray-100 text-gray-500 font-bold uppercase text-sm text-center">
-                                    🎥 Link disponible 15 min antes
+                                <div className="px-6 py-3 bg-gray-100 text-gray-500 font-bold uppercase text-sm text-center rounded">
+                                    🎥 Link 15 min antes
                                 </div>
+                            )}
+
+                            {/* Document link */}
+                            {session.drive_doc_url && (
+                                <a
+                                    href={session.drive_doc_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center justify-center gap-2 px-6 py-2 bg-[#4285F4] text-white font-bold uppercase text-sm hover:bg-[#3367D6] transition-colors rounded"
+                                >
+                                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z" />
+                                    </svg>
+                                    {t.viewDocument || 'Documento'}
+                                </a>
                             )}
 
                             {showCancelButton && (

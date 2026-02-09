@@ -7,7 +7,8 @@
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
-    "preview": "astro preview",
+    "preview": "wrangler pages dev ./dist",
+    "deploy": "wrangler pages deploy ./dist",
     "astro": "astro",
     "test": "vitest",
     "test:run": "vitest run",
@@ -32,18 +33,21 @@
     "@astrojs/rss": "^4.0.14",
     "@astrojs/sitemap": "^3.6.0",
     "@astrojs/tailwind": "^6.0.0",
-    "@astrojs/vercel": "^9.0.3",
+    "@googleapis/calendar": "^14.2.0",
+    "@googleapis/docs": "^9.2.0",
+    "@googleapis/drive": "^20.0.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.90.0",
     "astro": "^5.0.0",
     "google-auth-library": "^10.5.0",
-    "googleapis": "^170.0.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "resend": "^6.7.0",
     "stripe": "^20.1.2"
   },
   "devDependencies": {
+    "@astrojs/cloudflare": "^12.6.12",
+    "@astrojs/vercel": "^9.0.4",
     "@axe-core/playwright": "^4.11.0",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.57.0",
@@ -67,6 +71,7 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.21.0",
     "typescript-eslint": "^8.53.0",
-    "vitest": "^4.0.17"
+    "vitest": "^4.0.17",
+    "wrangler": "^4.59.3"
   }
 }

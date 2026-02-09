@@ -28,6 +28,7 @@ const currentLangTranslations = ui[lang];
     title={`${t('auth.login')} | Español Honesto`} 
     description={t('meta.description')} 
     lang={lang}
+    noindex={true}
 >
     <div class="min-h-screen bg-[#E0F7FA] flex items-center justify-center p-4">
         <AuthForm client:load lang={lang} translations={currentLangTranslations} />

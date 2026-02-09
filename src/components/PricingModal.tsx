@@ -73,41 +73,11 @@ export default function PricingModal({
         }
     };
 
-    const handleContinue = async () => {
-        setError(null);
-
-        if (!isLoggedIn) {
-            window.location.href = `/${lang}/login?redirect=/${lang}/#pricing`;
-            return;
-        }
-
-        setIsLoading(true);
-
-        try {
-            const response = await fetch('/api/create-checkout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    priceId: getPriceId(selectedDuration),
-                    lang,
-                }),
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                throw new Error(data.error || 'Unknown error');
-            }
-
-            if (data.url) {
-                window.location.href = data.url;
-            }
-        } catch (err) {
-            console.error('Checkout error:', err);
-            setError(t.error);
-        } finally {
-            setIsLoading(false);
-        }
+    // TEMPORALMENTE: Redirigir a contacto por email en vez de Stripe
+    const handleContinue = () => {
+        const subject = encodeURIComponent(`Interés en plan ${plan.displayName}`);
+        const body = encodeURIComponent(`Hola,\n\nMe interesa el plan ${plan.displayName}.\n\nPor favor, contactadme para más información.\n\nGracias.`);
+        window.location.href = `mailto:alejandro@espanolhonesto.com?subject=${subject}&body=${body}`;
     };
 
     const durations: { value: Duration; label: string }[] = [
@@ -146,61 +116,15 @@ export default function PricingModal({
                     {t.title}
                 </p>
 
-                {/* Duration options */}
-                <div className="space-y-3 mb-6">
-                    {durations.map(({ value, label }) => {
-                        const isSelected = selectedDuration === value;
-                        const savings = calculateSavings(value);
-                        const total = calculateTotal(value);
-
-                        return (
-                            <label
-                                key={value}
-                                data-duration={value}
-                                className={`
-                                    block p-4 border-2 cursor-pointer transition-all
-                                    ${isSelected
-                                        ? 'bg-[#E0F7FA] border-[#006064]'
-                                        : 'bg-white border-gray-200 hover:border-[#006064]/50'
-                                    }
-                                `}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <input
-                                            type="radio"
-                                            name="duration"
-                                            value={value}
-                                            checked={isSelected}
-                                            onChange={() => setSelectedDuration(value)}
-                                            className="w-4 h-4 accent-[#006064]"
-                                        />
-                                        <span className="font-bold text-[#006064]">{label}</span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="font-bold text-[#006064]">{total}€</span>
-                                        {savings > 0 && (
-                                            <span className="ml-2 text-green-600 font-bold text-sm">
-                                                {t.save} {savings}€
-                                            </span>
-                                        )}
-                                    </div>
-                                </div>
-                            </label>
-                        );
-                    })}
-                </div>
-
-                {/* Price summary */}
-                <div className="text-center mb-6 py-4 border-t-2 border-b-2 border-[#006064]/20">
-                    <p className="text-sm text-[#006064]/60 uppercase tracking-wide">{t.total}</p>
-                    <p className="font-display text-4xl text-[#006064]">
-                        {calculateTotal(selectedDuration)}€
-                    </p>
-                    <p className="text-sm text-[#006064]/60">
-                        {calculateMonthlyEquivalent(selectedDuration)}€ {t.perMonth}
+                {/* TEMPORALMENTE: Ocultar opciones de duración con precios */}
+                {/* Mensaje de contacto */}
+                <div className="mb-6 p-4 bg-[#E0F7FA] border-2 border-[#006064]">
+                    <p className="text-[#006064] text-center">
+                        Para conocer precios y disponibilidad, contáctanos directamente.
                     </p>
                 </div>
+
+                {/* TEMPORALMENTE: Ocultar resumen de precios */}
 
                 {/* Error message */}
                 {error && (
@@ -225,7 +149,7 @@ export default function PricingModal({
                         }
                     `}
                 >
-                    {isLoading ? t.loading : (isLoggedIn ? t.continue : t.login)}
+                    Contactar
                 </button>
             </div>
         </div>

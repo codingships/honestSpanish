@@ -4,9 +4,18 @@ import { supabase } from '../lib/supabase';
 // Since this is a client-side component, we need to handle translations manually or pass them as props.
 // For simplicity and better integration with your setup, we'll accept a dictionary of translations as props.
 
+// Helper function to get lang from URL at redirect time
+const getLangFromUrl = () => {
+    if (typeof window === 'undefined') return 'es';
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    const lang = pathParts[0];
+    // Validate it's a known language, otherwise default to 'es'
+    return ['es', 'en', 'ru'].includes(lang) ? lang : 'es';
+};
+
 export default function AuthForm({ lang: langProp, translations }) {
-    // Fallback: get lang from URL if prop is not available
-    const lang = langProp || (typeof window !== 'undefined' ? window.location.pathname.split('/')[1] : 'es') || 'es';
+    // Use prop if available, otherwise get from URL
+    const lang = langProp || getLangFromUrl();
 
     const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
@@ -31,8 +40,10 @@ export default function AuthForm({ lang: langProp, translations }) {
                 });
                 if (error) throw error;
 
-                // Redirect on success
-                window.location.href = `/${lang}/campus`;
+                // Redirect via server-side endpoint that handles role-based routing
+                const currentLang = getLangFromUrl();
+                console.log('[AuthForm] Redirecting via post-login endpoint, lang:', currentLang);
+                window.location.href = `/api/auth/post-login?lang=${currentLang}`;
             } else {
                 // Try to derive a name from email if possible, or just send empty metadata
                 const fullName = email.split('@')[0];
@@ -48,9 +59,8 @@ export default function AuthForm({ lang: langProp, translations }) {
                 });
                 if (error) throw error;
 
-                // If email confirmation is disabled, user is auto-logged in
                 if (data?.session) {
-                    window.location.href = `/${lang}/campus`;
+                    window.location.href = `/api/auth/post-login?lang=${getLangFromUrl()}`;
                 } else if (data?.user && !data?.user?.identities?.length === 0) {
                     // User exists but email not confirmed - show message
                     setSuccessMessage(t.auth.success.registered);
@@ -61,7 +71,7 @@ export default function AuthForm({ lang: langProp, translations }) {
                         password,
                     });
                     if (!loginError) {
-                        window.location.href = `/${lang}/campus`;
+                        window.location.href = `/api/auth/post-login?lang=${getLangFromUrl()}`;
                     } else {
                         // Fallback: show success and let user login manually
                         setSuccessMessage(t.auth.success.registered);

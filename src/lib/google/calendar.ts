@@ -2,7 +2,7 @@
  * Google Calendar API Client
  * Provides helper functions for event management with Meet integration
  */
-import { google, calendar_v3 } from 'googleapis';
+import { calendar, calendar_v3 } from '@googleapis/calendar';
 import { getAuthClient } from './auth';
 
 let cachedCalendarClient: calendar_v3.Calendar | null = null;
@@ -16,7 +16,7 @@ export function getCalendarClient(): calendar_v3.Calendar {
     }
 
     const auth = getAuthClient();
-    cachedCalendarClient = google.calendar({ version: 'v3', auth });
+    cachedCalendarClient = calendar({ version: 'v3', auth });
     return cachedCalendarClient;
 }
 

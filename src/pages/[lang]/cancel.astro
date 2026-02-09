@@ -14,7 +14,7 @@ const { lang } = Astro.params;
 const t = useTranslations(lang);
 ---
 
-<BaseLayout title={`Cancelled | ${t('nav.brand')}`} lang={lang}>
+<BaseLayout title={`Cancelled | ${t('nav.brand')}`} lang={lang} noindex={true}>
   <div class="min-h-screen flex items-center justify-center bg-[#E0F7FA]">
     <div class="text-center p-8 bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064]">
       <h1 class="font-display text-4xl text-[#006064] mb-4">Pago Cancelado</h1>

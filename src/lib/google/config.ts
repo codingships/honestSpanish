@@ -9,7 +9,7 @@ export const googleConfig = {
     serviceAccountPrivateKey: (import.meta.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
 
     // Admin email to impersonate (owner of all resources)
-    adminEmail: import.meta.env.GOOGLE_ADMIN_EMAIL || 'alin@espanolhonesto.com',
+    adminEmail: import.meta.env.GOOGLE_ADMIN_EMAIL || 'alejandro@espanolhonesto.com',
 
     // Drive configuration
     driveRootFolderId: import.meta.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '',

@@ -23,3 +23,4 @@ export {
     sendClassConfirmationToBoth,
     sendClassCancelledToBoth,
 } from './send';
+

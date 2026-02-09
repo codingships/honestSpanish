@@ -1,0 +1,8 @@
+name = "espanol-honesto"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Las variables sensibles se configuran en el dashboard de Cloudflare
+# Aquí solo van las no sensibles
+NODE_ENV = "production"

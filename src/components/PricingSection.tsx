@@ -102,9 +102,9 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
     });
 
     // Get package data or use fallback
-    const getPriceDisplay = (pkg: Package | undefined): string => {
-        if (!pkg) return '€—';
-        return `€${pkg.price_monthly / 100}`;
+    // TEMPORALMENTE: Ocultar precios hasta tener los definitivos
+    const getPriceDisplay = (_pkg: Package | undefined): string => {
+        return 'Consultar';
     };
 
     const planConfig: { key: PlanKey; isRecommended: boolean; highlight: boolean }[] = [
@@ -165,10 +165,9 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
                                         <p className="text-sm opacity-70 mt-1">{planTranslations.description}</p>
                                     </div>
 
-                                    {/* Price */}
+                                    {/* Price - TEMPORALMENTE: Solo mostrar "Consultar" */}
                                     <div className={`col-span-2 font-mono ${highlight ? 'text-3xl' : 'text-2xl'} font-bold`}>
                                         {getPriceDisplay(pkg)}
-                                        <span className="text-sm font-normal">{t.month}</span>
                                     </div>
 
                                     {/* Features */}

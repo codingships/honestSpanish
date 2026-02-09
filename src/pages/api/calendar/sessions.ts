@@ -1,12 +1,12 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { createClassDocument } from '../../../lib/google/class-document';
-import { getStudentFolderStructure } from '../../../lib/google/student-folder';
+import { createClassDocument, getFileLink } from '../../../lib/google/drive';
 import { createClassEvent } from '../../../lib/google/calendar';
-import { getFileLink } from '../../../lib/google/drive';
 import { sendClassConfirmationToBoth } from '../../../lib/email';
+// 👇 Importamos los tipos para mantener la coherencia
+import type { Database } from '../../../types/database.types';
 
-// GET: Obtener sesiones
+// GET: Obtener sesiones (Sin cambios, solo añadido tipado)
 export const GET: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
     const { data: { user } } = await supabase.auth.getUser();
@@ -28,6 +28,7 @@ export const GET: APIRoute = async (context) => {
     const from = url.searchParams.get('from');
     const to = url.searchParams.get('to');
 
+    // @ts-ignore - Supabase types casting for complex joins usually needs refinement
     let query = supabase
         .from('sessions')
         .select(`
@@ -41,30 +42,17 @@ export const GET: APIRoute = async (context) => {
         `)
         .order('scheduled_at', { ascending: true });
 
-    // Filtros según rol
     if (profile?.role === 'student') {
         query = query.eq('student_id', user.id);
     } else if (profile?.role === 'teacher') {
         query = query.eq('teacher_id', user.id);
     }
-    // Admin puede ver todo
 
-    // Filtros opcionales
-    if (studentId && profile?.role !== 'student') {
-        query = query.eq('student_id', studentId);
-    }
-    if (teacherId) {
-        query = query.eq('teacher_id', teacherId);
-    }
-    if (status) {
-        query = query.eq('status', status);
-    }
-    if (from) {
-        query = query.gte('scheduled_at', from);
-    }
-    if (to) {
-        query = query.lte('scheduled_at', to);
-    }
+    if (studentId && profile?.role !== 'student') query = query.eq('student_id', studentId);
+    if (teacherId) query = query.eq('teacher_id', teacherId);
+    if (status) query = query.eq('status', status);
+    if (from) query = query.gte('scheduled_at', from);
+    if (to) query = query.lte('scheduled_at', to);
 
     const { data, error } = await query;
 
@@ -78,7 +66,7 @@ export const GET: APIRoute = async (context) => {
     });
 };
 
-// POST: Crear nueva sesión (programar clase)
+// POST: Crear nueva sesión
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
     const { data: { user } } = await supabase.auth.getUser();
@@ -93,22 +81,21 @@ export const POST: APIRoute = async (context) => {
         .eq('id', user.id)
         .single();
 
-    // Solo teacher o admin pueden crear sesiones
     if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
     const body = await context.request.json();
-    const { studentId, teacherId, scheduledAt, durationMinutes = 60, meetLink } = body;
+    // 👇 1. Extraemos el flag autoCreateMeeting (default true por seguridad)
+    const { studentId, teacherId, scheduledAt, durationMinutes = 60, meetLink, autoCreateMeeting = true } = body;
 
     if (!studentId || !scheduledAt) {
         return new Response(JSON.stringify({ error: 'studentId and scheduledAt are required' }), { status: 400 });
     }
 
-    // Determinar el profesor
     const finalTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
 
-    // Verificar que el estudiante tiene suscripción activa con sesiones disponibles
+    // Verificar suscripción
     const { data: subscription } = await supabase
         .from('subscriptions')
         .select('id, sessions_used, sessions_total')
@@ -123,11 +110,15 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Student has no active subscription' }), { status: 400 });
     }
 
-    if (subscription.sessions_used >= subscription.sessions_total) {
+    // Corrección: Si es null, usamos 0 como valor por defecto
+    const sessionsUsed = subscription.sessions_used ?? 0;
+    const sessionsTotal = subscription.sessions_total ?? 0;
+
+    if (sessionsUsed >= sessionsTotal) {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 400 });
     }
 
-    // Verificar que el slot está disponible (no hay otra sesión)
+    // Verificar conflictos
     const scheduledDate = new Date(scheduledAt);
     const endTime = new Date(scheduledDate.getTime() + durationMinutes * 60000);
 
@@ -152,18 +143,22 @@ export const POST: APIRoute = async (context) => {
             teacher_id: finalTeacherId,
             scheduled_at: scheduledAt,
             duration_minutes: durationMinutes,
-            meet_link: meetLink || null,
+            meet_link: meetLink || null, // Guardamos el link manual si existe
             status: 'scheduled'
         })
-        .select()
+        .select(`
+            *,
+            student:profiles!sessions_student_id_fkey(id, full_name, email),
+            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+        `)
         .single();
 
     if (sessionError) {
         return new Response(JSON.stringify({ error: sessionError.message }), { status: 500 });
     }
 
-    // Create class document in Google Drive (non-blocking)
-    createClassDocumentForSession(supabase, session, studentId, finalTeacherId);
+    // 👇 2. Pasamos el flag a la función background
+    createClassDocumentForSession(supabase, session, studentId, finalTeacherId, autoCreateMeeting);
 
     return new Response(JSON.stringify({ session }), {
         status: 201,
@@ -172,28 +167,28 @@ export const POST: APIRoute = async (context) => {
 };
 
 /**
- * Create class document and calendar event for a scheduled session
- * Runs in background, doesn't block session creation
+ * Background Task: Drive Docs, Calendar & Email
  */
 async function createClassDocumentForSession(
     supabase: any,
     session: any,
     studentId: string,
-    teacherId: string
+    teacherId: string,
+    shouldAutoCreateMeeting: boolean // 👇 Nuevo parámetro
 ): Promise<void> {
     let documentResult: { documentId: string; documentLink: string } | null = null;
     let calendarResult: { eventId: string; meetLink: string; htmlLink: string } | null = null;
     let studentFolderLink: string | null = null;
 
     try {
-        // Get student data
+        // Datos del estudiante
         const { data: student } = await supabase
             .from('profiles')
-            .select('id, full_name, email, drive_folder_id')
+            .select('id, full_name, email, drive_folder_id, current_level')
             .eq('id', studentId)
             .single();
 
-        // Get teacher data
+        // Datos del profesor
         const { data: teacher } = await supabase
             .from('profiles')
             .select('full_name, email')
@@ -204,44 +199,33 @@ async function createClassDocumentForSession(
         const teacherName = teacher?.full_name || 'Profesor';
         const teacherEmail = teacher?.email || '';
         const studentEmail = student?.email || '';
-        const level = 'A1'; // TODO: Get from student profile or subscription
 
-        // 1. Create class document if student has Drive folder
+        // 1. SIEMPRE creamos el Documento de Clase (Drive)
+        // Es buena práctica tener registro documental aunque la clase sea manual
         if (student?.drive_folder_id) {
             try {
-                // Get folder structure
-                const folderStructure = await getStudentFolderStructure(
-                    student.drive_folder_id,
+                const level = (student?.current_level || 'A2') as 'A2' | 'B1' | 'B2' | 'C1';
+                const docResult = await createClassDocument({
                     studentName,
-                    level
-                );
+                    studentRootFolderId: student.drive_folder_id,
+                    level,
+                    classDate: new Date(session.scheduled_at),
+                });
 
-                if (folderStructure) {
-                    // Create class document
-                    documentResult = await createClassDocument({
-                        studentId,
-                        studentName,
-                        teacherName,
-                        level,
-                        classDate: new Date(session.scheduled_at),
-                        exercisesFolderId: folderStructure.exercisesFolderId,
-                        indexDocId: folderStructure.indexDocId || '',
-                    });
-                    console.log(`[Sessions] Created document for session ${session.id}: ${documentResult.documentId}`);
+                if (docResult) {
+                    documentResult = {
+                        documentId: docResult.docId,
+                        documentLink: docResult.docUrl,
+                    };
                 }
-
-                // Get student folder link
                 studentFolderLink = await getFileLink(student.drive_folder_id);
             } catch (docError) {
-                console.error('[Sessions] Error creating document (continuing with calendar):',
-                    docError instanceof Error ? docError.message : 'Unknown error');
+                console.error('[Sessions] Error creating document:', docError);
             }
-        } else {
-            console.log('[Sessions] Student has no Drive folder, skipping document creation');
         }
 
-        // 2. Create Calendar event with Meet
-        if (studentEmail && teacherEmail) {
+        // 2. SOLO creamos evento en Google Calendar si el flag es TRUE
+        if (shouldAutoCreateMeeting && studentEmail && teacherEmail) {
             try {
                 const scheduledAt = new Date(session.scheduled_at);
                 const endTime = new Date(scheduledAt.getTime() + (session.duration_minutes || 60) * 60000);
@@ -255,55 +239,40 @@ async function createClassDocumentForSession(
                     documentLink: documentResult?.documentLink,
                     studentFolderLink: studentFolderLink || undefined,
                 });
-                console.log(`[Sessions] Created calendar event for session ${session.id}: ${calendarResult.eventId}`);
+                console.log(`[Sessions] Created calendar event: ${calendarResult.eventId}`);
             } catch (calError) {
-                console.error('[Sessions] Error creating calendar event:',
-                    calError instanceof Error ? calError.message : 'Unknown error');
+                console.error('[Sessions] Error creating calendar event:', calError);
             }
         } else {
-            console.log('[Sessions] Missing email(s), skipping calendar event');
+            console.log('[Sessions] Calendar event skipped (Manual mode or missing emails)');
         }
 
-        // 3. Update session with all gathered info
+        // 3. Actualizamos la sesión en DB
         const updateData: Record<string, any> = {};
 
         if (documentResult) {
             updateData.drive_doc_id = documentResult.documentId;
-            updateData.drive_doc_link = documentResult.documentLink;
+            updateData.drive_doc_url = documentResult.documentLink;
         }
 
         if (calendarResult) {
             updateData.meet_link = calendarResult.meetLink;
-            updateData.google_calendar_event_id = calendarResult.eventId;
-            updateData.google_meet_link = calendarResult.meetLink;
+            updateData.calendar_event_id = calendarResult.eventId;
         }
 
         if (Object.keys(updateData).length > 0) {
-            const { error: updateError } = await supabase
-                .from('sessions')
-                .update(updateData)
-                .eq('id', session.id);
-
-            if (updateError) {
-                console.error('[Sessions] Error updating session:', updateError);
-            } else {
-                console.log(`[Sessions] Updated session ${session.id} with Google integration data`);
-            }
+            await supabase.from('sessions').update(updateData).eq('id', session.id);
         }
 
-        // Send confirmation emails to both student and teacher
+        // 4. Enviamos Emails (SIEMPRE, usando el link automático O el manual)
         try {
             const scheduledAt = new Date(session.scheduled_at);
-            const dateStr = scheduledAt.toLocaleDateString('es-ES', {
-                weekday: 'long',
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            });
-            const timeStr = scheduledAt.toLocaleTimeString('es-ES', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            const dateStr = scheduledAt.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            const timeStr = scheduledAt.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+            // 👇 Determinamos qué link enviar
+            // Si hay calendarResult, usamos ese. Si no, usamos el que venía en la sesión (manual)
+            const finalMeetLink = calendarResult?.meetLink || session.meet_link;
 
             await sendClassConfirmationToBoth(
                 studentEmail,
@@ -314,21 +283,16 @@ async function createClassDocumentForSession(
                     date: dateStr,
                     time: timeStr,
                     duration: session.duration_minutes || 60,
-                    meetLink: calendarResult?.meetLink,
+                    meetLink: finalMeetLink, // Puede ser null si es manual y no pusieron nada
                     documentLink: documentResult?.documentLink,
                 }
             );
-            console.log(`[Sessions] Confirmation emails sent for session ${session.id}`);
+            console.log(`[Sessions] Confirmation emails sent`);
         } catch (emailError) {
-            console.error('[Sessions] Error sending confirmation emails (non-blocking):',
-                emailError instanceof Error ? emailError.message : 'Unknown error');
+            console.error('[Sessions] Error sending emails:', emailError);
         }
 
     } catch (error) {
-        // Log error but don't fail - session is already created
-        console.error('[Sessions] Error in Google integration (non-blocking):',
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Sessions] Critical error in background task:', error);
     }
 }
-
-

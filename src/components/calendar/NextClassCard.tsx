@@ -6,6 +6,7 @@ interface Session {
     duration_minutes: number;
     status: string;
     meet_link: string | null;
+    drive_doc_url: string | null;
     teacher: {
         full_name: string | null;
         email: string;
@@ -22,6 +23,7 @@ interface NextClassCardProps {
         with: string;
         in: string;
         viewAll: string;
+        viewDocument?: string;
     };
 }
 
@@ -116,17 +118,39 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
                 )}
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 space-y-2">
+                {/* Join Meet button - visible when class is starting soon */}
                 {canJoin() && session.meet_link ? (
                     <a
                         href={session.meet_link}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block w-full text-center py-3 bg-green-600 text-white text-sm font-bold uppercase hover:bg-green-700 transition-colors"
+                        className="flex items-center justify-center gap-2 w-full py-3 bg-[#00897B] text-white text-sm font-bold uppercase hover:bg-[#00796B] transition-colors rounded"
                     >
-                        🎥 {t.joinClass}
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+                        </svg>
+                        {t.joinClass}
                     </a>
-                ) : (
+                ) : null}
+
+                {/* Document link - always visible if exists */}
+                {session.drive_doc_url && (
+                    <a
+                        href={session.drive_doc_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-2 w-full py-2 bg-[#4285F4] text-white text-sm font-bold uppercase hover:bg-[#3367D6] transition-colors rounded"
+                    >
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z" />
+                        </svg>
+                        {t.viewDocument || 'Ver documento'}
+                    </a>
+                )}
+
+                {/* View all classes link */}
+                {!canJoin() && (
                     <a
                         href={`/${lang}/campus/classes`}
                         className="block w-full text-center py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"

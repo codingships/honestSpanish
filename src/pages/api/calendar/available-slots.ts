@@ -1,3 +1,6 @@
+export const config = {
+    runtime: 'nodejs'
+};
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 

@@ -96,8 +96,7 @@ export const POST: APIRoute = async (context) => {
             case 'reminder':
                 success = await sendClassReminder(email, {
                     recipientName: 'Usuario de Prueba',
-                    isTeacher: false,
-                    otherPartyName: 'Alejandro García',
+                    teacherName: 'Alejandro García',
                     date: 'Martes, 16 de enero de 2026',
                     time: '10:00',
                     meetLink: 'https://meet.google.com/abc-defg-hij',
