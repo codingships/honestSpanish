@@ -84,7 +84,7 @@ export default function ScheduleSessionModal({
         if (selectedDate) {
             fetchAvailableSlots();
         }
-    }, [selectedDate, teacherId, duration]);
+    }, [selectedDate, teacherId, duration, t.errorLoadingSlots]);
 
     const handleSubmit = async () => {
         if (!selectedStudent || !selectedSlot) return;
