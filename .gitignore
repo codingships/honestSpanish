@@ -30,6 +30,7 @@ dist-ssr
 .env.local
 .env.test
 tests/e2e/.auth/
+coverage/
 .gemini
 
 # Cloudflare
