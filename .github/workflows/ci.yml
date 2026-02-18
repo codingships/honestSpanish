@@ -29,6 +29,9 @@ jobs:
       # Allow failure if you want CI to pass despite lint warnings
       run: npm run lint
       
+    - name: Generate Astro Types
+      run: npx astro sync
+
     - name: Typecheck
       run: npm run typecheck
 
