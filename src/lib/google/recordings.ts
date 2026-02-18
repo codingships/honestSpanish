@@ -107,8 +107,9 @@ async function findLevelFolder(studentRootFolderId: string, studentName: string,
 
     try {
         const levelFolderName = `${level} - ${studentName}`;
+        const escapedLevelFolderName = levelFolderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
         const response = await driveClient.files.list({
-            q: `name = '${levelFolderName}' and '${studentRootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+            q: `name = '${escapedLevelFolderName}' and '${studentRootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
             fields: 'files(id, name)',
             spaces: 'drive',
         });

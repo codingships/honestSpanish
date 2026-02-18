@@ -65,7 +65,7 @@ export async function createEventWithMeet(options: CreateEventOptions): Promise<
                 attendees: options.attendees.map(email => ({ email })),
                 conferenceData: {
                     createRequest: {
-                        requestId: `meet-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                        requestId: `meet-${crypto.randomUUID()}`,
                         conferenceSolutionKey: {
                             type: 'hangoutsMeet',
                         },
@@ -260,7 +260,7 @@ export async function createClassEvent(options: CreateClassEventOptions): Promis
                 ],
                 conferenceData: {
                     createRequest: {
-                        requestId: `class-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                        requestId: `class-${crypto.randomUUID()}`,
                         conferenceSolutionKey: {
                             type: 'hangoutsMeet',
                         },

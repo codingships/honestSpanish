@@ -30,7 +30,8 @@ export async function findFolder(name: string, parentId?: string): Promise<drive
     const parent = parentId || googleConfig.driveRootFolderId;
 
     try {
-        const query = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parent}' in parents and trashed = false`;
+        const escapedName = name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const query = `name = '${escapedName}' and mimeType = 'application/vnd.google-apps.folder' and '${parent}' in parents and trashed = false`;
 
         const response = await drive.files.list({
             q: query,

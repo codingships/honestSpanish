@@ -156,6 +156,12 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: sessionError.message }), { status: 500 });
     }
 
+    // Increment sessions_used now that the session is confirmed
+    await supabase
+        .from('subscriptions')
+        .update({ sessions_used: sessionsUsed + 1 })
+        .eq('id', subscription.id);
+
     // 👇 2. Pasamos el flag a la función background
     createClassDocumentForSession(supabase, session, studentId, finalTeacherId, autoCreateMeeting);
 

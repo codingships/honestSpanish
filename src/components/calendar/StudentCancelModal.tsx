@@ -63,7 +63,7 @@ export default function StudentCancelModal({
 
             onSuccess(session.id);
         } catch (err: unknown) {
-            setError(err instanceof Error ? err.message : 'Error al cancelar la clase');
+            setError(err instanceof Error ? err.message : (t.cancelError || 'Error'));
         } finally {
             setIsLoading(false);
         }
@@ -99,13 +99,13 @@ export default function StudentCancelModal({
                 {/* Razón (opcional) */}
                 <div className="mb-6">
                     <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
-                        Motivo (opcional)
+                        {t.cancelReason || ''}
                     </label>
                     <textarea
                         value={reason}
                         onChange={(e) => setReason(e.target.value)}
                         className="w-full p-3 border-2 border-[#006064] text-[#006064] h-20 resize-none"
-                        placeholder="¿Por qué cancelas la clase?"
+                        placeholder={t.cancelReasonPlaceholder || ''}
                     />
                 </div>
 

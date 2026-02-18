@@ -75,7 +75,7 @@ export default function ScheduleSessionModal({
                 const data = await response.json();
                 setAvailableSlots(data.slots || []);
             } catch {
-                setError('Error al cargar horarios disponibles');
+                setError(t.errorLoadingSlots || 'Error');
             } finally {
                 setIsLoading(false);
             }
@@ -117,7 +117,7 @@ export default function ScheduleSessionModal({
             // Recargar la página para mostrar la nueva sesión
             window.location.reload();
         } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-            setError(err.message || 'Error al programar la clase');
+            setError(err.message || t.errorScheduling || 'Error');
         } finally {
             setIsLoading(false);
         }
@@ -177,7 +177,7 @@ export default function ScheduleSessionModal({
                             disabled={!selectedStudent}
                             className="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Continuar →
+                            {t.continue || '→'}
                         </button>
                     </div>
                 )}
@@ -189,7 +189,7 @@ export default function ScheduleSessionModal({
                             onClick={() => setStep(1)}
                             className="text-sm text-[#006064] hover:opacity-70"
                         >
-                            ← Volver
+                            {t.back || '←'}
                         </button>
 
                         <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
@@ -208,7 +208,7 @@ export default function ScheduleSessionModal({
                             disabled={!selectedDate}
                             className="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Continuar →
+                            {t.continue || '→'}
                         </button>
                     </div>
                 )}
@@ -220,7 +220,7 @@ export default function ScheduleSessionModal({
                             onClick={() => setStep(2)}
                             className="text-sm text-[#006064] hover:opacity-70"
                         >
-                            ← Volver
+                            {t.back || '←'}
                         </button>
 
                         <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
@@ -228,12 +228,12 @@ export default function ScheduleSessionModal({
                         </label>
 
                         {isLoading ? (
-                            <div className="text-center py-8 text-[#006064]/60">Cargando...</div>
+                            <div className="text-center py-8 text-[#006064]/60">{t.loading || '...'}</div>
                         ) : availableSlots.length === 0 ? (
                             <div className="text-center py-8 text-[#006064]/60">
-                                No hay horarios disponibles para esta fecha.
+                                {t.noSlotsDate || '–'}
                                 <br />
-                                <span className="text-sm">Configura tu disponibilidad primero.</span>
+                                <span className="text-sm">{t.setupAvailability || ''}</span>
                             </div>
                         ) : (
                             <div className="grid grid-cols-3 gap-2 max-h-60 overflow-y-auto">
@@ -257,7 +257,7 @@ export default function ScheduleSessionModal({
                                 onClick={() => setStep(4)}
                                 className="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                             >
-                                Continuar →
+                                {t.continue || '→'}
                             </button>
                         )}
                     </div>
@@ -270,24 +270,24 @@ export default function ScheduleSessionModal({
                             onClick={() => setStep(3)}
                             className="text-sm text-[#006064] hover:opacity-70"
                         >
-                            ← Volver
+                            {t.back || '←'}
                         </button>
 
                         {/* Resumen */}
                         <div className="p-4 bg-[#E0F7FA] border border-[#006064]/20">
-                            <h3 className="font-bold text-[#006064] mb-2">Resumen</h3>
+                            <h3 className="font-bold text-[#006064] mb-2">{t.summary || '–'}</h3>
                             <div className="text-sm text-[#006064]/80 space-y-1">
-                                <p><strong>Estudiante:</strong> {students.find(s => s.id === selectedStudent)?.full_name || students.find(s => s.id === selectedStudent)?.email}</p>
-                                <p><strong>Fecha:</strong> {new Date(selectedDate).toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-                                <p><strong>Hora:</strong> {selectedSlot && formatTime(selectedSlot.slot_start)}</p>
-                                <p><strong>Duración:</strong> {duration} min</p>
+                                <p><strong>{t.studentLabel || ''}</strong> {students.find(s => s.id === selectedStudent)?.full_name || students.find(s => s.id === selectedStudent)?.email}</p>
+                                <p><strong>{t.dateLabel || ''}</strong> {new Date(selectedDate).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                                <p><strong>{t.timeLabel || ''}</strong> {selectedSlot && formatTime(selectedSlot.slot_start)}</p>
+                                <p><strong>{t.duration}:</strong> {duration} {t.minutes}</p>
                             </div>
                         </div>
 
                         {/* Link de Meet (opcional) */}
                         <div>
                             <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
-                                Link de Google Meet (opcional)
+                                {t.meetLinkOptional || ''}
                             </label>
                             <input
                                 type="url"

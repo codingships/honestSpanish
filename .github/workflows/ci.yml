@@ -29,10 +29,9 @@ jobs:
       # Allow failure if you want CI to pass despite lint warnings
       run: npm run lint
       
-    # Skipping Typecheck for now as there are known errors
-    # - name: Typecheck
-    #   run: npm run typecheck
-      
+    - name: Typecheck
+      run: npm run typecheck
+
     - name: Build Project
       run: npm run build
       

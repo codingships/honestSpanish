@@ -19,7 +19,9 @@ npm run deploy           # Deploy to Cloudflare Pages
 npm run test             # Vitest watch mode
 npm run test:run         # Single run (CI)
 npm run test:coverage    # Coverage report
-npm run test:e2e         # Playwright E2E (UI mode)
+npm run test:e2e         # Playwright E2E (headless)
+npm run test:e2e:ui      # Playwright E2E (UI mode)
+npm run test:e2e:debug   # Playwright E2E (debug mode)
 npm run test:all         # Unit + E2E public tests
 
 # Code quality
@@ -64,13 +66,24 @@ export const POST: APIRoute = async (context) => {
 };
 ```
 
-Key endpoint groups: `/api/calendar/*` (sessions, slots, recurring), `/api/admin/*` (teacher assignment), `/api/account/*` (profile, Stripe portal), `/api/stripe-webhook` (payment events), `/api/google/*` (Drive/Docs).
+Key endpoint groups:
+- `/api/calendar/*` — sessions, available slots, recurring classes
+- `/api/admin/*` — teacher assignment/removal
+- `/api/teacher/*` — teacher availability
+- `/api/account/*` — profile updates, Stripe portal
+- `/api/auth/*` — post-login handling
+- `/api/google/*` — Drive folder creation, recording processing
+- `/api/email/*` — test email sending
+- `/api/cron/*` — scheduled email reminders
+- `/api/create-checkout.ts` — Stripe checkout session
+- `/api/stripe-webhook.ts` — payment events
 
 ### Integrations
 
-- **Stripe** (`src/lib/stripe.ts`) — Checkout sessions, webhooks, customer portal.
+- **Stripe** (`src/lib/stripe.ts`) — Checkout sessions, webhooks, customer portal. (v20.1.2)
 - **Google APIs** (`src/lib/google/`) — Calendar (scheduling), Drive (student folders), Docs (class documents). Uses service account with domain-wide delegation.
 - **Resend** (`src/lib/email/`) — Transactional emails with templates.
+- **Supabase** — Postgres DB + Auth. Browser client (`@supabase/supabase-js` v2.90+), SSR client (`@supabase/ssr`).
 
 ### Database Schema (Supabase/PostgreSQL)
 
@@ -78,9 +91,17 @@ Key tables: `profiles`, `sessions` (class bookings), `packages` (subscription ti
 
 ### Testing Setup
 
-- **Unit tests** (`tests/unit/`, `tests/api/`): Vitest + jsdom + Testing Library + MSW for HTTP mocking. Setup in `tests/setup.ts`.
-- **E2E tests** (`tests/e2e/`): Playwright with role-based test projects (public, student, teacher, admin). Auth setup fixtures in `tests/e2e/*.setup.ts`.
-- Coverage threshold: 25% (v8 provider).
+- **Unit tests** (`tests/unit/`): Vitest + jsdom + Testing Library. Component snapshots, security checks, performance, database helpers.
+- **API tests** (`tests/api/`): Test API routes directly with MSW mocking for Supabase, Stripe, Google.
+- **Integration tests** (`tests/integration/`): Multi-step flows — checkout, payment, session scheduling, teacher assignment, error recovery.
+- **E2E tests** (`tests/e2e/`): Playwright with role-based projects (public, student, teacher, admin). Auth state persisted in `tests/e2e/.auth/`. Setup files in `tests/e2e/*.setup.ts`.
+- **Load tests** (`tests/load/`): Node.js scripts for API/auth stress testing and user journey simulation.
+- Global setup in `tests/setup.ts` — MSW server, UTC timezone, Testing Library matchers.
+- Coverage threshold: 25% (v8 provider). Reports: text, html, json, lcov.
+
+### Playwright E2E Projects
+
+Tests are organized by role: `<name>.public.spec.ts`, `<name>.student.spec.ts`, `<name>.teacher.spec.ts`, `<name>.admin.spec.ts`. Browsers: Chrome, Firefox, Safari, mobile Chrome, mobile Safari. CI runs sequentially with 2 retries; local runs in parallel.
 
 ### Styling
 

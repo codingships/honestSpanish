@@ -51,21 +51,15 @@ const totalRevenue = revenueData?.reduce((sum, p) => sum + (p.amount || 0), 0) |
 const totalPayments = revenueData?.length || 0;
 
 // 2. User counts
-const { data: studentCount } = await supabase
+const { count: studentCount } = await supabase
     .from('profiles')
     .select('id', { count: 'exact', head: true })
     .eq('role', 'student');
 
-const { data: teacherCount } = await supabase
+const { count: teacherCount } = await supabase
     .from('profiles')
     .select('id', { count: 'exact', head: true })
     .eq('role', 'teacher');
-
-// 3. Active subscriptions count
-const { data: activeSubsCount } = await supabase
-    .from('subscriptions')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'active');
 
 // 4. Subscriptions by package
 const { data: packages } = await supabase
@@ -143,7 +137,7 @@ const goalProgress = Math.min(100, Math.round((totalRevenue / revenueGoal) * 100
         
         <!-- Total Students -->
         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-            <p class="text-3xl font-display text-[#006064]">{studentCount?.length || 0}</p>
+            <p class="text-3xl font-display text-[#006064]">{studentCount ?? 0}</p>
             <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.totalStudents')}</p>
         </div>
         
@@ -155,7 +149,7 @@ const goalProgress = Math.min(100, Math.round((totalRevenue / revenueGoal) * 100
         
         <!-- Teachers -->
         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-            <p class="text-3xl font-display text-[#006064]">{teacherCount?.length || 0}</p>
+            <p class="text-3xl font-display text-[#006064]">{teacherCount ?? 0}</p>
             <p class="text-xs font-mono uppercase text-[#006064]/60 mt-1">{t('campus.admin.totalTeachers')}</p>
         </div>
     </div>

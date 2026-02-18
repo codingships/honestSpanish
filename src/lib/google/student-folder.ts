@@ -273,7 +273,8 @@ export async function getStudentFolderStructure(
     try {
         // Find level folder: "[Nivel] - [Nombre]"
         const levelFolderName = `${level} - ${studentName}`;
-        const levelQuery = `name = '${levelFolderName}' and '${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const escapedLevelFolderName = levelFolderName.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        const levelQuery = `name = '${escapedLevelFolderName}' and '${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
 
         const levelResponse = await driveClient.files.list({
             q: levelQuery,

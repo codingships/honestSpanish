@@ -40,6 +40,21 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
+        // Validate priceId belongs to an active package in our system
+        const { data: validPackage } = await supabase
+            .from('packages')
+            .select('id')
+            .or(`stripe_price_1m.eq.${priceId},stripe_price_3m.eq.${priceId},stripe_price_6m.eq.${priceId}`)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (!validPackage) {
+            return new Response(JSON.stringify({ error: 'Invalid price ID' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         let stripeCustomerId = profile.stripe_customer_id;
 
         // Create Stripe customer if doesn't exist

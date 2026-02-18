@@ -27,6 +27,9 @@ export const onRequest = defineMiddleware(async (context, next) => {
             .select('role')
             .eq('id', user.id)
             .single();
+        if (!profile) {
+            console.error(`[Middleware] No profile found for authenticated user ${user.id} - defaulting to student role`);
+        }
         userRole = profile?.role || 'student';
     }
 

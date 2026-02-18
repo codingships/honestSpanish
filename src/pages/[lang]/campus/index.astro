@@ -100,6 +100,9 @@ const nextClassTranslations = {
     with: t('campus.student.classes.with'),
     in: t('campus.student.classes.in'),
     viewAll: t('campus.student.classes.viewAll'),
+    unassigned: t('campus.student.classes.unassigned'),
+    now: t('campus.student.classes.now'),
+    viewDocument: t('campus.student.classes.viewDocument'),
 };
 ---
 
@@ -111,7 +114,7 @@ const nextClassTranslations = {
     <!-- Page Header -->
     <div class="mb-8">
          <h1 class="font-display text-4xl text-[#006064] uppercase">{t('campus.dashboard.title')}</h1>
-         <p class="font-mono text-[#006064]/60">Bienvenido de nuevo, {profile?.full_name || user.email}</p>
+         <p class="font-mono text-[#006064]/60">{t('campus.dashboard.welcomeBack')}, {profile?.full_name || user.email}</p>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
@@ -128,8 +131,8 @@ const nextClassTranslations = {
                      <div>
                          <p class="font-display text-2xl text-[#006064] mb-1">{packageName}</p>
                          <div class="flex items-center gap-2 mb-4">
-                             <span class="px-2 py-0.5 bg-green-100 text-green-800 text-xs font-bold uppercase rounded border border-green-200">Active</span>
-                             <span class="text-xs text-[#006064]/60">Hasta {formatDate(subscription.ends_at)}</span>
+                             <span class="px-2 py-0.5 bg-green-100 text-green-800 text-xs font-bold uppercase rounded border border-green-200">{t('campus.dashboard.active')}</span>
+                             <span class="text-xs text-[#006064]/60">{t('campus.dashboard.until')} {formatDate(subscription.ends_at)}</span>
                          </div>
                      </div>
                  ) : (

@@ -179,7 +179,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     if (session.subscription) {
         await supabaseAdmin
             .from('subscriptions')
-            .update({ stripe_invoice_id: session.subscription as string })
+            .update({ stripe_subscription_id: session.subscription as string })
             .eq('id', subscription.id);
     }
 
@@ -237,7 +237,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
         .eq('id', subscription.package_id)
         .single();
 
-    // Extend the subscription: add 1 month, reset sessions or add to total
+    // Extend the subscription: add 1 month, fresh session quota (no rollover)
     const newEndsAt = new Date();
     newEndsAt.setMonth(newEndsAt.getMonth() + 1);
 
@@ -247,8 +247,8 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
         .from('subscriptions')
         .update({
             ends_at: newEndsAt.toISOString().split('T')[0],
-            sessions_total: (subscription.sessions_total ?? 0) + additionalSessions,
-            sessions_used: 0, // Reset sessions for the new month
+            sessions_total: additionalSessions, // Fresh quota for this billing period
+            sessions_used: 0,
         })
         .eq('id', subscription.id);
 

@@ -24,6 +24,8 @@ interface NextClassCardProps {
         in: string;
         viewAll: string;
         viewDocument?: string;
+        unassigned?: string;
+        now?: string;
     };
 }
 
@@ -65,17 +67,13 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
     };
 
     const getTimeUntil = () => {
-        if (diffDays > 0) {
-            return `${diffDays} día${diffDays > 1 ? 's' : ''}`;
-        } else if (diffHours > 0) {
-            return `${diffHours} hora${diffHours > 1 ? 's' : ''}`;
-        } else {
-            const diffMinutes = Math.floor(diffMs / (1000 * 60));
-            if (diffMinutes > 0) {
-                return `${diffMinutes} min`;
-            }
-            return '¡Ahora!';
-        }
+        const locale = lang === 'es' ? 'es' : lang === 'ru' ? 'ru' : 'en';
+        const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'always', style: 'short' });
+        if (diffDays > 0) return rtf.format(diffDays, 'day');
+        if (diffHours > 0) return rtf.format(diffHours, 'hour');
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        if (diffMinutes > 0) return rtf.format(diffMinutes, 'minute');
+        return t.now || '!';
     };
 
     const canJoin = () => {
@@ -97,7 +95,7 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
 
                 {isStartingSoon && (
                     <div className="mb-3 px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold inline-block">
-                        ⏰ {t.in} {getTimeUntil()}
+                        ⏰ {getTimeUntil()}
                     </div>
                 )}
 
@@ -108,12 +106,12 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
 
                 <p className="text-sm text-[#006064]/70">
                     <span className="text-[#006064]/50">{t.with}:</span>{' '}
-                    <strong>{session.teacher?.full_name || session.teacher?.email || 'Por asignar'}</strong>
+                    <strong>{session.teacher?.full_name || session.teacher?.email || t.unassigned || '–'}</strong>
                 </p>
 
                 {!isStartingSoon && (
                     <p className="text-xs text-[#006064]/50 mt-2">
-                        {t.in} {getTimeUntil()}
+                        {getTimeUntil()}
                     </p>
                 )}
             </div>
@@ -145,7 +143,7 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z" />
                         </svg>
-                        {t.viewDocument || 'Ver documento'}
+                        {t.viewDocument || '→'}
                     </a>
                 )}
 

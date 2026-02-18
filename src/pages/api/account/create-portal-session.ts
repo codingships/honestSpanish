@@ -29,13 +29,16 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
-        // Get origin for return URL
+        // Get origin for return URL, detect lang from Referer
         const origin = context.request.headers.get('origin') || 'http://localhost:4321';
+        const referer = context.request.headers.get('referer') || '';
+        const langMatch = referer.match(/\/(es|en|ru)\//);
+        const lang = langMatch?.[1] || 'es';
 
         // Create Stripe Customer Portal session
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: profile.stripe_customer_id,
-            return_url: `${origin}/es/campus/account`,
+            return_url: `${origin}/${lang}/campus/account`,
         });
 
         return new Response(JSON.stringify({ url: portalSession.url }), {

@@ -110,7 +110,7 @@ export default function StudentClassList({
             >
                 {startingSoon && (
                     <div className="mb-3 px-3 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold inline-block">
-                        ⏰ ¡Próximamente!
+                        ⏰ {t.startingSoon}
                     </div>
                 )}
 
@@ -133,7 +133,7 @@ export default function StudentClassList({
                         <div className="text-sm text-[#006064]/70 space-y-1">
                             <p>
                                 <span className="text-[#006064]/50">{t.with}:</span>{' '}
-                                <strong>{session.teacher?.full_name || session.teacher?.email || 'Por asignar'}</strong>
+                                <strong>{session.teacher?.full_name || session.teacher?.email || t.unassigned}</strong>
                             </p>
                             <p>
                                 <span className="text-[#006064]/50">{t.duration}:</span>{' '}
@@ -171,7 +171,7 @@ export default function StudentClassList({
 
                             {!showJoinButton && session.meet_link && (
                                 <div className="px-6 py-3 bg-gray-100 text-gray-500 font-bold uppercase text-sm text-center rounded">
-                                    🎥 Link 15 min antes
+                                    🎥 {t.linkAvailableSoon}
                                 </div>
                             )}
 
@@ -201,7 +201,7 @@ export default function StudentClassList({
 
                             {!showCancelButton && session.status === 'scheduled' && (
                                 <p className="text-xs text-[#006064]/50 text-center">
-                                    Cancelación no disponible (menos de 24h)
+                                    {t.cancelUnavailable}
                                 </p>
                             )}
                         </div>
