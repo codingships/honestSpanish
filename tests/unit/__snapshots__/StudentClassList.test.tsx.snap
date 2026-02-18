@@ -81,9 +81,9 @@ exports[`StudentClassList > matches snapshot 1`] = `
             class="flex flex-col gap-2"
           >
             <div
-              class="px-6 py-3 bg-gray-100 text-gray-500 font-bold uppercase text-sm text-center"
+              class="px-6 py-3 bg-gray-100 text-gray-500 font-bold uppercase text-sm text-center rounded"
             >
-              🎥 Link disponible 15 min antes
+              🎥 Link 15 min antes
             </div>
             <button
               class="px-6 py-3 bg-white text-red-600 font-bold uppercase text-sm text-center border-2 border-red-600 hover:bg-red-50 transition-colors"

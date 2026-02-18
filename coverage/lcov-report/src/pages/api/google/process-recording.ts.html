@@ -25,14 +25,14 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/29</span>
+                <span class='fraction'>0/30</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/30</span>
+                <span class='fraction'>0/28</span>
             </div>
         
             
@@ -46,7 +46,7 @@
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/29</span>
+                <span class='fraction'>0/30</span>
             </div>
         
             
@@ -195,7 +195,11 @@
 <a name='L130'></a><a href='#L130'>130</a>
 <a name='L131'></a><a href='#L131'>131</a>
 <a name='L132'></a><a href='#L132'>132</a>
-<a name='L133'></a><a href='#L133'>133</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L133'></a><a href='#L133'>133</a>
+<a name='L134'></a><a href='#L134'>134</a>
+<a name='L135'></a><a href='#L135'>135</a>
+<a name='L136'></a><a href='#L136'>136</a>
+<a name='L137'></a><a href='#L137'>137</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -267,7 +271,6 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
-<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -275,9 +278,14 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -388,7 +396,6 @@ export const POST: APIRoute = <span class="cstat-no" title="statement not covere
         .select(`
             id,
             meet_link,
-            google_meet_link,
             drive_doc_id,
             student:profiles!sessions_student_id_fkey(
                 id,
@@ -407,7 +414,11 @@ export const POST: APIRoute = <span class="cstat-no" title="statement not covere
         });
     }
 &nbsp;
-    const meetLink = <span class="cstat-no" title="statement not covered" >session.google_meet_link || session.meet_link;</span>
+    // Cast to access columns that may not be in generated types yet
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sessionData = <span class="cstat-no" title="statement not covered" >session as any;</span>
+&nbsp;
+    const meetLink = <span class="cstat-no" title="statement not covered" >sessionData.meet_link;</span>
 <span class="cstat-no" title="statement not covered" >    if (!meetLink) {</span>
 <span class="cstat-no" title="statement not covered" >        return new Response(JSON.stringify({</span>
             error: 'Session has no Meet link',
@@ -418,7 +429,8 @@ export const POST: APIRoute = <span class="cstat-no" title="statement not covere
         });
     }
 &nbsp;
-    const student = <span class="cstat-no" title="statement not covered" >session.student as any;</span>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const student = <span class="cstat-no" title="statement not covered" >sessionData.student as any;</span>
 <span class="cstat-no" title="statement not covered" >    if (!student?.drive_folder_id) {</span>
 <span class="cstat-no" title="statement not covered" >        return new Response(JSON.stringify({</span>
             error: 'Student has no Drive folder',
@@ -442,8 +454,8 @@ export const POST: APIRoute = <span class="cstat-no" title="statement not covere
     });
 &nbsp;
     // If recording was found and processed, link it to the document
-<span class="cstat-no" title="statement not covered" >    if (result.success &amp;&amp; result.recordingLink &amp;&amp; session.drive_doc_id) {</span>
-<span class="cstat-no" title="statement not covered" >        await linkRecordingToDocument(session.drive_doc_id, result.recordingLink);</span>
+<span class="cstat-no" title="statement not covered" >    if (result.success &amp;&amp; result.recordingLink &amp;&amp; sessionData.drive_doc_id) {</span>
+<span class="cstat-no" title="statement not covered" >        await linkRecordingToDocument(sessionData.drive_doc_id, result.recordingLink);</span>
     }
 &nbsp;
 <span class="cstat-no" title="statement not covered" >    return new Response(JSON.stringify({</span>
@@ -466,7 +478,7 @@ export const POST: APIRoute = <span class="cstat-no" title="statement not covere
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-01-14T17:09:00.687Z
+                at 2026-02-18T10:41:05.321Z
             </div>
         <script src="../../../../prettify.js"></script>
         <script>

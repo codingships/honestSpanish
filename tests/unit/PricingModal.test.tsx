@@ -98,12 +98,12 @@ describe('PricingModal', () => {
             />
         );
 
-        // Click on 3 months radio button by its value
-        const threeMonthRadio = screen.getByRole('radio', { name: /3 meses/i });
-        fireEvent.click(threeMonthRadio);
+        // Click on 3 months button (component changed from radio to button)
+        const threeMonthButton = screen.getByRole('button', { name: /3 meses/i });
+        fireEvent.click(threeMonthButton);
 
-        // 3 months with 10% discount: 160 * 3 * 0.9 = 432€
-        const priceElements = screen.getAllByText(/432/);
+        // 3 months with 10% discount: per-month price is 144€
+        const priceElements = screen.getAllByText(/144/);
         expect(priceElements.length).toBeGreaterThan(0);
     });
 

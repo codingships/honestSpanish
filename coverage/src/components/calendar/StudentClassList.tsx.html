@@ -30,9 +30,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">79.41% </span>
+                <span class="strong">76.38% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>54/68</span>
+                <span class='fraction'>55/72</span>
             </div>
         
             
@@ -319,7 +319,29 @@
 <a name='L254'></a><a href='#L254'>254</a>
 <a name='L255'></a><a href='#L255'>255</a>
 <a name='L256'></a><a href='#L256'>256</a>
-<a name='L257'></a><a href='#L257'>257</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<a name='L257'></a><a href='#L257'>257</a>
+<a name='L258'></a><a href='#L258'>258</a>
+<a name='L259'></a><a href='#L259'>259</a>
+<a name='L260'></a><a href='#L260'>260</a>
+<a name='L261'></a><a href='#L261'>261</a>
+<a name='L262'></a><a href='#L262'>262</a>
+<a name='L263'></a><a href='#L263'>263</a>
+<a name='L264'></a><a href='#L264'>264</a>
+<a name='L265'></a><a href='#L265'>265</a>
+<a name='L266'></a><a href='#L266'>266</a>
+<a name='L267'></a><a href='#L267'>267</a>
+<a name='L268'></a><a href='#L268'>268</a>
+<a name='L269'></a><a href='#L269'>269</a>
+<a name='L270'></a><a href='#L270'>270</a>
+<a name='L271'></a><a href='#L271'>271</a>
+<a name='L272'></a><a href='#L272'>272</a>
+<a name='L273'></a><a href='#L273'>273</a>
+<a name='L274'></a><a href='#L274'>274</a>
+<a name='L275'></a><a href='#L275'>275</a>
+<a name='L276'></a><a href='#L276'>276</a>
+<a name='L277'></a><a href='#L277'>277</a></td><td class="line-coverage quiet"><span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -493,6 +515,24 @@
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
+<span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
 <span class="cline-any cline-neutral">&nbsp;</span>
@@ -584,6 +624,7 @@ interface Session {
     duration_minutes: number;
     status: string;
     meet_link: string | null;
+    drive_doc_url: string | null;
     teacher_notes: string | null;
     teacher: {
         id: string;
@@ -605,7 +646,8 @@ export default function StudentClassList({
     lang,
     translations: tProp
 }: StudentClassListProps) {
-    const t = tProp as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = tProp as Record&lt;string, any&gt;;
     const [upcomingSessions, setUpcomingSessions] = useState(initialUpcoming);
     const [pastSessions, setPastSessions] = useState(initialPast);
     const [activeTab, setActiveTab] = useState&lt;'upcoming' | 'past'&gt;('upcoming');
@@ -735,16 +777,34 @@ export default function StudentClassList({
                                     href={session.meet_link}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="px-6 py-3 bg-green-600 text-white font-bold uppercase text-sm text-center hover:bg-green-700 transition-colors"
+                                    className="flex items-center justify-center gap-2 px-6 py-3 bg-[#00897B] text-white font-bold uppercase text-sm hover:bg-[#00796B] transition-colors rounded"
                                 &gt;
-                                    🎥 {t.joinClass}
+                                    &lt;svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"&gt;
+                                        &lt;path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" /&gt;
+                                    &lt;/svg&gt;
+                                    {t.joinClass}
                                 &lt;/a&gt;
                             )}
 &nbsp;
                             {!showJoinButton &amp;&amp; session.meet_link &amp;&amp; (
-                                &lt;div className="px-6 py-3 bg-gray-100 text-gray-500 font-bold uppercase text-sm text-center"&gt;
-                                    🎥 Link disponible 15 min antes
+                                &lt;div className="px-6 py-3 bg-gray-100 text-gray-500 font-bold uppercase text-sm text-center rounded"&gt;
+                                    🎥 Link 15 min antes
                                 &lt;/div&gt;
+                            )}
+&nbsp;
+                            {/* Document link */}
+                            {session.drive_doc_url &amp;&amp; (
+<span class="branch-1 cbranch-no" title="branch not covered" >                                &lt;a</span>
+                                    href={session.drive_doc_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center justify-center gap-2 px-6 py-2 bg-[#4285F4] text-white font-bold uppercase text-sm hover:bg-[#3367D6] transition-colors rounded"
+                                &gt;
+                                    &lt;svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"&gt;
+                                        &lt;path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm4 18H6V4h7v5h5v11z" /&gt;
+                                    &lt;/svg&gt;
+                                    {t.viewDocument || 'Documento'}
+                                &lt;/a&gt;
                             )}
 &nbsp;
                             {showCancelButton &amp;&amp; (
@@ -838,7 +898,7 @@ export default function StudentClassList({
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-01-14T17:09:00.627Z
+                at 2026-02-18T10:41:05.249Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

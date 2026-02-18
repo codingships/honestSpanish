@@ -54,9 +54,7 @@ exports[`Session Modal Tests > SessionDetailModal > matches snapshot 1`] = `
         >
           <span
             class="text-sm text-[#006064]/60"
-          >
-            Fecha y hora
-          </span>
+          />
           <span
             class="font-bold text-[#006064]"
           >
@@ -81,7 +79,7 @@ exports[`Session Modal Tests > SessionDetailModal > matches snapshot 1`] = `
           <span
             class="text-sm text-[#006064]/60 block mb-1"
           >
-            Link de Meet
+            Enlace de la reunión
           </span>
           <a
             class="text-sm text-blue-600 hover:underline break-all"
@@ -103,15 +101,12 @@ exports[`Session Modal Tests > SessionDetailModal > matches snapshot 1`] = `
         </label>
         <textarea
           class="w-full p-3 border-2 border-[#006064] text-[#006064] h-24 resize-none"
-          placeholder="Notas de la clase..."
         >
           Focus on past tense
         </textarea>
         <button
           class="mt-2 px-4 py-2 text-xs font-bold text-[#006064] border border-[#006064] hover:bg-[#E0F7FA] transition-colors"
-        >
-          Guardar notas
-        </button>
+        />
       </div>
       <div
         class="space-y-2"
