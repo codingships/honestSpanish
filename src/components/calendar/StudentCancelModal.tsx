@@ -26,7 +26,7 @@ export default function StudentCancelModal({
     translations: tProp,
     onSuccess
 }: StudentCancelModalProps) {
-    const t = tProp as any;
+    const t = tProp as Record<string, string>;
     const [reason, setReason] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);

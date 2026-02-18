@@ -72,9 +72,9 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
             setStatus('success');
             if (onSuccess) onSuccess();
             setFormData({ name: '', email: '', interest: 'general', consent: false });
-        } catch (err: any) {
+        } catch (err: unknown) {
             setStatus('error');
-            setErrorMessage(err.message || t.error);
+            setErrorMessage(err instanceof Error ? err.message : t.error);
         }
     };
 

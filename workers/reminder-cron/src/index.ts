@@ -7,7 +7,7 @@ export default {
     async scheduled(
         controller: ScheduledController,
         env: Env,
-        ctx: ExecutionContext
+        _ctx: ExecutionContext
     ): Promise<void> {
         console.log('Cron trigger fired at:', new Date().toISOString());
 

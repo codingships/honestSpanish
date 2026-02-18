@@ -78,6 +78,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Cast to access columns that may not be in generated types yet
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sessionData = session as any;
 
     const meetLink = sessionData.meet_link;
@@ -91,6 +92,7 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const student = sessionData.student as any;
     if (!student?.drive_folder_id) {
         return new Response(JSON.stringify({

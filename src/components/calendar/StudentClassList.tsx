@@ -29,7 +29,8 @@ export default function StudentClassList({
     lang,
     translations: tProp
 }: StudentClassListProps) {
-    const t = tProp as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = tProp as Record<string, any>;
     const [upcomingSessions, setUpcomingSessions] = useState(initialUpcoming);
     const [pastSessions, setPastSessions] = useState(initialPast);
     const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');

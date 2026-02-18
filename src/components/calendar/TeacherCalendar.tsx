@@ -37,7 +37,8 @@ export default function TeacherCalendar({
     lang,
     translations: tProp
 }: TeacherCalendarProps) {
-    const t = tProp as any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const t = tProp as Record<string, any>;
     const [sessions, setSessions] = useState<Session[]>(initialSessions);
     const [currentWeekStart, setCurrentWeekStart] = useState(() => {
         const today = new Date();

@@ -89,7 +89,7 @@ export const POST: APIRoute = async (context) => {
     const start = new Date(startDate);
 
     // Find first occurrence of dayOfWeek on or after startDate
-    let current = new Date(start);
+    const current = new Date(start);
     while (current.getDay() !== dayOfWeek) {
         current.setDate(current.getDate() + 1);
     }
@@ -106,7 +106,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Create sessions in bulk
-    const createdSessions: any[] = [];
+    const createdSessions: Record<string, unknown>[] = [];
     const errors: string[] = [];
 
     for (const date of dates) {

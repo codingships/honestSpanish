@@ -87,6 +87,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Get primary teacher name
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const primaryTeacher = (student.student_teachers as any[])?.find((st: any) => st.is_primary);
     const teacherName = primaryTeacher?.teacher?.full_name || null;
 

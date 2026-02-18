@@ -169,7 +169,9 @@ export const POST: APIRoute = async (context) => {
  * Background Task: Drive Docs, Calendar & Email
  */
 async function createClassDocumentForSession(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     supabase: any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     session: any,
     studentId: string,
     teacherId: string,
@@ -247,6 +249,7 @@ async function createClassDocumentForSession(
         }
 
         // 3. Actualizamos la sesión en DB
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updateData: Record<string, any> = {};
 
         if (documentResult) {

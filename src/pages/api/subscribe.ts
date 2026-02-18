@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { Resend } from 'resend';
 
-export const POST: APIRoute = async ({ request, locals }) => {
+export const POST: APIRoute = async ({ request, locals: _locals }) => {
     const apiKey = import.meta.env.RESEND_API_KEY;
 
     if (!apiKey) {

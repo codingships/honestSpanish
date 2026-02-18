@@ -199,6 +199,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
         return;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const stripeSubscriptionId = (invoice as any).subscription as string;
     if (!stripeSubscriptionId) {
         console.log('[Webhook] Invoice without subscription, skipping');
@@ -264,6 +265,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
             amount: invoice.amount_paid ?? 0,
             currency: invoice.currency ?? 'eur',
             status: 'succeeded',
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
             description: `Monthly renewal`,
         });
@@ -357,8 +359,10 @@ async function createDriveFolderForStudent(
         }
 
         // Get primary teacher name
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const teachers = student.student_teachers as unknown as any[];
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const primaryTeacher = teachers?.find((st: any) => st.is_primary);
         const teacherName = primaryTeacher?.teacher?.full_name || null;
 

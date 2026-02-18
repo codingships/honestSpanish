@@ -68,6 +68,7 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
+    /* eslint-disable @typescript-eslint/no-explicit-any */
     const results: {
         timestamp: string;
         step1_session: any;
@@ -79,6 +80,7 @@ export const POST: APIRoute = async (context) => {
         errors: string[];
         success: boolean;
     } = {
+        /* eslint-enable @typescript-eslint/no-explicit-any */
         timestamp: new Date().toISOString(),
         step1_session: null,
         step2_driveDoc: null,

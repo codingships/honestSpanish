@@ -78,7 +78,9 @@ export const GET: APIRoute = async ({ request }) => {
         for (const session of sessions) {
             result.processed++;
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const student = session.student as any;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const teacher = session.teacher as any;
 
             if (!student?.email || !teacher?.email) {

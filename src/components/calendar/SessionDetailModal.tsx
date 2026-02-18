@@ -38,7 +38,7 @@ export default function SessionDetailModal({
     onSessionUpdate,
     canEdit
 }: SessionDetailModalProps) {
-    const t = tProp as any;
+    const t = tProp as Record<string, string>;
     const [notes, setNotes] = useState(session.teacher_notes || '');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
