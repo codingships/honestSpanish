@@ -1,6 +1,7 @@
 ---
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { createSupabaseServerClient } from '../lib/supabase-server';
+import { Image } from 'astro:assets';
 import PricingSection from './PricingSection';
 import heroImage from '../assets/hero.png';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
@@ -10,6 +11,7 @@ import avatarAlin from '../assets/avatar_alin.png';
 import iconEsencial from '../assets/icon-esencial.png';
 import iconIntensivo from '../assets/icon-intensivo.png';
 import iconPremium from '../assets/icon-premium.png';
+import LeadCaptureForm from './LeadCaptureForm';
 
 interface Props {
   lang: 'es' | 'en' | 'ru';
@@ -43,6 +45,7 @@ const progressMilestones = t('progress.milestones') as unknown as any[];
 const teamMembers = t('team.members') as unknown as any[];
 const faqItems = t('faq.items') as unknown as any[];
 const pricingTranslations = t('pricing') as unknown as any;
+const leadCaptureTranslations = t('leadCapture') as unknown as any;
 
 const s = {
     bg: 'bg-[#E0F7FA]',
@@ -111,12 +114,19 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             </div>
             <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden min-h-0">
                 <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
-                    <img src={heroImage.src} alt="Estudiante practicando español" class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" />
+                    <Image 
+                        src={heroImage} 
+                        alt="Estudiante practicando español" 
+                        class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
+                        loading="eager"
+                        width={800}
+                        height={600}
+                    />
                 </div>
                 <div class={`flex-1 ${s.secondaryBg} p-8 lg:p-12 flex flex-col justify-center items-center text-center`}>
                     <h2 class="font-display text-3xl lg:text-4xl mb-4 lg:mb-6">{t('hero.ready')}</h2>
                     <a
-                        href="mailto:alejandro@espanolhonesto.com"
+                        href="#contacto"
                         class={`inline-block ${s.button} px-6 lg:px-8 py-3 lg:py-4 text-base lg:text-lg font-bold border-2 ${s.border} shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all uppercase tracking-wider`}
                     >
                         {t('hero.cta')}
@@ -199,7 +209,12 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 
     {/* Atmosphere Break */}
     <div class={`w-full h-64 md:h-96 overflow-hidden border-b-2 ${s.border} relative`}>
-        <img src={madridAtmosphere.src} alt="Vista atmosférica" class="w-full h-full object-cover grayscale" />
+        <Image 
+            src={madridAtmosphere} 
+            alt="Vista atmosférica" 
+            class="w-full h-full object-cover grayscale" 
+            width={1200}
+        />
         <div class="absolute inset-0 bg-[#006064]/20 mix-blend-multiply"></div>
     </div>
 
@@ -261,11 +276,12 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 {teamMembers.map((member, index) => (
                     <div class="flex flex-col">
                         <div class="aspect-square bg-gray-200 rounded-lg mb-4 w-full overflow-hidden border-2 border-[#006064]">
-                            <img
-                                src={index === 0 ? avatarAlejandro.src : avatarAlin.src}
-                                alt={member.name}
-                                class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
-                            />
+                                <Image
+                                    src={index === 0 ? avatarAlejandro : avatarAlin}
+                                    alt={member.name}
+                                    class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
+                                    width={400}
+                                />
                         </div>
                         <h3 class="font-display text-2xl text-[#006064] mb-1">{member.name}</h3>
                         <p class="font-sans text-sm uppercase tracking-wide text-[#006064]/50 mb-4">{member.role}</p>
@@ -316,6 +332,17 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                     </div>
                 ))}
             </div>
+        </div>
+    </section>
+
+    {/* Lead Capture Section */}
+    <section id="contacto" class="py-24 px-6 border-t-2 border-[#006064] bg-[#E0F7FA]">
+        <div class="max-w-4xl mx-auto">
+             <LeadCaptureForm 
+                client:visible
+                lang={lang}
+                translations={leadCaptureTranslations}
+            />
         </div>
     </section>
 

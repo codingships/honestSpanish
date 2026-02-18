@@ -72,6 +72,7 @@ describe('NextClassCard', () => {
             duration_minutes: 60,
             status: 'scheduled',
             meet_link: 'https://meet.google.com/abc-defg-hij',
+            drive_doc_url: null as string | null,
             teacher: {
                 full_name: 'María García',
                 email: 'maria@test.com',
@@ -203,6 +204,7 @@ describe('NextClassCard', () => {
                 duration_minutes: 60,
                 status: 'scheduled',
                 meet_link: null,
+                drive_doc_url: null as string | null,
                 teacher: { full_name: 'Test', email: 'test@test.com' },
             };
 
@@ -228,6 +230,7 @@ describe('NextClassCard', () => {
                 duration_minutes: 60,
                 status: 'scheduled',
                 meet_link: null,
+                drive_doc_url: null as string | null,
                 teacher: { full_name: 'Test', email: 'test@test.com' },
             };
 
@@ -252,6 +255,7 @@ describe('NextClassCard', () => {
             duration_minutes: 60,
             status: 'scheduled',
             meet_link: null,
+            drive_doc_url: null as string | null,
             teacher: { full_name: 'Test Teacher', email: 'test@test.com' },
         };
 

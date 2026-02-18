@@ -36,14 +36,13 @@ type NavItem = { href: string; icon: string; label: string; active?: boolean; di
 const studentNav: NavItem[] = [
     { href: `/${lang}/campus`, icon: '🏠', label: t('campus.nav.dashboard') },
     { href: `/${lang}/campus/classes`, icon: '📅', label: t('campus.student.classes.title') },
-    { href: '#', icon: '📂', label: t('campus.nav.materials'), disabled: true },
-    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account'), disabled: true },
+    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account') },
 ];
 
 const teacherNav: NavItem[] = [
     { href: `/${lang}/campus/teacher`, icon: '👥', label: t('campus.nav.myStudents') },
     { href: `/${lang}/campus/teacher/calendar`, icon: '📅', label: t('campus.teacher.calendar.title') },
-    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account'), disabled: true },
+    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account') },
 ];
 
 const adminNav: NavItem[] = [
@@ -51,8 +50,7 @@ const adminNav: NavItem[] = [
     { href: `/${lang}/campus/admin/calendar`, icon: '📅', label: t('campus.admin.calendar.title') },
     { href: `/${lang}/campus/admin/students`, icon: '👥', label: t('campus.nav.students') },
     { href: `/${lang}/campus/admin/payments`, icon: '💳', label: t('campus.nav.payments') },
-    { href: '#', icon: '🎓', label: t('campus.nav.teachers'), disabled: true },
-    { href: '#', icon: '⚙️', label: t('campus.nav.settings'), disabled: true },
+    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account') },
 ];
 
 // Select nav based on role
@@ -151,7 +149,7 @@ const showViewAsStudent = role === 'teacher' || role === 'admin';
                             <p class="text-xs text-gray-500 truncate">{user.email}</p>
                             <p class={`text-xs font-bold uppercase mt-1 ${badge.text}`}>{badge.label}</p>
                         </div>
-                        <a href="#" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 font-bold">{t('campus.nav.account')}</a>
+                        <a href={`/${lang}/campus/account`} class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 font-bold">{t('campus.nav.account')}</a>
                         <a href={`/${lang}/logout`} class="block px-4 py-2 text-sm text-red-700 hover:bg-red-50 font-bold">{t('campus.nav.logout')}</a>
                     </div>
                 </div>

@@ -102,17 +102,17 @@ describe.skip('Session Scheduling Integration', () => {
         it('should handle calendar API failure gracefully', async () => {
             // Arrange
             const error = new Error('Calendar API quota exceeded');
-            (calendarModule.createCalendarEvent as any).mockRejectedValue(error);
+            (calendarModule.createClassEvent as any).mockRejectedValue(error);
 
             // Act & Assert
             await expect(
-                calendarModule.createCalendarEvent(
-                    new Date(),
-                    new Date(),
-                    'Test Event',
-                    'teacher@test.com',
-                    'student@test.com'
-                )
+                calendarModule.createClassEvent({
+                    summary: 'Test Event',
+                    studentEmail: 'student@test.com',
+                    teacherEmail: 'teacher@test.com',
+                    startTime: new Date(),
+                    endTime: new Date(),
+                })
             ).rejects.toThrow('Calendar API quota exceeded');
 
             console.log('✅ Calendar API failure handled correctly');
@@ -152,19 +152,21 @@ describe.skip('Session Scheduling Integration', () => {
             };
 
             // Act
-            const result = await classDocModule.createClassDocument(
-                sessionInfo.studentFolderId,
-                sessionInfo.studentName,
-                sessionInfo.teacherName,
-                sessionInfo.sessionDate,
-                sessionInfo.topic
-            );
+            const result = await classDocModule.createClassDocument({
+                studentId: 'student-1',
+                studentName: sessionInfo.studentName,
+                teacherName: sessionInfo.teacherName,
+                level: 'A2',
+                classDate: sessionInfo.sessionDate,
+                exercisesFolderId: sessionInfo.studentFolderId,
+                indexDocId: 'index-doc-1',
+            });
 
             // Assert
             expect(classDocModule.createClassDocument).toHaveBeenCalledTimes(1);
             expect(result).toHaveProperty('documentId');
-            expect(result).toHaveProperty('documentUrl');
-            expect(result.documentUrl).toContain('docs.google.com');
+            expect(result).toHaveProperty('documentLink');
+            expect(result.documentLink).toContain('docs.google.com');
 
             console.log('✅ Class document created:', result);
         });
@@ -176,13 +178,15 @@ describe.skip('Session Scheduling Integration', () => {
 
             // Act & Assert
             await expect(
-                classDocModule.createClassDocument(
-                    'invalid_folder',
-                    'Student',
-                    'Teacher',
-                    new Date(),
-                    'Topic'
-                )
+                classDocModule.createClassDocument({
+                    studentId: 'student-1',
+                    studentName: 'Student',
+                    teacherName: 'Teacher',
+                    level: 'A2',
+                    classDate: new Date(),
+                    exercisesFolderId: 'invalid_folder',
+                    indexDocId: 'index-doc-1',
+                })
             ).rejects.toThrow('Folder not found');
 
             console.log('✅ Drive API failure handled correctly');
@@ -209,9 +213,13 @@ describe.skip('Session Scheduling Integration', () => {
                 sessionData.studentName,
                 sessionData.teacherEmail,
                 sessionData.teacherName,
-                sessionData.sessionDate,
-                sessionData.meetLink,
-                sessionData.documentUrl
+                {
+                    date: sessionData.sessionDate.toISOString(),
+                    time: '10:00',
+                    duration: 60,
+                    meetLink: sessionData.meetLink,
+                    documentLink: sessionData.documentUrl,
+                }
             );
 
             // Assert
@@ -227,14 +235,18 @@ describe.skip('Session Scheduling Integration', () => {
                 email: 'student@test.com',
                 name: 'Test Student',
                 sessionDate: new Date('2026-01-15T10:00:00'),
-                cancelledBy: 'teacher',
+                cancelledBy: 'teacher' as const,
             };
 
             // Act
             const result = await emailModule.sendClassCancelled(
                 cancellationData.email,
-                cancellationData.name,
-                cancellationData.sessionDate
+                {
+                    recipientName: cancellationData.name,
+                    date: cancellationData.sessionDate.toISOString(),
+                    time: '10:00',
+                    cancelledBy: cancellationData.cancelledBy,
+                }
             );
 
             // Assert
@@ -249,7 +261,7 @@ describe.skip('Session Scheduling Integration', () => {
 
         it('should complete full scheduling flow with all integrations', async () => {
             // Arrange - mock all services
-            (calendarModule.createCalendarEvent as any).mockResolvedValue({
+            (calendarModule.createClassEvent as any).mockResolvedValue({
                 eventId: 'event_123',
                 meetLink: 'https://meet.google.com/abc-defg-hij',
                 htmlLink: 'https://calendar.google.com/event?eid=event_123',
@@ -257,8 +269,7 @@ describe.skip('Session Scheduling Integration', () => {
 
             (classDocModule.createClassDocument as any).mockResolvedValue({
                 documentId: 'doc_123',
-                documentUrl: 'https://docs.google.com/d/doc_123',
-                documentName: 'Clase 2026-01-15',
+                documentLink: 'https://docs.google.com/d/doc_123',
             });
 
             (emailModule.sendClassConfirmationToBoth as any).mockResolvedValue(true);
@@ -280,23 +291,25 @@ describe.skip('Session Scheduling Integration', () => {
             console.log('📋 Starting complete scheduling flow...');
 
             // Step 1: Create calendar event
-            const calendarResult = await calendarModule.createCalendarEvent(
-                newSession.startTime,
-                newSession.endTime,
-                `Clase de Español - ${newSession.studentName}`,
-                newSession.teacherEmail,
-                newSession.studentEmail
-            );
+            const calendarResult = await calendarModule.createClassEvent({
+                summary: `Clase de Español - ${newSession.studentName}`,
+                studentEmail: newSession.studentEmail,
+                teacherEmail: newSession.teacherEmail,
+                startTime: newSession.startTime,
+                endTime: newSession.endTime,
+            });
             console.log('  Step 1: Calendar event created', { eventId: calendarResult.eventId });
 
             // Step 2: Create class document
-            const docResult = await classDocModule.createClassDocument(
-                newSession.studentFolderId,
-                newSession.studentName,
-                newSession.teacherName,
-                newSession.startTime,
-                'General'
-            );
+            const docResult = await classDocModule.createClassDocument({
+                studentId: newSession.studentId,
+                studentName: newSession.studentName,
+                teacherName: newSession.teacherName,
+                level: 'A2',
+                classDate: newSession.startTime,
+                exercisesFolderId: newSession.studentFolderId,
+                indexDocId: 'index-doc-1',
+            });
             console.log('  Step 2: Document created', { docId: docResult.documentId });
 
             // Step 3: Send confirmation emails
@@ -305,14 +318,18 @@ describe.skip('Session Scheduling Integration', () => {
                 newSession.studentName,
                 newSession.teacherEmail,
                 newSession.teacherName,
-                newSession.startTime,
-                calendarResult.meetLink,
-                docResult.documentUrl
+                {
+                    date: newSession.startTime.toISOString(),
+                    time: '10:00',
+                    duration: 60,
+                    meetLink: calendarResult.meetLink,
+                    documentLink: docResult.documentLink,
+                }
             );
             console.log('  Step 3: Emails sent', { success: emailResult });
 
             // Assert
-            expect(calendarModule.createCalendarEvent).toHaveBeenCalledTimes(1);
+            expect(calendarModule.createClassEvent).toHaveBeenCalledTimes(1);
             expect(classDocModule.createClassDocument).toHaveBeenCalledTimes(1);
             expect(emailModule.sendClassConfirmationToBoth).toHaveBeenCalledTimes(1);
 
@@ -321,7 +338,7 @@ describe.skip('Session Scheduling Integration', () => {
 
         it('should handle partial failures gracefully', async () => {
             // Arrange - Calendar succeeds, Document fails
-            (calendarModule.createCalendarEvent as any).mockResolvedValue({
+            (calendarModule.createClassEvent as any).mockResolvedValue({
                 eventId: 'event_123',
                 meetLink: 'https://meet.google.com/xxx-yyyy-zzz',
             });
@@ -333,15 +350,27 @@ describe.skip('Session Scheduling Integration', () => {
             // Act
             console.log('📋 Testing partial failure scenario...');
 
-            const calendarResult = await calendarModule.createCalendarEvent(
-                new Date(), new Date(), 'Test', 'a@b.com', 'c@d.com'
-            );
+            const calendarResult = await calendarModule.createClassEvent({
+                summary: 'Test',
+                studentEmail: 'c@d.com',
+                teacherEmail: 'a@b.com',
+                startTime: new Date(),
+                endTime: new Date(),
+            });
             expect(calendarResult.eventId).toBe('event_123');
             console.log('  Calendar event created successfully');
 
             // Document creation should fail
             await expect(
-                classDocModule.createClassDocument('folder', 'Student', 'Teacher', new Date(), 'Topic')
+                classDocModule.createClassDocument({
+                    studentId: 'student-1',
+                    studentName: 'Student',
+                    teacherName: 'Teacher',
+                    level: 'A2',
+                    classDate: new Date(),
+                    exercisesFolderId: 'folder',
+                    indexDocId: 'index-doc-1',
+                })
             ).rejects.toThrow('Drive quota exceeded');
             console.log('  Document creation failed as expected');
 

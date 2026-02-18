@@ -177,8 +177,8 @@ describe('Teacher Availability API', () => {
 
         it('should only allow teacher to delete own slots', async () => {
             // Arrange
-            const currentTeacherId = 'teacher-uuid-123';
-            const slotOwnerId = 'teacher-uuid-456';
+            const currentTeacherId: string = 'teacher-uuid-123';
+            const slotOwnerId: string = 'teacher-uuid-456';
 
             // Permission check
             const canDelete = currentTeacherId === slotOwnerId;

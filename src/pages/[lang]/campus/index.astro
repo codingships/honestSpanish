@@ -141,9 +141,9 @@ const nextClassTranslations = {
 
              <div>
                  {subscription ? (
-                      <button class="w-full py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors">
-                          {t('campus.dashboard.manageSub')}
-                      </button>
+                       <button id="manage-sub-btn" class="w-full py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors">
+                           {t('campus.dashboard.manageSub')}
+                       </button>
                  ) : (
                       <a href={`/${lang}/#pricing`} class="block w-full text-center py-2 bg-[#006064] text-white text-xs font-bold uppercase border border-[#006064] hover:bg-[#004d40] transition-colors">
                           {t('campus.dashboard.viewPlans')}
@@ -211,3 +211,27 @@ const nextClassTranslations = {
 
     </div>
 </CampusLayout>
+
+<script>
+    // Stripe Customer Portal — manage subscription
+    const manageSubBtn = document.getElementById('manage-sub-btn');
+    manageSubBtn?.addEventListener('click', async () => {
+        const originalText = manageSubBtn.textContent;
+        try {
+            manageSubBtn.textContent = '...';
+            const response = await fetch('/api/account/create-portal-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+            });
+            if (response.ok) {
+                const data = await response.json();
+                if (data.url) {
+                    window.location.href = data.url;
+                }
+            }
+        } catch (error) {
+            console.error('Error opening Stripe portal:', error);
+            manageSubBtn.textContent = originalText;
+        }
+    });
+</script>

@@ -48,6 +48,7 @@ const createSession = (overrides = {}) => ({
     duration_minutes: 60,
     status: 'scheduled',
     meet_link: 'https://meet.google.com/abc-defg-hij',
+    drive_doc_url: null as string | null,
     teacher_notes: null,
     teacher: {
         id: 'teacher-1',
@@ -367,6 +368,7 @@ describe('StudentClassList', () => {
             duration_minutes: 60,
             status: 'scheduled',
             meet_link: 'https://meet.google.com/abc-defg-hij',
+            drive_doc_url: null as string | null,
             teacher_notes: null,
             teacher: {
                 id: 'teacher-1',

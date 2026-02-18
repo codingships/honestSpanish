@@ -3,8 +3,7 @@ import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { createClassDocument, getFileLink } from '../../../lib/google/drive';
 import { createClassEvent } from '../../../lib/google/calendar';
 import { sendClassConfirmationToBoth } from '../../../lib/email';
-// 👇 Importamos los tipos para mantener la coherencia
-import type { Database } from '../../../types/database.types';
+
 
 // GET: Obtener sesiones (Sin cambios, solo añadido tipado)
 export const GET: APIRoute = async (context) => {
@@ -28,7 +27,7 @@ export const GET: APIRoute = async (context) => {
     const from = url.searchParams.get('from');
     const to = url.searchParams.get('to');
 
-    // @ts-ignore - Supabase types casting for complex joins usually needs refinement
+    // Supabase complex joins query
     let query = supabase
         .from('sessions')
         .select(`

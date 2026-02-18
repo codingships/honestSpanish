@@ -46,6 +46,8 @@ interface PricingSectionProps {
             loading: string;
             error: string;
             close: string;
+            contact: string;
+            contactMessage: string;
         };
     };
 }
@@ -102,9 +104,9 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
     });
 
     // Get package data or use fallback
-    // TEMPORALMENTE: Ocultar precios hasta tener los definitivos
-    const getPriceDisplay = (_pkg: Package | undefined): string => {
-        return 'Consultar';
+    const getPriceDisplay = (pkg: Package | undefined): string => {
+        if (!pkg || !pkg.price_monthly) return 'Consultar';
+        return `${(pkg.price_monthly / 100).toFixed(0)}€`;
     };
 
     const planConfig: { key: PlanKey; isRecommended: boolean; highlight: boolean }[] = [

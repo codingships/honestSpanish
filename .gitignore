@@ -38,4 +38,4 @@ tests/e2e/.auth/
 
 # Vercel (not used)
 .vercel
-.vercel/
+.vercel/test-results/

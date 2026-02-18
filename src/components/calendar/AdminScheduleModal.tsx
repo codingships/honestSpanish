@@ -107,6 +107,41 @@ export default function AdminScheduleModal({
                                 className="w-full p-3 border-2 border-[#006064] text-[#006064]"
                             />
                         </div>
+
+                        {/* Recurring Toggle */}
+                        <div className="p-3 bg-[#E0F7FA] border border-[#006064]/20 space-y-3">
+                            <label className="flex items-center gap-2 cursor-pointer select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={logic.isRecurring}
+                                    onChange={(e) => logic.setIsRecurring(e.target.checked)}
+                                    className="w-4 h-4 accent-[#006064]"
+                                />
+                                <span className="text-sm text-[#006064] font-bold">🔁 Clase recurrente (cada semana)</span>
+                            </label>
+
+                            {logic.isRecurring && logic.selectedDate && (
+                                <>
+                                    <p className="text-xs text-[#006064]/70">
+                                        Se crearán clases cada <strong>
+                                            {new Date(logic.selectedDate + 'T00:00:00').toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', { weekday: 'long' })}
+                                        </strong> hasta la fecha final.
+                                    </p>
+                                    <div>
+                                        <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">Fecha final (opcional)</label>
+                                        <input
+                                            type="date"
+                                            value={logic.recurringEndDate}
+                                            onChange={(e) => logic.setRecurringEndDate(e.target.value)}
+                                            min={logic.selectedDate}
+                                            className="w-full p-2 border-2 border-[#006064] text-[#006064] text-sm"
+                                        />
+                                        <p className="text-xs text-[#006064]/50 mt-1">Si no se indica, se usará la fecha fin de suscripción</p>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+
                         <button
                             onClick={() => logic.setStep(3)}
                             disabled={!logic.selectedDate}
@@ -254,10 +289,32 @@ export default function AdminScheduleModal({
                             {logic.isLoading ? (
                                 <>
                                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                                    Procesando...
+                                    {logic.isRecurring ? 'Creando clases...' : 'Procesando...'}
                                 </>
-                            ) : t.confirm}
+                            ) : logic.isRecurring ? `Crear clases recurrentes` : t.confirm}
                         </button>
+
+                        {/* Recurring result summary */}
+                        {logic.recurringResult && (
+                            <div className="p-4 bg-green-50 border-2 border-green-500 space-y-2">
+                                <p className="font-bold text-green-700">
+                                    ✅ {logic.recurringResult.created} clases creadas
+                                </p>
+                                {logic.recurringResult.errors && logic.recurringResult.errors.length > 0 && (
+                                    <div className="text-xs text-red-600 space-y-1">
+                                        {logic.recurringResult.errors.map((err, i) => (
+                                            <p key={i}>⚠ {err}</p>
+                                        ))}
+                                    </div>
+                                )}
+                                <button
+                                    onClick={() => { onClose(); window.location.reload(); }}
+                                    className="w-full mt-2 px-4 py-2 bg-green-600 text-white font-bold uppercase text-sm border-2 border-green-600 hover:bg-green-700 transition-colors"
+                                >
+                                    Cerrar y actualizar calendario
+                                </button>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

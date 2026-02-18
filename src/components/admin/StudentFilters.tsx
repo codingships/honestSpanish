@@ -10,7 +10,7 @@ interface Student {
     subscription_status: string | null;
     subscription_ends: string | null;
     package_name: string | null;
-    package_display_name: Record<string, string>;
+    package_display_name: Record<string, string> | null;
     teacher_name: string | null;
 }
 
@@ -53,7 +53,7 @@ export default function StudentFilters({ students, lang, translations: t, packag
                 matchesStatus = !student.subscription_status;
             } else if (statusFilter === 'expired') {
                 matchesStatus = student.subscription_status === 'expired' ||
-                    (student.subscription_ends && new Date(student.subscription_ends) < new Date());
+                    !!(student.subscription_ends && new Date(student.subscription_ends) < new Date());
             }
 
             // Plan filter

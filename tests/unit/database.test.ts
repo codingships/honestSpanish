@@ -47,7 +47,7 @@ const createMockSupabase = () => {
                         return Promise.resolve({ data: row, error: null });
                     },
                 }),
-                gte: () => ({ lte: () => Promise.resolve({ data: [], error: null }) }),
+                gte: (_col: string, _val: any) => ({ lte: (_col2: string, _val2: any) => Promise.resolve({ data: [], error: null }) }),
             }),
             insert: (row: any) => {
                 const rows = data.get(table) || [];

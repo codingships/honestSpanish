@@ -1,1 +1,2 @@
-/*    /index.html   200
+# Redirect root to default language
+/ /es 301

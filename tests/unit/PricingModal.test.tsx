@@ -25,6 +25,8 @@ const mockTranslations = {
     loading: 'Cargando...',
     error: 'Error al procesar',
     close: 'Cerrar',
+    contact: 'Contactar',
+    contactMessage: 'Para conocer precios y disponibilidad, contáctanos directamente.',
 };
 
 describe('PricingModal', () => {

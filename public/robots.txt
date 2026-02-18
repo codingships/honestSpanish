@@ -1,4 +1,8 @@
 User-agent: *
 Allow: /
+Disallow: /api/
+Disallow: /campus/
+Disallow: /admin/
+Disallow: /_image
 
 Sitemap: https://espanolhonesto.com/sitemap-index.xml

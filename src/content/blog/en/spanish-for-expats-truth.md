@@ -5,7 +5,7 @@ publishedAt: 2025-01-25
 author: alejandro
 category: expatriados
 tags: ["expats", "living in Spain", "immersion"]
-image: "/images/blog/expatriados-espana.png"
+image: "../../../assets/blog/expatriados-espana.png"
 imageAlt: "Expats chatting on a Madrid terrace"
 lang: en
 translationKey: "expats-truth"

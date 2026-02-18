@@ -180,16 +180,19 @@ describe('Payment Integration', () => {
             console.log('  Step 2: Drive folder created ✓');
 
             // Step 3: Share folder with student
-            await driveModule.shareWithUser(folderResult.id, session.customer_email);
+            await driveModule.shareWithUser(folderResult.id as string, session.customer_email as string);
             expect(driveModule.shareWithUser).toHaveBeenCalled();
             console.log('  Step 3: Folder shared with student ✓');
 
             // Step 4: Send welcome email
             await emailModule.sendWelcomeEmail(
-                session.customer_email,
-                'Test Student',
-                session.metadata.package_id,
-                folderResult.webViewLink
+                session.customer_email as string,
+                {
+                    studentName: 'Test Student',
+                    packageName: session.metadata.package_id,
+                    loginUrl: 'https://espanolhonesto.com/campus',
+                    driveFolderUrl: folderResult.webViewLink ?? undefined,
+                }
             );
             expect(emailModule.sendWelcomeEmail).toHaveBeenCalled();
             console.log('  Step 4: Welcome email sent ✓');
@@ -254,15 +257,18 @@ describe('Payment Integration', () => {
             });
 
             // Step 5: Share folder
-            await driveModule.shareWithUser(folder.id, 'newstudent@test.com');
+            await driveModule.shareWithUser(folder.id as string, 'newstudent@test.com');
             console.log('Step 5: Folder shared with student');
 
             // Step 6: Send welcome email
             await emailModule.sendWelcomeEmail(
                 'newstudent@test.com',
-                'New Student',
-                'premium',
-                folder.webViewLink
+                {
+                    studentName: 'New Student',
+                    packageName: 'premium',
+                    loginUrl: 'https://espanolhonesto.com/campus',
+                    driveFolderUrl: folder.webViewLink ?? undefined,
+                }
             );
             console.log('Step 6: Welcome email sent');
 

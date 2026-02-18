@@ -5,7 +5,7 @@ publishedAt: 2025-01-15
 author: alejandro
 category: aprendizaje
 tags: ["fluency", "time", "levels", "B2"]
-image: "/images/blog/tiempo-fluidez.png"
+image: "../../../assets/blog/tiempo-fluidez.png"
 imageAlt: "Watch next to Spanish books"
 lang: en
 translationKey: "time-to-fluency"

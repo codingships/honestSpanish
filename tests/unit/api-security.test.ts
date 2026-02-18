@@ -15,9 +15,9 @@ const mockSupabase = {
     auth: {
         getUser: vi.fn(),
     },
-    from: vi.fn(() => ({
-        select: vi.fn(() => ({
-            eq: vi.fn(() => ({
+    from: vi.fn((_table: string) => ({
+        select: vi.fn((_cols?: string) => ({
+            eq: vi.fn((_col: string, _val: any) => ({
                 single: vi.fn(),
                 maybeSingle: vi.fn(),
             })),

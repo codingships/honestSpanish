@@ -29,11 +29,16 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
 
     // Estado de Videollamada
     const [meetLink, setMeetLink] = useState('');
-    const [autoCreateMeeting, setAutoCreateMeeting] = useState(true); // Nuevo: Por defecto true
+    const [autoCreateMeeting, setAutoCreateMeeting] = useState(true);
+
+    // Estado de Recurrencia
+    const [isRecurring, setIsRecurring] = useState(false);
+    const [recurringEndDate, setRecurringEndDate] = useState('');
 
     // Estado UI
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [recurringResult, setRecurringResult] = useState<{ created: number; errors?: string[] } | null>(null);
 
     // Reset al abrir
     useEffect(() => {
@@ -50,6 +55,9 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
             setUseCustomTime(false);
             setCustomTime('09:00');
             setAutoCreateMeeting(true);
+            setIsRecurring(false);
+            setRecurringEndDate('');
+            setRecurringResult(null);
         }
     }, [isOpen]);
 
@@ -96,30 +104,66 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
 
         setIsLoading(true);
         setError(null);
+        setRecurringResult(null);
 
         try {
-            const response = await fetch('/api/calendar/sessions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    studentId: selectedStudent,
-                    teacherId: selectedTeacher,
-                    scheduledAt,
-                    durationMinutes: duration,
-                    meetLink: meetLink || null,
-                    autoCreateMeeting, // 👇 Flag crítico para tu backend
-                })
-            });
+            if (isRecurring) {
+                // Recurring: call bulk endpoint
+                const dayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
+                const time = useCustomTime ? customTime : new Date(scheduledAt).toTimeString().slice(0, 5);
 
-            if (!response.ok) {
+                const response = await fetch('/api/calendar/recurring-sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        studentId: selectedStudent,
+                        teacherId: selectedTeacher,
+                        dayOfWeek,
+                        time,
+                        durationMinutes: duration,
+                        startDate: selectedDate,
+                        endDate: recurringEndDate || undefined,
+                        autoCreateMeeting,
+                        meetLink: meetLink || null,
+                    })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to create recurring sessions');
+                }
+
                 const data = await response.json();
-                throw new Error(data.error || 'Failed to create session');
-            }
+                setRecurringResult({ created: data.created, errors: data.errors });
 
-            const data = await response.json();
-            onSessionCreated(data.session);
-            onClose();
-            // Eliminado reload() forzado para mejor UX
+                if (data.created > 0) {
+                    onSessionCreated(data.sessions?.[0] || null);
+                    // Don't close immediately — show result summary
+                }
+            } else {
+                // Single session
+                const response = await fetch('/api/calendar/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        studentId: selectedStudent,
+                        teacherId: selectedTeacher,
+                        scheduledAt,
+                        durationMinutes: duration,
+                        meetLink: meetLink || null,
+                        autoCreateMeeting,
+                    })
+                });
+
+                if (!response.ok) {
+                    const data = await response.json();
+                    throw new Error(data.error || 'Failed to create session');
+                }
+
+                const data = await response.json();
+                onSessionCreated(data.session);
+                onClose();
+            }
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Error al programar la clase';
             setError(message);
@@ -141,6 +185,9 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
         customTime,
         meetLink,
         autoCreateMeeting,
+        isRecurring,
+        recurringEndDate,
+        recurringResult,
         isLoading,
         error,
         // Setters
@@ -154,6 +201,8 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
         setCustomTime,
         setMeetLink,
         setAutoCreateMeeting,
+        setIsRecurring,
+        setRecurringEndDate,
         // Actions
         handleSubmit
     };

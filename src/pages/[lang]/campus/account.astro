@@ -120,9 +120,43 @@ const formTranslations = {
                 {t('campus.account.changePassword')}
             </button>
             
-            <p class="text-xs text-[#006064]/50 mt-2">
-                Próximamente
-            </p>
+            <!-- Inline change password form (hidden by default) -->
+            <div id="change-password-form" class="hidden mt-4 space-y-4">
+                <div>
+                    <label class="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                        {t('auth.newPassword')}
+                    </label>
+                    <input
+                        type="password"
+                        id="new-password"
+                        minlength="6"
+                        required
+                        class="w-full p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]"
+                        placeholder="••••••••"
+                    />
+                </div>
+                <div>
+                    <label class="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                        {t('auth.confirmNewPassword')}
+                    </label>
+                    <input
+                        type="password"
+                        id="confirm-password"
+                        minlength="6"
+                        required
+                        class="w-full p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]"
+                        placeholder="••••••••"
+                    />
+                </div>
+                <div id="password-error" class="hidden p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm"></div>
+                <div id="password-success" class="hidden p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm"></div>
+                <button
+                    id="save-password-btn"
+                    class="px-4 py-2 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
+                >
+                    {t('campus.account.changePassword')}
+                </button>
+            </div>
         </div>
 
         <!-- Subscription (only for students) -->
@@ -220,6 +254,68 @@ const formTranslations = {
             }
         } catch (error) {
             console.error('Error opening Stripe portal:', error);
+        }
+    });
+
+    // Change Password
+    const changePwdBtn = document.getElementById('change-password-btn');
+    const changePwdForm = document.getElementById('change-password-form');
+    const savePwdBtn = document.getElementById('save-password-btn');
+    const newPwdInput = document.getElementById('new-password');
+    const confirmPwdInput = document.getElementById('confirm-password');
+    const pwdError = document.getElementById('password-error');
+    const pwdSuccess = document.getElementById('password-success');
+
+    changePwdBtn?.addEventListener('click', () => {
+        changePwdForm?.classList.toggle('hidden');
+    });
+
+    savePwdBtn?.addEventListener('click', async () => {
+        pwdError?.classList.add('hidden');
+        pwdSuccess?.classList.add('hidden');
+
+        const newPwd = newPwdInput?.value || '';
+        const confirmPwd = confirmPwdInput?.value || '';
+
+        if (newPwd.length < 6) {
+            pwdError.textContent = newPwd.length === 0 ? 'Required' : 'Min 6 characters';
+            pwdError?.classList.remove('hidden');
+            return;
+        }
+
+        if (newPwd !== confirmPwd) {
+            pwdError.textContent = 'Passwords do not match';
+            pwdError?.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            savePwdBtn.textContent = '...';
+            savePwdBtn.disabled = true;
+
+            // Import supabase client dynamically
+            const { supabase } = await import('../../../lib/supabase');
+            const { error } = await supabase.auth.updateUser({ password: newPwd });
+
+            if (error) throw error;
+
+            pwdSuccess.textContent = '✅ Password updated';
+            pwdSuccess?.classList.remove('hidden');
+            newPwdInput.value = '';
+            confirmPwdInput.value = '';
+            
+            // Hide form after 2 seconds
+            setTimeout(() => {
+                changePwdForm?.classList.add('hidden');
+                pwdSuccess?.classList.add('hidden');
+            }, 2000);
+        } catch (err) {
+            console.error('Error changing password:', err);
+            pwdError.textContent = err.message || 'Error';
+            pwdError?.classList.remove('hidden');
+        } finally {
+            savePwdBtn.textContent = 'Cambiar contraseña';
+            savePwdBtn.disabled = false;
         }
     });
 </script>

@@ -96,7 +96,6 @@ export const POST: APIRoute = async (context) => {
             studentName: student.full_name || student.email?.split('@')[0] || 'Estudiante',
             studentEmail: student.email,
             teacherName,
-            level: 'A1', // Default level for new students
         });
 
         // Update profile with folder ID

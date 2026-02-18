@@ -26,6 +26,8 @@ interface PricingModalProps {
         loading: string;
         error: string;
         close: string;
+        contact: string;
+        contactMessage: string;
     };
 }
 
@@ -73,11 +75,39 @@ export default function PricingModal({
         }
     };
 
-    // TEMPORALMENTE: Redirigir a contacto por email en vez de Stripe
-    const handleContinue = () => {
-        const subject = encodeURIComponent(`Interés en plan ${plan.displayName}`);
-        const body = encodeURIComponent(`Hola,\n\nMe interesa el plan ${plan.displayName}.\n\nPor favor, contactadme para más información.\n\nGracias.`);
-        window.location.href = `mailto:alejandro@espanolhonesto.com?subject=${subject}&body=${body}`;
+    const handleContinue = async () => {
+        if (!isLoggedIn) {
+            window.location.href = `/${lang}/login`;
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            const response = await fetch('/api/create-checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    priceId: getPriceId(selectedDuration),
+                    lang,
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Error creating checkout session');
+            }
+
+            if (data.url) {
+                window.location.href = data.url;
+            }
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+            setError(err.message || t.error);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const durations: { value: Duration; label: string }[] = [
@@ -116,15 +146,44 @@ export default function PricingModal({
                     {t.title}
                 </p>
 
-                {/* TEMPORALMENTE: Ocultar opciones de duración con precios */}
-                {/* Mensaje de contacto */}
-                <div className="mb-6 p-4 bg-[#E0F7FA] border-2 border-[#006064]">
-                    <p className="text-[#006064] text-center">
-                        Para conocer precios y disponibilidad, contáctanos directamente.
-                    </p>
+                {/* Duration Options */}
+                <div className="space-y-3 mb-6">
+                    {durations.map(({ value, label }) => {
+                        const savings = calculateSavings(value);
+                        return (
+                            <button
+                                key={value}
+                                onClick={() => setSelectedDuration(value)}
+                                className={`w-full p-4 border-2 text-left transition-all ${selectedDuration === value
+                                        ? 'border-[#006064] bg-[#E0F7FA]'
+                                        : 'border-[#006064]/20 hover:border-[#006064]/50'
+                                    }`}
+                            >
+                                <div className="flex justify-between items-center">
+                                    <span className="font-bold text-[#006064]">{label}</span>
+                                    <span className="font-mono text-[#006064]">
+                                        {calculateMonthlyEquivalent(value)}€/{t.perMonth}
+                                    </span>
+                                </div>
+                                {savings > 0 && (
+                                    <p className="text-xs text-green-600 mt-1">
+                                        {t.save} {savings}€
+                                    </p>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
 
-                {/* TEMPORALMENTE: Ocultar resumen de precios */}
+                {/* Price Summary */}
+                <div className="mb-6 p-4 bg-[#E0F7FA] border-2 border-[#006064]">
+                    <div className="flex justify-between items-center">
+                        <span className="font-bold text-[#006064]">{t.total}</span>
+                        <span className="font-display text-2xl text-[#006064]">
+                            {calculateTotal(selectedDuration)}€
+                        </span>
+                    </div>
+                </div>
 
                 {/* Error message */}
                 {error && (
@@ -149,7 +208,7 @@ export default function PricingModal({
                         }
                     `}
                 >
-                    Contactar
+                    {isLoading ? t.loading : (isLoggedIn ? t.continue : t.login)}
                 </button>
             </div>
         </div>

@@ -1,8 +1,8 @@
 /**
  * Authentication Helpers for E2E Tests
  */
-import { Page, expect } from '@playwright/test';
-import { TEST_USERS, UserRole } from '../fixtures/test-users';
+import { type Page, expect } from '@playwright/test';
+import { TEST_USERS, type UserRole } from '../fixtures/test-users';
 
 /**
  * Login as a specific role

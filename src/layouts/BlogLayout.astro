@@ -1,6 +1,7 @@
 ---
 import BaseLayout from './BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
+import { Image } from 'astro:assets';
 import type { CollectionEntry } from 'astro:content';
 
 interface Props {
@@ -42,7 +43,7 @@ const canonicalPath = `/blog/${postSlug}`;
   title={`${title} | Español Honesto Blog`} 
   description={description} 
   lang={lang}
-  ogImage={image}
+  ogImage={image?.src}
   canonicalPath={canonicalPath}
 >
     <script is:inline type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
@@ -80,7 +81,13 @@ const canonicalPath = `/blog/${postSlug}`;
             {/* Featured Image */}
             {image && (
                 <div class="mb-12 border-2 border-[#006064] overflow-hidden rounded-lg aspect-video">
-                    <img src={image} alt={post.data.imageAlt || title} class="w-full h-full object-cover" />
+                    <Image 
+                        src={image} 
+                        alt={post.data.imageAlt || title} 
+                        class="w-full h-full object-cover"
+                        width={1200}
+                        height={675}
+                    />
                 </div>
             )}
 
@@ -102,7 +109,7 @@ const canonicalPath = `/blog/${postSlug}`;
         <section class="bg-[#006064] text-white py-24 text-center px-6">
             <h2 class="font-display text-4xl mb-6">{t('common.ctaReady')}</h2>
              <a
-                href="mailto:alejandro@espanolhonesto.com"
+                href={`/${lang}/#planes`}
                 class="inline-block bg-white text-[#006064] px-8 py-4 text-lg font-bold border-2 border-transparent hover:bg-[#E0F7FA] transition-all uppercase tracking-wider"
             >
                 {t('common.ctaContact')}

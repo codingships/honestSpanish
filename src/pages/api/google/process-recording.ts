@@ -59,7 +59,6 @@ export const POST: APIRoute = async (context) => {
         .select(`
             id,
             meet_link,
-            google_meet_link,
             drive_doc_id,
             student:profiles!sessions_student_id_fkey(
                 id,
@@ -78,7 +77,10 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
-    const meetLink = session.google_meet_link || session.meet_link;
+    // Cast to access columns that may not be in generated types yet
+    const sessionData = session as any;
+
+    const meetLink = sessionData.meet_link;
     if (!meetLink) {
         return new Response(JSON.stringify({
             error: 'Session has no Meet link',
@@ -89,7 +91,7 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
-    const student = session.student as any;
+    const student = sessionData.student as any;
     if (!student?.drive_folder_id) {
         return new Response(JSON.stringify({
             error: 'Student has no Drive folder',
@@ -113,8 +115,8 @@ export const POST: APIRoute = async (context) => {
     });
 
     // If recording was found and processed, link it to the document
-    if (result.success && result.recordingLink && session.drive_doc_id) {
-        await linkRecordingToDocument(session.drive_doc_id, result.recordingLink);
+    if (result.success && result.recordingLink && sessionData.drive_doc_id) {
+        await linkRecordingToDocument(sessionData.drive_doc_id, result.recordingLink);
     }
 
     return new Response(JSON.stringify({

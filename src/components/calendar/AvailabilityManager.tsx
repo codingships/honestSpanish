@@ -20,7 +20,12 @@ interface AvailabilityManagerProps {
         to: string;
         save: string;
         cancel: string;
-        availability: string;
+        noSlots: string;
+        day: string;
+        slotAdded: string;
+        slotRemoved: string;
+        errorAdding: string;
+        errorRemoving: string;
     };
 }
 
@@ -73,11 +78,11 @@ export default function AvailabilityManager({
 
             setIsAddingSlot(false);
             setNewSlot({ dayOfWeek: 1, startTime: '09:00', endTime: '10:00' });
-            setMessage({ type: 'success', text: 'Horario añadido' });
+            setMessage({ type: 'success', text: t.slotAdded });
 
             setTimeout(() => setMessage(null), 3000);
         } catch {
-            setMessage({ type: 'error', text: 'Error al añadir horario' });
+            setMessage({ type: 'error', text: t.errorAdding });
         } finally {
             setIsLoading(false);
         }
@@ -99,11 +104,11 @@ export default function AvailabilityManager({
             }
 
             setAvailability(availability.filter(s => s.id !== slotId));
-            setMessage({ type: 'success', text: 'Horario eliminado' });
+            setMessage({ type: 'success', text: t.slotRemoved });
 
             setTimeout(() => setMessage(null), 3000);
         } catch {
-            setMessage({ type: 'error', text: 'Error al eliminar horario' });
+            setMessage({ type: 'error', text: t.errorRemoving });
         } finally {
             setIsLoading(false);
         }
@@ -161,7 +166,7 @@ export default function AvailabilityManager({
                                     ))}
                             </div>
                         ) : (
-                            <p className="text-sm text-[#006064]/40 italic">Sin horarios</p>
+                            <p className="text-sm text-[#006064]/40 italic">{t.noSlots}</p>
                         )}
                     </div>
                 ))}
@@ -183,7 +188,7 @@ export default function AvailabilityManager({
                         {/* Día */}
                         <div>
                             <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
-                                Día
+                                {t.day}
                             </label>
                             <select
                                 value={newSlot.dayOfWeek}

@@ -4,18 +4,18 @@
  */
 export const TEST_USERS = {
     student: {
-        email: process.env.TEST_STUDENT_EMAIL || 'test-student@espanolhonesto.com',
-        password: process.env.TEST_STUDENT_PASSWORD || 'TestPassword123!',
+        email: process.env.TEST_STUDENT_EMAIL || 'alindev95@gmail.com',
+        password: process.env.TEST_STUDENT_PASSWORD || 'test123',
         name: 'Test Student',
     },
     teacher: {
-        email: process.env.TEST_TEACHER_EMAIL || 'test-teacher@espanolhonesto.com',
-        password: process.env.TEST_TEACHER_PASSWORD || 'TestPassword123!',
+        email: process.env.TEST_TEACHER_EMAIL || 'alinandrei74@gmail.com',
+        password: process.env.TEST_TEACHER_PASSWORD || 'test123',
         name: 'Test Teacher',
     },
     admin: {
-        email: process.env.TEST_ADMIN_EMAIL || 'test-admin@espanolhonesto.com',
-        password: process.env.TEST_ADMIN_PASSWORD || 'TestPassword123!',
+        email: process.env.TEST_ADMIN_EMAIL || 'alejandro@espanolhonesto.com',
+        password: process.env.TEST_ADMIN_PASSWORD || 'test123',
         name: 'Test Admin',
     },
 };

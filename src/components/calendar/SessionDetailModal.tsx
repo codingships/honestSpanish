@@ -81,7 +81,7 @@ export default function SessionDetailModal({
             };
 
             onSessionUpdate(updatedSession);
-            setMessage({ type: 'success', text: 'Actualizado correctamente' });
+            setMessage({ type: 'success', text: t.updated });
 
             if (action !== 'update_notes') {
                 setTimeout(() => {
@@ -134,25 +134,25 @@ export default function SessionDetailModal({
                 {/* Info */}
                 <div className="space-y-4 mb-6">
                     <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#006064]/60">Estado</span>
+                        <span className="text-sm text-[#006064]/60">{t.status}</span>
                         <span className={`px-2 py-1 text-xs font-bold rounded ${statusBadge.class}`}>
                             {statusBadge.text}
                         </span>
                     </div>
 
                     <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#006064]/60">Fecha y hora</span>
+                        <span className="text-sm text-[#006064]/60">{t.dateTime}</span>
                         <span className="font-bold text-[#006064]">{formatDateTime(session.scheduled_at)}</span>
                     </div>
 
                     <div className="flex items-center justify-between">
-                        <span className="text-sm text-[#006064]/60">Duración</span>
+                        <span className="text-sm text-[#006064]/60">{t.duration}</span>
                         <span className="font-mono text-[#006064]">{session.duration_minutes} min</span>
                     </div>
 
                     {session.meet_link && (
                         <div>
-                            <span className="text-sm text-[#006064]/60 block mb-1">Link de Meet</span>
+                            <span className="text-sm text-[#006064]/60 block mb-1">{t.meetLink}</span>
                             <a
                                 href={session.meet_link}
                                 target="_blank"
@@ -175,14 +175,14 @@ export default function SessionDetailModal({
                             value={notes}
                             onChange={(e) => setNotes(e.target.value)}
                             className="w-full p-3 border-2 border-[#006064] text-[#006064] h-24 resize-none"
-                            placeholder="Notas de la clase..."
+                            placeholder={t.sessionNotesPlaceholder}
                         />
                         <button
                             onClick={() => handleAction('update_notes')}
                             disabled={isLoading}
                             className="mt-2 px-4 py-2 text-xs font-bold text-[#006064] border border-[#006064] hover:bg-[#E0F7FA] transition-colors"
                         >
-                            Guardar notas
+                            {t.saveNotes}
                         </button>
                     </div>
                 )}

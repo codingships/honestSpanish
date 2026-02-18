@@ -2,7 +2,6 @@ import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { cancelClassEvent } from '../../../lib/google/calendar';
 import { sendClassCancelledToBoth } from '../../../lib/email';
-import type { Database } from '../../../types/database.types';
 
 // 👇 FIX 1: Forzamos Node.js para que funcionen las librerías de Google
 export const config = {
@@ -35,7 +34,6 @@ export const POST: APIRoute = async (context) => {
     // 👇 FIX 3: Corregimos la query. Quitamos 'google_calendar_event_id' explícito
     // y confiamos en el '*' o usamos el nombre correcto 'calendar_event_id'.
     // También arreglamos el tipado de las relaciones.
-    // @ts-ignore - Las relaciones complejas a veces necesitan ignore si los tipos automáticos no son perfectos
     const { data: session, error: fetchError } = await supabase
         .from('sessions')
         .select(`
@@ -50,6 +48,9 @@ export const POST: APIRoute = async (context) => {
     if (fetchError || !session) {
         return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
     }
+
+    // Cast to access calendar_event_id which may not be in generated types yet
+    const sessionData = session as typeof session & { calendar_event_id?: string | null };
 
     // Permission check
     const isTeacher = session.teacher_id === user.id;
@@ -93,9 +94,9 @@ export const POST: APIRoute = async (context) => {
 
         // 3. Delete from Google Calendar
         // 👇 FIX 5: Usamos el nombre correcto de la columna: 'calendar_event_id'
-        if (session.calendar_event_id) {
+        if (sessionData.calendar_event_id) {
             try {
-                await cancelClassEvent(session.calendar_event_id);
+                await cancelClassEvent(sessionData.calendar_event_id);
 
                 // Clear event ID from session
                 await supabase

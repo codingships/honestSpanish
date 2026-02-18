@@ -63,9 +63,9 @@ export const POST: APIRoute = async (context) => {
         // Get site URL for redirects
         const siteUrl = import.meta.env.SITE || 'http://localhost:4321';
 
-        // Create Checkout Session
+        // Create Checkout Session (subscription mode for recurring billing)
         const session = await stripe.checkout.sessions.create({
-            mode: 'payment',
+            mode: 'subscription',
             customer: stripeCustomerId,
             line_items: [
                 {
@@ -76,6 +76,13 @@ export const POST: APIRoute = async (context) => {
             success_url: `${siteUrl}/${lang}/campus?payment=success`,
             cancel_url: `${siteUrl}/${lang}/#pricing`,
             allow_promotion_codes: true,
+            subscription_data: {
+                metadata: {
+                    userId: profile.id,
+                    priceId,
+                    lang,
+                },
+            },
             metadata: {
                 userId: profile.id,
                 priceId,

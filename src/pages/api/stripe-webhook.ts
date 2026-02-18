@@ -46,16 +46,42 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // Handle the event
-    if (event.type === 'checkout.session.completed') {
-        // 👇 TypeScript ahora sabe que esto es una Session
-        const session = event.data.object as Stripe.Checkout.Session;
+    try {
+        switch (event.type) {
+            case 'checkout.session.completed': {
+                // First-time subscription checkout
+                const session = event.data.object as Stripe.Checkout.Session;
+                await handleCheckoutCompleted(session);
+                break;
+            }
 
-        try {
-            await handleCheckoutCompleted(session);
-        } catch (error) {
-            console.error('Error processing checkout:', error);
-            // Still return 200 to acknowledge receipt
+            case 'invoice.paid': {
+                // Recurring monthly payment succeeded
+                const invoice = event.data.object as Stripe.Invoice;
+                await handleInvoicePaid(invoice);
+                break;
+            }
+
+            case 'customer.subscription.deleted': {
+                // Subscription cancelled (expired or cancelled by admin/customer)
+                const subscription = event.data.object as Stripe.Subscription;
+                await handleSubscriptionDeleted(subscription);
+                break;
+            }
+
+            case 'customer.subscription.updated': {
+                // Subscription updated (e.g. payment failed, trial ended)
+                const subscription = event.data.object as Stripe.Subscription;
+                await handleSubscriptionUpdated(subscription);
+                break;
+            }
+
+            default:
+                console.log(`[Webhook] Unhandled event type: ${event.type}`);
         }
+    } catch (error) {
+        console.error(`[Webhook] Error processing ${event.type}:`, error);
+        // Still return 200 to acknowledge receipt
     }
 
     return new Response(JSON.stringify({ received: true }), {
@@ -64,17 +90,26 @@ export const POST: APIRoute = async ({ request }) => {
     });
 };
 
-// 👇 Definimos el tipo de entrada correctamente
+// ============================================
+// HANDLER: First-time checkout completed
+// ============================================
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-    const { userId, priceId } = session.metadata || {};
+    // For subscription mode, metadata is on the subscription, not the session
+    const userId = session.metadata?.userId
+        || (session.subscription
+            ? (await stripe.subscriptions.retrieve(session.subscription as string)).metadata?.userId
+            : null);
+    const priceId = session.metadata?.priceId
+        || (session.subscription
+            ? (await stripe.subscriptions.retrieve(session.subscription as string)).metadata?.priceId
+            : null);
 
     if (!userId || !priceId) {
-        console.error('Missing metadata in checkout session');
+        console.error('[Webhook] Missing metadata in checkout session');
         return;
     }
 
     // Find the package that matches the priceId
-    // 👇 'pkg' ahora tiene autocompletado y tipo
     const { data: pkg, error: pkgError } = await supabaseAdmin
         .from('packages')
         .select('*')
@@ -82,7 +117,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         .single();
 
     if (pkgError || !pkg) {
-        console.error('Package not found for priceId:', priceId);
+        console.error('[Webhook] Package not found for priceId:', priceId);
         return;
     }
 
@@ -101,7 +136,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
     const sessionsTotal = pkg.sessions_per_month * durationMonths;
 
-    // Create subscription
+    // Create subscription record
     const { data: subscription, error: subError } = await supabaseAdmin
         .from('subscriptions')
         .insert({
@@ -113,13 +148,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
             ends_at: endsAt.toISOString().split('T')[0],
             sessions_total: sessionsTotal,
             sessions_used: 0,
-            stripe_invoice_id: session.invoice as string | null, // Stripe type matching
+            stripe_invoice_id: session.invoice as string | null,
         })
         .select()
         .single();
 
     if (subError) {
-        console.error('Error creating subscription:', subError);
+        console.error('[Webhook] Error creating subscription:', subError);
         return;
     }
 
@@ -129,28 +164,165 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         .insert({
             student_id: userId,
             subscription_id: subscription.id,
-            amount: session.amount_total ?? 0, // Fallback si es null
+            amount: session.amount_total ?? 0,
             currency: session.currency ?? 'eur',
             status: 'succeeded',
             stripe_payment_intent_id: session.payment_intent as string | null,
-            description: `${pkg.name} - ${durationMonths} month(s)`,
+            description: `${pkg.name} - ${durationMonths} month(s) - Initial`,
         });
 
     if (paymentError) {
-        console.error('Error creating payment:', paymentError);
+        console.error('[Webhook] Error creating payment:', paymentError);
     }
 
-    console.log(`Successfully processed payment for user ${userId}, subscription ${subscription.id}`);
+    // Save Stripe subscription ID in our subscription record for future reference
+    if (session.subscription) {
+        await supabaseAdmin
+            .from('subscriptions')
+            .update({ stripe_invoice_id: session.subscription as string })
+            .eq('id', subscription.id);
+    }
+
+    console.log(`[Webhook] Successfully processed initial payment for user ${userId}, subscription ${subscription.id}`);
 
     // Create Google Drive folder structure for the student and send welcome email
     await createDriveFolderForStudent(userId, pkg);
 }
 
-/**
- * Create Drive folder structure for a student (after successful payment)
- * Also sends welcome email after folder creation
- */
-// 👇 Tipamos 'pkg' usando los tipos de la DB directamente
+// ============================================
+// HANDLER: Recurring invoice paid (monthly renewal)
+// ============================================
+async function handleInvoicePaid(invoice: Stripe.Invoice) {
+    // Skip the first invoice (already handled by checkout.session.completed)
+    if (invoice.billing_reason === 'subscription_create') {
+        console.log('[Webhook] Skipping initial invoice (handled by checkout.session.completed)');
+        return;
+    }
+
+    const stripeSubscriptionId = (invoice as any).subscription as string;
+    if (!stripeSubscriptionId) {
+        console.log('[Webhook] Invoice without subscription, skipping');
+        return;
+    }
+
+    // Get subscription metadata to find our user
+    const stripeSubscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const userId = stripeSubscription.metadata?.userId;
+
+    if (!userId) {
+        console.error('[Webhook] No userId in subscription metadata for:', stripeSubscriptionId);
+        return;
+    }
+
+    // Find the active subscription in our DB
+    const { data: subscription, error: subError } = await supabaseAdmin
+        .from('subscriptions')
+        .select('id, package_id, sessions_total, duration_months')
+        .eq('student_id', userId)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
+
+    if (subError || !subscription) {
+        console.error('[Webhook] No active subscription found for user:', userId);
+        return;
+    }
+
+    // Get the package to know sessions_per_month
+    const { data: pkg } = await supabaseAdmin
+        .from('packages')
+        .select('sessions_per_month')
+        .eq('id', subscription.package_id)
+        .single();
+
+    // Extend the subscription: add 1 month, reset sessions or add to total
+    const newEndsAt = new Date();
+    newEndsAt.setMonth(newEndsAt.getMonth() + 1);
+
+    const additionalSessions = pkg?.sessions_per_month ?? 0;
+
+    const { error: updateError } = await supabaseAdmin
+        .from('subscriptions')
+        .update({
+            ends_at: newEndsAt.toISOString().split('T')[0],
+            sessions_total: (subscription.sessions_total ?? 0) + additionalSessions,
+            sessions_used: 0, // Reset sessions for the new month
+        })
+        .eq('id', subscription.id);
+
+    if (updateError) {
+        console.error('[Webhook] Error extending subscription:', updateError);
+    }
+
+    // Record the payment
+    const { error: paymentError } = await supabaseAdmin
+        .from('payments')
+        .insert({
+            student_id: userId,
+            subscription_id: subscription.id,
+            amount: invoice.amount_paid ?? 0,
+            currency: invoice.currency ?? 'eur',
+            status: 'succeeded',
+            stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
+            description: `Monthly renewal`,
+        });
+
+    if (paymentError) {
+        console.error('[Webhook] Error creating renewal payment:', paymentError);
+    }
+
+    console.log(`[Webhook] Renewal processed for user ${userId}: +${additionalSessions} sessions, extended to ${newEndsAt.toISOString().split('T')[0]}`);
+}
+
+// ============================================
+// HANDLER: Subscription deleted/cancelled
+// ============================================
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+    const userId = subscription.metadata?.userId;
+
+    if (!userId) {
+        console.error('[Webhook] No userId in deleted subscription metadata');
+        return;
+    }
+
+    // Mark all active subscriptions for this user as cancelled
+    const { error: updateError } = await supabaseAdmin
+        .from('subscriptions')
+        .update({ status: 'cancelled' })
+        .eq('student_id', userId)
+        .eq('status', 'active');
+
+    if (updateError) {
+        console.error('[Webhook] Error cancelling subscription:', updateError);
+    }
+
+    console.log(`[Webhook] Subscription cancelled for user ${userId}`);
+}
+
+// ============================================
+// HANDLER: Subscription updated (e.g. past_due)
+// ============================================
+async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+    const userId = subscription.metadata?.userId;
+
+    if (!userId) return;
+
+    // If subscription goes past_due, update our status
+    if (subscription.status === 'past_due') {
+        await supabaseAdmin
+            .from('subscriptions')
+            .update({ status: 'paused' })
+            .eq('student_id', userId)
+            .eq('status', 'active');
+
+        console.log(`[Webhook] Subscription marked past_due for user ${userId}`);
+    }
+}
+
+// ============================================
+// Create Drive folder + send welcome email
+// ============================================
 async function createDriveFolderForStudent(
     userId: string,
     pkg: Database['public']['Tables']['packages']['Row']
@@ -185,11 +357,7 @@ async function createDriveFolderForStudent(
         }
 
         // Get primary teacher name
-        // 👇 TypeScript infiere que student_teachers es un Array gracias a los tipos generados
-        // Si falla, es porque la relación en Supabase devuelve un objeto único, pero usualmente es array.
         const teachers = student.student_teachers as unknown as any[];
-        // Nota: Mantenemos un casting ligero aquí porque las relaciones anidadas profundas 
-        // a veces son difíciles de inferir automáticamente sin un helper de tipos extra.
 
         const primaryTeacher = teachers?.find((st: any) => st.is_primary);
         const teacherName = primaryTeacher?.teacher?.full_name || null;
@@ -233,12 +401,10 @@ async function createDriveFolderForStudent(
         if (student?.email) {
             const publicUrl = import.meta.env.PUBLIC_URL || 'https://espanolhonesto.com';
 
-            // 👇 SOLUCIÓN: Hacemos un casting explícito del JSON
             const displayNameObj = pkg.display_name as unknown as { es?: string };
 
             await sendWelcomeEmail(student.email, {
                 studentName: student.full_name || 'Estudiante',
-                // 👇 Usamos el objeto tipeado
                 packageName: displayNameObj?.es || pkg.name || 'Español',
                 loginUrl: `${publicUrl}/es/login`,
                 driveFolderUrl: driveFolderLink || undefined,
