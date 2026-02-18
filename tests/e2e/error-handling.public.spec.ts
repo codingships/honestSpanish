@@ -331,7 +331,8 @@ test.describe('Browser Navigation', () => {
 
 test.describe('Network and API Failures', () => {
 
-    test('should handle offline mode gracefully', async ({ page, context }) => {
+    test('should handle offline mode gracefully', async ({ page, context, browserName }) => {
+        test.skip(browserName === 'webkit', 'setOffline is not supported in WebKit');
         log('Step 1: Navigate to homepage');
         await page.goto('/es', { waitUntil: 'networkidle' });
 
