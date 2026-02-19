@@ -156,11 +156,23 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: sessionError.message }), { status: 500 });
     }
 
-    // Increment sessions_used now that the session is confirmed
-    await supabase
+    // Increment sessions_used — optimistic lock: only updates if value hasn't changed concurrently
+    const { data: updatedSub } = await supabase
         .from('subscriptions')
         .update({ sessions_used: sessionsUsed + 1 })
-        .eq('id', subscription.id);
+        .eq('id', subscription.id)
+        .eq('sessions_used', sessionsUsed)
+        .select('id')
+        .single();
+
+    if (!updatedSub) {
+        // Another concurrent request already used the last session — cancel this one
+        await supabase
+            .from('sessions')
+            .update({ status: 'cancelled' })
+            .eq('id', session.id);
+        return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 409 });
+    }
 
     // 👇 2. Pasamos el flag a la función background
     createClassDocumentForSession(supabase, session, studentId, finalTeacherId, autoCreateMeeting);

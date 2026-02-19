@@ -202,8 +202,11 @@ describe('POST /api/calendar/sessions', () => {
             } else if (callCount === 4) {
                 // insert session
                 chain.single.mockResolvedValue({ data: mockNewSession, error: null });
+            } else if (callCount === 5) {
+                // subscription optimistic lock update — must return non-null to confirm success
+                chain.single.mockResolvedValue({ data: { id: 'sub-1' }, error: null });
             } else {
-                // subscription update, profiles lookups for background task, etc.
+                // background task lookups (profiles, etc.)
                 chain.single.mockResolvedValue({ data: null, error: null });
             }
             return chain;
@@ -256,6 +259,9 @@ describe('POST /api/calendar/sessions', () => {
                 });
             } else if (callCount === 4) {
                 chain.single.mockResolvedValue({ data: mockNewSession, error: null });
+            } else if (callCount === 5) {
+                // subscription optimistic lock update — non-null confirms lock acquired
+                chain.single.mockResolvedValue({ data: { id: 'sub-1' }, error: null });
             } else {
                 chain.single.mockResolvedValue({ data: null, error: null });
             }
