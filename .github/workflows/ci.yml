@@ -48,4 +48,8 @@ jobs:
         run: npx playwright install-deps
 
       - name: Run E2E tests
+        env:
+          PUBLIC_SUPABASE_URL: "https://your-project.supabase.co"
+          PUBLIC_SUPABASE_ANON_KEY: "your-anon-key"
+          SUPABASE_SERVICE_ROLE_KEY: "your-service-role-key"
         run: npm run test:e2e
