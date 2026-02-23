@@ -64,3 +64,18 @@ Cada vez que hagas cambios (ej. añadir un nuevo post al blog):
     ```bash
     git push
     ```
+Este es el ciclo inmutable que debes seguir para cada alteración del código a partir de ahora:
+
+Sincronizar la base: Vuelve a la versión estable pública.
+git checkout main && git pull
+
+Aislar el desarrollo: Crea una bifurcación temporal.
+git checkout -b fix/ci-astro-sync
+
+Ejecutar cambios locales: (En este caso, modificar el archivo YAML).
+git add . && git commit -m "fix: añadir astro sync al pipeline"
+
+Subir el entorno aislado:
+git push -u origin fix/ci-astro-sync
+
+Resolver en GitHub: Abre el Pull Request en la web, espera a que el pipeline se ejecute sin errores y presiona Merge.
