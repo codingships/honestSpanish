@@ -1,31 +1,21 @@
-# Cómo subir el proyecto a GitHub
+# Cómo subir el proyecto a GitHub (Entorno Protegido CI/CD)
 
-Sigue estos pasos para guardar tu código en un repositorio de GitHub.
+Sigue estos pasos para guardar tu código. La rama `main` está bloqueada y requiere validación automatizada de los tests de Playwright y Vitest antes de actualizar producción.
 
-## 1. Crear el repositorio en GitHub
-1.  Entra a [GitHub.com](https://github.com) y loguéate.
-2.  Haz clic en el botón **+** (arriba a la derecha) y selecciona **"New repository"**.
-3.  Nombre del repositorio: `espanol-honesto-web` (o el que quieras).
-4.  Público o Privado: A tu elección.
-5.  **NO** marques "Add a README file" (ya tienes uno local).
-6.  Haz clic en **"Create repository"**.
+## 1. Crear el repositorio (Solo la primera vez)
+1.  Entra a GitHub.com y selecciona **"New repository"**.
+2.  Nombre del repositorio: `espanol-honesto-web`
+3.  **NO** marques "Add a README file".
+4.  Haz clic en **"Create repository"**.
 
-## 2. Inicializar Git localmente
-Abre la terminal en la carpeta de tu proyecto (`c:\Users\Alin\Desktop\Academia\pruebas`) y ejecuta:
-
+## 2. Inicializar Git y Conectar (Solo la primera vez)
 ```bash
-# 1. Iniciar git (si no lo has hecho ya)
 git init
-
-# 2. Añadir todos los archivos al área de preparación
 git add .
-
-# 3. Guardar el primer "commit" (versión)
-git commit -m "Initial commit: Migración a Astro completa con Blog"
-
-# 4. Cambiar el nombre de la rama principal a 'main'
+git commit -m "Initial commit"
 git branch -M main
-```
+git remote add origin [https://github.com/TU_USUARIO/NOMBRE_DEL_REPO.git](https://github.com/TU_USUARIO/NOMBRE_DEL_REPO.git)
+git push -u origin main
 
 ## 3. Conectar con GitHub
 Copia la URL de tu repositorio (será algo como `https://github.com/tu-usuario/espanol-honesto-web.git`) y ejecuta:
