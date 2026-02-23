@@ -133,6 +133,7 @@ The architecture is pragmatic and flat, favoring simplicity for this scale.
 -   Blog system with routing, listing, and RSS.
 -   SEO automated (Sitemap, Metadata, OpenGraph schema).
 -   Clean build pipeline (0 errors).
+-   CI/CD infrastructure active (GitHub Actions configured for typecheck, linting, unit tests, and E2E tests).
 
 **🚧 MISSING / TODO:**
 -   **Images**: Blog posts currently use placeholder images or rely on `src/assets` manually.
