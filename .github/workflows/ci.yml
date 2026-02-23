@@ -23,6 +23,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Sync Astro types
+        run: npx astro sync
+
       - name: Check types
         run: npm run typecheck
 
@@ -47,5 +50,9 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps
 
-      - name: Run E2E tests
-        run: npm run test:e2e
+      - name: Run E2E tests (public only)
+        env:
+          PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+          PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
+          SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
+        run: npx playwright test --project=public
