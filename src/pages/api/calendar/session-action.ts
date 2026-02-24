@@ -137,6 +137,37 @@ export const POST: APIRoute = async (context) => {
         }
 
         return new Response(JSON.stringify({ success: true }), { status: 200 });
+    } else if (action === 'complete' || action === 'no_show' || action === 'update_notes') {
+        // 👇 FIX 6: Security Fix (IDOR validation). 
+        // Prevent students from marking their own classes as complete, no_show, or updating teacher notes.
+        if (!isTeacher && !isAdmin) {
+            return new Response(JSON.stringify({ error: 'Forbidden. Only teachers and admins can modify session states.' }), { status: 403 });
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const updateData: any = { updated_at: new Date().toISOString() };
+
+        if (action === 'complete') {
+            updateData.status = 'completed';
+            updateData.completed_at = new Date().toISOString();
+        } else if (action === 'no_show') {
+            updateData.status = 'no_show';
+        }
+
+        if (body.notes !== undefined) {
+            updateData.teacher_notes = body.notes;
+        }
+
+        const { error: updateError } = await supabase
+            .from('sessions')
+            .update(updateData)
+            .eq('id', sessionId);
+
+        if (updateError) {
+            return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
+        }
+
+        return new Response(JSON.stringify({ success: true }), { status: 200 });
     }
 
     return new Response(JSON.stringify({ error: 'Invalid action' }), { status: 400 });

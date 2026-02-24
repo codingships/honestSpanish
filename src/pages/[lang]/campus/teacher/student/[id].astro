@@ -104,7 +104,7 @@ const languageNames: Record<string, string> = {
 
 <CampusLayout 
     title={`${student.full_name || student.email} | Español Honesto`}
-    user={user}
+    user={{ ...user, ...currentProfile }}
     lang={lang}
 >
     <!-- Header -->

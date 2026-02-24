@@ -76,84 +76,91 @@ export const GET: APIRoute = async ({ request }) => {
 
         // Process each session
         for (const session of sessions) {
-            result.processed++;
-
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const student = session.student as any;
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const teacher = session.teacher as any;
-
-            if (!student?.email || !teacher?.email) {
-                result.failed++;
-                result.errors.push(`Session ${session.id}: Missing email addresses`);
-                continue;
-            }
-
-            // Format date/time in Spanish with Madrid timezone
-            const sessionDate = new Date(session.scheduled_at);
-            const dateStr = sessionDate.toLocaleDateString('es-ES', {
-                weekday: 'long',
-                day: 'numeric',
-                month: 'long',
-                year: 'numeric',
-                timeZone: 'Europe/Madrid'
-            });
-            const timeStr = sessionDate.toLocaleTimeString('es-ES', {
-                hour: '2-digit',
-                minute: '2-digit',
-                timeZone: 'Europe/Madrid'
-            });
-
-            // Send reminder to student
             try {
-                const studentSent = await sendClassReminder(student.email, {
-                    recipientName: student.full_name || 'Estudiante',
-                    date: dateStr,
-                    time: timeStr,
-                    teacherName: teacher.full_name || 'Tu profesor',
-                    meetLink: session.meet_link,
-                    documentLink: session.drive_doc_url,
+                result.processed++;
+
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const student = session.student as any;
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const teacher = session.teacher as any;
+
+                if (!student?.email || !teacher?.email) {
+                    result.failed++;
+                    result.errors.push(`Session ${session.id}: Missing email addresses`);
+                    continue;
+                }
+
+                // Format date/time in Spanish with Madrid timezone
+                const sessionDate = new Date(session.scheduled_at);
+                const dateStr = sessionDate.toLocaleDateString('es-ES', {
+                    weekday: 'long',
+                    day: 'numeric',
+                    month: 'long',
+                    year: 'numeric',
+                    timeZone: 'Europe/Madrid'
+                });
+                const timeStr = sessionDate.toLocaleTimeString('es-ES', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    timeZone: 'Europe/Madrid'
                 });
 
-                if (studentSent) {
-                    result.sent++;
-                } else {
-                    result.errors.push(`Session ${session.id}: Failed to send to student ${student.email}`);
+                // Send reminder to student
+                try {
+                    const studentSent = await sendClassReminder(student.email, {
+                        recipientName: student.full_name || 'Estudiante',
+                        date: dateStr,
+                        time: timeStr,
+                        teacherName: teacher.full_name || 'Tu profesor',
+                        meetLink: session.meet_link,
+                        documentLink: session.drive_doc_url,
+                    });
+
+                    if (studentSent) {
+                        result.sent++;
+                    } else {
+                        result.errors.push(`Session ${session.id}: Failed to send to student ${student.email}`);
+                    }
+                } catch (err) {
+                    result.failed++;
+                    result.errors.push(`Session ${session.id}: Student email error - ${err instanceof Error ? err.message : 'Unknown'}`);
                 }
-            } catch (err) {
-                result.failed++;
-                result.errors.push(`Session ${session.id}: Student email error - ${err instanceof Error ? err.message : 'Unknown'}`);
-            }
 
-            // Send reminder to teacher
-            try {
-                const teacherSent = await sendClassReminder(teacher.email, {
-                    recipientName: teacher.full_name || 'Profesor',
-                    date: dateStr,
-                    time: timeStr,
-                    studentName: student.full_name || 'Tu estudiante',
-                    meetLink: session.meet_link,
-                    documentLink: session.drive_doc_url,
-                });
+                // Send reminder to teacher
+                try {
+                    const teacherSent = await sendClassReminder(teacher.email, {
+                        recipientName: teacher.full_name || 'Profesor',
+                        date: dateStr,
+                        time: timeStr,
+                        studentName: student.full_name || 'Tu estudiante',
+                        meetLink: session.meet_link,
+                        documentLink: session.drive_doc_url,
+                    });
 
-                if (teacherSent) {
-                    result.sent++;
-                } else {
-                    result.errors.push(`Session ${session.id}: Failed to send to teacher ${teacher.email}`);
+                    if (teacherSent) {
+                        result.sent++;
+                    } else {
+                        result.errors.push(`Session ${session.id}: Failed to send to teacher ${teacher.email}`);
+                    }
+                } catch (err) {
+                    result.failed++;
+                    result.errors.push(`Session ${session.id}: Teacher email error - ${err instanceof Error ? err.message : 'Unknown'}`);
                 }
-            } catch (err) {
-                result.failed++;
-                result.errors.push(`Session ${session.id}: Teacher email error - ${err instanceof Error ? err.message : 'Unknown'}`);
-            }
 
-            // Mark session as reminder sent
-            const { error: updateError } = await supabaseAdmin
-                .from('sessions')
-                .update({ reminder_sent: true })
-                .eq('id', session.id);
+                // Mark session as reminder sent
+                const { error: updateError } = await supabaseAdmin
+                    .from('sessions')
+                    .update({ reminder_sent: true })
+                    .eq('id', session.id);
 
-            if (updateError) {
-                console.error(`[CRON] Failed to update reminder_sent for session ${session.id}:`, updateError);
+                if (updateError) {
+                    console.error(`[CRON] Failed to update reminder_sent for session ${session.id}:`, updateError);
+                    result.errors.push(`Session ${session.id}: Failed to update DB status`);
+                }
+            } catch (innerError) {
+                console.error(`[CRON] Critical error processing session ${session.id}:`, innerError);
+                result.errors.push(`Session ${session.id}: Fatal error - ${innerError instanceof Error ? innerError.message : 'Unknown'}`);
+                // The loop continues to the next session safely!
             }
         }
 

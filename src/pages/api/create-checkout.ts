@@ -40,6 +40,21 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
+        // Check for existing active subscription to prevent double-charging
+        const { data: activeSub } = await supabase
+            .from('subscriptions')
+            .select('id')
+            .eq('student_id', user.id)
+            .eq('status', 'active')
+            .maybeSingle();
+
+        if (activeSub) {
+            return new Response(JSON.stringify({ error: 'Ya tienes una suscripción activa' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         // Validate priceId belongs to an active package in our system
         const { data: validPackage } = await supabase
             .from('packages')

@@ -143,6 +143,16 @@ CREATE POLICY "Teachers can view their students"
         )
     );
 
+CREATE POLICY "Students can view their teachers" 
+    ON profiles FOR SELECT 
+    USING (
+        EXISTS (
+            SELECT 1 FROM student_teachers st 
+            WHERE st.student_id = auth.uid() 
+            AND st.teacher_id = profiles.id
+        )
+    );
+
 CREATE POLICY "Admins can do everything on profiles" 
     ON profiles FOR ALL 
     USING (
@@ -197,7 +207,15 @@ CREATE POLICY "Students can view own sessions"
 
 CREATE POLICY "Teachers can view and update assigned sessions" 
     ON sessions FOR ALL 
-    USING (teacher_id = auth.uid());
+    USING (teacher_id = auth.uid())
+    WITH CHECK (
+        teacher_id = auth.uid() AND
+        EXISTS (
+            SELECT 1 FROM student_teachers st 
+            WHERE st.teacher_id = auth.uid() 
+            AND st.student_id = sessions.student_id
+        )
+    );
 
 CREATE POLICY "Admins can manage sessions" 
     ON sessions FOR ALL 

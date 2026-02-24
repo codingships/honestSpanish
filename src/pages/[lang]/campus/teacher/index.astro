@@ -87,6 +87,18 @@ const studentsWithSubs = await Promise.all(
 const totalStudents = studentsWithSubs.length;
 const activeStudents = studentsWithSubs.filter(s => s.subscription?.status === 'active').length;
 
+// Get completed sessions this month
+const startOfMonth = new Date();
+startOfMonth.setUTCDate(1);
+startOfMonth.setUTCHours(0, 0, 0, 0);
+
+const { count: completedSessionsCount } = await supabase
+    .from('sessions')
+    .select('*', { count: 'exact', head: true })
+    .eq('teacher_id', user.id)
+    .eq('status', 'completed')
+    .gte('scheduled_at', startOfMonth.toISOString());
+
 // Helper functions
 const getPackageName = (sub: any) => {
     if (!sub?.packages?.display_name) return t('campus.teacher.noPlan');
@@ -110,7 +122,7 @@ const getStatusBadge = (sub: any) => {
 
 <CampusLayout 
     title={`${t('campus.teacher.title')} | Español Honesto`} 
-    user={user}
+    user={{ ...user, ...profile }}
     lang={lang}
 >
     <!-- Header with Stats -->
@@ -127,7 +139,7 @@ const getStatusBadge = (sub: any) => {
                 <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.activeStudents')}</p>
             </div>
             <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-                <p class="text-3xl font-display text-[#006064]">—</p>
+                <p class="text-3xl font-display text-[#006064]">{completedSessionsCount || 0}</p>
                 <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.sessions')}</p>
             </div>
         </div>

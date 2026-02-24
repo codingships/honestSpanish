@@ -207,6 +207,8 @@ export const ui = {
                 newRegistrations: "Nuevos registros",
                 viewAll: "Ver todos",
                 goalProgress: "del objetivo",
+                noRecentPayments: "No hay pagos recientes",
+                noRecentRegistrations: "No hay registros recientes",
                 student: {
                     title: "Panel del Estudiante",
                     myClasses: "Mis Clases",
@@ -690,6 +692,8 @@ export const ui = {
                 newRegistrations: "New registrations",
                 viewAll: "View all",
                 goalProgress: "of goal",
+                noRecentPayments: "No recent payments",
+                noRecentRegistrations: "No recent registrations",
                 teacher: {
                     title: "Teacher Panel",
                     schedule: "My Schedule",

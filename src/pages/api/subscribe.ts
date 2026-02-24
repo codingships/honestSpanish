@@ -1,18 +1,45 @@
 import type { APIRoute } from 'astro';
 import { resend, EMAIL_FROM } from '../../lib/email/client';
+import { createClient } from '@supabase/supabase-js';
 
 const escapeHtml = (str: string) =>
     str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-export const POST: APIRoute = async ({ request, locals: _locals }) => {
+const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
+const supabaseServiceKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }) => {
     try {
-        const { email, name, interest, lang } = await request.json();
+        const { email, name, interest, lang, consent } = await request.json();
 
         if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
             return new Response(JSON.stringify({ error: 'Email inválido' }), { status: 400 });
         }
 
-        // 1. Send Admin Notification
+        if (!consent) {
+            return new Response(JSON.stringify({ error: 'Debe aceptar las políticas de privacidad' }), { status: 400 });
+        }
+
+        // 1. Guardar en Base de Datos (CRM & GDPR)
+        const { error: dbError } = await supabaseAdmin
+            .from('leads')
+            .insert({
+                email,
+                name: name || null,
+                interest: interest || null,
+                lang: lang || 'es',
+                consent_given: Boolean(consent),
+                ip_address: clientAddress
+            });
+
+        if (dbError) {
+            console.error('Supabase error inserting lead:', dbError);
+            // We can choose to fail or continue. Better fail to guarantee GDPR compliance before notifying.
+            return new Response(JSON.stringify({ error: 'Error al registrar contacto' }), { status: 500 });
+        }
+
+        // 2. Send Admin Notification
         await resend.emails.send({
             from: EMAIL_FROM,
             to: ['alejandro@espanolhonesto.com'],

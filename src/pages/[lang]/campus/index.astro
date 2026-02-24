@@ -16,7 +16,6 @@ if (!user) {
     return Astro.redirect(`/${lang}/login`);
 }
 
-// 1. Fetch User Profile
 let profile = null;
 const { data: profileData } = await supabase
   .from('profiles')
@@ -26,8 +25,12 @@ const { data: profileData } = await supabase
 
 if (profileData) profile = profileData;
 
-// Note: Role-based redirects are now handled by /api/auth/post-login endpoint
-// This page is the student dashboard - teachers/admins should be redirected via the endpoint
+// Strictly prevent Teachers & Admins from entering the Student Dashboard
+if (profile?.role === 'admin') {
+    return Astro.redirect(`/${lang}/campus/admin`);
+} else if (profile?.role === 'teacher') {
+    return Astro.redirect(`/${lang}/campus/teacher`);
+}
 
 // 2. Fetch Active Subscription
 let subscription = null;
@@ -108,7 +111,7 @@ const nextClassTranslations = {
 
 <CampusLayout 
     title={`${t('campus.dashboard.title')} | Español Honesto`} 
-    user={user}
+    user={{ ...user, ...profile }}
     lang={lang}
 >
     <!-- Page Header -->

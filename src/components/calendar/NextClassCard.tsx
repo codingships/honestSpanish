@@ -79,7 +79,7 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
     const canJoin = () => {
         if (!session.meet_link) return false;
         const minutesUntil = diffMs / (1000 * 60);
-        return minutesUntil <= 15 && minutesUntil >= -60;
+        return minutesUntil >= -60;
     };
 
     const isStartingSoon = diffHours <= 2 && diffHours >= 0;

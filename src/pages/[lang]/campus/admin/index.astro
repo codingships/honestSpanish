@@ -117,9 +117,7 @@ const formatDate = (dateStr: string) => {
     });
 };
 
-// Revenue goal
-const revenueGoal = 1500000; // €15,000 in cents
-const goalProgress = Math.min(100, Math.round((totalRevenue / revenueGoal) * 100));
+// Revenue calculation
 ---
 
 <CampusLayout 
@@ -179,27 +177,6 @@ const goalProgress = Math.min(100, Math.round((totalRevenue / revenueGoal) * 100
                 })}
             </div>
         </div>
-
-        <!-- Revenue Goal -->
-        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">{t('campus.admin.revenueGoal')}</h2>
-            <div class="text-center mb-4">
-                <p class="text-4xl font-display text-[#006064]">{goalProgress}%</p>
-                <p class="text-sm text-[#006064]/60 font-mono">{t('campus.admin.goalProgress')}</p>
-            </div>
-            <div class="mb-2">
-                <div class="w-full bg-[#E0F7FA] h-6 border-2 border-[#006064] relative">
-                    <div 
-                        class={`h-full transition-all ${goalProgress >= 100 ? 'bg-green-500' : goalProgress >= 50 ? 'bg-[#006064]' : 'bg-yellow-500'}`}
-                        style={`width: ${goalProgress}%`}
-                    ></div>
-                </div>
-            </div>
-            <div class="flex justify-between text-sm font-mono text-[#006064]/70">
-                <span>{formatCurrency(totalRevenue)}</span>
-                <span>{formatCurrency(revenueGoal)}</span>
-            </div>
-        </div>
     </div>
 
     <!-- Recent Activity Row -->
@@ -228,7 +205,7 @@ const goalProgress = Math.min(100, Math.round((totalRevenue / revenueGoal) * 100
                     ))}
                 </div>
             ) : (
-                <p class="text-[#006064]/60 font-mono text-sm">No hay pagos recientes</p>
+                <p class="text-[#006064]/60 font-mono text-sm">{t('campus.admin.noRecentPayments')}</p>
             )}
         </div>
 
@@ -254,7 +231,7 @@ const goalProgress = Math.min(100, Math.round((totalRevenue / revenueGoal) * 100
                     ))}
                 </div>
             ) : (
-                <p class="text-[#006064]/60 font-mono text-sm">No hay registros recientes</p>
+                <p class="text-[#006064]/60 font-mono text-sm">{t('campus.admin.noRecentRegistrations')}</p>
             )}
         </div>
     </div>

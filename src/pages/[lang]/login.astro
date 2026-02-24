@@ -2,6 +2,9 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import AuthForm from '../../components/AuthForm.jsx';
 import { useTranslations } from '../../i18n/utils';
+import { createSupabaseServerClient } from '../../lib/supabase-server';
+
+export const prerender = false;
 
 export async function getStaticPaths() {
     return [
@@ -14,6 +17,14 @@ export async function getStaticPaths() {
 const { lang } = Astro.params;
 const t = useTranslations(lang);
 
+// Check if user is already logged in
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (user) {
+    return Astro.redirect(`/api/auth/post-login?lang=${lang}`);
+}
+
 // We pass the whole translation object for the current language to the React component
 // because the React component cannot use the Astro-side helper directly in client-side mode easily without prop drilling.
 // We'll pass the 't' function result for specific keys or a subset.
@@ -21,7 +32,6 @@ const t = useTranslations(lang);
 // Let's import the 'ui' object directly to pass the specific language part.
 import { ui } from '../../i18n/translations';
 const currentLangTranslations = ui[lang];
-
 ---
 
 <BaseLayout 

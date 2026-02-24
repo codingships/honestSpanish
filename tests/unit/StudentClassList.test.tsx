@@ -265,7 +265,7 @@ describe('StudentClassList — canJoin logic', () => {
         expect(screen.getByText(mockTranslations.joinClass)).toBeDefined();
     });
 
-    it('hides join button when session starts in 30 min (too early)', () => {
+    it('shows join button when session starts in 30 min (always visible before class)', () => {
         const session = makeSession({
             scheduled_at: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
             status: 'scheduled',
@@ -279,7 +279,7 @@ describe('StudentClassList — canJoin logic', () => {
                 translations={mockTranslations}
             />
         );
-        expect(screen.queryByText(mockTranslations.joinClass)).toBeNull();
+        expect(screen.getByText(mockTranslations.joinClass)).toBeDefined();
     });
 
     it('hides join button when session has no meet link', () => {

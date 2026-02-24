@@ -55,7 +55,6 @@ const adminNav: NavItem[] = [
 
 // Select nav based on role
 const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav : studentNav;
-const showViewAsStudent = role === 'teacher' || role === 'admin';
 ---
 
 <BaseLayout title={title} description="Campus" lang={lang} noindex={true}>
@@ -87,21 +86,6 @@ const showViewAsStudent = role === 'teacher' || role === 'admin';
                         </li>
                     ))}
                 </ul>
-
-                {/* View as Student link for teachers/admins */}
-                {showViewAsStudent && (
-                    <div class="mt-4 px-2">
-                        <div class="border-t border-[#004d40] pt-4">
-                            <a 
-                                href={`/${lang}/campus`} 
-                                class="flex items-center px-4 py-2 text-sm text-[#E0F7FA]/70 hover:text-white hover:bg-[#004d40] rounded-md transition-colors"
-                            >
-                                <span class="mr-3 text-lg">👁️</span>
-                                <span>{t('campus.nav.viewAsStudent')}</span>
-                            </a>
-                        </div>
-                    </div>
-                )}
             </nav>
 
             <!-- Bottom Actions -->

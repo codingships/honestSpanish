@@ -10,9 +10,9 @@ setup('authenticate as admin', async ({ page }) => {
 
     await page.click('button[type="submit"]');
 
-    await page.waitForURL(/\/campus/, { timeout: 10000 });
+    await page.waitForURL(/\/campus\/admin/, { timeout: 10000 });
 
-    await expect(page).toHaveURL(/\/campus/);
+    await expect(page).toHaveURL(/\/campus\/admin/);
 
     await page.context().storageState({ path: authFile });
 });

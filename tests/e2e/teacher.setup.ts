@@ -10,9 +10,9 @@ setup('authenticate as teacher', async ({ page }) => {
 
     await page.click('button[type="submit"]');
 
-    await page.waitForURL(/\/campus/, { timeout: 10000 });
+    await page.waitForURL(/\/campus\/teacher/, { timeout: 10000 });
 
-    await expect(page).toHaveURL(/\/campus/);
+    await expect(page).toHaveURL(/\/campus\/teacher/);
 
     await page.context().storageState({ path: authFile });
 });

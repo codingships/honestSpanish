@@ -76,8 +76,8 @@ export default function StudentClassList({
         const sessionTime = new Date(session.scheduled_at);
         const now = new Date();
         const minutesUntil = (sessionTime.getTime() - now.getTime()) / (1000 * 60);
-        // Puede unirse 15 minutos antes hasta 60 minutos después
-        return minutesUntil <= 15 && minutesUntil >= -60;
+        // El enlace está siempre disponible antes de que acabe la clase
+        return minutesUntil >= -60;
     };
 
     const isStartingSoon = (session: Session) => {

@@ -22,6 +22,13 @@ const { data: profile } = await supabase
     .eq('id', user.id)
     .single();
 
+// Strictly prevent Teachers & Admins from entering the Student Dashboard
+if (profile?.role === 'admin') {
+    return Astro.redirect(`/${lang}/campus/admin`);
+} else if (profile?.role === 'teacher') {
+    return Astro.redirect(`/${lang}/campus/teacher`);
+}
+
 // Obtener todas las sesiones del estudiante
 const { data: sessions } = await supabase
     .from('sessions')
