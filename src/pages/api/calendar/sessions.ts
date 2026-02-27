@@ -117,7 +117,7 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 400 });
     }
 
-    // Verificar conflictos
+    // Verificar conflictos (BBDD Local)
     const scheduledDate = new Date(scheduledAt);
     const endTime = new Date(scheduledDate.getTime() + durationMinutes * 60000);
 
@@ -130,7 +130,27 @@ export const POST: APIRoute = async (context) => {
         .lt('scheduled_at', endTime.toISOString());
 
     if (conflictingSessions && conflictingSessions.length > 0) {
-        return new Response(JSON.stringify({ error: 'Time slot is not available' }), { status: 400 });
+        return new Response(JSON.stringify({ error: 'Time slot is not available' }), { status: 409 });
+    }
+
+    // Verificar conflictos (Google Calendar Real)
+    // Extraemos el email del profesor para consultarlo en Calendar
+    const { data: teacherProfile } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', finalTeacherId)
+        .single();
+
+    if (teacherProfile && teacherProfile.email) {
+        // Necesitamos importar checkTeacherAvailability al inicio del archivo
+        const { checkTeacherAvailability } = await import('../../../lib/google/calendar');
+        const isFree = await checkTeacherAvailability(teacherProfile.email, scheduledDate, endTime);
+
+        if (!isFree) {
+            return new Response(JSON.stringify({
+                error: 'El profesor tiene un evento en Google Calendar a esta hora. Por favor, elige otro bloque.'
+            }), { status: 409 }); // 409 Conflict
+        }
     }
 
     // Crear la sesión

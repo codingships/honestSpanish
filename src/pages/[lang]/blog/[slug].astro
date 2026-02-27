@@ -2,15 +2,16 @@
 import { getCollection } from 'astro:content';
 import BlogLayout from '../../../layouts/BlogLayout.astro';
 
+export const prerender = true;
+
 export async function getStaticPaths() {
   const posts = await getCollection('blog');
   
   return posts.map(post => {
-      // Assuming slug format might be "lang/slug" or just "slug" depending on file location.
-      // Content collections: src/content/blog/es/my-post.md -> slug: "es/my-post"
-      
-      const [lang, ...slugParts] = post.slug.split('/');
-      const slug = slugParts.join('/');
+      // Keystatic saves the title as slug, e.g., "primer-post"
+      // The language is in post.data.lang
+      const lang = post.data.lang;
+      const slug = post.slug;
 
       return {
         params: { 

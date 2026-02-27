@@ -320,3 +320,49 @@ export function classCancelledTemplate(data: ClassCancelledData): string {
 
     return baseTemplate(content);
 }
+
+// ============================================
+// Lead Welcome Email
+// ============================================
+
+export interface LeadWelcomeEmailData {
+    recipientName?: string;
+}
+
+export function leadWelcomeTemplate(data: LeadWelcomeEmailData): string {
+    const name = data.recipientName || 'estudiante';
+    const content = `
+        <h2 style="color: #006064; margin: 0 0 20px 0;">¡Hola ${name}! Nos alegra verte por aquí.</h2>
+        
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">
+            Gracias por ponerte en contacto con la academia <strong>Español Honesto</strong>. 
+            Hemos recibido tus datos correctamente y queríamos darte la bienvenida personalmente.
+        </p>
+        
+        <div style="background-color: #E0F7FA; padding: 25px; margin: 25px 0; border-left: 4px solid #006064;">
+            <p style="margin: 0 0 10px 0; font-size: 18px; color: #006064; font-weight: bold;">
+                ¿Qué pasa ahora?
+            </p>
+            <p style="margin: 0; color: #333333; font-size: 14px; line-height: 1.5;">
+                Nuestro equipo está revisando tu perfil. Mientras tanto, puedes explorar nuestros artículos sobre el método y niveles en el Campus.
+            </p>
+        </div>
+        
+        <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
+            <tr>
+                <td align="center">
+                    <a href="https://espanolhonesto.com/es/blog" style="display: inline-block; background-color: #006064; color: #ffffff; padding: 15px 40px; text-decoration: none; font-weight: bold; font-size: 16px;">
+                        EXPLORAR EL BLOG
+                    </a>
+                </td>
+            </tr>
+        </table>
+        
+        <p style="color: #333333; font-size: 16px; line-height: 1.6; margin-top: 30px;">
+            Hablamos pronto,<br>
+            <strong>El equipo de Español Honesto</strong>
+        </p>
+    `;
+
+    return baseTemplate(content);
+}

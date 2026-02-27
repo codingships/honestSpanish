@@ -19,9 +19,15 @@ export const createSupabaseServerClient = (context: APIContext) => {
                 return cookies.map(c => ({ name: c.name, value: c.value ?? '' }));
             },
             setAll(cookiesToSet) {
-                cookiesToSet.forEach(({ name, value, options }) =>
-                    context.cookies.set(name, value, options)
-                )
+                cookiesToSet.forEach(({ name, value, options }) => {
+                    try {
+                        if (context.cookies.has(name) && context.cookies.get(name)?.value === value) return; // Prevent redunant sets
+                        context.cookies.set(name, value, options);
+                    } catch (error: any) {
+                        // Handle ResponseSentError and Astro Cookie Warnings silently
+                        // Thrown in Astro when Supabase tries to refresh the token mid-render or after headers are sent
+                    }
+                });
             },
         },
     });

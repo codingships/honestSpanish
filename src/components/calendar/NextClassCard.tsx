@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 
 interface Session {
     id: string;
@@ -45,6 +45,11 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
         );
     }
 
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     const sessionDate = new Date(session.scheduled_at);
     const now = new Date();
     const diffMs = sessionDate.getTime() - now.getTime();
@@ -52,6 +57,7 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
     const diffDays = Math.floor(diffHours / 24);
 
     const formatDate = () => {
+        if (!mounted) return '...';
         return sessionDate.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
             weekday: 'short',
             day: 'numeric',
@@ -60,6 +66,7 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
     };
 
     const formatTime = () => {
+        if (!mounted) return '--:--';
         return sessionDate.toLocaleTimeString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
             hour: '2-digit',
             minute: '2-digit'
@@ -67,6 +74,7 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
     };
 
     const getTimeUntil = () => {
+        if (!mounted) return '...';
         const locale = lang === 'es' ? 'es' : lang === 'ru' ? 'ru' : 'en';
         const rtf = new Intl.RelativeTimeFormat(locale, { numeric: 'always', style: 'short' });
         if (diffDays > 0) return rtf.format(diffDays, 'day');

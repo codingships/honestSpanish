@@ -9,10 +9,12 @@ export {
     classConfirmationTemplate,
     classReminderTemplate,
     classCancelledTemplate,
+    leadWelcomeTemplate,
     type WelcomeEmailData,
     type ClassConfirmationData,
     type ClassReminderData,
     type ClassCancelledData,
+    type LeadWelcomeEmailData,
 } from './templates';
 
 export {
@@ -22,5 +24,6 @@ export {
     sendClassCancelled,
     sendClassConfirmationToBoth,
     sendClassCancelledToBoth,
+    sendLeadWelcomeEmail,
 } from './send';
 

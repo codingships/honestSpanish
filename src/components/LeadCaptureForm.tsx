@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Turnstile } from '@marsidev/react-turnstile';
 
 interface LeadCaptureFormProps {
     lang: 'es' | 'en' | 'ru';
@@ -33,6 +34,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
     });
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
+    const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value, type } = e.target;
@@ -53,6 +55,12 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
             return;
         }
 
+        if (!turnstileToken) {
+            setErrorMessage('La verificación de seguridad sigue cargando, o ha fallado.');
+            setStatus('error');
+            return;
+        }
+
         setStatus('loading');
         setErrorMessage('');
 
@@ -60,7 +68,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
             const response = await fetch('/api/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ...formData, lang }),
+                body: JSON.stringify({ ...formData, lang, 'cf-turnstile-response': turnstileToken }),
             });
 
             const data = await response.json();
@@ -155,6 +163,11 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             {errorMessage}
                         </div>
                     )}
+
+                    <Turnstile
+                        siteKey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA'}
+                        onSuccess={(token: string) => setTurnstileToken(token)}
+                    />
 
                     <button
                         type="submit"

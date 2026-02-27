@@ -6,8 +6,23 @@
 CREATE TYPE user_role AS ENUM ('student', 'teacher', 'admin');
 CREATE TYPE subscription_status AS ENUM ('active', 'paused', 'cancelled', 'expired', 'pending');
 CREATE TYPE payment_status AS ENUM ('succeeded', 'pending', 'failed', 'refunded');
+CREATE TYPE lead_status AS ENUM ('new', 'contacted', 'discarded');
 
--- 2. PROFILES (extends auth.users)
+-- 2. LEADS (CRM)
+CREATE TABLE leads (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL,
+    name TEXT,
+    interest TEXT,
+    lang TEXT DEFAULT 'es',
+    consent_given BOOLEAN NOT NULL DEFAULT FALSE,
+    ip_address TEXT,
+    status lead_status DEFAULT 'new',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. PROFILES (extends auth.users)
 CREATE TABLE profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     email TEXT NOT NULL,

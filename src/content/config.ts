@@ -7,13 +7,13 @@ const blog = defineCollection({
         description: z.string(),
         publishedAt: z.date(),
         updatedAt: z.date().optional(),
-        author: z.enum(['alejandro', 'alin']),
+        author: z.enum(['alejandro', 'alin', 'equipo']),
         category: z.enum(['aprendizaje', 'niveles', 'expatriados', 'cultura', 'metodo']),
         tags: z.array(z.string()),
         image: image().optional(),
         imageAlt: z.string().optional(),
         lang: z.enum(['es', 'en', 'ru']),
-        translationKey: z.string(), // para vincular traducciones del mismo artículo
+        translationKey: z.string().optional(), // para vincular traducciones del mismo artículo
     }),
 });
 

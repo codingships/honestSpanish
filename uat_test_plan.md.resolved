@@ -1,0 +1,152 @@
+# 🧪 UAT Español Honesto — Guía Exhaustiva de Testing Manual
+
+## Leyenda de Estados
+
+| Símbolo | Significado |
+|:---:|:---|
+| ⬜ | Pendiente (no probado aún) |
+| ✅ | Pass (funciona como se esperaba) |
+| ❌ | Fail (divergencia: no funciona como se esperaba) |
+| ⚠️ | Parcial (funciona pero con matices o bugs cosméticos) |
+
+## Plantilla para registrar divergencias
+
+Cuando marques **❌** o **⚠️**, copia esta plantilla y rellénala debajo de la tabla o en un doc aparte:
+
+```
+🐛 BUG #___
+- Test ID: (ej. 2.2.C)
+- Acción realizada: (qué hiciste exactamente)
+- Resultado esperado: (qué debería haber pasado)
+- Resultado real: (qué pasó de verdad)
+- Captura: (pega screenshot o URL)
+- Severidad: BLOCKER / MAJOR / MINOR / COSMETIC
+```
+
+---
+
+## 📋 TABLA MAESTRA DE ACCIONES
+
+### FASE 1: ONBOARDING Y SEGURIDAD
+
+| ID | Acción Exacta | Rol | Resultado Esperado | Estado | Divergencia / Notas |
+|:---|:---|:---:|:---|:---:|:---|
+| 1.1.A | Ir a `/register`, rellenar email+password de alumno nuevo | Alumno | Se crea la cuenta, redirige a login o campus | ⬜ | |
+| 1.1.B | Confirmar email vía Magic Link (si aplica) | Alumno | El link funciona y activa la cuenta | ⬜ | |
+| 1.1.C | Hacer login con las credenciales recién creadas | Alumno | Entras al Dashboard `/campus`. Ves tu nombre | ⬜ | |
+| 1.1.D | Verificar en Supabase que `profiles.role = 'student'` | DB | Fila existe con rol correcto | ⬜ | |
+| 1.2.A | Siendo alumno, escribir manualmente `/campus/admin` en la URL | Alumno | Redirigido o error 403. NO ves el panel admin | ⬜ | |
+| 1.2.B | Siendo alumno, escribir manualmente `/campus/teacher` en la URL | Alumno | Redirigido o error 403. NO ves el panel profe | ⬜ | |
+| 1.3.A | Cerrar sesión, ir a login, pulsar "Olvidé mi contraseña" | Alumno | Se muestra el formulario de email | ⬜ | |
+| 1.3.B | Introducir email del alumno y enviar | Alumno | Toast/mensaje de "Email enviado" | ⬜ | |
+| 1.3.C | Abrir el email recibido y pulsar el Magic Link | Alumno | Redirige a `/reset-password` | ⬜ | |
+| 1.3.D | Escribir nueva contraseña y confirmar | Alumno | Mensaje de éxito, redirige a login | ⬜ | |
+| 1.3.E | Intentar login con la contraseña VIEJA | Alumno | Falla (credenciales incorrectas) | ⬜ | |
+| 1.3.F | Intentar login con la contraseña NUEVA | Alumno | Éxito, entras al campus | ⬜ | |
+
+---
+
+### FASE 2: AGENDAMIENTO INDIVIDUAL DE CLASES
+
+| ID | Acción Exacta | Rol | Resultado Esperado | Estado | Divergencia / Notas |
+|:---|:---|:---:|:---|:---:|:---|
+| 2.1.A | Ir al calendario del profesor, pulsar "Nueva Clase" | Admin | Se abre el modal de agendar | ⬜ | |
+| 2.1.B | Seleccionar alumno de prueba, fecha mañana 17:00, nivel A2 | Admin | Formulario acepta los datos | ⬜ | |
+| 2.1.C | Confirmar la creación | Admin | Toast verde de éxito | ⬜ | |
+| 2.1.D | Verificar que la clase aparece en el calendario de la plataforma | Admin | Evento visible en el día correcto | ⬜ | |
+| 2.1.E | Verificar en Google Calendar del profesor | GCal | Evento creado con hora correcta y link Meet | ⬜ | |
+| 2.1.F | Verificar en Google Drive del alumno | GDrive | Google Doc generado en la carpeta del nivel | ⬜ | |
+| 2.1.G | Verificar en Supabase tabla `sessions` | DB | Fila insertada, status=`scheduled`, calendar_event_id relleno | ⬜ | |
+| 2.2.A | Crear evento MANUAL en Google Calendar del profe a las 19:00 mañana | GCal | Evento creado como "Ocupado" | ⬜ | |
+| 2.2.B | Intentar agendar clase con alumno mañana 19:00 desde la plataforma | Admin | Error: "El profesor ya tiene un evento" (bloqueo) | ⬜ | |
+| 2.2.C | Verificar en Supabase que NO se creó la sesión | DB | No hay fila nueva en `sessions` | ⬜ | |
+| 2.2.D | Intentar agendar a las 20:00 (hora libre) | Admin | Se crea correctamente (sin conflicto) | ⬜ | |
+
+---
+
+### FASE 3: AGENDAMIENTO MASIVO (Bulk Scheduler)
+
+| ID | Acción Exacta | Rol | Resultado Esperado | Estado | Divergencia / Notas |
+|:---|:---|:---:|:---|:---:|:---|
+| 3.1.A | Pulsar "Agendar Curso Completo" en el panel del profesor | Admin | Se abre el modal masivo | ⬜ | |
+| 3.1.B | Seleccionar alumno, nivel B1, día Miércoles, hora 10:00, total: 10 clases | Admin | Formulario acepta los datos | ⬜ | |
+| 3.1.C | Verificar la vista previa: debe mostrar exactamente 10 fechas separadas por 7 días | Admin | Lista de 10 fechas correctas | ⬜ | |
+| 3.2.A | Deseleccionar/borrar la fecha nº4 y la nº7 (simulando festivos) | Admin | Quedan 8 fechas visibles | ⬜ | |
+| 3.2.B | Confirmar el agendamiento masivo | Admin | Loading → Toast de éxito | ⬜ | |
+| 3.2.C | Verificar en Google Calendar del profesor | GCal | 8 eventos nuevos (no 10) con Meet links | ⬜ | |
+| 3.2.D | Verificar en Google Drive del alumno | GDrive | 8 Google Docs generados en carpeta B1 | ⬜ | |
+| 3.2.E | Verificar en Supabase tabla `sessions` | DB | 8 filas nuevas con status `scheduled` | ⬜ | |
+| 3.3.A | *(Caso borde)* Intentar agendar masivo en horario donde ya hay 1 conflicto en GCal | Admin | El sistema rechaza ESA fecha concreta pero sí crea las demás, o rechaza todo (verificar comportamiento) | ⬜ | |
+
+---
+
+### FASE 4: EXPERIENCIA DEL ESTUDIANTE (Timezones + UI)
+
+| ID | Acción Exacta | Rol | Resultado Esperado | Estado | Divergencia / Notas |
+|:---|:---|:---:|:---|:---:|:---|
+| 4.1.A | (Con tu PC en hora de España) Login como alumno, ver [NextClassCard](file:///c:/Users/Alin/Desktop/Academia/pruebas/src/components/calendar/NextClassCard.tsx#32-171) | Alumno | La hora de la clase se muestra en hora española | ⬜ | |
+| 4.1.B | Cambiar zona horaria del PC a "Nueva York (UTC-5)" | Sistema | Hora del PC cambiada | ⬜ | |
+| 4.1.C | Refrescar la página del campus del alumno | Alumno | La hora de la clase ahora muestra 6h menos (ej. 10:00→04:00) | ⬜ | |
+| 4.1.D | Verificar que NO hay parpadeo ("flash") al cargar la hora | Alumno | La hora aparece directamente bien, sin saltar de una a otra | ⬜ | |
+| 4.1.E | Restaurar zona horaria del PC a España | Sistema | Hora restaurada | ⬜ | |
+| 4.2.A | Ver una clase programada para dentro de 3 días | Alumno | Botón "Join Meet" NO visible o deshabilitado. Timer dice "en 3 días" | ⬜ | |
+| 4.2.B | (Opcional) Agendar clase para dentro de 10 minutos y refrescar | Alumno | Botón "Join Meet" ACTIVO y visible (verde/iluminado) | ⬜ | |
+| 4.3.A | Ir a la pestaña "Próximas" en la lista de clases | Alumno | Se muestran todas las clases futuras ordenadas por fecha | ⬜ | |
+| 4.3.B | Ir a la pestaña "Pasadas" en la lista de clases | Alumno | Se muestran las clases pasadas (si las hay) | ⬜ | |
+| 4.3.C | Verificar que las fechas/horas en "Pasadas" también son zona local | Alumno | Horas coherentes con la zona del alumno | ⬜ | |
+
+---
+
+### FASE 5: CANCELACIONES Y NO-SHOWS
+
+| ID | Acción Exacta | Rol | Resultado Esperado | Estado | Divergencia / Notas |
+|:---|:---|:---:|:---|:---:|:---|
+| 5.1.A | Como alumno, seleccionar clase de dentro de >24h, pulsar "Cancelar" | Alumno | Se abre modal de cancelación con campo de motivo | ⬜ | |
+| 5.1.B | Escribir motivo y confirmar cancelación | Alumno | Toast éxito, clase pasa a "Pasadas" como `cancelled` | ⬜ | |
+| 5.1.C | Verificar en Google Calendar del profesor | GCal | El evento fue eliminado/cancelado | ⬜ | |
+| 5.1.D | Verificar en Supabase que `sessions.status = 'cancelled'` | DB | Status actualizado correctamente | ⬜ | |
+| 5.1.E | Verificar que se envió email de cancelación al profesor | Email | El profesor recibe la notificación por email | ⬜ | |
+| 5.2.A | Como alumno, seleccionar clase de dentro de <24h (ej. en 3 horas) | Alumno | El botón "Cancelar" está desactivado o no existe | ⬜ | |
+| 5.2.B | Verificar el mensaje explicativo | Alumno | Texto tipo "cancelación no disponible con menos de 24h" | ⬜ | |
+| 5.3.A | Como profesor, abrir una clase pasada donde el alumno no se presentó | Profesor | Modal de detalle se abre | ⬜ | |
+| 5.3.B | Pulsar "Marcar como No Presentado" | Profesor | Toast éxito, clase pasa a no_show | ⬜ | |
+| 5.3.C | Verificar en Supabase que `sessions.status = 'no_show'` | DB | Status actualizado | ⬜ | |
+
+---
+
+### FASE 6: COMPLETAR CLASE + REPORTE + DEBERES A GOOGLE DOCS
+
+| ID | Acción Exacta | Rol | Resultado Esperado | Estado | Divergencia / Notas |
+|:---|:---|:---:|:---|:---:|:---|
+| 6.1.A | Como profesor, abrir una clase pasada (que ya ocurrió) | Profesor | Modal de detalle se abre | ⬜ | |
+| 6.1.B | Pulsar "Completar Clase" | Profesor | Se abre el modal PostClassReport (NO se completa directamente) | ⬜ | |
+| 6.1.C | Intentar enviar sin seleccionar estrellas | Profesor | Error: "Please provide a rating" → bloqueado | ⬜ | |
+| 6.2.A | Seleccionar 4 estrellas | Profesor | 4 estrellas amarillas iluminadas | ⬜ | |
+| 6.2.B | Marcar skills: Grammar=Good, Vocabulary=Excellent, Fluency=Needs Work, Pronunciation=Good | Profesor | Los radio buttons reflejan la selección | ⬜ | |
+| 6.2.C | Escribir en Comentarios: "Mejorar verbos irregulares" | Profesor | Texto aceptado en el textarea | ⬜ | |
+| 6.2.D | Escribir en Deberes: "Escribe 10 frases usando subjuntivo" | Profesor | Texto aceptado en el textarea de deberes | ⬜ | |
+| 6.2.E | Pulsar "Enviar Reporte y Completar Clase" | Profesor | Loading spinner → Toast de éxito → Modal se cierra | ⬜ | |
+| 6.3.A | Verificar en Supabase: `sessions.status = 'completed'` | DB | Status cambiado | ⬜ | |
+| 6.3.B | Verificar en Supabase: `sessions.post_class_report` contiene JSON con rating=4, skills, comments | DB | JSON correcto almacenado | ⬜ | |
+| 6.3.C | Verificar en Supabase: `sessions.post_class_report.homework_text` contiene el texto de deberes | DB | Texto de deberes almacenado | ⬜ | |
+| 6.4.A | Abrir el Google Doc de esa clase (desde Drive o desde la URL guardada) | GDrive | El documento se abre | ⬜ | |
+| 6.4.B | Bajar al **final** del documento | GDrive | Aparece separador "--- Deberes de la clase del DD/MM/YYYY ---" | ⬜ | |
+| 6.4.C | Verificar que el texto de los deberes ("Escribe 10 frases...") está inyectado | GDrive | Texto exacto presente al final del doc | ⬜ | |
+| 6.5.A | *(Caso borde)* Completar clase SIN escribir deberes (dejar textarea vacío) | Profesor | Se completa normalmente sin intentar inyectar nada en el Doc | ⬜ | |
+| 6.5.B | Verificar que el Google Doc no tiene basura inyectada | GDrive | Doc intacto, sin "--- Deberes ---" vacío | ⬜ | |
+
+---
+
+## 📊 Resumen Final
+
+| Fase | Total Tests | ✅ Pass | ❌ Fail | ⚠️ Parcial | % Completado |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| 1. Onboarding y Seguridad | 12 | | | | |
+| 2. Agendamiento Individual | 11 | | | | |
+| 3. Agendamiento Masivo | 9 | | | | |
+| 4. Experiencia Estudiante | 10 | | | | |
+| 5. Cancelaciones y No-Shows | 10 | | | | |
+| 6. Completar + Reporte + Drive | 15 | | | | |
+| **TOTAL** | **67** | | | | |
+
+> **Criterio de Lanzamiento:** Para considerar esta fase lista para producción, el **90%+ de los tests deben ser ✅**, con **0 ❌ en tests marcados como BLOCKER** en el registro de bugs.

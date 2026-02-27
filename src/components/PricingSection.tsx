@@ -64,14 +64,6 @@ const s = {
 };
 
 export default function PricingSection({ packages, lang, isLoggedIn, translations: t }: PricingSectionProps) {
-    // Debug: log what we received
-    console.log('PricingSection props:', {
-        packagesCount: packages?.length,
-        packages: packages?.map(p => ({ name: p.name, price: p.price_monthly })),
-        lang,
-        isLoggedIn
-    });
-
     const [selectedPlan, setSelectedPlan] = useState<{
         name: string;
         displayName: string;

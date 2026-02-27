@@ -87,17 +87,12 @@ const studentsWithSubs = await Promise.all(
 const totalStudents = studentsWithSubs.length;
 const activeStudents = studentsWithSubs.filter(s => s.subscription?.status === 'active').length;
 
-// Get completed sessions this month
-const startOfMonth = new Date();
-startOfMonth.setUTCDate(1);
-startOfMonth.setUTCHours(0, 0, 0, 0);
-
+// Get historical completed sessions by this teacher
 const { count: completedSessionsCount } = await supabase
     .from('sessions')
     .select('*', { count: 'exact', head: true })
     .eq('teacher_id', user.id)
-    .eq('status', 'completed')
-    .gte('scheduled_at', startOfMonth.toISOString());
+    .eq('status', 'completed');
 
 // Helper functions
 const getPackageName = (sub: any) => {

@@ -121,14 +121,80 @@ export default function AuthForm({ lang: langProp, translations }) {
     // ---------- FORGOT PASSWORD MODE ----------
     if (mode === 'forgotPassword') {
         return (
-            <div className="w-full max-w-md mx-auto bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-                <div className="text-center mb-6">
+            <div className="w-full max-w-md mx-auto relative">
+                <a href={`/${lang}`} className="absolute -top-10 left-0 text-[#006064] text-sm font-bold font-mono hover:opacity-70 transition-opacity">
+                    ← Volver
+                </a>
+                <div className="bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                    <div className="text-center mb-6">
+                        <h2 className="font-display text-3xl text-[#006064] uppercase mb-2">
+                            {t.auth.resetPassword}
+                        </h2>
+                        <p className="text-sm text-[#006064]/70">
+                            {t.auth.resetPasswordInstructions}
+                        </p>
+                    </div>
+
+                    {error && (
+                        <div className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
+                            {error}
+                        </div>
+                    )}
+
+                    {successMessage && (
+                        <div className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
+                            {successMessage}
+                        </div>
+                    )}
+
+                    <form onSubmit={handleForgotPassword} className="space-y-6">
+                        <div>
+                            <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                                {t.auth.email}
+                            </label>
+                            <input
+                                type="email"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                                className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064] placeholder-[#006064]/30`}
+                                placeholder="nombre@ejemplo.com"
+                            />
+                        </div>
+
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                            {loading ? '...' : t.auth.sendResetLink}
+                        </button>
+                    </form>
+
+                    <div className="mt-6 text-center">
+                        <button
+                            onClick={() => switchMode('login')}
+                            className="text-sm font-bold text-[#006064] underline hover:opacity-70"
+                        >
+                            {t.auth.backToLogin}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    // ---------- LOGIN / REGISTER MODE ----------
+    return (
+        <div className="w-full max-w-md mx-auto relative">
+            <a href={`/${lang}`} className="absolute -top-10 left-0 text-[#006064] text-sm font-bold font-mono hover:opacity-70 transition-opacity">
+                ← Volver
+            </a>
+            <div className="bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <div className="text-center mb-8">
                     <h2 className="font-display text-3xl text-[#006064] uppercase mb-2">
-                        {t.auth.resetPassword}
+                        {mode === 'login' ? t.auth.login : t.auth.register}
                     </h2>
-                    <p className="text-sm text-[#006064]/70">
-                        {t.auth.resetPasswordInstructions}
-                    </p>
                 </div>
 
                 {error && (
@@ -143,7 +209,7 @@ export default function AuthForm({ lang: langProp, translations }) {
                     </div>
                 )}
 
-                <form onSubmit={handleForgotPassword} className="space-y-6">
+                <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
                         <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                             {t.auth.email}
@@ -158,108 +224,52 @@ export default function AuthForm({ lang: langProp, translations }) {
                         />
                     </div>
 
+                    <div>
+                        <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                            {t.auth.password}
+                        </label>
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required
+                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]`}
+                            placeholder="••••••••"
+                        />
+                    </div>
+
                     <button
                         type="submit"
                         disabled={loading}
                         className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
-                        {loading ? '...' : t.auth.sendResetLink}
+                        {loading ? '...' : (mode === 'login' ? t.auth.submitLogin : t.auth.submitRegister)}
                     </button>
                 </form>
 
-                <div className="mt-6 text-center">
-                    <button
-                        onClick={() => switchMode('login')}
-                        className="text-sm font-bold text-[#006064] underline hover:opacity-70"
-                    >
-                        {t.auth.backToLogin}
-                    </button>
+                <div className="mt-6 text-center text-sm font-sans text-[#006064]">
+                    <p>
+                        {mode === 'login' ? t.auth.noAccount : t.auth.hasAccount}{' '}
+                        <button
+                            onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
+                            className="font-bold underline hover:opacity-70"
+                        >
+                            {mode === 'login' ? t.auth.register : t.auth.login}
+                        </button>
+                    </p>
                 </div>
+
+                {mode === 'login' && (
+                    <div className="mt-2 text-center text-xs font-mono text-[#006064]/60">
+                        <button
+                            onClick={() => switchMode('forgotPassword')}
+                            className="hover:underline"
+                        >
+                            {t.auth.forgotPassword}
+                        </button>
+                    </div>
+                )}
             </div>
-        );
-    }
-
-    // ---------- LOGIN / REGISTER MODE ----------
-    return (
-        <div className="w-full max-w-md mx-auto bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-            <div className="text-center mb-8">
-                <h2 className="font-display text-3xl text-[#006064] uppercase mb-2">
-                    {mode === 'login' ? t.auth.login : t.auth.register}
-                </h2>
-            </div>
-
-            {error && (
-                <div className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
-                    {error}
-                </div>
-            )}
-
-            {successMessage && (
-                <div className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
-                    {successMessage}
-                </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-6">
-                <div>
-                    <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
-                        {t.auth.email}
-                    </label>
-                    <input
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        required
-                        className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064] placeholder-[#006064]/30`}
-                        placeholder="nombre@ejemplo.com"
-                    />
-                </div>
-
-                <div>
-                    <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
-                        {t.auth.password}
-                    </label>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]`}
-                        placeholder="••••••••"
-                    />
-                </div>
-
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                    {loading ? '...' : (mode === 'login' ? t.auth.submitLogin : t.auth.submitRegister)}
-                </button>
-            </form>
-
-            <div className="mt-6 text-center text-sm font-sans text-[#006064]">
-                <p>
-                    {mode === 'login' ? t.auth.noAccount : t.auth.hasAccount}{' '}
-                    <button
-                        onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
-                        className="font-bold underline hover:opacity-70"
-                    >
-                        {mode === 'login' ? t.auth.register : t.auth.login}
-                    </button>
-                </p>
-            </div>
-
-            {mode === 'login' && (
-                <div className="mt-2 text-center text-xs font-mono text-[#006064]/60">
-                    <button
-                        onClick={() => switchMode('forgotPassword')}
-                        className="hover:underline"
-                    >
-                        {t.auth.forgotPassword}
-                    </button>
-                </div>
-            )}
         </div>
     );
 }

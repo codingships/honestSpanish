@@ -1,102 +1,89 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
+// Forzamos Node.js para edge compatibility
+export const config = {
+    runtime: 'nodejs'
+};
+
+// [POST] Asignar un Profesor a un Estudiante (Requerido: Rol 'admin')
 export const POST: APIRoute = async (context) => {
-    try {
-        const body = await context.request.json();
-        const { studentId, teacherId, isPrimary } = body;
+    const supabase = createSupabaseServerClient(context);
 
-        if (!studentId || !teacherId) {
-            return new Response(JSON.stringify({ error: 'studentId and teacherId are required' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' },
-            });
-        }
-
-        // Get Supabase client and verify user
-        const supabase = createSupabaseServerClient(context);
-        const { data: { user } } = await supabase.auth.getUser();
-
-        if (!user) {
-            return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-                status: 401,
-                headers: { 'Content-Type': 'application/json' },
-            });
-        }
-
-        // Verify user is admin
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .single();
-
-        if (!profile || profile.role !== 'admin') {
-            return new Response(JSON.stringify({ error: 'Forbidden' }), {
-                status: 403,
-                headers: { 'Content-Type': 'application/json' },
-            });
-        }
-
-        // If isPrimary, remove primary status from existing assignment
-        if (isPrimary) {
-            await supabase
-                .from('student_teachers')
-                .update({ is_primary: false })
-                .eq('student_id', studentId)
-                .eq('is_primary', true);
-        }
-
-        // Check if assignment already exists
-        const { data: existing } = await supabase
-            .from('student_teachers')
-            .select('id')
-            .eq('student_id', studentId)
-            .eq('teacher_id', teacherId)
-            .single();
-
-        if (existing) {
-            // Update existing assignment
-            const { error: updateError } = await supabase
-                .from('student_teachers')
-                .update({ is_primary: isPrimary ?? false })
-                .eq('id', existing.id);
-
-            if (updateError) {
-                console.error('Error updating assignment:', updateError);
-                return new Response(JSON.stringify({ error: 'Failed to update assignment' }), {
-                    status: 500,
-                    headers: { 'Content-Type': 'application/json' },
-                });
-            }
-        } else {
-            // Create new assignment
-            const { error: insertError } = await supabase
-                .from('student_teachers')
-                .insert({
-                    student_id: studentId,
-                    teacher_id: teacherId,
-                    is_primary: isPrimary ?? false,
-                });
-
-            if (insertError) {
-                console.error('Error creating assignment:', insertError);
-                return new Response(JSON.stringify({ error: 'Failed to create assignment' }), {
-                    status: 500,
-                    headers: { 'Content-Type': 'application/json' },
-                });
-            }
-        }
-
-        return new Response(JSON.stringify({ success: true }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-        });
-    } catch (error) {
-        console.error('Assign teacher error:', error);
-        return new Response(JSON.stringify({ error: 'Internal server error' }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' },
-        });
+    // Auth Check
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
+
+    // Role-based Access Control (RBAC): Únicamente Admin
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (profile?.role !== 'admin') {
+        return new Response(JSON.stringify({ error: 'Forbidden. Admin privileges required.' }), { status: 403 });
+    }
+
+    // Leer payload
+    const body = await context.request.json();
+    const { studentId, teacherId } = body;
+
+    if (!studentId || !teacherId) {
+        return new Response(JSON.stringify({ error: 'Missing studentId or teacherId' }), { status: 400 });
+    }
+
+    // 1. Verificar si el estudiante ya tiene un profesor primario asignado
+    const { data: existingAssignment, error: existingError } = await supabase
+        .from('student_teachers')
+        .select('id, teacher_id')
+        .eq('student_id', studentId)
+        .eq('is_primary', true)
+        .single();
+
+    if (existingError && existingError.code !== 'PGRST116') { // PGRST116 = No rows found (lo cual es normal si es nuevo)
+        return new Response(JSON.stringify({ error: 'Error comprobando asignaciones previas' }), { status: 500 });
+    }
+
+    // 2. Si hay asignación previa y el ID es distinto, borrar/reemplazar o actualizar
+    if (existingAssignment) {
+        // Upsert reemplazando el teacher ID
+        const { error: updateError } = await supabase
+            .from('student_teachers')
+            .update({ teacher_id: teacherId, assigned_at: new Date().toISOString() })
+            .eq('id', existingAssignment.id);
+
+        if (updateError) {
+            return new Response(JSON.stringify({ error: 'Failed to re-assign teacher' }), { status: 500 });
+        }
+    } else {
+        // 3. Crear nueva asignación pura
+        const { error: insertError } = await supabase
+            .from('student_teachers')
+            .insert({
+                student_id: studentId,
+                teacher_id: teacherId,
+                is_primary: true
+            });
+
+        if (insertError) {
+            // Verificar si violamos la key unique (student_id, teacher_id) que estaba como no primaria
+            if (insertError.code === '23505') {
+                await supabase
+                    .from('student_teachers')
+                    .update({ is_primary: true })
+                    .eq('student_id', studentId)
+                    .eq('teacher_id', teacherId);
+            } else {
+                return new Response(JSON.stringify({ error: 'Failed to assign teacher' }), { status: 500 });
+            }
+        }
+    }
+
+    return new Response(JSON.stringify({ success: true, message: 'Teacher successfully assigned' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+    });
 };

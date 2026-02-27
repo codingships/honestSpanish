@@ -1,13 +1,7 @@
 ---
 import { getLocalizedPath } from '../../i18n/utils';
 
-export async function getStaticPaths() {
-    return [
-        { params: { lang: 'es' } },
-        { params: { lang: 'en' } },
-        { params: { lang: 'ru' } }
-    ];
-}
+export const prerender = false;
 
 const { lang } = Astro.params;
 ---

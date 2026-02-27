@@ -193,6 +193,40 @@ export async function listUpcomingEvents(
     }
 }
 
+/**
+ * Check if a teacher's calendar is free for a given time slot.
+ * Uses the Google Calendar FreeBusy API to avoid double booking.
+ */
+export async function checkTeacherAvailability(
+    teacherEmail: string,
+    startTime: Date,
+    endTime: Date
+): Promise<boolean> {
+    const calendar = getCalendarClient();
+
+    try {
+        const response = await calendar.freebusy.query({
+            requestBody: {
+                timeMin: startTime.toISOString(),
+                timeMax: endTime.toISOString(),
+                items: [{ id: teacherEmail }],
+                timeZone: 'Europe/Madrid',
+            },
+        });
+
+        const calendars = response.data.calendars;
+        const busySlots = calendars?.[teacherEmail]?.busy || [];
+
+        // If there are busy slots, the teacher is not available
+        return busySlots.length === 0;
+    } catch (error) {
+        console.error(`[Calendar] Error checking availability for ${teacherEmail}:`, error instanceof Error ? error.message : 'Unknown error');
+        // If the check fails (e.g., unauthorized to see full calendar, although Service Account with domain-wide delegation should work),
+        // we conservatively allow it or throw depending on strictness. Let's allow but log heavily.
+        return true;
+    }
+}
+
 // ============================================
 // Class-specific Calendar Functions
 // ============================================

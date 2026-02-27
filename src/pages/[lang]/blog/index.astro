@@ -4,13 +4,7 @@ import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
 import { getCollection } from 'astro:content';
 import { Image } from 'astro:assets';
 
-export async function getStaticPaths() {
-    return [
-        { params: { lang: 'es' } },
-        { params: { lang: 'en' } },
-        { params: { lang: 'ru' } }
-    ];
-}
+export const prerender = false;
 
 const { lang } = Astro.params;
 const t = useTranslations(lang as any);
@@ -52,7 +46,7 @@ const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.p
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
                     {sortedPosts.map((post) => (
                         <article class="flex flex-col group">
-                            <a href={getLocalizedPath(`/blog/${post.slug.split('/').pop()}`, lang)} class="block mb-6 overflow-hidden border-2 border-[#006064] rounded-lg aspect-[4/3]">
+                            <a href={getLocalizedPath(`/blog/${post.slug}`, lang)} class="block mb-6 overflow-hidden border-2 border-[#006064] rounded-lg aspect-[4/3]">
                                 {post.data.image ? (
                                     <Image 
                                         src={post.data.image} 
@@ -74,7 +68,7 @@ const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.p
                                 <span>{new Date(post.data.publishedAt).toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                             </div>
 
-                            <a href={getLocalizedPath(`/blog/${post.slug.split('/').pop()}`, lang)} class="group-hover:opacity-70 transition-opacity">
+                            <a href={getLocalizedPath(`/blog/${post.slug}`, lang)} class="group-hover:opacity-70 transition-opacity">
                                 <h2 class="font-display text-2xl mb-3 leading-snug text-[#006064]">
                                     {post.data.title}
                                 </h2>
@@ -84,7 +78,7 @@ const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.p
                                 {post.data.description}
                             </p>
 
-                            <a href={getLocalizedPath(`/blog/${post.slug.split('/').pop()}`, lang)} class="mt-auto inline-flex items-center text-sm font-bold uppercase tracking-wider hover:underline">
+                            <a href={getLocalizedPath(`/blog/${post.slug}`, lang)} class="mt-auto inline-flex items-center text-sm font-bold uppercase tracking-wider hover:underline">
                                 {t('common.readMore')} →
                             </a>
                         </article>

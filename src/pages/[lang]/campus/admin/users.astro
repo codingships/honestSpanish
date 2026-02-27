@@ -1,0 +1,41 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+import UserManager from '../../../../components/admin/UserManager';
+
+export async function getStaticPaths() {
+    return [
+        { params: { lang: 'es' } },
+        { params: { lang: 'en' } },
+        { params: { lang: 'ru' } }
+    ];
+}
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+// Auth & Role verification (Server-Side)
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+---
+
+<CampusLayout title="User Matchmaking" user={{ email: user?.email, full_name: profile?.full_name, role: profile?.role }} lang={lang}>
+    <div class="max-w-7xl mx-auto space-y-6">
+        <UserManager client:load />
+    </div>
+</CampusLayout>

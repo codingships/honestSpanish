@@ -158,6 +158,10 @@ export const POST: APIRoute = async (context) => {
             updateData.teacher_notes = body.notes;
         }
 
+        if (body.report !== undefined) {
+            updateData.post_class_report = body.report;
+        }
+
         const { error: updateError } = await supabase
             .from('sessions')
             .update(updateData)

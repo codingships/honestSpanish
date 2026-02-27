@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import PostClassReport from './PostClassReport';
 
 interface Session {
     id: string;
@@ -6,6 +7,7 @@ interface Session {
     duration_minutes: number;
     status: string;
     meet_link: string | null;
+    drive_doc_url: string | null;
     teacher_notes: string | null;
     student: {
         id: string;
@@ -42,6 +44,7 @@ export default function SessionDetailModal({
     const [notes, setNotes] = useState(session.teacher_notes || '');
     const [isLoading, setIsLoading] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
     const formatDateTime = (dateStr: string) => {
         return new Date(dateStr).toLocaleString(lang === 'es' ? 'es-ES' : 'en-US', {
@@ -91,6 +94,73 @@ export default function SessionDetailModal({
             }
         } catch (err: unknown) {
             setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error' });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleCompleteClass = async (reportData: any, homeworkText: string) => {
+        setIsLoading(true);
+        setMessage(null);
+
+        try {
+            // 1. Inyectar texto en el Google Doc (si hay deberes escritos y la clase tiene un Doc asociado)
+            if (homeworkText.trim() && session.drive_doc_url) {
+                const appendRes = await fetch('/api/drive/append-homework', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        docUrl: session.drive_doc_url,
+                        text: homeworkText,
+                        classDate: session.scheduled_at
+                    })
+                });
+
+                if (!appendRes.ok) {
+                    console.error('Error inyectando deberes en el Google Doc, pero completaremos la clase de todas formas');
+                }
+            }
+
+            // 2. Completar clase en DB
+            const finalReportData = {
+                ...reportData,
+                homework_text: homeworkText.trim() ? homeworkText : null,
+                homework_drive_url: session.drive_doc_url
+            };
+
+            const response = await fetch('/api/calendar/session-action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: session.id,
+                    action: 'complete',
+                    notes: finalReportData.teacher_comments || notes,
+                    report: finalReportData
+                })
+            });
+
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Complete action failed');
+            }
+
+            // Actualizar estado local
+            const updatedSession = {
+                ...session,
+                status: 'completed',
+                teacher_notes: finalReportData.teacher_comments || notes
+            };
+
+            onSessionUpdate(updatedSession);
+            setMessage({ type: 'success', text: t.updated });
+
+            setTimeout(() => {
+                onClose();
+                window.location.reload();
+            }, 1000);
+        } catch (err: any) {
+            setMessage({ type: 'error', text: err.message || 'Error' });
+            throw err; // Para que el modal muestre el error
         } finally {
             setIsLoading(false);
         }
@@ -201,7 +271,7 @@ export default function SessionDetailModal({
                         {isPast ? (
                             <>
                                 <button
-                                    onClick={() => handleAction('complete')}
+                                    onClick={() => setIsReportModalOpen(true)}
                                     disabled={isLoading}
                                     className="w-full px-4 py-3 bg-green-600 text-white font-bold uppercase text-sm hover:bg-green-700 transition-colors disabled:opacity-50"
                                 >
@@ -227,6 +297,16 @@ export default function SessionDetailModal({
                     </div>
                 )}
             </div>
+            {isReportModalOpen && (
+                <PostClassReport
+                    isOpen={isReportModalOpen}
+                    onClose={() => setIsReportModalOpen(false)}
+                    session={session}
+                    lang={lang}
+                    translations={t}
+                    onSubmit={handleCompleteClass}
+                />
+            )}
         </div>
     );
 }

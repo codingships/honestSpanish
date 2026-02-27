@@ -8,10 +8,12 @@ import {
     classConfirmationTemplate,
     classReminderTemplate,
     classCancelledTemplate,
+    leadWelcomeTemplate,
     type WelcomeEmailData,
     type ClassConfirmationData,
     type ClassReminderData,
     type ClassCancelledData,
+    type LeadWelcomeEmailData,
 } from './templates';
 
 // ============================================
@@ -190,4 +192,36 @@ export async function sendClassCancelledToBoth(
         recipientName: teacherName,
         ...data,
     });
+}
+
+// ============================================
+// Send Lead Welcome Email (Marketing)
+// ============================================
+
+export async function sendLeadWelcomeEmail(
+    email: string,
+    data: LeadWelcomeEmailData
+): Promise<boolean> {
+    try {
+        const { error } = await resend.emails.send({
+            from: EMAIL_FROM,
+            to: email,
+            subject: '¡Bienvenido a Español Honesto! 🌎',
+            html: leadWelcomeTemplate(data),
+        });
+
+        if (error) {
+            console.error('[Email] Failed to send lead welcome email:', error);
+            // We return true because failing to send a marketing email shouldn't 
+            // necessarily crash the user's subscribe process, but we log the error.
+            return true;
+        }
+
+        console.log(`[Email] Lead welcome email sent to ${email}`);
+        return true;
+    } catch (error) {
+        console.error('[Email] Error sending lead welcome email:',
+            error instanceof Error ? error.message : 'Unknown error');
+        return true;
+    }
 }

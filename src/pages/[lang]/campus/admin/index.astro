@@ -3,13 +3,7 @@ import CampusLayout from '../../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 
-export async function getStaticPaths() {
-    return [
-        { params: { lang: 'es' } },
-        { params: { lang: 'en' } },
-        { params: { lang: 'ru' } }
-    ];
-}
+export const prerender = false;
 
 const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
 const t = useTranslations(lang);

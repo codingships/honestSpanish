@@ -272,7 +272,7 @@
       "specs": [
         {
           "title": "authenticate as admin",
-          "ok": true,
+          "ok": false,
           "tags": [],
           "tests": [
             {
@@ -285,29 +285,58 @@
                 {
                   "workerIndex": 0,
                   "parallelIndex": 0,
-                  "status": "passed",
-                  "duration": 5053,
-                  "errors": [],
+                  "status": "failed",
+                  "duration": 11402,
+                  "error": {
+                    "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
+                    "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\admin.setup.ts:13:16",
+                    "location": {
+                      "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\admin.setup.ts",
+                      "column": 16,
+                      "line": 13
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 11 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mclick(\u001b[32m'button[type=\"submit\"]'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 12 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 13 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/campus\\/admin/\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m10000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 14 |\u001b[39m\n \u001b[90m 15 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/\\/campus\\/admin/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 16 |\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\admin.setup.ts",
+                        "column": 16,
+                        "line": 13
+                      },
+                      "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n\n\u001b[0m \u001b[90m 11 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mclick(\u001b[32m'button[type=\"submit\"]'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 12 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 13 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/campus\\/admin/\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m10000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 14 |\u001b[39m\n \u001b[90m 15 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/\\/campus\\/admin/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 16 |\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\admin.setup.ts:13:16\u001b[22m"
+                    }
+                  ],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-02-23T20:42:51.130Z",
+                  "startTime": "2026-02-27T16:24:54.163Z",
                   "annotations": [],
                   "attachments": [
                     {
                       "name": "screenshot",
                       "contentType": "image/png",
-                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.setup.ts-authenticate-as-admin-admin-setup\\test-finished-1.png"
+                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.setup.ts-authenticate-as-admin-admin-setup\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.setup.ts-authenticate-as-admin-admin-setup\\error-context.md"
                     },
                     {
                       "name": "trace",
                       "contentType": "application/zip",
                       "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.setup.ts-authenticate-as-admin-admin-setup\\trace.zip"
                     }
-                  ]
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\admin.setup.ts",
+                    "column": 16,
+                    "line": 13
+                  }
                 }
               ],
-              "status": "expected"
+              "status": "unexpected"
             }
           ],
           "id": "d1b667611c786c59191e-987a6fb052b12ebe37f1",
@@ -325,7 +354,7 @@
       "specs": [
         {
           "title": "authenticate as teacher",
-          "ok": true,
+          "ok": false,
           "tags": [],
           "tests": [
             {
@@ -338,29 +367,58 @@
                 {
                   "workerIndex": 1,
                   "parallelIndex": 1,
-                  "status": "passed",
-                  "duration": 4369,
-                  "errors": [],
+                  "status": "failed",
+                  "duration": 11687,
+                  "error": {
+                    "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
+                    "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\teacher.setup.ts:13:16",
+                    "location": {
+                      "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\teacher.setup.ts",
+                      "column": 16,
+                      "line": 13
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 11 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mclick(\u001b[32m'button[type=\"submit\"]'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 12 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 13 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/campus\\/teacher/\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m10000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 14 |\u001b[39m\n \u001b[90m 15 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/\\/campus\\/teacher/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 16 |\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\teacher.setup.ts",
+                        "column": 16,
+                        "line": 13
+                      },
+                      "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n\n\u001b[0m \u001b[90m 11 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mclick(\u001b[32m'button[type=\"submit\"]'\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 12 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 13 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/campus\\/teacher/\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m10000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 14 |\u001b[39m\n \u001b[90m 15 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/\\/campus\\/teacher/\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 16 |\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\teacher.setup.ts:13:16\u001b[22m"
+                    }
+                  ],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-02-23T20:42:51.100Z",
+                  "startTime": "2026-02-27T16:24:54.198Z",
                   "annotations": [],
                   "attachments": [
                     {
                       "name": "screenshot",
                       "contentType": "image/png",
-                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\teacher.setup.ts-authenticate-as-teacher-teacher-setup\\test-finished-1.png"
+                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\teacher.setup.ts-authenticate-as-teacher-teacher-setup\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\teacher.setup.ts-authenticate-as-teacher-teacher-setup\\error-context.md"
                     },
                     {
                       "name": "trace",
                       "contentType": "application/zip",
                       "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\teacher.setup.ts-authenticate-as-teacher-teacher-setup\\trace.zip"
                     }
-                  ]
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\teacher.setup.ts",
+                    "column": 16,
+                    "line": 13
+                  }
                 }
               ],
-              "status": "expected"
+              "status": "unexpected"
             }
           ],
           "id": "67175697346b77003b1a-475c2e1bd1de04c8b3aa",
@@ -378,7 +436,7 @@
       "specs": [
         {
           "title": "authenticate as student",
-          "ok": true,
+          "ok": false,
           "tags": [],
           "tests": [
             {
@@ -391,29 +449,58 @@
                 {
                   "workerIndex": 2,
                   "parallelIndex": 2,
-                  "status": "passed",
-                  "duration": 4271,
-                  "errors": [],
+                  "status": "failed",
+                  "duration": 11386,
+                  "error": {
+                    "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
+                    "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\student.setup.ts:17:16",
+                    "location": {
+                      "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\student.setup.ts",
+                      "column": 16,
+                      "line": 17
+                    },
+                    "snippet": "\u001b[0m \u001b[90m 15 |\u001b[39m\n \u001b[90m 16 |\u001b[39m     \u001b[90m// Esperar a que redirija al campus\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 17 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/campus/\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m10000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 18 |\u001b[39m\n \u001b[90m 19 |\u001b[39m     \u001b[90m// Verificar que estamos logueados\u001b[39m\n \u001b[90m 20 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/\\/campus/\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
+                  },
+                  "errors": [
+                    {
+                      "location": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\student.setup.ts",
+                        "column": 16,
+                        "line": 17
+                      },
+                      "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n\n\u001b[0m \u001b[90m 15 |\u001b[39m\n \u001b[90m 16 |\u001b[39m     \u001b[90m// Esperar a que redirija al campus\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 17 |\u001b[39m     \u001b[36mawait\u001b[39m page\u001b[33m.\u001b[39mwaitForURL(\u001b[35m/\\/campus/\u001b[39m\u001b[33m,\u001b[39m { timeout\u001b[33m:\u001b[39m \u001b[35m10000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 18 |\u001b[39m\n \u001b[90m 19 |\u001b[39m     \u001b[90m// Verificar que estamos logueados\u001b[39m\n \u001b[90m 20 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page)\u001b[33m.\u001b[39mtoHaveURL(\u001b[35m/\\/campus/\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\student.setup.ts:17:16\u001b[22m"
+                    }
+                  ],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2026-02-23T20:42:51.115Z",
+                  "startTime": "2026-02-27T16:24:54.174Z",
                   "annotations": [],
                   "attachments": [
                     {
                       "name": "screenshot",
                       "contentType": "image/png",
-                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\student.setup.ts-authenticate-as-student-student-setup\\test-finished-1.png"
+                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\student.setup.ts-authenticate-as-student-student-setup\\test-failed-1.png"
+                    },
+                    {
+                      "name": "error-context",
+                      "contentType": "text/markdown",
+                      "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\student.setup.ts-authenticate-as-student-student-setup\\error-context.md"
                     },
                     {
                       "name": "trace",
                       "contentType": "application/zip",
                       "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\student.setup.ts-authenticate-as-student-student-setup\\trace.zip"
                     }
-                  ]
+                  ],
+                  "errorLocation": {
+                    "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\student.setup.ts",
+                    "column": 16,
+                    "line": 17
+                  }
                 }
               ],
-              "status": "expected"
+              "status": "unexpected"
             }
           ],
           "id": "873a46f2752453fac2b7-85d99ba0e30f1f74deb6",
@@ -452,12 +539,12 @@
                       "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "passed",
-                      "duration": 2239,
+                      "duration": 1147,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.115Z",
+                      "startTime": "2026-02-27T16:24:54.163Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -483,7 +570,7 @@
             },
             {
               "title": "login with wrong credentials shows an error message",
-              "ok": true,
+              "ok": false,
               "tags": [],
               "tests": [
                 {
@@ -496,29 +583,58 @@
                     {
                       "workerIndex": 4,
                       "parallelIndex": 4,
-                      "status": "passed",
-                      "duration": 2607,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 9579,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for locator('[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700').first()\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for locator('[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700').first()\u001b[22m\n\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\auth.public.spec.ts:19:44",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\auth.public.spec.ts",
+                          "column": 44,
+                          "line": 19
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 17 |\u001b[39m         \u001b[90m// Wait for error to appear\u001b[39m\n \u001b[90m 18 |\u001b[39m         \u001b[36mconst\u001b[39m errorLocator \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 19 |\u001b[39m         \u001b[36mawait\u001b[39m expect(errorLocator\u001b[33m.\u001b[39mfirst())\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m8000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 20 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 21 |\u001b[39m\n \u001b[90m 22 |\u001b[39m     test(\u001b[32m'accessing /es/campus without auth redirects to login'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\auth.public.spec.ts",
+                            "column": 44,
+                            "line": 19
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for locator('[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700').first()\u001b[22m\n\n\n\u001b[0m \u001b[90m 17 |\u001b[39m         \u001b[90m// Wait for error to appear\u001b[39m\n \u001b[90m 18 |\u001b[39m         \u001b[36mconst\u001b[39m errorLocator \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'[class*=\"error\"], [class*=\"alert\"], [role=\"alert\"], .text-red-500, .text-red-700'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 19 |\u001b[39m         \u001b[36mawait\u001b[39m expect(errorLocator\u001b[33m.\u001b[39mfirst())\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m8000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                            \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 20 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 21 |\u001b[39m\n \u001b[90m 22 |\u001b[39m     test(\u001b[32m'accessing /es/campus without auth redirects to login'\u001b[39m\u001b[33m,\u001b[39m \u001b[36masync\u001b[39m ({ page }) \u001b[33m=>\u001b[39m {\u001b[0m\n\u001b[2m    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\auth.public.spec.ts:19:44\u001b[22m"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.130Z",
+                      "startTime": "2026-02-27T16:24:54.197Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public\\test-finished-1.png"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public\\error-context.md"
                         },
                         {
                           "name": "trace",
                           "contentType": "application/zip",
                           "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public\\trace.zip"
                         }
-                      ]
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\auth.public.spec.ts",
+                        "column": 44,
+                        "line": 19
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
               "id": "68f96bf81ee980f3d4da-9295404fd9fb288419bc",
@@ -542,12 +658,12 @@
                       "workerIndex": 5,
                       "parallelIndex": 5,
                       "status": "passed",
-                      "duration": 2501,
+                      "duration": 1298,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.115Z",
+                      "startTime": "2026-02-27T16:24:54.164Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -587,12 +703,12 @@
                       "workerIndex": 6,
                       "parallelIndex": 6,
                       "status": "passed",
-                      "duration": 2240,
+                      "duration": 1109,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.130Z",
+                      "startTime": "2026-02-27T16:24:54.175Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -632,12 +748,12 @@
                       "workerIndex": 7,
                       "parallelIndex": 7,
                       "status": "passed",
-                      "duration": 2629,
+                      "duration": 1400,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.129Z",
+                      "startTime": "2026-02-27T16:24:54.196Z",
                       "annotations": [],
                       "attachments": [
                         {
@@ -660,9 +776,26 @@
               "file": "auth.public.spec.ts",
               "line": 34,
               "column": 5
-            },
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "checkout.public.spec.ts",
+      "file": "checkout.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Stripe Checkout Flow",
+          "file": "checkout.public.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
             {
-              "title": "login page renders email and password fields",
+              "title": "clicking a package redirects to Stripe checkout",
               "ok": true,
               "tags": [],
               "tests": [
@@ -670,30 +803,30 @@
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "public-firefox",
-                  "projectName": "public-firefox",
+                  "projectId": "public",
+                  "projectName": "public",
                   "results": [
                     {
                       "workerIndex": 8,
                       "parallelIndex": 8,
                       "status": "passed",
-                      "duration": 4726,
+                      "duration": 2665,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.116Z",
+                      "startTime": "2026-02-27T16:24:54.196Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-firefox\\test-finished-1.png"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\checkout.public-Stripe-Che-f5b55-edirects-to-Stripe-checkout-public\\test-finished-1.png"
                         },
                         {
                           "name": "trace",
                           "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-firefox\\trace.zip"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\checkout.public-Stripe-Che-f5b55-edirects-to-Stripe-checkout-public\\trace.zip"
                         }
                       ]
                     }
@@ -701,13 +834,30 @@
                   "status": "expected"
                 }
               ],
-              "id": "68f96bf81ee980f3d4da-efd71d237ab4fdf2e0b7",
-              "file": "auth.public.spec.ts",
+              "id": "16ce9bbe14bb157c0a2f-3e0879a2800ed4ded7cc",
+              "file": "checkout.public.spec.ts",
               "line": 4,
               "column": 5
-            },
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "lead-magnet.public.spec.ts",
+      "file": "lead-magnet.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Lead Magnet Form — public",
+          "file": "lead-magnet.public.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
             {
-              "title": "login with wrong credentials shows an error message",
+              "title": "successfully submits the lead capture form",
               "ok": true,
               "tags": [],
               "tests": [
@@ -715,30 +865,30 @@
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "public-firefox",
-                  "projectName": "public-firefox",
+                  "projectId": "public",
+                  "projectName": "public",
                   "results": [
                     {
                       "workerIndex": 9,
                       "parallelIndex": 9,
                       "status": "passed",
-                      "duration": 6674,
+                      "duration": 2924,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.114Z",
+                      "startTime": "2026-02-27T16:24:54.211Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-firefox\\test-finished-1.png"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\lead-magnet.public-Lead-Ma-bb72f-bmits-the-lead-capture-form-public\\test-finished-1.png"
                         },
                         {
                           "name": "trace",
                           "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-firefox\\trace.zip"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\lead-magnet.public-Lead-Ma-bb72f-bmits-the-lead-capture-form-public\\trace.zip"
                         }
                       ]
                     }
@@ -746,13 +896,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "68f96bf81ee980f3d4da-93be72760da7652246f0",
-              "file": "auth.public.spec.ts",
-              "line": 11,
+              "id": "3776e81b989756d414f4-005162e837d4e9060e32",
+              "file": "lead-magnet.public.spec.ts",
+              "line": 4,
               "column": 5
             },
             {
-              "title": "accessing /es/campus without auth redirects to login",
+              "title": "shows an error if privacy policy is not checked",
               "ok": true,
               "tags": [],
               "tests": [
@@ -760,30 +910,30 @@
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "public-firefox",
-                  "projectName": "public-firefox",
+                  "projectId": "public",
+                  "projectName": "public",
                   "results": [
                     {
                       "workerIndex": 10,
                       "parallelIndex": 10,
                       "status": "passed",
-                      "duration": 4330,
+                      "duration": 2543,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.129Z",
+                      "startTime": "2026-02-27T16:24:54.212Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-firefox\\test-finished-1.png"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\lead-magnet.public-Lead-Ma-05604-ivacy-policy-is-not-checked-public\\test-finished-1.png"
                         },
                         {
                           "name": "trace",
                           "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-firefox\\trace.zip"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\lead-magnet.public-Lead-Ma-05604-ivacy-policy-is-not-checked-public\\trace.zip"
                         }
                       ]
                     }
@@ -791,13 +941,30 @@
                   "status": "expected"
                 }
               ],
-              "id": "68f96bf81ee980f3d4da-20d7448e704170c1edd5",
-              "file": "auth.public.spec.ts",
-              "line": 22,
+              "id": "3776e81b989756d414f4-7b78805b42ac149cfc7f",
+              "file": "lead-magnet.public.spec.ts",
+              "line": 79,
               "column": 5
-            },
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "onboarding.public.spec.ts",
+      "file": "onboarding.public.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Fase 1 UAT: Onboarding y Seguridad",
+          "file": "onboarding.public.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
             {
-              "title": "accessing a protected route without auth redirects to login",
+              "title": "1.1.A: Ir a /login, cambiar a register, rellenar email+password de alumno nuevo",
               "ok": true,
               "tags": [],
               "tests": [
@@ -805,30 +972,30 @@
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "public-firefox",
-                  "projectName": "public-firefox",
+                  "projectId": "public",
+                  "projectName": "public",
                   "results": [
                     {
                       "workerIndex": 11,
                       "parallelIndex": 11,
                       "status": "passed",
-                      "duration": 5262,
+                      "duration": 1833,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.146Z",
+                      "startTime": "2026-02-27T16:24:54.213Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-firefox\\test-finished-1.png"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\onboarding.public-Fase-1-U-e6812-il-password-de-alumno-nuevo-public\\test-finished-1.png"
                         },
                         {
                           "name": "trace",
                           "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-firefox\\trace.zip"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\onboarding.public-Fase-1-U-e6812-il-password-de-alumno-nuevo-public\\trace.zip"
                         }
                       ]
                     }
@@ -836,729 +1003,83 @@
                   "status": "expected"
                 }
               ],
-              "id": "68f96bf81ee980f3d4da-58862394191fa4812993",
-              "file": "auth.public.spec.ts",
-              "line": 28,
+              "id": "34f210956cbc6f12c45c-386e196a2285f1a80ace",
+              "file": "onboarding.public.spec.ts",
+              "line": 5,
               "column": 5
             },
             {
-              "title": "/en/login renders form in English",
-              "ok": true,
+              "title": "1.3.A y B: Recuperar contraseña muestra formulario y envía email",
+              "ok": false,
               "tags": [],
               "tests": [
                 {
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "public-firefox",
-                  "projectName": "public-firefox",
+                  "projectId": "public",
+                  "projectName": "public",
                   "results": [
                     {
                       "workerIndex": 12,
                       "parallelIndex": 12,
-                      "status": "passed",
-                      "duration": 5559,
-                      "errors": [],
+                      "status": "failed",
+                      "duration": 9700,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.bg-green-100').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for locator('.bg-green-100').first()\u001b[22m\n",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.bg-green-100').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for locator('.bg-green-100').first()\u001b[22m\n\n    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\onboarding.public.spec.ts:52:42",
+                        "location": {
+                          "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\onboarding.public.spec.ts",
+                          "column": 42,
+                          "line": 52
+                        },
+                        "snippet": "\u001b[0m \u001b[90m 50 |\u001b[39m         \u001b[90m// Mensaje de éxito (.bg-green-100 en la UI)\u001b[39m\n \u001b[90m 51 |\u001b[39m         \u001b[36mconst\u001b[39m successMsg \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.bg-green-100'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 52 |\u001b[39m         \u001b[36mawait\u001b[39m expect(successMsg\u001b[33m.\u001b[39mfirst())\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m8000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 53 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 54 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 55 |\u001b[39m\u001b[0m"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\onboarding.public.spec.ts",
+                            "column": 42,
+                            "line": 52
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mlocator\u001b[39m\u001b[2m).\u001b[22mtoBeVisible\u001b[2m(\u001b[22m\u001b[2m)\u001b[22m failed\n\nLocator: locator('.bg-green-100').first()\nExpected: visible\nTimeout: 8000ms\nError: element(s) not found\n\nCall log:\n\u001b[2m  - Expect \"toBeVisible\" with timeout 8000ms\u001b[22m\n\u001b[2m  - waiting for locator('.bg-green-100').first()\u001b[22m\n\n\n\u001b[0m \u001b[90m 50 |\u001b[39m         \u001b[90m// Mensaje de éxito (.bg-green-100 en la UI)\u001b[39m\n \u001b[90m 51 |\u001b[39m         \u001b[36mconst\u001b[39m successMsg \u001b[33m=\u001b[39m page\u001b[33m.\u001b[39mlocator(\u001b[32m'.bg-green-100'\u001b[39m)\u001b[33m;\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 52 |\u001b[39m         \u001b[36mawait\u001b[39m expect(successMsg\u001b[33m.\u001b[39mfirst())\u001b[33m.\u001b[39mtoBeVisible({ timeout\u001b[33m:\u001b[39m \u001b[35m8000\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m    |\u001b[39m                                          \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 53 |\u001b[39m     })\u001b[33m;\u001b[39m\n \u001b[90m 54 |\u001b[39m })\u001b[33m;\u001b[39m\n \u001b[90m 55 |\u001b[39m\u001b[0m\n\u001b[2m    at C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\onboarding.public.spec.ts:52:42\u001b[22m"
+                        }
+                      ],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.175Z",
+                      "startTime": "2026-02-27T16:24:54.212Z",
                       "annotations": [],
                       "attachments": [
                         {
                           "name": "screenshot",
                           "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-firefox\\test-finished-1.png"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\onboarding.public-Fase-1-U-6ddcb-ra-formulario-y-envía-email-public\\test-failed-1.png"
+                        },
+                        {
+                          "name": "error-context",
+                          "contentType": "text/markdown",
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\onboarding.public-Fase-1-U-6ddcb-ra-formulario-y-envía-email-public\\error-context.md"
                         },
                         {
                           "name": "trace",
                           "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-firefox\\trace.zip"
+                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\onboarding.public-Fase-1-U-6ddcb-ra-formulario-y-envía-email-public\\trace.zip"
                         }
-                      ]
+                      ],
+                      "errorLocation": {
+                        "file": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\tests\\e2e\\onboarding.public.spec.ts",
+                        "column": 42,
+                        "line": 52
+                      }
                     }
                   ],
-                  "status": "expected"
+                  "status": "unexpected"
                 }
               ],
-              "id": "68f96bf81ee980f3d4da-75470f3f8372babb925b",
-              "file": "auth.public.spec.ts",
-              "line": 34,
-              "column": 5
-            },
-            {
-              "title": "login page renders email and password fields",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-webkit",
-                  "projectName": "public-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 13,
-                      "parallelIndex": 13,
-                      "status": "passed",
-                      "duration": 3008,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:51.240Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-530978e66f1bec413f83",
-              "file": "auth.public.spec.ts",
-              "line": 4,
-              "column": 5
-            },
-            {
-              "title": "login with wrong credentials shows an error message",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-webkit",
-                  "projectName": "public-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 14,
-                      "parallelIndex": 5,
-                      "status": "passed",
-                      "duration": 3708,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:55.839Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-83d4567922971e4c3152",
-              "file": "auth.public.spec.ts",
-              "line": 11,
-              "column": 5
-            },
-            {
-              "title": "accessing /es/campus without auth redirects to login",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-webkit",
-                  "projectName": "public-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 15,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 3052,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:55.854Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-9519666bf268ffe176e4",
-              "file": "auth.public.spec.ts",
-              "line": 22,
-              "column": 5
-            },
-            {
-              "title": "accessing a protected route without auth redirects to login",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-webkit",
-                  "projectName": "public-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 17,
-                      "parallelIndex": 6,
-                      "status": "passed",
-                      "duration": 2631,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:56.053Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-71a79f3e2996541c5a0b",
-              "file": "auth.public.spec.ts",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "/en/login renders form in English",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-webkit",
-                  "projectName": "public-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 16,
-                      "parallelIndex": 7,
-                      "status": "passed",
-                      "duration": 2763,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:55.993Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-11ea09cd12910957118c",
-              "file": "auth.public.spec.ts",
-              "line": 34,
-              "column": 5
-            },
-            {
-              "title": "login page renders email and password fields",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-chrome",
-                  "projectName": "public-mobile-chrome",
-                  "results": [
-                    {
-                      "workerIndex": 18,
-                      "parallelIndex": 4,
-                      "status": "passed",
-                      "duration": 2287,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:56.039Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-mobile-chrome\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-mobile-chrome\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-c901214e2f9941fade25",
-              "file": "auth.public.spec.ts",
-              "line": 4,
-              "column": 5
-            },
-            {
-              "title": "login with wrong credentials shows an error message",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-chrome",
-                  "projectName": "public-mobile-chrome",
-                  "results": [
-                    {
-                      "workerIndex": 19,
-                      "parallelIndex": 13,
-                      "status": "passed",
-                      "duration": 2991,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:56.161Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-mobile-chrome\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-mobile-chrome\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-8d9a340b282a3bcb095c",
-              "file": "auth.public.spec.ts",
-              "line": 11,
-              "column": 5
-            },
-            {
-              "title": "accessing /es/campus without auth redirects to login",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-chrome",
-                  "projectName": "public-mobile-chrome",
-                  "results": [
-                    {
-                      "workerIndex": 20,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 1540,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:57.418Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-mobile-chrome\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-mobile-chrome\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-aa6bd69edc5587e9b03a",
-              "file": "auth.public.spec.ts",
-              "line": 22,
-              "column": 5
-            },
-            {
-              "title": "accessing a protected route without auth redirects to login",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-chrome",
-                  "projectName": "public-mobile-chrome",
-                  "results": [
-                    {
-                      "workerIndex": 21,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 1116,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:58.235Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-mobile-chrome\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-mobile-chrome\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-127fb35e5acfb542404c",
-              "file": "auth.public.spec.ts",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "/en/login renders form in English",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-chrome",
-                  "projectName": "public-mobile-chrome",
-                  "results": [
-                    {
-                      "workerIndex": 22,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 982,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:42:58.836Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-mobile-chrome\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-mobile-chrome\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-84067986cb8b14d12b61",
-              "file": "auth.public.spec.ts",
-              "line": 34,
-              "column": 5
-            },
-            {
-              "title": "login page renders email and password fields",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-safari",
-                  "projectName": "public-mobile-safari",
-                  "results": [
-                    {
-                      "workerIndex": 27,
-                      "parallelIndex": 12,
-                      "status": "passed",
-                      "duration": 1273,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:00.635Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-mobile-safari\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--49cd0-s-email-and-password-fields-public-mobile-safari\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-37df54b1a9f395247669",
-              "file": "auth.public.spec.ts",
-              "line": 4,
-              "column": 5
-            },
-            {
-              "title": "login with wrong credentials shows an error message",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-safari",
-                  "projectName": "public-mobile-safari",
-                  "results": [
-                    {
-                      "workerIndex": 25,
-                      "parallelIndex": 4,
-                      "status": "passed",
-                      "duration": 1965,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:00.533Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-mobile-safari\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--fccbd-ials-shows-an-error-message-public-mobile-safari\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-fad13b0c1f136513f94a",
-              "file": "auth.public.spec.ts",
-              "line": 11,
-              "column": 5
-            },
-            {
-              "title": "accessing /es/campus without auth redirects to login",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-safari",
-                  "projectName": "public-mobile-safari",
-                  "results": [
-                    {
-                      "workerIndex": 23,
-                      "parallelIndex": 6,
-                      "status": "passed",
-                      "duration": 1276,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:00.410Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-mobile-safari\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--e5b58-out-auth-redirects-to-login-public-mobile-safari\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-3721d3b99de1ba4be50c",
-              "file": "auth.public.spec.ts",
-              "line": 22,
-              "column": 5
-            },
-            {
-              "title": "accessing a protected route without auth redirects to login",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-safari",
-                  "projectName": "public-mobile-safari",
-                  "results": [
-                    {
-                      "workerIndex": 24,
-                      "parallelIndex": 7,
-                      "status": "passed",
-                      "duration": 1292,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:00.502Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-mobile-safari\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public--18e60-out-auth-redirects-to-login-public-mobile-safari\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-4b4ac05d55cea5a1b1dc",
-              "file": "auth.public.spec.ts",
-              "line": 28,
-              "column": 5
-            },
-            {
-              "title": "/en/login renders form in English",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "public-mobile-safari",
-                  "projectName": "public-mobile-safari",
-                  "results": [
-                    {
-                      "workerIndex": 26,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 1283,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:00.611Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-mobile-safari\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\auth.public-Auth-—-public-en-login-renders-form-in-English-public-mobile-safari\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "68f96bf81ee980f3d4da-6018eba6ea7ec04b692c",
-              "file": "auth.public.spec.ts",
-              "line": 34,
+              "id": "34f210956cbc6f12c45c-990b9739af5653b244b3",
+              "file": "onboarding.public.spec.ts",
+              "line": 36,
               "column": 5
             }
           ]
@@ -1589,33 +1110,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 28,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 2709,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.265Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-d0edc-s-page-loads-without-errors-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-d0edc-s-page-loads-without-errors-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "97a94828000e18ac6375-d5b41c6be24e8fd52605",
@@ -1634,33 +1130,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 29,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 2648,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.279Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-cdee4-ses-page-shows-Próximas-tab-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-cdee4-ses-page-shows-Próximas-tab-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "97a94828000e18ac6375-f91a9aced57325fc3d2d",
@@ -1679,33 +1150,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 30,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 2605,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.280Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-c86c1-es-page-shows-Historial-tab-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-c86c1-es-page-shows-Historial-tab-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "97a94828000e18ac6375-d7b7ceb3aaba22dc2d22",
@@ -1724,33 +1170,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 31,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 1568,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.248Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-83dc7-orial-tab-switches-the-view-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-83dc7-orial-tab-switches-the-view-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "97a94828000e18ac6375-44d29dcee95355a3b9ab",
@@ -1765,520 +1186,15 @@
               "tests": [
                 {
                   "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "note",
-                      "description": "No cancellable sessions found"
-                    }
-                  ],
+                  "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 32,
-                      "parallelIndex": 4,
-                      "status": "passed",
-                      "duration": 2136,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.286Z",
-                      "annotations": [
-                        {
-                          "type": "note",
-                          "description": "No cancellable sessions found"
-                        }
-                      ],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-93185-on-modal-with-Volver-option-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-93185-on-modal-with-Volver-option-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "97a94828000e18ac6375-f86f83a59cccd4f0e88a",
-              "file": "classes.student.spec.ts",
-              "line": 40,
-              "column": 5
-            },
-            {
-              "title": "classes page loads without errors",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 51,
-                      "parallelIndex": 6,
-                      "status": "passed",
-                      "duration": 4727,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:09.361Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-d0edc-s-page-loads-without-errors-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-d0edc-s-page-loads-without-errors-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-3d284631b20297cb5cb4",
-              "file": "classes.student.spec.ts",
-              "line": 4,
-              "column": 5
-            },
-            {
-              "title": "classes page shows \"Próximas\" tab",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 52,
-                      "parallelIndex": 10,
-                      "status": "passed",
-                      "duration": 5239,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:09.408Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-cdee4-ses-page-shows-Próximas-tab-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-cdee4-ses-page-shows-Próximas-tab-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-deb2640ace33cc884a57",
-              "file": "classes.student.spec.ts",
-              "line": 11,
-              "column": 5
-            },
-            {
-              "title": "classes page shows \"Historial\" tab",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 53,
-                      "parallelIndex": 8,
-                      "status": "passed",
-                      "duration": 4808,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:09.438Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-c86c1-es-page-shows-Historial-tab-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-c86c1-es-page-shows-Historial-tab-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-00efe50d914651b7aee0",
-              "file": "classes.student.spec.ts",
-              "line": 19,
-              "column": 5
-            },
-            {
-              "title": "clicking \"Historial\" tab switches the view",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 54,
-                      "parallelIndex": 9,
-                      "status": "passed",
-                      "duration": 5632,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:09.530Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-83dc7-orial-tab-switches-the-view-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-83dc7-orial-tab-switches-the-view-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-e854045ec6d773ac4010",
-              "file": "classes.student.spec.ts",
-              "line": 27,
-              "column": 5
-            },
-            {
-              "title": "cancel button opens a confirmation modal with \"Volver\" option",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "note",
-                      "description": "No cancellable sessions found"
-                    }
-                  ],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 55,
-                      "parallelIndex": 11,
-                      "status": "passed",
-                      "duration": 4849,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:10.101Z",
-                      "annotations": [
-                        {
-                          "type": "note",
-                          "description": "No cancellable sessions found"
-                        }
-                      ],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-93185-on-modal-with-Volver-option-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-93185-on-modal-with-Volver-option-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-3837058bf25be564a080",
-              "file": "classes.student.spec.ts",
-              "line": 40,
-              "column": 5
-            },
-            {
-              "title": "classes page loads without errors",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 62,
-                      "parallelIndex": 12,
-                      "status": "passed",
-                      "duration": 2603,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:13.546Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-d0edc-s-page-loads-without-errors-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-d0edc-s-page-loads-without-errors-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-fff0a2e750b17ef5c977",
-              "file": "classes.student.spec.ts",
-              "line": 4,
-              "column": 5
-            },
-            {
-              "title": "classes page shows \"Próximas\" tab",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 63,
-                      "parallelIndex": 13,
-                      "status": "passed",
-                      "duration": 3557,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:14.011Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-cdee4-ses-page-shows-Próximas-tab-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-cdee4-ses-page-shows-Próximas-tab-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-96b1f72f593b90d0668a",
-              "file": "classes.student.spec.ts",
-              "line": 11,
-              "column": 5
-            },
-            {
-              "title": "classes page shows \"Historial\" tab",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 64,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 3661,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:14.937Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-c86c1-es-page-shows-Historial-tab-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-c86c1-es-page-shows-Historial-tab-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-f7ee3d67d42d463040ee",
-              "file": "classes.student.spec.ts",
-              "line": 19,
-              "column": 5
-            },
-            {
-              "title": "clicking \"Historial\" tab switches the view",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 65,
-                      "parallelIndex": 6,
-                      "status": "passed",
-                      "duration": 3196,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:17.852Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-83dc7-orial-tab-switches-the-view-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-83dc7-orial-tab-switches-the-view-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-f5e0578be3667df1a5db",
-              "file": "classes.student.spec.ts",
-              "line": 27,
-              "column": 5
-            },
-            {
-              "title": "cancel button opens a confirmation modal with \"Volver\" option",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "note",
-                      "description": "No cancellable sessions found"
-                    }
-                  ],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 66,
-                      "parallelIndex": 8,
-                      "status": "passed",
-                      "duration": 2899,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:18.332Z",
-                      "annotations": [
-                        {
-                          "type": "note",
-                          "description": "No cancellable sessions found"
-                        }
-                      ],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-93185-on-modal-with-Volver-option-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\classes.student-Student-Cl-93185-on-modal-with-Volver-option-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "97a94828000e18ac6375-7f12266086d17114c57f",
               "file": "classes.student.spec.ts",
               "line": 40,
               "column": 5
@@ -2311,33 +1227,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 33,
-                      "parallelIndex": 5,
-                      "status": "passed",
-                      "duration": 2506,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.279Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--0286d-e-loads-and-shows-a-heading-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--0286d-e-loads-and-shows-a-heading-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "9ccee46fe19be1495641-ac2352258f53829f4431",
@@ -2356,33 +1247,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 34,
-                      "parallelIndex": 6,
-                      "status": "passed",
-                      "duration": 3108,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.278Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--39215-ws-Panel-de-control-heading-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--39215-ws-Panel-de-control-heading-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "9ccee46fe19be1495641-f9ffe2b3f8b16c631ba7",
@@ -2401,33 +1267,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 35,
-                      "parallelIndex": 7,
-                      "status": "passed",
-                      "duration": 2559,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.263Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--1abf8-nk-to-Mis-clases-is-visible-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--1abf8-nk-to-Mis-clases-is-visible-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "9ccee46fe19be1495641-36459604419507b3eeb6",
@@ -2446,33 +1287,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 36,
-                      "parallelIndex": 8,
-                      "status": "passed",
-                      "duration": 3190,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.280Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--b869a-ink-to-Mi-cuenta-is-visible-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--b869a-ink-to-Mi-cuenta-is-visible-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "9ccee46fe19be1495641-106abf7d5e94f7ca10e2",
@@ -2491,33 +1307,8 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 37,
-                      "parallelIndex": 9,
-                      "status": "passed",
-                      "duration": 3154,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.279Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--95d8e-navigates-to-campus-classes-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--95d8e-navigates-to-campus-classes-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "9ccee46fe19be1495641-89ee3ffbde0141a9ab61",
@@ -2536,42 +1327,34 @@
                   "expectedStatus": "passed",
                   "projectId": "student",
                   "projectName": "student",
-                  "results": [
-                    {
-                      "workerIndex": 38,
-                      "parallelIndex": 10,
-                      "status": "passed",
-                      "duration": 3143,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.295Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--abdaf-specific-routes-to-students-student\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--abdaf-specific-routes-to-students-student\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "9ccee46fe19be1495641-e4a8d1423df2e1227a61",
               "file": "dashboard.student.spec.ts",
               "line": 53,
               "column": 5
-            },
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "timezones.student.spec.ts",
+      "file": "timezones.student.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Fase 4 UAT: Experiencia Estudiante (Timezones)",
+          "file": "timezones.student.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
             {
-              "title": "dashboard page loads and shows a heading",
+              "title": "4.1.A y 4.1.B: Hora de la clase cambia según timezone",
               "ok": true,
               "tags": [],
               "tests": [
@@ -2579,44 +1362,19 @@
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 56,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 5650,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:10.671Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--0286d-e-loads-and-shows-a-heading-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--0286d-e-loads-and-shows-a-heading-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "projectId": "student",
+                  "projectName": "student",
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
-              "id": "9ccee46fe19be1495641-27c11a92a5a9862368b8",
-              "file": "dashboard.student.spec.ts",
-              "line": 4,
+              "id": "c7b957be9f4a54ede483-123bebbbcb868d82862f",
+              "file": "timezones.student.spec.ts",
+              "line": 7,
               "column": 5
             },
             {
-              "title": "campus page shows \"Panel de control\" heading",
+              "title": "4.2.A: Botón Join Meet estado (Futuro vs Inminente)",
               "ok": true,
               "tags": [],
               "tests": [
@@ -2624,490 +1382,15 @@
                   "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 57,
-                      "parallelIndex": 4,
-                      "status": "passed",
-                      "duration": 5160,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:11.391Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--39215-ws-Panel-de-control-heading-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--39215-ws-Panel-de-control-heading-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "projectId": "student",
+                  "projectName": "student",
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
-              "id": "9ccee46fe19be1495641-642baea929907b2e19cd",
-              "file": "dashboard.student.spec.ts",
-              "line": 16,
-              "column": 5
-            },
-            {
-              "title": "navigation link to \"Mis clases\" is visible",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 58,
-                      "parallelIndex": 5,
-                      "status": "passed",
-                      "duration": 5025,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:11.630Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--1abf8-nk-to-Mis-clases-is-visible-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--1abf8-nk-to-Mis-clases-is-visible-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-ff44ff78f1def42635a4",
-              "file": "dashboard.student.spec.ts",
-              "line": 25,
-              "column": 5
-            },
-            {
-              "title": "navigation link to \"Mi cuenta\" is visible",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 59,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 5421,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:12.488Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--b869a-ink-to-Mi-cuenta-is-visible-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--b869a-ink-to-Mi-cuenta-is-visible-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-72e77db6015a212b4293",
-              "file": "dashboard.student.spec.ts",
-              "line": 33,
-              "column": 5
-            },
-            {
-              "title": "clicking \"Mis clases\" link navigates to /campus/classes",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 60,
-                      "parallelIndex": 7,
-                      "status": "passed",
-                      "duration": 6383,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:12.703Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--95d8e-navigates-to-campus-classes-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--95d8e-navigates-to-campus-classes-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-c87247f7b9ab884fdaa4",
-              "file": "dashboard.student.spec.ts",
+              "id": "c7b957be9f4a54ede483-7866ba4d8e267f463baf",
+              "file": "timezones.student.spec.ts",
               "line": 41,
-              "column": 5
-            },
-            {
-              "title": "campus page does not show teacher-specific routes to students",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-firefox",
-                  "projectName": "student-firefox",
-                  "results": [
-                    {
-                      "workerIndex": 61,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 6116,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:13.101Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--abdaf-specific-routes-to-students-student-firefox\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--abdaf-specific-routes-to-students-student-firefox\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-cbb30c187f866dfd60a4",
-              "file": "dashboard.student.spec.ts",
-              "line": 53,
-              "column": 5
-            },
-            {
-              "title": "dashboard page loads and shows a heading",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 67,
-                      "parallelIndex": 11,
-                      "status": "passed",
-                      "duration": 2922,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:18.949Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--0286d-e-loads-and-shows-a-heading-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--0286d-e-loads-and-shows-a-heading-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-4e9a088cef87dd15624a",
-              "file": "dashboard.student.spec.ts",
-              "line": 4,
-              "column": 5
-            },
-            {
-              "title": "campus page shows \"Panel de control\" heading",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 62,
-                      "parallelIndex": 12,
-                      "status": "passed",
-                      "duration": 2661,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:17.215Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--39215-ws-Panel-de-control-heading-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--39215-ws-Panel-de-control-heading-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-7784558f29fbd9c9d5e4",
-              "file": "dashboard.student.spec.ts",
-              "line": 16,
-              "column": 5
-            },
-            {
-              "title": "navigation link to \"Mis clases\" is visible",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 69,
-                      "parallelIndex": 10,
-                      "status": "passed",
-                      "duration": 2642,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:19.793Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--1abf8-nk-to-Mis-clases-is-visible-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--1abf8-nk-to-Mis-clases-is-visible-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-c12cfedaa39d2845854d",
-              "file": "dashboard.student.spec.ts",
-              "line": 25,
-              "column": 5
-            },
-            {
-              "title": "navigation link to \"Mi cuenta\" is visible",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 68,
-                      "parallelIndex": 4,
-                      "status": "passed",
-                      "duration": 2362,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:19.686Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--b869a-ink-to-Mi-cuenta-is-visible-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--b869a-ink-to-Mi-cuenta-is-visible-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-56c97e9f2d8a98ea1473",
-              "file": "dashboard.student.spec.ts",
-              "line": 33,
-              "column": 5
-            },
-            {
-              "title": "clicking \"Mis clases\" link navigates to /campus/classes",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 70,
-                      "parallelIndex": 5,
-                      "status": "passed",
-                      "duration": 4009,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:20.634Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--95d8e-navigates-to-campus-classes-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--95d8e-navigates-to-campus-classes-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-6f931b715a8350b11e3d",
-              "file": "dashboard.student.spec.ts",
-              "line": 41,
-              "column": 5
-            },
-            {
-              "title": "campus page does not show teacher-specific routes to students",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "student-webkit",
-                  "projectName": "student-webkit",
-                  "results": [
-                    {
-                      "workerIndex": 71,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 2090,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:20.849Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--abdaf-specific-routes-to-students-student-webkit\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\dashboard.student-Student--abdaf-specific-routes-to-students-student-webkit\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9ccee46fe19be1495641-291cec8993c3c2a7f1f9",
-              "file": "dashboard.student.spec.ts",
-              "line": 53,
               "column": 5
             }
           ]
@@ -3138,33 +1421,8 @@
                   "expectedStatus": "passed",
                   "projectId": "teacher",
                   "projectName": "teacher",
-                  "results": [
-                    {
-                      "workerIndex": 39,
-                      "parallelIndex": 11,
-                      "status": "passed",
-                      "duration": 2508,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.295Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-42fe7--and-shows-the-current-week-teacher\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-42fe7--and-shows-the-current-week-teacher\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "06c7a04ae61974386e17-f2a709a2ac0320ec7b2b",
@@ -3183,33 +1441,8 @@
                   "expectedStatus": "passed",
                   "projectId": "teacher",
                   "projectName": "teacher",
-                  "results": [
-                    {
-                      "workerIndex": 40,
-                      "parallelIndex": 12,
-                      "status": "passed",
-                      "duration": 3043,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.340Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-9d19f-on-is-visible-and-clickable-teacher\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-9d19f-on-is-visible-and-clickable-teacher\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "06c7a04ae61974386e17-98f7637188b6e24fb588",
@@ -3228,33 +1461,8 @@
                   "expectedStatus": "passed",
                   "projectId": "teacher",
                   "projectName": "teacher",
-                  "results": [
-                    {
-                      "workerIndex": 41,
-                      "parallelIndex": 13,
-                      "status": "passed",
-                      "duration": 2934,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:04.358Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-2bf7b-on-is-visible-and-clickable-teacher\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-2bf7b-on-is-visible-and-clickable-teacher\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "06c7a04ae61974386e17-1256b6c7aacadd6a8aa3",
@@ -3273,33 +1481,8 @@
                   "expectedStatus": "passed",
                   "projectId": "teacher",
                   "projectName": "teacher",
-                  "results": [
-                    {
-                      "workerIndex": 42,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 1608,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:07.344Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-0de5f-mar-clase-button-is-visible-teacher\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-0de5f-mar-clase-button-is-visible-teacher\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "06c7a04ae61974386e17-c630943945e2d5b12c96",
@@ -3318,33 +1501,8 @@
                   "expectedStatus": "passed",
                   "projectId": "teacher",
                   "projectName": "teacher",
-                  "results": [
-                    {
-                      "workerIndex": 43,
-                      "parallelIndex": 4,
-                      "status": "passed",
-                      "duration": 1610,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:08.219Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-0b5dc-se-opens-the-schedule-modal-teacher\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-0b5dc-se-opens-the-schedule-modal-teacher\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "06c7a04ae61974386e17-657cda144cd5d1b47650",
@@ -3363,33 +1521,8 @@
                   "expectedStatus": "passed",
                   "projectId": "teacher",
                   "projectName": "teacher",
-                  "results": [
-                    {
-                      "workerIndex": 39,
-                      "parallelIndex": 11,
-                      "status": "passed",
-                      "duration": 1361,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:07.359Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-1ad54-isible-on-the-calendar-page-teacher\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-1ad54-isible-on-the-calendar-page-teacher\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "06c7a04ae61974386e17-2efdd3641354682c3a62",
@@ -3408,38 +1541,70 @@
                   "expectedStatus": "passed",
                   "projectId": "teacher",
                   "projectName": "teacher",
-                  "results": [
-                    {
-                      "workerIndex": 44,
-                      "parallelIndex": 5,
-                      "status": "passed",
-                      "duration": 1309,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:08.704Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-8eecf-rom-the-teacher-campus-area-teacher\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\calendar.teacher-Teacher-C-8eecf-rom-the-teacher-campus-area-teacher\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "06c7a04ae61974386e17-ce757c764c5e80128f61",
               "file": "calendar.teacher.spec.ts",
               "line": 61,
+              "column": 5
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "flow.teacher.spec.ts",
+      "file": "flow.teacher.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Fase 5 y 6 UAT: Sesiones - Cancelar, No-Show, Reporte",
+          "file": "flow.teacher.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "5.1.A y 5.1.B: Alumno puede cancelar clase",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "teacher",
+                  "projectName": "teacher",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "30a6f1d509ec59497b38-a3e4a528e9b82dcbf0c3",
+              "file": "flow.teacher.spec.ts",
+              "line": 5,
+              "column": 5
+            },
+            {
+              "title": "6.1.A a 6.2.E: Profesor completa clase y envía reporte",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "teacher",
+                  "projectName": "teacher",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "30a6f1d509ec59497b38-b520f11f5539feb2d9e6",
+              "file": "flow.teacher.spec.ts",
+              "line": 36,
               "column": 5
             }
           ]
@@ -3470,33 +1635,8 @@
                   "expectedStatus": "passed",
                   "projectId": "admin",
                   "projectName": "admin",
-                  "results": [
-                    {
-                      "workerIndex": 45,
-                      "parallelIndex": 7,
-                      "status": "passed",
-                      "duration": 2192,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:08.838Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboard-admin-can-access-es-campus-admin-admin\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboard-admin-can-access-es-campus-admin-admin\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "e263f6328ba4d480f030-aaaa6277527416e56616",
@@ -3515,33 +1655,8 @@
                   "expectedStatus": "passed",
                   "projectId": "admin",
                   "projectName": "admin",
-                  "results": [
-                    {
-                      "workerIndex": 46,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 2347,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:08.900Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-d8b41-ws-a-heading-or-panel-title-admin\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-d8b41-ws-a-heading-or-panel-title-admin\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "e263f6328ba4d480f030-851a1bbab4632c4ffd1d",
@@ -3560,33 +1675,8 @@
                   "expectedStatus": "passed",
                   "projectId": "admin",
                   "projectName": "admin",
-                  "results": [
-                    {
-                      "workerIndex": 47,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 1771,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:08.946Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-c2a0d-at-es-campus-admin-students-admin\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-c2a0d-at-es-campus-admin-students-admin\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "e263f6328ba4d480f030-de3fbfddefd33edf4f5f",
@@ -3605,33 +1695,8 @@
                   "expectedStatus": "passed",
                   "projectId": "admin",
                   "projectName": "admin",
-                  "results": [
-                    {
-                      "workerIndex": 48,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 4038,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:09.082Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-52d2c-able-rows-with-student-data-admin\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-52d2c-able-rows-with-student-data-admin\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "e263f6328ba4d480f030-7f3c10c542221177367d",
@@ -3646,47 +1711,12 @@
               "tests": [
                 {
                   "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "note",
-                      "description": "No student links found — possibly empty test data"
-                    }
-                  ],
+                  "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "admin",
                   "projectName": "admin",
-                  "results": [
-                    {
-                      "workerIndex": 49,
-                      "parallelIndex": 13,
-                      "status": "passed",
-                      "duration": 2948,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:09.270Z",
-                      "annotations": [
-                        {
-                          "type": "note",
-                          "description": "No student links found — possibly empty test data"
-                        }
-                      ],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-a3e42-tail-from-the-students-list-admin\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-a3e42-tail-from-the-students-list-admin\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "e263f6328ba4d480f030-7bdb943768390ad9c1d2",
@@ -3705,33 +1735,8 @@
                   "expectedStatus": "passed",
                   "projectId": "admin",
                   "projectName": "admin",
-                  "results": [
-                    {
-                      "workerIndex": 50,
-                      "parallelIndex": 12,
-                      "status": "passed",
-                      "duration": 2426,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2026-02-23T20:43:09.317Z",
-                      "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-0dcd2-ent-navigation-than-student-admin\\test-finished-1.png"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\Alin\\Desktop\\Academia\\pruebas\\test-results\\artifacts\\admin.admin-Admin-Dashboar-0dcd2-ent-navigation-than-student-admin\\trace.zip"
-                        }
-                      ]
-                    }
-                  ],
-                  "status": "expected"
+                  "results": [],
+                  "status": "skipped"
                 }
               ],
               "id": "e263f6328ba4d480f030-374a9cdad21173e7ddf4",
@@ -3742,15 +1747,72 @@
           ]
         }
       ]
+    },
+    {
+      "title": "scheduling.admin.spec.ts",
+      "file": "scheduling.admin.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Fase 2 y 3 UAT: Agendamiento de Clases (Admin)",
+          "file": "scheduling.admin.spec.ts",
+          "line": 3,
+          "column": 6,
+          "specs": [
+            {
+              "title": "2.1.A a 2.1.C: Agendar clase individual desde modal",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "admin",
+                  "projectName": "admin",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fb370921ce119313990f-3c7e03f06fa367c31e6e",
+              "file": "scheduling.admin.spec.ts",
+              "line": 5,
+              "column": 5
+            },
+            {
+              "title": "3.1.A a 3.2.B: Agendamiento masivo (Bulk Scheduler)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "admin",
+                  "projectName": "admin",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "fb370921ce119313990f-d1d3ac299fb4dd85ba0c",
+              "file": "scheduling.admin.spec.ts",
+              "line": 58,
+              "column": 5
+            }
+          ]
+        }
+      ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-02-23T20:42:49.130Z",
-    "duration": 35943.804000000004,
-    "expected": 74,
-    "skipped": 0,
-    "unexpected": 0,
+    "startTime": "2026-02-27T16:24:46.041Z",
+    "duration": 20258.219,
+    "expected": 8,
+    "skipped": 30,
+    "unexpected": 5,
     "flaky": 0
   }
 }

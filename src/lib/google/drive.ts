@@ -457,3 +457,45 @@ export async function appendToIndexDocument(
         throw error;
     }
 }
+
+/**
+ * Upload a file Buffer directly to a specific Google Drive folder
+ */
+export async function uploadFileToFolder(
+    buffer: Buffer,
+    fileName: string,
+    mimeType: string,
+    folderId: string
+): Promise<ClassDocumentResult | null> {
+    const drive = getDriveClient();
+
+    try {
+        const Readable = (await import('stream')).Readable;
+        const body = new Readable();
+        body.push(buffer);
+        body.push(null);
+
+        const response = await drive.files.create({
+            requestBody: {
+                name: fileName,
+                parents: [folderId],
+            },
+            media: {
+                mimeType,
+                body,
+            },
+            fields: 'id, webViewLink'
+        });
+
+        if (!response.data.id) return null;
+
+        console.log(`[Drive] Uploaded file: ${fileName} to ${folderId}`);
+        return {
+            docId: response.data.id,
+            docUrl: response.data.webViewLink || `https://drive.google.com/file/d/${response.data.id}/view`
+        };
+    } catch (error) {
+        console.error('[Drive] Error uploading file:', error instanceof Error ? error.message : 'Unknown error');
+        return null;
+    }
+}

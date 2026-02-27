@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import StudentCancelModal from './StudentCancelModal';
 
 interface Session {
@@ -35,8 +35,14 @@ export default function StudentClassList({
     const [pastSessions, setPastSessions] = useState(initialPast);
     const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
     const [cancelModalSession, setCancelModalSession] = useState<Session | null>(null);
+    const [mounted, setMounted] = useState(false);
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     const formatDate = (dateStr: string) => {
+        if (!mounted) return '...';
         return new Date(dateStr).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
             weekday: 'long',
             day: 'numeric',
@@ -45,6 +51,7 @@ export default function StudentClassList({
     };
 
     const formatTime = (dateStr: string) => {
+        if (!mounted) return '--:--';
         return new Date(dateStr).toLocaleTimeString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
             hour: '2-digit',
             minute: '2-digit'

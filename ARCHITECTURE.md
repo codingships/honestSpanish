@@ -1,69 +1,109 @@
-# Arquitectura y Reglas de Desarrollo (Español Honesto)
+# Arquitectura de "Español Honesto"
 
-Este documento centraliza el conocimiento del proyecto `espanol-honesto-web` para que los desarrolladores y agentes de IA puedan continuar construyendo de manera segura sin romper la estructura principal.
-
----
-
-## 🏗️ 1. Core Stack y Reglas de Oro
-
-1.  **Astro + React Híbrido:** 
-    *   Este es un proyecto Astro 5 en modo SSR (Server-Side Rendering). 
-    *   **Regla estricta:** Solo usamos componentes de React (`.tsx`) cuando necesitamos interactividad en el cliente (ej. Dashboards, Formularios, Calendarios). Las páginas (`.astro`) y el layout principal deben escribirse en código Astro puro para maximizar el rendimiento.
-2.  **Alojamiento en el Edge:** 
-    *   La app corre íntegramente en Cloudflare Pages usando el adaptador oficial `@astrojs/cloudflare`. Todo endpoint de `/api` es en realidad una Cloudflare Function ejecutándose en el Edge.
-3.  **Estilos:** 
-    *   Usamos **Tailwind CSS**. No instales librerías de componentes UI pesadas (como Material-UI), CSS-in-JS, ni CSS Modules.
-    *   Toda la marca gira en torno a estos colores clave presentes en el tailwind.config: Crimson (`#6A131C`) y Amarillo Flúor (`#F6FE51`).
-4.  **i18n (Internacionalización):** 
-    *   *No instales `i18next` ni ninguna librería externa para traducciones.* 
-    *   Tenemos un sistema propio, ultra-ligero basado en rutas dinámicas (`src/pages/[lang]`). Los idiomas disponibles son `es`, `en`, `ru`.
-    *   Los textos de la interfaz viven centralizados en un único diccionario: `src/i18n/translations.ts`.
+El proyecto `Español Honesto` aborda dos universos completamente distintos en un solo repositorio de Astro:
+1.  **Frontend Público e Internacional (SSG):** Rutas ultra-rápidas para adquirir *Leads*, optimizadas para SEO en tres idiomas.
+2.  **Dashboard Privado (SSR):** Aplicación interactiva bajo autenticación estricta donde conviven Alumnos, Profesores y Administrador.
 
 ---
 
-## 🗄️ 2. Base de Datos, Roles y Autenticación (Supabase)
+## 1. El Patrón de Renderizado (Astro SSR/SSG Híbrido)
 
-La base de datos PostgreSQL está hosteada en Supabase y **tiene RLS (Row Level Security) estricto activo en todas sus tablas.**
+El enrutador está configurado en `output: 'server'` (dentro de `astro.config.mjs`) para soportar sesiones dinámicas, pero usamos `export const prerender = true;` en las rutas que necesitan coste computacional cero y latencia CDN absoluta.
 
-### 👥 Jerarquía de Roles de Usuario
-Existen 3 roles inmutables controlados por la tabla `profiles` (columna `role`):
+*   **Rutas Prerenderizadas (SSG - Estáticas):**
+    *   `/` (Landing Page)
+    *   `/[lang]/` (Página de Inicio traducida)
+    *   `/[lang]/blog/` (Lista de artículos)
+    *   `/[lang]/blog/[slug]` (Post individual generado mediante las colecciones de Keystatic en `src/content/blog`)
+    *   *En estas rutas, no hay acceso al objeto dinámico `Astro.request`.*
 
-1.  **`student`**: Nivel base. Solo tienen acceso a `/campus` y pueden ver/cancelar *sus propias clases* asociadas, así como navegar por su propio material compartido.
-2.  **`teacher`**: Profesores contratados. Acceden a `/campus/teacher` para definir su disponibilidad, ver el listado de alumnos a los que "tutorizan" y escribir notas (`teacher_notes`) sobre su progreso.
-3.  **`admin`**: Nivel maestro. Acceden a `/campus/admin`. Su tarea es asignar parejas (Student <=> Teacher), dar de alta o revocar accesos a profesores y revisar volumen de facturación.
-
-### 🛡️ Autenticación y Carga Híbrida
-*   El servidor utiliza **SSR (Server-Side Rendering)**. Es decir, las cookies (`sb-access-token`) y la validación Auth ocurren *antes* de que se pinte la página, evaluando los roles en middlewares y en el inicio del SSR. **Evitamos guardar la sesión exclusivamente en LocalStorage.**
-*   El archivo crítico responsable del chequeo global es: `src/pages/api/auth/post-login.ts` el cual redirige (302) a `/campus`, `/campus/teacher` o `/campus/admin` en base al rol que descubra en Supabase.
-
----
-
-## 🔌 3. Integración de Servicios Externos
-
-### 💳 A) Stripe (Facturación)
-*   **Modelo de Negocio:** Suscripción mensual (recurrente). El estudiante contrata un nivel (Essential, Intensive, Premium) que le otorga una "bolsa" de clases disponibles al mes baseadas en `packages`.
-*   **Seguridad:** Nadie escribe en la BBDD sobre pagos de forma manual. Todo lo que tiene que ver con facturas o activar cuentas lo tramitan en la sombra los **Stripe Webhooks** (`src/pages/api/stripe-webhook.ts`). 
-
-### 📅 B) Ecosistema de Google Workspace
-Se utiliza un Service Account de Google Cloud con permisos Domain Wide Delegation delegados e impersonando a `calendar@espanolhonesto.com`. No hay OAuth de usuario final; la plataforma es la dueña del ecosistema de Google.
-
-*   **Google Calendar API (`src/lib/google/calendar.ts`):** 
-    *   Cuando un estudiante o profesor programa una clase, el servidor automáticamente inyecta la invitación en el calendario del Profesor, añade al estudiante y genera el Google Meet Link sincrónicamente.
-*   **Google Drive API (`src/lib/google/drive.ts`):** 
-    *   Al crearse una cuenta, el sistema crea automáticamente una carpeta en la nube llamada "Nombre_del_alumno - Español Honesto".
-    *   Dentro de esa carpeta, clona en milisegundos una "Plantilla de Clase" de Google Docs que sirve como repositorio compartido bidireccional entre el alumno y su tutor.
-
-### ✉️ C) Resend (Emails)
-*   **Ubicación:** `src/lib/email`. Emite correos transaccionales desde `alejandro@espanolhonesto.com`.
-*   **Cronjob:** Tenemos una automatización (Cron) en `src/pages/api/cron/send-reminders.ts`. Éste se despliega en Cloudflare, y cada día busca en Supabase las clases que empiezan en "24 horas" para enviarle un recordatorio simultáneo al maestro y al alumno, a fin de minimizar olvidances (no-shows).
+*   **Rutas Server-Side (SSR - Dinámicas):**
+    *   `/[lang]/campus/*` (Todo el panel de estudiante, profesor y administrador)
+    *   `/[lang]/login` (Verifica si ya hay sesión abierta)
+    *   `/[lang]/checkout/*` (Recupera precios dinámicos de Stripe)
+    *   *Aquí se ejecutan consultas a BBDD en milisegundos y actúan los Guardianes de Ruta.*
 
 ---
 
-## 🧪 4. Pruebas y CI/CD (Testing)
+## 2. Base de Datos (Supabase PostgreSQL)
 
-Antes de fusionar código o proponer nuevas pull requests, la Integración Continua (GitHub Actions) espera que **2 Suites principales terminen en verde**, cubriendo cerca de 100 pruebas diferentes:
+La jerarquía del esquema de datos (`/db/schema.sql`) gira alrededor del objeto `auth.users` nativo de Supabase, extendido mediante triggers.
 
-1.  **Vitest (`npm run test:run`)**: Verifica la robustez modular de los Hooks Reactivos, componentes lógicos complejos (ej: `TeacherCalendar.tsx`, `StudentClassList.tsx`), los interceptores SSR y los APIs de utilidades y de Supabase.
-2.  **Playwright (`npm run test:e2e`)**: Corre 4 tests simultáneos montando navegadores headless. Verifica la Landing general, el Login y garantiza que un `student` jamás pueda entrar al panel de `teacher` (testeando los perfiles `.auth` previamente grabados).
+### Relaciones Core
+1.  **Profiles (Perfiles):** La tabla maestra. Define el `role` (`student`, `teacher`, `admin`), el idioma y guarda el `stripe_customer_id`.
+2.  **Packages (Paquetes):** El catálogo de productos (`essential`, `intensive`, `premium`). Enlazan con los IDs de precio reales de Stripe (`stripe_price_1m`, `3m`, `6m`).
+3.  **Subscriptions (Suscripciones):** Une un `profile` con un `package`. Controla la fecha de fin (`ends_at`) y el total de sesiones de clase (`sessions_total` vs `sessions_used`).
+4.  **Student_Teachers (Asignación):** Tabla pivote (N:M). Define qué Profesor imparte clase a qué Estudiante (`is_primary = true`).
+5.  **Sessions (Clases):** El calendario de clases consumidas y programadas y sus *meet_links*.
+6.  **Leads:** Registro legal (GDPR) de los usuarios que dejan su email en el formulario para cumplir normativas.
 
-*Siempre* que se modifique lógica de UI o ruteo, es mandatorio comprobar localmente la suit usando **`npm run test:all`**.
+### Row Level Security (RLS)
+El frontend de Campus se comunican a través del Cliente SSR de Supabase. Supabase inyecta automáticametne las "Cookies" generadas en `login` hacia la conexión de PostgreSQL. 
+
+> [!TIP]
+> **Regla RLS:** Un `Student` *únicamente* puede leer las filas de la BBDD donde su `id` coincida. Intentar hacer un SELECT global devolverá una matriz vacía sin crashear.
+
+---
+
+## 3. Webhooks & Bypass de Seguridad (Serverless APIs)
+
+En `src/pages/api/`, Astro expone endpoints "Edge" desplegados como Cloudflare Workers. 
+
+### /api/stripe-webhook.ts
+*   **Misión:** Escuchar asíncronamente a los servidores de Stripe y actualizar a los estudiantes.
+*   **Bypass:** Usa `SUPABASE_SERVICE_ROLE_KEY` (Cliente Admin). Esto ignora las políticas RLS. 
+*   **Lógica:** Cuando llega `checkout.session.completed`, el script extrae los metadatos de Stripe para buscar al Alumno, crea su suscripción en Postgres, y manda un email de bienvenida.
+
+### /api/subscribe.ts
+*   **Misión:** Recibir los embudos Lead Magnet desde el Footer y la Landing Page (*React Island*).
+*   **Validación Dual:** Primero comprueba el token inyectado por `@marsidev/react-turnstile` mandándolo a Cloudflare `siteverify` para cazar bots. Si es humano, usa el Service Role para meter al lead en BBDD y lanza un Resend.
+
+---
+
+## 4. Estructura de Roles del Sistema (Middlewares Reales)
+
+El acceso al campus está estrictamente segregado leyendo el `role` de la tabla `profiles` en **Server Side**. El usuario no ve parpadeos de redirección, la pantalla ni siquiera compila el DOM si no tienes permiso.
+
+*   `admin/index.astro`: Si el perfíl devuelto no es `role === 'admin'`, se destruye la request devolviendo Status 302 y derivando a `/campus`. Tiene omnipotencia para ver la facturación y los listados puros.
+*   `teacher/index.astro`: Verifica que el role sea `teacher` o `admin`. Accede mediante JOINs a la tabla `student_teachers` para ver única y exclusivamente a SU cartera de clientes, y las sesiones relativas a ellos.
+*   `campus/account.astro`: Panel base. Únicamente puede ver las columnas de `subscriptions` donde su propio ID cuadra en PostgreSQL.
+
+---
+
+## 5. El Blog y CMS Git-Based (Keystatic)
+
+Para evitar inflar la BBDD tabular de Supabase con HTML y rich-text, los Artículos del Blog viven físicamente en el repositorio (Dentro de `src/content/blog`).
+
+A esto se le suma el sistema **Keystatic**: Al entrar a `/keystatic` en local, levantas un mini-panel de control (React Admin) configurado por `keystatic.config.ts`. Este panel parsea los `.mdx`, te permite subir fotos y escribir artículos visualmente. 
+Al darle a guardar, Keystatic escribe el archivo markdown directamente en el disco duro para que hagas Commits. 
+Astro lo compila como estático (SSG) y lo sirve por 0ms desde Cloudflare. Pura eficiencia.
+
+---
+
+## 6. Automatizaciones de Google Workspace
+
+El sistema se integra de manera profunda con el ecosistema de Google mediante una **Service Account con Delegación de Dominio**, lo que permite actuar en nombre del usuario Administrador sin requerir OAuth interactivo.
+
+### Funciones Principales:
+*   **Google Drive (`src/lib/google/drive.ts`):** 
+    *   Genera carpetas organizadas para estudiantes de forma manual mediante el endpoint `/api/google/create-student-folder`.
+    *   Por cada sesión agendada, clona automáticamente un "Documento de Clase" base vinculándolo a la carpeta de Drive del alumno específico.
+*   **Google Calendar y Meet (`src/lib/google/calendar.ts`):**
+    *   Almacena las sesiones de clase creando eventos de Cloudflare a Google Calendar.
+    *   Genera automáticamente el enlace de videollamada de **Google Meet** que es enviado al correo del alumno y profesor, y adjuntado en la sesión de Supabase.
+*   **Procesamiento de Grabaciones (`src/lib/google/recordings.ts`):**
+    *   Busca grabaciones terminadas en Google Meet y genera accesos directos de la grabación enlazándolos dentro del Documento de Clase (Google Docs) de la sesión correspondiente.
+
+> [!NOTE]
+> Esta arquitectura garantiza que todo el material de clase (apuntes en Docs y grabaciones de Meet) residan siempre bajo la propiedad del correo administrador especificado en `GOOGLE_ADMIN_EMAIL`.
+
+---
+
+## 7. Tareas Programadas (Cron Jobs)
+
+Existen rutinas de Backend asíncronas para el mantenimiento de los estudiantes y el Campus.
+
+### `src/pages/api/cron/send-reminders.ts`
+*   **Misión:** Buscar en Supabase de forma automatizada las sesiones programadas (*scheduled*) que van a ocurrir en las próximas horas.
+*   **Acción:** Genera y envía por Resend un "Email de Recordatorio de Clase" con los enlaces de Google Meet tanto al profesor involucrado como al estudiante.
+*   **Despliegue:** Preparado para integrarse con Cloudflare Cron Triggers u otros invocadores HTTP externos mediante un Bearer Token.

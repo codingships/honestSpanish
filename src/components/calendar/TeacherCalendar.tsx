@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import ScheduleSessionModal from './ScheduleSessionModal';
 import SessionDetailModal from './SessionDetailModal';
+import BulkScheduleModal from './BulkScheduleModal';
 
 interface Session {
     id: string;
@@ -51,6 +52,7 @@ export default function TeacherCalendar({
     });
 
     const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+    const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
     const [selectedSession, setSelectedSession] = useState<Session | null>(null);
 
     // Generar días de la semana actual
@@ -178,12 +180,21 @@ export default function TeacherCalendar({
                     </span>
                 </div>
 
-                <button
-                    onClick={() => setIsScheduleModalOpen(true)}
-                    className="px-6 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
-                >
-                    + {t.scheduleClass}
-                </button>
+                <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setIsBulkModalOpen(true)}
+                        className="px-6 py-3 bg-white text-[#006064] font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#E0F7FA] transition-colors"
+                        title="Agendar Múltiples Semanas a la vez"
+                    >
+                        + Agendar Curso
+                    </button>
+                    <button
+                        onClick={() => setIsScheduleModalOpen(true)}
+                        className="px-6 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
+                    >
+                        + {t.scheduleClass}
+                    </button>
+                </div>
             </div>
 
             {/* Grid del calendario */}
@@ -266,6 +277,18 @@ export default function TeacherCalendar({
                     lang={lang}
                     translations={t}
                     onSessionCreated={handleNewSession}
+                />
+            )}
+
+            {isBulkModalOpen && (
+                <BulkScheduleModal
+                    isOpen={isBulkModalOpen}
+                    onClose={() => setIsBulkModalOpen(false)}
+                    students={students}
+                    teacherId={teacherId}
+                    lang={lang}
+                    translations={t}
+                    onSessionsCreated={() => window.location.reload()}
                 />
             )}
 

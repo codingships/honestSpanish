@@ -67,9 +67,9 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     
     {/* Navbar */}
     <nav class={`h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 ${s.bg}`}>
-        <div class="font-display text-xl tracking-tighter">{t('nav.brand')}</div>
+        <div class="font-display text-lg md:text-xl tracking-tighter truncate mr-2 w-full md:w-auto">{t('nav.brand')}</div>
 
-        {/* Navigation Links - Hidden on Mobile */}
+        {/* Desktop Navigation Links (Hidden on Mobile) */}
         <div class="hidden md:flex gap-6 items-center">
             <a href="#metodo" class="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.method')}</a>
             <a href="#progreso" class="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.progress')}</a>
@@ -79,22 +79,66 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             <a href={getLocalizedPath('/blog', lang)} class="font-mono text-xs uppercase tracking-wide hover:opacity-70 transition-opacity">{t('nav.blog')}</a>
         </div>
 
-        {/* Language Switcher */}
-        <div class="flex items-center gap-1 font-mono text-xs font-bold">
-            {supportedLanguages.map((lng) => (
-                <a
-                    href={getLangLink(lng)}
-                    class={`px-2 py-1 border ${s.border} uppercase transition-colors inline-block no-underline ${lang === lng ? `${s.accent} ${s.accentText}` : 'opacity-70 hover:opacity-100'}`}
-                >
-                    {lng}
-                </a>
-            ))}
+        {/* Desktop Actions (Hidden on Mobile) */}
+        <div class="hidden md:flex flex-row items-center gap-4">
+            {/* Language Switcher */}
+            <div class="flex items-center gap-1 font-mono text-xs font-bold">
+                {supportedLanguages.map((lng) => (
+                    <a
+                        href={getLangLink(lng)}
+                        class={`px-2 py-1 border ${s.border} uppercase transition-colors inline-block no-underline ${lang === lng ? `${s.accent} ${s.accentText}` : 'opacity-70 hover:opacity-100'}`}
+                    >
+                        {lng}
+                    </a>
+                ))}
+            </div>
+
+            <a href={`/${lang}/login`} class={`px-4 py-1 text-xs font-bold uppercase border ${s.border} hover:opacity-50 transition-opacity`}>
+                {t('nav.login')}
+            </a>
         </div>
 
-        <a href={`/${lang}/login`} class={`px-4 py-1 text-xs font-bold uppercase border ${s.border} hover:opacity-50 transition-opacity hidden md:block`}>
-            {t('nav.login')}
-        </a>
+        {/* Hamburger Icon (Mobile Only) */}
+        <button id="mobile-menu-btn" aria-label="Menu" class="md:hidden flex flex-col justify-center items-center w-10 h-10 border-2 border-[#006064] bg-[#E0F7FA] active:bg-[#006064] active:text-[#E0F7FA] transition-colors focus:outline-none z-50 relative group">
+            <span class="block w-5 h-0.5 bg-current mb-1 transition-transform origin-center group-[.is-open]:rotate-45 group-[.is-open]:translate-y-[6px]"></span>
+            <span class="block w-5 h-0.5 bg-current mb-1 transition-opacity group-[.is-open]:opacity-0"></span>
+            <span class="block w-5 h-0.5 bg-current transition-transform origin-center group-[.is-open]:-rotate-45 group-[.is-open]:-translate-y-[6px]"></span>
+        </button>
     </nav>
+
+    {/* Mobile Overlay Menu */}
+    <div id="mobile-overlay" class="fixed inset-0 bg-[#006064] z-40 transform translate-x-full transition-transform duration-300 ease-in-out md:hidden flex flex-col">
+        {/* Menu Content */}
+        <div class="flex flex-col flex-1 p-8 mt-16 overflow-y-auto">
+            <div class="flex flex-col gap-6 text-2xl font-display text-white mb-12">
+                <a href="#metodo" class="mobile-link hover:text-[#E0F7FA]/70">{t('nav.method')}</a>
+                <a href="#progreso" class="mobile-link hover:text-[#E0F7FA]/70">{t('nav.progress')}</a>
+                <a href="#planes" class="mobile-link hover:text-[#E0F7FA]/70">{t('nav.plans')}</a>
+                <a href="#equipo" class="mobile-link hover:text-[#E0F7FA]/70">{t('nav.team')}</a>
+                <a href="#faq" class="mobile-link hover:text-[#E0F7FA]/70">{t('nav.faq')}</a>
+                <a href={getLocalizedPath('/blog', lang)} class="mobile-link hover:text-[#E0F7FA]/70">{t('nav.blog')}</a>
+            </div>
+
+            <div class="mt-auto flex flex-col gap-6">
+                {/* Mobile Language Switcher */}
+                <div class="flex justify-center gap-2 font-mono text-sm font-bold w-full">
+                    {supportedLanguages.map((lng) => (
+                        <a
+                            href={getLangLink(lng)}
+                            class={`flex-1 py-3 text-center border-2 border-[#E0F7FA] uppercase transition-colors no-underline ${lang === lng ? 'bg-[#E0F7FA] text-[#006064]' : 'text-[#E0F7FA] hover:bg-[#E0F7FA]/10'}`}
+                        >
+                            {lng}
+                        </a>
+                    ))}
+                </div>
+                
+                {/* Mobile Login Button */}
+                <a href={`/${lang}/login`} class="w-full py-4 text-center font-bold uppercase tracking-widest border-2 border-[#E0F7FA] bg-[#E0F7FA] text-[#006064] active:bg-transparent active:text-[#E0F7FA] transition-colors">
+                    {t('nav.login')}
+                </a>
+            </div>
+        </div>
+    </div>
 
     {/* Hero */}
     <header class={`border-b-2 ${s.border} relative z-20 bg-[#E0F7FA]`}>
@@ -410,6 +454,37 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 icon.style.transform = 'rotate(45deg)';
                 // icon.innerText is '+' rotated 45deg looks like X, no need to change text technically if using rotation
             }
+        });
+    });
+
+    // Mobile Menu Logic
+    const menuBtn = document.getElementById('mobile-menu-btn');
+    const overlay = document.getElementById('mobile-overlay');
+    const mobileLinks = document.querySelectorAll('.mobile-link');
+    let isMenuOpen = false;
+
+    const toggleMenu = () => {
+        isMenuOpen = !isMenuOpen;
+        if (isMenuOpen) {
+            overlay?.classList.remove('translate-x-full');
+            overlay?.classList.add('translate-x-0');
+            menuBtn?.classList.add('is-open', 'bg-transparent', 'text-white', 'border-transparent');
+            menuBtn?.classList.remove('bg-[#E0F7FA]', 'text-[#006064]', 'border-[#006064]');
+            document.body.style.overflow = 'hidden';
+        } else {
+            overlay?.classList.add('translate-x-full');
+            overlay?.classList.remove('translate-x-0');
+            menuBtn?.classList.remove('is-open', 'bg-transparent', 'text-white', 'border-transparent');
+            menuBtn?.classList.add('bg-[#E0F7FA]', 'text-[#006064]', 'border-[#006064]');
+            document.body.style.overflow = '';
+        }
+    };
+
+    menuBtn?.addEventListener('click', toggleMenu);
+
+    mobileLinks.forEach(link => {
+        link.addEventListener('click', () => {
+            if (isMenuOpen) toggleMenu();
         });
     });
 </script>
