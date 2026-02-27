@@ -8,6 +8,12 @@ test.describe('Fase 1 UAT: Onboarding y Seguridad', () => {
 
         await page.goto('/es/login');
 
+        // Esperar hidratación del componente AuthForm
+        await page.waitForFunction(() => {
+            const island = document.querySelector('astro-island');
+            return island && !island.hasAttribute('ssr');
+        }, { timeout: 10000 });
+
         // Cambiar a modo registro (es el botón dentro del div "mt-6 p")
         const switchModeBtn = page.locator('div.mt-6 p button');
         await switchModeBtn.click();
@@ -35,6 +41,12 @@ test.describe('Fase 1 UAT: Onboarding y Seguridad', () => {
 
     test('1.3.A y B: Recuperar contraseña muestra formulario y envía email', async ({ page }) => {
         await page.goto('/es/login');
+
+        // Esperar hidratación del componente AuthForm
+        await page.waitForFunction(() => {
+            const island = document.querySelector('astro-island');
+            return island && !island.hasAttribute('ssr');
+        }, { timeout: 10000 });
 
         // Buscar el botón de "Olvidé mi contraseña" (botón principal dentro de div mt-2)
         const forgotLink = page.locator('div.mt-2 button');

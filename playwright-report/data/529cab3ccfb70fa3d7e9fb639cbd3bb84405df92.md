@@ -1,0 +1,129 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - link "ESPAÑOL HONESTO" [ref=e5] [cursor=pointer]:
+        - /url: /es
+      - navigation [ref=e6]:
+        - list [ref=e7]:
+          - listitem [ref=e8]:
+            - link "📊 Panel admin" [ref=e9] [cursor=pointer]:
+              - /url: /es/campus/admin
+              - generic [ref=e10]: 📊
+              - generic [ref=e11]: Panel admin
+          - listitem [ref=e12]:
+            - link "🎯 CRM Leads" [ref=e13] [cursor=pointer]:
+              - /url: /es/campus/admin/leads
+              - generic [ref=e14]: 🎯
+              - generic [ref=e15]: CRM Leads
+          - listitem [ref=e16]:
+            - link "👥 Estudiantes" [ref=e17] [cursor=pointer]:
+              - /url: /es/campus/admin/users
+              - generic [ref=e18]: 👥
+              - generic [ref=e19]: Estudiantes
+          - listitem [ref=e20]:
+            - link "📅 Calendario Global" [ref=e21] [cursor=pointer]:
+              - /url: /es/campus/admin/calendar
+              - generic [ref=e22]: 📅
+              - generic [ref=e23]: Calendario Global
+          - listitem [ref=e24]:
+            - link "💳 Pagos" [ref=e25] [cursor=pointer]:
+              - /url: /es/campus/admin/payments
+              - generic [ref=e26]: 💳
+              - generic [ref=e27]: Pagos
+          - listitem [ref=e28]:
+            - link "👤 Mi cuenta" [ref=e29] [cursor=pointer]:
+              - /url: /es/campus/account
+              - generic [ref=e30]: 👤
+              - generic [ref=e31]: Mi cuenta
+      - link "🚪 Cerrar sesión" [ref=e33] [cursor=pointer]:
+        - /url: /es/logout
+        - generic [ref=e34]: 🚪
+        - generic [ref=e35]: Cerrar sesión
+    - generic [ref=e36]:
+      - banner [ref=e37]:
+        - heading "Mi Calendario" [level=1] [ref=e39]
+        - generic [ref=e41]:
+          - generic [ref=e42]: Admin
+          - generic [ref=e43]: Alejandro (Admin)
+          - button "AL" [ref=e44] [cursor=pointer]
+      - main [ref=e45]:
+        - generic [ref=e47]:
+          - heading "Mi Calendario" [level=1] [ref=e48]
+          - paragraph [ref=e49]: Gestiona tu disponibilidad y clases programadas
+        - generic [ref=e50]:
+          - button "📅 Horario" [ref=e51] [cursor=pointer]
+          - button "⏰ Disponibilidad" [ref=e52] [cursor=pointer]
+        - generic [ref=e55]:
+          - generic [ref=e56]:
+            - generic [ref=e57]:
+              - button "←" [ref=e58] [cursor=pointer]
+              - button "Hoy" [ref=e59] [cursor=pointer]
+              - button "→" [ref=e60] [cursor=pointer]
+              - generic [ref=e61]: 23 feb - 1 mar
+            - generic [ref=e62]:
+              - button "+ Agendar Curso" [ref=e63] [cursor=pointer]
+              - button "+ Programar clase" [ref=e64] [cursor=pointer]
+          - generic [ref=e65]:
+            - generic [ref=e66]:
+              - paragraph [ref=e67]: Lun
+              - paragraph [ref=e68]: "23"
+            - generic [ref=e69]:
+              - paragraph [ref=e70]: Mar
+              - paragraph [ref=e71]: "24"
+            - generic [ref=e72]:
+              - paragraph [ref=e73]: Mié
+              - paragraph [ref=e74]: "25"
+            - generic [ref=e75]:
+              - paragraph [ref=e76]: Jue
+              - paragraph [ref=e77]: "26"
+            - generic [ref=e78]:
+              - paragraph [ref=e79]: Vie
+              - paragraph [ref=e80]: "27"
+            - generic [ref=e81]:
+              - paragraph [ref=e82]: Sáb
+              - paragraph [ref=e83]: "28"
+            - generic [ref=e84]:
+              - paragraph [ref=e85]: Dom
+              - paragraph [ref=e86]: "1"
+            - button "20:53 Alin Dev (Student)" [active] [ref=e90] [cursor=pointer]:
+              - paragraph [ref=e91]: 20:53
+              - paragraph [ref=e92]: Alin Dev (Student)
+          - generic [ref=e97]:
+            - generic [ref=e100]: Programada
+            - generic [ref=e103]: Completada
+            - generic [ref=e106]: No asistió
+            - generic [ref=e109]: Cancelada
+          - generic [ref=e112]:
+            - generic [ref=e113]:
+              - heading "Programar clase" [level=2] [ref=e114]
+              - button "×" [ref=e115] [cursor=pointer]
+            - generic [ref=e116]:
+              - generic [ref=e117]: Seleccionar estudiante
+              - combobox [ref=e118]:
+                - option "Seleccionar estudiante..." [selected]
+              - button "Continuar" [disabled] [ref=e119]
+  - generic [ref=e121]:
+    - paragraph [ref=e122]:
+      - text: Utilizamos cookies técnicas para el funcionamiento del sitio.
+      - link "Más información" [ref=e123] [cursor=pointer]:
+        - /url: /es/legal/cookies
+    - button "Aceptar" [ref=e124] [cursor=pointer]
+  - generic [ref=e127]:
+    - button "Menu" [ref=e128]:
+      - img [ref=e130]
+      - generic: Menu
+    - button "Inspect" [ref=e134]:
+      - img [ref=e136]
+      - generic: Inspect
+    - button "Audit" [ref=e138]:
+      - generic [ref=e139]:
+        - img [ref=e140]
+        - img [ref=e143]
+      - generic: Audit
+    - button "Settings" [ref=e146]:
+      - img [ref=e148]
+      - generic: Settings
+```

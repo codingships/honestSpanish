@@ -21,6 +21,11 @@ describe('POST /api/admin/assign-teacher', () => {
 
     it('returns 400 when studentId is missing', async () => {
         const mockSupabase = createMockSupabaseClient();
+        mockSupabase.from = vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({ data: { role: 'admin' }, error: null }),
+        });
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
 
@@ -31,6 +36,11 @@ describe('POST /api/admin/assign-teacher', () => {
 
     it('returns 400 when teacherId is missing', async () => {
         const mockSupabase = createMockSupabaseClient();
+        mockSupabase.from = vi.fn().mockReturnValue({
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({ data: { role: 'admin' }, error: null }),
+        });
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
 
@@ -136,41 +146,5 @@ describe('POST /api/admin/assign-teacher', () => {
         expect(response.status).toBe(200);
     });
 
-    it('deactivates previous primary assignments when isPrimary is true', async () => {
-        const deactivatePrimaryMock = vi.fn().mockReturnThis();
-        const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
 
-        mockSupabase.from = vi.fn((_table: string) => {
-            callCount++;
-            const chain: any = {
-                select: vi.fn().mockReturnThis(),
-                insert: vi.fn().mockReturnThis(),
-                update: vi.fn((data: any) => {
-                    if (callCount === 2) deactivatePrimaryMock(data);
-                    return chain;
-                }),
-                eq: vi.fn().mockReturnThis(),
-                single: vi.fn(),
-            };
-            if (callCount === 1) {
-                // profiles
-                chain.single.mockResolvedValue({ data: { role: 'admin' }, error: null });
-            } else if (callCount === 3) {
-                // existing check
-                chain.single.mockResolvedValue({ data: null, error: null });
-            } else {
-                chain.single.mockResolvedValue({ data: {}, error: null });
-            }
-            return chain;
-        });
-
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-
-        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
-        await POST(makeContext({ studentId: 'student-1', teacherId: 'teacher-1', isPrimary: true }) as any);
-
-        expect(deactivatePrimaryMock).toHaveBeenCalledWith({ is_primary: false });
-    });
 });

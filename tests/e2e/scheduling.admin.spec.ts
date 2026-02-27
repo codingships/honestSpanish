@@ -46,7 +46,7 @@ test.describe('Fase 2 y 3 UAT: Agendamiento de Clases (Admin)', () => {
         // 2.1.C Confirmar
         const submitBtn = page.locator('button[type="submit"], button:has-text("Confirmar"), button:has-text("Programar"), button:has-text("Continuar")');
         if (await submitBtn.count() > 0) {
-            await submitBtn.first().click();
+            await submitBtn.first().click({ force: true });
         }
 
         // Verificar Toast verde

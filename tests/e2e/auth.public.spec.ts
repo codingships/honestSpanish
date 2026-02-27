@@ -10,6 +10,13 @@ test.describe('Auth — public', () => {
 
     test('login with wrong credentials shows an error message', async ({ page }) => {
         await page.goto('/es/login');
+
+        // Esperar hidratación del componente AuthForm
+        await page.waitForFunction(() => {
+            const island = document.querySelector('astro-island');
+            return island && !island.hasAttribute('ssr');
+        }, { timeout: 10000 });
+
         await page.fill('input[type="email"]', 'notareal@user.com');
         await page.fill('input[type="password"]', 'wrongpassword123');
         await page.click('button[type="submit"]');

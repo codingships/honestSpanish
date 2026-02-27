@@ -64,11 +64,12 @@ export const POST: APIRoute = async (context) => {
     const { checkTeacherAvailability } = await import('../../../lib/google/calendar');
 
     // 1. VERIFICAR TODOS LOS CONFLICTOS ANTES DE INSERTAR NINGUNO (Atomicidad lógica)
-    for (const dateStr of scheduledDates) {
+    // Recopilar promesas para verificar conflictos en BBDD y en Google Calendar de forma concurrente
+    const conflictChecks = scheduledDates.map(async (dateStr: string) => {
         const scheduledDate = new Date(dateStr);
         const endTime = new Date(scheduledDate.getTime() + durationMinutes * 60000);
 
-        // BBDD Conflict
+        // A. Verificar en BBDD
         const { data: conflictingSessions } = await supabase
             .from('sessions')
             .select('id')
@@ -78,20 +79,35 @@ export const POST: APIRoute = async (context) => {
             .lt('scheduled_at', endTime.toISOString());
 
         if (conflictingSessions && conflictingSessions.length > 0) {
-            return new Response(JSON.stringify({
-                error: `Conflicto detectado el ${scheduledDate.toLocaleDateString()} a las ${scheduledDate.toLocaleTimeString()}. Hay una clase existente.`
-            }), { status: 409 });
+            return {
+                hasConflict: true,
+                message: `Conflicto detectado en Campus el ${scheduledDate.toLocaleDateString()} a las ${scheduledDate.toLocaleTimeString()}. El profesor ya tiene una clase.`
+            };
         }
 
-        // Google Calendar Conflict
+        // B. Verificar en Google Calendar
         if (teacherEmail) {
             const isFree = await checkTeacherAvailability(teacherEmail, scheduledDate, endTime);
             if (!isFree) {
-                return new Response(JSON.stringify({
-                    error: `Conflicto en Google Calendar del profesor el ${scheduledDate.toLocaleDateString()} a las ${scheduledDate.toLocaleTimeString()}.`
-                }), { status: 409 });
+                return {
+                    hasConflict: true,
+                    message: `Conflicto en Google Calendar del profesor el ${scheduledDate.toLocaleDateString()} a las ${scheduledDate.toLocaleTimeString()}.`
+                };
             }
         }
+
+        return { hasConflict: false };
+    });
+
+    // Ejecutar todas las verificaciones
+    const results = await Promise.all(conflictChecks);
+
+    // Si AL MENOS UNA falla, abortamos todo el proceso de agendamiento
+    const firstConflict = results.find(r => r.hasConflict);
+    if (firstConflict) {
+        return new Response(JSON.stringify({
+            error: firstConflict.message
+        }), { status: 409 });
     }
 
     // 2. INSERTAR TODAS LAS SESIONES EN BBDD

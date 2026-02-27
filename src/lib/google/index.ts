@@ -53,15 +53,6 @@ export {
 export {
     createClassDocument,
     createClassDocumentsBatch,
-    linkRecordingToDocument,
     type CreateClassDocumentOptions,
     type ClassDocumentResult,
 } from './class-document';
-
-// Recordings
-export {
-    processClassRecording,
-    checkRecordingsAvailable,
-    type ProcessRecordingOptions,
-    type RecordingResult,
-} from './recordings';

@@ -11,6 +11,7 @@ vi.mock('../../src/lib/google/drive', () => ({
 }));
 
 vi.mock('../../src/lib/google/calendar', () => ({
+    checkTeacherAvailability: vi.fn().mockResolvedValue(true),
     createClassEvent: vi.fn().mockResolvedValue(null),
 }));
 
@@ -42,8 +43,8 @@ const mockNewSession = {
 describe('POST /api/calendar/sessions', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.spyOn(console, 'error').mockImplementation(() => {});
-        vi.spyOn(console, 'log').mockImplementation(() => {});
+        vi.spyOn(console, 'error').mockImplementation(() => { });
+        vi.spyOn(console, 'log').mockImplementation(() => { });
     });
 
     afterEach(() => {
@@ -171,9 +172,7 @@ describe('POST /api/calendar/sessions', () => {
 
     it('returns 201 and session data when everything is valid', async () => {
         const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
-        mockSupabase.from = vi.fn((_table: string) => {
-            callCount++;
+        mockSupabase.from = vi.fn((table: string) => {
             const chain: any = {
                 select: vi.fn().mockReturnThis(),
                 insert: vi.fn().mockReturnThis(),
@@ -182,33 +181,29 @@ describe('POST /api/calendar/sessions', () => {
                 neq: vi.fn().mockReturnThis(),
                 gte: vi.fn().mockReturnThis(),
                 lte: vi.fn().mockReturnThis(),
-                lt: vi.fn().mockReturnThis(),
                 order: vi.fn().mockReturnThis(),
                 limit: vi.fn().mockReturnThis(),
                 single: vi.fn(),
+                lt: vi.fn()
             };
-            if (callCount === 1) {
-                // profiles
-                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
-            } else if (callCount === 2) {
-                // subscription — valid
-                chain.single.mockResolvedValue({
-                    data: { id: 'sub-1', sessions_used: 2, sessions_total: 8 },
-                    error: null,
+
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher', email: 'teacher@test.com' }, error: null });
+            } else if (table === 'subscriptions') {
+                chain.single = vi.fn().mockImplementation(() => {
+                    // optimisitc lock check vs get active sub
+                    return Promise.resolve({
+                        data: { id: 'sub-1', sessions_used: 2, sessions_total: 8 },
+                        error: null,
+                    });
                 });
-            } else if (callCount === 3) {
-                // conflict check (no .single() used, just chain)
-                chain.single.mockResolvedValue({ data: [], error: null });
-            } else if (callCount === 4) {
-                // insert session
+            } else if (table === 'sessions') {
+                // Para el conflict check:
+                chain.lt.mockResolvedValue({ data: [], error: null });
+                // Para el insert select single:
                 chain.single.mockResolvedValue({ data: mockNewSession, error: null });
-            } else if (callCount === 5) {
-                // subscription optimistic lock update — must return non-null to confirm success
-                chain.single.mockResolvedValue({ data: { id: 'sub-1' }, error: null });
-            } else {
-                // background task lookups (profiles, etc.)
-                chain.single.mockResolvedValue({ data: null, error: null });
             }
+
             return chain;
         });
 
@@ -230,10 +225,7 @@ describe('POST /api/calendar/sessions', () => {
     it('increments sessions_used on the subscription after creating session', async () => {
         const subscriptionUpdateMock = vi.fn().mockReturnThis();
         const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
-
         mockSupabase.from = vi.fn((table: string) => {
-            callCount++;
             const chain: any = {
                 select: vi.fn().mockReturnThis(),
                 insert: vi.fn().mockReturnThis(),
@@ -245,26 +237,26 @@ describe('POST /api/calendar/sessions', () => {
                 neq: vi.fn().mockReturnThis(),
                 gte: vi.fn().mockReturnThis(),
                 lte: vi.fn().mockReturnThis(),
-                lt: vi.fn().mockReturnThis(),
                 order: vi.fn().mockReturnThis(),
                 limit: vi.fn().mockReturnThis(),
                 single: vi.fn(),
+                lt: vi.fn()
             };
-            if (callCount === 1) {
-                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
-            } else if (callCount === 2) {
-                chain.single.mockResolvedValue({
-                    data: { id: 'sub-1', sessions_used: 3, sessions_total: 8 },
-                    error: null,
+
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher', email: 'teacher@test.com' }, error: null });
+            } else if (table === 'subscriptions') {
+                chain.single = vi.fn().mockImplementation(() => {
+                    return Promise.resolve({
+                        data: { id: 'sub-1', sessions_used: 3, sessions_total: 8 },
+                        error: null,
+                    });
                 });
-            } else if (callCount === 4) {
+            } else if (table === 'sessions') {
+                chain.lt.mockResolvedValue({ data: [], error: null });
                 chain.single.mockResolvedValue({ data: mockNewSession, error: null });
-            } else if (callCount === 5) {
-                // subscription optimistic lock update — non-null confirms lock acquired
-                chain.single.mockResolvedValue({ data: { id: 'sub-1' }, error: null });
-            } else {
-                chain.single.mockResolvedValue({ data: null, error: null });
             }
+
             return chain;
         });
 

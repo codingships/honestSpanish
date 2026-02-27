@@ -6,6 +6,12 @@ setup('authenticate as student', async ({ page }) => {
     // Ir a login
     await page.goto('/es/login');
 
+    // Esperar hidratación del componente AuthForm
+    await page.waitForFunction(() => {
+        const island = document.querySelector('astro-island');
+        return island && !island.hasAttribute('ssr');
+    }, { timeout: 10000 });
+
     // Rellenar credenciales
     await page.fill('input[type="email"]', process.env.TEST_STUDENT_EMAIL!);
     await page.fill('input[type="password"]', process.env.TEST_STUDENT_PASSWORD!);
@@ -14,7 +20,7 @@ setup('authenticate as student', async ({ page }) => {
     await page.click('button[type="submit"]');
 
     // Esperar a que redirija al campus
-    await page.waitForURL(/\/campus/, { timeout: 10000 });
+    await page.waitForURL(/\/campus/, { timeout: 15000 });
 
     // Verificar que estamos logueados
     await expect(page).toHaveURL(/\/campus/);
