@@ -30,6 +30,11 @@ interface NextClassCardProps {
 }
 
 export default function NextClassCard({ session, lang, translations: t }: NextClassCardProps) {
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     if (!session) {
         return (
             <div className="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
@@ -44,11 +49,6 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
             </div>
         );
     }
-
-    const [mounted, setMounted] = useState(false);
-    useEffect(() => {
-        setMounted(true);
-    }, []);
 
     const sessionDate = new Date(session.scheduled_at);
     const now = new Date();

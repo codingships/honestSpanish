@@ -5,6 +5,8 @@ import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 import TeacherCalendar from '../../../../components/calendar/TeacherCalendar';
 import AvailabilityManager from '../../../../components/calendar/AvailabilityManager';
 
+export const prerender = false;
+
 export async function getStaticPaths() {
     return [
         { params: { lang: 'es' } },

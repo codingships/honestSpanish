@@ -13,7 +13,7 @@ interface BulkScheduleModalProps {
     teacherId: string;
     lang: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    translations: Record<string, any>;
+    translations: Record<string, unknown>;
     onSessionsCreated: () => void; // Trigger a reload
 }
 
@@ -23,7 +23,7 @@ export default function BulkScheduleModal({
     students,
     teacherId,
     lang,
-    translations: t,
+    translations: _t,
     onSessionsCreated
 }: BulkScheduleModalProps) {
     const [step, setStep] = useState(1);
@@ -110,8 +110,8 @@ export default function BulkScheduleModal({
                 onClose();
             }, 3000);
 
-        } catch (err: any) {
-            setError(err.message || 'Error occurred while scheduling');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Error occurred while scheduling');
         } finally {
             setIsLoading(false);
         }

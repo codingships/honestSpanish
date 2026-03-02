@@ -15,16 +15,16 @@ interface PostClassReportProps {
     session: Session;
     lang: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    translations: Record<string, any>;
-    onSubmit: (reportData: any, homeworkText: string) => Promise<void>;
+    translations: Record<string, unknown>;
+    onSubmit: (reportData: Record<string, unknown> & { teacher_comments?: string }, homeworkText: string) => Promise<void>;
 }
 
 export default function PostClassReport({
     isOpen,
     onClose,
     session,
-    lang,
-    translations: t,
+    lang: _lang,
+    translations: _t,
     onSubmit
 }: PostClassReportProps) {
     const [rating, setRating] = useState(0);
@@ -59,8 +59,8 @@ export default function PostClassReport({
         try {
             await onSubmit(reportData, homeworkText);
             onClose();
-        } catch (err: any) {
-            setError(err.message || 'Error saving the report');
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'Error saving the report');
         } finally {
             setIsLoading(false);
         }

@@ -5,6 +5,8 @@ import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
 import TeacherNotes from '../../../../../components/TeacherNotes';
 import AssignTeacherButton from '../../../../../components/admin/AssignTeacherButton';
 
+export const prerender = false;
+
 export async function getStaticPaths() {
     return [
         { params: { lang: 'es', id: 'placeholder' } },

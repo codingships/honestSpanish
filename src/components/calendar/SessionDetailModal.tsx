@@ -99,7 +99,7 @@ export default function SessionDetailModal({
         }
     };
 
-    const handleCompleteClass = async (reportData: any, homeworkText: string) => {
+    const handleCompleteClass = async (reportData: Record<string, unknown> & { teacher_comments?: string }, homeworkText: string) => {
         setIsLoading(true);
         setMessage(null);
 
@@ -158,8 +158,8 @@ export default function SessionDetailModal({
                 onClose();
                 window.location.reload();
             }, 1000);
-        } catch (err: any) {
-            setMessage({ type: 'error', text: err.message || 'Error' });
+        } catch (err: unknown) {
+            setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error' });
             throw err; // Para que el modal muestre el error
         } finally {
             setIsLoading(false);

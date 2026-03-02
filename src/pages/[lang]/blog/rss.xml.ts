@@ -2,6 +2,8 @@ import rss from '@astrojs/rss';
 import { getCollection, type CollectionEntry } from 'astro:content';
 import type { APIContext } from 'astro';
 
+export const prerender = false;
+
 export async function getStaticPaths() {
     return [
         { params: { lang: 'es' } },

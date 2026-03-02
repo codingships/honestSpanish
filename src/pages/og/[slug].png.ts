@@ -60,7 +60,7 @@ export const GET: APIRoute = async ({ params }) => {
   `;
 
   // 1. Satori convierte el HTML en SVG
-  // @ts-ignore
+  // @ts-expect-error
   const svg = await satori(html(markupString), {
     width: 1200,
     height: 630,
@@ -82,7 +82,7 @@ export const GET: APIRoute = async ({ params }) => {
   const pngBuffer = pngData.asPng();
 
   // 3. Devolvemos la imagen al navegador/build
-  // @ts-ignore
+  // @ts-expect-error
   return new Response(pngBuffer, {
     status: 200,
     headers: {

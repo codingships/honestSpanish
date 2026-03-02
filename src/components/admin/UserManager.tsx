@@ -11,7 +11,7 @@ interface Subscription {
     status: string;
     sessions_total: number;
     sessions_used: number;
-    package: { name: string; display_name: any };
+    package: { name: string; display_name: unknown };
 }
 
 interface Student {

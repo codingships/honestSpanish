@@ -3,6 +3,8 @@ import CampusLayout from '../../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 
+export const prerender = false;
+
 export async function getStaticPaths() {
     return [
         { params: { lang: 'es' } },
