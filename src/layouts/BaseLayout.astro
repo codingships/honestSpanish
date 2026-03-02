@@ -6,7 +6,6 @@ interface Props {
   title: string;
   description: string;
   lang: string;
-  canonicalUrl?: string;
   canonicalPath?: string;
   noindex?: boolean;
   ogImage?: string;
@@ -16,13 +15,15 @@ const {
     title, 
     description, 
     lang, 
-    canonicalUrl = Astro.url.href, 
     canonicalPath,
     noindex = false,
     ogImage = '/og/home.png' 
 } = Astro.props;
 
 const siteUrl = 'https://espanolhonesto.com';
+
+// Always build canonical from the non-www base URL to prevent www vs non-www duplicates
+const canonicalUrl = `${siteUrl}${Astro.url.pathname}`;
 
 // Generate proper canonical and hreflang URLs
 // If canonicalPath is provided, use it for dynamic hreflang
