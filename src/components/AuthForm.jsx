@@ -35,16 +35,17 @@ export default function AuthForm({ lang: langProp, translations }) {
         setSuccessMessage(null);
 
         try {
-            const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            // Best practice: don't reveal if email exists. Always show success.
+            // Errors are logged silently to avoid email enumeration attacks.
+            await supabase.auth.resetPasswordForEmail(email, {
                 redirectTo: `${window.location.origin}/${lang}/reset-password`,
             });
-            if (error) throw error;
-            setSuccessMessage(t.auth.success.resetEmailSent);
         } catch (err) {
-            console.error(err);
-            setError(err.message || 'An error occurred');
+            console.error('Reset password error (silent):', err);
         } finally {
             setLoading(false);
+            // Always show success regardless of outcome
+            setSuccessMessage(t.auth.success.resetEmailSent);
         }
     };
 
