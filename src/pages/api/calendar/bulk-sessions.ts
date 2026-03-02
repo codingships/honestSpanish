@@ -212,7 +212,7 @@ async function processBulkBackgroundTasks(supabase: import('@supabase/supabase-j
                     studentName,
                     studentRootFolderId: studentInfo.drive_folder_id,
                     level,
-                    classDate: new Date(session.scheduled_at),
+                    classDate: new Date(session.scheduled_at!),
                 });
             }
 
