@@ -23,7 +23,7 @@ export const createSupabaseServerClient = (context: APIContext) => {
                     try {
                         if (context.cookies.has(name) && context.cookies.get(name)?.value === value) return; // Prevent redunant sets
                         context.cookies.set(name, value, options);
-                    } catch (_) {
+                    } catch {
                         // Handle ResponseSentError and Astro Cookie Warnings silently
                         // Thrown in Astro when Supabase tries to refresh the token mid-render or after headers are sent
                     }

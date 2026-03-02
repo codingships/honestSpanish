@@ -4,11 +4,6 @@ import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { cancelClassEvent } from '../../../lib/google/calendar';
 import { sendClassCancelledToBoth } from '../../../lib/email';
 
-// Service role client: bypasses RLS for privileged writes (subscription credit restore)
-const supabaseAdmin = createClient(
-    import.meta.env.PUBLIC_SUPABASE_URL,
-    import.meta.env.SUPABASE_SERVICE_ROLE_KEY
-);
 
 // 👇 FIX 1: Forzamos Node.js para que funcionen las librerías de Google
 export const config = {
@@ -97,6 +92,11 @@ export const POST: APIRoute = async (context) => {
             if (sub) {
                 const currentUsed = sub.sessions_used ?? 0;
                 if (currentUsed > 0) {
+                    // Lazy-initialize admin client only when needed to avoid module-load env var issues
+                    const supabaseAdmin = createClient(
+                        import.meta.env.PUBLIC_SUPABASE_URL,
+                        import.meta.env.SUPABASE_SERVICE_ROLE_KEY
+                    );
                     await supabaseAdmin
                         .from('subscriptions')
                         .update({ sessions_used: currentUsed - 1 })
