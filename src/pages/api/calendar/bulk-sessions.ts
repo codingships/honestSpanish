@@ -126,7 +126,7 @@ export const POST: APIRoute = async (context) => {
         .insert(sessionsToInsert)
         .select(`
             *,
-            student:profiles!sessions_student_id_fkey(id, full_name, email, drive_folder_id, current_level),
+            student:profiles!sessions_student_id_fkey(id, full_name, email, drive_folder_id),
             teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
         `);
 
@@ -166,14 +166,25 @@ export const POST: APIRoute = async (context) => {
  * Procesa la creación de Carpetas y Eventos de Google iterativamente en la lambda de fondo.
  * IMPORTANTE: Hacemos pausas entre peticiones a Google para no superar el rate limit de Google Drive API.
  */
-async function processBulkBackgroundTasks(supabase: any, sessions: any[]) {
+// Define robust typings for the payload coming out of Supabase Join
+type ProfileJoin = { id: string; full_name?: string | null; email?: string | null; drive_folder_id?: string | null };
+type SessionWithJoins = {
+    id: string;
+    scheduled_at: string | null;
+    duration_minutes?: number | null;
+    meet_link?: string | null;
+    student?: ProfileJoin | ProfileJoin[] | null;
+    teacher?: ProfileJoin | ProfileJoin[] | null;
+};
+
+async function processBulkBackgroundTasks(supabase: import('@supabase/supabase-js').SupabaseClient, sessions: SessionWithJoins[]) {
     console.log(`[Sessions] Starting bulk background processing for ${sessions.length} sessions...`);
 
     // We send just ONE summary email at the very end rather than spamming the user with 24 individual emails.
     if (sessions.length === 0) return;
 
-    const studentInfo = sessions[0].student;
-    const teacherInfo = sessions[0].teacher;
+    const studentInfo = Array.isArray(sessions[0].student) ? sessions[0].student[0] : sessions[0].student;
+    const teacherInfo = Array.isArray(sessions[0].teacher) ? sessions[0].teacher[0] : sessions[0].teacher;
 
     const studentEmail = studentInfo?.email;
     const studentName = studentInfo?.full_name || studentEmail?.split('@')[0] || 'Estudiante';
@@ -196,7 +207,7 @@ async function processBulkBackgroundTasks(supabase: any, sessions: any[]) {
         try {
             // 1. Documento de Drive
             if (studentInfo?.drive_folder_id) {
-                const level = (studentInfo.current_level || 'A2') as 'A2' | 'B1' | 'B2' | 'C1';
+                const level = 'A2' as 'A2' | 'B1' | 'B2' | 'C1'; // Fallback level since current_level is not on profiles
                 documentResult = await createClassDocument({
                     studentName,
                     studentRootFolderId: studentInfo.drive_folder_id,
@@ -206,8 +217,9 @@ async function processBulkBackgroundTasks(supabase: any, sessions: any[]) {
             }
 
             // 2. Evento Google Calendar
-            if (studentEmail && teacherEmail) {
-                const scheduledAt = new Date(session.scheduled_at);
+            if (studentEmail && teacherEmail && session.scheduled_at) {
+                const scheduledAtStr = session.scheduled_at as string;
+                const scheduledAt = new Date(scheduledAtStr);
                 const endTime = new Date(scheduledAt.getTime() + (session.duration_minutes || 60) * 60000);
 
                 calendarResult = await createClassEvent({
@@ -222,7 +234,7 @@ async function processBulkBackgroundTasks(supabase: any, sessions: any[]) {
             }
 
             // 3. Update BBDD with final links
-            const updateData: Record<string, any> = {};
+            const updateData: Record<string, string> = {};
             if (documentResult) {
                 updateData.drive_doc_id = documentResult.docId;
                 updateData.drive_doc_url = documentResult.docUrl;
@@ -236,11 +248,13 @@ async function processBulkBackgroundTasks(supabase: any, sessions: any[]) {
                 await supabase.from('sessions').update(updateData).eq('id', session.id);
             }
 
-            processedClasses.push({
-                date: new Date(session.scheduled_at),
-                meetLink: calendarResult?.meetLink || session.meet_link,
-                documentLink: documentResult?.docUrl
-            });
+            if (session.scheduled_at) {
+                processedClasses.push({
+                    date: new Date(session.scheduled_at),
+                    meetLink: calendarResult?.meetLink || session.meet_link,
+                    documentLink: documentResult?.docUrl
+                });
+            }
 
             // Rate limit sleep (1 second between iterations to respect Google API quotas)
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -272,8 +286,8 @@ async function processBulkBackgroundTasks(supabase: any, sessions: any[]) {
                     date: dateStr + ` (+ ${processedClasses.length - 1} clases agendadas)`,
                     time: timeStr,
                     duration: sessions[0].duration_minutes || 60,
-                    meetLink: firstClass.meetLink,
-                    documentLink: firstClass.documentLink,
+                    meetLink: firstClass.meetLink || undefined,
+                    documentLink: firstClass.documentLink || undefined,
                 }
             );
             console.log(`[Sessions] Bulk confirmation emails sent successfully.`);

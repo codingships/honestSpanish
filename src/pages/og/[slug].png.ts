@@ -60,7 +60,7 @@ export const GET: APIRoute = async ({ params }) => {
   `;
 
   // 1. Satori convierte el HTML en SVG
-  // @ts-expect-error
+  // @ts-expect-error - Satori expects a React-like VNode but satori-html output is compatible
   const svg = await satori(html(markupString), {
     width: 1200,
     height: 630,
@@ -82,7 +82,7 @@ export const GET: APIRoute = async ({ params }) => {
   const pngBuffer = pngData.asPng();
 
   // 3. Devolvemos la imagen al navegador/build
-  // @ts-expect-error
+  // @ts-expect-error - Astro APIRoute return type may not perfectly match node Response stringency in CI
   return new Response(pngBuffer, {
     status: 200,
     headers: {

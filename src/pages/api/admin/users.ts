@@ -68,8 +68,8 @@ export const GET: APIRoute = async (context) => {
     const formattedStudents = students?.map(student => {
         // Encontrar si tiene una suscripción activa
         const activeSub = Array.isArray(student.subscriptions)
-            ? student.subscriptions.find((sub: any) => sub.status === 'active')
-            : (student.subscriptions as any)?.status === 'active' ? student.subscriptions : null;
+            ? student.subscriptions.find((sub: Record<string, unknown>) => sub.status === 'active')
+            : (student.subscriptions as Record<string, unknown>)?.status === 'active' ? student.subscriptions : null;
 
         // Extraer el profesor principal asignado (si lo tiene)
         let primaryTeacher = null;
