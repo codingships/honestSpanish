@@ -10,6 +10,7 @@ interface Session {
     status: string;
     meet_link: string | null;
     teacher_notes: string | null;
+    drive_doc_url: string | null;
     student: {
         id: string;
         full_name: string | null;

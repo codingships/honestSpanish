@@ -23,20 +23,12 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
-    // Check admin role in production
+    // Disabled in production — this endpoint bypasses quota and conflict checks
     if (import.meta.env.PROD) {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', user.id)
-            .single();
-
-        if (!profile || profile.role !== 'admin') {
-            return new Response(JSON.stringify({ error: 'Forbidden - Admin only' }), {
-                status: 403,
-                headers: { 'Content-Type': 'application/json' }
-            });
-        }
+        return new Response(JSON.stringify({ error: 'This endpoint is disabled in production' }), {
+            status: 410,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 
     // Get request body

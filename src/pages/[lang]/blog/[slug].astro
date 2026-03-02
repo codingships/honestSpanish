@@ -8,15 +8,24 @@ export async function getStaticPaths() {
   const posts = await getCollection('blog');
   
   return posts.map(post => {
-      // Keystatic saves the title as slug, e.g., "primer-post"
-      // The language is in post.data.lang
-      const lang = post.data.lang;
-      const slug = post.slug;
+      // En Astro Content Collections con directorios, 'post.slug' a menudo incluye la carpeta
+      // por ejemplo: "en/spanish-for-expats-truth" o "es/primer-post"
+      
+      const slugParts = post.slug.split('/');
+      let lang = 'es';
+      let slug = post.slug;
+
+      if (slugParts.length > 1) {
+          lang = slugParts[0];
+          slug = slugParts.slice(1).join('/');
+      } else if (post.data && post.data.lang) {
+          lang = post.data.lang;
+      }
 
       return {
         params: { 
-            lang, 
-            slug 
+            lang: lang, 
+            slug: slug 
         },
         props: { post },
       };

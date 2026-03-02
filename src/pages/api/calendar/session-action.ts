@@ -1,7 +1,14 @@
 import type { APIRoute } from 'astro';
+import { createClient } from '@supabase/supabase-js';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { cancelClassEvent } from '../../../lib/google/calendar';
 import { sendClassCancelledToBoth } from '../../../lib/email';
+
+// Service role client: bypasses RLS for privileged writes (subscription credit restore)
+const supabaseAdmin = createClient(
+    import.meta.env.PUBLIC_SUPABASE_URL,
+    import.meta.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 // 👇 FIX 1: Forzamos Node.js para que funcionen las librerías de Google
 export const config = {
@@ -62,12 +69,19 @@ export const POST: APIRoute = async (context) => {
     }
 
     if (action === 'cancel') {
-        // 1. Update session status
+        // Guard: prevent double-cancel (would decrement credits twice)
+        if (session.status === 'cancelled') {
+            return new Response(JSON.stringify({ error: 'Session is already cancelled' }), { status: 409 });
+        }
+
+        // 1. Update session status using correct column names
         const { error: updateError } = await supabase
             .from('sessions')
             .update({
                 status: 'cancelled',
-                notes: reason ? `Cancelada: ${reason}` : 'Cancelada'
+                cancellation_reason: reason || null,
+                cancelled_at: new Date().toISOString(),
+                cancelled_by: user.id,
             })
             .eq('id', sessionId);
 
@@ -75,19 +89,19 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
         }
 
-        // 2. Restore subscription usage (if needed)
-        // 👇 FIX 4: Nullish coalescing para evitar error de 'possibly null'
+        // 2. Restore subscription credit using supabaseAdmin (bypasses RLS — works for
+        //    all roles: student RLS blocks subscription UPDATE, teacher RLS also blocks it)
         if (session.subscription) {
-            // TypeScript a veces no infiere bien array vs objeto en joins, forzamos casting seguro
             const sub = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
 
             if (sub) {
                 const currentUsed = sub.sessions_used ?? 0;
                 if (currentUsed > 0) {
-                    await supabase
+                    await supabaseAdmin
                         .from('subscriptions')
                         .update({ sessions_used: currentUsed - 1 })
-                        .eq('id', sub.id);
+                        .eq('id', sub.id)
+                        .gt('sessions_used', 0); // Extra guard: never go below 0
                 }
             }
         }

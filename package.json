@@ -42,6 +42,8 @@
     "@keystatic/astro": "^5.0.6",
     "@keystatic/core": "^0.5.48",
     "@marsidev/react-turnstile": "^1.4.2",
+    "@resvg/resvg-js": "^2.6.2",
+    "@resvg/resvg-wasm": "^2.6.2",
     "@sentry/astro": "^10.39.0",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.90.0",
@@ -50,8 +52,11 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "resend": "^6.7.0",
+    "satori": "^0.19.2",
+    "satori-html": "^0.3.2",
     "stripe": "^20.1.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@astrojs/cloudflare": "^12.6.12",

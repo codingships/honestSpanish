@@ -10,9 +10,17 @@ const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 const CRON_SECRET = import.meta.env.CRON_SECRET;
 
 export const GET: APIRoute = async ({ request }) => {
-    // Verify authorization
+    // Verify authorization — CRON_SECRET must always be set in production
+    if (!CRON_SECRET) {
+        console.error('[CRON] CRON_SECRET is not configured — refusing to run');
+        return new Response(JSON.stringify({ error: 'Server misconfiguration' }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
     const authHeader = request.headers.get('Authorization');
-    if (CRON_SECRET && authHeader !== `Bearer ${CRON_SECRET}`) {
+    if (authHeader !== `Bearer ${CRON_SECRET}`) {
         console.warn('[CRON] Unauthorized request to send-reminders');
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
             status: 401,

@@ -45,6 +45,24 @@ export const POST: APIRoute = async ({ request }) => {
         return new Response(`Webhook Error: ${errorMessage}`, { status: 400 });
     }
 
+    // Idempotency check: ignore duplicate Stripe retries
+    const { error: idempotencyError } = await supabaseAdmin
+        .from('processed_webhook_events')
+        .insert({ stripe_event_id: event.id, event_type: event.type });
+
+    if (idempotencyError) {
+        if (idempotencyError.code === '23505') {
+            // Primary key violation = event already processed
+            console.log(`[Webhook] Duplicate event ${event.id} ignored`);
+            return new Response(JSON.stringify({ received: true }), {
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+        // Any other DB error: log but continue — better to risk a duplicate than miss a payment
+        console.error('[Webhook] Error recording event ID:', idempotencyError);
+    }
+
     // Handle the event
     try {
         switch (event.type) {

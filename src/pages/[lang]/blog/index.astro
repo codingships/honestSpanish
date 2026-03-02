@@ -4,7 +4,15 @@ import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
 import { getCollection } from 'astro:content';
 import { Image } from 'astro:assets';
 
-export const prerender = false;
+export const prerender = true;
+
+export async function getStaticPaths() {
+  return [
+    { params: { lang: 'es' } },
+    { params: { lang: 'en' } },
+    { params: { lang: 'ru' } },
+  ];
+}
 
 const { lang } = Astro.params;
 const t = useTranslations(lang as any);

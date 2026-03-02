@@ -30,6 +30,7 @@ const makeSession = (overrides: Record<string, unknown> = {}) => ({
     status: 'scheduled',
     meet_link: null,
     teacher_notes: null,
+    drive_doc_url: null,
     student: {
         id: 'student-1',
         full_name: 'Ana López',

@@ -107,3 +107,21 @@ Existen rutinas de Backend asíncronas para el mantenimiento de los estudiantes 
 *   **Misión:** Buscar en Supabase de forma automatizada las sesiones programadas (*scheduled*) que van a ocurrir en las próximas horas.
 *   **Acción:** Genera y envía por Resend un "Email de Recordatorio de Clase" con los enlaces de Google Meet tanto al profesor involucrado como al estudiante.
 *   **Despliegue:** Preparado para integrarse con Cloudflare Cron Triggers u otros invocadores HTTP externos mediante un Bearer Token.
+
+---
+
+## 8. Cumplimiento Legal y Privacidad (RGPD / LSSI)
+
+El proyecto incluye de serie los requisitos legales mínimos para operar comercialmente en Europa y el mundo hispanohablante.
+
+### Textos Legales (SSG Multilingüe)
+En `src/pages/[lang]/legal/` se generan de forma estática (SSG) las siguientes páginas en 3 idiomas (Español, Inglés y Ruso):
+*   `aviso-legal.astro`: Identificación del titular (LSSI).
+*   `privacidad.astro`: Política de privacidad y tratamiento de datos (RGPD).
+*   `cookies.astro`: Explicación técnica de las cookies usadas.
+*   `terminos.astro`: Términos y condiciones de contratación de los paquetes de clases.
+
+### Consentimiento de Cookies
+En `src/components/CookieBanner.astro` existe un banner inyectado globalmente a través del `BaseLayout.astro`. 
+*   **Funcionamiento:** Aparece flotando en la parte inferior si el usuario no tiene la clave `cookie_consent` en su `localStorage`.
+*   **Bloqueo:** Permite a la plataforma condicionar la carga de scripts de analítica (como Google Analytics, Meta Pixel) al evento de aceptación por parte del usuario, cumpliendo con la directiva ePrivacy europea.

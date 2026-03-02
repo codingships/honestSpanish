@@ -43,7 +43,7 @@ const canonicalPath = `/blog/${postSlug}`;
   title={`${title} | Español Honesto Blog`} 
   description={description} 
   lang={lang}
-  ogImage={image?.src}
+  ogImage={image?.src || `/og/${postSlug}.png`}
   canonicalPath={canonicalPath}
 >
     <script is:inline type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
