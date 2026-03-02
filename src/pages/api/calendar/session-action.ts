@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { createClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { cancelClassEvent } from '../../../lib/google/calendar';
 import { sendClassCancelledToBoth } from '../../../lib/email';
@@ -93,10 +93,7 @@ export const POST: APIRoute = async (context) => {
                 const currentUsed = sub.sessions_used ?? 0;
                 if (currentUsed > 0) {
                     // Lazy-initialize admin client only when needed to avoid module-load env var issues
-                    const supabaseAdmin = createClient(
-                        import.meta.env.PUBLIC_SUPABASE_URL,
-                        import.meta.env.SUPABASE_SERVICE_ROLE_KEY
-                    );
+                    const supabaseAdmin = createSupabaseAdminClient();
                     await supabaseAdmin
                         .from('subscriptions')
                         .update({ sessions_used: currentUsed - 1 })

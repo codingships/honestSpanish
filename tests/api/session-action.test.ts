@@ -5,6 +5,16 @@ vi.mock('../../src/lib/supabase-server', () => ({
     createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock('../../src/lib/supabase-admin', () => ({
+    createSupabaseAdminClient: vi.fn(() => ({
+        from: vi.fn().mockReturnValue({
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            gt: vi.fn().mockResolvedValue({ error: null }),
+        }),
+    })),
+}));
+
 vi.mock('../../src/lib/google/calendar', () => ({
     cancelClassEvent: vi.fn().mockResolvedValue(undefined),
 }));
