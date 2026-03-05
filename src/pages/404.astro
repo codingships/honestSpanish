@@ -1,0 +1,153 @@
+---
+// 404 page - detects language or defaults to Spanish
+---
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Página no encontrada | Español Honesto</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #E0F7FA;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            text-align: center;
+            max-width: 500px;
+        }
+        
+        .error-code {
+            font-family: 'Boldonse', sans-serif;
+            font-size: 120px;
+            color: #006064;
+            line-height: 1;
+            margin-bottom: 20px;
+        }
+        
+        @media (min-width: 640px) {
+            .error-code { font-size: 150px; }
+        }
+        
+        .title {
+            font-family: 'Boldonse', sans-serif;
+            font-size: 24px;
+            color: #006064;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+        }
+        
+        @media (min-width: 640px) {
+            .title { font-size: 28px; }
+        }
+        
+        .message {
+            font-size: 16px;
+            color: #006064;
+            opacity: 0.8;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .btn {
+            display: inline-block;
+            background-color: #006064;
+            color: white;
+            padding: 15px 40px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 14px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border: 2px solid #006064;
+            box-shadow: 4px 4px 0px 0px rgba(0,96,100,0.3);
+            transition: all 0.2s;
+        }
+        
+        .btn:hover {
+            background-color: transparent;
+            color: #006064;
+            transform: translate(2px, 2px);
+            box-shadow: 2px 2px 0px 0px rgba(0,96,100,0.3);
+        }
+        
+        .brand {
+            margin-top: 60px;
+            font-family: 'Boldonse', sans-serif;
+            font-size: 14px;
+            color: #006064;
+            opacity: 0.5;
+            letter-spacing: 3px;
+        }
+        
+        .emoji {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="emoji">🤷‍♂️</div>
+        <div class="error-code">404</div>
+        <h1 class="title">Página no encontrada</h1>
+        <p class="message">
+            ¡Vaya! Parece que esta página se ha perdido en la traducción. 
+            No te preocupes, incluso los mejores lingüistas se pierden a veces.
+        </p>
+        <a href="/es" class="btn" id="home-btn">Volver al inicio</a>
+        <p class="brand">ESPAÑOL HONESTO</p>
+    </div>
+
+    <script>
+        // Try to detect language from URL or browser
+        const path = window.location.pathname;
+        const langMatch = path.match(/^\/(es|en|ru)/);
+        const lang = langMatch ? langMatch[1] : 
+            (navigator.language.startsWith('ru') ? 'ru' : 
+             navigator.language.startsWith('en') ? 'en' : 'es');
+        
+        const btn = document.getElementById('home-btn');
+        if (btn) {
+            btn.href = '/' + lang;
+        }
+        
+        // Update text based on language
+        const texts = {
+            es: {
+                title: 'Página no encontrada',
+                message: '¡Vaya! Parece que esta página se ha perdido en la traducción. No te preocupes, incluso los mejores lingüistas se pierden a veces.',
+                btn: 'Volver al inicio'
+            },
+            en: {
+                title: 'Page not found',
+                message: 'Oops! It seems this page got lost in translation. Don\'t worry, even the best linguists get lost sometimes.',
+                btn: 'Back to home'
+            },
+            ru: {
+                title: 'Страница не найдена',
+                message: 'Упс! Похоже, эта страница потерялась в переводе. Не волнуйтесь, даже лучшие лингвисты иногда теряются.',
+                btn: 'На главную'
+            }
+        };
+        
+        const t = texts[lang] || texts.es;
+        document.querySelector('.title').textContent = t.title;
+        document.querySelector('.message').textContent = t.message;
+        document.getElementById('home-btn').textContent = t.btn;
+        document.documentElement.lang = lang;
+    </script>
+</body>
+</html>

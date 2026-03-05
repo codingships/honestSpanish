@@ -1,0 +1,220 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { useTranslations } from '../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+import AdminCalendar from '../../../../components/calendar/AdminCalendar';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const t = useTranslations(lang);
+
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+// Obtener rango de fechas (mes actual + siguiente)
+const today = new Date();
+const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+const endOfNextMonth = new Date(today.getFullYear(), today.getMonth() + 2, 0, 23, 59, 59);
+
+// Obtener todas las sesiones del periodo
+const { data: sessions } = await supabase
+    .from('sessions')
+    .select(`
+        *,
+        student:profiles!sessions_student_id_fkey(id, full_name, email),
+        teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+    `)
+    .gte('scheduled_at', startOfMonth.toISOString())
+    .lte('scheduled_at', endOfNextMonth.toISOString())
+    .order('scheduled_at');
+
+// Obtener todos los profesores
+const { data: teachers } = await supabase
+    .from('profiles')
+    .select('id, full_name, email')
+    .eq('role', 'teacher')
+    .order('full_name');
+
+// Obtener todos los estudiantes con suscripción activa
+const { data: studentsWithSubs } = await supabase
+    .from('subscriptions')
+    .select(`
+        student_id,
+        profiles!subscriptions_student_id_fkey(id, full_name, email)
+    `)
+    .eq('status', 'active')
+    .gte('ends_at', new Date().toISOString());
+
+// Extraer estudiantes únicos
+const studentsMap = new Map();
+(studentsWithSubs || []).forEach((sub: any) => {
+    if (sub.profiles && !studentsMap.has(sub.profiles.id)) {
+        studentsMap.set(sub.profiles.id, sub.profiles);
+    }
+});
+const students = Array.from(studentsMap.values());
+
+// Calcular estadísticas
+const allSessions = sessions || [];
+const thisMonthSessions = allSessions.filter(s => {
+    const sessionDate = new Date(s.scheduled_at);
+    return sessionDate.getMonth() === today.getMonth() && sessionDate.getFullYear() === today.getFullYear();
+});
+
+const stats = {
+    totalThisMonth: thisMonthSessions.length,
+    completed: thisMonthSessions.filter(s => s.status === 'completed').length,
+    scheduled: thisMonthSessions.filter(s => s.status === 'scheduled').length,
+    cancelled: thisMonthSessions.filter(s => s.status === 'cancelled').length,
+    noShow: thisMonthSessions.filter(s => s.status === 'no_show').length,
+    completionRate: thisMonthSessions.length > 0 
+        ? Math.round((thisMonthSessions.filter(s => s.status === 'completed').length / 
+            thisMonthSessions.filter(s => s.status !== 'scheduled').length) * 100) || 0
+        : 0,
+};
+
+// Clases de hoy
+const todaySessions = allSessions.filter(s => {
+    const sessionDate = new Date(s.scheduled_at);
+    return sessionDate.toDateString() === today.toDateString();
+}).sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
+
+// Nombres de días
+const dayNames: Record<string, string[]> = {
+    es: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
+    en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+    ru: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
+};
+
+// Traducciones
+const calendarTranslations = {
+    title: t('campus.admin.calendar.title'),
+    today: t('campus.teacher.calendar.today'),
+    week: t('campus.teacher.calendar.week'),
+    month: t('campus.admin.calendar.month'),
+    scheduleClass: t('campus.teacher.calendar.scheduleClass'),
+    selectStudent: t('campus.teacher.calendar.selectStudent'),
+    selectTeacher: t('campus.admin.calendar.selectTeacher'),
+    selectDate: t('campus.teacher.calendar.selectDate'),
+    selectTime: t('campus.teacher.calendar.selectTime'),
+    confirm: t('campus.teacher.calendar.confirm'),
+    cancel: t('common.cancel'),
+    completed: t('campus.teacher.calendar.completed'),
+    scheduled: t('campus.teacher.calendar.scheduled'),
+    cancelled: t('campus.teacher.calendar.cancelled'),
+    noShow: t('campus.teacher.calendar.noShow'),
+    markComplete: t('campus.teacher.calendar.markComplete'),
+    markNoShow: t('campus.teacher.calendar.markNoShow'),
+    cancelSession: t('campus.teacher.calendar.cancelSession'),
+    addNotes: t('campus.teacher.calendar.addNotes'),
+    dayNames: dayNames[lang] || dayNames['es'],
+    allTeachers: t('campus.admin.calendar.allTeachers'),
+    noSessions: t('campus.teacher.calendar.noSessions'),
+    todayClasses: t('campus.admin.calendar.todayClasses'),
+    stats: {
+        total: t('campus.admin.calendar.stats.total'),
+        completed: t('campus.admin.calendar.stats.completed'),
+        scheduled: t('campus.admin.calendar.stats.scheduled'),
+        cancelled: t('campus.admin.calendar.stats.cancelled'),
+        noShow: t('campus.admin.calendar.stats.noShow'),
+        completionRate: t('campus.admin.calendar.stats.completionRate'),
+    }
+};
+---
+
+<CampusLayout 
+    title={t('campus.admin.calendar.title')}
+    user={{ ...user, ...profile }}
+    lang={lang}
+>
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
+        <div>
+            <h1 class="font-display text-3xl text-[#006064] uppercase">{t('campus.admin.calendar.title')}</h1>
+            <p class="text-sm text-[#006064]/60 font-mono mt-1">
+                {t('campus.admin.calendar.subtitle')}
+            </p>
+        </div>
+    </div>
+
+    <!-- Stats Row -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-[#006064]">{stats.totalThisMonth}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60">{calendarTranslations.stats.total}</p>
+        </div>
+        <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-green-600">{stats.completed}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60">{calendarTranslations.stats.completed}</p>
+        </div>
+        <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-blue-600">{stats.scheduled}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60">{calendarTranslations.stats.scheduled}</p>
+        </div>
+        <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-gray-500">{stats.cancelled}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60">{calendarTranslations.stats.cancelled}</p>
+        </div>
+        <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-red-600">{stats.noShow}</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60">{calendarTranslations.stats.noShow}</p>
+        </div>
+        <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+            <p class="text-3xl font-display text-[#006064]">{stats.completionRate}%</p>
+            <p class="text-xs font-mono uppercase text-[#006064]/60">{calendarTranslations.stats.completionRate}</p>
+        </div>
+    </div>
+
+    <!-- Today's Classes -->
+    {todaySessions.length > 0 && (
+        <div class="mb-8 bg-yellow-50 p-6 border-2 border-yellow-400">
+            <h2 class="font-display text-xl text-yellow-800 uppercase mb-4">
+                📅 {calendarTranslations.todayClasses} ({todaySessions.length})
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {todaySessions.map((session: any) => {
+                    const time = new Date(session.scheduled_at).toLocaleTimeString(lang === 'es' ? 'es-ES' : 'en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                    return (
+                        <div class="bg-white p-4 border border-yellow-300">
+                            <p class="font-mono text-2xl text-[#006064]">{time}</p>
+                            <p class="font-bold text-[#006064]">
+                                {session.student?.full_name || session.student?.email?.split('@')[0]}
+                            </p>
+                            <p class="text-sm text-[#006064]/60">
+                                con {session.teacher?.full_name || session.teacher?.email?.split('@')[0]}
+                            </p>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    )}
+
+    <!-- Calendar -->
+    <AdminCalendar 
+        client:load
+        sessions={sessions || []}
+        teachers={teachers || []}
+        students={students}
+        lang={lang}
+        translations={calendarTranslations}
+    />
+</CampusLayout>

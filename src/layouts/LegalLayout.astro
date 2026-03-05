@@ -1,0 +1,263 @@
+---
+interface Props {
+    title: string;
+    description: string;
+    lastUpdated: string;
+    lang: string;
+}
+
+const { title, description, lastUpdated, lang } = Astro.props;
+
+const legalLinks = {
+    es: [
+        { href: `/${lang}/legal/aviso-legal`, label: 'Aviso Legal' },
+        { href: `/${lang}/legal/privacidad`, label: 'Privacidad' },
+        { href: `/${lang}/legal/cookies`, label: 'Cookies' },
+    ],
+    en: [
+        { href: `/${lang}/legal/aviso-legal`, label: 'Legal Notice' },
+        { href: `/${lang}/legal/privacidad`, label: 'Privacy' },
+        { href: `/${lang}/legal/cookies`, label: 'Cookies' },
+    ],
+    ru: [
+        { href: `/${lang}/legal/aviso-legal`, label: 'Правовая информация' },
+        { href: `/${lang}/legal/privacidad`, label: 'Конфиденциальность' },
+        { href: `/${lang}/legal/cookies`, label: 'Cookies' },
+    ],
+};
+
+const links = legalLinks[lang as keyof typeof legalLinks] || legalLinks.es;
+
+const homeText = { es: 'Inicio', en: 'Home', ru: 'Главная' };
+const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← На главную' };
+---
+
+<!DOCTYPE html>
+<html lang={lang}>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{title} | Español Honesto</title>
+    <meta name="description" content={description}>
+    <meta name="robots" content="noindex, follow">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #E0F7FA;
+            min-height: 100vh;
+            color: #333;
+            line-height: 1.7;
+        }
+        
+        .font-display {
+            font-family: 'Boldonse', sans-serif;
+        }
+        
+        header {
+            background-color: #006064;
+            padding: 1rem 0;
+        }
+        
+        .header-content {
+            max-width: 56rem;
+            margin: 0 auto;
+            padding: 0 1.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            font-family: 'Boldonse', sans-serif;
+            color: white;
+            font-size: 1.25rem;
+            text-decoration: none;
+        }
+        
+        .back-link {
+            color: rgba(255,255,255,0.8);
+            text-decoration: none;
+            font-size: 0.875rem;
+        }
+        
+        .back-link:hover { color: white; }
+        
+        .breadcrumb {
+            max-width: 56rem;
+            margin: 0 auto;
+            padding: 1rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: rgba(0,96,100,0.6);
+        }
+        
+        .breadcrumb a {
+            color: rgba(0,96,100,0.6);
+            text-decoration: none;
+        }
+        
+        .breadcrumb a:hover { color: #006064; }
+        
+        .breadcrumb .current { color: #006064; }
+        
+        main {
+            max-width: 56rem;
+            margin: 0 auto;
+            padding: 0 1.5rem 4rem;
+        }
+        
+        article {
+            background: white;
+            border: 2px solid #006064;
+            box-shadow: 4px 4px 0px 0px #006064;
+            padding: 2rem;
+        }
+        
+        @media (min-width: 768px) {
+            article { padding: 3rem; }
+        }
+        
+        .article-header {
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 2px solid rgba(0,96,100,0.2);
+        }
+        
+        .article-header h1 {
+            font-family: 'Boldonse', sans-serif;
+            font-size: 1.875rem;
+            color: #006064;
+            margin-bottom: 0.5rem;
+        }
+        
+        @media (min-width: 768px) {
+            .article-header h1 { font-size: 2.25rem; }
+        }
+        
+        .article-header .date {
+            font-size: 0.875rem;
+            color: rgba(0,96,100,0.6);
+        }
+        
+        .content h2 {
+            font-family: 'Boldonse', sans-serif;
+            font-size: 1.25rem;
+            color: #006064;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+        }
+        
+        .content h3 {
+            font-family: 'Boldonse', sans-serif;
+            font-size: 1.125rem;
+            color: #006064;
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .content p {
+            margin-bottom: 1rem;
+            color: #333;
+        }
+        
+        .content ul, .content ol {
+            margin-bottom: 1rem;
+            padding-left: 1.5rem;
+        }
+        
+        .content li {
+            margin-bottom: 0.5rem;
+        }
+        
+        .content a {
+            color: #006064;
+            text-decoration: underline;
+        }
+        
+        .content strong {
+            color: #006064;
+        }
+        
+        .content table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1rem 0;
+            font-size: 0.875rem;
+        }
+        
+        .content th, .content td {
+            border: 1px solid rgba(0,96,100,0.3);
+            padding: 0.75rem;
+            text-align: left;
+        }
+        
+        .content th {
+            background-color: #E0F7FA;
+            color: #006064;
+            font-weight: bold;
+        }
+        
+        .legal-nav {
+            margin-top: 2rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            justify-content: center;
+            font-size: 0.875rem;
+        }
+        
+        .legal-nav a {
+            color: #006064;
+            text-decoration: none;
+        }
+        
+        .legal-nav a:hover { text-decoration: underline; }
+        
+        .legal-nav .separator {
+            color: rgba(0,96,100,0.3);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <a href={`/${lang}`} class="logo">ESPAÑOL HONESTO</a>
+            <a href={`/${lang}`} class="back-link">{backText[lang as keyof typeof backText] || backText.es}</a>
+        </div>
+    </header>
+
+    <nav class="breadcrumb">
+        <a href={`/${lang}`}>{homeText[lang as keyof typeof homeText] || homeText.es}</a>
+        <span>/</span>
+        <span class="current">{title}</span>
+    </nav>
+
+    <main>
+        <article>
+            <header class="article-header">
+                <h1>{title}</h1>
+                <p class="date">{lastUpdated}</p>
+            </header>
+            
+            <div class="content">
+                <slot />
+            </div>
+        </article>
+
+        <nav class="legal-nav">
+            {links.map((link, i) => (
+                <>
+                    <a href={link.href}>{link.label}</a>
+                    {i < links.length - 1 && <span class="separator">|</span>}
+                </>
+            ))}
+        </nav>
+    </main>
+</body>
+</html>
