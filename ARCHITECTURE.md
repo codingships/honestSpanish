@@ -125,3 +125,46 @@ En `src/pages/[lang]/legal/` se generan de forma estática (SSG) las siguientes 
 En `src/components/CookieBanner.astro` existe un banner inyectado globalmente a través del `BaseLayout.astro`. 
 *   **Funcionamiento:** Aparece flotando en la parte inferior si el usuario no tiene la clave `cookie_consent` en su `localStorage`.
 *   **Bloqueo:** Permite a la plataforma condicionar la carga de scripts de analítica (como Google Analytics, Meta Pixel) al evento de aceptación por parte del usuario, cumpliendo con la directiva ePrivacy europea.
+
+---
+
+## 9. Monitoreo y Observabilidad (Sentry)
+
+Para garantizar la estabilidad en Producción, el proyecto integra **Sentry** de forma nativa a través del adaptador oficial `@sentry/astro`.
+
+*   **Server-Side Tracking:** Monitorea de cerca excepciones ocurridas en endpoints asíncronos (como fallos en el *webhook* de Stripe o en los *Cron Jobs*) permitiendo rastrear la petición desde Cloudflare Workers hasta la caída.
+*   **Client-Side Tracking:** Captura errores no controlados de React (por ejemplo, excepciones durante la carga en Islands complejas o formularios).
+*   **Release Management:** Los Source Maps son inyectados y emparejados en build time para poder trazar los errores minificados al código original TypeScript, reportando así métricas de rendimiento y cuellos de botella del Edge Rendering.
+
+---
+
+## 10. SEO Dinámico (Open Graph y RSS)
+
+Para maximizar el CTR (Click-Through Rate) en redes sociales (Twitter, LinkedIn, WhatsApp) y mejorar el Discoverability, el proyecto abandona las imágenes estáticas en favor de la generación al vuelo.
+
+### Generación de Imágenes Open Graph (Satori + resvg)
+*   **Endpoint:** `src/pages/og/[slug].png.ts`.
+*   **Lógica:** Usando **Satori** (creado por Vercel), incrustamos componentes TSX transformándolos en SVG (como si estuviéramos escribiendo UI directamente). Luego, **`@resvg/resvg-js`** toma este SVG y lo compila en buffer binario PNG usando WebAssembly de forma instantánea al solicitar la URL.
+*   **Dinamismo:** El título del post del blog, el autor, o el idioma detectado determinan la apariencia visual de la miniatura, no consumiendo tiempo de diseño manual.
+
+### Sindicación (RSS)
+*   **Endpoint:** `src/pages/[lang]/blog/rss.xml.ts`.
+*   **Lógica:** Mediante `@astrojs/rss`, cada idioma compila un feed XML automatizado leyendo iterativamente de las colecciones locales Markdown controladas por **Keystatic**, propiciando interacciones limpias para agregadores modernos y Newsletters.
+
+---
+
+## 11. Arquitectura de Testing y Calidad
+
+"Español Honesto" no depende de la suerte en los despliegues. Usamos una pirámide invertida de Testing que blinda rutas críticas y comportamientos asíncronos, apoyándose intensivamente en Mocks por la cantidad de integraciones externas (Google, Stripe, Supabase).
+
+### Unidad e Integración (Vitest + MSW)
+*   **Motor:** Vitest en modo DOM simulado y NodeJS nativo para Server Endpoints.
+*   **Asilamiento:** Las dependencias externas letales están "mockeadas":
+    *   `vi.mock` intercepta llamadas al cliente de autenticación `Supabase Server`.
+    *   **MSW (Mock Service Worker)** intercepta peticiones HTTP de la API de Google o llamadas en cliente React sin ensuciar producción.
+*   *Misión:* Asegurarse de que las reglas de negocio base (crear clases con disponibilidad correcta, bloquear intentos malformados) no rompan de un build a otro.
+
+### Pruebas E2E (Playwright)
+*   **La Suite E2E** usa credenciales de prueba pre-guardadas (`.auth/`) y proyectos estrictamente fragmentados en `playwright.config.ts`.
+*   **Proyectos Específicos:** Se lanzan en paralelo sub-redes para testar a un `student`, a un `teacher`, la ruta pública (`public`) y al `admin`.
+*   **Validación de Caja Negra:** Se ciñe agresivamente al **`uat_test_plan.md.resolved`**, garantizando que no haya *Double-booking* en calendarios compartidos, ni escaladas de IDOR (ej. que un alumno modifique la clase de otro) por fallos RLS no contemplados.

@@ -14,9 +14,11 @@ Plataforma educativa Serverless de Español Inmersivo. Construida bajo una arqui
 *   **Gestor de Contenido (Blog):** [Keystatic](https://keystatic.com/) (CMS Basado en Git, guarda posts como `.md` en `src/content/blog`).
 *   **Automatización de Clases:** Google Workspace API (Drive, Calendar, Meet) mediante Service Account con Delegación de Dominio.
 *   **Internacionalización (i18n):** Enrutamiento por subdirectorios nativo de Astro (`/[lang]/...`) y diccionarios JSON TypeScript en `src/i18n/ui.ts`.
-*   **Despliegue & Edge:** [Cloudflare Pages](https://pages.cloudflare.com/) (Despliegue contínuo y Edge Caching).
+*   **Despliegue & Edge:** [Cloudflare Pages](https://pagescloudflare.com/) (Despliegue contínuo y Edge Caching).
 *   **Emails Transaccionales:** [Resend](https://resend.com) (Envío de secuencias de Bienvenida).
 *   **Protección Anti-Spam (Formularios):** Cloudflare Turnstile (React).
+*   **Monitoreo y Observabilidad:** [Sentry](https://sentry.io/) (`@sentry/astro` para tracking de errores SSR y Frontend).
+*   **SEO Dinámico:** Uso de Satori + resvg-wasm nativo de Astro para imágenes Open Graph (`@astrojs/og`) y `@astrojs/rss` para feeds.
 
 ---
 
@@ -79,10 +81,10 @@ La ingeniería detrás de la consola de este proyecto.
 *   `npm run preview` → Ejecuta `wrangler` para emular el servidor final de Cloudflare en tu máquina antes de subirlo y testar las Cloudflare Pages localmente.
 
 ### Flujo de Testeo y Calidad E2E
-Este proyecto incluye una suite completa de pruebas unitarias y E2E:
-*   `npm run test` → Lanza el corredor de Vitest para pruebas unitarias.
-*   `npm run test:e2e` → Levanta Playwright y ejecuta robots E2E para testear auth, calendarios y UI en el navegador.
-*   *Otros scripts:* `test:e2e:auth`, `test:e2e:calendar`, `test:e2e:mobile`.
+Este proyecto incluye una suite exhaustiva de pruebas unitarias y de extremo a extremo (E2E) con componentes *Mocked* para garantizar resiliencia:
+*   `npm run test` → Lanza Vitest para pruebas unitarias simulando Supabase/Google con `vi.mock` y la red con `MSW`.
+*   `npm run test:e2e` → Ejecuta todos los proyectos de Playwright (`public`, `student`, `teacher`, `admin`), aislando el estado de autenticación de cada rol basándose en el plan de pruebas `uat_test_plan.md.resolved`.
+*   `npm run test:all` → Verifica unidad y web en una sola pasada.
 
 ---
 
