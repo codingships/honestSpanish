@@ -50,7 +50,7 @@ export const GET: APIRoute = async (context) => {
 
     if (error) {
         console.error('Error getting slots:', error);
-        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     let finalSlots = dbSlots || [];

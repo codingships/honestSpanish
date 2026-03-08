@@ -75,6 +75,6 @@ export const POST: APIRoute = async (context) => {
 
     } catch (error: unknown) {
         console.error('Append homework error:', error);
-        return new Response(JSON.stringify({ error: (error as Error).message || 'Internal Server Error' }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 };

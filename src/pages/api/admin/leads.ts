@@ -35,7 +35,7 @@ export const GET: APIRoute = async (context) => {
         .order('created_at', { ascending: false });
 
     if (error) {
-        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     return new Response(JSON.stringify(leads), {
@@ -86,7 +86,7 @@ export const PUT: APIRoute = async (context) => {
         .eq('id', leadId);
 
     if (updateError) {
-        return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     return new Response(JSON.stringify({ success: true, message: `Lead status updated to ${newStatus}` }), {

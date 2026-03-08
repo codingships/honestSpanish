@@ -36,7 +36,7 @@ export const GET: APIRoute = async (context) => {
         .order('start_time');
 
     if (error) {
-        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     return new Response(JSON.stringify({ availability: data }), {
@@ -92,7 +92,7 @@ export const POST: APIRoute = async (context) => {
         if (error.code === '23505') {
             return new Response(JSON.stringify({ message: 'Slot already exists' }), { status: 200 });
         }
-        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     return new Response(JSON.stringify({ availability: data }), {
@@ -135,7 +135,7 @@ export const DELETE: APIRoute = async (context) => {
         .eq(profile.role !== 'admin' ? 'teacher_id' : 'id', profile.role !== 'admin' ? user.id : id);
 
     if (error) {
-        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     return new Response(JSON.stringify({ success: true }), { status: 200 });

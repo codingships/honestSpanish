@@ -57,7 +57,7 @@ export const GET: APIRoute = async (context) => {
     const { data, error } = await query;
 
     if (error) {
-        return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     return new Response(JSON.stringify({ sessions: data }), {
@@ -188,7 +188,7 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (sessionError) {
-        return new Response(JSON.stringify({ error: sessionError.message }), { status: 500 });
+        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     // Increment sessions_used — optimistic lock: only updates if value hasn't changed concurrently

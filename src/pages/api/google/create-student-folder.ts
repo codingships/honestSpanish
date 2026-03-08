@@ -121,7 +121,7 @@ export const POST: APIRoute = async (context) => {
         console.error('[CreateStudentFolder] Error:', error);
         return new Response(JSON.stringify({
             error: 'Failed to create folder structure',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            details: 'See server logs'
         }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }

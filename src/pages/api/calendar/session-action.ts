@@ -79,7 +79,7 @@ export const POST: APIRoute = async (context) => {
             .select('id');
 
         if (updateError) {
-            return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
+            return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
         }
 
         // If no rows were updated, session was already cancelled or completed
@@ -182,7 +182,7 @@ export const POST: APIRoute = async (context) => {
             .eq('id', sessionId);
 
         if (updateError) {
-            return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
+            return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
         }
 
         return new Response(JSON.stringify({ success: true }), { status: 200 });
