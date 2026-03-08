@@ -13,6 +13,11 @@ import sentry from '@sentry/astro';
 export default defineConfig({
     site: 'https://espanolhonesto.com',
     output: 'server',
+    image: {
+        service: {
+            entrypoint: 'astro/assets/services/noop'
+        }
+    },
     adapter: cloudflare({
         platformProxy: {
             enabled: true

@@ -158,13 +158,11 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             </div>
             <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden min-h-0">
                 <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
-                    <Image 
-                        src={heroImage} 
+                    <img 
+                        src={heroImage.src} 
                         alt="Estudiante practicando español" 
                         class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
                         loading="eager"
-                        width={800}
-                        height={600}
                     />
                 </div>
                 <div class={`flex-1 ${s.secondaryBg} p-8 lg:p-12 flex flex-col justify-center items-center text-center`}>
@@ -253,11 +251,10 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 
     {/* Atmosphere Break */}
     <div class={`w-full h-64 md:h-96 overflow-hidden border-b-2 ${s.border} relative`}>
-        <Image 
-            src={madridAtmosphere} 
+        <img 
+            src={madridAtmosphere.src} 
             alt="Vista atmosférica" 
             class="w-full h-full object-cover grayscale" 
-            width={1200}
         />
         <div class="absolute inset-0 bg-[#006064]/20 mix-blend-multiply"></div>
     </div>
@@ -320,11 +317,10 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 {teamMembers.map((member, index) => (
                     <div class="flex flex-col">
                         <div class="aspect-square bg-gray-200 rounded-lg mb-4 w-full overflow-hidden border-2 border-[#006064]">
-                                <Image
-                                    src={index === 0 ? avatarAlejandro : avatarAlin}
+                                <img
+                                    src={index === 0 ? avatarAlejandro.src : avatarAlin.src}
                                     alt={member.name}
                                     class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
-                                    width={400}
                                 />
                         </div>
                         <h3 class="font-display text-2xl text-[#006064] mb-1">{member.name}</h3>
