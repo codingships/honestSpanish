@@ -21,6 +21,26 @@ export const GET: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'teacherId and date are required' }), { status: 400 });
     }
 
+    // IDOR Protection: students can only see slots for their assigned teacher
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (profile?.role === 'student') {
+        const { data: assignment } = await supabase
+            .from('student_teachers')
+            .select('id')
+            .eq('teacher_id', teacherId)
+            .eq('student_id', user.id)
+            .single();
+
+        if (!assignment) {
+            return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+        }
+    }
+
     // Llamar a la función de Postgres
     const { data: dbSlots, error } = await supabase.rpc('get_available_slots', {
         p_teacher_id: teacherId,

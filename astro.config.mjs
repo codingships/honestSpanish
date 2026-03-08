@@ -45,7 +45,7 @@ export default defineConfig({
         },
     }),
     sentry({
-        dsn: "https://5d4cf483a96afdd883e438654f6b4dfa@o4510912289701888.ingest.de.sentry.io/4510917714444368",
+        dsn: import.meta.env.SENTRY_DSN,
         sourceMapsUploadOptions: {
             project: "pruebas",
             authToken: process.env.SENTRY_AUTH_TOKEN,

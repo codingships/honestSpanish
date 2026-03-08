@@ -1,15 +1,11 @@
 import type { APIRoute } from 'astro';
-import { createClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { sendClassReminder } from '../../../lib/email';
-
-// Use service role for CRON job
-const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
 const CRON_SECRET = import.meta.env.CRON_SECRET;
 
 export const GET: APIRoute = async ({ request }) => {
+    const supabaseAdmin = createSupabaseAdminClient();
     // Verify authorization — CRON_SECRET must always be set in production
     if (!CRON_SECRET) {
         console.error('[CRON] CRON_SECRET is not configured — refusing to run');
@@ -172,7 +168,6 @@ export const GET: APIRoute = async ({ request }) => {
             }
         }
 
-        result.failed = result.processed * 2 - result.sent; // 2 emails per session
 
         console.log(`[CRON] Completed: ${result.sent} emails sent, ${result.failed} failed`);
 

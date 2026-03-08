@@ -221,9 +221,9 @@ export async function checkTeacherAvailability(
         return busySlots.length === 0;
     } catch (error) {
         console.error(`[Calendar] Error checking availability for ${teacherEmail}:`, error instanceof Error ? error.message : 'Unknown error');
-        // If the check fails (e.g., unauthorized to see full calendar, although Service Account with domain-wide delegation should work),
-        // we conservatively allow it or throw depending on strictness. Let's allow but log heavily.
-        return true;
+        // Fail-closed: if we can't verify availability, reject the booking.
+        // Better to refuse a valid slot than to double-book.
+        throw new Error(`Cannot verify teacher availability: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
 }
 

@@ -64,13 +64,9 @@ export const POST: APIRoute = async (context) => {
     }
 
     if (action === 'cancel') {
-        // Guard: prevent double-cancel (would decrement credits twice)
-        if (session.status === 'cancelled') {
-            return new Response(JSON.stringify({ error: 'Session is already cancelled' }), { status: 409 });
-        }
-
-        // 1. Update session status using correct column names
-        const { error: updateError } = await supabase
+        // Atomic cancel: only goes through if status is still 'scheduled'
+        // Prevents TOCTOU race where two concurrent requests both pass the check
+        const { data: cancelResult, error: updateError } = await supabase
             .from('sessions')
             .update({
                 status: 'cancelled',
@@ -78,10 +74,17 @@ export const POST: APIRoute = async (context) => {
                 cancelled_at: new Date().toISOString(),
                 cancelled_by: user.id,
             })
-            .eq('id', sessionId);
+            .eq('id', sessionId)
+            .eq('status', 'scheduled') // Atomic guard: only cancels if still scheduled
+            .select('id');
 
         if (updateError) {
             return new Response(JSON.stringify({ error: updateError.message }), { status: 500 });
+        }
+
+        // If no rows were updated, session was already cancelled or completed
+        if (!cancelResult || cancelResult.length === 0) {
+            return new Response(JSON.stringify({ error: 'Session is already cancelled or completed' }), { status: 409 });
         }
 
         // 2. Restore subscription credit using supabaseAdmin (bypasses RLS — works for
@@ -98,7 +101,7 @@ export const POST: APIRoute = async (context) => {
                         .from('subscriptions')
                         .update({ sessions_used: currentUsed - 1 })
                         .eq('id', sub.id)
-                        .gt('sessions_used', 0); // Extra guard: never go below 0
+                        .eq('sessions_used', currentUsed); // Optimistic lock: prevent double-decrement
                 }
             }
         }

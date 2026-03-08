@@ -28,8 +28,6 @@ const { data: packages, error: packagesError } = await supabase
     .eq('is_active', true)
     .order('price_monthly', { ascending: true });
 
-// Debug: Log what we got from Supabase
-console.log('Packages fetched:', packages?.length || 0, 'items');
 if (packagesError) {
     console.error('Packages fetch error:', packagesError);
 }

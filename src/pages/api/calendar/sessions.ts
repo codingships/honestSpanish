@@ -48,7 +48,8 @@ export const GET: APIRoute = async (context) => {
     }
 
     if (studentId && profile?.role !== 'student') query = query.eq('student_id', studentId);
-    if (teacherId) query = query.eq('teacher_id', teacherId);
+    // teacherId filter: only admins can query other teachers' sessions
+    if (teacherId && profile?.role === 'admin') query = query.eq('teacher_id', teacherId);
     if (status) query = query.eq('status', status);
     if (from) query = query.gte('scheduled_at', from);
     if (to) query = query.lte('scheduled_at', to);
@@ -93,6 +94,20 @@ export const POST: APIRoute = async (context) => {
     }
 
     const finalTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
+
+    // IDOR Protection: verify teacher owns this student
+    if (profile.role !== 'admin') {
+        const { data: assignment } = await supabase
+            .from('student_teachers')
+            .select('id')
+            .eq('teacher_id', user.id)
+            .eq('student_id', studentId)
+            .single();
+
+        if (!assignment) {
+            return new Response(JSON.stringify({ error: 'Student not assigned to you' }), { status: 403 });
+        }
+    }
 
     // Verificar suscripción
     const { data: subscription } = await supabase

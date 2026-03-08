@@ -17,6 +17,17 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
+        // Validate timezone is a real IANA timezone
+        let safeTimezone = 'Europe/Madrid';
+        if (timezone) {
+            try {
+                Intl.DateTimeFormat(undefined, { timeZone: timezone });
+                safeTimezone = timezone;
+            } catch {
+                // Invalid timezone, use default
+            }
+        }
+
         // Update profile
         const { error: updateError } = await supabase
             .from('profiles')
@@ -24,7 +35,7 @@ export const POST: APIRoute = async (context) => {
                 full_name: fullName || null,
                 phone: phone || null,
                 preferred_language: preferredLanguage || 'es',
-                timezone: timezone || 'Europe/Madrid',
+                timezone: safeTimezone,
                 updated_at: new Date().toISOString(),
             })
             .eq('id', user.id);

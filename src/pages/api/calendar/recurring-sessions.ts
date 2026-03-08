@@ -1,21 +1,11 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import { checkTeacherAvailability } from '../../../lib/google/calendar';
 
 /**
  * POST /api/calendar/recurring-sessions
  * Creates multiple sessions at a fixed day/time each week until endDate or subscription limit.
- *
- * Body: {
- *   studentId: string,
- *   teacherId: string,
- *   dayOfWeek: number, // 0=Sunday, 1=Monday, ..., 6=Saturday
- *   time: string, // "10:00"
- *   durationMinutes?: number, // default 55
- *   startDate: string, // "2026-02-17"
- *   endDate?: string, // "2026-06-30" — if omitted, uses subscription end date
- *   autoCreateMeeting?: boolean, // default true
- *   meetLink?: string
- * }
+ * Uses direct DB operations (same pattern as bulk-sessions.ts) instead of HTTP self-fetch.
  */
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
@@ -44,9 +34,22 @@ export const POST: APIRoute = async (context) => {
         durationMinutes = 55,
         startDate,
         endDate,
-        autoCreateMeeting = true,
         meetLink,
     } = body;
+
+    // IDOR Protection: verify teacher owns this student
+    if (profile.role !== 'admin') {
+        const { data: assignment } = await supabase
+            .from('student_teachers')
+            .select('id')
+            .eq('teacher_id', user.id)
+            .eq('student_id', studentId)
+            .single();
+
+        if (!assignment) {
+            return new Response(JSON.stringify({ error: 'Student not assigned to you' }), { status: 403 });
+        }
+    }
 
     // Validate required fields
     if (!studentId || !teacherId || dayOfWeek === undefined || !time || !startDate) {
@@ -58,6 +61,8 @@ export const POST: APIRoute = async (context) => {
     if (dayOfWeek < 0 || dayOfWeek > 6) {
         return new Response(JSON.stringify({ error: 'dayOfWeek must be 0-6' }), { status: 400 });
     }
+
+    const finalTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
 
     // Verify student has active subscription
     const { data: subscription } = await supabase
@@ -74,82 +79,126 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Student has no active subscription' }), { status: 400 });
     }
 
-    const sessionsRemaining = (subscription.sessions_total ?? 0) - (subscription.sessions_used ?? 0);
+    const sessionsUsed = subscription.sessions_used ?? 0;
+    const sessionsTotal = subscription.sessions_total ?? 0;
+    const sessionsRemaining = sessionsTotal - sessionsUsed;
+
     if (sessionsRemaining <= 0) {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 400 });
     }
 
-    // Determine end boundary: use provided endDate or subscription end
-    const finalEndDate = endDate
-        ? new Date(endDate)
-        : new Date(subscription.ends_at);
+    // Determine end boundary
+    const finalEndDate = endDate ? new Date(endDate) : new Date(subscription.ends_at);
 
-    // Generate all dates for the given day of week between startDate and endDate
-    const dates: Date[] = [];
-    const start = new Date(startDate);
+    // Generate all ISO date strings for the given day of week
+    const scheduledDates: string[] = [];
+    const current = new Date(startDate);
 
     // Find first occurrence of dayOfWeek on or after startDate
-    const current = new Date(start);
     while (current.getDay() !== dayOfWeek) {
         current.setDate(current.getDate() + 1);
     }
 
-    while (current <= finalEndDate && dates.length < sessionsRemaining) {
-        dates.push(new Date(current));
+    const [hours, minutes] = time.split(':').map(Number);
+    while (current <= finalEndDate && scheduledDates.length < sessionsRemaining) {
+        const d = new Date(current);
+        d.setHours(hours, minutes, 0, 0);
+        scheduledDates.push(d.toISOString());
         current.setDate(current.getDate() + 7);
     }
 
-    if (dates.length === 0) {
+    if (scheduledDates.length === 0) {
         return new Response(JSON.stringify({
             error: 'No valid dates found in the given range for this day of week'
         }), { status: 400 });
     }
 
-    // Create sessions in bulk
-    const createdSessions: Record<string, unknown>[] = [];
-    const errors: string[] = [];
+    // Check total quota
+    if (sessionsUsed + scheduledDates.length > sessionsTotal) {
+        return new Response(JSON.stringify({
+            error: `Not enough sessions. Tried ${scheduledDates.length}, only ${sessionsRemaining} available.`
+        }), { status: 400 });
+    }
 
-    for (const date of dates) {
-        const [hours, minutes] = time.split(':').map(Number);
-        date.setHours(hours, minutes, 0, 0);
+    // Get teacher email for Google Calendar checks
+    const { data: teacherProfile } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('id', finalTeacherId)
+        .single();
+    const teacherEmail = teacherProfile?.email;
 
-        const scheduledAt = date.toISOString();
+    // 1. VERIFY ALL CONFLICTS BEFORE INSERTING (atomicity)
+    for (const dateStr of scheduledDates) {
+        const scheduledDate = new Date(dateStr);
+        const endTime = new Date(scheduledDate.getTime() + durationMinutes * 60000);
 
-        try {
-            const response = await fetch(new URL('/api/calendar/sessions', context.request.url).toString(), {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Cookie': context.request.headers.get('Cookie') || '',
-                },
-                body: JSON.stringify({
-                    studentId,
-                    teacherId,
-                    scheduledAt,
-                    durationMinutes,
-                    meetLink: meetLink || null,
-                    autoCreateMeeting,
-                }),
-            });
+        // DB conflict check
+        const { data: conflicts } = await supabase
+            .from('sessions')
+            .select('id')
+            .eq('teacher_id', finalTeacherId)
+            .neq('status', 'cancelled')
+            .gte('scheduled_at', scheduledDate.toISOString())
+            .lt('scheduled_at', endTime.toISOString());
 
-            if (response.ok) {
-                const data = await response.json();
-                createdSessions.push(data.session);
-            } else {
-                const data = await response.json();
-                errors.push(`${date.toISOString().split('T')[0]}: ${data.error}`);
-            }
-        } catch (err) {
-            const message = err instanceof Error ? err.message : 'Unknown error';
-            errors.push(`${date.toISOString().split('T')[0]}: ${message}`);
+        if (conflicts && conflicts.length > 0) {
+            return new Response(JSON.stringify({
+                error: `Conflicto en BBDD: ${scheduledDate.toLocaleDateString()} ${scheduledDate.toLocaleTimeString()}`
+            }), { status: 409 });
         }
+
+        // Google Calendar conflict check
+        if (teacherEmail) {
+            const isFree = await checkTeacherAvailability(teacherEmail, scheduledDate, endTime);
+            if (!isFree) {
+                return new Response(JSON.stringify({
+                    error: `Conflicto en Google Calendar: ${scheduledDate.toLocaleDateString()} ${scheduledDate.toLocaleTimeString()}`
+                }), { status: 409 });
+            }
+        }
+    }
+
+    // 2. BULK INSERT all sessions
+    const sessionsToInsert = scheduledDates.map(dateStr => ({
+        subscription_id: subscription.id,
+        student_id: studentId,
+        teacher_id: finalTeacherId,
+        scheduled_at: dateStr,
+        duration_minutes: durationMinutes,
+        meet_link: meetLink || null,
+        status: 'scheduled' as const,
+    }));
+
+    const { data: createdSessions, error: insertError } = await supabase
+        .from('sessions')
+        .insert(sessionsToInsert)
+        .select('*');
+
+    if (insertError || !createdSessions) {
+        return new Response(JSON.stringify({ error: insertError?.message || 'Error inserting sessions' }), { status: 500 });
+    }
+
+    // 3. OPTIMISTIC LOCK on quota
+    const { data: updatedSub } = await supabase
+        .from('subscriptions')
+        .update({ sessions_used: sessionsUsed + scheduledDates.length })
+        .eq('id', subscription.id)
+        .eq('sessions_used', sessionsUsed)
+        .select('id')
+        .single();
+
+    if (!updatedSub) {
+        // Concurrency abort — cancel all created sessions
+        const createdIds = createdSessions.map(s => s.id);
+        await supabase.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
+        return new Response(JSON.stringify({ error: 'Concurrency error: quota changed' }), { status: 409 });
     }
 
     return new Response(JSON.stringify({
         created: createdSessions.length,
-        total_requested: dates.length,
+        total_requested: scheduledDates.length,
         sessions: createdSessions,
-        errors: errors.length > 0 ? errors : undefined,
     }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' }

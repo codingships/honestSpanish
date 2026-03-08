@@ -1,7 +1,7 @@
 {
-  "name": "pruebas",
+  "name": "espanol-honesto",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "astro dev",
@@ -60,7 +60,6 @@
   },
   "devDependencies": {
     "@astrojs/cloudflare": "^12.6.12",
-    "@astrojs/vercel": "^9.0.4",
     "@axe-core/playwright": "^4.11.0",
     "@eslint/js": "^9.17.0",
     "@playwright/test": "^1.57.0",

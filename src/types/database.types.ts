@@ -220,14 +220,19 @@ export type Database = {
       }
       sessions: {
         Row: {
+          calendar_event_id: string | null
           cancellation_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
           completed_at: string | null
           created_at: string | null
+          drive_doc_id: string | null
+          drive_doc_url: string | null
           duration_minutes: number | null
           id: string
           meet_link: string | null
+          post_class_report: Json | null
+          reminder_sent: boolean | null
           scheduled_at: string | null
           status: string | null
           student_id: string
@@ -237,14 +242,19 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          calendar_event_id?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
           completed_at?: string | null
           created_at?: string | null
+          drive_doc_id?: string | null
+          drive_doc_url?: string | null
           duration_minutes?: number | null
           id?: string
           meet_link?: string | null
+          post_class_report?: Json | null
+          reminder_sent?: boolean | null
           scheduled_at?: string | null
           status?: string | null
           student_id: string
@@ -254,14 +264,19 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          calendar_event_id?: string | null
           cancellation_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
           completed_at?: string | null
           created_at?: string | null
+          drive_doc_id?: string | null
+          drive_doc_url?: string | null
           duration_minutes?: number | null
           id?: string
           meet_link?: string | null
+          post_class_report?: Json | null
+          reminder_sent?: boolean | null
           scheduled_at?: string | null
           status?: string | null
           student_id?: string

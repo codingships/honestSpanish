@@ -40,3 +40,10 @@ coverage/
 # Vercel (not used)
 .vercel
 .vercel/test-results/
+
+# Internal dumps / audit artifacts
+esquema_nube.sql
+plan.md
+audit_handover.md
+uat_test_plan.md.resolved
+build_error*.txt

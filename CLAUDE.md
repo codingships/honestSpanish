@@ -12,6 +12,7 @@ npm run preview        # Local Wrangler emulation (Cloudflare Pages)
 npm run deploy         # Deploy to Cloudflare Pages
 npm run typecheck      # TypeScript check (tsc --noEmit)
 npm run lint           # ESLint
+npm run db:seed        # Seed the database (tsx scripts/seed/index.ts)
 
 # Unit + API tests (Vitest, ~87 tests)
 npm run test:run                                    # Run all
@@ -25,19 +26,25 @@ npm run test:e2e -- --project=teacher    # 8 tests
 npm run test:e2e -- --project=admin      # 7 tests
 npm run test:e2e:ui                      # Interactive UI mode
 npm run test:e2e:report                  # View last HTML report
+npm run test:e2e:debug                   # Debug mode
+npm run test:e2e:firefox                 # Public tests on Firefox
+npm run test:e2e:safari                  # Public tests on WebKit
+npm run test:e2e:mobile                  # Public tests on mobile viewports
+npm run test:all                         # vitest run + public playwright
 ```
 
 ## Architecture Overview
 
-**Español Honesto** is a Spanish-language tutoring platform. Stack: Astro 5 SSR + React 18 islands + Supabase + Cloudflare Pages + Stripe + Google Workspace APIs.
+**Español Honesto** is a Spanish-language tutoring platform. Stack: Astro 5 SSR + React 18 islands + Supabase + Cloudflare Pages + Stripe + Google Workspace APIs + Sentry.
 
 ### Rendering Strategy
-- `output: 'server'` (full SSR via Cloudflare adapter)
+- `output: 'server'` (full SSR via Cloudflare adapter), image service set to `noop`
 - Static/prerendered: landing pages, blog (`/src/content/blog/` via Keystatic CMS)
 - Dynamic: all `/[lang]/campus/*` routes and `/api/*` endpoints
+- Keystatic CMS admin panel available at `/keystatic` in local dev
 
 ### i18n
-URL-prefix routing: `/es/` (default, no prefix redirect), `/en/`, `/ru/`. Translation dictionary at `src/i18n/translations.ts`. The default locale `es` has no URL prefix — `/` and `/es/` both resolve.
+URL-prefix routing with `prefixDefaultLocale: false`. The default locale `es` has **no URL prefix** — Spanish content is served from `/`, `/campus/`, etc. Other locales: `/en/`, `/ru/`. Translation dictionary at `src/i18n/translations.ts`. The `[lang]` dynamic route param covers `en` and `ru`; Spanish uses the root-level pages.
 
 ### Authentication & Authorization
 `src/middleware.ts` is the single gate for all protected routes:
@@ -46,32 +53,40 @@ URL-prefix routing: `/es/` (default, no prefix redirect), `/en/`, `/ru/`. Transl
 3. Guards `/[lang]/campus` (requires auth), `/campus/teacher` (teacher+admin only), `/campus/admin` (admin only)
 4. Redirects authenticated users away from `/login`
 
-Supabase uses two clients:
+Three Supabase clients:
 - `src/lib/supabase.ts` — browser client (`createBrowserClient`, cookie-based)
-- `src/lib/supabase-server.ts` — server client (`createServerClient`, reads request cookies)
+- `src/lib/supabase-server.ts` — server client (`createServerClient`, reads request cookies, typed with `Database`)
+- `src/lib/supabase-admin.ts` — service role client (`createClient` with `SUPABASE_SERVICE_ROLE_KEY`, **bypasses RLS entirely**, server-only)
 
 ### Database (Supabase PostgreSQL)
 Key tables: `profiles` (extends auth.users, has `role`), `packages`, `subscriptions`, `sessions`, `student_teachers` (M:N), `payments`, `leads`. Full schema with RLS at `db/schema.sql`.
 
-RLS pattern: students see own data, teachers see assigned students, admins use Service Role Key (bypasses RLS entirely).
+RLS pattern: students see own data, teachers see assigned students, admins use the admin client (bypasses RLS).
 
 ### API Routes (`src/pages/api/`)
-All serverless Astro endpoints. Key groups:
+All serverless Astro endpoints (Cloudflare Workers). Key groups:
 - `calendar/` — session CRUD, bulk import, availability slots
 - `admin/` — user management, teacher assignment, leads CRM
 - `account/` — profile updates, Stripe billing portal
-- `stripe-webhook.ts` — handles `checkout.session.completed`, `invoice.paid`, subscription lifecycle
+- `teacher/` — teacher-specific endpoints
+- `drive/` — Google Drive folder creation
+- `stripe-webhook.ts` — handles `checkout.session.completed`, `invoice.paid`, subscription lifecycle (uses admin client)
 - `cron/send-reminders.ts` — bearer-token-protected scheduled job
 - `subscribe.ts` — lead magnet form with Cloudflare Turnstile validation
 
 ### Google Workspace Integration (`src/lib/google/`)
 Service Account with domain-wide delegation. On session creation:
-1. Creates Google Calendar event + Meet link
-2. Clones template doc → names it `Clase - [Date] - [Student]`
+1. Creates Google Calendar event + Meet link (`calendar.ts`)
+2. Clones template doc → names it `Clase - [Date] - [Student]` (`drive.ts`)
 3. Creates student Drive folder structure on first session
+4. Links Meet recordings into the class Doc (`recordings.ts`)
 
 ### Payment Flow
-`/api/create-checkout.ts` → Stripe hosted checkout → `stripe-webhook.ts` processes `checkout.session.completed` → creates `profiles` + `subscriptions` + `payments` records using Service Role Key.
+`/api/create-checkout.ts` → Stripe hosted checkout → `stripe-webhook.ts` processes `checkout.session.completed` → creates `profiles` + `subscriptions` + `payments` records using admin client.
+
+### SEO
+- OG images generated on-the-fly at `src/pages/og/[slug].png.ts` (Satori + resvg-wasm)
+- RSS feeds per language at `src/pages/[lang]/blog/rss.xml.ts`
 
 ## Test Architecture
 
@@ -92,7 +107,7 @@ const { POST } = await import('../../src/pages/api/...');
 - Credentials from `.env.test`: `TEST_STUDENT_EMAIL/PASSWORD`, `TEST_TEACHER_EMAIL/PASSWORD`, `TEST_ADMIN_EMAIL/PASSWORD`
 - File naming determines which Playwright project runs it: `*.public.spec.ts`, `*.student.spec.ts`, etc.
 
-Coverage thresholds are intentionally low (14/13/15/14) — Google/Stripe/email integrations are not unit-tested. Individual tested files hit 73–100%.
+Coverage thresholds are intentionally low (14/13/15/14) — Google/Stripe/email integrations are not unit-tested.
 
 ## Key UI Facts (verified against real pages)
 - Dashboard heading: `PANEL DE CONTROL` (CSS uppercase h1)
@@ -109,3 +124,4 @@ Required in `.env` (dev) and `.env.test` (E2E). Key ones:
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` + `GOOGLE_ADMIN_EMAIL` + `GOOGLE_DRIVE_ROOT_FOLDER_ID` + `GOOGLE_TEMPLATE_DOC_ID`
 - `RESEND_API_KEY` + `FROM_EMAIL`
 - `PUBLIC_TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`
+- `SENTRY_AUTH_TOKEN` (build-time, for source map uploads)

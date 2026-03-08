@@ -166,6 +166,19 @@ ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teacher_availability ENABLE ROW LEVEL SECURITY;
 
+-- Helper function: checks if current user is admin
+-- SECURITY DEFINER ensures it runs with the function owner's privileges
+CREATE OR REPLACE FUNCTION is_admin() RETURNS boolean
+    LANGUAGE plpgsql SECURITY DEFINER
+    AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles 
+        WHERE id = auth.uid() AND role = 'admin'
+    );
+END;
+$$;
+
 -- LEADS POLICIES
 CREATE POLICY "Admins can manage leads" 
     ON leads FOR ALL USING (is_admin());

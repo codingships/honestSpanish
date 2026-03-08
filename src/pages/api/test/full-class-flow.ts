@@ -23,6 +23,20 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
+    // RBAC: only admins can use this test endpoint
+    const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+    if (profile?.role !== 'admin') {
+        return new Response(JSON.stringify({ error: 'Forbidden. Admin only.' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
     // Disabled in production — this endpoint bypasses quota and conflict checks
     if (import.meta.env.PROD) {
         return new Response(JSON.stringify({ error: 'This endpoint is disabled in production' }), {

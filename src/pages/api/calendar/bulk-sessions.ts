@@ -29,7 +29,26 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'studentId and an array of sessions dates are required' }), { status: 400 });
     }
 
+    // Prevent DoS: limit bulk size
+    if (scheduledDates.length > 50) {
+        return new Response(JSON.stringify({ error: 'Maximum 50 sessions per request' }), { status: 400 });
+    }
+
     const finalTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
+
+    // IDOR Protection: verify teacher owns this student
+    if (profile.role !== 'admin') {
+        const { data: assignment } = await supabase
+            .from('student_teachers')
+            .select('id')
+            .eq('teacher_id', user.id)
+            .eq('student_id', studentId)
+            .single();
+
+        if (!assignment) {
+            return new Response(JSON.stringify({ error: 'Student not assigned to you' }), { status: 403 });
+        }
+    }
 
     // Verificar suscripción y saldo
     const { data: subscription } = await supabase

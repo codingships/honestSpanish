@@ -29,8 +29,8 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
-        // Get origin for return URL, detect lang from Referer
-        const origin = context.request.headers.get('origin') || 'http://localhost:4321';
+        // Use configured site URL, never trust the Origin header (open redirect risk)
+        const siteOrigin = new URL(import.meta.env.SITE || 'https://espanolhonesto.com').origin;
         const referer = context.request.headers.get('referer') || '';
         const langMatch = referer.match(/\/(es|en|ru)\//);
         const lang = langMatch?.[1] || 'es';
@@ -38,7 +38,7 @@ export const POST: APIRoute = async (context) => {
         // Create Stripe Customer Portal session
         const portalSession = await stripe.billingPortal.sessions.create({
             customer: profile.stripe_customer_id,
-            return_url: `${origin}/${lang}/campus/account`,
+            return_url: `${siteOrigin}/${lang}/campus/account`,
         });
 
         return new Response(JSON.stringify({ url: portalSession.url }), {

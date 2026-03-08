@@ -3,22 +3,16 @@ export const config = {
 };
 import type { APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
-import { createClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createStudentFolderStructure } from '../../lib/google/student-folder';
 import { sendWelcomeEmail } from '../../lib/email';
-// 👇 1. Importamos tus tipos generados
-import type { Database } from '../../types/database.types';
-// 👇 2. Importamos tipos de Stripe para evitar 'any' en la sesión
 import type Stripe from 'stripe';
-
-// Use service role key for webhook (bypasses RLS)
-const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
-
-// 👇 3. Inyectamos <Database> al cliente Admin
-const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceKey);
+import type { Database } from '../../types/database.types';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const POST: APIRoute = async ({ request }) => {
+    // Lazy init inside handler — avoids module-level env var issues on Cloudflare Workers cold start
+    const supabaseAdmin = createSupabaseAdminClient();
     const webhookSecret = import.meta.env.STRIPE_WEBHOOK_SECRET;
 
     if (!webhookSecret) {
@@ -69,28 +63,28 @@ export const POST: APIRoute = async ({ request }) => {
             case 'checkout.session.completed': {
                 // First-time subscription checkout
                 const session = event.data.object as Stripe.Checkout.Session;
-                await handleCheckoutCompleted(session);
+                await handleCheckoutCompleted(supabaseAdmin, session);
                 break;
             }
 
             case 'invoice.paid': {
                 // Recurring monthly payment succeeded
                 const invoice = event.data.object as Stripe.Invoice;
-                await handleInvoicePaid(invoice);
+                await handleInvoicePaid(supabaseAdmin, invoice);
                 break;
             }
 
             case 'customer.subscription.deleted': {
                 // Subscription cancelled (expired or cancelled by admin/customer)
                 const subscription = event.data.object as Stripe.Subscription;
-                await handleSubscriptionDeleted(subscription);
+                await handleSubscriptionDeleted(supabaseAdmin, subscription);
                 break;
             }
 
             case 'customer.subscription.updated': {
                 // Subscription updated (e.g. payment failed, trial ended)
                 const subscription = event.data.object as Stripe.Subscription;
-                await handleSubscriptionUpdated(subscription);
+                await handleSubscriptionUpdated(supabaseAdmin, subscription);
                 break;
             }
 
@@ -111,7 +105,7 @@ export const POST: APIRoute = async ({ request }) => {
 // ============================================
 // HANDLER: First-time checkout completed
 // ============================================
-async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+async function handleCheckoutCompleted(supabaseAdmin: SupabaseClient<Database>, session: Stripe.Checkout.Session) {
     // For subscription mode, metadata is on the subscription, not the session
     const userId = session.metadata?.userId
         || (session.subscription
@@ -204,13 +198,13 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     console.log(`[Webhook] Successfully processed initial payment for user ${userId}, subscription ${subscription.id}`);
 
     // Create Google Drive folder structure for the student and send welcome email
-    await createDriveFolderForStudent(userId, pkg);
+    await createDriveFolderForStudent(supabaseAdmin, userId, pkg);
 }
 
 // ============================================
 // HANDLER: Recurring invoice paid (monthly renewal)
 // ============================================
-async function handleInvoicePaid(invoice: Stripe.Invoice) {
+async function handleInvoicePaid(supabaseAdmin: SupabaseClient<Database>, invoice: Stripe.Invoice) {
     // Skip the first invoice (already handled by checkout.session.completed)
     if (invoice.billing_reason === 'subscription_create') {
         console.log('[Webhook] Skipping initial invoice (handled by checkout.session.completed)');
@@ -298,7 +292,7 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 // ============================================
 // HANDLER: Subscription deleted/cancelled
 // ============================================
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+async function handleSubscriptionDeleted(supabaseAdmin: SupabaseClient<Database>, subscription: Stripe.Subscription) {
     const userId = subscription.metadata?.userId;
 
     if (!userId) {
@@ -323,7 +317,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 // ============================================
 // HANDLER: Subscription updated (e.g. past_due)
 // ============================================
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
+async function handleSubscriptionUpdated(supabaseAdmin: SupabaseClient<Database>, subscription: Stripe.Subscription) {
     const userId = subscription.metadata?.userId;
 
     if (!userId) return;
@@ -344,6 +338,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription) {
 // Create Drive folder + send welcome email
 // ============================================
 async function createDriveFolderForStudent(
+    supabaseAdmin: SupabaseClient<Database>,
     userId: string,
     pkg: Database['public']['Tables']['packages']['Row']
 ): Promise<void> {

@@ -21,6 +21,17 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
         }
 
+        // RBAC: only teachers and admins can append homework
+        const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', user.id)
+            .single();
+
+        if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
+            return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+        }
+
         const body = await context.request.json();
         const { docUrl, text, classDate } = body;
 
@@ -31,6 +42,21 @@ export const POST: APIRoute = async (context) => {
         const docId = extractDocIdFromUrl(docUrl);
         if (!docId) {
             return new Response(JSON.stringify({ error: 'Invalid Google Doc URL format' }), { status: 400 });
+        }
+
+        // Ownership check: verify this doc belongs to a session assigned to this teacher
+        if (profile.role !== 'admin') {
+            const { data: ownerSession } = await supabase
+                .from('sessions')
+                .select('id')
+                .or(`drive_doc_id.eq.${docId},drive_doc_url.eq.${docUrl}`)
+                .eq('teacher_id', user.id)
+                .limit(1)
+                .single();
+
+            if (!ownerSession) {
+                return new Response(JSON.stringify({ error: 'Forbidden: doc not assigned to you' }), { status: 403 });
+            }
         }
 
         // Formatear el contenido para que se vea claro como "Deberes"

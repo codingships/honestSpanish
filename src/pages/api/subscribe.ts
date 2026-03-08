@@ -1,15 +1,12 @@
 import type { APIRoute } from 'astro';
 import { resend, EMAIL_FROM, sendLeadWelcomeEmail } from '../../lib/email';
-import { createClient } from '@supabase/supabase-js';
+import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 
 const escapeHtml = (str: string) =>
     str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
-const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
 export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }) => {
+    const supabaseAdmin = createSupabaseAdminClient();
     try {
         const payload = await request.json();
         const { email, name, interest, lang, consent } = payload;
@@ -61,7 +58,7 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
         // 2. Send Admin Notification (Non-blocking)
         resend.emails.send({
             from: EMAIL_FROM,
-            to: ['alejandro@espanolhonesto.com'],
+            to: [import.meta.env.ADMIN_EMAIL || 'alejandro@espanolhonesto.com'],
             subject: `Nuevo Lead: ${escapeHtml(name || '')} (${escapeHtml(interest || '')})`,
             html: `
         <div style="font-family: sans-serif; padding: 20px; color: #333;">
