@@ -173,6 +173,8 @@ describe('POST /api/calendar/session-action', () => {
                 order: vi.fn().mockReturnThis(),
                 limit: vi.fn().mockReturnThis(),
             };
+            // Make chain thenable to simulate Supabase resolving an array for the update query
+            chain.then = vi.fn((resolve) => resolve({ data: [{ id: 'session-1' }], error: null }));
             if (table === 'profiles') {
                 chain.single.mockResolvedValue({ data: { role: 'student' }, error: null });
             } else if (table === 'sessions') {
@@ -225,6 +227,7 @@ describe('POST /api/calendar/session-action', () => {
                 eq: vi.fn().mockReturnThis(),
                 single: vi.fn(),
             };
+            chain.then = vi.fn((resolve) => resolve({ data: [{ id: 'session-1' }], error: null }));
             if (table === 'profiles') {
                 chain.single.mockResolvedValue({ data: { role: 'student' }, error: null });
             } else if (table === 'sessions') {

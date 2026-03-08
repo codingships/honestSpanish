@@ -112,6 +112,8 @@ describe('POST /api/calendar/bulk-sessions', () => {
             };
             if (table === 'profiles') {
                 chain.single.mockResolvedValue({ data: { role: 'teacher', email: 'profe@test.com' } });
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
                 chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10 } });
             } else if (table === 'sessions') {

@@ -88,9 +88,7 @@ describe('POST /api/calendar/sessions', () => {
 
     it('returns 400 when student has no active subscription', async () => {
         const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
-        mockSupabase.from = vi.fn((_table: string) => {
-            callCount++;
+        mockSupabase.from = vi.fn((table: string) => {
             const chain: any = {
                 select: vi.fn().mockReturnThis(),
                 insert: vi.fn().mockReturnThis(),
@@ -104,11 +102,11 @@ describe('POST /api/calendar/sessions', () => {
                 limit: vi.fn().mockReturnThis(),
                 single: vi.fn(),
             };
-            if (callCount === 1) {
-                // profiles — teacher
+            if (table === 'profiles') {
                 chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
-            } else {
-                // subscriptions — null (no active sub)
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
+            } else if (table === 'subscriptions') {
                 chain.single.mockResolvedValue({ data: null, error: null });
             }
             return chain;
@@ -129,9 +127,7 @@ describe('POST /api/calendar/sessions', () => {
 
     it('returns 400 when sessions_used >= sessions_total (quota exhausted)', async () => {
         const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
-        mockSupabase.from = vi.fn((_table: string) => {
-            callCount++;
+        mockSupabase.from = vi.fn((table: string) => {
             const chain: any = {
                 select: vi.fn().mockReturnThis(),
                 insert: vi.fn().mockReturnThis(),
@@ -145,10 +141,11 @@ describe('POST /api/calendar/sessions', () => {
                 limit: vi.fn().mockReturnThis(),
                 single: vi.fn(),
             };
-            if (callCount === 1) {
+            if (table === 'profiles') {
                 chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
-            } else {
-                // Subscription with quota exhausted
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
+            } else if (table === 'subscriptions') {
                 chain.single.mockResolvedValue({
                     data: { id: 'sub-1', sessions_used: 8, sessions_total: 8 },
                     error: null,
@@ -189,6 +186,8 @@ describe('POST /api/calendar/sessions', () => {
 
             if (table === 'profiles') {
                 chain.single.mockResolvedValue({ data: { role: 'teacher', email: 'teacher@test.com' }, error: null });
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
                 chain.single = vi.fn().mockImplementation(() => {
                     // optimisitc lock check vs get active sub
@@ -245,6 +244,8 @@ describe('POST /api/calendar/sessions', () => {
 
             if (table === 'profiles') {
                 chain.single.mockResolvedValue({ data: { role: 'teacher', email: 'teacher@test.com' }, error: null });
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
                 chain.single = vi.fn().mockImplementation(() => {
                     return Promise.resolve({
