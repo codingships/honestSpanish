@@ -51,7 +51,7 @@ export const GET: APIRoute = async () => {
     // 2. Blog posts — Group by slug to cross-link translated versions
     const postsBySlug: Record<string, typeof blogPosts> = {};
     for (const post of blogPosts) {
-        const [postLang, ...rest] = post.id.split('/');
+        const [, ...rest] = post.id.split('/');
         const slug = rest.join('/').replace(/\.md$/, '');
         if (!postsBySlug[slug]) postsBySlug[slug] = [];
         postsBySlug[slug].push(post);
