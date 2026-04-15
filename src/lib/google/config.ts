@@ -3,17 +3,25 @@
  * Centralized configuration for Google Drive and Calendar APIs
  */
 
+// Fallback loader to support both Astro and raw Node.js
+const getEnv = (key: string): string => {
+    if (typeof process !== 'undefined' && process.env[key]) return process.env[key] as string;
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) return import.meta.env[key];
+    return '';
+};
+
 export const googleConfig = {
     // Service Account credentials
-    serviceAccountEmail: import.meta.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || '',
-    serviceAccountPrivateKey: (import.meta.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+    serviceAccountEmail: getEnv('GOOGLE_SERVICE_ACCOUNT_EMAIL') || '',
+    serviceAccountPrivateKey: (getEnv('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY') || '').replace(/\\n/g, '\n'),
 
     // Admin email to impersonate (owner of all resources)
-    adminEmail: import.meta.env.GOOGLE_ADMIN_EMAIL || 'alejandro@espanolhonesto.com',
+    adminEmail: getEnv('GOOGLE_ADMIN_EMAIL') || 'alejandro@espanolhonesto.com',
 
     // Drive configuration
-    driveRootFolderId: import.meta.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || '',
-    templateDocId: import.meta.env.GOOGLE_TEMPLATE_DOC_ID || '',
+    driveRootFolderId: getEnv('GOOGLE_DRIVE_ROOT_FOLDER_ID') || '',
+    templateDocId: getEnv('GOOGLE_TEMPLATE_DOC_ID') || '',
 
     // OAuth Scopes
     scopes: [

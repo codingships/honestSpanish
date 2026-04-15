@@ -3,13 +3,21 @@ import BaseLayout from './BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { Image } from 'astro:assets';
 import type { CollectionEntry } from 'astro:content';
+import TableOfContents from '../components/blog/TableOfContents.astro';
+
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
 
 interface Props {
   post: CollectionEntry<'blog'>;
   lang: 'es' | 'en' | 'ru';
+  headings?: Heading[];
 }
 
-const { post, lang } = Astro.props;
+const { post, lang, headings } = Astro.props;
 const t = useTranslations(lang);
 const { title, description, publishedAt, image, category, author } = post.data;
 
@@ -30,7 +38,12 @@ const articleSchema = {
   "author": [{
       "@type": "Person",
       "name": author === 'alejandro' ? 'Alejandro' : author === 'alin' ? 'Alin' : 'Equipo Español Honesto',
-      "url": "https://espanolhonesto.com"
+      "url": "https://espanolhonesto.com",
+      "sameAs": [
+        "https://www.linkedin.com/in/alejandro-espanol-honesto",
+        "https://www.youtube.com/@EspanolHonesto"
+      ],
+      "knowsAbout": ["Spanish language", "DELE", "SIELE", "Spanish grammar", "Language acquisition"]
   }]
 };
 // Get the slug without the language prefix for canonical path
@@ -93,6 +106,7 @@ const canonicalPath = `/blog/${postSlug}`;
 
             {/* Content Slot */}
             <div class="prose prose-lg mx-auto prose-headings:font-display prose-headings:text-[#006064] prose-p:text-[#006064]/80 prose-a:text-[#006064] prose-strong:text-[#006064] prose-blockquote:border-l-[#006064]">
+                {headings && headings.length > 0 && <TableOfContents headings={headings} lang={lang} />}
                 <slot />
             </div>
 
@@ -107,12 +121,13 @@ const canonicalPath = `/blog/${postSlug}`;
 
         {/* CTA Section */}
         <section class="bg-[#006064] text-white py-24 text-center px-6">
-            <h2 class="font-display text-4xl mb-6">{t('common.ctaReady')}</h2>
+            <h2 class="font-display text-4xl mb-6">{post.data.ctaText || t('common.ctaReady')}</h2>
              <a
-                href={`/${lang}/#planes`}
+                href={post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}/#planes`}
                 class="inline-block bg-white text-[#006064] px-8 py-4 text-lg font-bold border-2 border-transparent hover:bg-[#E0F7FA] transition-all uppercase tracking-wider"
             >
-                {t('common.ctaContact')}
+                {post.data.ctaText ? t('common.ctaContact') : t('common.ctaContact')} 
+                {/* Fallback to global contact label if we just change the H2 and Link, or allow a custom ctaButtonText in the future */}
             </a>
         </section>
 

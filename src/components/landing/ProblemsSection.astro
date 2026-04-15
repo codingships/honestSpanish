@@ -1,0 +1,37 @@
+---
+import noiseTexture from '../../assets/noise_texture.png';
+
+interface Props {
+  headline: string;
+  subtext: string;
+  statements: string[];
+}
+
+const { headline, subtext, statements } = Astro.props;
+---
+<section
+    class="bg-white py-24 px-6 border-b-2 border-[#006064]"
+    style={`background-image: url(${noiseTexture.src}); background-size: 200px;`}
+>
+    <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-12">
+        {/* Left Column */}
+        <div class="lg:col-span-2">
+            <h2 class="font-display text-4xl lg:text-5xl text-[#006064] mb-4" style={{ lineHeight: '1.55' }}>{headline}</h2>
+            <p class="font-sans text-xl text-[#006064]/70 font-medium">{subtext}</p>
+        </div>
+
+        {/* Right Column (Pain Points) */}
+        <div class="lg:col-span-3 space-y-8">
+            {statements.map((statement, index) => (
+                <div class="relative pl-2">
+                    <span class="absolute -top-6 -left-4 font-display text-8xl text-[#006064]/10 select-none pointer-events-none">
+                        0{index + 1}
+                    </span>
+                    <p class="relative z-10 font-sans text-lg md:text-xl text-[#006064] font-medium leading-relaxed">
+                        {statement}
+                    </p>
+                </div>
+            ))}
+        </div>
+    </div>
+</section>

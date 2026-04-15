@@ -1,0 +1,40 @@
+---
+import { useTranslations } from '../../i18n/utils';
+
+interface Heading {
+  depth: number;
+  slug: string;
+  text: string;
+}
+
+interface Props {
+  headings: Heading[];
+  lang: 'es' | 'en' | 'ru';
+}
+
+const { headings, lang } = Astro.props;
+const t = useTranslations(lang);
+
+// Only keep H2 and H3 for the ToC to keep it clean
+const filteredHeadings = headings.filter((h) => h.depth === 2 || h.depth === 3);
+
+if (filteredHeadings.length === 0) {
+    return;
+}
+---
+
+<nav class="bg-[#E0F7FA] border-l-4 border-[#006064] p-6 mb-12 my-8 rounded-r-lg">
+    <h2 class="font-display text-xl text-[#006064] mb-4 uppercase tracking-wider">{lang === 'es' ? 'Contenidos' : lang === 'en' ? 'Table of Contents' : 'Содержание'}</h2>
+    <ul class="space-y-2 font-sans">
+        {filteredHeadings.map((heading) => (
+            <li class={`leading-tight ${heading.depth === 3 ? 'ml-6 text-sm' : 'font-bold mt-3'}`}>
+                <a 
+                    href={`#${heading.slug}`} 
+                    class="text-[#006064] hover:text-[#006064]/70 transition-colors no-underline hover:underline decoration-2 underline-offset-4"
+                >
+                    {heading.text}
+                </a>
+            </li>
+        ))}
+    </ul>
+</nav>

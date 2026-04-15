@@ -30,32 +30,65 @@ export const GET: APIRoute = async () => {
     for (const { path, changefreq, priority } of STATIC_PAGES) {
         for (const lang of LANGS) {
             const loc = xmlEscape(`${SITE}/${lang}${path === '/' ? '' : path}`);
+            
+            const alternateLinks = LANGS.map(alternateLang => {
+                const alternateLoc = xmlEscape(`${SITE}/${alternateLang}${path === '/' ? '' : path}`);
+                return `\n        <xhtml:link rel="alternate" hreflang="${alternateLang}" href="${alternateLoc}" />`;
+            }).join('');
+            
+            const defaultLoc = xmlEscape(`${SITE}/es${path === '/' ? '' : path}`);
+            const xDefaultLink = `\n        <xhtml:link rel="alternate" hreflang="x-default" href="${defaultLoc}" />`;
+
             urls.push(`
     <url>
-        <loc>${loc}</loc>
+        <loc>${loc}</loc>${alternateLinks}${xDefaultLink}
         <changefreq>${changefreq}</changefreq>
         <priority>${priority}</priority>
     </url>`);
         }
     }
 
-    // 2. Blog posts — one entry per language per post
+    // 2. Blog posts — Group by slug to cross-link translated versions
+    const postsBySlug: Record<string, typeof blogPosts> = {};
     for (const post of blogPosts) {
-        // post.id is like "en/my-slug.md" or "es/mi-slug.md"
         const [postLang, ...rest] = post.id.split('/');
         const slug = rest.join('/').replace(/\.md$/, '');
-        const loc = xmlEscape(`${SITE}/${postLang}/blog/${slug}`);
-        urls.push(`
+        if (!postsBySlug[slug]) postsBySlug[slug] = [];
+        postsBySlug[slug].push(post);
+    }
+
+    for (const slug in postsBySlug) {
+        const localizedPosts = postsBySlug[slug];
+        
+        for (const post of localizedPosts) {
+            const [postLang] = post.id.split('/');
+            const loc = xmlEscape(`${SITE}/${postLang}/blog/${slug}`);
+            
+            const alternateLinks = localizedPosts.map(p => {
+                const [pLang] = p.id.split('/');
+                const pLoc = xmlEscape(`${SITE}/${pLang}/blog/${slug}`);
+                return `\n        <xhtml:link rel="alternate" hreflang="${pLang}" href="${pLoc}" />`;
+            }).join('');
+            
+            const esPost = localizedPosts.find(p => p.id.startsWith('es/'));
+            let xDefaultLink = '';
+            if (esPost) {
+                const defaultLoc = xmlEscape(`${SITE}/es/blog/${slug}`);
+                xDefaultLink = `\n        <xhtml:link rel="alternate" hreflang="x-default" href="${defaultLoc}" />`;
+            }
+
+            urls.push(`
     <url>
-        <loc>${loc}</loc>
+        <loc>${loc}</loc>${alternateLinks}${xDefaultLink}
         <changefreq>monthly</changefreq>
         <priority>0.7</priority>
         <lastmod>${post.data.publishedAt ? new Date(post.data.publishedAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]}</lastmod>
     </url>`);
+        }
     }
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${urls.join('')}
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">${urls.join('')}
 </urlset>`;
 
     return new Response(xml, {

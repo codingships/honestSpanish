@@ -29,7 +29,7 @@ Por favor, centra tu máxima potencia de análisis en estos 4 vectores, ya que n
 - **Ubicación:** [src/pages/api/calendar/sessions.ts](file:///c:/Users/Alin/Desktop/Academia/pruebas/src/pages/api/calendar/sessions.ts) y [src/pages/api/calendar/bulk-sessions.ts](file:///c:/Users/Alin/Desktop/Academia/pruebas/src/pages/api/calendar/bulk-sessions.ts)
 - **Dudas a auditar:**
   - Si implementamos comprobaciones secuenciales (DB -> Google -> DB), ¿qué pasa si dos alumnos distintos abren la app, ven que "Hoy a las 17:00" está libre, y ambos envían el payload POST HTTP en el *mismo milisegundo exacto*? 
-  - ¿Ofrece nuestra estructura en [esquema_nube.sql](file:///c:/Users/Alin/Desktop/Academia/pruebas/esquema_nube.sql) protección a nivel de base de datos (Unique Constraints por fecha/profesor) o nos colarán 2 clases en la misma franja?
+  - ¿Ofrece nuestra estructura en [db/schema.sql](file:///c:/Users/Alin/Desktop/Academia/pruebas/db/schema.sql) protección a nivel de base de datos (Unique Constraints por fecha/profesor) o nos colarán 2 clases en la misma franja?
 
 ### 3. Autorización y Escalada de Privilegios (Vulnerabilidades IDOR)
 - **Ubicación:** Todo `src/pages/api/` y las políticas RLS en base de datos.

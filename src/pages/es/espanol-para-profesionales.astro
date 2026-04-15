@@ -1,0 +1,150 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import HeroSection from '../../components/landing/HeroSection.astro';
+import ProblemsSection from '../../components/landing/ProblemsSection.astro';
+import MethodSection from '../../components/landing/MethodSection.astro';
+import PricingSection from '../../components/PricingSection';
+import { createSupabaseServerClient } from '../../lib/supabase-server';
+
+const lang = 'es';
+
+// Fetch packages for pricing 
+// (In a real scenario, you might filter specific business packages here)
+const supabase = createSupabaseServerClient(Astro);
+const { data: packages } = await supabase
+    .from('packages')
+    .select('id, name, display_name, price_monthly, sessions_per_month, stripe_price_1m, stripe_price_3m, stripe_price_6m')
+    .eq('is_active', true)
+    .order('price_monthly', { ascending: true });
+
+const { data: { user } } = await supabase.auth.getUser();
+const isLoggedIn = !!user;
+
+const schema = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "Clases de Español para Profesionales y Expatriados | Español Honesto",
+    "description": "Potencia tu carrera dominando el español de negocios. Clases hiperespecíficas para superar entrevistas, liderar reuniones y mandar emails formales sin errores."
+};
+
+// Specialized translations (Hardcoded to prove the satellite architecture)
+const heroContent = {
+    headline1: "Impulsa tu",
+    headline2: "carrera con",
+    headline3: "español de negocios",
+    manifesto: "ESPAÑOL PARA PROFESIONALES • EXPATRIADOS • IT",
+    subtitle: "Comunícate con confianza, lidera equipos en España y expande tus oportunidades en el ecosistema hispanohablante.",
+    ready: "¿Listo para ascender?",
+    ctaText: "VER PLANES EMPRESARIALES"
+};
+
+const problemsContent = {
+    headline: "El español general no te sirve en la oficina",
+    subtext: "Conocemos los obstáculos exactos a los que te enfrentas liderando en un segundo idioma.",
+    statements: [
+        "Sufres el 'síndrome del impostor' en reuniones importantes o negociaciones salariales por falta de vocabulario.",
+        "Redactar correos técnicos o informes formales te consume demasiadas horas revisando cada palabra.",
+        "Te pierdes las bromas y matices culturales en la máquina de café, quedando al margen de la dinámica del equipo."
+    ]
+};
+
+const methodContent = {
+    headline: "Un enfoque láser hacia tus objetivos laborales",
+    manifesto: "100% PRÁCTICO • ROL-PLAYING • CERO RELLENO",
+    closing: "Aprendes únicamente lo que vas a usar el lunes por la mañana en tu empresa.",
+    subtitle: "Sustituimos la gramática teórica por simulaciones de tu entorno real: entrevistas, presentaciones de producto y gestión de conflictos.",
+    columns: [
+        { 
+            number: "01", 
+            title: "Auditoría de Necesidades", 
+            description: "Analizamos tus emails pasados, tu jerga técnica y los documentos que usas para basar las clases en TI." 
+        },
+        { 
+            number: "02", 
+            title: "Simulación de Escenarios", 
+            description: "Practicamos cómo defender una idea, negociar un contrato o dar feedback a un compañero (role-playing)." 
+        },
+        { 
+            number: "03", 
+            title: "Registro Formal", 
+            description: "Pulimos las expresiones coloquiales hacia un español asertivo, corporativo y tremendamente educado." 
+        }
+    ]
+};
+
+// Pricing translations fallback (Using hardcoded ES basics for the standalone test)
+const pricingTranslations = {
+    title: "Planes Intensivos",
+    subtitle: "Escoge el nivel de inmersión que necesita tu carrera.",
+    monthly: "Mensual",
+    quarterly: "Trimestral",
+    biannual: "Semestral",
+    perMonth: "/mes",
+    choosePlan: "Seleccionar",
+    popular: "Más Popular",
+    plans: {
+        essential: { name: "Profesional", description: "Mantenimiento y dudas puntuales", features: ["1 clase semanal", "Material técnico básico", "Soporte email 48h"] },
+        intensive: { name: "Directivo", description: "Ascensos y expatriación rápida", features: ["2 clases semanales", "Preparación de entrevistas", "Corrección de emails", "Simulación de reuniones"] },
+        premium: { name: "Inmersión VIP", description: "Alto rendimiento corporativo", features: ["3 clases semanales", "Soporte Telegram 24/7", "Preparación de presentaciones clave", "Material hiper-personalizado"] }
+    }
+};
+---
+
+<BaseLayout 
+  title="Español para Profesionales e IT | Español Honesto" 
+  description="Domina el español de negocios. Clases para expatriados, managers y programadores en España." 
+  lang={lang}
+  canonicalPath="/espanol-para-profesionales"
+>
+    <!-- Schema Especializado -->
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)} />
+    
+    <div class="bg-[#E0F7FA] min-h-screen text-[#006064] font-sans selection:bg-black selection:text-white">
+
+        {/* Navbar Simplificado (Orientado a Venta Satélite) */}
+        <nav class="h-16 border-b-2 border-[#006064] flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 bg-[#E0F7FA]">
+            <a href="/es" class="font-display text-lg md:text-xl tracking-tighter truncate mr-2 hover:opacity-70 transition-opacity">
+                Español Honesto <span class="text-xs uppercase font-mono bg-[#006064] text-white px-2 py-1 ml-2 rounded-sm hidden md:inline-block">/ Profesionales</span>
+            </a>
+            <div class="flex items-center gap-4">
+                 <a href="/es" class="font-mono text-xs uppercase font-bold border-b border-transparent hover:border-[#006064] transition-all">Volver al Inicio</a>
+            </div>
+        </nav>
+
+        <HeroSection 
+            headline1={heroContent.headline1}
+            headline2={heroContent.headline2}
+            headline3={heroContent.headline3}
+            manifesto={heroContent.manifesto}
+            subtitle={heroContent.subtitle}
+            ready={heroContent.ready}
+            ctaText={heroContent.ctaText}
+        />
+
+        <ProblemsSection 
+            headline={problemsContent.headline}
+            subtext={problemsContent.subtext}
+            statements={problemsContent.statements}
+        />
+
+        <MethodSection 
+            headline={methodContent.headline}
+            manifesto={methodContent.manifesto}
+            closing={methodContent.closing}
+            subtitle={methodContent.subtitle}
+            columns={methodContent.columns}
+        />
+
+        {/* Pricing Adaptado a Negocios */}
+        <div id="contacto">
+            <PricingSection 
+                client:load
+                packages={packages || []}
+                lang={lang}
+                isLoggedIn={isLoggedIn}
+                translations={pricingTranslations}
+            />
+        </div>
+
+    </div>
+</BaseLayout>

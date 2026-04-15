@@ -2,6 +2,7 @@ import satori from 'satori';
 import { html } from 'satori-html';
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import type { APIRoute } from 'astro';
+import { getCollection } from 'astro:content';
 
 // Resvg WebAssembly Initialization Cache
 let wasmInitialized = false;
@@ -16,8 +17,26 @@ export const GET: APIRoute = async ({ params }) => {
     'blog': { title: 'Nuestro Blog', category: 'Artículos' },
   };
 
-  const pageData = staticPages[slug as string] || { title: 'Español Honesto', category: 'Academia' };
-  const { title, category } = pageData;
+  let title = 'Español Honesto';
+  let category = 'Academia';
+
+  if (staticPages[slug as string]) {
+      title = staticPages[slug as string].title;
+      category = staticPages[slug as string].category;
+  } else {
+      // Buscar si el slug pertenece a un artículo del blog
+      const blogPosts = await getCollection('blog');
+      const post = blogPosts.find(p => {
+          const parts = p.slug.split('/');
+          const cleanSlug = parts.length > 1 ? parts.slice(1).join('/') : p.slug;
+          return cleanSlug === slug;
+      });
+
+      if (post) {
+          title = post.data.title;
+          category = post.data.category || 'Artículo';
+      }
+  }
 
   // Initialize WASM for Resvg if not already done
   if (!wasmInitialized) {

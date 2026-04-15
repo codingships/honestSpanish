@@ -335,7 +335,7 @@ export const ui = {
             headline2: "EN",
             headline3: "ESPAÑA",
             manifesto: "/ Manifiesto 001",
-            subtitle: "Sin atajos. Sin trucos. 8-10 meses de trabajo real para una fluidez conversacional auténtica. Sin atajos, solo resultados reales.",
+            subtitle: "Sin atajos. Sin trucos. 15 meses de trabajo real para una fluidez conversacional auténtica. Sin atajos, solo resultados reales.",
             ready: "¿Estás listo?",
             cta: "HABLEMOS",
         },
@@ -365,15 +365,17 @@ export const ui = {
         },
         progress: {
             manifesto: "/ MANIFIESTO 003",
-            headline: "8-10 MESES",
-            subheadline: "Para una fluidez conversacional real.",
-            paragraph: "No prometemos magia. Prometemos un plan. Con práctica diaria, feedback honesto, y situaciones reales, llegarás a mantener conversaciones fluidas sobre cualquier tema cotidiano.",
-            closing: "Hablar español es la puerta. Conocer España es lo que hay detrás.",
-            milestones: [
-                { months: "MES 1-2", description: "Entiendes las estructuras básicas. Empiezas a pensar en español." },
-                { months: "MES 3-4", description: "Mantienes conversaciones simples. Pierdes el miedo." },
-                { months: "MES 5-7", description: "Hablas de temas complejos. Entiendes el humor y las expresiones." },
-                { months: "MES 8-10", description: "Fluidez conversacional. Vives en español sin traducir mentalmente." }
+            headline: "TU CAMINO",
+            subheadline: "Los 6 niveles hacia la fluidez y maestría.",
+            paragraph: "Aprender español requiere tiempo y constancia. Te mostramos los 6 niveles para dominar el idioma y cuándo alcanzarás los hitos más importantes para poder comunicarte sin esfuerzo.",
+            closing: "El tiempo pasa igual. Al menos, haz que cuente.",
+            levels: [
+                { title: "NIVEL 1", duration: "5 MESES", description: "Comunicación básica. Puedes entender conversaciones, dirigirte a la gente y sentirte más o menos cómodo en el día a día." },
+                { title: "NIVEL 2", duration: "10 MESES", description: "Comunicación con relativa soltura. Ganas confianza para hablar de temas variados y defenderte bien." },
+                { title: "NIVEL 3", duration: "15 MESES", description: "Fluidez conversacional. Aunque sigas cometiendo algunos errores gramaticales, hablas sin frenos ni bloqueos." },
+                { title: "NIVEL 4", duration: "", description: "Perfeccionamiento. Reducción drástica de los errores y ampliación de vocabulario complejo." },
+                { title: "NIVEL 5", duration: "", description: "Dominio. Entiendes el humor, sarcasmo y matices culturales casi como un nativo." },
+                { title: "NIVEL 6", duration: "", description: "Maestría real. Tu competencia en español es prácticamente bilingüe." }
             ]
         },
         team: {
@@ -844,7 +846,7 @@ export const ui = {
             headline2: "IN",
             headline3: "SPAIN",
             manifesto: "/ Manifesto 001",
-            subtitle: "No shortcuts. No tricks. 8-10 months of real work for authentic conversational fluency.",
+            subtitle: "No shortcuts. No tricks. 15 months of real work for authentic conversational fluency.",
             ready: "Are you ready?",
             cta: "LET'S TALK",
         },
@@ -891,15 +893,17 @@ export const ui = {
         },
         progress: {
             manifesto: "/ MANIFESTO 003",
-            headline: "8-10 MONTHS",
-            subheadline: "For real conversational fluency.",
-            paragraph: "We don't promise magic. We promise a plan. With daily practice, honest feedback, and real situations, you will reach a point where you can maintain fluid conversations on any everyday topic.",
-            closing: "Speaking Spanish is the door. Knowing Spain is what's behind it.",
-            milestones: [
-                { months: "MONTH 1-2", description: "You understand basic structures. You start thinking in Spanish." },
-                { months: "MONTH 3-4", description: "You maintain simple conversations. You lose the fear." },
-                { months: "MONTH 5-7", description: "You talk about complex topics. You understand humor and expressions." },
-                { months: "MONTH 8-10", description: "Conversational fluency. You live in Spanish without translating in your head." }
+            headline: "YOUR PATH",
+            subheadline: "The 6 levels to fluency and mastery.",
+            paragraph: "Learning Spanish requires time and consistency. We show you the 6 levels to master the language and when you will reach the most important milestones to communicate effortlessly.",
+            closing: "Time passes anyway. At least make it count.",
+            levels: [
+                { title: "LEVEL 1", duration: "5 MONTHS", description: "Basic communication. You can understand conversations, address people, and feel somewhat comfortable in your day-to-day." },
+                { title: "LEVEL 2", duration: "10 MONTHS", description: "Communication with relative ease. You gain confidence to talk about varied topics and handle yourself well." },
+                { title: "LEVEL 3", duration: "15 MONTHS", description: "Conversational fluency. Even with some grammatical errors, you speak without stopping or freezing." },
+                { title: "LEVEL 4", duration: "", description: "Perfection. Drastic reduction of errors and expansion of complex vocabulary." },
+                { title: "LEVEL 5", duration: "", description: "Mastery. You understand humor, sarcasm, and cultural nuances almost like a native." },
+                { title: "LEVEL 6", duration: "", description: "True mastery. Your competence in Spanish is practically bilingual." }
             ]
         },
         team: {
@@ -1293,7 +1297,7 @@ export const ui = {
             headline2: "В",
             headline3: "ИСПАНИИ",
             manifesto: "/ Манифест 001",
-            subtitle: "Без сокращений. Без уловок. 8-10 месяцев реальной работы для подлинной разговорной беглости.",
+            subtitle: "Без сокращений. Без уловок. 15 месяцев реальной работы для подлинной разговорной беглости.",
             ready: "Вы готовы?",
             cta: "ПОГОВОРИМ",
         },
@@ -1340,15 +1344,17 @@ export const ui = {
         },
         progress: {
             manifesto: "/ МАНИФЕСТ 003",
-            headline: "8-10 МЕСЯЦЕВ",
-            subheadline: "Для настоящей разговорной беглости.",
-            paragraph: "Мы не обещаем магии. Мы обещаем план. С ежедневной практикой, честной обратной связью и реальными ситуациями вы сможете поддерживать беглые разговоры на любую повседневную тему.",
-            closing: "Говорить по-испански — это дверь. Знать Испанию — вот что за ней.",
-            milestones: [
-                { months: "МЕСЯЦ 1-2", description: "Вы понимаете базовые структуры. Начинаете думать на испанском." },
-                { months: "МЕСЯЦ 3-4", description: "Поддерживаете простые разговоры. Теряете страх." },
-                { months: "МЕСЯЦ 5-7", description: "Говорите на сложные темы. Понимаете юмор и выражения." },
-                { months: "МЕСЯЦ 8-10", description: "Разговорная беглость. Живете на испанском, не переводя в уме." }
+            headline: "ТВОЙ ПУТЬ",
+            subheadline: "6 уровней к беглости и мастерству.",
+            paragraph: "Изучение испанского требует времени и постоянства. Мы показываем вам 6 уровней овладения языком и когда вы достигнете самых важных рубежей, чтобы общаться без усилий.",
+            closing: "Время все равно проходит. Пусть оно имеет значение.",
+            levels: [
+                { title: "УРОВЕНЬ 1", duration: "5 МЕСЯЦЕВ", description: "Базовое общение. Ты понимаешь разговоры, можешь обращаться к людям и чувствуешь себя более-менее комфортно в повседневной жизни." },
+                { title: "УРОВЕНЬ 2", duration: "10 МЕСЯЦЕВ", description: "Общение с относительной легкостью. Ты обретаешь уверенность, чтобы говорить на разные темы и хорошо справляться." },
+                { title: "УРОВЕНЬ 3", duration: "15 МЕСЯЦЕВ", description: "Разговорная беглость. Даже если ты все еще совершаешь некоторые грамматические ошибки, ты говоришь без тормозов и блоков." },
+                { title: "УРОВЕНЬ 4", duration: "", description: "Улучшение. Резкое сокращение количества ошибок и расширение сложного словарного запаса." },
+                { title: "УРОВЕНЬ 5", duration: "", description: "Владение. Ты понимаешь юмор, сарказм и культурные нюансы почти как носитель языка." },
+                { title: "УРОВЕНЬ 6", duration: "", description: "Настоящее мастерство. Твоя компетентность в испанском практически двуязычна." }
             ]
         },
         team: {

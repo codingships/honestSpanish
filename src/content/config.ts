@@ -14,6 +14,8 @@ const blog = defineCollection({
         imageAlt: z.string().optional(),
         lang: z.enum(['es', 'en', 'ru']),
         translationKey: z.string().optional(), // para vincular traducciones del mismo artículo
+        ctaText: z.string().optional(), // Texto dinámico del CTA al final del blog
+        ctaLink: z.string().optional(), // Enlace dinámico del CTA al final del blog
     }),
 });
 

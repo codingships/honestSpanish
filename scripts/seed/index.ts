@@ -57,8 +57,8 @@ async function setupUsers() {
     console.log('👤 Configurando cuentas del Búnker...');
 
     const adminId = await getOrCreateUser('alejandro@espanolhonesto.com', 'Admin Alejandro', 'admin');
-    const teacherId = await getOrCreateUser('alinandrei74@gmail.com', 'Profesor Alin', 'teacher');
-    const studentId = await getOrCreateUser('alindev95@gmail.com', 'Alumno Alin', 'student');
+    const teacherId = await getOrCreateUser('alindev95@gmail.com', 'Profesor Alin', 'teacher');
+    const studentId = await getOrCreateUser('alinandrei74@gmail.com', 'Alumno Alin', 'student');
 
     return { adminId, teacherIds: [teacherId], studentIds: [studentId] };
 }

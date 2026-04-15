@@ -1,0 +1,53 @@
+---
+interface Props {
+    headline: string;
+    subheadline: string;
+    paragraph: string;
+    closing: string;
+    manifesto: string;
+    levels: {
+        title: string;
+        duration: string;
+        description: string;
+    }[];
+}
+
+const { headline, subheadline, paragraph, closing, manifesto, levels } = Astro.props;
+---
+
+<section id="progreso" class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+    <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-12">
+        <div class="lg:col-span-2">
+            <h2 class="font-display text-4xl lg:text-5xl text-[#006064] mb-4 leading-tight">{headline}</h2>
+            <div class="max-w-md mb-8">
+                <p class="text-[#006064]/70 font-mono text-sm md:text-base uppercase tracking-wide mb-4">{manifesto}</p>
+                <p class="font-sans text-lg md:text-xl text-[#006064] font-bold leading-tight">{closing}</p>
+            </div>
+            <h3 class="font-sans text-xl text-[#006064]/80 mb-6 font-medium">{subheadline}</h3>
+            <p class="font-sans text-base text-[#006064]/70 mb-12 leading-relaxed">
+                {paragraph}
+            </p>
+        </div>
+
+        <div class="lg:col-span-3 pl-4 md:pl-0">
+            <div class="space-y-12 border-l-2 border-[#006064]/30 pl-8 md:pl-12 relative">
+                {levels.map((level) => (
+                    <div class={`relative transition-opacity duration-300 ${level.duration ? 'opacity-100' : 'opacity-60 hover:opacity-100'}`}>
+                        <div class="absolute -left-[39px] md:-left-[55px] top-2 w-4 h-4 rounded-full bg-[#006064] border-2 border-[#E0F7FA]"></div>
+                        <div class="flex flex-col md:flex-row md:items-baseline gap-2 mb-2">
+                            <h4 class="font-display text-xl text-[#006064] uppercase">{level.title}</h4>
+                            {level.duration && (
+                                <span class="bg-[#006064]/10 text-[#006064] font-mono text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-widest">
+                                    {level.duration}
+                                </span>
+                            )}
+                        </div>
+                        <p class="font-sans text-base text-[#006064]/70 leading-relaxed max-w-lg">
+                            {level.description}
+                        </p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    </div>
+</section>

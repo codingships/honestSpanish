@@ -8,6 +8,11 @@
 CREATE OR REPLACE FUNCTION prevent_role_escalation()
 RETURNS TRIGGER AS $$
 BEGIN
+    -- Bypass para la Service Role Key y el Supabase SQL Dashboard
+    IF auth.uid() IS NULL THEN
+        RETURN NEW;
+    END IF;
+
     IF NEW.role IS DISTINCT FROM OLD.role AND NOT is_admin() THEN
         RAISE EXCEPTION 'Cannot change role without admin privileges';
     END IF;

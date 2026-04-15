@@ -126,7 +126,7 @@ CREATE TABLE payments (
 CREATE TABLE processed_webhook_events (
     stripe_event_id TEXT PRIMARY KEY,
     event_type TEXT NOT NULL,
-    processed_at TIMESTAMPTZ DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 9. TEACHER AVAILABILITY

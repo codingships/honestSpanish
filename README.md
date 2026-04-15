@@ -51,7 +51,7 @@ PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
 
 # Resend (Emails)
 RESEND_API_KEY=re_...
-FROM_EMAIL=onboarding@espanolhonesto.com
+EMAIL_FROM=onboarding@espanolhonesto.com
 ADMIN_EMAIL=tu@tu-mail.com
 
 # Cloudflare Turnstile (Anti-Captcha)

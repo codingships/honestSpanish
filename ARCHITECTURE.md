@@ -20,12 +20,14 @@ El enrutador está configurado en `output: 'server'` (dentro de `astro.config.mj
 *   **Rutas Server-Side (SSR - Dinámicas):**
     *   `/[lang]/campus/*` (Todo el panel de estudiante, profesor y administrador)
     *   `/[lang]/login` (Verifica si ya hay sesión abierta)
-    *   `/[lang]/checkout/*` (Recupera precios dinámicos de Stripe)
+    *   `/api/create-checkout.ts` (Redirige al Hosted Checkout de Stripe con precios dinámicos)
     *   *Aquí se ejecutan consultas a BBDD en milisegundos y actúan los Guardianes de Ruta.*
 
 ---
 
 ## 2. Base de Datos (Supabase PostgreSQL)
+
+**Fuente de Verdad (Source of Truth):** El archivo `db/schema.sql` es el plano oficial y canónico de la base de datos. Los archivos en `supabase/migrations/` o volcados como `esquema_nube.sql` deben ignorarse a la hora de consultar la arquitectura.
 
 La jerarquía del esquema de datos (`/db/schema.sql`) gira alrededor del objeto `auth.users` nativo de Supabase, extendido mediante triggers.
 
@@ -86,13 +88,11 @@ El sistema se integra de manera profunda con el ecosistema de Google mediante un
 
 ### Funciones Principales:
 *   **Google Drive (`src/lib/google/drive.ts`):** 
-    *   Genera carpetas organizadas para estudiantes de forma manual mediante el endpoint `/api/google/create-student-folder`.
+    *   Genera carpetas organizadas para estudiantes de forma manual mediante el endpoint `/api/google/create-student-folder` (lógica principal en `src/lib/google/student-folder.ts`).
     *   Por cada sesión agendada, clona automáticamente un "Documento de Clase" base vinculándolo a la carpeta de Drive del alumno específico.
 *   **Google Calendar y Meet (`src/lib/google/calendar.ts`):**
     *   Almacena las sesiones de clase creando eventos de Cloudflare a Google Calendar.
-    *   Genera automáticamente el enlace de videollamada de **Google Meet** que es enviado al correo del alumno y profesor, y adjuntado en la sesión de Supabase.
-*   **Procesamiento de Grabaciones (`src/lib/google/recordings.ts`):**
-    *   Busca grabaciones terminadas en Google Meet y genera accesos directos de la grabación enlazándolos dentro del Documento de Clase (Google Docs) de la sesión correspondiente.
+    *   Genera automáticamente el enlace de videollamada de **Google Meet** que es enviado al correo del alumno y profesor.
 
 > [!NOTE]
 > Esta arquitectura garantiza que todo el material de clase (apuntes en Docs y grabaciones de Meet) residan siempre bajo la propiedad del correo administrador especificado en `GOOGLE_ADMIN_EMAIL`.

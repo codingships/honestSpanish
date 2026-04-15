@@ -1,0 +1,62 @@
+---
+import { Image } from 'astro:assets';
+import heroImage from '../../assets/hero.png';
+
+interface Props {
+  headline1: string;
+  headline2: string;
+  headline3: string;
+  manifesto: string;
+  subtitle: string;
+  ready: string;
+  ctaText: string;
+}
+
+const { headline1, headline2, headline3, manifesto, subtitle, ready, ctaText } = Astro.props;
+
+const s = {
+    bg: 'bg-[#E0F7FA]',
+    text: 'text-[#006064]',
+    accent: 'bg-[#006064]',
+    accentText: 'text-white',
+    border: 'border-[#006064]',
+    secondaryBg: 'bg-white',
+    button: 'bg-[#006064] text-white hover:bg-[#004d40]',
+};
+---
+<header class={`border-b-2 ${s.border} relative z-20 bg-[#E0F7FA]`}>
+    <div class="grid grid-cols-1 lg:grid-cols-12 h-auto lg:min-h-[calc(100vh-112px)]">
+        <div class={`lg:col-span-7 p-6 md:p-12 flex flex-col justify-start border-b-2 lg:border-b-0 lg:border-r-2 ${s.border}`}>
+            <div>
+                <h1 class="font-display text-[12vw] md:text-[9vw] lg:text-[7.5vw] leading-[1.1] lg:leading-[1.1] tracking-tighter break-words">
+                    {headline1} <br />
+                    <span class="italic">{headline2}</span> <br />
+                    {headline3}
+                </h1>
+            </div>
+            <div class="mt-20 max-w-md">
+                <p class="font-mono text-sm md:text-base uppercase tracking-wide mb-6">{manifesto}</p>
+                <p class="text-lg md:text-xl font-bold leading-tight">{subtitle}</p>
+            </div>
+        </div>
+        <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden min-h-0">
+            <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
+                <Image 
+                    src={heroImage} 
+                    alt="Estudiante practicando español" 
+                    class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
+                    loading="eager"
+                />
+            </div>
+            <div class={`flex-1 ${s.secondaryBg} p-8 lg:p-12 flex flex-col justify-center items-center text-center`}>
+                <h2 class="font-display text-3xl lg:text-4xl mb-4 lg:mb-6">{ready}</h2>
+                <a
+                    href="#contacto"
+                    class={`inline-block ${s.button} px-6 lg:px-8 py-3 lg:py-4 text-base lg:text-lg font-bold border-2 ${s.border} shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all uppercase tracking-wider`}
+                >
+                    {ctaText}
+                </a>
+            </div>
+        </div>
+    </div>
+</header>
