@@ -95,7 +95,7 @@ export const GET: APIRoute = async ({ request }) => {
                 }
 
                 // Format date/time in Spanish with Madrid timezone
-                const sessionDate = new Date(session.scheduled_at);
+                const sessionDate = new Date(session.scheduled_at as string);
                 const dateStr = sessionDate.toLocaleDateString('es-ES', {
                     weekday: 'long',
                     day: 'numeric',
@@ -116,8 +116,8 @@ export const GET: APIRoute = async ({ request }) => {
                         date: dateStr,
                         time: timeStr,
                         teacherName: teacher.full_name || 'Tu profesor',
-                        meetLink: session.meet_link,
-                        documentLink: session.drive_doc_url,
+                        meetLink: session.meet_link ?? undefined,
+                        documentLink: session.drive_doc_url ?? undefined,
                     });
 
                     if (studentSent) {
@@ -137,8 +137,8 @@ export const GET: APIRoute = async ({ request }) => {
                         date: dateStr,
                         time: timeStr,
                         studentName: student.full_name || 'Tu estudiante',
-                        meetLink: session.meet_link,
-                        documentLink: session.drive_doc_url,
+                        meetLink: session.meet_link ?? undefined,
+                        documentLink: session.drive_doc_url ?? undefined,
                     });
 
                     if (teacherSent) {
