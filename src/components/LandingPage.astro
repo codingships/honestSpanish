@@ -1,11 +1,7 @@
 ---
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { createSupabaseServerClient } from '../lib/supabase-server';
-import { Image } from 'astro:assets';
 import PricingSection from './PricingSection';
-import iconEsencial from '../assets/icon-esencial.png';
-import iconIntensivo from '../assets/icon-intensivo.png';
-import iconPremium from '../assets/icon-premium.png';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
 import avatarAlejandro from '../assets/avatar_alejandro.png';
 import avatarAlin from '../assets/avatar_alin.png';
@@ -26,7 +22,7 @@ const t = useTranslations(lang);
 const supabase = createSupabaseServerClient(Astro);
 const { data: packages, error: packagesError } = await supabase
     .from('packages')
-    .select('id, name, display_name, price_monthly, sessions_per_month, stripe_price_1m, stripe_price_3m, stripe_price_6m')
+    .select('id, name, display_name, price_monthly, sessions_per_month, has_group_session, has_dual_teacher, stripe_price_1m, stripe_price_3m, stripe_price_6m')
     .eq('is_active', true)
     .order('price_monthly', { ascending: true });
 
@@ -177,10 +173,12 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 
     {/* Atmosphere Break */}
     <div class={`w-full h-64 md:h-96 overflow-hidden border-b-2 ${s.border} relative`}>
-        <Image 
-            src={madridAtmosphere} 
+        <img
+            src={madridAtmosphere.src}
             alt="Vista atmosférica" 
-            class="w-full h-full object-cover grayscale" 
+            class="w-full h-full object-cover grayscale"
+            loading="lazy"
+            decoding="async"
         />
         <div class="absolute inset-0 bg-[#006064]/20 mix-blend-multiply"></div>
     </div>
@@ -222,10 +220,12 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 {teamMembers.map((member, index) => (
                     <div class="flex flex-col">
                         <div class="aspect-square bg-gray-200 rounded-lg mb-4 w-full overflow-hidden border-2 border-[#006064]">
-                                <Image
-                                    src={index === 0 ? avatarAlejandro : avatarAlin}
+                                <img
+                                    src={(index === 0 ? avatarAlejandro : avatarAlin).src}
                                     alt={member.name}
                                     class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
+                                    loading="lazy"
+                                    decoding="async"
                                 />
                         </div>
                         <h3 class="font-display text-2xl text-[#006064] mb-1">{member.name}</h3>

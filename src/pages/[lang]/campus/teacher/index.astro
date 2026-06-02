@@ -1,17 +1,10 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../../i18n/utils';
+import { getPrivateProfiles } from '../../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 
 export const prerender = false;
-
-export async function getStaticPaths() {
-    return [
-        { params: { lang: 'es' } },
-        { params: { lang: 'en' } },
-        { params: { lang: 'ru' } }
-    ];
-}
 
 const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
 const t = useTranslations(lang);
@@ -27,7 +20,7 @@ if (!user) {
 // Get profile with role
 const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, email, full_name, role, preferred_language, phone, timezone')
     .eq('id', user.id)
     .single();
 
@@ -47,17 +40,22 @@ const { data: students } = await supabase
             full_name,
             email,
             phone,
-            preferred_language,
-            drive_folder_id,
-            notes
+            preferred_language
         )
     `)
     .eq('teacher_id', user.id);
+
+const privateProfiles = await getPrivateProfiles(
+    (students || [])
+        .map((st: any) => st.profiles?.id)
+        .filter(Boolean)
+);
 
 // For each student, get their active subscription
 const studentsWithSubs = await Promise.all(
     (students || []).map(async (st: any) => {
         const studentProfile = st.profiles;
+        const privateProfile = privateProfiles.get(studentProfile.id);
         
         const { data: subscription } = await supabase
             .from('subscriptions')
@@ -79,6 +77,7 @@ const studentsWithSubs = await Promise.all(
 
         return {
             ...studentProfile,
+            ...privateProfile,
             subscription,
             isPrimary: st.is_primary
         };
@@ -164,6 +163,7 @@ const getStatusBadge = (sub: any) => {
                 const packageName = getPackageName(student.subscription);
                 const sessionsUsed = student.subscription?.sessions_used || 0;
                 const sessionsTotal = student.subscription?.sessions_total || 0;
+                const driveFolderUrl = student.drive_folder_url || (student.drive_folder_id ? `https://drive.google.com/drive/folders/${student.drive_folder_id}` : null);
                 
                 return (
                     <div 
@@ -206,9 +206,9 @@ const getStatusBadge = (sub: any) => {
                                 >
                                     {t('campus.teacher.viewDetails')}
                                 </a>
-                                {student.drive_folder_id && (
+                                {driveFolderUrl && (
                                     <a 
-                                        href={`https://drive.google.com/drive/folders/${student.drive_folder_id}`}
+                                        href={driveFolderUrl}
                                         target="_blank"
                                         rel="noopener noreferrer"
                                         class="px-4 py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"

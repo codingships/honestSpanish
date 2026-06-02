@@ -5,6 +5,10 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+package-lock.json
+yarn.lock
+bun.lock
+bun.lockb
 lerna-debug.log*
 
 node_modules
@@ -31,11 +35,14 @@ dist-ssr
 .env.test
 tests/e2e/.auth/
 coverage/
+playwright-report/
+test-results/
 .gemini
 
 # Cloudflare
 .wrangler/
 .dev.vars
+supabase/.temp/
 
 # Vercel (not used)
 .vercel
@@ -47,3 +54,4 @@ plan.md
 audit_handover.md
 uat_test_plan.md.resolved
 build_error*.txt
+scripts/test-credentials.json

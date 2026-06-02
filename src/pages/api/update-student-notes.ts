@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro';
+import { upsertPrivateProfile } from '../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
 
 export const POST: APIRoute = async (context) => {
@@ -56,12 +57,9 @@ export const POST: APIRoute = async (context) => {
         }
 
         // Update student notes
-        const { error: updateError } = await supabase
-            .from('profiles')
-            .update({ notes: notes || '' })
-            .eq('id', studentId);
-
-        if (updateError) {
+        try {
+            await upsertPrivateProfile(studentId, { notes: notes || '' });
+        } catch (updateError) {
             console.error('Error updating notes:', updateError);
             return new Response(JSON.stringify({ error: 'Failed to update notes' }), {
                 status: 500,

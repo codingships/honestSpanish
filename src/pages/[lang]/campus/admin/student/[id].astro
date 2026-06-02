@@ -1,19 +1,12 @@
 ---
 import CampusLayout from '../../../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../../../i18n/utils';
+import { getPrivateProfile } from '../../../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
 import TeacherNotes from '../../../../../components/TeacherNotes';
 import AssignTeacherButton from '../../../../../components/admin/AssignTeacherButton';
 
 export const prerender = false;
-
-export async function getStaticPaths() {
-    return [
-        { params: { lang: 'es', id: 'placeholder' } },
-        { params: { lang: 'en', id: 'placeholder' } },
-        { params: { lang: 'ru', id: 'placeholder' } }
-    ];
-}
 
 const { lang, id: studentId } = Astro.params as { lang: 'es' | 'en' | 'ru'; id: string };
 const t = useTranslations(lang);
@@ -29,7 +22,7 @@ if (!user) {
 // Get current user's profile with role
 const { data: currentProfile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, email, full_name, role, preferred_language, phone, timezone')
     .eq('id', user.id)
     .single();
 
@@ -41,13 +34,17 @@ if (!currentProfile || currentProfile.role !== 'admin') {
 // Get student profile
 const { data: student, error: studentError } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, email, full_name, phone, preferred_language')
     .eq('id', studentId)
     .single();
 
 if (studentError || !student) {
     return Astro.redirect(`/${lang}/campus/admin/students`);
 }
+
+const studentPrivate = await getPrivateProfile(studentId);
+const driveFolderUrl = studentPrivate?.drive_folder_url
+    || (studentPrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${studentPrivate.drive_folder_id}` : null);
 
 // Get active subscription with package info
 const { data: subscription } = await supabase
@@ -187,9 +184,9 @@ const assignModalTranslations = {
             </div>
             
             <div class="flex gap-2">
-                {student.drive_folder_id && (
+                {driveFolderUrl && (
                     <a 
-                        href={`https://drive.google.com/drive/folders/${student.drive_folder_id}`}
+                        href={driveFolderUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         class="px-4 py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
@@ -276,7 +273,7 @@ const assignModalTranslations = {
             <TeacherNotes 
                 client:load
                 studentId={studentId}
-                initialNotes={student.notes || ''}
+                initialNotes={studentPrivate?.notes || ''}
                 translations={{
                     placeholder: t('campus.teacher.notesPlaceholder'),
                     save: t('campus.teacher.saveNotes'),

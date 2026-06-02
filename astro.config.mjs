@@ -8,11 +8,21 @@ import keystatic from '@keystatic/astro';
 import markdoc from '@astrojs/markdoc';
 
 import sentry from '@sentry/astro';
+import { loadEnv } from 'vite';
+
+const env = loadEnv(process.env.NODE_ENV || 'production', process.cwd(), '');
+const sentrySourcemapsEnabled = Boolean(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
+const sentryDsn = env.PUBLIC_SENTRY_DSN || env.SENTRY_DSN || '';
 
 // https://astro.build/config
 export default defineConfig({
     site: 'https://espanolhonesto.com',
     output: 'server',
+    vite: {
+        define: {
+            __SENTRY_DSN__: JSON.stringify(sentryDsn),
+        },
+    },
     image: {
         service: {
             entrypoint: 'astro/assets/services/noop'
@@ -45,10 +55,11 @@ export default defineConfig({
         },
     }),
     sentry({
-        dsn: import.meta.env.SENTRY_DSN,
-        sourceMapsUploadOptions: {
-            project: "pruebas",
-            authToken: process.env.SENTRY_AUTH_TOKEN,
+        org: env.SENTRY_ORG,
+        project: env.SENTRY_PROJECT,
+        authToken: env.SENTRY_AUTH_TOKEN,
+        sourcemaps: {
+            disable: !sentrySourcemapsEnabled,
         },
     })
     ],

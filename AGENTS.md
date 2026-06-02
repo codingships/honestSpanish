@@ -2,35 +2,43 @@
 
 This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
+## Node.js Package Manager Policy
+
+- Universal, inviolable rule: use `pnpm` only for Node.js package management in this repository.
+- Never run `npm`, `npx`, `yarn`, `bun`, `bunx`, or `pnpx`.
+- Use `pnpm install`, `pnpm add`, `pnpm remove`, `pnpm run`, `pnpm exec`, `pnpm dlx`, and `pnpm audit`.
+- Keep `packageManager` set to `pnpm@10.33.0` in `package.json`.
+- Treat dependency install scripts as sensitive; do not approve lifecycle scripts globally.
+
 ## Commands
 
 ```bash
 # Development
-npm run dev            # Astro dev server on http://localhost:4321
-npm run build          # Production build
-npm run preview        # Local Wrangler emulation (Cloudflare Pages)
-npm run deploy         # Deploy to Cloudflare Pages
-npm run typecheck      # TypeScript check (tsc --noEmit)
-npm run lint           # ESLint
-npm run db:seed        # Seed the database (tsx scripts/seed/index.ts)
+pnpm dev            # Astro dev server on http://localhost:4321
+pnpm build          # Production build
+pnpm preview        # Local Wrangler emulation (Cloudflare Pages)
+pnpm deploy         # Deploy to Cloudflare Pages
+pnpm typecheck      # TypeScript check (tsc --noEmit)
+pnpm lint           # ESLint
+pnpm db:seed        # Seed the database (tsx scripts/seed/index.ts)
 
 # Unit + API tests (Vitest, ~87 tests)
-npm run test:run                                    # Run all
-npm run test:coverage                               # With coverage report
-npx vitest run tests/api/sessions-create.test.ts    # Single file
+pnpm test:run                                      # Run all
+pnpm test:coverage                                 # With coverage report
+pnpm exec vitest run tests/api/sessions-create.test.ts    # Single file
 
 # E2E tests (Playwright)
-npm run test:e2e -- --project=public     # 5 tests, no auth
-npm run test:e2e -- --project=student    # 12 tests
-npm run test:e2e -- --project=teacher    # 8 tests
-npm run test:e2e -- --project=admin      # 7 tests
-npm run test:e2e:ui                      # Interactive UI mode
-npm run test:e2e:report                  # View last HTML report
-npm run test:e2e:debug                   # Debug mode
-npm run test:e2e:firefox                 # Public tests on Firefox
-npm run test:e2e:safari                  # Public tests on WebKit
-npm run test:e2e:mobile                  # Public tests on mobile viewports
-npm run test:all                         # vitest run + public playwright
+pnpm test:e2e -- --project=public     # 5 tests, no auth
+pnpm test:e2e -- --project=student    # 12 tests
+pnpm test:e2e -- --project=teacher    # 8 tests
+pnpm test:e2e -- --project=admin      # 7 tests
+pnpm test:e2e:ui                      # Interactive UI mode
+pnpm test:e2e:report                  # View last HTML report
+pnpm test:e2e:debug                   # Debug mode
+pnpm test:e2e:firefox                 # Public tests on Firefox
+pnpm test:e2e:safari                  # Public tests on WebKit
+pnpm test:e2e:mobile                  # Public tests on mobile viewports
+pnpm test:all                         # vitest run + public playwright
 ```
 
 ## Architecture Overview

@@ -53,6 +53,9 @@ importers:
       '@sentry/astro':
         specifier: ^10.39.0
         version: 10.48.0(astro@5.18.1(@types/node@25.6.0)(idb-keyval@6.2.2)(jiti@1.21.7)(rollup@4.60.1)(tsx@4.21.0)(typescript@5.9.3)(yaml@2.8.3))(rollup@4.60.1)
+      '@sentry/cloudflare':
+        specifier: 10.48.0
+        version: 10.48.0(@cloudflare/workers-types@4.20260415.1)
       '@supabase/ssr':
         specifier: ^0.8.0
         version: 0.8.0(@supabase/supabase-js@2.103.1)
@@ -120,6 +123,9 @@ importers:
       '@types/react-dom':
         specifier: ^18.3.1
         version: 18.3.7(@types/react@18.3.28)
+      '@vitejs/plugin-react':
+        specifier: ^4.7.0
+        version: 4.7.0(vite@6.4.2(@types/node@25.6.0)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3))
       '@vitest/coverage-v8':
         specifier: ^4.0.17
         version: 4.1.4(vitest@4.1.4)
@@ -162,9 +168,24 @@ importers:
       typescript-eslint:
         specifier: ^8.53.0
         version: 8.58.2(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+      vite:
+        specifier: 6.4.2
+        version: 6.4.2(@types/node@25.6.0)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3)
       vitest:
         specifier: ^4.0.17
         version: 4.1.4(@opentelemetry/api@1.9.1)(@types/node@25.6.0)(@vitest/coverage-v8@4.1.4)(jsdom@27.4.0)(msw@2.13.3(@types/node@25.6.0)(typescript@5.9.3))(vite@6.4.2(@types/node@25.6.0)(jiti@1.21.7)(tsx@4.21.0)(yaml@2.8.3))
+      wrangler:
+        specifier: ^4.59.3
+        version: 4.83.0(@cloudflare/workers-types@4.20260415.1)
+
+  workers/reminder-cron:
+    devDependencies:
+      '@cloudflare/workers-types':
+        specifier: ^4.20240117.0
+        version: 4.20260415.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
       wrangler:
         specifier: ^4.59.3
         version: 4.83.0(@cloudflare/workers-types@4.20260415.1)
@@ -2765,6 +2786,15 @@ packages:
     resolution: {integrity: sha512-tavJ7yGUZV+z3Ct2/ZB6mg339i08sAk6HDkgqmSRuQEu2iLS5sl9HIvuXfM6xjv8fwlgFOSy++WNABNAcGHUbg==}
     engines: {node: '>= 10'}
     hasBin: true
+
+  '@sentry/cloudflare@10.48.0':
+    resolution: {integrity: sha512-i02Ps4/cJjFpbcHLMhNEFXTeVqLB9XpB3+/OFQ9aMFV3yDcxlvHwe0oo7WZf41iroArvpysotLG8Y8NBOU9omA==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@cloudflare/workers-types': ^4.x
+    peerDependenciesMeta:
+      '@cloudflare/workers-types':
+        optional: true
 
   '@sentry/core@10.48.0':
     resolution: {integrity: sha512-h8F+fXVwYC9ro5ZaO8V+v3vqc0awlXHGblEAuVxSGgh4IV/oFX+QVzXeDTTrFOFS6v/Vn5vAyu240eJrJAS6/g==}
@@ -8767,6 +8797,13 @@ snapshots:
     transitivePeerDependencies:
       - encoding
       - supports-color
+
+  '@sentry/cloudflare@10.48.0(@cloudflare/workers-types@4.20260415.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@sentry/core': 10.48.0
+    optionalDependencies:
+      '@cloudflare/workers-types': 4.20260415.1
 
   '@sentry/core@10.48.0': {}
 

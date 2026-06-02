@@ -1,6 +1,11 @@
 import type { APIRoute } from 'astro';
+import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
+import { runAfterResponse } from '../../../lib/cloudflare-runtime';
+import { enqueueBulkSessionFulfillment, processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
+import { fulfillSessionBatch } from '../../../lib/fulfillment/session-fulfillment';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { checkTeacherAvailability } from '../../../lib/google/calendar';
+import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
 
 /**
  * POST /api/calendar/recurring-sessions
@@ -9,6 +14,7 @@ import { checkTeacherAvailability } from '../../../lib/google/calendar';
  */
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
+    const supabaseAdmin = createSupabaseAdminClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -31,11 +37,14 @@ export const POST: APIRoute = async (context) => {
         teacherId,
         dayOfWeek,
         time,
-        durationMinutes = 55,
+        durationMinutes: rawDurationMinutes,
         startDate,
         endDate,
         meetLink,
+        autoCreateMeeting = true,
     } = body;
+    const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
+    const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
 
     // IDOR Protection: verify teacher owns this student
     if (profile.role !== 'admin') {
@@ -127,6 +136,9 @@ export const POST: APIRoute = async (context) => {
         .eq('id', finalTeacherId)
         .single();
     const teacherEmail = teacherProfile?.email;
+    const checkTeacherAvailability = externalIntegrationsDisabled
+        ? null
+        : (await import('../../../lib/google/calendar')).checkTeacherAvailability;
 
     // 1. VERIFY ALL CONFLICTS BEFORE INSERTING (atomicity)
     for (const dateStr of scheduledDates) {
@@ -149,8 +161,17 @@ export const POST: APIRoute = async (context) => {
         }
 
         // Google Calendar conflict check
-        if (teacherEmail) {
-            const isFree = await checkTeacherAvailability(teacherEmail, scheduledDate, endTime);
+        if (!externalIntegrationsDisabled && teacherEmail && checkTeacherAvailability) {
+            let isFree = false;
+            try {
+                isFree = await checkTeacherAvailability(teacherEmail, scheduledDate, endTime);
+            } catch (availabilityError) {
+                console.error('[RecurringSessions] Availability check failed:', availabilityError);
+                return new Response(JSON.stringify({
+                    error: 'Cannot verify teacher availability right now'
+                }), { status: 503 });
+            }
+
             if (!isFree) {
                 return new Response(JSON.stringify({
                     error: `Conflicto en Google Calendar: ${scheduledDate.toLocaleDateString()} ${scheduledDate.toLocaleTimeString()}`
@@ -176,11 +197,14 @@ export const POST: APIRoute = async (context) => {
         .select('*');
 
     if (insertError || !createdSessions) {
+        if (insertError?.code === '23P01') {
+            return new Response(JSON.stringify({ error: 'One or more recurring sessions overlap with an existing booking' }), { status: 409 });
+        }
         return new Response(JSON.stringify({ error: insertError?.message || 'Error inserting sessions' }), { status: 500 });
     }
 
     // 3. OPTIMISTIC LOCK on quota
-    const { data: updatedSub } = await supabase
+    const { data: updatedSub, error: quotaUpdateError } = await supabaseAdmin
         .from('subscriptions')
         .update({ sessions_used: sessionsUsed + scheduledDates.length })
         .eq('id', subscription.id)
@@ -189,16 +213,39 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (!updatedSub) {
+        if (quotaUpdateError) {
+            console.error('[RecurringSessions] Failed to consume subscription quota:', quotaUpdateError);
+        }
         // Concurrency abort — cancel all created sessions
         const createdIds = createdSessions.map(s => s.id);
         await supabase.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
         return new Response(JSON.stringify({ error: 'Concurrency error: quota changed' }), { status: 409 });
     }
 
+    let fulfillment: 'queued' | 'fallback' | 'skipped' = 'skipped';
+    if (!externalIntegrationsDisabled) {
+        const fulfillmentQueued = await enqueueBulkSessionFulfillment(supabaseAdmin, createdSessions, {
+            autoCreateMeeting,
+            sendEmail: true,
+        });
+
+        fulfillment = fulfillmentQueued ? 'queued' : 'fallback';
+        runAfterResponse(
+            context,
+            fulfillmentQueued
+                ? processDueFulfillmentJobs({ limit: 3, supabaseAdmin })
+                : fulfillSessionBatch(supabaseAdmin, createdSessions.map((session) => session.id), {
+                    autoCreateMeeting,
+                    sendEmail: true,
+                })
+        );
+    }
+
     return new Response(JSON.stringify({
         created: createdSessions.length,
         total_requested: scheduledDates.length,
         sessions: createdSessions,
+        fulfillment,
     }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' }

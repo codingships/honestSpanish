@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { sendClassReminder } from '../../../lib/email';
+import { processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
 
 const CRON_SECRET = import.meta.env.CRON_SECRET;
 
@@ -31,9 +32,12 @@ export const GET: APIRoute = async ({ request }) => {
         sent: 0,
         failed: 0,
         errors: [] as string[],
+        fulfillment: { processed: 0, succeeded: 0, failed: 0 },
     };
 
     try {
+        result.fulfillment = await processDueFulfillmentJobs({ limit: 20, supabaseAdmin });
+
         // Calculate time window: 23-25 hours from now
         const now = new Date();
         const windowStart = new Date(now.getTime() + 23 * 60 * 60 * 1000);
@@ -82,6 +86,8 @@ export const GET: APIRoute = async ({ request }) => {
         for (const session of sessions) {
             try {
                 result.processed++;
+                let studentReminderSent = false;
+                let teacherReminderSent = false;
 
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const student = session.student as any;
@@ -122,6 +128,7 @@ export const GET: APIRoute = async ({ request }) => {
 
                     if (studentSent) {
                         result.sent++;
+                        studentReminderSent = true;
                     } else {
                         result.errors.push(`Session ${session.id}: Failed to send to student ${student.email}`);
                     }
@@ -143,6 +150,7 @@ export const GET: APIRoute = async ({ request }) => {
 
                     if (teacherSent) {
                         result.sent++;
+                        teacherReminderSent = true;
                     } else {
                         result.errors.push(`Session ${session.id}: Failed to send to teacher ${teacher.email}`);
                     }
@@ -151,15 +159,20 @@ export const GET: APIRoute = async ({ request }) => {
                     result.errors.push(`Session ${session.id}: Teacher email error - ${err instanceof Error ? err.message : 'Unknown'}`);
                 }
 
-                // Mark session as reminder sent
-                const { error: updateError } = await supabaseAdmin
-                    .from('sessions')
-                    .update({ reminder_sent: true })
-                    .eq('id', session.id);
+                if (studentReminderSent && teacherReminderSent) {
+                    const { error: updateError } = await supabaseAdmin
+                        .from('sessions')
+                        .update({ reminder_sent: true })
+                        .eq('id', session.id)
+                        .eq('reminder_sent', false);
 
-                if (updateError) {
-                    console.error(`[CRON] Failed to update reminder_sent for session ${session.id}:`, updateError);
-                    result.errors.push(`Session ${session.id}: Failed to update DB status`);
+                    if (updateError) {
+                        console.error(`[CRON] Failed to update reminder_sent for session ${session.id}:`, updateError);
+                        result.errors.push(`Session ${session.id}: Failed to update DB status`);
+                    }
+                } else {
+                    result.failed++;
+                    result.errors.push(`Session ${session.id}: Reminder not marked as sent because at least one email failed`);
                 }
             } catch (innerError) {
                 console.error(`[CRON] Critical error processing session ${session.id}:`, innerError);

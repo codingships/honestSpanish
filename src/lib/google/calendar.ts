@@ -163,6 +163,16 @@ export async function deleteEvent(eventId: string, calendarId: string = 'primary
         console.log(`[Calendar] Deleted event: ${eventId}`);
         return true;
     } catch (error) {
+        const status =
+            typeof error === 'object' && error !== null && 'code' in error
+                ? Number((error as { code?: number }).code)
+                : undefined;
+
+        if (status === 404 || status === 410) {
+            console.warn(`[Calendar] Event ${eventId} was already absent in Google Calendar`);
+            return true;
+        }
+
         console.error('[Calendar] Error deleting event:', error instanceof Error ? error.message : 'Unknown error');
         return false;
     }

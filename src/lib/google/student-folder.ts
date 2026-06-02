@@ -6,7 +6,7 @@ import { drive } from '@googleapis/drive';
 import { docs } from '@googleapis/docs';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
-import { findOrCreateFolder, shareWithUser, getFileLink } from './drive';
+import { ensureAnyoneWithLinkPermission, findOrCreateFolder, getFolderLink } from './drive';
 
 export interface CreateStudentFolderOptions {
     studentName: string;
@@ -117,17 +117,17 @@ export async function createStudentFolderStructure(
         }
     }
 
-    // 3. Share root folder with student (as viewer)
+    // 3. Enable progressive access by default: anyone with the link can view.
     try {
-        await shareWithUser(rootFolder.id, studentEmail, 'reader');
-        console.log(`[StudentFolder] Shared folder with ${studentEmail}`);
+        await ensureAnyoneWithLinkPermission(rootFolder.id, 'reader');
+        console.log(`[StudentFolder] Enabled public-link access for ${studentEmail}`);
     } catch (error) {
-        console.error(`[StudentFolder] Warning: Could not share folder with ${studentEmail}:`,
+        console.error(`[StudentFolder] Warning: Could not enable public-link access for ${studentEmail}:`,
             error instanceof Error ? error.message : 'Unknown error');
     }
 
     // 4. Get shareable link
-    const rootFolderLink = await getFileLink(rootFolder.id);
+    const rootFolderLink = await getFolderLink(rootFolder.id);
 
     console.log(`[StudentFolder] Complete structure created for ${studentName}`);
 

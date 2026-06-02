@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
+import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { stripe } from '../../../lib/stripe';
+import { getSiteUrl } from '../../../lib/site-url';
 
 export const POST: APIRoute = async (context) => {
     try {
@@ -16,11 +18,7 @@ export const POST: APIRoute = async (context) => {
         }
 
         // Get user's stripe_customer_id
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('stripe_customer_id')
-            .eq('id', user.id)
-            .single();
+        const profile = await getPrivateProfile(user.id);
 
         if (!profile?.stripe_customer_id) {
             return new Response(JSON.stringify({ error: 'No Stripe customer found' }), {
@@ -30,7 +28,7 @@ export const POST: APIRoute = async (context) => {
         }
 
         // Use configured site URL, never trust the Origin header (open redirect risk)
-        const siteOrigin = new URL(import.meta.env.SITE || 'https://espanolhonesto.com').origin;
+        const siteOrigin = getSiteUrl();
         const referer = context.request.headers.get('referer') || '';
         const langMatch = referer.match(/\/(es|en|ru)\//);
         const lang = langMatch?.[1] || 'es';

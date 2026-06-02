@@ -13,7 +13,7 @@ const lang = 'es';
 const supabase = createSupabaseServerClient(Astro);
 const { data: packages } = await supabase
     .from('packages')
-    .select('id, name, display_name, price_monthly, sessions_per_month, stripe_price_1m, stripe_price_3m, stripe_price_6m')
+    .select('id, name, display_name, price_monthly, sessions_per_month, has_group_session, has_dual_teacher, stripe_price_1m, stripe_price_3m, stripe_price_6m')
     .eq('is_active', true)
     .order('price_monthly', { ascending: true });
 

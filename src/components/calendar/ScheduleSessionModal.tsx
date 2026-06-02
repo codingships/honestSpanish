@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DEFAULT_CLASS_DURATION_MINUTES } from '../../lib/class-duration';
 
 interface Student {
     id: string;
@@ -37,7 +38,7 @@ export default function ScheduleSessionModal({
     const [selectedDate, setSelectedDate] = useState('');
     const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
     const [availableSlots, setAvailableSlots] = useState<Slot[]>([]);
-    const [duration, setDuration] = useState(60);
+    const [duration, setDuration] = useState(DEFAULT_CLASS_DURATION_MINUTES);
     const [meetLink, setMeetLink] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export default function ScheduleSessionModal({
             setSelectedDate('');
             setSelectedSlot(null);
             setAvailableSlots([]);
-            setDuration(60);
+            setDuration(DEFAULT_CLASS_DURATION_MINUTES);
             setMeetLink('');
             setError(null);
         }

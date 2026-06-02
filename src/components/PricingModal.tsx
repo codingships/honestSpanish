@@ -7,9 +7,9 @@ interface PricingModalProps {
         name: string;
         displayName: string;
         priceMonthly: number;
-        stripe_price_1m: string;
-        stripe_price_3m: string;
-        stripe_price_6m: string;
+        stripe_price_1m: string | null;
+        stripe_price_3m: string | null;
+        stripe_price_6m: string | null;
     } | null;
     lang: 'es' | 'en' | 'ru';
     isLoggedIn: boolean;
@@ -67,7 +67,7 @@ export default function PricingModal({
         return Math.round(calculateTotal(duration) / duration);
     };
 
-    const getPriceId = (duration: Duration): string => {
+    const getPriceId = (duration: Duration): string | null => {
         switch (duration) {
             case 1: return plan.stripe_price_1m;
             case 3: return plan.stripe_price_3m;
@@ -85,11 +85,16 @@ export default function PricingModal({
         setError(null);
 
         try {
+            const priceId = getPriceId(selectedDuration);
+            if (!priceId) {
+                throw new Error(t.contactMessage || t.error);
+            }
+
             const response = await fetch('/api/create-checkout', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    priceId: getPriceId(selectedDuration),
+                    priceId,
                     lang,
                 }),
             });

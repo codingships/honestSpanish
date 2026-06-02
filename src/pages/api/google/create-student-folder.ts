@@ -4,6 +4,7 @@
  * Only accessible by admins
  */
 import type { APIRoute } from 'astro';
+import { getPrivateProfile, upsertPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { createStudentFolderStructure } from '../../../lib/google/student-folder';
 
@@ -59,7 +60,6 @@ export const POST: APIRoute = async (context) => {
             id,
             full_name,
             email,
-            drive_folder_id,
             student_teachers!student_teachers_student_id_fkey(
                 is_primary,
                 teacher:profiles!student_teachers_teacher_id_fkey(full_name)
@@ -75,11 +75,14 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
+    const studentPrivate = await getPrivateProfile(studentId);
+
     // Check if already has folder
-    if (student.drive_folder_id) {
+    if (studentPrivate?.drive_folder_id) {
         return new Response(JSON.stringify({
             error: 'Student already has a Drive folder',
-            folderId: student.drive_folder_id
+            folderId: studentPrivate.drive_folder_id,
+            folderUrl: studentPrivate.drive_folder_url
         }), {
             status: 400,
             headers: { 'Content-Type': 'application/json' }
@@ -99,13 +102,14 @@ export const POST: APIRoute = async (context) => {
             teacherName,
         });
 
-        // Update profile with folder ID
-        const { error: updateError } = await supabase
-            .from('profiles')
-            .update({ drive_folder_id: result.rootFolderId })
-            .eq('id', studentId);
-
-        if (updateError) {
+        // Persist the folder ID in the private profile store
+        try {
+            await upsertPrivateProfile(studentId, {
+                drive_folder_id: result.rootFolderId,
+                drive_folder_url: result.rootFolderLink,
+                google_account_email: null,
+            });
+        } catch (updateError) {
             console.error('[CreateStudentFolder] Error updating profile:', updateError);
         }
 

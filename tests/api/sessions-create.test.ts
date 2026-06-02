@@ -5,6 +5,10 @@ vi.mock('../../src/lib/supabase-server', () => ({
     createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock('../../src/lib/supabase-admin', () => ({
+    createSupabaseAdminClient: vi.fn(),
+}));
+
 vi.mock('../../src/lib/google/drive', () => ({
     createClassDocument: vi.fn().mockResolvedValue(null),
     getFileLink: vi.fn().mockResolvedValue(null),
@@ -27,6 +31,13 @@ const makeContext = (body: Record<string, unknown> = {}) => ({
     },
     cookies: { set: vi.fn(), get: vi.fn() },
 });
+
+const setSupabaseClients = async (mockSupabase: unknown, mockAdmin = mockSupabase) => {
+    const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+    const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+    vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+    vi.mocked(createSupabaseAdminClient).mockReturnValue(mockAdmin as any);
+};
 
 const mockNewSession = {
     id: 'session-new',
@@ -57,8 +68,7 @@ describe('POST /api/calendar/sessions', () => {
                 getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
             },
         });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { POST } = await import('../../src/pages/api/calendar/sessions');
         const response = await POST(makeContext({
@@ -75,8 +85,7 @@ describe('POST /api/calendar/sessions', () => {
             eq: vi.fn().mockReturnThis(),
             single: vi.fn().mockResolvedValue({ data: { role: 'student' }, error: null }),
         });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { POST } = await import('../../src/pages/api/calendar/sessions');
         const response = await POST(makeContext({
@@ -112,8 +121,7 @@ describe('POST /api/calendar/sessions', () => {
             return chain;
         });
 
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { POST } = await import('../../src/pages/api/calendar/sessions');
         const response = await POST(makeContext({
@@ -154,8 +162,7 @@ describe('POST /api/calendar/sessions', () => {
             return chain;
         });
 
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { POST } = await import('../../src/pages/api/calendar/sessions');
         const response = await POST(makeContext({
@@ -206,8 +213,7 @@ describe('POST /api/calendar/sessions', () => {
             return chain;
         });
 
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { POST } = await import('../../src/pages/api/calendar/sessions');
         const response = await POST(makeContext({
@@ -261,8 +267,7 @@ describe('POST /api/calendar/sessions', () => {
             return chain;
         });
 
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { POST } = await import('../../src/pages/api/calendar/sessions');
         await POST(makeContext({

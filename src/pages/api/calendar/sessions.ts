@@ -1,8 +1,11 @@
 import type { APIRoute } from 'astro';
+import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
+import { runAfterResponse } from '../../../lib/cloudflare-runtime';
+import { enqueueSessionFulfillment, processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
+import { fulfillSingleSession } from '../../../lib/fulfillment/session-fulfillment';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { createClassDocument, getFileLink } from '../../../lib/google/drive';
-import { createClassEvent } from '../../../lib/google/calendar';
-import { sendClassConfirmationToBoth } from '../../../lib/email';
+import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
 
 
 // GET: Obtener sesiones (Sin cambios, solo añadido tipado)
@@ -69,6 +72,7 @@ export const GET: APIRoute = async (context) => {
 // POST: Crear nueva sesión
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
+    const supabaseAdmin = createSupabaseAdminClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -86,8 +90,9 @@ export const POST: APIRoute = async (context) => {
     }
 
     const body = await context.request.json();
-    // 👇 1. Extraemos el flag autoCreateMeeting (default true por seguridad)
-    const { studentId, teacherId, scheduledAt, durationMinutes = 60, meetLink, autoCreateMeeting = true } = body;
+    const { studentId, teacherId, scheduledAt, durationMinutes: rawDurationMinutes, meetLink, autoCreateMeeting = true } = body;
+    const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
+    const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
 
     if (!studentId || !scheduledAt) {
         return new Response(JSON.stringify({ error: 'studentId and scheduledAt are required' }), { status: 400 });
@@ -156,10 +161,18 @@ export const POST: APIRoute = async (context) => {
         .eq('id', finalTeacherId)
         .single();
 
-    if (teacherProfile && teacherProfile.email) {
+    if (!externalIntegrationsDisabled && teacherProfile && teacherProfile.email) {
         // Necesitamos importar checkTeacherAvailability al inicio del archivo
         const { checkTeacherAvailability } = await import('../../../lib/google/calendar');
-        const isFree = await checkTeacherAvailability(teacherProfile.email, scheduledDate, endTime);
+        let isFree = false;
+        try {
+            isFree = await checkTeacherAvailability(teacherProfile.email, scheduledDate, endTime);
+        } catch (availabilityError) {
+            console.error('[Sessions] Availability check failed:', availabilityError);
+            return new Response(JSON.stringify({
+                error: 'Cannot verify teacher availability right now'
+            }), { status: 503 });
+        }
 
         if (!isFree) {
             return new Response(JSON.stringify({
@@ -188,11 +201,14 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (sessionError) {
+        if (sessionError.code === '23P01') {
+            return new Response(JSON.stringify({ error: 'Time slot is not available' }), { status: 409 });
+        }
         return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
     // Increment sessions_used — optimistic lock: only updates if value hasn't changed concurrently
-    const { data: updatedSub } = await supabase
+    const { data: updatedSub, error: quotaUpdateError } = await supabaseAdmin
         .from('subscriptions')
         .update({ sessions_used: sessionsUsed + 1 })
         .eq('id', subscription.id)
@@ -201,6 +217,9 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (!updatedSub) {
+        if (quotaUpdateError) {
+            console.error('[Sessions] Failed to consume subscription quota:', quotaUpdateError);
+        }
         // Another concurrent request already used the last session — cancel this one
         await supabase
             .from('sessions')
@@ -209,145 +228,27 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 409 });
     }
 
-    // 👇 2. Pasamos el flag a la función background
-    createClassDocumentForSession(supabase, session, studentId, finalTeacherId, autoCreateMeeting);
+    let fulfillment: 'queued' | 'fallback' | 'skipped' = 'skipped';
+    if (!externalIntegrationsDisabled) {
+        const fulfillmentQueued = await enqueueSessionFulfillment(supabaseAdmin, session, {
+            autoCreateMeeting,
+            sendEmail: true,
+        });
 
-    return new Response(JSON.stringify({ session }), {
+        fulfillment = fulfillmentQueued ? 'queued' : 'fallback';
+        runAfterResponse(
+            context,
+            fulfillmentQueued
+                ? processDueFulfillmentJobs({ limit: 3, supabaseAdmin })
+                : fulfillSingleSession(supabaseAdmin, session.id, { autoCreateMeeting, sendEmail: true })
+        );
+    }
+
+    return new Response(JSON.stringify({
+        session,
+        fulfillment,
+    }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' }
     });
 };
-
-/**
- * Background Task: Drive Docs, Calendar & Email
- */
-async function createClassDocumentForSession(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    supabase: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    session: any,
-    studentId: string,
-    teacherId: string,
-    shouldAutoCreateMeeting: boolean // 👇 Nuevo parámetro
-): Promise<void> {
-    let documentResult: { documentId: string; documentLink: string } | null = null;
-    let calendarResult: { eventId: string; meetLink: string; htmlLink: string } | null = null;
-    let studentFolderLink: string | null = null;
-
-    try {
-        // Datos del estudiante
-        const { data: student } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, drive_folder_id, current_level')
-            .eq('id', studentId)
-            .single();
-
-        // Datos del profesor
-        const { data: teacher } = await supabase
-            .from('profiles')
-            .select('full_name, email')
-            .eq('id', teacherId)
-            .single();
-
-        const studentName = student?.full_name || student?.email?.split('@')[0] || 'Estudiante';
-        const teacherName = teacher?.full_name || 'Profesor';
-        const teacherEmail = teacher?.email || '';
-        const studentEmail = student?.email || '';
-
-        // 1. SIEMPRE creamos el Documento de Clase (Drive)
-        // Es buena práctica tener registro documental aunque la clase sea manual
-        if (student?.drive_folder_id) {
-            try {
-                const level = (student?.current_level || 'A2') as 'A2' | 'B1' | 'B2' | 'C1';
-                const docResult = await createClassDocument({
-                    studentName,
-                    studentRootFolderId: student.drive_folder_id,
-                    level,
-                    classDate: new Date(session.scheduled_at),
-                });
-
-                if (docResult) {
-                    documentResult = {
-                        documentId: docResult.docId,
-                        documentLink: docResult.docUrl,
-                    };
-                }
-                studentFolderLink = await getFileLink(student.drive_folder_id);
-            } catch (docError) {
-                console.error('[Sessions] Error creating document:', docError);
-            }
-        }
-
-        // 2. SOLO creamos evento en Google Calendar si el flag es TRUE
-        if (shouldAutoCreateMeeting && studentEmail && teacherEmail) {
-            try {
-                const scheduledAt = new Date(session.scheduled_at);
-                const endTime = new Date(scheduledAt.getTime() + (session.duration_minutes || 60) * 60000);
-
-                calendarResult = await createClassEvent({
-                    summary: `Clase de Español - ${studentName}`,
-                    studentEmail,
-                    teacherEmail,
-                    startTime: scheduledAt,
-                    endTime,
-                    documentLink: documentResult?.documentLink,
-                    studentFolderLink: studentFolderLink || undefined,
-                });
-                console.log(`[Sessions] Created calendar event: ${calendarResult.eventId}`);
-            } catch (calError) {
-                console.error('[Sessions] Error creating calendar event:', calError);
-            }
-        } else {
-            console.log('[Sessions] Calendar event skipped (Manual mode or missing emails)');
-        }
-
-        // 3. Actualizamos la sesión en DB
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updateData: Record<string, any> = {};
-
-        if (documentResult) {
-            updateData.drive_doc_id = documentResult.documentId;
-            updateData.drive_doc_url = documentResult.documentLink;
-        }
-
-        if (calendarResult) {
-            updateData.meet_link = calendarResult.meetLink;
-            updateData.calendar_event_id = calendarResult.eventId;
-        }
-
-        if (Object.keys(updateData).length > 0) {
-            await supabase.from('sessions').update(updateData).eq('id', session.id);
-        }
-
-        // 4. Enviamos Emails (SIEMPRE, usando el link automático O el manual)
-        try {
-            const scheduledAt = new Date(session.scheduled_at);
-            const dateStr = scheduledAt.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-            const timeStr = scheduledAt.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-
-            // 👇 Determinamos qué link enviar
-            // Si hay calendarResult, usamos ese. Si no, usamos el que venía en la sesión (manual)
-            const finalMeetLink = calendarResult?.meetLink || session.meet_link;
-
-            await sendClassConfirmationToBoth(
-                studentEmail,
-                studentName,
-                teacherEmail,
-                teacherName,
-                {
-                    date: dateStr,
-                    time: timeStr,
-                    duration: session.duration_minutes || 60,
-                    meetLink: finalMeetLink, // Puede ser null si es manual y no pusieron nada
-                    documentLink: documentResult?.documentLink,
-                }
-            );
-            console.log(`[Sessions] Confirmation emails sent`);
-        } catch (emailError) {
-            console.error('[Sessions] Error sending emails:', emailError);
-        }
-
-    } catch (error) {
-        console.error('[Sessions] Critical error in background task:', error);
-    }
-}

@@ -13,5 +13,7 @@ if (!apiKey) {
 export const resend = new Resend(apiKey || 'dummy_key');
 
 export const EMAIL_FROM = import.meta.env.EMAIL_FROM ||
+    import.meta.env.RESEND_FROM_EMAIL ||
     process.env.EMAIL_FROM ||
+    process.env.RESEND_FROM_EMAIL ||
     'Español Honesto <alejandro@espanolhonesto.com>';

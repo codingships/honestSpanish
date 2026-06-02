@@ -14,7 +14,6 @@ interface PostClassReportProps {
     onClose: () => void;
     session: Session;
     lang: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     translations: Record<string, unknown>;
     onSubmit: (reportData: Record<string, unknown> & { teacher_comments?: string }, homeworkText: string) => Promise<void>;
 }

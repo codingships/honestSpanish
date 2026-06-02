@@ -5,6 +5,7 @@
  * IMPORTANT: Only accessible to admins in production
  */
 import type { APIRoute } from 'astro';
+import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { createClient } from '@supabase/supabase-js';
 
@@ -104,9 +105,10 @@ export const POST: APIRoute = async (context) => {
         // Step 1: Get student data
         const { data: student, error: studentError } = await supabaseAdmin
             .from('profiles')
-            .select('id, full_name, email, drive_folder_id, current_level')
+            .select('id, full_name, email')
             .eq('id', studentId)
             .single();
+        const studentPrivate = await getPrivateProfile(studentId, supabaseAdmin);
 
         if (studentError || !student) {
             results.errors.push(`Student not found: ${studentError?.message || 'No data'}`);
@@ -115,8 +117,8 @@ export const POST: APIRoute = async (context) => {
                 id: student.id,
                 name: student.full_name,
                 email: student.email,
-                hasDriveFolder: !!student.drive_folder_id,
-                level: student.current_level || 'A2',
+                hasDriveFolder: !!studentPrivate?.drive_folder_id,
+                level: studentPrivate?.current_level || 'A2',
             };
         }
 

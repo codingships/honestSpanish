@@ -1,7 +1,6 @@
 ---
 import BaseLayout from './BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
-import { Image } from 'astro:assets';
 import type { CollectionEntry } from 'astro:content';
 import TableOfContents from '../components/blog/TableOfContents.astro';
 
@@ -32,7 +31,7 @@ const articleSchema = {
   "@context": "https://schema.org",
   "@type": "BlogPosting",
   "headline": title,
-  "image": image ? [image] : [],
+  "image": image ? [image.src] : [],
   "datePublished": publishedAt.toISOString(),
   "dateModified": post.data.updatedAt?.toISOString() || publishedAt.toISOString(),
   "author": [{
@@ -94,12 +93,14 @@ const canonicalPath = `/blog/${postSlug}`;
             {/* Featured Image */}
             {image && (
                 <div class="mb-12 border-2 border-[#006064] overflow-hidden rounded-lg aspect-video">
-                    <Image 
-                        src={image} 
+                    <img
+                        src={image.src}
                         alt={post.data.imageAlt || title} 
                         class="w-full h-full object-cover"
-                        width={1200}
-                        height={675}
+                        width={image.width}
+                        height={image.height}
+                        loading="eager"
+                        decoding="async"
                     />
                 </div>
             )}

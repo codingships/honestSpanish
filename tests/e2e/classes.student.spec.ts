@@ -47,13 +47,12 @@ test.describe('Student Classes Page', () => {
         if (await cancelBtn.isVisible({ timeout: 3000 })) {
             await cancelBtn.click();
 
-            // Modal should appear with a "Volver" button
-            const volverBtn = page.locator('button:has-text("Volver"), button:has-text("Cerrar"), button:has-text("Close")').first();
-            await expect(volverBtn).toBeVisible({ timeout: 5000 });
+            await expect(page.locator('h2:has-text("Cancelar clase")')).toBeVisible({ timeout: 5000 });
 
-            // Clicking Volver closes the modal
-            await volverBtn.click();
-            await expect(volverBtn).not.toBeVisible({ timeout: 3000 });
+            const closeBtn = page.getByRole('button', { name: /^Cancelar$/ }).first();
+            await expect(closeBtn).toBeVisible({ timeout: 5000 });
+            await closeBtn.click();
+            await expect(page.locator('h2:has-text("Cancelar clase")')).not.toBeVisible({ timeout: 3000 });
         } else {
             // No cancellable sessions available — skip assertion
             test.info().annotations.push({ type: 'note', description: 'No cancellable sessions found' });

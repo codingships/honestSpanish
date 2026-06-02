@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { DEFAULT_CLASS_DURATION_MINUTES } from '../../../lib/class-duration';
 
 export interface Slot {
     slot_start: string;
@@ -19,7 +20,7 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
     const [selectedStudent, setSelectedStudent] = useState('');
     const [selectedTeacher, setSelectedTeacher] = useState('');
     const [selectedDate, setSelectedDate] = useState('');
-    const [duration, setDuration] = useState(60);
+    const [duration, setDuration] = useState(DEFAULT_CLASS_DURATION_MINUTES);
 
     // Estado de Slots vs Custom Time
     const [availableSlots, setAvailableSlots] = useState<Slot[]>([]);
@@ -49,7 +50,7 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
             setSelectedDate('');
             setSelectedSlot(null);
             setAvailableSlots([]);
-            setDuration(60);
+            setDuration(DEFAULT_CLASS_DURATION_MINUTES);
             setMeetLink('');
             setError(null);
             setUseCustomTime(false);

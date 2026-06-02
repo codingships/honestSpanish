@@ -1,11 +1,15 @@
 import type { APIRoute } from 'astro';
+import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
+import { runAfterResponse } from '../../../lib/cloudflare-runtime';
+import { enqueueBulkSessionFulfillment, processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
+import { fulfillSessionBatch } from '../../../lib/fulfillment/session-fulfillment';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { createClassDocument, getFileLink } from '../../../lib/google/drive';
-import { createClassEvent } from '../../../lib/google/calendar';
-import { sendClassConfirmationToBoth } from '../../../lib/email';
+import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
 
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
+    const supabaseAdmin = createSupabaseAdminClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -23,7 +27,9 @@ export const POST: APIRoute = async (context) => {
     }
 
     const body = await context.request.json();
-    const { studentId, teacherId, sessions: scheduledDates, durationMinutes = 60, meetLink } = body;
+    const { studentId, teacherId, sessions: scheduledDates, durationMinutes: rawDurationMinutes, meetLink, autoCreateMeeting = true } = body;
+    const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
+    const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
 
     if (!studentId || !scheduledDates || !Array.isArray(scheduledDates) || scheduledDates.length === 0) {
         return new Response(JSON.stringify({ error: 'studentId and an array of sessions dates are required' }), { status: 400 });
@@ -80,7 +86,9 @@ export const POST: APIRoute = async (context) => {
         .eq('id', finalTeacherId)
         .single();
     const teacherEmail = teacherProfileResult.data?.email;
-    const { checkTeacherAvailability } = await import('../../../lib/google/calendar');
+    const checkTeacherAvailability = externalIntegrationsDisabled
+        ? null
+        : (await import('../../../lib/google/calendar')).checkTeacherAvailability;
 
     // 1. VERIFICAR TODOS LOS CONFLICTOS ANTES DE INSERTAR NINGUNO (Atomicidad lógica)
     // Recopilar promesas para verificar conflictos en BBDD y en Google Calendar de forma concurrente
@@ -105,12 +113,24 @@ export const POST: APIRoute = async (context) => {
         }
 
         // B. Verificar en Google Calendar
-        if (teacherEmail) {
-            const isFree = await checkTeacherAvailability(teacherEmail, scheduledDate, endTime);
+        if (!externalIntegrationsDisabled && teacherEmail && checkTeacherAvailability) {
+            let isFree = false;
+            try {
+                isFree = await checkTeacherAvailability(teacherEmail, scheduledDate, endTime);
+            } catch (availabilityError) {
+                console.error('[BulkSessions] Availability check failed:', availabilityError);
+                return {
+                    hasConflict: true,
+                    message: 'Cannot verify teacher availability right now',
+                    status: 503
+                };
+            }
+
             if (!isFree) {
                 return {
                     hasConflict: true,
-                    message: `Conflicto en Google Calendar del profesor el ${scheduledDate.toLocaleDateString()} a las ${scheduledDate.toLocaleTimeString()}.`
+                    message: `Conflicto en Google Calendar del profesor el ${scheduledDate.toLocaleDateString()} a las ${scheduledDate.toLocaleTimeString()}.`,
+                    status: 409
                 };
             }
         }
@@ -126,7 +146,7 @@ export const POST: APIRoute = async (context) => {
     if (firstConflict) {
         return new Response(JSON.stringify({
             error: firstConflict.message
-        }), { status: 409 });
+        }), { status: firstConflict.status || 409 });
     }
 
     // 2. INSERTAR TODAS LAS SESIONES EN BBDD
@@ -145,16 +165,19 @@ export const POST: APIRoute = async (context) => {
         .insert(sessionsToInsert)
         .select(`
             *,
-            student:profiles!sessions_student_id_fkey(id, full_name, email, drive_folder_id),
+            student:profiles!sessions_student_id_fkey(id, full_name, email),
             teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
         `);
 
     if (insertError || !createdSessions) {
+        if (insertError?.code === '23P01') {
+            return new Response(JSON.stringify({ error: 'One or more time slots are no longer available' }), { status: 409 });
+        }
         return new Response(JSON.stringify({ error: insertError?.message || 'Error inserting sessions' }), { status: 500 });
     }
 
     // 3. ACTUALIZAR SALDO
-    const { data: updatedSub } = await supabase
+    const { data: updatedSub, error: quotaUpdateError } = await supabaseAdmin
         .from('subscriptions')
         .update({ sessions_used: sessionsUsed + scheduledDates.length })
         .eq('id', subscription.id)
@@ -163,155 +186,40 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (!updatedSub) {
+        if (quotaUpdateError) {
+            console.error('[BulkSessions] Failed to consume subscription quota:', quotaUpdateError);
+        }
         // Concurrency abort
         const createdIds = createdSessions.map((s: { id: string }) => s.id);
         await supabase.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
         return new Response(JSON.stringify({ error: 'Concurrency error: No sessions remaining in subscription' }), { status: 409 });
     }
 
-    // 4. LANZAR PROCESAMIENTO EN SEGUNDO PLANO
-    processBulkBackgroundTasks(supabase, createdSessions);
+    let fulfillment: 'queued' | 'fallback' | 'skipped' = 'skipped';
+    if (!externalIntegrationsDisabled) {
+        const fulfillmentQueued = await enqueueBulkSessionFulfillment(supabaseAdmin, createdSessions, {
+            autoCreateMeeting,
+            sendEmail: true,
+        });
+
+        fulfillment = fulfillmentQueued ? 'queued' : 'fallback';
+        runAfterResponse(
+            context,
+            fulfillmentQueued
+                ? processDueFulfillmentJobs({ limit: 3, supabaseAdmin })
+                : fulfillSessionBatch(supabaseAdmin, createdSessions.map((session) => session.id), {
+                    autoCreateMeeting,
+                    sendEmail: true,
+                })
+        );
+    }
 
     return new Response(JSON.stringify({
         message: `Successfully scheduled ${scheduledDates.length} sessions`,
-        sessions: createdSessions
+        sessions: createdSessions,
+        fulfillment,
     }), {
         status: 201,
         headers: { 'Content-Type': 'application/json' }
     });
 };
-
-/**
- * Procesa la creación de Carpetas y Eventos de Google iterativamente en la lambda de fondo.
- * IMPORTANTE: Hacemos pausas entre peticiones a Google para no superar el rate limit de Google Drive API.
- */
-// Define robust typings for the payload coming out of Supabase Join
-type ProfileJoin = { id: string; full_name?: string | null; email?: string | null; drive_folder_id?: string | null };
-type SessionWithJoins = {
-    id: string;
-    scheduled_at: string | null;
-    duration_minutes?: number | null;
-    meet_link?: string | null;
-    student?: ProfileJoin | ProfileJoin[] | null;
-    teacher?: ProfileJoin | ProfileJoin[] | null;
-};
-
-async function processBulkBackgroundTasks(supabase: import('@supabase/supabase-js').SupabaseClient, sessions: SessionWithJoins[]) {
-    console.log(`[Sessions] Starting bulk background processing for ${sessions.length} sessions...`);
-
-    // We send just ONE summary email at the very end rather than spamming the user with 24 individual emails.
-    if (sessions.length === 0) return;
-
-    const studentInfo = Array.isArray(sessions[0].student) ? sessions[0].student[0] : sessions[0].student;
-    const teacherInfo = Array.isArray(sessions[0].teacher) ? sessions[0].teacher[0] : sessions[0].teacher;
-
-    const studentEmail = studentInfo?.email;
-    const studentName = studentInfo?.full_name || studentEmail?.split('@')[0] || 'Estudiante';
-    const teacherEmail = teacherInfo?.email;
-    const teacherName = teacherInfo?.full_name || 'Profesor';
-
-    let studentFolderLink: string | null = null;
-    if (studentInfo?.drive_folder_id) {
-        try {
-            studentFolderLink = await getFileLink(studentInfo.drive_folder_id);
-        } catch (e) { console.error('Error fetching drive folder link', e); }
-    }
-
-    const processedClasses = [];
-
-    for (const session of sessions) {
-        let documentResult: { docId: string; docUrl: string } | null = null;
-        let calendarResult: { eventId: string; meetLink: string; htmlLink: string } | null = null;
-
-        try {
-            // 1. Documento de Drive
-            if (studentInfo?.drive_folder_id) {
-                const level = 'A2' as 'A2' | 'B1' | 'B2' | 'C1'; // Fallback level since current_level is not on profiles
-                documentResult = await createClassDocument({
-                    studentName,
-                    studentRootFolderId: studentInfo.drive_folder_id,
-                    level,
-                    classDate: new Date(session.scheduled_at!),
-                });
-            }
-
-            // 2. Evento Google Calendar
-            if (studentEmail && teacherEmail && session.scheduled_at) {
-                const scheduledAtStr = session.scheduled_at as string;
-                const scheduledAt = new Date(scheduledAtStr);
-                const endTime = new Date(scheduledAt.getTime() + (session.duration_minutes || 60) * 60000);
-
-                calendarResult = await createClassEvent({
-                    summary: `Clase de Español - ${studentName}`,
-                    studentEmail,
-                    teacherEmail,
-                    startTime: scheduledAt,
-                    endTime,
-                    documentLink: documentResult?.docUrl,
-                    studentFolderLink: studentFolderLink || undefined,
-                });
-            }
-
-            // 3. Update BBDD with final links
-            const updateData: Record<string, string> = {};
-            if (documentResult) {
-                updateData.drive_doc_id = documentResult.docId;
-                updateData.drive_doc_url = documentResult.docUrl;
-            }
-            if (calendarResult) {
-                updateData.meet_link = calendarResult.meetLink;
-                updateData.calendar_event_id = calendarResult.eventId;
-            }
-
-            if (Object.keys(updateData).length > 0) {
-                await supabase.from('sessions').update(updateData).eq('id', session.id);
-            }
-
-            if (session.scheduled_at) {
-                processedClasses.push({
-                    date: new Date(session.scheduled_at),
-                    meetLink: calendarResult?.meetLink || session.meet_link,
-                    documentLink: documentResult?.docUrl
-                });
-            }
-
-            // Rate limit sleep (1 second between iterations to respect Google API quotas)
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-        } catch (error) {
-            console.error(`[Sessions] Error processing session ${session.id}:`, error);
-        }
-    }
-
-    // 4. Enviar un ÚNICO Email de resumen al alumno y profesor
-    /* 
-       For now, we'll send a simplified email with just the first class link to avoid a massive email block. 
-       In a real production environment, you'd create a specific email template in Resend for "Bulk Classes booked", 
-       but for now we reuse the single confirmation template but phrasing it clearly if possible, or just send the first one.
-    */
-    if (processedClasses.length > 0 && studentEmail && teacherEmail) {
-        try {
-            const firstClass = processedClasses.sort((a, b) => a.date.getTime() - b.date.getTime())[0];
-            const dateStr = firstClass.date.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-            const timeStr = firstClass.date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-
-            // Reusing existing template
-            await sendClassConfirmationToBoth(
-                studentEmail,
-                studentName,
-                teacherEmail,
-                teacherName,
-                {
-                    date: dateStr + ` (+ ${processedClasses.length - 1} clases agendadas)`,
-                    time: timeStr,
-                    duration: sessions[0].duration_minutes || 60,
-                    meetLink: firstClass.meetLink || undefined,
-                    documentLink: firstClass.documentLink || undefined,
-                }
-            );
-            console.log(`[Sessions] Bulk confirmation emails sent successfully.`);
-        } catch (emailError) {
-            console.error('[Sessions] Error sending bulk summary email:', emailError);
-        }
-    }
-}

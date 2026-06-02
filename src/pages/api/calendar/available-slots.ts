@@ -2,10 +2,13 @@ export const config = {
     runtime: 'nodejs'
 };
 import type { APIRoute } from 'astro';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
 
 export const GET: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
+    const supabaseAdmin = createSupabaseAdminClient();
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
@@ -15,7 +18,7 @@ export const GET: APIRoute = async (context) => {
     const url = new URL(context.request.url);
     const teacherId = url.searchParams.get('teacherId');
     const date = url.searchParams.get('date'); // formato: YYYY-MM-DD
-    const duration = url.searchParams.get('duration') || '60';
+    const duration = normalizeClassDurationMinutes(url.searchParams.get('duration'));
 
     if (!teacherId || !date) {
         return new Response(JSON.stringify({ error: 'teacherId and date are required' }), { status: 400 });
@@ -42,10 +45,10 @@ export const GET: APIRoute = async (context) => {
     }
 
     // Llamar a la función de Postgres
-    const { data: dbSlots, error } = await supabase.rpc('get_available_slots', {
+    const { data: dbSlots, error } = await supabaseAdmin.rpc('get_available_slots', {
         p_teacher_id: teacherId,
         p_date: date,
-        p_duration_minutes: parseInt(duration)
+        p_duration_minutes: duration
     });
 
     if (error) {

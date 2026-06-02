@@ -1,6 +1,6 @@
 /**
  * Create the 3 test users for E2E tests
- * Run: npx tsx scripts/create-test-users.ts
+ * Run: pnpm exec tsx scripts/create-test-users.ts
  */
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';

@@ -5,6 +5,17 @@ vi.mock('../../src/lib/supabase-server', () => ({
     createSupabaseServerClient: vi.fn(),
 }));
 
+vi.mock('../../src/lib/supabase-admin', () => ({
+    createSupabaseAdminClient: vi.fn(),
+}));
+
+const setSupabaseClients = async (mockSupabase: unknown, mockAdmin = mockSupabase) => {
+    const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+    const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+    vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+    vi.mocked(createSupabaseAdminClient).mockReturnValue(mockAdmin as any);
+};
+
 const makeContext = (searchParams: Record<string, string> = {}) => {
     const url = new URL('http://localhost:4321/api/calendar/available-slots');
     Object.entries(searchParams).forEach(([k, v]) => url.searchParams.set(k, v));
@@ -28,8 +39,7 @@ describe('GET /api/calendar/available-slots', () => {
                 getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
             },
         });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { GET } = await import('../../src/pages/api/calendar/available-slots');
         const response = await GET(makeContext({ teacherId: 't1', date: '2026-02-18' }) as any);
@@ -38,8 +48,7 @@ describe('GET /api/calendar/available-slots', () => {
 
     it('returns 400 when teacherId is missing', async () => {
         const mockSupabase = createMockSupabaseClient();
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { GET } = await import('../../src/pages/api/calendar/available-slots');
         const response = await GET(makeContext({ date: '2026-02-18' }) as any);
@@ -48,8 +57,7 @@ describe('GET /api/calendar/available-slots', () => {
 
     it('returns 400 when date is missing', async () => {
         const mockSupabase = createMockSupabaseClient();
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { GET } = await import('../../src/pages/api/calendar/available-slots');
         const response = await GET(makeContext({ teacherId: 't1' }) as any);
@@ -64,8 +72,7 @@ describe('GET /api/calendar/available-slots', () => {
         const mockSupabase = createMockSupabaseClient({
             rpc: vi.fn().mockResolvedValue({ data: mockSlots, error: null }),
         });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { GET } = await import('../../src/pages/api/calendar/available-slots');
         const response = await GET(makeContext({ teacherId: 't1', date: '2026-02-18' }) as any);
@@ -79,8 +86,7 @@ describe('GET /api/calendar/available-slots', () => {
         const mockSupabase = createMockSupabaseClient({
             rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
         });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { GET } = await import('../../src/pages/api/calendar/available-slots');
         const response = await GET(makeContext({ teacherId: 't1', date: '2026-02-18' }) as any);
@@ -94,8 +100,7 @@ describe('GET /api/calendar/available-slots', () => {
         const mockSupabase = createMockSupabaseClient({
             rpc: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
         });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabaseClients(mockSupabase);
 
         const { GET } = await import('../../src/pages/api/calendar/available-slots');
         const response = await GET(makeContext({ teacherId: 't1', date: '2026-02-18' }) as any);

@@ -27,9 +27,10 @@ Plataforma educativa Serverless de Español Inmersivo. Construida bajo una arqui
 Para compilar este repositorio en tu máquina necesitas:
 
 1.  **Node.js 20+** o superior.
-2.  Una cuenta activa de Supabase (con el esquema de BBDD que hay en `/db/schema.sql` insertado).
-3.  Una cuenta de Cloudflare (Para Turnstile y despliegue).
-4.  Un archivo `.env` configurado.
+2.  **pnpm 10.33.0**. Este proyecto es pnpm-only; no uses `npm`, `npx`, `yarn`, `bun`, `bunx` ni `pnpx`.
+3.  Una cuenta activa de Supabase (con el esquema de BBDD que hay en `/db/schema.sql` insertado).
+4.  Una cuenta de Cloudflare (Para Turnstile y despliegue).
+5.  Un archivo `.env` configurado.
 
 ### Configuración del `.env`
 
@@ -75,16 +76,16 @@ GOOGLE_TEMPLATE_DOC_ID=1XyZaBcDeFgHiJkLmNoPqRsTuVwXy
 
 La ingeniería detrás de la consola de este proyecto.
 
-*   `npm run dev` → Inicia el servidor de desarrollo local (Astro Vite).
-*   `npm run dev -- --host` → Permite acceder al servidor desde un teléfono móvil conectado al mismo Wi-Fi de tu casa.
-*   `npm run build` → Compila para producción (Genera los HTMLs del `/blog` y prepara los Server Handlers para el `Campus` en Cloudflare Pages).
-*   `npm run preview` → Ejecuta `wrangler` para emular el servidor final de Cloudflare en tu máquina antes de subirlo y testar las Cloudflare Pages localmente.
+*   `pnpm dev` → Inicia el servidor de desarrollo local (Astro Vite).
+*   `pnpm dev -- --host` → Permite acceder al servidor desde un teléfono móvil conectado al mismo Wi-Fi de tu casa.
+*   `pnpm build` → Compila para producción (Genera los HTMLs del `/blog` y prepara los Server Handlers para el `Campus` en Cloudflare Pages).
+*   `pnpm preview` → Ejecuta `wrangler` para emular el servidor final de Cloudflare en tu máquina antes de subirlo y testar las Cloudflare Pages localmente.
 
 ### Flujo de Testeo y Calidad E2E
 Este proyecto incluye una suite exhaustiva de pruebas unitarias y de extremo a extremo (E2E) con componentes *Mocked* para garantizar resiliencia:
-*   `npm run test` → Lanza Vitest para pruebas unitarias simulando Supabase/Google con `vi.mock` y la red con `MSW`.
-*   `npm run test:e2e` → Ejecuta todos los proyectos de Playwright (`public`, `student`, `teacher`, `admin`), aislando el estado de autenticación de cada rol basándose en el plan de pruebas `uat_test_plan.md.resolved`.
-*   `npm run test:all` → Verifica unidad y web en una sola pasada.
+*   `pnpm test` → Lanza Vitest para pruebas unitarias simulando Supabase/Google con `vi.mock` y la red con `MSW`.
+*   `pnpm test:e2e` → Ejecuta todos los proyectos de Playwright (`public`, `student`, `teacher`, `admin`), aislando el estado de autenticación de cada rol basándose en el plan de pruebas `uat_test_plan.md.resolved`.
+*   `pnpm test:all` → Verifica unidad y web en una sola pasada.
 
 ---
 

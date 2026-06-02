@@ -1,0 +1,36 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+import ProductCatalogManager from '../../../../components/admin/ProductCatalogManager';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+---
+
+<CampusLayout title="Catálogo" user={{ email: user.email, full_name: profile.full_name, role: profile.role }} lang={lang}>
+    <div class="max-w-7xl mx-auto space-y-6">
+        <div>
+            <h1 class="font-display text-3xl text-[#006064] uppercase">Catálogo</h1>
+            <p class="text-sm text-[#006064]/60 font-mono mt-1">Productos, cuotas y precios de checkout</p>
+        </div>
+        <ProductCatalogManager client:load />
+    </div>
+</CampusLayout>

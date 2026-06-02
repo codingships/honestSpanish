@@ -1,6 +1,7 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../i18n/utils';
+import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import ProfileForm from '../../../components/account/ProfileForm';
 
@@ -20,7 +21,7 @@ if (!user) {
 // Get profile
 const { data: profile } = await supabase
     .from('profiles')
-    .select('*')
+    .select('id, email, full_name, role, preferred_language, phone, timezone')
     .eq('id', user.id)
     .single();
 
@@ -30,6 +31,7 @@ if (!profile) {
 
 // Get active subscription for students
 let subscription = null;
+let profilePrivate = null;
 if (profile.role === 'student') {
     const { data: sub } = await supabase
         .from('subscriptions')
@@ -46,7 +48,11 @@ if (profile.role === 'student') {
         .limit(1)
         .single();
     subscription = sub;
+    profilePrivate = await getPrivateProfile(user.id);
 }
+
+const driveFolderUrl = profilePrivate?.drive_folder_url
+    || (profilePrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${profilePrivate.drive_folder_id}` : null);
 
 // Helpers
 const getPackageName = (sub: any) => {
@@ -73,6 +79,68 @@ const formTranslations = {
     timezone: t('campus.account.timezone'),
     save: t('campus.account.save'),
     saved: t('campus.account.saved'),
+};
+
+const driveUi: Record<'es' | 'en' | 'ru', {
+    title: string;
+    subtitle: string;
+    folderReady: string;
+    folderPending: string;
+    folderLink: string;
+    emailLabel: string;
+    emailPlaceholder: string;
+    submit: string;
+    success: string;
+    error: string;
+    linked: string;
+    publicAccess: string;
+    sharedLink: string;
+}> = {
+    es: {
+        title: 'Acceso a Google Drive',
+        subtitle: 'Por defecto tu carpeta se entrega con acceso por enlace. Si vinculas una cuenta Google, retiramos ese acceso público y dejamos sólo el permiso directo a ese email.',
+        folderReady: 'La carpeta ya está lista.',
+        folderPending: 'La carpeta todavía no está creada. Vuelve a intentarlo cuando tu alta y tu plan estén activos.',
+        folderLink: 'Abrir carpeta',
+        emailLabel: 'Cuenta de Google',
+        emailPlaceholder: 'tu-cuenta@gmail.com',
+        submit: 'Vincular cuenta Google',
+        success: 'Cuenta Google vinculada correctamente.',
+        error: 'No se pudo vincular la cuenta Google.',
+        linked: 'Cuenta vinculada',
+        publicAccess: 'Acceso actual',
+        sharedLink: 'Enlace compartido',
+    },
+    en: {
+        title: 'Google Drive Access',
+        subtitle: 'By default your folder is delivered through a shared link. If you link a Google account, we remove that public link access and keep only the direct permission for that email.',
+        folderReady: 'Your folder is ready.',
+        folderPending: 'Your folder has not been created yet. Try again once your enrollment and plan are active.',
+        folderLink: 'Open folder',
+        emailLabel: 'Google account',
+        emailPlaceholder: 'your-account@gmail.com',
+        submit: 'Link Google account',
+        success: 'Google account linked successfully.',
+        error: 'Could not link the Google account.',
+        linked: 'Linked account',
+        publicAccess: 'Current access',
+        sharedLink: 'Shared link',
+    },
+    ru: {
+        title: 'Доступ к Google Drive',
+        subtitle: 'По умолчанию папка открывается по ссылке. Если вы привяжете аккаунт Google, система уберет доступ по ссылке и оставит только прямое разрешение для этого email.',
+        folderReady: 'Папка уже готова.',
+        folderPending: 'Папка еще не создана. Повторите позже, когда активация и план будут активны.',
+        folderLink: 'Открыть папку',
+        emailLabel: 'Аккаунт Google',
+        emailPlaceholder: 'your-account@gmail.com',
+        submit: 'Привязать аккаунт Google',
+        success: 'Аккаунт Google успешно привязан.',
+        error: 'Не удалось привязать аккаунт Google.',
+        linked: 'Привязанный аккаунт',
+        publicAccess: 'Текущий доступ',
+        sharedLink: 'Общая ссылка',
+    },
 };
 ---
 
@@ -179,7 +247,7 @@ const formTranslations = {
                             </div>
                         </div>
                         
-                        {profile.stripe_customer_id && (
+                        {subscription && (
                             <button
                                 id="manage-stripe-btn"
                                 class="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
@@ -199,6 +267,72 @@ const formTranslations = {
                         </a>
                     </div>
                 )}
+            </div>
+        )}
+
+        {profile.role === 'student' && (
+            <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                    {driveUi[lang].title}
+                </h2>
+                <p class="text-sm text-[#006064]/70 mb-4">
+                    {driveUi[lang].subtitle}
+                </p>
+
+                <div class="space-y-4">
+                    <div class="flex flex-col gap-2 text-sm text-[#006064]">
+                        <p class="font-bold">
+                            {driveFolderUrl ? driveUi[lang].folderReady : driveUi[lang].folderPending}
+                        </p>
+                        <p>
+                            <span class="font-bold">{driveUi[lang].publicAccess}:</span>{' '}
+                            {profilePrivate?.google_account_email || driveUi[lang].sharedLink}
+                        </p>
+                        {profilePrivate?.google_account_email && (
+                            <p>
+                                <span class="font-bold">{driveUi[lang].linked}:</span>{' '}
+                                {profilePrivate.google_account_email}
+                            </p>
+                        )}
+                        {driveFolderUrl && (
+                            <a
+                                href={driveFolderUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                class="inline-flex w-fit items-center gap-2 px-4 py-2 bg-[#E0F7FA] text-[#006064] text-xs font-bold uppercase border border-[#006064] hover:bg-[#006064] hover:text-white transition-colors"
+                            >
+                                🔗 {driveUi[lang].folderLink}
+                            </a>
+                        )}
+                    </div>
+
+                    <form id="link-drive-form" class="space-y-3">
+                        <div>
+                            <label for="google-account-email" class="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                                {driveUi[lang].emailLabel}
+                            </label>
+                            <input
+                                id="google-account-email"
+                                type="email"
+                                value={profilePrivate?.google_account_email || profile.email}
+                                placeholder={driveUi[lang].emailPlaceholder}
+                                class="w-full p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]"
+                                disabled={!driveFolderUrl}
+                                required
+                            />
+                        </div>
+                        <div id="drive-link-error" class="hidden p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm"></div>
+                        <div id="drive-link-success" class="hidden p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm"></div>
+                        <button
+                            id="link-drive-btn"
+                            type="submit"
+                            class="px-4 py-2 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={!driveFolderUrl}
+                        >
+                            {driveUi[lang].submit}
+                        </button>
+                    </form>
+                </div>
             </div>
         )}
 
@@ -229,7 +363,7 @@ const formTranslations = {
     </div>
 </CampusLayout>
 
-<script>
+<script define:vars={{ driveUi: driveUi[lang], changePasswordLabel: t('campus.account.changePassword') }}>
     // Stripe Customer Portal
     const stripeBtn = document.getElementById('manage-stripe-btn');
     stripeBtn?.addEventListener('click', async () => {
@@ -259,6 +393,11 @@ const formTranslations = {
     const confirmPwdInput = document.getElementById('confirm-password');
     const pwdError = document.getElementById('password-error');
     const pwdSuccess = document.getElementById('password-success');
+    const linkDriveForm = document.getElementById('link-drive-form');
+    const linkDriveBtn = document.getElementById('link-drive-btn');
+    const googleAccountEmailInput = document.getElementById('google-account-email');
+    const driveLinkError = document.getElementById('drive-link-error');
+    const driveLinkSuccess = document.getElementById('drive-link-success');
 
     changePwdBtn?.addEventListener('click', () => {
         changePwdForm?.classList.toggle('hidden');
@@ -308,8 +447,48 @@ const formTranslations = {
             pwdError.textContent = err.message || 'Error';
             pwdError?.classList.remove('hidden');
         } finally {
-            savePwdBtn.textContent = 'Cambiar contraseña';
+            savePwdBtn.textContent = changePasswordLabel;
             savePwdBtn.disabled = false;
+        }
+    });
+
+    linkDriveForm?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        driveLinkError?.classList.add('hidden');
+        driveLinkSuccess?.classList.add('hidden');
+
+        const googleAccountEmail = googleAccountEmailInput?.value?.trim() || '';
+        if (!googleAccountEmail) {
+            driveLinkError.textContent = driveUi.error;
+            driveLinkError?.classList.remove('hidden');
+            return;
+        }
+
+        try {
+            linkDriveBtn.textContent = '...';
+            linkDriveBtn.disabled = true;
+
+            const response = await fetch('/api/account/link-google-drive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ googleAccountEmail }),
+            });
+
+            const data = await response.json().catch(() => ({ error: driveUi.error }));
+            if (!response.ok) {
+                throw new Error(data.error || driveUi.error);
+            }
+
+            driveLinkSuccess.textContent = driveUi.success;
+            driveLinkSuccess?.classList.remove('hidden');
+            window.setTimeout(() => window.location.reload(), 1000);
+        } catch (err) {
+            console.error('Error linking Google account:', err);
+            driveLinkError.textContent = err instanceof Error ? err.message : driveUi.error;
+            driveLinkError?.classList.remove('hidden');
+        } finally {
+            linkDriveBtn.textContent = driveUi.submit;
+            linkDriveBtn.disabled = false;
         }
     });
 </script>

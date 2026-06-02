@@ -2,11 +2,6 @@ import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServerClient } from "./lib/supabase-server";
 
 export const onRequest = defineMiddleware(async (context, next) => {
-    const supabase = createSupabaseServerClient(context);
-
-    // We use getUser() to validate the session on the server side securely
-    const { data: { user } } = await supabase.auth.getUser();
-
     const url = new URL(context.request.url);
     const path = url.pathname;
 
@@ -18,6 +13,20 @@ export const onRequest = defineMiddleware(async (context, next) => {
         // If not a localized path (e.g. assets, api, or root), just continue
         return next();
     }
+
+    const routeSection = pathSegments[1];
+    const isCampusRoute = routeSection === 'campus';
+    const isLoginRoute = routeSection === 'login';
+
+    // Public localized pages should not trigger auth lookups or cookie parsing.
+    if (!isCampusRoute && !isLoginRoute) {
+        return next();
+    }
+
+    const supabase = createSupabaseServerClient(context);
+
+    // We use getUser() to validate the session on the server side securely
+    const { data: { user } } = await supabase.auth.getUser();
 
     // Get user profile with role if logged in
     let userRole = 'student';
@@ -46,7 +55,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     };
 
     // Protected routes - require authentication
-    if (pathSegments[1] === 'campus') {
+    if (isCampusRoute) {
         if (!user) {
             return context.redirect(`/${lang}/login`);
         }
@@ -70,7 +79,7 @@ export const onRequest = defineMiddleware(async (context, next) => {
     }
 
     // Login route - redirect logged-in users to their area
-    if (pathSegments[1] === 'login') {
+    if (isLoginRoute) {
         if (user) {
             return context.redirect(getRoleBasedRedirect(userRole, lang));
         }

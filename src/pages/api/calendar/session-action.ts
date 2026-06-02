@@ -158,6 +158,14 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Forbidden. Only teachers and admins can modify session states.' }), { status: 403 });
         }
 
+        if ((action === 'complete' || action === 'no_show') && session.status !== 'scheduled') {
+            return new Response(JSON.stringify({ error: 'Only scheduled sessions can be completed or marked as no_show.' }), { status: 409 });
+        }
+
+        if ((action === 'complete' || action === 'no_show') && session.scheduled_at && new Date(session.scheduled_at) > new Date()) {
+            return new Response(JSON.stringify({ error: 'Session has not started yet.' }), { status: 409 });
+        }
+
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const updateData: any = { updated_at: new Date().toISOString() };
 
@@ -176,13 +184,23 @@ export const POST: APIRoute = async (context) => {
             updateData.post_class_report = body.report;
         }
 
-        const { error: updateError } = await supabase
+        let updateQuery = supabase
             .from('sessions')
             .update(updateData)
             .eq('id', sessionId);
 
+        if (action === 'complete' || action === 'no_show') {
+            updateQuery = updateQuery.eq('status', 'scheduled');
+        }
+
+        const { data: updatedRows, error: updateError } = await updateQuery.select('id');
+
         if (updateError) {
             return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+        }
+
+        if ((action === 'complete' || action === 'no_show') && (!updatedRows || updatedRows.length === 0)) {
+            return new Response(JSON.stringify({ error: 'Session state changed before this action could be applied.' }), { status: 409 });
         }
 
         return new Response(JSON.stringify({ success: true }), { status: 200 });

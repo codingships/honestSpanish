@@ -2,13 +2,26 @@
     "name": "espanol-honesto-reminders",
     "version": "1.0.0",
     "private": true,
+    "packageManager": "pnpm@10.33.0",
+    "engines": {
+        "node": ">=20",
+        "pnpm": "10.33.0"
+    },
+    "devEngines": {
+        "packageManager": {
+            "name": "pnpm",
+            "version": "10.33.0",
+            "onFail": "error"
+        }
+    },
     "scripts": {
+        "preinstall": "node ../../scripts/enforce-pnpm.cjs",
         "dev": "wrangler dev",
         "deploy": "wrangler deploy"
     },
     "devDependencies": {
         "@cloudflare/workers-types": "^4.20240117.0",
-        "typescript": "^5.3.3",
-        "wrangler": "^3.24.0"
+        "typescript": "^5.9.3",
+        "wrangler": "^4.59.3"
     }
 }

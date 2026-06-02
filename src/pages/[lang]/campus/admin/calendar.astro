@@ -82,10 +82,13 @@ const stats = {
     scheduled: thisMonthSessions.filter(s => s.status === 'scheduled').length,
     cancelled: thisMonthSessions.filter(s => s.status === 'cancelled').length,
     noShow: thisMonthSessions.filter(s => s.status === 'no_show').length,
-    completionRate: thisMonthSessions.length > 0 
-        ? Math.round((thisMonthSessions.filter(s => s.status === 'completed').length / 
-            thisMonthSessions.filter(s => s.status !== 'scheduled').length) * 100) || 0
-        : 0,
+    completionRate: (() => {
+        const completedCount = thisMonthSessions.filter(s => s.status === 'completed').length;
+        const attendedOrMissedCount = thisMonthSessions.filter(s => s.status === 'completed' || s.status === 'no_show').length;
+        return attendedOrMissedCount > 0
+            ? Math.round((completedCount / attendedOrMissedCount) * 100)
+            : 0;
+    })(),
 };
 
 // Clases de hoy

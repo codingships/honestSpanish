@@ -1,5 +1,4 @@
 ---
-import { Image } from 'astro:assets';
 import heroImage from '../../assets/hero.png';
 
 interface Props {
@@ -41,11 +40,12 @@ const s = {
         </div>
         <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden min-h-0">
             <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
-                <Image 
-                    src={heroImage} 
+                <img
+                    src={heroImage.src}
                     alt="Estudiante practicando español" 
                     class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
                     loading="eager"
+                    decoding="async"
                 />
             </div>
             <div class={`flex-1 ${s.secondaryBg} p-8 lg:p-12 flex flex-col justify-center items-center text-center`}>

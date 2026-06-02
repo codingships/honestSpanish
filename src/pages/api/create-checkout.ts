@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
+import { getPrivateProfile, upsertPrivateProfile } from '../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
+import { getSiteUrl } from '../../lib/site-url';
 
 export const POST: APIRoute = async (context) => {
     try {
@@ -26,10 +28,9 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
-        // Get user profile
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('id, email, stripe_customer_id')
+            .select('id')
             .eq('id', user.id)
             .single();
 
@@ -70,12 +71,21 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
-        let stripeCustomerId = profile.stripe_customer_id;
+        const stripePrice = await stripe.prices.retrieve(priceId);
+        if (!stripePrice.active || !stripePrice.recurring) {
+            return new Response(JSON.stringify({ error: 'This price is not configured for subscriptions' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const profilePrivate = await getPrivateProfile(user.id);
+        let stripeCustomerId = profilePrivate?.stripe_customer_id;
 
         // Create Stripe customer if doesn't exist
         if (!stripeCustomerId) {
             const customer = await stripe.customers.create({
-                email: profile.email || user.email,
+                email: user.email,
                 metadata: {
                     supabase_user_id: user.id,
                 },
@@ -83,15 +93,21 @@ export const POST: APIRoute = async (context) => {
 
             stripeCustomerId = customer.id;
 
-            // Save stripe_customer_id to profile
-            await supabase
-                .from('profiles')
-                .update({ stripe_customer_id: stripeCustomerId })
-                .eq('id', user.id);
+            // Persist in the server-only private profile store so billing state
+            // never depends on broad client-visible profile access.
+            try {
+                await upsertPrivateProfile(user.id, { stripe_customer_id: stripeCustomerId });
+            } catch (profileUpdateError) {
+                console.error('Failed to persist stripe_customer_id:', profileUpdateError);
+                return new Response(JSON.stringify({ error: 'Failed to prepare checkout' }), {
+                    status: 500,
+                    headers: { 'Content-Type': 'application/json' },
+                });
+            }
         }
 
         // Get site URL for redirects
-        const siteUrl = import.meta.env.SITE || 'http://localhost:4321';
+        const siteUrl = getSiteUrl();
 
         // Create Checkout Session (subscription mode for recurring billing)
         const session = await stripe.checkout.sessions.create({
@@ -108,13 +124,13 @@ export const POST: APIRoute = async (context) => {
             allow_promotion_codes: true,
             subscription_data: {
                 metadata: {
-                    userId: profile.id,
+                    userId: user.id,
                     priceId,
                     lang,
                 },
             },
             metadata: {
-                userId: profile.id,
+                userId: user.id,
                 priceId,
                 lang,
             },

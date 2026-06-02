@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { DEFAULT_CLASS_DURATION_MINUTES } from '../../lib/class-duration';
 
 interface Student {
     id: string;
@@ -12,7 +13,6 @@ interface BulkScheduleModalProps {
     students: Student[];
     teacherId: string;
     lang: string;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     translations: Record<string, unknown>;
     onSessionsCreated: () => void; // Trigger a reload
 }
@@ -33,7 +33,7 @@ export default function BulkScheduleModal({
     const [startDate, setStartDate] = useState('');
     const [startTime, setStartTime] = useState('10:00');
     const [numberOfClasses, setNumberOfClasses] = useState(8);
-    const [duration] = useState(60);
+    const [duration] = useState(DEFAULT_CLASS_DURATION_MINUTES);
 
     // Generated list of dates
     const [scheduledDates, setScheduledDates] = useState<Date[]>([]);
@@ -216,7 +216,7 @@ export default function BulkScheduleModal({
                         </div>
 
                         <div>
-                            <label className="block text-xs font-mono opacity-80 mb-2">Total de Clases (8 al mes x N meses)</label>
+                            <label className="block text-xs font-mono opacity-80 mb-2">Total de Clases</label>
                             <input
                                 type="number"
                                 min={1}

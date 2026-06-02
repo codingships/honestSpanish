@@ -14,6 +14,123 @@ export type Database = {
   }
   public: {
     Tables: {
+      admin_audit_log: {
+        Row: {
+          action: string
+          admin_id: string | null
+          after: Json | null
+          before: Json | null
+          created_at: string | null
+          entity_id: string | null
+          entity_type: string
+          id: string
+        }
+        Insert: {
+          action: string
+          admin_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string | null
+          entity_id?: string | null
+          entity_type: string
+          id?: string
+        }
+        Update: {
+          action?: string
+          admin_id?: string | null
+          after?: Json | null
+          before?: Json | null
+          created_at?: string | null
+          entity_id?: string | null
+          entity_type?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_audit_log_admin_id_fkey"
+            columns: ["admin_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fulfillment_jobs: {
+        Row: {
+          attempts: number
+          created_at: string | null
+          id: string
+          job_type: string
+          last_error: string | null
+          locked_at: string | null
+          locked_by: string | null
+          max_attempts: number
+          payload: Json
+          run_at: string
+          session_id: string | null
+          status: string
+          student_id: string | null
+          subscription_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string | null
+          id?: string
+          job_type: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          payload?: Json
+          run_at?: string
+          session_id?: string | null
+          status?: string
+          student_id?: string | null
+          subscription_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          attempts?: number
+          created_at?: string | null
+          id?: string
+          job_type?: string
+          last_error?: string | null
+          locked_at?: string | null
+          locked_by?: string | null
+          max_attempts?: number
+          payload?: Json
+          run_at?: string
+          session_id?: string | null
+          status?: string
+          student_id?: string | null
+          subscription_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fulfillment_jobs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fulfillment_jobs_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fulfillment_jobs_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "subscriptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       packages: {
         Row: {
           created_at: string | null
@@ -29,6 +146,7 @@ export type Database = {
           stripe_price_3m: string | null
           stripe_price_6m: string | null
           stripe_product_id: string | null
+          updated_at: string | null
         }
         Insert: {
           created_at?: string | null
@@ -44,6 +162,7 @@ export type Database = {
           stripe_price_3m?: string | null
           stripe_price_6m?: string | null
           stripe_product_id?: string | null
+          updated_at?: string | null
         }
         Update: {
           created_at?: string | null
@@ -59,6 +178,7 @@ export type Database = {
           stripe_price_3m?: string | null
           stripe_price_6m?: string | null
           stripe_product_id?: string | null
+          updated_at?: string | null
         }
         Relationships: []
       }
@@ -176,47 +296,82 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string | null
-          drive_folder_id: string | null
           email: string
           full_name: string | null
           id: string
-          notes: string | null
           phone: string | null
           preferred_language: string | null
           role: Database["public"]["Enums"]["user_role"] | null
-          stripe_customer_id: string | null
           timezone: string | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
-          drive_folder_id?: string | null
           email: string
           full_name?: string | null
           id: string
-          notes?: string | null
           phone?: string | null
           preferred_language?: string | null
           role?: Database["public"]["Enums"]["user_role"] | null
-          stripe_customer_id?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
-          drive_folder_id?: string | null
           email?: string
           full_name?: string | null
           id?: string
-          notes?: string | null
           phone?: string | null
           preferred_language?: string | null
           role?: Database["public"]["Enums"]["user_role"] | null
-          stripe_customer_id?: string | null
           timezone?: string | null
           updated_at?: string | null
         }
         Relationships: []
+      }
+      profiles_private: {
+        Row: {
+          created_at: string | null
+          current_level: string | null
+          drive_folder_id: string | null
+          drive_folder_url: string | null
+          google_account_email: string | null
+          notes: string | null
+          profile_id: string
+          stripe_customer_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          current_level?: string | null
+          drive_folder_id?: string | null
+          drive_folder_url?: string | null
+          google_account_email?: string | null
+          notes?: string | null
+          profile_id: string
+          stripe_customer_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          current_level?: string | null
+          drive_folder_id?: string | null
+          drive_folder_url?: string | null
+          google_account_email?: string | null
+          notes?: string | null
+          profile_id?: string
+          stripe_customer_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "profiles_private_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       sessions: {
         Row: {

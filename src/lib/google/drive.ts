@@ -8,6 +8,7 @@ import { getAuthClient } from './auth';
 import { googleConfig } from './config';
 
 let cachedDriveClient: drive_v3.Drive | null = null;
+type DrivePermissionRole = 'reader' | 'writer' | 'commenter';
 
 /**
  * Get authenticated Drive client
@@ -86,23 +87,121 @@ export async function findOrCreateFolder(name: string, parentId?: string): Promi
 /**
  * Share a folder or file with a user
  */
-export async function shareWithUser(fileId: string, email: string, role: 'reader' | 'writer' | 'commenter' = 'writer'): Promise<void> {
+export async function shareWithUser(fileId: string, email: string, role: DrivePermissionRole = 'writer'): Promise<void> {
+    await ensureUserPermission(fileId, email, role);
+}
+
+async function listPermissions(fileId: string): Promise<drive_v3.Schema$Permission[]> {
+    const drive = getDriveClient();
+
+    const response = await drive.permissions.list({
+        fileId,
+        fields: 'permissions(id,type,role,emailAddress,allowFileDiscovery)',
+    });
+
+    return response.data.permissions || [];
+}
+
+/**
+ * Ensure a folder/file has an explicit permission for a given Google account.
+ */
+export async function ensureUserPermission(fileId: string, email: string, role: DrivePermissionRole = 'reader'): Promise<void> {
+    const drive = getDriveClient();
+    const normalizedEmail = email.trim().toLowerCase();
+
+    try {
+        const existingPermissions = await listPermissions(fileId);
+        const existingUserPermission = existingPermissions.find(
+            (permission) => permission.type === 'user' && permission.emailAddress?.toLowerCase() === normalizedEmail
+        );
+
+        if (existingUserPermission?.id) {
+            if (existingUserPermission.role !== role) {
+                await drive.permissions.update({
+                    fileId,
+                    permissionId: existingUserPermission.id,
+                    requestBody: { role },
+                });
+            }
+        } else {
+            await drive.permissions.create({
+                fileId,
+                requestBody: {
+                    type: 'user',
+                    role,
+                    emailAddress: normalizedEmail,
+                },
+                sendNotificationEmail: false,
+            });
+        }
+
+        console.log(`[Drive] Shared ${fileId} with ${normalizedEmail} as ${role}`);
+    } catch (error) {
+        console.error('[Drive] Error sharing file:', error instanceof Error ? error.message : 'Unknown error');
+        throw error;
+    }
+}
+
+/**
+ * Ensure the folder/file is accessible to anyone with the link.
+ * We default to reader access to avoid granting anonymous write access.
+ */
+export async function ensureAnyoneWithLinkPermission(fileId: string, role: DrivePermissionRole = 'reader'): Promise<void> {
     const drive = getDriveClient();
 
     try {
-        await drive.permissions.create({
-            fileId,
-            requestBody: {
-                type: 'user',
-                role,
-                emailAddress: email,
-            },
-            sendNotificationEmail: false,
-        });
+        const existingPermissions = await listPermissions(fileId);
+        const anyonePermission = existingPermissions.find((permission) => permission.type === 'anyone');
 
-        console.log(`[Drive] Shared ${fileId} with ${email} as ${role}`);
+        if (anyonePermission?.id) {
+            if (anyonePermission.role !== role || anyonePermission.allowFileDiscovery !== false) {
+                await drive.permissions.update({
+                    fileId,
+                    permissionId: anyonePermission.id,
+                    requestBody: {
+                        role,
+                        allowFileDiscovery: false,
+                    },
+                });
+            }
+        } else {
+            await drive.permissions.create({
+                fileId,
+                requestBody: {
+                    type: 'anyone',
+                    role,
+                    allowFileDiscovery: false,
+                },
+            });
+        }
+
+        console.log(`[Drive] Ensured public-link access for ${fileId} as ${role}`);
     } catch (error) {
-        console.error('[Drive] Error sharing file:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error ensuring public-link permission:', error instanceof Error ? error.message : 'Unknown error');
+        throw error;
+    }
+}
+
+/**
+ * Remove any "anyone with the link" access from a folder/file.
+ */
+export async function revokeAnyoneWithLinkPermissions(fileId: string): Promise<void> {
+    const drive = getDriveClient();
+
+    try {
+        const existingPermissions = await listPermissions(fileId);
+        const anyonePermissions = existingPermissions.filter((permission) => permission.type === 'anyone' && permission.id);
+
+        for (const permission of anyonePermissions) {
+            await drive.permissions.delete({
+                fileId,
+                permissionId: permission.id!,
+            });
+        }
+
+        console.log(`[Drive] Revoked public-link access for ${fileId}`);
+    } catch (error) {
+        console.error('[Drive] Error revoking public-link permission:', error instanceof Error ? error.message : 'Unknown error');
         throw error;
     }
 }
@@ -211,6 +310,25 @@ export async function getFileLink(fileId: string): Promise<string> {
     } catch (error) {
         console.error('[Drive] Error getting file link:', error instanceof Error ? error.message : 'Unknown error');
         return `https://drive.google.com/file/d/${fileId}/view`;
+    }
+}
+
+/**
+ * Get a canonical folder link with a folder-safe fallback.
+ */
+export async function getFolderLink(folderId: string): Promise<string> {
+    const drive = getDriveClient();
+
+    try {
+        const response = await drive.files.get({
+            fileId: folderId,
+            fields: 'webViewLink',
+        });
+
+        return response.data.webViewLink || `https://drive.google.com/drive/folders/${folderId}`;
+    } catch (error) {
+        console.error('[Drive] Error getting folder link:', error instanceof Error ? error.message : 'Unknown error');
+        return `https://drive.google.com/drive/folders/${folderId}`;
     }
 }
 

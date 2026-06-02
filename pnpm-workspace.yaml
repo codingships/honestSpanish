@@ -1,3 +1,7 @@
+packages:
+  - .
+  - workers/*
+
 allowBuilds:
   '@sentry/cli': true
   esbuild: true

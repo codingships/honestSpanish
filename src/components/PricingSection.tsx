@@ -7,9 +7,11 @@ interface Package {
     display_name: { es: string; en: string; ru: string };
     price_monthly: number;
     sessions_per_month: number;
-    stripe_price_1m: string;
-    stripe_price_3m: string;
-    stripe_price_6m: string;
+    has_group_session?: boolean | null;
+    has_dual_teacher?: boolean | null;
+    stripe_price_1m: string | null;
+    stripe_price_3m: string | null;
+    stripe_price_6m: string | null;
 }
 
 interface PricingSectionProps {
@@ -28,11 +30,7 @@ interface PricingSectionProps {
         month: string;
         select: string;
         recommended: string;
-        plans: {
-            essential: { name: string; description: string; features: string[] };
-            intensive: { name: string; description: string; features: string[] };
-            premium: { name: string; description: string; features: string[] };
-        };
+        plans: Record<string, { name: string; description: string; features: string[] }>;
         modal: {
             title: string;
             duration1: string;
@@ -52,7 +50,7 @@ interface PricingSectionProps {
     };
 }
 
-type PlanKey = 'essential' | 'intensive' | 'premium';
+type PlanKey = string;
 
 const s = {
     bg: 'bg-[#E0F7FA]',
@@ -68,9 +66,9 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
         name: string;
         displayName: string;
         priceMonthly: number;
-        stripe_price_1m: string;
-        stripe_price_3m: string;
-        stripe_price_6m: string;
+        stripe_price_1m: string | null;
+        stripe_price_3m: string | null;
+        stripe_price_6m: string | null;
     } | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -86,26 +84,45 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
         setIsModalOpen(true);
     };
 
-    // Map packages by name for easy access
-    const packageMap: Record<string, Package> = {};
-    packages.forEach(pkg => {
-        // Ensure display_name exists before mapping
-        if (pkg && pkg.name) {
-            packageMap[pkg.name] = pkg;
-        }
-    });
-
     // Get package data or use fallback
     const getPriceDisplay = (pkg: Package | undefined): string => {
         if (!pkg || !pkg.price_monthly) return 'Consultar';
         return `${(pkg.price_monthly / 100).toFixed(0)}€`;
     };
 
-    const planConfig: { key: PlanKey; isRecommended: boolean; highlight: boolean }[] = [
-        { key: 'essential', isRecommended: false, highlight: false },
-        { key: 'intensive', isRecommended: true, highlight: true },
-        { key: 'premium', isRecommended: false, highlight: false },
-    ];
+    const recommendedPlanName = packages.some(pkg => pkg.name === 'hybrid')
+        ? 'hybrid'
+        : packages[Math.min(1, Math.max(packages.length - 1, 0))]?.name;
+
+    const getFallbackFeatures = (pkg: Package): string[] => {
+        const labels = {
+            es: {
+                sessions: `${pkg.sessions_per_month} sesiones/mes`,
+                duration: '55 minutos por clase',
+                group: 'Sesiones grupales incluidas',
+                dual: 'Seguimiento con dos profesores',
+            },
+            en: {
+                sessions: `${pkg.sessions_per_month} sessions/month`,
+                duration: '55 minutes per class',
+                group: 'Group sessions included',
+                dual: 'Two-teacher follow-up',
+            },
+            ru: {
+                sessions: `${pkg.sessions_per_month} занятий в месяц`,
+                duration: '55 минут за занятие',
+                group: 'Групповые занятия включены',
+                dual: 'Сопровождение двух преподавателей',
+            },
+        }[lang];
+
+        return [
+            labels.sessions,
+            labels.duration,
+            ...(pkg.has_group_session ? [labels.group] : []),
+            ...(pkg.has_dual_teacher ? [labels.dual] : []),
+        ];
+    };
 
     return (
         <>
@@ -127,11 +144,14 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
 
                         {packages.map((pkg, index) => {
                             const key = pkg.name || `plan-${index}`;
-                            const highlight = pkg.name === 'essential';
-                            // Determine isRecommended based on the original planConfig logic if pkg.name matches
-                            const configEntry = planConfig.find(config => config.key === pkg.name);
-                            const isRecommended = configEntry ? configEntry.isRecommended : false;
-                            const planTranslations = t.plans[key as PlanKey];
+                            const highlight = pkg.name === recommendedPlanName;
+                            const isRecommended = highlight;
+                            const checkoutReady = Boolean(pkg.stripe_price_1m && pkg.stripe_price_3m && pkg.stripe_price_6m);
+                            const planTranslations = t.plans[key as PlanKey] ?? {
+                                name: pkg.display_name?.[lang] || pkg.display_name?.es || key,
+                                description: '',
+                                features: getFallbackFeatures(pkg),
+                            };
 
                             return (
                                 <div
@@ -175,7 +195,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
                                     <div className="col-span-2 flex justify-center">
                                         <button
                                             onClick={() => pkg && handleSelectPlan(pkg)}
-                                            disabled={!pkg}
+                                            disabled={!pkg || !checkoutReady}
                                             data-plan={key}
                                             data-testid={`select-plan-${key}`}
                                             className={`
@@ -188,7 +208,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
                                                 disabled:opacity-50 disabled:cursor-not-allowed
                                             `}
                                         >
-                                            {t.select}
+                                            {checkoutReady ? t.select : t.modal.contact}
                                         </button>
                                     </div>
                                 </div>

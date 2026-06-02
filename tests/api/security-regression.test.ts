@@ -139,8 +139,8 @@ describe('H-4: create-portal-session open redirect prevention', () => {
 
         // Should NOT get Origin from request headers for return_url
         expect(source).not.toMatch(/headers.*get.*['"]Origin['"]/i);
-        // Should use import.meta.env.SITE
-        expect(source).toContain('import.meta.env.SITE');
+        // Should use centralized configured site URL helper
+        expect(source).toContain('getSiteUrl');
     });
 });
 

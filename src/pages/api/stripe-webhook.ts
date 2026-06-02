@@ -1,16 +1,21 @@
 export const config = {
     runtime: 'nodejs'
 };
-import type { APIRoute } from 'astro';
+import type { APIContext, APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
+import { getPrivateProfile, upsertPrivateProfile } from '../../lib/profiles-private';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createStudentFolderStructure } from '../../lib/google/student-folder';
 import { sendWelcomeEmail } from '../../lib/email';
+import { getSiteUrl } from '../../lib/site-url';
+import { runAfterResponse } from '../../lib/cloudflare-runtime';
+import { enqueueWelcomeFulfillment, processDueFulfillmentJobs } from '../../lib/fulfillment/jobs';
 import type Stripe from 'stripe';
 import type { Database } from '../../types/database.types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async (context) => {
+    const { request } = context;
     // Lazy init inside handler — avoids module-level env var issues on Cloudflare Workers cold start
     const supabaseAdmin = createSupabaseAdminClient();
     const webhookSecret = import.meta.env.STRIPE_WEBHOOK_SECRET;
@@ -63,7 +68,7 @@ export const POST: APIRoute = async ({ request }) => {
             case 'checkout.session.completed': {
                 // First-time subscription checkout
                 const session = event.data.object as Stripe.Checkout.Session;
-                await handleCheckoutCompleted(supabaseAdmin, session);
+                await handleCheckoutCompleted(supabaseAdmin, session, context);
                 break;
             }
 
@@ -71,6 +76,12 @@ export const POST: APIRoute = async ({ request }) => {
                 // Recurring monthly payment succeeded
                 const invoice = event.data.object as Stripe.Invoice;
                 await handleInvoicePaid(supabaseAdmin, invoice);
+                break;
+            }
+
+            case 'invoice.payment_failed': {
+                const invoice = event.data.object as Stripe.Invoice;
+                await handleInvoicePaymentFailed(supabaseAdmin, invoice);
                 break;
             }
 
@@ -105,7 +116,11 @@ export const POST: APIRoute = async ({ request }) => {
 // ============================================
 // HANDLER: First-time checkout completed
 // ============================================
-async function handleCheckoutCompleted(supabaseAdmin: SupabaseClient<Database>, session: Stripe.Checkout.Session) {
+async function handleCheckoutCompleted(
+    supabaseAdmin: SupabaseClient<Database>,
+    session: Stripe.Checkout.Session,
+    context: APIContext
+) {
     // For subscription mode, metadata is on the subscription, not the session
     const userId = session.metadata?.userId
         || (session.subscription
@@ -160,6 +175,7 @@ async function handleCheckoutCompleted(supabaseAdmin: SupabaseClient<Database>, 
             ends_at: endsAt.toISOString().split('T')[0],
             sessions_total: sessionsTotal,
             sessions_used: 0,
+            stripe_subscription_id: session.subscription as string | null,
             stripe_invoice_id: session.invoice as string | null,
         })
         .select()
@@ -179,6 +195,7 @@ async function handleCheckoutCompleted(supabaseAdmin: SupabaseClient<Database>, 
             amount: session.amount_total ?? 0,
             currency: session.currency ?? 'eur',
             status: 'succeeded',
+            stripe_invoice_id: session.invoice as string | null,
             stripe_payment_intent_id: session.payment_intent as string | null,
             description: `${pkg.name} - ${durationMonths} month(s) - Initial`,
         });
@@ -197,8 +214,18 @@ async function handleCheckoutCompleted(supabaseAdmin: SupabaseClient<Database>, 
 
     console.log(`[Webhook] Successfully processed initial payment for user ${userId}, subscription ${subscription.id}`);
 
-    // Create Google Drive folder structure for the student and send welcome email
-    await createDriveFolderForStudent(supabaseAdmin, userId, pkg);
+    // Create Google Drive folder structure and welcome email through the persistent job queue.
+    const fulfillmentQueued = await enqueueWelcomeFulfillment(supabaseAdmin, {
+        userId,
+        packageId: pkg.id,
+    });
+
+    runAfterResponse(
+        context,
+        fulfillmentQueued
+            ? processDueFulfillmentJobs({ limit: 5, supabaseAdmin })
+            : createDriveFolderForStudent(supabaseAdmin, userId, pkg)
+    );
 }
 
 // ============================================
@@ -227,18 +254,13 @@ async function handleInvoicePaid(supabaseAdmin: SupabaseClient<Database>, invoic
         return;
     }
 
-    // Find the active subscription in our DB
-    const { data: subscription, error: subError } = await supabaseAdmin
-        .from('subscriptions')
-        .select('id, package_id, sessions_total, duration_months')
-        .eq('student_id', userId)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .single();
+    const subscription = await findManagedSubscription(supabaseAdmin, {
+        stripeSubscriptionId,
+        userId,
+    });
 
-    if (subError || !subscription) {
-        console.error('[Webhook] No active subscription found for user:', userId);
+    if (!subscription) {
+        console.error('[Webhook] No managed subscription found for paid invoice:', stripeSubscriptionId, userId);
         return;
     }
 
@@ -249,11 +271,19 @@ async function handleInvoicePaid(supabaseAdmin: SupabaseClient<Database>, invoic
         .eq('id', subscription.package_id)
         .single();
 
-    // Extend the subscription: add 1 month, fresh session quota (no rollover)
-    const newEndsAt = new Date();
-    newEndsAt.setMonth(newEndsAt.getMonth() + 1);
+    const renewalMonths =
+        stripeSubscription.items.data[0]?.price.recurring?.interval === 'month'
+            ? stripeSubscription.items.data[0]?.price.recurring?.interval_count ?? 1
+            : subscription.duration_months ?? 1;
 
-    const additionalSessions = pkg?.sessions_per_month ?? 0;
+    // Extend from the later of "today" or the current subscription end date.
+    const now = new Date();
+    const currentEndsAt = subscription.ends_at ? new Date(`${subscription.ends_at}T00:00:00.000Z`) : now;
+    const extensionBase = currentEndsAt > now ? currentEndsAt : now;
+    const newEndsAt = new Date(extensionBase);
+    newEndsAt.setMonth(newEndsAt.getMonth() + renewalMonths);
+
+    const additionalSessions = (pkg?.sessions_per_month ?? 0) * renewalMonths;
 
     const { error: updateError } = await supabaseAdmin
         .from('subscriptions')
@@ -261,6 +291,8 @@ async function handleInvoicePaid(supabaseAdmin: SupabaseClient<Database>, invoic
             ends_at: newEndsAt.toISOString().split('T')[0],
             sessions_total: additionalSessions, // Fresh quota for this billing period
             sessions_used: 0,
+            status: 'active',
+            stripe_subscription_id: stripeSubscriptionId,
         })
         .eq('id', subscription.id);
 
@@ -277,60 +309,234 @@ async function handleInvoicePaid(supabaseAdmin: SupabaseClient<Database>, invoic
             amount: invoice.amount_paid ?? 0,
             currency: invoice.currency ?? 'eur',
             status: 'succeeded',
+            stripe_invoice_id: invoice.id,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
-            description: `Monthly renewal`,
+            description: `${renewalMonths}-month renewal`,
         });
 
     if (paymentError) {
         console.error('[Webhook] Error creating renewal payment:', paymentError);
     }
 
-    console.log(`[Webhook] Renewal processed for user ${userId}: +${additionalSessions} sessions, extended to ${newEndsAt.toISOString().split('T')[0]}`);
+    console.log(`[Webhook] Renewal processed for user ${userId}: +${additionalSessions} sessions for ${renewalMonths} month(s), extended to ${newEndsAt.toISOString().split('T')[0]}`);
+}
+
+// ============================================
+// HANDLER: Invoice payment failed
+// ============================================
+async function handleInvoicePaymentFailed(supabaseAdmin: SupabaseClient<Database>, invoice: Stripe.Invoice) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stripeSubscriptionId = (invoice as any).subscription as string | null;
+    if (!stripeSubscriptionId) {
+        console.log('[Webhook] Failed invoice without subscription, skipping');
+        return;
+    }
+
+    const stripeSubscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const userId = stripeSubscription.metadata?.userId;
+
+    if (!userId) {
+        console.error('[Webhook] No userId in failed invoice subscription metadata for:', stripeSubscriptionId);
+        return;
+    }
+
+    const subscription = await findManagedSubscription(supabaseAdmin, {
+        stripeSubscriptionId,
+        userId,
+    });
+
+    if (!subscription) {
+        console.error('[Webhook] No managed subscription found for failed invoice:', stripeSubscriptionId, userId);
+        return;
+    }
+
+    const failureMonths =
+        stripeSubscription.items.data[0]?.price.recurring?.interval === 'month'
+            ? stripeSubscription.items.data[0]?.price.recurring?.interval_count ?? 1
+            : subscription.duration_months ?? 1;
+
+    const { error: updateError } = await supabaseAdmin
+        .from('subscriptions')
+        .update({
+            status: 'paused',
+            stripe_subscription_id: stripeSubscriptionId,
+        })
+        .eq('id', subscription.id);
+
+    if (updateError) {
+        console.error('[Webhook] Error pausing subscription after failed payment:', updateError);
+    }
+
+    const { error: paymentError } = await supabaseAdmin
+        .from('payments')
+        .insert({
+            student_id: userId,
+            subscription_id: subscription.id,
+            amount: invoice.amount_due ?? invoice.amount_remaining ?? invoice.total ?? 0,
+            currency: invoice.currency ?? 'eur',
+            status: 'failed',
+            stripe_invoice_id: invoice.id,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
+            description: `${failureMonths}-month payment failed`,
+        });
+
+    if (paymentError) {
+        console.error('[Webhook] Error recording failed payment:', paymentError);
+    }
+
+    console.log(`[Webhook] Payment failed for user ${userId}; subscription ${subscription.id} paused`);
 }
 
 // ============================================
 // HANDLER: Subscription deleted/cancelled
 // ============================================
 async function handleSubscriptionDeleted(supabaseAdmin: SupabaseClient<Database>, subscription: Stripe.Subscription) {
+    const stripeSubscriptionId = subscription.id;
     const userId = subscription.metadata?.userId;
 
-    if (!userId) {
-        console.error('[Webhook] No userId in deleted subscription metadata');
+    if (!userId && !stripeSubscriptionId) {
+        console.error('[Webhook] No identifiers in deleted subscription payload');
         return;
     }
 
-    // Mark all active subscriptions for this user as cancelled
+    const managedSubscription = await findManagedSubscription(supabaseAdmin, {
+        stripeSubscriptionId,
+        userId,
+    });
+
+    if (!managedSubscription) {
+        console.error('[Webhook] No managed subscription found for deleted subscription:', stripeSubscriptionId, userId);
+        return;
+    }
+
     const { error: updateError } = await supabaseAdmin
         .from('subscriptions')
-        .update({ status: 'cancelled' })
-        .eq('student_id', userId)
-        .eq('status', 'active');
+        .update({
+            status: 'cancelled',
+            stripe_subscription_id: stripeSubscriptionId,
+        })
+        .eq('id', managedSubscription.id);
 
     if (updateError) {
         console.error('[Webhook] Error cancelling subscription:', updateError);
     }
 
-    console.log(`[Webhook] Subscription cancelled for user ${userId}`);
+    console.log(`[Webhook] Subscription cancelled for user ${managedSubscription.student_id}`);
 }
 
 // ============================================
 // HANDLER: Subscription updated (e.g. past_due)
 // ============================================
 async function handleSubscriptionUpdated(supabaseAdmin: SupabaseClient<Database>, subscription: Stripe.Subscription) {
+    const stripeSubscriptionId = subscription.id;
     const userId = subscription.metadata?.userId;
 
-    if (!userId) return;
+    if (!userId && !stripeSubscriptionId) {
+        console.error('[Webhook] No identifiers in subscription update payload');
+        return;
+    }
 
-    // If subscription goes past_due, update our status
-    if (subscription.status === 'past_due') {
-        await supabaseAdmin
+    const managedSubscription = await findManagedSubscription(supabaseAdmin, {
+        stripeSubscriptionId,
+        userId,
+    });
+
+    if (!managedSubscription) {
+        console.error('[Webhook] No managed subscription found for update:', stripeSubscriptionId, userId);
+        return;
+    }
+
+    const mappedStatus = mapStripeSubscriptionStatus(subscription.status);
+    if (!mappedStatus) {
+        console.log(`[Webhook] Ignoring unmapped subscription status: ${subscription.status}`);
+        return;
+    }
+
+    const { error: updateError } = await supabaseAdmin
+        .from('subscriptions')
+        .update({
+            status: mappedStatus,
+            stripe_subscription_id: stripeSubscriptionId,
+        })
+        .eq('id', managedSubscription.id);
+
+    if (updateError) {
+        console.error('[Webhook] Error updating subscription status:', updateError);
+        return;
+    }
+
+    console.log(`[Webhook] Subscription ${managedSubscription.id} mapped from Stripe status ${subscription.status} to ${mappedStatus}`);
+}
+
+type ManagedSubscription = Pick<
+    Database['public']['Tables']['subscriptions']['Row'],
+    'id' | 'student_id' | 'package_id' | 'sessions_total' | 'duration_months' | 'ends_at' | 'status' | 'stripe_subscription_id'
+>;
+
+async function findManagedSubscription(
+    supabaseAdmin: SupabaseClient<Database>,
+    options: {
+        stripeSubscriptionId?: string | null;
+        userId?: string | null;
+    }
+): Promise<ManagedSubscription | null> {
+    if (options.stripeSubscriptionId) {
+        const { data, error } = await supabaseAdmin
             .from('subscriptions')
-            .update({ status: 'paused' })
-            .eq('student_id', userId)
-            .eq('status', 'active');
+            .select('id, student_id, package_id, sessions_total, duration_months, ends_at, status, stripe_subscription_id')
+            .eq('stripe_subscription_id', options.stripeSubscriptionId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        console.log(`[Webhook] Subscription marked past_due for user ${userId}`);
+        if (error) {
+            console.error('[Webhook] Error looking up subscription by stripe_subscription_id:', error);
+        } else if (data) {
+            return data;
+        }
+    }
+
+    if (!options.userId) {
+        return null;
+    }
+
+    const { data, error } = await supabaseAdmin
+        .from('subscriptions')
+        .select('id, student_id, package_id, sessions_total, duration_months, ends_at, status, stripe_subscription_id')
+        .eq('student_id', options.userId)
+        .in('status', ['active', 'paused', 'pending'])
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (error) {
+        console.error('[Webhook] Error looking up subscription by user:', error);
+        return null;
+    }
+
+    return data;
+}
+
+function mapStripeSubscriptionStatus(
+    status: Stripe.Subscription.Status
+): Database['public']['Enums']['subscription_status'] | null {
+    switch (status) {
+        case 'active':
+        case 'trialing':
+            return 'active';
+        case 'past_due':
+        case 'unpaid':
+        case 'paused':
+            return 'paused';
+        case 'canceled':
+        case 'incomplete_expired':
+            return 'cancelled';
+        case 'incomplete':
+            return 'pending';
+        default:
+            return null;
     }
 }
 
@@ -351,7 +557,6 @@ async function createDriveFolderForStudent(
                 id,
                 full_name,
                 email,
-                drive_folder_id,
                 student_teachers!student_teachers_student_id_fkey(
                     is_primary,
                     teacher:profiles!student_teachers_teacher_id_fkey(full_name)
@@ -365,8 +570,10 @@ async function createDriveFolderForStudent(
             return;
         }
 
+        const studentPrivate = await getPrivateProfile(userId, supabaseAdmin);
+
         // Skip if already has folder
-        if (student.drive_folder_id) {
+        if (studentPrivate?.drive_folder_id) {
             console.log(`[Webhook] Student ${userId} already has Drive folder, skipping`);
             return;
         }
@@ -388,17 +595,17 @@ async function createDriveFolderForStudent(
             teacherName,
         });
 
-        // Update profile with folder ID
-        const { error: updateError } = await supabaseAdmin
-            .from('profiles')
-            .update({ drive_folder_id: result.rootFolderId })
-            .eq('id', userId);
-
-        if (updateError) {
-            console.error('[Webhook] Error updating profile with folder ID:', updateError);
-        } else {
+        // Persist the folder ID in the private profile store
+        try {
+            await upsertPrivateProfile(userId, {
+                drive_folder_id: result.rootFolderId,
+                drive_folder_url: result.rootFolderLink,
+                google_account_email: null,
+            }, supabaseAdmin);
             console.log(`[Webhook] Successfully created Drive folder for student ${userId}: ${result.rootFolderId}`);
             driveFolderLink = result.rootFolderLink;
+        } catch (updateError) {
+            console.error('[Webhook] Error updating profile with folder ID:', updateError);
         }
 
     } catch (error) {
@@ -416,7 +623,7 @@ async function createDriveFolderForStudent(
             .single();
 
         if (student?.email) {
-            const publicUrl = import.meta.env.PUBLIC_URL || 'https://espanolhonesto.com';
+            const publicUrl = getSiteUrl('https://espanolhonesto.com');
 
             const displayNameObj = pkg.display_name as unknown as { es?: string };
 

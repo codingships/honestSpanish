@@ -2,7 +2,7 @@ import rss from '@astrojs/rss';
 import { getCollection, type CollectionEntry } from 'astro:content';
 import type { APIContext } from 'astro';
 
-export const prerender = false;
+export const prerender = true;
 
 export async function getStaticPaths() {
     return [
