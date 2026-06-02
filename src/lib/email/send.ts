@@ -2,7 +2,7 @@
  * Email Send Functions
  * Functions to send each type of transactional email
  */
-import { resend, EMAIL_FROM } from './client';
+import { getEmailFrom, getResend } from './client';
 import {
     welcomeEmailTemplate,
     classConfirmationTemplate,
@@ -25,8 +25,8 @@ export async function sendWelcomeEmail(
     data: WelcomeEmailData
 ): Promise<boolean> {
     try {
-        const { error } = await resend.emails.send({
-            from: EMAIL_FROM,
+        const { error } = await getResend().emails.send({
+            from: getEmailFrom(),
             to: email,
             subject: '¡Bienvenido/a a Español Honesto! 🎉',
             html: welcomeEmailTemplate(data),
@@ -59,8 +59,8 @@ export async function sendClassConfirmation(
             ? `📅 Nueva clase programada - ${data.date}`
             : `🎉 Clase confirmada - ${data.date}`;
 
-        const { error } = await resend.emails.send({
-            from: EMAIL_FROM,
+        const { error } = await getResend().emails.send({
+            from: getEmailFrom(),
             to: email,
             subject,
             html: classConfirmationTemplate(data),
@@ -89,8 +89,8 @@ export async function sendClassReminder(
     data: ClassReminderData
 ): Promise<boolean> {
     try {
-        const { error } = await resend.emails.send({
-            from: EMAIL_FROM,
+        const { error } = await getResend().emails.send({
+            from: getEmailFrom(),
             to: email,
             subject: `⏰ Recordatorio: Tu clase es mañana - ${data.date}`,
             html: classReminderTemplate(data),
@@ -119,8 +119,8 @@ export async function sendClassCancelled(
     data: ClassCancelledData
 ): Promise<boolean> {
     try {
-        const { error } = await resend.emails.send({
-            from: EMAIL_FROM,
+        const { error } = await getResend().emails.send({
+            from: getEmailFrom(),
             to: email,
             subject: `❌ Clase cancelada - ${data.date}`,
             html: classCancelledTemplate(data),
@@ -203,8 +203,8 @@ export async function sendLeadWelcomeEmail(
     data: LeadWelcomeEmailData
 ): Promise<boolean> {
     try {
-        const { error } = await resend.emails.send({
-            from: EMAIL_FROM,
+        const { error } = await getResend().emails.send({
+            from: getEmailFrom(),
             to: email,
             subject: '¡Bienvenido a Español Honesto! 🌎',
             html: leadWelcomeTemplate(data),

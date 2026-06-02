@@ -1,7 +1,7 @@
 /**
  * Email Module - Main exports
  */
-export { resend, EMAIL_FROM } from './client';
+export { resend, getEmailFrom, getResend } from './client';
 
 export {
     baseTemplate,

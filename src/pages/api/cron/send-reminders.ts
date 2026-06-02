@@ -2,13 +2,13 @@ import type { APIRoute } from 'astro';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { sendClassReminder } from '../../../lib/email';
 import { processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
-
-const CRON_SECRET = import.meta.env.CRON_SECRET;
+import { readRuntimeEnv } from '../../../lib/runtime-env';
 
 export const GET: APIRoute = async ({ request }) => {
     const supabaseAdmin = createSupabaseAdminClient();
+    const cronSecret = readRuntimeEnv('CRON_SECRET');
     // Verify authorization — CRON_SECRET must always be set in production
-    if (!CRON_SECRET) {
+    if (!cronSecret) {
         console.error('[CRON] CRON_SECRET is not configured — refusing to run');
         return new Response(JSON.stringify({ error: 'Server misconfiguration' }), {
             status: 500,
@@ -17,7 +17,7 @@ export const GET: APIRoute = async ({ request }) => {
     }
 
     const authHeader = request.headers.get('Authorization');
-    if (authHeader !== `Bearer ${CRON_SECRET}`) {
+    if (authHeader !== `Bearer ${cronSecret}`) {
         console.warn('[CRON] Unauthorized request to send-reminders');
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
             status: 401,

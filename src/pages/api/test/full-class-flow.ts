@@ -7,10 +7,7 @@
 import type { APIRoute } from 'astro';
 import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = import.meta.env.SUPABASE_SERVICE_ROLE_KEY;
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
@@ -99,7 +96,7 @@ export const POST: APIRoute = async (context) => {
         success: false,
     };
 
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+    const supabaseAdmin = createSupabaseAdminClient();
 
     try {
         // Step 1: Get student data

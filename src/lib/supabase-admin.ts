@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from '../types/database.types';
+import { requireRuntimeEnv } from './runtime-env';
 
 /**
  * Admin client with service role key — bypasses RLS.
@@ -8,6 +9,6 @@ import type { Database } from '../types/database.types';
  */
 export const createSupabaseAdminClient = () =>
     createClient<Database>(
-        import.meta.env.PUBLIC_SUPABASE_URL,
-        import.meta.env.SUPABASE_SERVICE_ROLE_KEY
+        requireRuntimeEnv('PUBLIC_SUPABASE_URL'),
+        requireRuntimeEnv('SUPABASE_SERVICE_ROLE_KEY')
     );

@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
-import { resend, EMAIL_FROM, sendLeadWelcomeEmail } from '../../lib/email';
+import { getEmailFrom, getResend, sendLeadWelcomeEmail } from '../../lib/email';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
+import { readRuntimeEnv } from '../../lib/runtime-env';
 
 const escapeHtml = (str: string) =>
     str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -25,7 +26,7 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             return new Response(JSON.stringify({ error: 'Por favor, pasa la verificación de seguridad.' }), { status: 400 });
         }
 
-        const turnstileSecretKey = import.meta.env.TURNSTILE_SECRET_KEY;
+        const turnstileSecretKey = readRuntimeEnv('TURNSTILE_SECRET_KEY');
         const turnstileRes = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -56,9 +57,9 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
         }
 
         // 2. Send Admin Notification (Non-blocking)
-        resend.emails.send({
-            from: EMAIL_FROM,
-            to: [import.meta.env.ADMIN_EMAIL || 'alejandro@espanolhonesto.com'],
+        getResend().emails.send({
+            from: getEmailFrom(),
+            to: [readRuntimeEnv('ADMIN_EMAIL') || 'alejandro@espanolhonesto.com'],
             subject: `Nuevo Lead: ${escapeHtml(name || '')} (${escapeHtml(interest || '')})`,
             html: `
         <div style="font-family: sans-serif; padding: 20px; color: #333;">

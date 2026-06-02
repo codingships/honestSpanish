@@ -4,7 +4,7 @@
  */
 
 import { JWT } from 'google-auth-library';
-import { googleConfig, validateGoogleConfig } from './config';
+import { getGoogleConfig, validateGoogleConfig } from './config';
 
 let cachedClient: JWT | null = null;
 
@@ -17,17 +17,18 @@ export function getAuthClient(): JWT {
         return cachedClient;
     }
 
-    const { valid, missing } = validateGoogleConfig();
+    const config = getGoogleConfig();
+    const { valid, missing } = validateGoogleConfig(config);
     if (!valid) {
         throw new Error(`Missing Google config: ${missing.join(', ')}`);
     }
 
     try {
         cachedClient = new JWT({
-            email: googleConfig.serviceAccountEmail,
-            key: googleConfig.serviceAccountPrivateKey,
-            scopes: googleConfig.scopes,
-            subject: googleConfig.adminEmail, // Impersonate admin
+            email: config.serviceAccountEmail,
+            key: config.serviceAccountPrivateKey,
+            scopes: config.scopes,
+            subject: config.adminEmail, // Impersonate admin
         });
 
         return cachedClient;

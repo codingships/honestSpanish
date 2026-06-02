@@ -1,7 +1,10 @@
 import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServerClient } from "./lib/supabase-server";
+import { setRuntimeEnvFromContext } from "./lib/runtime-env";
 
 export const onRequest = defineMiddleware(async (context, next) => {
+    setRuntimeEnvFromContext(context);
+
     const url = new URL(context.request.url);
     const path = url.pathname;
 

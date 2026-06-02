@@ -10,6 +10,7 @@ import { sendWelcomeEmail } from '../../lib/email';
 import { getSiteUrl } from '../../lib/site-url';
 import { runAfterResponse } from '../../lib/cloudflare-runtime';
 import { enqueueWelcomeFulfillment, processDueFulfillmentJobs } from '../../lib/fulfillment/jobs';
+import { readRuntimeEnv } from '../../lib/runtime-env';
 import type Stripe from 'stripe';
 import type { Database } from '../../types/database.types';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -18,7 +19,7 @@ export const POST: APIRoute = async (context) => {
     const { request } = context;
     // Lazy init inside handler — avoids module-level env var issues on Cloudflare Workers cold start
     const supabaseAdmin = createSupabaseAdminClient();
-    const webhookSecret = import.meta.env.STRIPE_WEBHOOK_SECRET;
+    const webhookSecret = readRuntimeEnv('STRIPE_WEBHOOK_SECRET');
 
     if (!webhookSecret) {
         console.error('Missing STRIPE_WEBHOOK_SECRET');
