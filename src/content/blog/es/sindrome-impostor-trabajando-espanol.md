@@ -6,6 +6,7 @@ author: "alejandro"
 category: "aprendizaje"
 tags: ["psicología", "negocios", "expatriados", "miedos"]
 lang: "es"
+draft: true
 ctaText: "Gana fluidez e influencia en tus reuniones hoy."
 ctaLink: "/espanol-para-profesionales"
 ---

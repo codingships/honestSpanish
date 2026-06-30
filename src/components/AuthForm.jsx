@@ -150,10 +150,12 @@ export default function AuthForm({ lang: langProp, translations }) {
 
                     <form onSubmit={handleForgotPassword} className="space-y-6">
                         <div>
-                            <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                            <label htmlFor="reset-email" className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                                 {t.auth.email}
                             </label>
                             <input
+                                id="reset-email"
+                                name="email"
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
@@ -212,10 +214,12 @@ export default function AuthForm({ lang: langProp, translations }) {
 
                 <form onSubmit={handleSubmit} className="space-y-6">
                     <div>
-                        <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                        <label htmlFor="auth-email" className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                             {t.auth.email}
                         </label>
                         <input
+                            id="auth-email"
+                            name="email"
                             type="email"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
@@ -226,10 +230,12 @@ export default function AuthForm({ lang: langProp, translations }) {
                     </div>
 
                     <div>
-                        <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                        <label htmlFor="auth-password" className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                             {t.auth.password}
                         </label>
                         <input
+                            id="auth-password"
+                            name="password"
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
@@ -264,7 +270,7 @@ export default function AuthForm({ lang: langProp, translations }) {
                     <div className="mt-2 text-center text-xs font-mono text-[#006064]/60">
                         <button
                             onClick={() => switchMode('forgotPassword')}
-                            className="hover:underline"
+                            className="text-[#006064] hover:underline"
                         >
                             {t.auth.forgotPassword}
                         </button>

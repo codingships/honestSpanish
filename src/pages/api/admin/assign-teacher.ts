@@ -35,6 +35,29 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Missing studentId or teacherId' }), { status: 400 });
     }
 
+    const getProfileRole = async (profileId: string) => {
+        const { data } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', profileId)
+            .maybeSingle();
+
+        return data?.role;
+    };
+
+    const [studentRole, teacherRole] = await Promise.all([
+        getProfileRole(studentId),
+        getProfileRole(teacherId),
+    ]);
+
+    if (studentRole !== 'student') {
+        return new Response(JSON.stringify({ error: 'studentId must belong to a student profile' }), { status: 400 });
+    }
+
+    if (teacherRole !== 'teacher') {
+        return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+    }
+
     // 1. Verificar si el estudiante ya tiene un profesor primario asignado
     const { data: existingAssignment, error: existingError } = await supabase
         .from('student_teachers')

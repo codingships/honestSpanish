@@ -39,6 +39,18 @@ function maskStripeId(value: string | null): string {
     return `${value.slice(0, 12)}...${value.slice(-4)}`;
 }
 
+function missingCheckoutDurations(pkg: PackageRow): string[] {
+    const durations: Array<[string, string | null]> = [
+        ['1m', pkg.stripe_price_1m],
+        ['3m', pkg.stripe_price_3m],
+        ['6m', pkg.stripe_price_6m],
+    ];
+
+    return durations
+        .filter(([, priceId]) => !priceId)
+        .map(([duration]) => duration);
+}
+
 export default function ProductCatalogManager() {
     const [packages, setPackages] = useState<EditablePackage[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -207,7 +219,15 @@ export default function ProductCatalogManager() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-[#006064]/20">
-                        {packages.map((pkg) => (
+                        {packages.map((pkg) => {
+                            const missingDurations = missingCheckoutDurations(pkg);
+                            const checkoutLabel = pkg.checkout_ready
+                                ? 'Checkout listo'
+                                : pkg.is_active
+                                    ? 'Activo sin checkout'
+                                    : 'Sin checkout';
+
+                            return (
                             <tr key={pkg.id} className={!pkg.is_active ? 'bg-gray-50 opacity-70' : 'bg-white'}>
                                 <td className="p-3 align-top font-mono font-bold text-[#006064]">{pkg.name}</td>
                                 <td className="p-3 align-top space-y-2">
@@ -280,8 +300,13 @@ export default function ProductCatalogManager() {
                                         <span>{pkg.is_active ? 'Activo' : 'Oculto'}</span>
                                     </label>
                                     <span className={`inline-block px-2 py-1 text-xs font-bold ${pkg.checkout_ready ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-800'}`}>
-                                        {pkg.checkout_ready ? 'Checkout listo' : 'Sin checkout'}
+                                        {checkoutLabel}
                                     </span>
+                                    {!pkg.checkout_ready && missingDurations.length > 0 && (
+                                        <div className="font-mono text-xs text-yellow-800">
+                                            Faltan precios: {missingDurations.join(', ')}
+                                        </div>
+                                    )}
                                 </td>
                                 <td className="p-3 align-top text-right space-y-2">
                                     <button
@@ -300,7 +325,8 @@ export default function ProductCatalogManager() {
                                     </button>
                                 </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

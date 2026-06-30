@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Teacher, Student } from './hooks/useAdminCalendar'; // Reusamos tipos
 import { useAdminSchedule } from './hooks/useAdminSchedule';
+import { CLASS_DURATION_OPTIONS_MINUTES } from '../../lib/class-duration';
 
 interface AdminScheduleModalProps {
     isOpen: boolean;
@@ -106,6 +107,26 @@ export default function AdminScheduleModal({
                                 min={today}
                                 className="w-full p-3 border-2 border-[#006064] text-[#006064]"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
+                                {t.duration}
+                            </label>
+                            <select
+                                value={logic.duration}
+                                onChange={(e) => {
+                                    logic.setDuration(Number(e.target.value));
+                                    logic.setSelectedSlot(null);
+                                }}
+                                className="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
+                            >
+                                {CLASS_DURATION_OPTIONS_MINUTES.map((minutes) => (
+                                    <option key={minutes} value={minutes}>
+                                        {minutes} {t.minutes}
+                                    </option>
+                                ))}
+                            </select>
                         </div>
 
                         {/* Recurring Toggle */}
@@ -247,6 +268,9 @@ export default function AdminScheduleModal({
 
                                 <span className="font-bold">Hora:</span>
                                 <span>{logic.useCustomTime ? logic.customTime : (logic.selectedSlot && formatTime(logic.selectedSlot.slot_start))}</span>
+
+                                <span className="font-bold">Duracion:</span>
+                                <span>{logic.duration} {t.minutes}</span>
                             </div>
                         </div>
 

@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
-import { getPrivateProfile, upsertPrivateProfile } from '../../../lib/profiles-private';
+import { callInternalJobService } from '../../../lib/internal-job-service';
+import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { ensureUserPermission, getFolderLink, revokeAnyoneWithLinkPermissions } from '../../../lib/google/drive';
 
 const linkGoogleDriveSchema = z.object({
     googleAccountEmail: z.string().trim().email(),
@@ -40,7 +40,16 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
-        const rawBody = await context.request.json();
+        let rawBody: unknown;
+        try {
+            rawBody = await context.request.json();
+        } catch {
+            return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         const parsedBody = linkGoogleDriveSchema.safeParse(rawBody);
         if (!parsedBody.success) {
             return new Response(JSON.stringify({ error: 'Invalid Google account email' }), {
@@ -59,19 +68,18 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
-        await ensureUserPermission(profilePrivate.drive_folder_id, googleAccountEmail, 'reader');
-        await revokeAnyoneWithLinkPermissions(profilePrivate.drive_folder_id);
-
-        const folderUrl = profilePrivate.drive_folder_url || await getFolderLink(profilePrivate.drive_folder_id);
-        const updatedPrivateProfile = await upsertPrivateProfile(user.id, {
-            drive_folder_url: folderUrl,
-            google_account_email: googleAccountEmail,
-        });
+        const updatedPrivateProfile = await callInternalJobService<{
+            driveFolderUrl: string | null;
+            googleAccountEmail: string;
+        }>('/internal/account/link-google-drive', {
+            userId: user.id,
+            googleAccountEmail,
+        }, { context });
 
         return new Response(JSON.stringify({
             success: true,
-            driveFolderUrl: updatedPrivateProfile.drive_folder_url,
-            googleAccountEmail: updatedPrivateProfile.google_account_email,
+            driveFolderUrl: updatedPrivateProfile.driveFolderUrl,
+            googleAccountEmail: updatedPrivateProfile.googleAccountEmail,
         }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' },

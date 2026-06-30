@@ -1,77 +1,62 @@
----
-artifact: launch-products
-version: "1.1"
-created: 2026-05-29
-updated: 2026-05-29
-status: active
----
-
 # Products And Pricing
 
-Runtime source of truth: Supabase `packages`, managed from the admin CRM at `/es/campus/admin/packages`.
+Fuente runtime: Supabase `packages`, gestionado desde `/es/campus/admin/packages`.
 
-Planning rule: do not edit public pricing copy, Stripe prices, and database rows independently. The admin CRM updates Supabase and can synchronize Stripe recurring prices for 1, 3, and 6 month billing periods.
+## Reglas
 
-Operational fallback: Stripe synchronization can also be run from the command line:
+- No editar DB, Stripe y copy publica por separado.
+- Guardar cambios en CRM antes de sincronizar Stripe.
+- Stripe Price IDs son inmutables.
+- Si cambia el precio mensual, el CRM borra los Price IDs guardados.
+- Un paquete activo sin `stripe_price_1m`, `stripe_price_3m` y `stripe_price_6m` no esta listo para checkout.
+- Cambios de precio/cuota afectan solo nuevas compras.
+- Mientras Stripe siga en modo prueba, no aceptar pagos reales. Para un soft launch sin pagos, checkout debe quedar desactivado, oculto o bloqueado por datos/configuracion, y la decision debe quedar como riesgo aceptado en `docs/launch/MANUAL_EVIDENCE.local.json`.
+- La entrada comercial recomendada antes de pagos reales es `solicitar plaza`: el formulario publico recoge plan de interes, interes, nivel aproximado, objetivo, disponibilidad y pagina de origen en `leads`, y el email automatico confirma que primero se revisa encaje antes de comprar.
+- Las landings publicas usan `PricingSection` en modo `application`; los Price IDs pueden existir para pruebas, pero el CTA publico no debe abrir checkout hasta que se active explicitamente el modo `checkout`.
+- `/api/create-checkout` falla cerrado salvo que `CHECKOUT_ENABLED=true`. Mantener `CHECKOUT_ENABLED=false` para operar sin cobros reales aunque existan Price IDs en Supabase.
+- El admin de paquetes muestra `checkout_ready`, avisa si un paquete activo no tiene todos los Price IDs y detalla las duraciones pendientes antes de activar checkout.
 
-```bash
-pnpm exec tsx scripts/sync-stripe-packages.ts
-pnpm exec tsx scripts/sync-stripe-packages.ts --apply
-```
+## Catalogo Actual
 
-The first command is a dry run. The `--apply` command creates or updates Stripe Products/Prices and writes the resulting Price IDs back to Supabase. It does not create checkout sessions or charges.
+| Key | Precio mensual | Sesiones/mes | Tipo | Grupo | Doble profesor |
+|---|---:|---:|---|---|---|
+| `group` | 50 EUR | 4 | Sesiones grupales guiadas si hay grupo compatible | Solo si hay compatibilidad de nivel, intereses y ritmo | No |
+| `standard` | 145 EUR | 4 | Clases privadas | No | No |
+| `hybrid` | 150 EUR | 4 | Clases privadas + grupo compatible | Solo si hay compatibilidad de nivel, intereses y ritmo | Si |
+| `bootcamp` | 345 EUR | 20 | Clases privadas intensivas | No | No |
 
-## Launch Packages
+El plan `group` no incluye clases privadas. Existe para practica guiada con otros alumnos de la academia cuando el equipo pueda emparejar alumnos compatibles; si no hay grupo adecuado, se recomienda otra ruta o se espera. No debe venderse como sustituto barato de una clase privada ni como comunidad garantizada antes de conocer a los alumnos.
 
-Confirmed source: active production Supabase packages on 2026-05-29.
+## Jerarquia Comercial Recomendada
 
-| Key | ES Name | Monthly Price | Classes/Month | Group | Dual Teacher | Status |
-|---|---|---:|---:|---|---|---|
-| `group` | Grupal Externo | 50 EUR | 4 | Yes | No | Active |
-| `standard` | Mensual Estandar | 145 EUR | 4 | No | No | Active |
-| `hybrid` | Hibrido Mensual | 150 EUR | 4 | Yes | Yes | Active |
-| `bootcamp` | Intensivo Bootcamp | 345 EUR | 20 | No | No | Active |
+- Entrada principal: `solicitar plaza`.
+- Base operativa estable: `standard`, porque no depende de grupo compatible.
+- Plan principal de posicionamiento: `hybrid`, porque expresa mejor la promesa premium de clases privadas, grupo compatible cuando exista y doble mirada docente.
+- Plan condicionado: `group`, solo si el equipo ya puede emparejar alumnos por nivel, intereses y ritmo.
+- Plan intensivo: `bootcamp`, para objetivos concretos y urgencia real.
 
-Historical packages such as `essential`, `intensive`, and `premium` are not launch products unless explicitly reactivated.
+La estrategia completa queda en `docs/launch/LAUNCH_MARKETING_PLAN.md`.
 
-## Billing Durations
+## Duraciones
 
-The CRM creates/maintains recurring Stripe prices for:
+| Duracion | Regla |
+|---|---|
+| 1 mes | 100% |
+| 3 meses | 10% descuento |
+| 6 meses | 20% descuento |
 
-| Duration | Stripe Model | Current Rule |
-|---|---|---|
-| 1 month | Recurring monthly price, interval count 1 | 100% of monthly price |
-| 3 months | Recurring monthly price, interval count 3 | 10% discount on total period |
-| 6 months | Recurring monthly price, interval count 6 | 20% discount on total period |
+## Clases
 
-Stripe prices are immutable. When price, duration, or recurrence changes, the CRM creates a new Stripe Price ID and deactivates the old active price where possible.
+Duraciones comerciales disponibles: 30, 40 y 50 minutos.
 
-Safety behavior: saving a changed monthly price clears the stored Stripe Price IDs. This disables checkout for that package until Stripe synchronization creates replacement recurring prices.
+Duracion comercial por defecto: 50 minutos.
 
-## Class Duration
+La plataforma no corta Google Meet automaticamente.
 
-Commercial promise: classes are sold as 55 minute classes.
+## Pendiente
 
-Code behavior:
-
-- Default scheduled class duration is 55 minutes.
-- Calendar availability and Google Calendar event length use the scheduled duration.
-- Google Meet is not cut off automatically by the platform at minute 55.
-- Admin can still schedule different durations when operationally needed.
-
-## Launch Blockers
-
-- [ ] Run the 009 migration in production before relying on package audit logs or fulfillment jobs.
-- [x] Synchronize Stripe recurring prices for all active launch packages in the current Stripe test mode.
-- [x] Verify authenticated checkout returns a Stripe Checkout URL in the current Stripe test mode.
-- [ ] Verify public copy in ES/EN/RU matches these four packages and does not promise incompatible quotas.
-- [ ] Repeat/verify Stripe synchronization in the intended live Stripe mode before production checkout.
-- [ ] Verify checkout is available only for active packages with all required Stripe price IDs.
-
-## Admin Safety Rules
-
-- Save package changes before synchronizing Stripe.
-- After a price change, synchronize Stripe before treating the package as checkout-ready.
-- Treat active packages without complete Stripe prices as not ready for checkout.
-- Do not edit Stripe prices manually unless the matching Supabase `packages` row is updated afterwards.
-- Keep inactive legacy packages inactive unless there is a deliberate migration plan.
+- Mantener copy publica ES/EN/RU alineada con solicitud de plaza, grupo compatible y no competir por clases baratas.
+- Definir prueba de nivel definitiva si se quiere algo mas formal que la solicitud de plaza enriquecida.
+- Repetir sincronizacion con Stripe live antes de pagos reales.
+- Activar `CHECKOUT_ENABLED=true` solo durante smoke Stripe test deliberado o cuando Alin decida aceptar pagos reales.
+- Registrar evidencia de `payments_staging` antes de activar pagos reales y de Stripe live en `integration_readiness` solo si se van a aceptar pagos reales.

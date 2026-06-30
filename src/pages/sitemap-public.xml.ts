@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
+import { getBlogEntryParts, isPublishedBlogPost } from '../lib/blog-routes';
 
 const SITE = 'https://espanolhonesto.com';
 const LANGS = ['es', 'en', 'ru'];
@@ -8,13 +9,14 @@ const LANGS = ['es', 'en', 'ru'];
 const STATIC_PAGES = [
     // Landing pages
     { path: '/', changefreq: 'weekly', priority: '1.0' },
-    // Legal
-    { path: '/legal', changefreq: 'monthly', priority: '0.3' },
-    { path: '/legal/privacidad', changefreq: 'monthly', priority: '0.3' },
-    { path: '/legal/cookies', changefreq: 'monthly', priority: '0.3' },
-    { path: '/legal/aviso-legal', changefreq: 'monthly', priority: '0.3' },
     // Blog index
     { path: '/blog', changefreq: 'weekly', priority: '0.8' },
+];
+
+const ES_SEGMENT_PAGES = [
+    { path: '/espanol-para-vivir-en-espana', changefreq: 'monthly', priority: '0.9' },
+    { path: '/espanol-para-profesionales', changefreq: 'monthly', priority: '0.9' },
+    { path: '/clases-de-conversacion-en-espanol', changefreq: 'monthly', priority: '0.9' },
 ];
 
 function xmlEscape(str: string) {
@@ -22,7 +24,7 @@ function xmlEscape(str: string) {
 }
 
 export const GET: APIRoute = async () => {
-    const blogPosts = await getCollection('blog');
+    const blogPosts = (await getCollection('blog')).filter(isPublishedBlogPost);
 
     const urls: string[] = [];
 
@@ -48,11 +50,24 @@ export const GET: APIRoute = async () => {
         }
     }
 
+    // 1b. Spanish segment pages — only list languages that actually exist
+    for (const { path, changefreq, priority } of ES_SEGMENT_PAGES) {
+        const loc = xmlEscape(`${SITE}/es${path}`);
+        const xDefaultLink = `\n        <xhtml:link rel="alternate" hreflang="x-default" href="${loc}" />`;
+
+        urls.push(`
+    <url>
+        <loc>${loc}</loc>
+        <xhtml:link rel="alternate" hreflang="es" href="${loc}" />${xDefaultLink}
+        <changefreq>${changefreq}</changefreq>
+        <priority>${priority}</priority>
+    </url>`);
+    }
+
     // 2. Blog posts — Group by slug to cross-link translated versions
     const postsBySlug: Record<string, typeof blogPosts> = {};
     for (const post of blogPosts) {
-        const [, ...rest] = post.id.split('/');
-        const slug = rest.join('/').replace(/\.md$/, '');
+        const { slug } = getBlogEntryParts(post);
         if (!postsBySlug[slug]) postsBySlug[slug] = [];
         postsBySlug[slug].push(post);
     }
@@ -61,16 +76,16 @@ export const GET: APIRoute = async () => {
         const localizedPosts = postsBySlug[slug];
         
         for (const post of localizedPosts) {
-            const [postLang] = post.id.split('/');
+            const { lang: postLang } = getBlogEntryParts(post);
             const loc = xmlEscape(`${SITE}/${postLang}/blog/${slug}`);
             
             const alternateLinks = localizedPosts.map(p => {
-                const [pLang] = p.id.split('/');
+                const { lang: pLang } = getBlogEntryParts(p);
                 const pLoc = xmlEscape(`${SITE}/${pLang}/blog/${slug}`);
                 return `\n        <xhtml:link rel="alternate" hreflang="${pLang}" href="${pLoc}" />`;
             }).join('');
             
-            const esPost = localizedPosts.find(p => p.id.startsWith('es/'));
+            const esPost = localizedPosts.find(p => getBlogEntryParts(p).lang === 'es');
             let xDefaultLink = '';
             if (esPost) {
                 const defaultLoc = xmlEscape(`${SITE}/es/blog/${slug}`);

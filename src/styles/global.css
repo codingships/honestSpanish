@@ -2,6 +2,78 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+    :root {
+        --eh-campus-canvas: #E0F7FA;
+        --eh-campus-ink: #006064;
+        --eh-campus-ink-dark: #004d40;
+        --eh-campus-red: #6A131C;
+        --eh-campus-red-hover: #8A1924;
+        --eh-campus-yellow: #F6FE51;
+        --eh-campus-mint: #F0FDFA;
+        --eh-google-blue: #4285F4;
+        --eh-google-blue-dark: #3367D6;
+    }
+}
+
+@layer components {
+    .eh-admin-card {
+        @apply border-2 border-campus-ink bg-white shadow-campus-offset;
+    }
+
+    .eh-admin-card-padded {
+        @apply eh-admin-card p-6;
+    }
+
+    .eh-admin-title {
+        @apply font-display text-xl uppercase text-campus-ink;
+    }
+
+    .eh-admin-label {
+        @apply font-mono text-xs font-bold uppercase text-campus-ink;
+    }
+
+    .eh-admin-button {
+        @apply border-2 border-campus-ink bg-campus-ink px-4 py-3 text-sm font-bold uppercase text-white transition-colors hover:bg-campus-inkDark disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .eh-admin-button-secondary {
+        @apply border-2 border-campus-ink bg-white px-4 py-3 text-sm font-bold uppercase text-campus-ink transition-colors hover:bg-campus-canvas disabled:cursor-not-allowed disabled:opacity-50;
+    }
+
+    .eh-admin-input {
+        @apply border-2 border-campus-ink bg-white p-3 text-campus-ink focus:outline-none focus:ring-2 focus:ring-campus-ink/20;
+    }
+
+    .eh-admin-table-wrap {
+        @apply overflow-x-auto border-2 border-campus-ink bg-white;
+    }
+
+    .eh-admin-table {
+        @apply w-full border-collapse text-left;
+    }
+
+    .eh-admin-table-head {
+        @apply bg-campus-ink text-white;
+    }
+
+    .eh-admin-table-th {
+        @apply p-3 text-left font-mono text-xs uppercase;
+    }
+
+    .eh-admin-table-body {
+        @apply divide-y divide-campus-ink/20;
+    }
+
+    .eh-admin-empty {
+        @apply p-5 font-mono text-campus-ink;
+    }
+
+    .eh-admin-badge {
+        @apply inline-flex items-center border border-campus-ink px-2 py-1 font-mono text-xs font-bold uppercase text-campus-ink;
+    }
+}
+
 html {
     scroll-behavior: smooth;
 }

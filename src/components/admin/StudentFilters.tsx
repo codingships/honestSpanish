@@ -90,9 +90,10 @@ export default function StudentFilters({ students, lang, translations: t, packag
     const getPlanBadge = (student: Student) => {
         if (!student.package_name) return null;
         const colors: Record<string, string> = {
-            essential: 'bg-blue-100 text-blue-700 border-blue-300',
-            intensive: 'bg-purple-100 text-purple-700 border-purple-300',
-            premium: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+            group: 'bg-blue-100 text-blue-700 border-blue-300',
+            standard: 'bg-green-100 text-green-700 border-green-300',
+            hybrid: 'bg-purple-100 text-purple-700 border-purple-300',
+            bootcamp: 'bg-yellow-100 text-yellow-800 border-yellow-300',
         };
         const displayName = student.package_display_name?.[lang] || student.package_name;
         return {

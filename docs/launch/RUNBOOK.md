@@ -1,148 +1,268 @@
----
-artifact: launch-runbook
-version: "1.0"
-created: 2026-05-29
-status: draft
-updated: 2026-05-29
----
-
 # Operations Runbook
 
-This runbook describes how to operate the platform during launch. It should stay practical and current.
+## Flujo Critico
 
-## Critical Flow
+1. Usuario se registra.
+2. Usuario compra con Stripe Checkout.
+3. Webhook crea `subscriptions` y `payments`.
+4. Webhook encola `welcome_fulfillment`.
+5. Cloudflare Fulfillment Worker procesa jobs y crea Drive/email.
+6. Admin/teacher reserva clase.
+7. Cloudflare encola `session_fulfillment`.
+8. Cloudflare Fulfillment Worker crea Doc, Calendar, Meet y emails.
+9. Cron llama `/api/cron/send-reminders`.
+10. Cloudflare Pages delega recordatorios al Cloudflare Fulfillment Worker.
 
-1. Student registers.
-2. Student selects a package and pays through Stripe Checkout.
-3. Stripe webhook creates or updates the subscription and payment record.
-4. Stripe webhook enqueues welcome fulfillment.
-5. Fulfillment creates student Drive folder and sends welcome email through Resend.
-6. Student books a class.
-7. Booking endpoint enqueues session fulfillment.
-8. Fulfillment creates class document, Calendar event, Meet link, and confirmation emails through Resend.
-9. Reminder cron sends class reminders and also processes due fulfillment jobs.
+## Incidentes
 
-## Common Incidents
+### Pago completado sin suscripcion
 
-### Payment Completed But No Subscription
+Revisar:
 
-Check:
-- Stripe event delivery for `checkout.session.completed`.
-- `processed_webhook_events` for duplicate or missing event.
-- `subscriptions` and `payments` rows for the student.
-- Sentry/logs for webhook errors.
+- Stripe event delivery.
+- `processed_webhook_events`.
+- Logs webhook en Cloudflare/Sentry.
+- `subscriptions` y `payments`.
 
-Recovery:
-- Reprocess or manually create the subscription only after confirming Stripe payment.
-- Do not grant duplicate sessions without checking existing active subscription.
+Recuperacion:
 
-### Subscription Exists But No Drive Folder
+- Confirmar pago en Stripe.
+- Crear/reconciliar suscripcion manualmente solo si no existe.
+- Encolar fulfillment si falta.
 
-Check:
+### Suscripcion sin Drive/email
+
+Revisar:
+
 - `profiles_private.drive_folder_id`.
-- `fulfillment_jobs` rows with `job_type = 'welcome_fulfillment'`.
-- Google service account credentials and delegated scopes.
-- Google Drive root folder configuration.
-- Resend delivery if the folder exists but the welcome email is missing.
+- `fulfillment_jobs` con `welcome_fulfillment`.
+- Logs Cloudflare Fulfillment Worker.
+- Google credentials/scopes.
+- Resend logs.
 
-Recovery:
-- Trigger `/api/cron/process-fulfillment` with the bearer token if due jobs are pending.
-- Use the admin folder creation endpoint only after verifying the target student.
-- Share link or direct Google permission according to the Drive access decision.
+Recuperacion:
 
-### Class Booked But No Meet Link Or Doc
+- Admin > Jobs > Reintentar.
+- Admin > Jobs > Procesar pendientes.
+- Si el Cloudflare Fulfillment Worker esta caido, revisar `/health`, secrets y deploy.
 
-Check:
-- `sessions.drive_doc_id`, `sessions.drive_doc_url`, `sessions.calendar_event_id`, `sessions.meet_link`.
-- `fulfillment_jobs` rows with `job_type = 'session_fulfillment'` or `bulk_session_fulfillment`.
-- Google Calendar availability and event creation logs.
-- Whether the booking was created through single, bulk, or recurring flow.
-- Resend delivery status for confirmation emails.
+### Clase sin Meet/Doc/email
 
-Recovery:
-- Trigger `/api/cron/process-fulfillment` with the bearer token if due jobs are pending.
-- Create the Google Calendar event and class doc manually if needed.
-- Update the session record with final links.
-- Send confirmation email manually or through an admin tool.
+Revisar:
 
-### Reminder Not Sent
+- `sessions.calendar_event_id`.
+- `sessions.meet_link`.
+- `sessions.drive_doc_id`.
+- `sessions.drive_doc_url`.
+- `fulfillment_jobs` de la clase.
+- Logs Cloudflare Fulfillment Worker.
 
-Check:
+Recuperacion:
+
+- Reintentar job desde Admin > Jobs.
+- Si Google falla por permisos, corregir scopes/env y reintentar.
+- Como ultimo recurso, crear Meet/Doc manual y actualizar la clase.
+
+### Recordatorio no enviado
+
+Revisar:
+
 - `sessions.reminder_sent`.
-- Worker schedule and `CRON_SECRET`.
-- `/api/cron/send-reminders` logs.
-- `/api/cron/process-fulfillment` logs if pending fulfillment also failed.
-- Resend delivery status.
+- Worker `workers/fulfillment`.
+- `/api/cron/send-reminders`.
+- Logs Cloudflare Fulfillment Worker.
+- Resend delivery.
 
-Recovery:
-- Trigger the cron endpoint only with the bearer token.
-- Do not use a public unauthenticated worker test route in production.
+Recuperacion:
 
-### Package Active But Checkout Disabled
+- Ejecutar cron manual con bearer.
+- Reintentar desde Admin > Jobs si habia jobs pendientes.
 
-Check:
-- Admin CRM at `/es/campus/admin/packages`.
-- Package `is_active`.
-- `stripe_price_1m`, `stripe_price_3m`, and `stripe_price_6m`.
-- Stripe product/price active state in the intended Stripe mode.
+### Paquete activo sin checkout
 
-Recovery:
-- Save the package first.
-- Run Stripe synchronization from the CRM.
-- If the CRM cannot be used, run `pnpm exec tsx scripts/sync-stripe-packages.ts` to preview and `pnpm exec tsx scripts/sync-stripe-packages.ts --apply` to create/update Stripe Products/Prices and write Price IDs back to Supabase.
-- Confirm the public pricing button is enabled only after all required recurring Price IDs are present.
+Revisar:
 
-## External Services To Monitor
+- `/es/campus/admin/packages`.
+- `stripe_price_1m`, `stripe_price_3m`, `stripe_price_6m`.
+- Modo Stripe correcto.
 
-| Service | Used For | Launch Check |
-|---|---|---|
-| Supabase | Auth, Postgres, RLS, service role operations | Env vars, backups, RLS, migrations |
-| Stripe | Checkout, portal, webhooks, subscription state | Webhook URL, signing secret, price IDs |
-| Google Workspace | Drive folders, Docs, Calendar, Meet | Service account, delegated scopes, root/template IDs |
-| Resend | Transactional emails | API key, sender domain, delivery logs |
-| Cloudflare Pages | Main app hosting and API runtime | Env vars, build, deployment branch, KV session binding |
-| Cloudflare Cron | Reminders and fulfillment retries | `APP_URL`, `CRON_SECRET`, schedule |
-| Sentry | Error monitoring | DSN, org/project/auth token, alerts |
+Recuperacion:
 
-## Manual Go-Live Verification
+- Guardar paquete.
+- Sincronizar Stripe desde CRM.
+- Confirmar que vuelve a estar checkout-ready.
 
-Do not run real write-heavy smoke checks without confirming the target environment first.
+### Launch sin pagos reales
 
-Reusable smoke scripts:
+Si se decide abrir una version publica sin activar Stripe live, revisar:
 
-```bash
-pnpm exec tsx scripts/sync-stripe-packages.ts
-pnpm exec tsx scripts/sync-stripe-packages.ts --apply
-pnpm exec tsx scripts/smoke-checkout.ts
-```
+- Paquetes activos y Price IDs por entorno.
+- Que la UI publica no prometa compra real si checkout no esta disponible.
+- Que `/api/create-checkout` no pueda crear sesiones live accidentalmente.
+- Que la decision este documentada como riesgo aceptado en `docs/launch/MANUAL_EVIDENCE.local.json`.
 
-`scripts/smoke-checkout.ts` creates a temporary student, signs in through the app, calls `/api/create-checkout`, verifies that Stripe returns a Checkout URL, and then deletes the temporary Supabase user and Stripe customer where possible. It creates a Checkout Session but does not complete a payment.
+Recuperacion:
 
-Minimum safe launch verification:
+- Desactivar paquetes o borrar Price IDs incorrectos desde `/es/campus/admin/packages`.
+- Mantener Stripe en test hasta completar `payments_staging` e `integration_readiness`.
 
-- [ ] Public pages load in ES/EN/RU.
-- [ ] Login/register works.
-- [ ] Stripe checkout creates a checkout URL for an active package.
-- [ ] Stripe webhook can process a test event in the intended Stripe mode.
-- [ ] Student subscription appears in campus.
-- [ ] Welcome fulfillment job succeeds and creates Drive folder.
-- [ ] Teacher/admin can book a class.
-- [ ] Session has Meet link and Drive doc.
-- [ ] Emails arrive to student and teacher.
-- [ ] Reminder cron marks `reminder_sent`.
+## Deploy
 
-## E2E Test Data
+### Flujo Normal
 
-Prepare local/Supabase E2E users and baseline data with:
+1. Crear cambios en una rama de trabajo.
+2. Abrir PR hacia `staging`.
+3. CI debe pasar: typecheck, lint, tests, build, E2E publico y secrets-check.
+4. Merge a `staging`.
+5. GitHub Actions despliega Cloudflare Pages staging y Cloudflare Fulfillment Worker staging.
+6. Validar smoke staging.
+7. Abrir PR de `staging` hacia `main`.
+8. CI debe pasar.
+9. Merge a `main`.
+10. Aprobar el environment `production` en GitHub Actions.
+11. GitHub Actions despliega Cloudflare Pages production y Cloudflare Fulfillment Worker production.
+
+### Deploy Manual Local
 
 ```bash
-pnpm exec tsx scripts/prepare-e2e-data.ts
+pnpm typecheck
+pnpm fulfillment:typecheck
+pnpm lint
+pnpm test:run
+pnpm build
+pnpm secrets:check
 ```
 
-The script reads Supabase credentials from `.env` and test user credentials from `.env.test`. It updates the three test users, sets roles, assigns student to teacher, creates an active test subscription, availability, and seed sessions. It clears sessions for those dedicated E2E student/teacher accounts first so repeated scheduling tests do not accumulate conflicts.
+Cloudflare local:
 
-For local Playwright booking tests, `.env.test` should keep `E2E_DISABLE_EXTERNAL_INTEGRATIONS=true`. This lets scheduling write Supabase sessions without creating Google Calendar/Meet/Docs or sending Resend emails.
+```bash
+pnpm deploy
+```
 
-## Documentation Rule
+Cloudflare Fulfillment Worker local:
 
-If an operational decision changes, update this runbook and `DECISIONS.md` in the same change.
+```bash
+pnpm fulfillment:dev
+```
+
+## Rotacion Final De Claves
+
+La rotacion final se hace solo en la ventana previa al lanzamiento real, despues de cerrar copy/legal y antes del smoke final. No es requisito para congelar el Release Candidate mientras Stripe siga en test y no haya trafico real.
+
+Reglas:
+
+- No guardar valores secretos en el repo, `.codex-ops`, outputs, capturas, tickets ni docs.
+- Guardar los valores definitivos solo en KeePassXC y en los secret managers de cada proveedor.
+- Rotar primero staging cuando el proveedor lo permita, validar, y despues production.
+- Mantener claves antiguas activas solo hasta que el smoke del entorno pase; revocarlas inmediatamente despues.
+- Si una clave pudo filtrarse, no usar rollback a la clave anterior: pausar checkout/jobs, generar una nueva y redeployar.
+
+Orden recomendado:
+
+1. Preparar entradas KeePassXC por entorno: Dev, Staging, Production y GitHub CI. Registrar fecha de rotacion, origen, permisos y responsable, sin pegar valores en docs.
+2. Generar o rotar secretos en el proveedor original: Supabase, Stripe, Cloudflare, Google, Resend, Turnstile, Sentry y GitHub.
+3. Actualizar consumidores de staging: Cloudflare Pages, Cloudflare Fulfillment Worker y GitHub environment `staging`.
+4. Ejecutar smoke staging: auth, checkout test si aplica, webhook test, Worker `/health`, job seguro, Resend test, Turnstile y logs.
+5. Actualizar consumidores de production: Cloudflare Pages, Cloudflare Fulfillment Worker y GitHub environment `Production`.
+6. Ejecutar comprobaciones locales y de cierre:
+
+```bash
+pnpm secrets:check
+pnpm launch:security
+pnpm launch:operations
+pnpm launch:final-readiness
+pnpm launch:status
+```
+
+7. Ejecutar smoke production antes de aceptar trafico publico.
+8. Revocar claves antiguas y registrar evidencia no secreta en `docs/launch/MANUAL_EVIDENCE.local.json`.
+
+Notas por proveedor:
+
+- Supabase: staging y production usan proyectos separados. Si se rota el JWT secret o claves anon/service role, planificar una ventana de mantenimiento porque puede invalidar tokens existentes. Actualizar todas las referencias antes de aceptar trafico.
+- Stripe: mantener test y live separados. Rotar `STRIPE_SECRET_KEY`, `PUBLIC_STRIPE_PUBLISHABLE_KEY` y `STRIPE_WEBHOOK_SECRET` por entorno. Los Price IDs no son secretos, pero deben pertenecer al modo correcto.
+- Cloudflare: actualizar secrets de Pages y Worker por entorno. `INTERNAL_JOB_SECRET` y `CRON_SECRET` deben coincidir entre Pages/Worker solo dentro del mismo entorno y ser distintos entre staging y production.
+- Google: crear una clave nueva para la service account, actualizar Worker, validar Drive/Calendar/Docs/Meet y borrar la clave antigua. Revisar scopes de domain-wide delegation.
+- Resend: crear API key con permisos minimos, validar envio y revocar la anterior.
+- Turnstile: si cambia site key, actualizar tambien la variable publica y revisar dominios permitidos.
+- Sentry: rotar token de auth usado para sourcemaps. El DSN publico puede permanecer salvo decision contraria.
+- GitHub/Cloudflare deploy: rotar `CLOUDFLARE_API_TOKEN` con permisos minimos y actualizar los environments.
+
+### Rollback
+
+Cloudflare:
+
+- Usar el dashboard de Cloudflare Pages para volver al ultimo deployment estable.
+- Si el error viene de variables, corregir secrets/env vars y redeploy.
+
+Cloudflare Fulfillment Worker:
+
+- Usar el dashboard de Cloudflare Workers o `wrangler rollback` para volver a una version estable.
+- Si el error viene de variables, corregir env vars y redeploy.
+
+Base de datos:
+
+- No aplicar migraciones irreversibles sin plan de rollback.
+- Antes de cambios destructivos, confirmar backup Supabase. Si production sigue en Free, ejecutar backup logico/manual fuera del repo o subir a Pro antes del cambio.
+
+## Simulacro De Incidente Y Rollback
+
+Objetivo: validar que el equipo sabe detectar, contener, recuperar y documentar un incidente de lanzamiento sin improvisar en produccion.
+
+Este simulacro puede cerrarse como tabletop antes del Go/No-Go si no hay ventana segura para ejecutar un rollback real. No sustituye el smoke final, pero si prueba el procedimiento y los puntos de decision.
+
+### Escenario Minimo RC
+
+Usar un escenario que no toque datos reales ni secretos:
+
+1. Un `fulfillment_job` de staging falla o queda pendiente.
+2. El alumno avisa desde Soporte.
+3. Admin revisa Admin > Jobs y Admin > Tickets soporte.
+4. Se decide si reintentar, cancelar o pausar el flujo afectado.
+5. Se revisan logs de Cloudflare Worker y Sentry si esta disponible.
+6. Se registra una nota no secreta con hora, entorno, decision y resultado.
+
+Evidencia aceptable:
+
+- Ruta o captura redactada de Admin > Jobs.
+- Ruta o captura redactada de Admin > Tickets soporte.
+- Nota manual con entorno, recurso afectado, accion tomada y resultado.
+- Salida de `pnpm launch:operations` y `pnpm launch:status`.
+
+### Escenario De Rollback Tabletop
+
+Usar este guion si no se ejecuta un rollback real:
+
+1. Identificar el deployment estable anterior de Cloudflare Pages.
+2. Identificar la version estable anterior del Cloudflare Fulfillment Worker.
+3. Decidir si el incidente requiere rollback, pausa de checkout, desactivacion de paquetes, pausa de cron o reintento de jobs.
+4. Confirmar quien aprueba la accion: Alin para Go/No-Go, Codex solo prepara evidencia.
+5. Confirmar datos afectados y si hace falta comunicacion a alumnos.
+6. Definir verificacion posterior: pagina publica, `/health`, job seguro, email, checkout test si aplica y `pnpm launch:status`.
+
+Evidencia aceptable:
+
+- Nota manual con deployment objetivo, accion elegida y motivo.
+- Captura redactada del historial de deployments o dashboard.
+- Riesgo aceptado con `riskAcceptedBy`, `riskRationale` y `rollbackPlan` si no se ejecuta rollback real antes del lanzamiento.
+
+### Criterio De Cierre Del Simulacro
+
+El simulacro se puede considerar validado cuando:
+
+- Hay un propietario y una decision documentada.
+- El flujo de deteccion, contencion, recuperacion y verificacion esta recorrido.
+- El rollback real se ha probado o queda explicitamente aceptado como riesgo con plan concreto.
+- No se han pegado secretos, datos personales, pagos, tokens ni capturas sensibles en el repo.
+- `pnpm launch:operations` y `pnpm launch:status` se han rerunteeado despues de actualizar la evidencia.
+
+## Go/No-Go Tecnico
+
+- App Cloudflare responde paginas publicas ES/EN/RU.
+- Fulfillment Worker `/health` responde 200.
+- `/api/create-checkout` crea Stripe Checkout URL.
+- Stripe webhook encola fulfillment.
+- Admin > Jobs ve y procesa jobs.
+- Compra test completa crea Drive/email.
+- Reserva test crea Doc/Meet/email.
+- Recordatorio test marca `reminder_sent`.

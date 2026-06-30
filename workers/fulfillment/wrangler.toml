@@ -1,0 +1,26 @@
+name = "espanol-honesto-fulfillment"
+main = "src/index.ts"
+compatibility_date = "2026-06-10"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+minify = true
+
+[observability]
+enabled = true
+
+[triggers]
+crons = ["0 * * * *"]
+
+[env.staging]
+name = "espanol-honesto-fulfillment-staging"
+workers_dev = true
+
+[env.staging.vars]
+PUBLIC_APP_ENV = "staging"
+
+[env.production]
+name = "espanol-honesto-fulfillment-production"
+workers_dev = true
+
+[env.production.vars]
+PUBLIC_APP_ENV = "production"

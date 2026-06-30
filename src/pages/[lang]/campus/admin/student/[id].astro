@@ -1,10 +1,15 @@
 ---
 import CampusLayout from '../../../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../../../i18n/utils';
+import { emptyCrmContactDetail, getCrmContactDetail } from '../../../../../lib/crm/contact-detail';
 import { getPrivateProfile } from '../../../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
 import TeacherNotes from '../../../../../components/TeacherNotes';
 import AssignTeacherButton from '../../../../../components/admin/AssignTeacherButton';
+import CrmContactActions from '../../../../../components/admin/CrmContactActions';
+import CrmConsentManager from '../../../../../components/admin/CrmConsentManager';
+import CrmOpportunityList from '../../../../../components/admin/CrmOpportunityList';
+import CrmTaskList from '../../../../../components/admin/CrmTaskList';
 
 export const prerender = false;
 
@@ -112,6 +117,16 @@ const { data: payments } = await supabase
     .order('created_at', { ascending: false })
     .limit(10);
 
+let crmDetail = emptyCrmContactDetail;
+try {
+    crmDetail = await getCrmContactDetail(supabase, {
+        profileId: studentId,
+        email: student.email,
+    });
+} catch (error) {
+    console.error('[AdminStudentDetail] Could not load CRM detail:', error);
+}
+
 // Helper functions
 const getPackageName = (sub: any) => {
     if (!sub?.packages?.display_name) return '—';
@@ -135,6 +150,69 @@ const languageNames: Record<string, string> = {
     en: 'English',
     ru: 'Русский'
 };
+
+const crmLifecycleLabels: Record<string, string> = {
+    lead: 'Lead',
+    qualified: 'Cualificado',
+    customer: 'Cliente',
+    alumni: 'Antiguo alumno',
+    inactive: 'Inactivo',
+    lost: 'Perdido',
+};
+
+const formatDateTime = (dateStr: string) => {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const openOpportunities = crmDetail.opportunities.filter((opportunity) => !['won', 'lost'].includes(opportunity.stage));
+const openTasks = crmDetail.tasks.filter((task) => ['open', 'snoozed'].includes(task.status));
+const crmActivityKeys = new Set(
+    crmDetail.activities
+        .filter((activity) => activity.related_entity_type && activity.related_entity_id)
+        .map((activity) => `${activity.related_entity_type}:${activity.related_entity_id}`)
+);
+const hasCrmActivityFor = (entityTypes: string[], entityId: string) =>
+    entityTypes.some((entityType) => crmActivityKeys.has(`${entityType}:${entityId}`));
+const timelineItems = [
+    ...crmDetail.activities.map((activity) => ({
+        id: `crm-${activity.id}`,
+        kind: 'CRM',
+        title: activity.subject || activity.activity_type,
+        detail: activity.body || activity.related_entity_type || '',
+        date: activity.occurred_at,
+    })),
+    ...(payments || []).flatMap((payment) => payment.created_at && !hasCrmActivityFor(['payment'], payment.id) ? [{
+        id: `payment-${payment.id}`,
+        kind: 'Pago',
+        title: `${formatCurrency(payment.amount)} - ${payment.status}`,
+        detail: 'Movimiento de pago',
+        date: payment.created_at,
+    }] : []),
+    ...crmDetail.sessions.flatMap((session) => {
+        const date = session.scheduled_at || session.created_at;
+        if (!date || hasCrmActivityFor(['session_scheduled', 'session_cancelled', 'session_completed', 'session_no_show'], session.id)) return [];
+        return [{
+            id: `session-${session.id}`,
+            kind: 'Clase',
+            title: session.status || 'Clase',
+            detail: session.teacher?.full_name || session.teacher?.email || 'Sin profesor asignado',
+            date,
+        }];
+    }),
+    ...crmDetail.supportTickets.flatMap((ticket) => ticket.created_at && !hasCrmActivityFor(['support_ticket_created'], ticket.id) ? [{
+        id: `support-${ticket.id}`,
+        kind: 'Soporte',
+        title: ticket.issue_title,
+        detail: `${ticket.issue_type} - ${ticket.status}`,
+        date: ticket.created_at,
+    }] : []),
+].sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()).slice(0, 15);
 
 const progressPercent = subscription 
     ? Math.round((subscription.sessions_used / subscription.sessions_total) * 100) 
@@ -196,6 +274,73 @@ const assignModalTranslations = {
                 )}
             </div>
         </div>
+    </div>
+
+    <!-- CRM Summary -->
+    <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] mb-6">
+        <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-5">
+            <div>
+                <h2 class="font-display text-xl text-[#006064] uppercase">Ficha CRM</h2>
+                <p class="text-sm text-[#006064]/70 font-mono mt-1">Relacion comercial, tareas pendientes y contexto operativo del alumno.</p>
+            </div>
+            {crmDetail.contact && (
+                <span class="inline-flex w-fit border border-[#006064] px-3 py-1 text-xs font-bold uppercase text-[#006064]">
+                    {crmLifecycleLabels[crmDetail.contact.lifecycle_stage] || crmDetail.contact.lifecycle_stage}
+                </span>
+            )}
+        </div>
+
+        {!crmDetail.isReady ? (
+            <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                <p class="font-bold text-[#006064]">CRM pendiente de migracion</p>
+                <p class="text-sm text-[#006064]/70 mt-1">La ficha se completara automaticamente cuando las tablas CRM esten aplicadas.</p>
+            </div>
+        ) : crmDetail.contact ? (
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div>
+                    <h3 class="font-display text-lg text-[#006064] uppercase mb-3">Contacto</h3>
+                    <div class="space-y-2 text-sm text-[#006064]">
+                        <p><span class="font-mono text-xs uppercase text-[#006064]/60">Email</span><br />{crmDetail.contact.primary_email}</p>
+                        {crmDetail.contact.phone && <p><span class="font-mono text-xs uppercase text-[#006064]/60">Telefono</span><br />{crmDetail.contact.phone}</p>}
+                        <p><span class="font-mono text-xs uppercase text-[#006064]/60">Idioma / zona</span><br />{crmDetail.contact.preferred_language || 'es'} / {crmDetail.contact.timezone || 'Sin zona'}</p>
+                        {crmDetail.contact.source && <p><span class="font-mono text-xs uppercase text-[#006064]/60">Origen</span><br />{crmDetail.contact.source}</p>}
+                        {crmDetail.contact.last_contacted_at && <p><span class="font-mono text-xs uppercase text-[#006064]/60">Ultimo contacto</span><br />{formatDateTime(crmDetail.contact.last_contacted_at)}</p>}
+                        {crmDetail.contact.next_follow_up_at && <p><span class="font-mono text-xs uppercase text-[#006064]/60">Proximo seguimiento</span><br />{formatDateTime(crmDetail.contact.next_follow_up_at)}</p>}
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="font-display text-lg text-[#006064] uppercase mb-3">Pipeline abierto</h3>
+                    <CrmOpportunityList client:load opportunities={openOpportunities} lang={lang} />
+                </div>
+
+                <div>
+                    <h3 class="font-display text-lg text-[#006064] uppercase mb-3">Tareas abiertas</h3>
+                    <CrmTaskList client:load tasks={openTasks} emptyText="Sin tareas activas." />
+                </div>
+
+                <div class="border-t border-[#006064]/20 pt-5 lg:col-span-3">
+                    <CrmConsentManager
+                        client:load
+                        contactId={crmDetail.contact.id}
+                        consents={crmDetail.consents}
+                    />
+                </div>
+
+                <div class="border-t border-[#006064]/20 pt-5 lg:col-span-3">
+                    <CrmContactActions
+                        client:load
+                        contactId={crmDetail.contact.id}
+                        opportunityId={openOpportunities[0]?.id ?? null}
+                    />
+                </div>
+            </div>
+        ) : (
+            <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                <p class="font-bold text-[#006064]">Sin contacto CRM enlazado</p>
+                <p class="text-sm text-[#006064]/70 mt-1">El alumno existe, pero todavia no tiene registro CRM. El backfill de la migracion lo creara por perfil o email.</p>
+            </div>
+        )}
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -350,6 +495,33 @@ const assignModalTranslations = {
                 </div>
             ) : (
                 <p class="text-[#006064]/60 font-mono text-sm">Sin historial de suscripciones</p>
+            )}
+        </div>
+
+        <!-- Unified Timeline -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] lg:col-span-2">
+            <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mb-4">
+                <h2 class="font-display text-xl text-[#006064] uppercase">Historial CRM unificado</h2>
+                <p class="text-xs font-mono uppercase text-[#006064]/60">{timelineItems.length} eventos visibles</p>
+            </div>
+
+            {timelineItems.length > 0 ? (
+                <div class="divide-y divide-[#006064]/10">
+                    {timelineItems.map((item) => (
+                        <div class="grid grid-cols-1 gap-2 py-3 md:grid-cols-[8rem_1fr_auto] md:items-start">
+                            <div>
+                                <span class="inline-flex border border-[#006064] px-2 py-1 text-xs font-bold uppercase text-[#006064]">{item.kind}</span>
+                            </div>
+                            <div>
+                                <p class="font-bold text-[#006064]">{item.title}</p>
+                                {item.detail && <p class="text-sm text-[#006064]/70 mt-1">{item.detail}</p>}
+                            </div>
+                            <p class="text-xs font-mono text-[#006064]/70 md:text-right">{formatDateTime(item.date)}</p>
+                        </div>
+                    ))}
+                </div>
+            ) : (
+                <p class="text-[#006064]/60 font-mono text-sm">Sin eventos todavia.</p>
             )}
         </div>
     </div>

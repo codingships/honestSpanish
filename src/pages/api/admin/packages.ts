@@ -69,6 +69,14 @@ function parsePayload<T>(schema: z.ZodType<T>, value: unknown): { data: T; error
     return { data: result.data, error: null };
 }
 
+async function readJsonBody(context: APIContext): Promise<{ data: unknown; error: null } | { data: null; error: Response }> {
+    try {
+        return { data: await context.request.json(), error: null };
+    } catch {
+        return { data: null, error: jsonResponse({ error: 'Invalid JSON body' }, 400) };
+    }
+}
+
 async function requireAdmin(context: APIContext) {
     const supabase = createSupabaseServerClient(context);
     const { data: { user } } = await supabase.auth.getUser();
@@ -263,7 +271,10 @@ export const PATCH: APIRoute = async (context) => {
     const auth = await requireAdmin(context);
     if (auth.error || !auth.user) return auth.error;
 
-    const parsed = parsePayload(updatePackageSchema, await context.request.json());
+    const rawBody = await readJsonBody(context);
+    if (rawBody.error) return rawBody.error;
+
+    const parsed = parsePayload(updatePackageSchema, rawBody.data);
     if (parsed.error) return parsed.error;
     const payload = parsed.data;
     const supabaseAdmin = createSupabaseAdminClient();
@@ -322,10 +333,12 @@ export const POST: APIRoute = async (context) => {
     const auth = await requireAdmin(context);
     if (auth.error || !auth.user) return auth.error;
 
-    const body = await context.request.json();
+    const rawBody = await readJsonBody(context);
+    if (rawBody.error) return rawBody.error;
+    const body = rawBody.data;
     const supabaseAdmin = createSupabaseAdminClient();
 
-    if (body?.action === 'create_package') {
+    if (body && typeof body === 'object' && 'action' in body && body.action === 'create_package') {
         const parsed = parsePayload(createPackageSchema, body);
         if (parsed.error) return parsed.error;
         const payload = parsed.data;

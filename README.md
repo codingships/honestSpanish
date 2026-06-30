@@ -1,114 +1,118 @@
-# Español Honesto
+# Espanol Honesto
 
-Plataforma educativa Serverless de Español Inmersivo. Construida bajo una arquitectura híbrida (SSG + SSR) para maximizar la velocidad de la *Landing Page* (SEO Frontend) y proteger dinámicamente el Campus de Estudiantes (React + Supabase Backend).
+Plataforma para academia online de espanol: web publica multilingue, campus privado, pagos, reservas de clases, Google Workspace, emails transaccionales y CRM admin.
 
----
+## Stack
 
-## 🚀 Tecnologías Core (Stack 2024-2025)
+- Astro 6 SSR en Cloudflare Pages.
+- React islands para UI interactiva.
+- Supabase Auth/Postgres/RLS.
+- Stripe Checkout, Portal y webhooks.
+- Cloudflare Fulfillment Worker para jobs Google/Resend.
+- Google Workspace con service account y domain-wide delegation.
+- Resend para emails.
+- Cloudflare Turnstile.
+- Sentry.
+- pnpm 10.33.0 como unico gestor de paquetes.
 
-*   **Framework:** [Astro 5](https://astro.build) (Modo Híbrido: `prerender` por defecto para Landing, SSR para Auth/Campus).
-*   **UI / Estilos:** [Tailwind CSS 3.4](https://tailwindcss.com/) + Tipografías Serif Nativas.
-*   **Componentes Frontend:** [React 18](https://react.dev/) (Usado únicamente para interactividad compleja como Formularios e Islas).
-*   **Base de Datos & Auth:** [Supabase](https://supabase.com/) (PostgreSQL + Row Level Security + SSR Cookies Auth).
-*   **Pagos:** [Stripe API](https://stripe.com) (Checkout Sessions + Webhooks Asíncronos).
-*   **Gestor de Contenido (Blog):** [Keystatic](https://keystatic.com/) (CMS Basado en Git, guarda posts como `.md` en `src/content/blog`).
-*   **Automatización de Clases:** Google Workspace API (Drive, Calendar, Meet) mediante Service Account con Delegación de Dominio.
-*   **Internacionalización (i18n):** Enrutamiento por subdirectorios nativo de Astro (`/[lang]/...`) y diccionarios JSON TypeScript en `src/i18n/ui.ts`.
-*   **Despliegue & Edge:** [Cloudflare Pages](https://pagescloudflare.com/) (Despliegue contínuo y Edge Caching).
-*   **Emails Transaccionales:** [Resend](https://resend.com) (Envío de secuencias de Bienvenida).
-*   **Protección Anti-Spam (Formularios):** Cloudflare Turnstile (React).
-*   **Monitoreo y Observabilidad:** [Sentry](https://sentry.io/) (`@sentry/astro` para tracking de errores SSR y Frontend).
-*   **SEO Dinámico:** Uso de Satori + resvg-wasm nativo de Astro para imágenes Open Graph (`@astrojs/og`) y `@astrojs/rss` para feeds.
+## Comandos
 
----
-
-## 🛠️ Requisitos del Entorno Local
-
-Para compilar este repositorio en tu máquina necesitas:
-
-1.  **Node.js 20+** o superior.
-2.  **pnpm 10.33.0**. Este proyecto es pnpm-only; no uses `npm`, `npx`, `yarn`, `bun`, `bunx` ni `pnpx`.
-3.  Una cuenta activa de Supabase (con el esquema de BBDD que hay en `/db/schema.sql` insertado).
-4.  Una cuenta de Cloudflare (Para Turnstile y despliegue).
-5.  Un archivo `.env` configurado.
-
-### Configuración del `.env`
-
-El proyecto depende íntimamente de un archivo `.env` en la raíz. Existe un `.env.example` en el repositorio para que lo dupliques:
-
-```env
-# URL de Testing Local de tu FrontEnd
-PUBLIC_SITE_URL=http://localhost:4321
-
-# Supabase (Auth + DB)
-PUBLIC_SUPABASE_URL=htps://tu-id.supabase.co
-PUBLIC_SUPABASE_ANON_KEY=eyJhbG...
-SUPABASE_SERVICE_ROLE_KEY=eyJhbG... # Mantener en secreto (Para webhooks de Stripe y crear Leads)
-
-# Stripe (Facturación)
-STRIPE_SECRET_KEY=sk_test_...
-STRIPE_WEBHOOK_SECRET=whsec_...
-PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
-
-# Resend (Emails)
-RESEND_API_KEY=re_...
-EMAIL_FROM=onboarding@espanolhonesto.com
-ADMIN_EMAIL=tu@tu-mail.com
-
-# Cloudflare Turnstile (Anti-Captcha)
-PUBLIC_TURNSTILE_SITE_KEY=0x4A...
-TURNSTILE_SECRET_KEY=0x4A...
-
-# Google Workspace (Automatizaciones de Drive y Calendar)
-GOOGLE_SERVICE_ACCOUNT_EMAIL=mi-cuenta-servicio@proyecto.iam.gserviceaccount.com
-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIEvgIBADAN...-----END PRIVATE KEY-----\n"
-GOOGLE_ADMIN_EMAIL=admin@tudominio.com
-GOOGLE_DRIVE_ROOT_FOLDER_ID=1AbCdEfGhIjKlMnOpQrStUvWxYz
-GOOGLE_TEMPLATE_DOC_ID=1XyZaBcDeFgHiJkLmNoPqRsTuVwXy
+```bash
+pnpm dev
+pnpm build
+pnpm preview
+pnpm deploy
+pnpm typecheck
+pnpm lint
+pnpm test:run
+pnpm test:e2e -- --project=public
+pnpm fulfillment:dev
+pnpm fulfillment:typecheck
+pnpm google:setup-staging
+pnpm dev:demo
+pnpm demo:local
+pnpm demo:tunnel
+pnpm launch:cleanup
+pnpm launch:sequence
+pnpm launch:content
+pnpm launch:seo
+pnpm launch:legal
+pnpm launch:security
+pnpm launch:operations
+pnpm launch:payments
+pnpm launch:final-readiness
+pnpm launch:accessibility
+pnpm launch:manual-evidence:init
+pnpm launch:manual-evidence:record
+pnpm launch:manual-evidence
+pnpm launch:phase1
+pnpm launch:verify
+pnpm launch:secondary-review
+pnpm launch:status
+pnpm launch:rc
+pnpm launch:gate
 ```
 
-> [!CAUTION]  
-> **Seguridad Estricta:** Las variables que no empiecen por `PUBLIC_` jamás serán expuestas al navegador. Sólo las lee el Backend (Astro Server / Endpoints). Asegúrate de no exponer claves maestras de Supabase o Stripe en componentes de UI.
+## Demo Guiada
 
----
+La demo guiada esta aislada del runtime normal. Solo aparece si `DEMO_GUIDE_ENABLED=true`; `pnpm dev:demo` activa esa bandera y redirige `/demo` a `/es?demo=launcher&demoStart=1`. Con la bandera apagada, `/demo` y `/:lang/demo` devuelven `404` con `noindex` en vez de redirigir a paginas publicas. La guia tiene 40 pasos, panel movible, modo compacto y login automatico local mediante `/api/demo/login`. Las rutas demo quedan excluidas del sitemap y deshabilitadas en `robots.txt`.
 
-## 💻 Comandos de Desarrollo
+Para prepararla en local, crea `.env.test` desde `.env.test.example` con los usuarios de prueba. Luego usa:
 
-La ingeniería detrás de la consola de este proyecto.
-
-*   `pnpm dev` → Inicia el servidor de desarrollo local (Astro Vite).
-*   `pnpm dev -- --host` → Permite acceder al servidor desde un teléfono móvil conectado al mismo Wi-Fi de tu casa.
-*   `pnpm build` → Compila para producción (Genera los HTMLs del `/blog` y prepara los Server Handlers para el `Campus` en Cloudflare Pages).
-*   `pnpm preview` → Ejecuta `wrangler` para emular el servidor final de Cloudflare en tu máquina antes de subirlo y testar las Cloudflare Pages localmente.
-
-### Flujo de Testeo y Calidad E2E
-Este proyecto incluye una suite exhaustiva de pruebas unitarias y de extremo a extremo (E2E) con componentes *Mocked* para garantizar resiliencia:
-*   `pnpm test` → Lanza Vitest para pruebas unitarias simulando Supabase/Google con `vi.mock` y la red con `MSW`.
-*   `pnpm test:e2e` → Ejecuta todos los proyectos de Playwright (`public`, `student`, `teacher`, `admin`), aislando el estado de autenticación de cada rol basándose en el plan de pruebas `uat_test_plan.md.resolved`.
-*   `pnpm test:all` → Verifica unidad y web en una sola pasada.
-
----
-
-## 📚 Estructura Principal del Repositorio
-
-El corazón de la arquitectura en `src/`:
-
-```
-/src
- ├── /assets/      --> Recursos compilados e Imágenes WebP auto-optimizadas.
- ├── /components/  --> Cápsulas de React (.tsx) e Islas de Astro (.astro).
- │    ├── /account/--> Formularios protegidos del Dashboard.
- │    ├── /admin/  --> Componentes del Panel Creador (Métricas).
- │    └── Form/Nav --> UI de la Landing.
- ├── /content/     --> Documentos Markdown estáticos y Content Collections.
- │    └── /blog/   --> Posts de Español Honesto (Generados por el CMS Keystatic).
- ├── /i18n/        --> Diccionarios (`ui.ts`) y utilidades de traducción estricta.
- ├── /layouts/     --> Cimientos visuales. `BaseLayout.astro` y `CampusLayout.astro`.
- ├── /lib/         --> Clientes asíncronos puros de TypeScript (Supabase, Resend).
- ├── /pages/       --> El Enrutador Web. Cada Astro equivale a una URL `/ruta`.
- │    ├── /api/    --> Webhooks de Stripe / Endpoints del formulario Turnstile.
- │    └── /[lang]/ --> Estructura Internacional inyectada recursivamente.
- └── /styles/      --> Tailwind Global Config (`global.css`).
+```bash
+pnpm dev:demo
+pnpm demo:tunnel
+pnpm demo:local
+pnpm demo:report
 ```
 
-Para adentrarte en el funcionamiento lógico de los Roles, Base de Datos y Endpoints, consulta el [ARCHITECTURE.md](./ARCHITECTURE.md) (La Biblia Técnica).
+`pnpm dev:demo` carga `.env` y despues `.env.test`, arranca Astro en modo test y habilita la demo y su login solo en hosts permitidos. `pnpm demo:tunnel` publica el servidor local con Cloudflare Tunnel si `cloudflared` esta instalado.
+
+## Launch Gate
+
+El lanzamiento usa una secuencia reproducible de verificacion:
+
+```bash
+pnpm launch:gate
+```
+
+`launch:gate` ejecuta, en orden, `launch:verify`, `launch:phase1`, `launch:secondary-review` y `launch:status`, escribe un resumen en `outputs/launch-gate/`, genera un `evidence-index.json` con primaria, Fase 1 y evidencia manual para que la secundaria valide la corrida actual, y sale con error mientras el gate este bloqueado. `launch:phase1` ejecuta la evidencia manual dentro de su propia secuencia, asi que los comandos individuales siguen disponibles para depurar sin duplicar conceptos. Si se ejecutan comandos sueltos despues del gate, `launch:status` marca `Full Launch Gate` como `STALE` hasta que se vuelva a ejecutar `pnpm launch:gate` antes de Go/No-Go.
+
+`launch:sequence` audita que `docs/launch/LAUNCH_SEQUENCE.md` exista, este enlazado y mantenga separadas las tareas de ahora de los bloqueos final-only sin desbloquear `READY`. `launch:cleanup` audita de forma no destructiva archivos historicos, artefactos locales ignorados y la decision pendiente sobre `.agent/.agents`. `launch:accessibility` ejecuta un smoke Playwright/axe de paginas publicas, login, legales, paginas de segmento SEO y redireccion privada sin sesion. `launch:content` audita i18n, placeholders, codificacion rota visible y rutas localizadas criticas. `launch:seo` audita crawlability, sitemap/robots, canonical/hreflang, JSON-LD, `/llms.txt` y genera `outputs/launch-seo/<timestamp>/seo-llm-final-worksheet.md`; no sustituye Search Console, Core Web Vitals ni revision final de copy/legal. `launch:legal` audita paginas legales, placeholders de titular/controlador, subprocesadores, cookies, decision de terminos y flujo de evidencia legal; no sustituye asesoria legal ni revision humana. `launch:security` audita invariantes estaticas de RLS, RBAC, secretos, webhooks, Turnstile e integraciones internas. `launch:operations` audita CI/deploy, Cloudflare Fulfillment Worker, fulfillment jobs, recuperacion admin, entorno y runbook. `launch:payments` audita invariantes estaticas de checkout, Stripe webhook, portal, catalogo, schema, tests, smokes y docs; no sustituye una compra Stripe test real ni validacion live. `launch:final-readiness` genera worksheets de cierre para `integration_readiness` y `final_smoke` sin activar servicios live. `launch:manual-evidence:init` crea o sincroniza en modo seguro `docs/launch/MANUAL_EVIDENCE.local.json` sin sobrescribir evidencia existente. `launch:manual-evidence:record` registra checks locales en dry run por defecto y solo escribe con `--write`; no sustituye la comprobacion humana ni debe contener secretos. `launch:manual-evidence` valida el formato y frescura de las evidencias humanas/externas registradas en `docs/launch/MANUAL_EVIDENCE.local.json` y genera `manual-evidence-index.md`, `next-actions.md` y `phase-1-closure-pack.md` con los pendientes accionables agrupados por fase. `launch:phase1` ejecuta solo las auditorias de apoyo inmediatas y escribe `outputs/launch-phase-1/`; sale con error mientras queden pendientes de limpieza, contenido, accesibilidad manual, base de datos, operacion o seguridad externa. `launch:verify` ejecuta checks automaticos, incluidos esos smokes, y escribe evidencias en `outputs/launch-verification/`. `launch:secondary-review` revisa esas evidencias contra `docs/launch/CHECKLIST.md`, el indice de evidencia del gate o el ultimo `launch:status`, valida `Current Evidence`, exige evidencia manual valida y bloquea el launch mientras queden Go/No-Go blockers o revision secundaria sin cerrar. `launch:status` resume la ultima corrida de `launch:gate`, una tabla `Current Evidence`, un `Urgency Summary`, `Release Candidate Readiness`, `Phase 1 Focus`, los pendientes manuales agrupados por fase, siguientes acciones y `final-closure-pack.md`; no sustituye los checks del Gate. `launch:rc` evalua solo readiness de Release Candidate, puede pasar con bloqueos final-only abiertos y debe fallar mientras queden pendientes de Fase 1; Stripe/payment smoke queda final-only mientras no se acepten pagos reales.
+
+La secuencia de trabajo esta en `docs/launch/LAUNCH_SEQUENCE.md`: separa tareas para cerrar ahora de bloqueos final-only como datos legales reales, Stripe live, rotacion final de API keys y smoke de produccion.
+
+## Arquitectura Operativa
+
+La app principal vive en Cloudflare Pages. Las rutas API de Pages no importan Google SDKs ni procesan jobs pesados.
+
+El trabajo pesado se delega a `workers/fulfillment`, desplegado como Cloudflare Worker:
+
+- Procesa `fulfillment_jobs`.
+- Crea carpetas Drive, documentos, eventos Calendar y Meet.
+- Envia emails Resend.
+- Filtra disponibilidad contra Google Calendar.
+- Ejecuta recordatorios.
+
+Cloudflare Pages y el Worker se comunican con `FULFILLMENT_WORKER_URL` y `INTERNAL_JOB_SECRET`.
+
+## Entornos Y Deploy
+
+- `dev`: local, `http://localhost:4321`.
+- `staging`: rama `staging`, `https://staging.espanolhonesto.com`.
+- `production`: rama `main`, `https://espanolhonesto.com`.
+
+CI valida typecheck, lint, tests, build, E2E publico y secrets-check. En `push` a `staging` o `main`, despliega Cloudflare Pages y el Cloudflare Fulfillment Worker solo si la validacion pasa. El environment `production` de GitHub debe requerir aprobacion manual.
+
+## Fuentes De Verdad
+
+- Arquitectura: `ARCHITECTURE.md`
+- Base de datos: `db/schema.sql`
+- Migraciones aplicables: `supabase/migrations/`
+- Productos/precios: Supabase `packages`, gestionado desde `/es/campus/admin/packages`
+- Decisiones de lanzamiento: `docs/launch/DECISIONS.md`
+- Secuencia de launch: `docs/launch/LAUNCH_SEQUENCE.md`
+- Runbook: `docs/launch/RUNBOOK.md`
+- Variables de entorno: `docs/launch/ENVIRONMENT.md`
+
+No uses documentos historicos como referencia de estado actual.

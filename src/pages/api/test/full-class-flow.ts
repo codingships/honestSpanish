@@ -162,7 +162,7 @@ export const POST: APIRoute = async (context) => {
                 student_id: studentId,
                 teacher_id: teacherId,
                 scheduled_at: startTime,
-                duration_minutes: 60,
+                duration_minutes: 50,
                 status: 'scheduled',
             })
             .select()

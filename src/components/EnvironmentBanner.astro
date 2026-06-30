@@ -1,0 +1,38 @@
+---
+interface Props {
+    lang: string;
+}
+
+const { lang } = Astro.props;
+const appEnv = (import.meta.env.PUBLIC_APP_ENV || '').toLowerCase();
+const publicSiteUrl = (import.meta.env.PUBLIC_SITE_URL || '').toLowerCase();
+const host = Astro.url.hostname.toLowerCase();
+const marker = `${appEnv} ${publicSiteUrl} ${host}`;
+const showBanner = appEnv === 'staging' || marker.includes('staging') || host.endsWith('.pages.dev');
+
+const copy = {
+    es: {
+        label: 'Entorno de prueba',
+        text: 'No usar con alumnos reales. Pagos, emails y automatizaciones pueden estar en modo test.',
+    },
+    en: {
+        label: 'Test environment',
+        text: 'Do not use with real students. Payments, emails and automations may be in test mode.',
+    },
+    ru: {
+        label: 'Тестовая среда',
+        text: 'Не используйте с реальными учениками. Платежи, письма и автоматизация могут работать в тестовом режиме.',
+    },
+};
+
+const t = copy[lang as keyof typeof copy] || copy.es;
+---
+
+{showBanner && (
+    <div class="sticky top-0 z-[100] border-b-2 border-[#7A2E00] bg-[#FFF3D6] px-4 py-2 text-[#7A2E00]">
+        <div class="mx-auto flex max-w-7xl flex-col gap-1 text-xs font-bold uppercase tracking-wide sm:flex-row sm:items-center sm:justify-between">
+            <span>{t.label}</span>
+            <span class="font-mono normal-case tracking-normal">{t.text}</span>
+        </div>
+    </div>
+)}

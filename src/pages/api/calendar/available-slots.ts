@@ -1,10 +1,14 @@
-export const config = {
-    runtime: 'nodejs'
-};
 import type { APIRoute } from 'astro';
+import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
+import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
+import { filterSlotsAgainstGoogleViaInternalService, isInternalJobServiceConfigured } from '../../../lib/internal-job-service';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
+
+type AvailableSlot = {
+    slot_start: string;
+    slot_end: string;
+};
 
 export const GET: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
@@ -17,21 +21,31 @@ export const GET: APIRoute = async (context) => {
 
     const url = new URL(context.request.url);
     const teacherId = url.searchParams.get('teacherId');
-    const date = url.searchParams.get('date'); // formato: YYYY-MM-DD
+    const date = url.searchParams.get('date');
     const duration = normalizeClassDurationMinutes(url.searchParams.get('duration'));
+    const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
 
     if (!teacherId || !date) {
         return new Response(JSON.stringify({ error: 'teacherId and date are required' }), { status: 400 });
     }
 
-    // IDOR Protection: students can only see slots for their assigned teacher
     const { data: profile } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', user.id)
         .single();
 
-    if (profile?.role === 'student') {
+    const role = profile?.role;
+
+    if (role !== 'student' && role !== 'teacher' && role !== 'admin') {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+    }
+
+    if (role === 'teacher' && teacherId !== user.id) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+    }
+
+    if (role === 'student') {
         const { data: assignment } = await supabase
             .from('student_teachers')
             .select('id')
@@ -44,11 +58,10 @@ export const GET: APIRoute = async (context) => {
         }
     }
 
-    // Llamar a la función de Postgres
     const { data: dbSlots, error } = await supabaseAdmin.rpc('get_available_slots', {
         p_teacher_id: teacherId,
         p_date: date,
-        p_duration_minutes: duration
+        p_duration_minutes: duration,
     });
 
     if (error) {
@@ -56,62 +69,38 @@ export const GET: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
 
-    let finalSlots = dbSlots || [];
+    let finalSlots = (dbSlots || []) as AvailableSlot[];
 
-    // Ahora filtramos con Google Calendar
-    if (finalSlots.length > 0) {
+    if (!externalIntegrationsDisabled && finalSlots.length > 0) {
         const { data: teacherProfile } = await supabase
             .from('profiles')
             .select('email')
             .eq('id', teacherId)
             .single();
 
-        if (teacherProfile && teacherProfile.email) {
+        if (teacherProfile?.email) {
+            if (!isInternalJobServiceConfigured(context)) {
+                return new Response(JSON.stringify({
+                    error: 'Calendar availability service is not configured',
+                }), { status: 503 });
+            }
+
             try {
-                // Rango de TODO el día que hemos consultado
-                const startTime = new Date(finalSlots[0].slot_start);
-                const endTime = new Date(finalSlots[finalSlots.length - 1].slot_end);
-
-                const { getCalendarClient } = await import('../../../lib/google/calendar');
-                const calendar = getCalendarClient();
-                const response = await calendar.freebusy.query({
-                    requestBody: {
-                        timeMin: startTime.toISOString(),
-                        timeMax: endTime.toISOString(),
-                        items: [{ id: teacherProfile.email }],
-                        timeZone: 'Europe/Madrid',
-                    },
+                finalSlots = await filterSlotsAgainstGoogleViaInternalService(context, {
+                    teacherEmail: teacherProfile.email,
+                    slots: finalSlots,
                 });
-
-                const busySlots = response.data.calendars?.[teacherProfile.email]?.busy || [];
-
-                // Filter out any db slot that overlaps with a Google Calendar busy slot
-                if (busySlots.length > 0) {
-                    finalSlots = finalSlots.filter((slot: { slot_start: string, slot_end: string }) => {
-                        const sStart = new Date(slot.slot_start).getTime();
-                        const sEnd = new Date(slot.slot_end).getTime();
-
-                        // Determinar si hay superposición con ALGÚN bloque ocupado
-                        const isOverlapping = busySlots.some(busy => {
-                            if (!busy.start || !busy.end) return false;
-                            const bStart = new Date(busy.start).getTime();
-                            const bEnd = new Date(busy.end).getTime();
-                            // Dos intervalos [A, B] y [C, D] se superponen si: A < D y B > C
-                            return sStart < bEnd && sEnd > bStart;
-                        });
-
-                        return !isOverlapping; // Nos quedamos solo con los que NO se superponen
-                    });
-                }
-            } catch (calErr) {
-                console.error('Failed to filter slots against Google Calendar:', calErr);
-                // Fallback silencioso a los slots de la BBDD si falla la API
+            } catch (error) {
+                console.error('Failed to filter slots against Google Calendar:', error);
+                return new Response(JSON.stringify({
+                    error: 'Cannot verify Google Calendar availability right now',
+                }), { status: 503 });
             }
         }
     }
 
     return new Response(JSON.stringify({ slots: finalSlots }), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
     });
 };

@@ -11,8 +11,15 @@ import sentry from '@sentry/astro';
 import { loadEnv } from 'vite';
 
 const env = loadEnv(process.env.NODE_ENV || 'production', process.cwd(), '');
-const sentrySourcemapsEnabled = Boolean(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
+const sentryUploadAllowed = process.env.CI === 'true' || env.SENTRY_UPLOAD_SOURCEMAPS === 'true';
+const sentrySourcemapsEnabled = Boolean(
+    sentryUploadAllowed &&
+    env.SENTRY_AUTH_TOKEN &&
+    env.SENTRY_ORG &&
+    env.SENTRY_PROJECT
+);
 const sentryDsn = env.PUBLIC_SENTRY_DSN || env.SENTRY_DSN || '';
+const keystaticEnabled = env.KEYSTATIC_ENABLED === 'true';
 
 // https://astro.build/config
 export default defineConfig({
@@ -22,6 +29,9 @@ export default defineConfig({
         define: {
             __SENTRY_DSN__: JSON.stringify(sentryDsn),
         },
+        server: {
+            allowedHosts: ['.trycloudflare.com'],
+        },
     },
     image: {
         service: {
@@ -29,20 +39,24 @@ export default defineConfig({
         }
     },
     adapter: cloudflare({
+        prerenderEnvironment: 'node',
         platformProxy: {
             enabled: true
         }
     }),
-    integrations: [react(), markdoc(), keystatic(), tailwind({
+    integrations: [react(), markdoc(), ...(keystaticEnabled ? [keystatic()] : []), tailwind({
         applyBaseStyles: false,
     }), sitemap({
         filter: (page) =>
+            page !== 'https://espanolhonesto.com/' &&
             !page.includes('/campus/') &&
             !page.includes('/campus') &&
             !page.includes('/login') &&
             !page.includes('/logout') &&
             !page.includes('/success') &&
             !page.includes('/cancel') &&
+            !page.includes('/legal') &&
+            !page.includes('/demo') &&
             !page.includes('/keystatic') &&
             !page.includes('/api/'),
         i18n: {
@@ -67,7 +81,7 @@ export default defineConfig({
         defaultLocale: 'es',
         locales: ['es', 'en', 'ru'],
         routing: {
-            prefixDefaultLocale: false
+            prefixDefaultLocale: true
         }
     }
 });

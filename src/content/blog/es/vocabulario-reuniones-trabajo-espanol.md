@@ -6,6 +6,7 @@ author: "alejandro"
 category: "niveles"
 tags: ["negocios", "reuniones", "vocabulario", "oral"]
 lang: "es"
+draft: true
 ctaText: "Simularemos tus reuniones reales en nuestras clases privadas"
 ctaLink: "/espanol-para-profesionales"
 ---

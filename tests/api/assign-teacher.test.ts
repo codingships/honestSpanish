@@ -1,5 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createMockSupabaseClient } from '../mocks/supabase';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/lib/supabase-server', () => ({
     createSupabaseServerClient: vi.fn(),
@@ -14,137 +13,169 @@ const makeContext = (body: Record<string, unknown> = {}) => ({
     cookies: { set: vi.fn(), get: vi.fn() },
 });
 
+const makeProfilesQuery = (roleQueue: Array<string | null>) => {
+    const chain: any = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: { role: 'admin' }, error: null }),
+        maybeSingle: vi.fn().mockImplementation(() => {
+            const role = roleQueue.shift();
+            return Promise.resolve({ data: role ? { role } : null, error: null });
+        }),
+    };
+    return chain;
+};
+
+const makeAssignmentQueries = ({
+    existingAssignment = null,
+    existingError = null,
+}: {
+    existingAssignment?: { id: string } | null;
+    existingError?: { code: string } | null;
+} = {}) => {
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    const updateResult = { error: null };
+    const updateChain: any = {
+        eq: vi.fn().mockReturnThis(),
+        then: (resolve: (value: typeof updateResult) => unknown) => Promise.resolve(updateResult).then(resolve),
+    };
+    const update = vi.fn().mockReturnValue(updateChain);
+    const readChain: any = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: existingAssignment, error: existingError }),
+    };
+    const writeChain = { insert, update };
+
+    return { readChain, writeChain, insert, update };
+};
+
+const makeSupabase = ({
+    user = { id: 'admin-1', email: 'admin@example.com' },
+    currentRole = 'admin',
+    targetRoles = ['student', 'teacher'],
+    existingAssignment = null,
+}: {
+    user?: { id: string; email: string } | null;
+    currentRole?: string;
+    targetRoles?: Array<string | null>;
+    existingAssignment?: { id: string } | null;
+} = {}) => {
+    const roleQueue = [...targetRoles];
+    const profilesQuery = makeProfilesQuery(roleQueue);
+    profilesQuery.single.mockResolvedValue({ data: { role: currentRole }, error: null });
+    const assignment = makeAssignmentQueries({ existingAssignment });
+    let studentTeachersCalls = 0;
+
+    const supabase = {
+        auth: {
+            getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
+        },
+        from: vi.fn((table: string) => {
+            if (table === 'profiles') return profilesQuery;
+            if (table === 'student_teachers') {
+                studentTeachersCalls += 1;
+                return studentTeachersCalls === 1 ? assignment.readChain : assignment.writeChain;
+            }
+            throw new Error(`Unexpected table ${table}`);
+        }),
+    };
+
+    return { supabase, profilesQuery, assignment };
+};
+
+const setSupabase = async (mockSupabase: unknown) => {
+    const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+    vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+};
+
 describe('POST /api/admin/assign-teacher', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-    });
-
-    it('returns 400 when studentId is missing', async () => {
-        const mockSupabase = createMockSupabaseClient();
-        mockSupabase.from = vi.fn().mockReturnValue({
-            select: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockReturnThis(),
-            single: vi.fn().mockResolvedValue({ data: { role: 'admin' }, error: null }),
-        });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-
-        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
-        const response = await POST(makeContext({ teacherId: 'teacher-1' }) as any);
-        expect(response.status).toBe(400);
-    });
-
-    it('returns 400 when teacherId is missing', async () => {
-        const mockSupabase = createMockSupabaseClient();
-        mockSupabase.from = vi.fn().mockReturnValue({
-            select: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockReturnThis(),
-            single: vi.fn().mockResolvedValue({ data: { role: 'admin' }, error: null }),
-        });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-
-        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
-        const response = await POST(makeContext({ studentId: 'student-1' }) as any);
-        expect(response.status).toBe(400);
+        vi.resetModules();
     });
 
     it('returns 401 when user is not authenticated', async () => {
-        const mockSupabase = createMockSupabaseClient({
-            auth: {
-                getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }),
-            },
-        });
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        const { supabase } = makeSupabase({ user: null });
+        await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/admin/assign-teacher');
         const response = await POST(makeContext({ studentId: 'student-1', teacherId: 'teacher-1' }) as any);
+
         expect(response.status).toBe(401);
     });
 
-    it('returns 403 when role is not admin', async () => {
-        const mockSupabase = createMockSupabaseClient();
-        mockSupabase.from = vi.fn().mockReturnValue({
-            select: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockReturnThis(),
-            single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
-        });
-
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+    it('returns 403 when current user is not admin', async () => {
+        const { supabase } = makeSupabase({ currentRole: 'teacher' });
+        await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/admin/assign-teacher');
         const response = await POST(makeContext({ studentId: 'student-1', teacherId: 'teacher-1' }) as any);
+
         expect(response.status).toBe(403);
     });
 
-    it('returns 200 creating a new assignment when none exists', async () => {
-        const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
-        mockSupabase.from = vi.fn((_table: string) => {
-            callCount++;
-            const chain: any = {
-                select: vi.fn().mockReturnThis(),
-                insert: vi.fn().mockReturnThis(),
-                update: vi.fn().mockReturnThis(),
-                eq: vi.fn().mockReturnThis(),
-                single: vi.fn(),
-            };
-            if (callCount === 1) {
-                // profiles — admin role
-                chain.single.mockResolvedValue({ data: { role: 'admin' }, error: null });
-            } else if (callCount === 2) {
-                // student_teachers — no existing assignment
-                chain.single.mockResolvedValue({ data: null, error: null });
-            } else {
-                // insert
-                chain.single.mockResolvedValue({ data: {}, error: null });
-            }
-            return chain;
-        });
+    it('returns 400 when studentId or teacherId is missing', async () => {
+        const { supabase } = makeSupabase();
+        await setSupabase(supabase);
 
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
+
+        await expect(POST(makeContext({ teacherId: 'teacher-1' }) as any)).resolves.toMatchObject({ status: 400 });
+        await expect(POST(makeContext({ studentId: 'student-1' }) as any)).resolves.toMatchObject({ status: 400 });
+    });
+
+    it('rejects a studentId that does not belong to a student profile', async () => {
+        const { supabase, assignment } = makeSupabase({ targetRoles: ['teacher', 'teacher'] });
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
+        const response = await POST(makeContext({ studentId: 'teacher-acting-as-student', teacherId: 'teacher-1' }) as any);
+
+        expect(response.status).toBe(400);
+        expect(assignment.insert).not.toHaveBeenCalled();
+        expect(assignment.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a teacherId that does not belong to a teacher profile', async () => {
+        const { supabase, assignment } = makeSupabase({ targetRoles: ['student', 'student'] });
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
+        const response = await POST(makeContext({ studentId: 'student-1', teacherId: 'student-acting-as-teacher' }) as any);
+
+        expect(response.status).toBe(400);
+        expect(assignment.insert).not.toHaveBeenCalled();
+        expect(assignment.update).not.toHaveBeenCalled();
+    });
+
+    it('creates a primary assignment for a real student and teacher', async () => {
+        const { supabase, assignment } = makeSupabase();
+        await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/admin/assign-teacher');
         const response = await POST(makeContext({ studentId: 'student-1', teacherId: 'teacher-1' }) as any);
+
         expect(response.status).toBe(200);
-        const body = await response.json();
-        expect(body.success).toBe(true);
+        expect(assignment.insert).toHaveBeenCalledWith({
+            student_id: 'student-1',
+            teacher_id: 'teacher-1',
+            is_primary: true,
+        });
     });
 
-    it('returns 200 updating an existing assignment', async () => {
-        const mockSupabase = createMockSupabaseClient();
-        let callCount = 0;
-        mockSupabase.from = vi.fn((_table: string) => {
-            callCount++;
-            const chain: any = {
-                select: vi.fn().mockReturnThis(),
-                insert: vi.fn().mockReturnThis(),
-                update: vi.fn().mockReturnThis(),
-                eq: vi.fn().mockReturnThis(),
-                single: vi.fn(),
-            };
-            if (callCount === 1) {
-                // profiles — admin
-                chain.single.mockResolvedValue({ data: { role: 'admin' }, error: null });
-            } else if (callCount === 2) {
-                // student_teachers — existing assignment found
-                chain.single.mockResolvedValue({ data: { id: 'existing-assignment' }, error: null });
-            } else {
-                chain.single.mockResolvedValue({ data: {}, error: null });
-            }
-            return chain;
+    it('updates the existing primary assignment for a real student and teacher', async () => {
+        const { supabase, assignment } = makeSupabase({
+            existingAssignment: { id: 'assignment-1' },
         });
-
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/admin/assign-teacher');
-        const response = await POST(makeContext({ studentId: 'student-1', teacherId: 'teacher-1' }) as any);
+        const response = await POST(makeContext({ studentId: 'student-1', teacherId: 'teacher-2' }) as any);
+
         expect(response.status).toBe(200);
+        expect(assignment.update).toHaveBeenCalledWith(expect.objectContaining({
+            teacher_id: 'teacher-2',
+        }));
     });
-
-
 });

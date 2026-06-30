@@ -1,0 +1,38 @@
+---
+export const prerender = false;
+
+import LevelCheckForm from '../../components/LevelCheckForm';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { ui } from '../../i18n/translations';
+
+const supportedLanguages = new Set(['es', 'en', 'ru']);
+const lang = supportedLanguages.has(Astro.params.lang || '') ? Astro.params.lang! : 'en';
+const t = ui[lang as keyof typeof ui].levelCheck;
+
+Astro.response.headers.set('x-robots-tag', 'noindex, nofollow');
+---
+
+<BaseLayout
+    title={t.metaTitle}
+    description={t.metaDescription}
+    lang={lang}
+    canonicalPath="/diagnostico"
+    noindex={true}
+>
+    <main class="min-h-screen bg-[#F6FE51]/20 px-4 py-12 sm:px-6 lg:px-8">
+        <section class="mx-auto grid max-w-5xl gap-8 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+            <div class="pt-4">
+                <p class="font-sans text-xs font-bold uppercase tracking-[0.18em] text-[#006064]">{t.eyebrow}</p>
+                <h1 class="mt-4 font-display text-4xl uppercase leading-tight text-[#006064] sm:text-5xl">{t.heading}</h1>
+                <p class="mt-5 max-w-xl font-sans text-base leading-7 text-[#006064]">{t.intro}</p>
+                <ul class="mt-6 space-y-3 font-sans text-sm leading-6 text-[#006064]">
+                    {t.points.map((point: string) => (
+                        <li class="border-l-4 border-[#006064] pl-3">{point}</li>
+                    ))}
+                </ul>
+            </div>
+
+            <LevelCheckForm client:only="react" lang={lang as 'es' | 'en' | 'ru'} translations={t.form} />
+        </section>
+    </main>
+</BaseLayout>

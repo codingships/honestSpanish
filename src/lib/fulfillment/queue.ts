@@ -1,0 +1,137 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database, Json } from '../../types/database.types';
+
+export type FulfillmentJobType =
+    | 'session_fulfillment'
+    | 'bulk_session_fulfillment'
+    | 'welcome_fulfillment'
+    | 'session_cancellation';
+
+export type FulfillmentJobPayload = {
+    sessionId?: string;
+    sessionIds?: string[];
+    userId?: string;
+    packageId?: string;
+    subscriptionId?: string | null;
+    autoCreateMeeting?: boolean;
+    sendEmail?: boolean;
+    cancelledBy?: 'admin' | 'teacher' | 'student';
+    reason?: string | null;
+};
+
+export type FulfillmentJobRow = Database['public']['Tables']['fulfillment_jobs']['Row'];
+
+export function asFulfillmentPayload(value: Json | null): FulfillmentJobPayload {
+    return value && typeof value === 'object' && !Array.isArray(value)
+        ? value as FulfillmentJobPayload
+        : {};
+}
+
+export function isMissingJobsTable(error: { code?: string; message?: string } | null): boolean {
+    return error?.code === '42P01' || error?.message?.includes('fulfillment_jobs') === true;
+}
+
+export async function enqueueFulfillmentJob(
+    supabaseAdmin: SupabaseClient<Database>,
+    input: {
+        jobType: FulfillmentJobType;
+        sessionId?: string | null;
+        subscriptionId?: string | null;
+        studentId?: string | null;
+        payload: FulfillmentJobPayload;
+        runAt?: string;
+    }
+): Promise<boolean> {
+    const { error } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .insert({
+            job_type: input.jobType,
+            session_id: input.sessionId ?? null,
+            subscription_id: input.subscriptionId ?? null,
+            student_id: input.studentId ?? null,
+            payload: input.payload as Json,
+            run_at: input.runAt ?? new Date().toISOString(),
+        });
+
+    if (error) {
+        if (isMissingJobsTable(error)) {
+            console.warn('[Fulfillment] fulfillment_jobs table is missing; cannot enqueue background work');
+            return false;
+        }
+        throw error;
+    }
+
+    return true;
+}
+
+export async function enqueueSessionFulfillment(
+    supabaseAdmin: SupabaseClient<Database>,
+    session: Pick<Database['public']['Tables']['sessions']['Row'], 'id' | 'subscription_id' | 'student_id'>,
+    options: { autoCreateMeeting?: boolean; sendEmail?: boolean } = {}
+): Promise<boolean> {
+    return enqueueFulfillmentJob(supabaseAdmin, {
+        jobType: 'session_fulfillment',
+        sessionId: session.id,
+        subscriptionId: session.subscription_id,
+        studentId: session.student_id,
+        payload: {
+            sessionId: session.id,
+            autoCreateMeeting: options.autoCreateMeeting ?? true,
+            sendEmail: options.sendEmail ?? true,
+        },
+    });
+}
+
+export async function enqueueBulkSessionFulfillment(
+    supabaseAdmin: SupabaseClient<Database>,
+    sessions: Pick<Database['public']['Tables']['sessions']['Row'], 'id' | 'subscription_id' | 'student_id'>[],
+    options: { autoCreateMeeting?: boolean; sendEmail?: boolean } = {}
+): Promise<boolean> {
+    if (sessions.length === 0) return true;
+
+    return enqueueFulfillmentJob(supabaseAdmin, {
+        jobType: 'bulk_session_fulfillment',
+        subscriptionId: sessions[0].subscription_id,
+        studentId: sessions[0].student_id,
+        payload: {
+            sessionIds: sessions.map((session) => session.id),
+            autoCreateMeeting: options.autoCreateMeeting ?? true,
+            sendEmail: options.sendEmail ?? true,
+        },
+    });
+}
+
+export async function enqueueWelcomeFulfillment(
+    supabaseAdmin: SupabaseClient<Database>,
+    input: { userId: string; packageId: string; subscriptionId?: string | null }
+): Promise<boolean> {
+    return enqueueFulfillmentJob(supabaseAdmin, {
+        jobType: 'welcome_fulfillment',
+        subscriptionId: input.subscriptionId ?? null,
+        studentId: input.userId,
+        payload: input,
+    });
+}
+
+export async function enqueueSessionCancellation(
+    supabaseAdmin: SupabaseClient<Database>,
+    input: {
+        sessionId: string;
+        subscriptionId?: string | null;
+        studentId?: string | null;
+        cancelledBy: 'admin' | 'teacher' | 'student';
+        reason?: string | null;
+    }
+): Promise<boolean> {
+    return enqueueFulfillmentJob(supabaseAdmin, {
+        jobType: 'session_cancellation',
+        sessionId: input.sessionId,
+        subscriptionId: input.subscriptionId ?? null,
+        studentId: input.studentId ?? null,
+        payload: {
+            sessionId: input.sessionId,
+            cancelledBy: input.cancelledBy,
+            reason: input.reason ?? null,
+        },
+    });
+}

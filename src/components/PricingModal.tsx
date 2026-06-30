@@ -102,7 +102,7 @@ export default function PricingModal({
             const data = await response.json();
 
             if (!response.ok) {
-                throw new Error(data.error || 'Error creating checkout session');
+                throw new Error(data.error || t.error);
             }
 
             if (data.url) {

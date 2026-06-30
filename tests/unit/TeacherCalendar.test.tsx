@@ -26,7 +26,7 @@ const mockTranslations = {
 const makeSession = (overrides: Record<string, unknown> = {}) => ({
     id: `session-${Math.random().toString(36).slice(2)}`,
     scheduled_at: new Date().toISOString(),
-    duration_minutes: 60,
+    duration_minutes: 50,
     status: 'scheduled',
     meet_link: null,
     teacher_notes: null,

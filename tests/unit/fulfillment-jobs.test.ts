@@ -17,6 +17,10 @@ vi.mock('../../src/lib/email', () => ({
     sendWelcomeEmail: vi.fn(),
 }));
 
+vi.mock('../../src/lib/crm/onboarding', () => ({
+    recordPostPaymentOnboardingSafe: vi.fn(),
+}));
+
 vi.mock('../../src/lib/site-url', () => ({
     getSiteUrl: vi.fn().mockReturnValue('https://example.com'),
 }));
@@ -44,6 +48,15 @@ const createJob = (overrides: Record<string, unknown> = {}) => ({
     updated_at: '2026-01-01T09:00:00.000Z',
     ...overrides,
 });
+
+function createSingleQuery(result: { data: unknown; error: unknown }) {
+    const query: any = {
+        select: vi.fn().mockReturnThis(),
+        eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue(result),
+    };
+    return query;
+}
 
 describe('fulfillment jobs', () => {
     beforeEach(() => {
@@ -76,6 +89,7 @@ describe('fulfillment jobs', () => {
         await expect(enqueueWelcomeFulfillment(supabaseAdmin as any, {
             userId: 'student-1',
             packageId: 'package-1',
+            subscriptionId: 'subscription-1',
         })).resolves.toBe(true);
 
         expect(insert).toHaveBeenCalledTimes(3);
@@ -98,7 +112,13 @@ describe('fulfillment jobs', () => {
         }));
         expect(insert).toHaveBeenNthCalledWith(3, expect.objectContaining({
             job_type: 'welcome_fulfillment',
+            subscription_id: 'subscription-1',
             student_id: 'student-1',
+            payload: expect.objectContaining({
+                userId: 'student-1',
+                packageId: 'package-1',
+                subscriptionId: 'subscription-1',
+            }),
         }));
     });
 
@@ -126,7 +146,7 @@ describe('fulfillment jobs', () => {
             packageId: 'package-1',
         })).resolves.toBe(false);
         expect(warn).toHaveBeenCalledWith(
-            '[Fulfillment] fulfillment_jobs table is missing; using direct fallback'
+            '[Fulfillment] fulfillment_jobs table is missing; cannot enqueue background work'
         );
     });
 
@@ -148,6 +168,196 @@ describe('fulfillment jobs', () => {
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
         })).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0 });
+    });
+
+    it('processes welcome fulfillment and records post-payment onboarding work in CRM', async () => {
+        const job = createJob({
+            job_type: 'welcome_fulfillment',
+            payload: {
+                userId: 'student-1',
+                packageId: 'package-1',
+                subscriptionId: 'subscription-1',
+            },
+            session_id: null,
+            subscription_id: 'subscription-1',
+            student_id: 'student-1',
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [job], error: null }),
+        };
+        const lockChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            in: vi.fn().mockResolvedValue({ error: null }),
+        };
+        const studentQuery = createSingleQuery({
+            data: {
+                id: 'student-1',
+                full_name: 'Student One',
+                email: 'student@example.com',
+                preferred_language: 'en',
+                student_teachers: [{
+                    is_primary: true,
+                    teacher: { full_name: 'Teacher One' },
+                }],
+            },
+            error: null,
+        });
+        const packageQuery = createSingleQuery({
+            data: {
+                id: 'package-1',
+                name: 'hybrid',
+                display_name: { es: 'Plan Hybrid' },
+            },
+            error: null,
+        });
+        const successChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockResolvedValue({ error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(lockChain)
+                .mockReturnValueOnce(studentQuery)
+                .mockReturnValueOnce(packageQuery)
+                .mockReturnValueOnce(successChain),
+        };
+        const google = await import('../../src/lib/google/student-folder');
+        const profilesPrivate = await import('../../src/lib/profiles-private');
+        const email = await import('../../src/lib/email');
+        const crmOnboarding = await import('../../src/lib/crm/onboarding');
+        vi.mocked(profilesPrivate.getPrivateProfile).mockResolvedValue(null as any);
+        vi.mocked(google.createStudentFolderStructure).mockResolvedValue({
+            rootFolderId: 'drive-folder-1',
+            rootFolderLink: 'https://drive.google.com/folder-1',
+            exerciseFolderId: 'exercise-folder-1',
+            classDocsFolderId: 'class-docs-folder-1',
+            progressDocId: 'progress-doc-1',
+        } as any);
+        vi.mocked(profilesPrivate.upsertPrivateProfile).mockResolvedValue({} as any);
+        vi.mocked(email.sendWelcomeEmail).mockResolvedValue(true);
+        vi.mocked(crmOnboarding.recordPostPaymentOnboardingSafe).mockResolvedValue({
+            status: 'recorded',
+            contactId: 'contact-1',
+            taskId: 'task-1',
+        } as any);
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0 });
+
+        expect(google.createStudentFolderStructure).toHaveBeenCalledWith({
+            studentName: 'Student One',
+            studentEmail: 'student@example.com',
+            teacherName: 'Teacher One',
+        });
+        expect(email.sendWelcomeEmail).toHaveBeenCalledWith('student@example.com', expect.objectContaining({
+            studentName: 'Student One',
+            packageName: 'Plan Hybrid',
+            loginUrl: 'https://example.com/en/login',
+            driveFolderUrl: 'https://drive.google.com/folder-1',
+        }));
+        expect(crmOnboarding.recordPostPaymentOnboardingSafe).toHaveBeenCalledWith(supabaseAdmin, {
+            profileId: 'student-1',
+            email: 'student@example.com',
+            fullName: 'Student One',
+            subscriptionId: 'subscription-1',
+            packageId: 'package-1',
+            packageName: 'Plan Hybrid',
+            driveFolderUrl: 'https://drive.google.com/folder-1',
+        });
+    });
+
+    it('uses English login as the welcome email fallback when profile language is unknown', async () => {
+        const job = createJob({
+            id: 'job-welcome-fallback',
+            job_type: 'welcome_fulfillment',
+            payload: {
+                userId: 'student-2',
+                packageId: 'package-1',
+                subscriptionId: 'subscription-1',
+            },
+            session_id: null,
+            subscription_id: 'subscription-1',
+            student_id: 'student-2',
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [job], error: null }),
+        };
+        const lockChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            in: vi.fn().mockResolvedValue({ error: null }),
+        };
+        const studentQuery = createSingleQuery({
+            data: {
+                id: 'student-2',
+                full_name: 'Student Two',
+                email: 'student2@example.com',
+                preferred_language: null,
+                student_teachers: [],
+            },
+            error: null,
+        });
+        const packageQuery = createSingleQuery({
+            data: {
+                id: 'package-1',
+                name: 'individual',
+                display_name: { es: 'Plan Individual' },
+            },
+            error: null,
+        });
+        const successChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockResolvedValue({ error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(lockChain)
+                .mockReturnValueOnce(studentQuery)
+                .mockReturnValueOnce(packageQuery)
+                .mockReturnValueOnce(successChain),
+        };
+        const google = await import('../../src/lib/google/student-folder');
+        const profilesPrivate = await import('../../src/lib/profiles-private');
+        const email = await import('../../src/lib/email');
+        const crmOnboarding = await import('../../src/lib/crm/onboarding');
+        vi.mocked(profilesPrivate.getPrivateProfile).mockResolvedValue({
+            drive_folder_id: 'drive-folder-existing',
+            drive_folder_url: 'https://drive.google.com/existing-folder',
+        } as any);
+        vi.mocked(email.sendWelcomeEmail).mockResolvedValue(true);
+        vi.mocked(crmOnboarding.recordPostPaymentOnboardingSafe).mockResolvedValue({
+            status: 'recorded',
+            contactId: 'contact-2',
+            taskId: 'task-2',
+        } as any);
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0 });
+
+        expect(google.createStudentFolderStructure).not.toHaveBeenCalled();
+        expect(email.sendWelcomeEmail).toHaveBeenCalledWith('student2@example.com', expect.objectContaining({
+            studentName: 'Student Two',
+            packageName: 'Plan Individual',
+            loginUrl: 'https://example.com/en/login',
+            driveFolderUrl: 'https://drive.google.com/existing-folder',
+        }));
     });
 
     it('processes a due session fulfillment job and marks it succeeded', async () => {

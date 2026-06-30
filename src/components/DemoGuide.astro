@@ -1,0 +1,844 @@
+<script is:inline>
+(() => {
+    const STORAGE_ENABLED = 'ehDemoGuideEnabled';
+    const STORAGE_INDEX = 'ehDemoGuideIndex';
+    const STORAGE_POSITION = 'ehDemoGuidePosition';
+    const STORAGE_COORDS = 'ehDemoGuideCoords';
+    const STORAGE_COMPACT = 'ehDemoGuideCompact';
+
+    const params = new URLSearchParams(window.location.search);
+    const demoParam = params.get('demo');
+    const isTryCloudflareHost = window.location.hostname.endsWith('.trycloudflare.com');
+    const shouldEnable = demoParam === 'guide' || demoParam === '1' || demoParam === 'true';
+    const requestedLauncher = demoParam === 'launcher' || params.get('demoLauncher') === '1';
+    const shouldShowLauncher = isTryCloudflareHost || requestedLauncher;
+    const shouldDisable = demoParam === 'off' || demoParam === 'false';
+    const shouldReset = params.get('demoStart') === '1' || params.get('resetDemo') === '1';
+
+    if (shouldDisable) {
+        localStorage.removeItem(STORAGE_ENABLED);
+        localStorage.removeItem(STORAGE_INDEX);
+        return;
+    }
+
+    if (shouldEnable) {
+        localStorage.setItem(STORAGE_ENABLED, '1');
+    }
+
+    if (requestedLauncher && shouldReset) {
+        localStorage.removeItem(STORAGE_ENABLED);
+    }
+
+    if (shouldReset) {
+        localStorage.setItem(STORAGE_INDEX, '0');
+        localStorage.removeItem(STORAGE_COORDS);
+    }
+
+    if (localStorage.getItem(STORAGE_ENABLED) !== '1') {
+        if (shouldShowLauncher) renderLauncher();
+        return;
+    }
+
+    function renderLauncher() {
+        if (document.getElementById('eh-guide-launcher')) return;
+
+        const style = document.createElement('style');
+        style.id = 'eh-guide-launcher-style';
+        style.textContent = `
+            #eh-guide-launcher {
+                position: fixed;
+                right: 18px;
+                bottom: 18px;
+                z-index: 2147483000;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                max-width: min(420px, calc(100vw - 36px));
+                border: 2px solid #006064;
+                background: #ffffff;
+                color: #053f3f;
+                box-shadow: 8px 8px 0 #006064;
+                padding: 12px;
+                font: 14px/1.35 Arial, sans-serif;
+            }
+            #eh-guide-launcher strong {
+                color: #006064;
+                text-transform: uppercase;
+            }
+            #eh-guide-launcher button {
+                min-height: 36px;
+                border: 1px solid #006064;
+                background: #006064;
+                color: #ffffff;
+                padding: 8px 12px;
+                font: 700 12px/1 Arial, sans-serif;
+                text-transform: uppercase;
+                cursor: pointer;
+                white-space: nowrap;
+            }
+            #eh-guide-launcher button:hover {
+                background: #004d40;
+            }
+        `;
+        document.head.append(style);
+
+        const launcher = document.createElement('section');
+        launcher.id = 'eh-guide-launcher';
+        const label = document.createElement('strong');
+        label.textContent = 'Demo guiada';
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = 'Iniciar demo';
+        button.addEventListener('click', () => {
+            const url = new URL(window.location.href);
+            url.searchParams.set('demo', 'guide');
+            url.searchParams.set('demoStart', '1');
+            url.searchParams.delete('demoLauncher');
+            window.location.assign(url.toString());
+        });
+        launcher.append(label, button);
+        document.body.append(launcher);
+    }
+
+    const enye = String.fromCodePoint(0x00F1);
+    const steps = [
+        {
+            id: 'public-home-es',
+            route: '/es',
+            section: 'Web publica',
+            title: `Home en espa${enye}ol`,
+            what: 'Abre la portada principal y presenta la propuesta comercial para estudiantes.',
+            validate: 'La pagina carga, no redirige y hay un encabezado principal visible.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'public-home-en',
+            route: '/en',
+            section: 'Web publica',
+            title: 'Home en ingles',
+            what: 'Muestra la version inglesa para validar el alcance internacional.',
+            validate: 'La ruta /en carga con contenido publico visible.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'public-home-ru',
+            route: '/ru',
+            section: 'Web publica',
+            title: 'Home en ruso',
+            what: 'Muestra la version rusa y confirma que la localizacion esta publicada.',
+            validate: 'La ruta /ru carga con contenido publico visible.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'public-promise',
+            route: '/es',
+            section: 'Web publica',
+            title: 'Promesa comercial',
+            what: 'Recorre el hero y la promesa inicial antes de entrar en detalles.',
+            validate: 'Hay un H1 y llamadas a accion visibles.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'public-method',
+            route: '/es#metodo',
+            section: 'Web publica',
+            title: 'Metodo',
+            what: 'Explica la metodologia y los diferenciales de aprendizaje.',
+            validate: 'El bloque #metodo existe y se puede enfocar durante la demo.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'public-pricing',
+            route: '/es#pricing',
+            section: 'Web publica',
+            title: 'Precios',
+            what: 'Muestra paquetes, cuotas y disponibilidad de checkout.',
+            validate: 'El bloque de precios y las tarjetas de plan estan visibles.',
+            risk: 'Solo lectura; no se inicia pago en este paso.',
+        },
+        {
+            id: 'public-faq',
+            route: '/es#faq',
+            section: 'Web publica',
+            title: 'FAQ',
+            what: 'Revisa preguntas frecuentes y objeciones habituales.',
+            validate: 'El bloque FAQ esta visible y al menos una pregunta puede desplegarse.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'public-contact-lead',
+            route: '/es#contacto',
+            section: 'Web publica',
+            title: 'Contacto y lead',
+            what: 'Formulario de captacion y entrada de leads.',
+            validate: 'El bloque de contacto y el campo de email estan disponibles.',
+            risk: 'No se envia el formulario automaticamente.',
+        },
+        {
+            id: 'student-login',
+            route: '/es/login',
+            section: 'Alumno',
+            title: 'Login alumno',
+            what: 'Inicia sesion con el usuario alumno de .env.test.',
+            validate: 'El login redirige al campus de alumno.',
+            risk: 'Crea solo sesion de navegador.',
+            loginRole: 'student',
+        },
+        {
+            id: 'student-dashboard',
+            route: '/es/campus',
+            section: 'Alumno',
+            title: 'Dashboard alumno',
+            what: 'Presenta el panel de control, estado del plan y accesos principales.',
+            validate: 'La ruta /es/campus carga autenticada y muestra encabezado.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'student-onboarding',
+            route: '/es/campus',
+            section: 'Alumno',
+            title: 'Onboarding alumno',
+            what: 'Explica estados iniciales: plan, siguientes pasos y acceso a precios si falta suscripcion.',
+            validate: 'El dashboard muestra informacion accionable para el alumno.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'student-classes',
+            route: '/es/campus/classes',
+            section: 'Alumno',
+            title: 'Mis clases',
+            what: 'Muestra proximas clases, historial y acciones seguras del alumno.',
+            validate: 'La pagina de clases carga con pestanas o contenido de clase.',
+            risk: 'No cancela ni modifica clases.',
+        },
+        {
+            id: 'student-next-class',
+            route: '/es/campus',
+            section: 'Alumno',
+            title: 'Proxima clase',
+            what: 'Busca la tarjeta o bloque de proxima clase para explicar Meet, Drive y cancelacion.',
+            validate: 'Si hay clase futura, se ve la tarjeta; si no, debe quedar claro el estado vacio.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'student-drive',
+            route: '/es/campus/account',
+            section: 'Alumno',
+            title: 'Drive alumno',
+            what: 'Muestra como se informa el acceso a Google Drive y la vinculacion opcional de cuenta Google.',
+            validate: 'El bloque de Google Drive esta disponible en Mi cuenta.',
+            risk: 'No vincula cuenta Google ni cambia permisos.',
+        },
+        {
+            id: 'student-account',
+            route: '/es/campus/account',
+            section: 'Alumno',
+            title: 'Cuenta alumno',
+            what: 'Recorre datos personales, suscripcion y soporte operativo desde la cuenta.',
+            validate: 'El formulario de perfil o datos de cuenta estan visibles.',
+            risk: 'No guarda cambios.',
+        },
+        {
+            id: 'student-support',
+            route: '/es/campus/support',
+            section: 'Alumno',
+            title: 'Soporte',
+            what: 'Muestra como pedir ayuda ante problemas de clases, pagos o enlaces.',
+            validate: 'La pagina de soporte carga y muestra informacion de contacto.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'teacher-login',
+            route: '/es/login',
+            section: 'Profesor',
+            title: 'Login profesor',
+            what: 'Inicia sesion con el usuario profesor de .env.test.',
+            validate: 'El login redirige al area de profesor.',
+            risk: 'Crea solo sesion de navegador.',
+            loginRole: 'teacher',
+        },
+        {
+            id: 'teacher-dashboard',
+            route: '/es/campus/teacher',
+            section: 'Profesor',
+            title: 'Dashboard profesor',
+            what: 'Muestra alumnos asignados, metricas y accesos de profesor.',
+            validate: 'La ruta /es/campus/teacher carga autenticada.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'teacher-students',
+            route: '/es/campus/teacher',
+            section: 'Profesor',
+            title: 'Alumnos del profesor',
+            what: 'Explica busqueda, estado de plan y acceso a ficha de alumno.',
+            validate: 'Hay buscador y, si existen alumnos, tarjetas de alumno.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'teacher-student-detail',
+            route: '/es/campus/teacher',
+            section: 'Profesor',
+            title: 'Ficha de alumno',
+            what: 'Abre una ficha si hay alumno asignado para mostrar seguimiento y notas.',
+            validate: 'La ficha carga o se registra ausencia de alumnos asignados.',
+            risk: 'Solo lectura; abrir ficha manualmente si existe alumno visible.',
+        },
+        {
+            id: 'teacher-drive',
+            route: '/es/campus/teacher',
+            section: 'Profesor',
+            title: 'Drive profesor',
+            what: 'Busca enlaces Drive asociados a alumnos para explicar el trabajo documental.',
+            validate: 'Si hay Drive creado, se muestra enlace; si no, queda como warning operativo.',
+            risk: 'No abre ni modifica documentos.',
+        },
+        {
+            id: 'teacher-calendar',
+            route: '/es/campus/teacher/calendar',
+            section: 'Profesor',
+            title: 'Calendario profesor',
+            what: 'Muestra calendario semanal, clases y boton de programacion.',
+            validate: 'La pagina de calendario carga y muestra controles.',
+            risk: 'No crea clases.',
+        },
+        {
+            id: 'teacher-availability',
+            route: '/es/campus/teacher/calendar',
+            section: 'Profesor',
+            title: 'Disponibilidad',
+            what: 'Muestra la pestana donde el profesor gestiona disponibilidad.',
+            validate: 'La pestana de disponibilidad se puede abrir manualmente.',
+            risk: 'No guarda cambios de disponibilidad.',
+        },
+        {
+            id: 'admin-login',
+            route: '/es/login',
+            section: 'Admin',
+            title: 'Login admin',
+            what: 'Inicia sesion con el usuario admin de .env.test.',
+            validate: 'El login redirige al panel admin.',
+            risk: 'Crea solo sesion de navegador.',
+            loginRole: 'admin',
+        },
+        {
+            id: 'admin-dashboard',
+            route: '/es/campus/admin',
+            section: 'Admin',
+            title: 'Dashboard admin',
+            what: 'Presenta la vista global de administracion.',
+            validate: 'La ruta /es/campus/admin carga y muestra contenido.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'admin-leads',
+            route: '/es/campus/admin/leads',
+            section: 'Admin',
+            title: 'Leads',
+            what: 'Muestra captacion, estados y seguimiento comercial.',
+            validate: 'La pagina de leads carga con tabla o estado vacio.',
+            risk: 'No cambia estados.',
+        },
+        {
+            id: 'admin-users',
+            route: '/es/campus/admin/users',
+            section: 'Admin',
+            title: 'Usuarios',
+            what: 'Muestra gestion de usuarios y roles.',
+            validate: 'La pagina de usuarios carga.',
+            risk: 'No asigna ni modifica usuarios.',
+        },
+        {
+            id: 'admin-students',
+            route: '/es/campus/admin/students',
+            section: 'Admin',
+            title: 'Estudiantes',
+            what: 'Muestra gestion academica de estudiantes.',
+            validate: 'La pagina de estudiantes carga con tabla, tarjetas o estado vacio.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'admin-packages',
+            route: '/es/campus/admin/packages',
+            section: 'Admin',
+            title: 'Paquetes y precios',
+            what: 'Explica que el producto sale de Supabase y se sincroniza con Stripe.',
+            validate: 'La pagina de paquetes carga.',
+            risk: 'No edita precios ni Stripe IDs.',
+        },
+        {
+            id: 'admin-payments',
+            route: '/es/campus/admin/payments',
+            section: 'Admin',
+            title: 'Pagos admin',
+            what: 'Muestra pagos, filtros y seguimiento de suscripciones.',
+            validate: 'La tabla o filtros de pagos estan disponibles.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'payments-modal-safe',
+            route: '/es#pricing',
+            section: 'Pagos',
+            title: 'Modal de compra sin checkout',
+            what: 'Abre o explica el modal de duracion de un plan sin entrar en Stripe.',
+            validate: 'El modal aparece o se registra que los planes no tienen checkout activo.',
+            risk: 'No pulsa continuar a Stripe automaticamente.',
+        },
+        {
+            id: 'payments-stripe-checkout',
+            route: '/es#pricing',
+            section: 'Pagos',
+            title: 'Stripe Checkout test',
+            what: 'Paso reservado para staging/full: checkout test, tarjeta de prueba y vuelta al campus.',
+            validate: 'En esta guia web no se automatiza Stripe; usar el runner full si procede.',
+            risk: 'Puede crear pago y suscripcion de test si se hace manualmente.',
+        },
+        {
+            id: 'payments-admin-verify',
+            route: '/es/campus/admin/payments',
+            section: 'Pagos',
+            title: 'Verificacion de pago en admin',
+            what: 'Comprueba desde admin que pagos y suscripciones quedan observables.',
+            validate: 'La pantalla de pagos carga despues del flujo.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'emails-preview',
+            route: '/es/campus/admin/emails',
+            section: 'Emails',
+            title: 'Preview de emails',
+            what: 'Muestra previsualizacion de plantillas desde Admin > Emails.',
+            validate: 'La plantilla se carga en iframe o se muestra estado de carga/error.',
+            risk: 'GET de preview, sin envio.',
+        },
+        {
+            id: 'emails-send-test',
+            route: '/es/campus/admin/emails',
+            section: 'Emails',
+            title: 'Enviar email de prueba',
+            what: 'Paso reservado para interactive/full: envio real via Resend al destinatario de prueba.',
+            validate: 'En esta guia web se revisa manualmente antes de enviar nada real.',
+            risk: 'Envia un email real de prueba si se pulsa la accion de la app.',
+        },
+        {
+            id: 'google-drive-state',
+            route: '/es/campus/account',
+            section: 'Google',
+            title: 'Estado Drive alumno',
+            what: 'Comprueba si el alumno de prueba tiene carpeta Drive preparada o pendiente.',
+            validate: 'Mi cuenta muestra carpeta lista, pendiente o formulario de vinculacion.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'google-meet-links',
+            route: '/es/campus/classes',
+            section: 'Google',
+            title: 'Enlaces Drive y Meet',
+            what: 'Busca enlaces Drive, Docs o Meet en clases del alumno.',
+            validate: 'Si existen enlaces se muestran; si no, queda claro el estado vacio.',
+            risk: 'No abre servicios externos automaticamente.',
+        },
+        {
+            id: 'google-full-operational-check',
+            route: '/es/campus/admin/jobs',
+            section: 'Google',
+            title: 'Chequeo operativo Google',
+            what: 'Paso reservado para full: cola de jobs, Cloudflare Fulfillment Worker, Drive, Calendar, Meet y emails asociados.',
+            validate: 'En esta guia web se revisa la consola; el procesamiento queda manual.',
+            risk: 'Puede procesar jobs con Google y emails si se pulsa la accion de la app.',
+        },
+        {
+            id: 'recovery-jobs',
+            route: '/es/campus/admin/jobs',
+            section: 'Recuperacion',
+            title: 'Admin Jobs',
+            what: 'Muestra la consola de recuperacion operativa para fulfillment_jobs.',
+            validate: 'La pantalla lista filtros, tabla y acciones de reintento/cancelacion.',
+            risk: 'Solo lectura.',
+        },
+        {
+            id: 'recovery-retry-test-job',
+            route: '/es/campus/admin/jobs',
+            section: 'Recuperacion',
+            title: 'Reintentar job de prueba',
+            what: 'Paso reservado para interactive/full: reintentar un job pendiente o fallido si existe.',
+            validate: 'En esta guia web se revisa manualmente antes de reprogramar nada.',
+            risk: 'Reprograma procesamiento operativo si se pulsa la accion de la app.',
+        },
+    ];
+
+    const clampIndex = (value) => Math.min(Math.max(value, 0), steps.length - 1);
+    let index = clampIndex(Number.parseInt(localStorage.getItem(STORAGE_INDEX) || '0', 10) || 0);
+    let isBusy = false;
+    let statusMessage = '';
+
+    function normalizePath(url) {
+        return `${url.pathname}${url.hash}`;
+    }
+
+    function routeMatches(route) {
+        const target = new URL(route, window.location.origin);
+        return window.location.pathname === target.pathname && (!target.hash || window.location.hash === target.hash);
+    }
+
+    function currentLang() {
+        const [lang] = window.location.pathname.split('/').filter(Boolean);
+        return ['es', 'en', 'ru'].includes(lang) ? lang : 'es';
+    }
+
+    function loginRoleLabel(role) {
+        return {
+            student: 'alumno',
+            teacher: 'profesor',
+            admin: 'admin',
+        }[role] || role;
+    }
+
+    async function loginAs(role) {
+        if (isBusy) return;
+
+        isBusy = true;
+        statusMessage = `Iniciando sesion como ${loginRoleLabel(role)}...`;
+        render();
+
+        try {
+            const response = await fetch('/api/demo/login', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'content-type': 'application/json',
+                },
+                body: JSON.stringify({ role, lang: currentLang() }),
+            });
+            const data = await response.json().catch(() => ({}));
+
+            if (!response.ok) {
+                throw new Error(data.error || `Login de demo fallo con HTTP ${response.status}.`);
+            }
+
+            index = clampIndex(index + 1);
+            localStorage.setItem(STORAGE_INDEX, String(index));
+            window.location.assign(data.redirectTo || steps[index].route);
+        } catch (error) {
+            isBusy = false;
+            statusMessage = error instanceof Error ? error.message : 'No se pudo iniciar sesion de demo.';
+            render();
+        }
+    }
+
+    function goToStep(nextIndex) {
+        index = clampIndex(nextIndex);
+        localStorage.setItem(STORAGE_INDEX, String(index));
+        statusMessage = '';
+        const step = steps[index];
+        if (!routeMatches(step.route)) {
+            window.location.assign(step.route);
+            return;
+        }
+        render();
+    }
+
+    function finish() {
+        localStorage.removeItem(STORAGE_ENABLED);
+        localStorage.removeItem(STORAGE_INDEX);
+        document.getElementById('eh-guide-overlay')?.remove();
+    }
+
+    function togglePosition(overlay) {
+        const current = localStorage.getItem(STORAGE_POSITION) || 'right';
+        const positions = ['right', 'left', 'top'];
+        const next = positions[(positions.indexOf(current) + 1) % positions.length] || 'right';
+        localStorage.setItem(STORAGE_POSITION, next);
+        localStorage.removeItem(STORAGE_COORDS);
+        overlay.classList.remove('eh-guide-right', 'eh-guide-left', 'eh-guide-top');
+        overlay.classList.add(`eh-guide-${next}`);
+        overlay.style.left = '';
+        overlay.style.right = '';
+        overlay.style.top = '';
+        overlay.style.bottom = '';
+    }
+
+    function toggleCompact(overlay, button) {
+        const compact = localStorage.getItem(STORAGE_COMPACT) === '1' ? '0' : '1';
+        localStorage.setItem(STORAGE_COMPACT, compact);
+        overlay.classList.toggle('eh-guide-compact', compact === '1');
+        button.textContent = compact === '1' ? 'Expandir' : 'Compacto';
+    }
+
+    function ensureStyle() {
+        if (document.getElementById('eh-guide-style')) return;
+        const style = document.createElement('style');
+        style.id = 'eh-guide-style';
+        style.textContent = `
+            #eh-guide-overlay, #eh-guide-overlay * { box-sizing: border-box; letter-spacing: 0; }
+            #eh-guide-overlay {
+                position: fixed;
+                right: 18px;
+                bottom: 18px;
+                z-index: 2147483000;
+                width: min(420px, calc(100vw - 36px));
+                max-height: min(74vh, 700px);
+                overflow: auto;
+                border: 2px solid #006064;
+                background: #fff;
+                color: #053f3f;
+                box-shadow: 8px 8px 0 #006064;
+                padding: 14px;
+                font: 14px/1.35 Arial, sans-serif;
+            }
+            #eh-guide-overlay.eh-guide-dragging {
+                user-select: none;
+            }
+            #eh-guide-overlay.eh-guide-left { left: 18px; right: auto; bottom: 18px; top: auto; }
+            #eh-guide-overlay.eh-guide-right { right: 18px; left: auto; bottom: 18px; top: auto; }
+            #eh-guide-overlay.eh-guide-top { right: 18px; left: auto; top: 18px; bottom: auto; }
+            #eh-guide-overlay.eh-guide-compact .eh-guide-copy { display: none; }
+            #eh-guide-overlay h2 { margin: 8px 0; color: #006064; font-size: 22px; line-height: 1.1; }
+            #eh-guide-overlay p { margin: 0; color: #164f4d; }
+            #eh-guide-overlay .eh-guide-topline,
+            #eh-guide-overlay .eh-guide-tools,
+            #eh-guide-overlay .eh-guide-actions { display: flex; gap: 8px; align-items: center; }
+            #eh-guide-overlay .eh-guide-actions { flex-wrap: wrap; }
+            #eh-guide-overlay .eh-guide-topline {
+                justify-content: space-between;
+                font-size: 11px;
+                font-weight: 700;
+                text-transform: uppercase;
+                color: #006064;
+                cursor: move;
+                touch-action: none;
+            }
+            #eh-guide-overlay .eh-guide-badge { border: 1px solid #006064; background: #e0f7fa; padding: 2px 6px; }
+            #eh-guide-overlay .eh-guide-copy { display: grid; gap: 8px; margin: 10px 0 12px; }
+            #eh-guide-overlay .eh-guide-label { display: block; margin-bottom: 2px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #006064; }
+            #eh-guide-overlay button {
+                min-height: 32px;
+                border: 1px solid #006064;
+                background: #fff;
+                color: #006064;
+                padding: 7px 9px;
+                font: 700 11px/1.15 Arial, sans-serif;
+                text-transform: uppercase;
+                cursor: pointer;
+            }
+            #eh-guide-overlay button:hover { background: #e0f7fa; }
+            #eh-guide-overlay button:disabled { opacity: 0.55; cursor: wait; }
+            #eh-guide-overlay .eh-guide-primary { flex: 1 1 140px; background: #006064; color: #fff; }
+            #eh-guide-overlay .eh-guide-primary:hover { background: #004d40; color: #fff; }
+            #eh-guide-overlay .eh-guide-danger { border-color: #b42318; color: #b42318; }
+            #eh-guide-overlay .eh-guide-status {
+                margin: 8px 0 0;
+                border: 1px solid #006064;
+                background: #e0f7fa;
+                padding: 7px 8px;
+                color: #053f3f;
+                font-weight: 700;
+            }
+        `;
+        document.head.append(style);
+    }
+
+    function makeButton(label, onClick, className = '') {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = label;
+        button.className = className;
+        button.disabled = isBusy;
+        button.addEventListener('click', onClick);
+        return button;
+    }
+
+    function readCoords() {
+        try {
+            const parsed = JSON.parse(localStorage.getItem(STORAGE_COORDS) || 'null');
+            if (Number.isFinite(parsed?.left) && Number.isFinite(parsed?.top)) return parsed;
+        } catch {
+            return null;
+        }
+
+        return null;
+    }
+
+    function clampCoords(left, top, overlay) {
+        const rect = overlay.getBoundingClientRect();
+        const margin = 8;
+        return {
+            left: Math.max(margin, Math.min(left, window.innerWidth - rect.width - margin)),
+            top: Math.max(margin, Math.min(top, window.innerHeight - rect.height - margin)),
+        };
+    }
+
+    function applyCoords(overlay) {
+        const coords = readCoords();
+        if (!coords) return;
+
+        const next = clampCoords(coords.left, coords.top, overlay);
+        overlay.classList.remove('eh-guide-right', 'eh-guide-left', 'eh-guide-top');
+        overlay.style.left = `${next.left}px`;
+        overlay.style.top = `${next.top}px`;
+        overlay.style.right = 'auto';
+        overlay.style.bottom = 'auto';
+        localStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
+    }
+
+    function enableDrag(overlay, handle) {
+        if (handle.dataset.ehGuideDragReady === '1') return;
+        handle.dataset.ehGuideDragReady = '1';
+
+        let dragging = false;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        const move = (event) => {
+            if (!dragging) return;
+            const next = clampCoords(event.clientX - offsetX, event.clientY - offsetY, overlay);
+            overlay.style.left = `${next.left}px`;
+            overlay.style.top = `${next.top}px`;
+            overlay.style.right = 'auto';
+            overlay.style.bottom = 'auto';
+            localStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
+        };
+
+        const stop = (event) => {
+            if (!dragging) return;
+            dragging = false;
+            overlay.classList.remove('eh-guide-dragging');
+            try {
+                handle.releasePointerCapture(event.pointerId);
+            } catch {
+                // Pointer capture may already be released if the page changed focus.
+            }
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', stop);
+            window.removeEventListener('pointercancel', stop);
+        };
+
+        handle.addEventListener('pointerdown', (event) => {
+            if (event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement) return;
+            const rect = overlay.getBoundingClientRect();
+            dragging = true;
+            offsetX = event.clientX - rect.left;
+            offsetY = event.clientY - rect.top;
+            try {
+                handle.setPointerCapture(event.pointerId);
+            } catch {
+                // Global listeners below keep dragging stable if capture is unavailable.
+            }
+            overlay.classList.add('eh-guide-dragging');
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', stop);
+            window.addEventListener('pointercancel', stop);
+            event.preventDefault();
+        });
+
+        handle.addEventListener('mousedown', (event) => {
+            if ('PointerEvent' in window) return;
+            if (event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement) return;
+            const rect = overlay.getBoundingClientRect();
+            dragging = true;
+            offsetX = event.clientX - rect.left;
+            offsetY = event.clientY - rect.top;
+            overlay.classList.add('eh-guide-dragging');
+            const mouseMove = (moveEvent) => move(moveEvent);
+            const mouseStop = () => {
+                dragging = false;
+                overlay.classList.remove('eh-guide-dragging');
+                window.removeEventListener('mousemove', mouseMove);
+                window.removeEventListener('mouseup', mouseStop);
+            };
+            window.addEventListener('mousemove', mouseMove);
+            window.addEventListener('mouseup', mouseStop);
+            event.preventDefault();
+        });
+    }
+
+    function render() {
+        ensureStyle();
+        const step = steps[index];
+        let overlay = document.getElementById('eh-guide-overlay');
+        if (!overlay) {
+            overlay = document.createElement('section');
+            overlay.id = 'eh-guide-overlay';
+            document.body.append(overlay);
+        }
+
+        overlay.title = 'Arrastra el panel para moverlo.';
+        const position = localStorage.getItem(STORAGE_POSITION) || 'right';
+        const compact = localStorage.getItem(STORAGE_COMPACT) === '1';
+        overlay.className = `eh-guide-${position}${compact ? ' eh-guide-compact' : ''}`;
+        overlay.style.left = '';
+        overlay.style.right = '';
+        overlay.style.top = '';
+        overlay.style.bottom = '';
+        overlay.replaceChildren();
+
+        const top = document.createElement('div');
+        top.className = 'eh-guide-topline';
+        const counter = document.createElement('span');
+        counter.textContent = `Paso ${index + 1} de ${steps.length}`;
+        const badge = document.createElement('span');
+        badge.className = 'eh-guide-badge';
+        badge.textContent = step.section;
+        const tools = document.createElement('div');
+        tools.className = 'eh-guide-tools';
+        const moveButton = makeButton('Posicion', () => togglePosition(overlay));
+        const compactButton = makeButton(compact ? 'Expandir' : 'Compacto', () => toggleCompact(overlay, compactButton));
+        tools.append(moveButton, compactButton);
+        top.append(counter, badge, tools);
+        enableDrag(overlay, overlay);
+
+        const title = document.createElement('h2');
+        title.textContent = step.title;
+
+        const status = document.createElement('p');
+        status.className = 'eh-guide-status';
+        status.textContent = statusMessage;
+        status.hidden = !statusMessage;
+
+        const copy = document.createElement('div');
+        copy.className = 'eh-guide-copy';
+        for (const [label, value] of [['Que se ensena', step.what], ['Validacion', step.validate], ['Riesgo', step.risk], ['Ruta', normalizePath(new URL(step.route, window.location.origin))]]) {
+            const row = document.createElement('div');
+            const rowLabel = document.createElement('span');
+            rowLabel.className = 'eh-guide-label';
+            rowLabel.textContent = label;
+            const text = document.createElement('p');
+            text.textContent = value;
+            row.append(rowLabel, text);
+            copy.append(row);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'eh-guide-actions';
+        const nextButton = makeButton(routeMatches(step.route) ? 'Siguiente' : 'Ir al paso', () => {
+            if (!routeMatches(step.route)) {
+                window.location.assign(step.route);
+                return;
+            }
+            goToStep(index + 1);
+        }, step.loginRole ? '' : 'eh-guide-primary');
+        actions.append(
+            makeButton('Anterior', () => goToStep(index - 1)),
+            makeButton('Finalizar', finish, 'eh-guide-danger'),
+        );
+        if (step.loginRole) {
+            actions.append(
+                nextButton,
+                makeButton(`Entrar como ${loginRoleLabel(step.loginRole)}`, () => loginAs(step.loginRole), 'eh-guide-primary'),
+            );
+        } else {
+            actions.append(nextButton);
+        }
+
+        overlay.append(top, title, status, copy, actions);
+        applyCoords(overlay);
+    }
+
+    window.addEventListener('pageshow', render);
+    window.addEventListener('resize', () => {
+        const overlay = document.getElementById('eh-guide-overlay');
+        if (overlay) applyCoords(overlay);
+    });
+    render();
+})();
+</script>

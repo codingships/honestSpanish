@@ -1,6 +1,6 @@
 ---
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
-import { createSupabaseServerClient } from '../lib/supabase-server';
+import type { LandingPackage } from '../lib/landing-data';
 import PricingSection from './PricingSection';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
 import avatarAlejandro from '../assets/avatar_alejandro.png';
@@ -9,30 +9,16 @@ import HeroSection from './landing/HeroSection.astro';
 import ProblemsSection from './landing/ProblemsSection.astro';
 import MethodSection from './landing/MethodSection.astro';
 import LevelsSection from './landing/LevelsSection.astro';
-import LeadCaptureForm from './LeadCaptureForm';
+import LeadCaptureForm from './LeadCaptureForm.tsx';
 
 interface Props {
   lang: 'es' | 'en' | 'ru';
+  packages: LandingPackage[];
+  isLoggedIn: boolean;
 }
 
-const { lang } = Astro.props;
+const { lang, packages, isLoggedIn } = Astro.props;
 const t = useTranslations(lang);
-
-// Fetch packages from Supabase
-const supabase = createSupabaseServerClient(Astro);
-const { data: packages, error: packagesError } = await supabase
-    .from('packages')
-    .select('id, name, display_name, price_monthly, sessions_per_month, has_group_session, has_dual_teacher, stripe_price_1m, stripe_price_3m, stripe_price_6m')
-    .eq('is_active', true)
-    .order('price_monthly', { ascending: true });
-
-if (packagesError) {
-    console.error('Packages fetch error:', packagesError);
-}
-
-// Check if user is logged in
-const { data: { user } } = await supabase.auth.getUser();
-const isLoggedIn = !!user;
 
 // Data structure helper for complex arrays 
 const problemsStatements = t('problems.statements') as unknown as string[];
@@ -40,8 +26,279 @@ const methodColumns = t('method.columns') as unknown as any[];
 const progressLevels = t('progress.levels') as unknown as any[];
 const teamMembers = t('team.members') as unknown as any[];
 const faqItems = t('faq.items') as unknown as any[];
-const pricingTranslations = t('pricing') as unknown as any;
 const leadCaptureTranslations = t('leadCapture') as unknown as any;
+
+const launchPricingPlans = {
+    es: {
+        group: {
+            name: 'Grupal externo',
+            description: 'Conversación guiada con alumnos compatibles cuando haya grupo disponible.',
+            features: [],
+        },
+        standard: {
+            name: 'Mensual estándar',
+            description: 'Clases privadas semanales para trabajar tu español con seguimiento claro.',
+            features: [],
+        },
+        hybrid: {
+            name: 'Híbrido mensual',
+            description: 'El plan principal: privadas, grupo compatible y doble mirada docente.',
+            features: [],
+        },
+        bootcamp: {
+            name: 'Intensivo bootcamp',
+            description: 'Ritmo intensivo para preparar un objetivo concreto.',
+            features: [],
+        },
+    },
+    en: {
+        group: {
+            name: 'External group',
+            description: 'Guided conversation with compatible students when a group is available.',
+            features: [],
+        },
+        standard: {
+            name: 'Standard monthly',
+            description: 'Weekly private classes with clear progress tracking.',
+            features: [],
+        },
+        hybrid: {
+            name: 'Hybrid monthly',
+            description: 'The main plan: private classes, compatible group practice and two-teacher follow-up.',
+            features: [],
+        },
+        bootcamp: {
+            name: 'Intensive bootcamp',
+            description: 'An intensive rhythm for a specific goal.',
+            features: [],
+        },
+    },
+    ru: {
+        group: {
+            name: 'Групповой внешний',
+            description: 'Разговорная практика с подходящими студентами, когда есть совместимая группа.',
+            features: [],
+        },
+        standard: {
+            name: 'Стандартный месяц',
+            description: 'Еженедельные индивидуальные занятия с понятным отслеживанием прогресса.',
+            features: [],
+        },
+        hybrid: {
+            name: 'Гибридный месяц',
+            description: 'Основной план: индивидуальные занятия, совместимая группа и сопровождение двух преподавателей.',
+            features: [],
+        },
+        bootcamp: {
+            name: 'Интенсив bootcamp',
+            description: 'Интенсивный ритм под конкретную цель.',
+            features: [],
+        },
+    },
+}[lang];
+
+const pricingTranslations = {
+    ...(t('pricing') as unknown as any),
+    plans: launchPricingPlans,
+};
+
+const ireneMemberByLang = {
+    es: {
+        name: 'Irene',
+        role: 'Profesora',
+        languages: ['ES', 'EN', 'CS', 'FR', 'LSE'],
+        bio: 'Profesora de español con perfil internacional y comunicación accesible en español, inglés, checo, francés y lengua de signos española.',
+    },
+    en: {
+        name: 'Irene',
+        role: 'Teacher',
+        languages: ['ES', 'EN', 'CS', 'FR', 'LSE'],
+        bio: 'Spanish teacher with an international profile and accessible communication in Spanish, English, Czech, French and Spanish Sign Language.',
+    },
+    ru: {
+        name: 'Irene',
+        role: 'Преподаватель',
+        languages: ['ES', 'EN', 'CS', 'FR', 'LSE'],
+        bio: 'Преподаватель испанского с международным профилем: испанский, английский, чешский, французский и испанский жестовый язык.',
+    },
+}[lang];
+
+const teamMembersWithIrene = [...teamMembers, ireneMemberByLang];
+const teamImages = [avatarAlejandro, avatarAlin, null];
+
+const courseDetails = {
+    es: {
+        includesTitle: 'Qué incluye el curso',
+        includesIntro: 'Un sistema para hablar mejor, revisar con criterio y mantener contacto real con España entre clases.',
+        includes: [
+            'Clases privadas en directo de 30, 40 o 50 minutos.',
+            'Documento vivo de clase con errores, vocabulario y deberes.',
+            'Worksheets y materiales propios sobre vida, trabajo y cultura en España.',
+            'Calendario, enlace de Meet y recordatorios desde el campus.',
+            'Seguimiento de progreso y acceso a conversación grupal cuando haya compatibilidad.',
+        ],
+        audienceTitle: 'A quién va dirigido',
+        audienceIntro: 'Para adultos que no buscan clases baratas ni milagros, sino conversación adulta y trabajo serio.',
+        audience: [
+            'Profesionales y adultos +30 que viven o quieren vivir España con más profundidad.',
+            'Estudiantes que se han quedado atascados entre A2, B1 y B2.',
+            'Personas con interés cultural real, más allá de tópicos y frases de manual.',
+            'Alumnos que quieren hablar de trabajo, ciudad, historia, libros, familia o burocracia sin quedarse fuera.',
+        ],
+    },
+    en: {
+        includesTitle: 'What the course includes',
+        includesIntro: 'A system for better conversation, sharper review and real contact with Spain between classes.',
+        includes: [
+            'Private live classes of 30, 40 or 50 minutes.',
+            'A living class document with mistakes, vocabulary and homework.',
+            'Original worksheets about life, work and culture in Spain.',
+            'Calendar, Meet link and reminders from the campus.',
+            'Progress follow-up and group conversation when there is a compatible group.',
+        ],
+        audienceTitle: 'Who it is for',
+        audienceIntro: 'For adults who are not looking for cheap miracle classes, but serious work and adult conversation.',
+        audience: [
+            'Professionals and adults 30+ living in Spain or preparing to build a life there.',
+            'Students stuck between A2, B1 and B2.',
+            'People with real cultural curiosity, beyond cliches and textbook phrases.',
+            'Learners who want to discuss work, cities, history, books, family or bureaucracy without staying outside the conversation.',
+        ],
+    },
+    ru: {
+        includesTitle: 'Что входит в курс',
+        includesIntro: 'Система для лучшего разговора, точного повторения и реального контакта с Испанией между занятиями.',
+        includes: [
+            'Индивидуальные занятия онлайн по 30, 40 или 50 минут.',
+            'Живой документ урока с ошибками, лексикой и домашними заданиями.',
+            'Авторские worksheets о жизни, работе и культуре в Испании.',
+            'Calendar, ссылка Meet и напоминания из кампуса.',
+            'Отслеживание прогресса и групповой разговор, когда есть совместимая группа.',
+        ],
+        audienceTitle: 'Для кого это',
+        audienceIntro: 'Для взрослых, которые ищут не дешевые чудеса, а серьезную работу и взрослый разговор.',
+        audience: [
+            'Для профессионалов и взрослых 30+, которые живут или хотят жить в Испании глубже.',
+            'Для студентов, застрявших между A2, B1 и B2.',
+            'Для людей с настоящим культурным интересом, не только клише и фразы из учебника.',
+            'Для тех, кто хочет говорить о работе, городах, истории, книгах, семье и бюрократии.',
+        ],
+    },
+}[lang];
+
+const communityDetails = {
+    es: {
+        eyebrow: 'Contacto y comunidad',
+        title: 'Comunidad con encaje, no grupos de relleno',
+        intro: 'Queremos que el español sea una forma de entrar en España: conversación guiada, materiales compartidos y práctica con otros alumnos sólo cuando tenga sentido.',
+        points: [
+            'Primero conocemos nivel, intereses y ritmo; después proponemos grupo si hay compatibilidad real.',
+            'El contacto con España entra en temas, worksheets y conversación: Madrid, Oviedo, Toledo, Barcelona, trabajo, ciudad y cultura.',
+            'Si todavía no hay grupo compatible, seguimos con clases privadas y materiales útiles. No vendemos una comunidad artificial.',
+        ],
+    },
+    en: {
+        eyebrow: 'Contact and community',
+        title: 'Community by fit, not filler groups',
+        intro: 'We want Spanish to become a way into Spain: guided conversation, shared materials and practice with other students only when it makes sense.',
+        points: [
+            'First we learn your level, interests and rhythm; then we suggest a group if there is real compatibility.',
+            'Contact with Spain appears in topics, worksheets and conversation: Madrid, Oviedo, Toledo, Barcelona, work, city life and culture.',
+            'If there is no compatible group yet, we continue with private classes and useful materials. We do not sell an artificial community.',
+        ],
+    },
+    ru: {
+        eyebrow: 'Контакт и сообщество',
+        title: 'Сообщество по совпадению, а не группы ради группы',
+        intro: 'Мы хотим, чтобы испанский стал способом входа в Испанию: разговор, материалы и практика с другими студентами только тогда, когда это действительно подходит.',
+        points: [
+            'Сначала мы смотрим уровень, интересы и ритм; потом предлагаем группу, если есть реальная совместимость.',
+            'Контакт с Испанией появляется в темах, worksheets и разговорах: Мадрид, Овьедо, Толедо, Барселона, работа, город и культура.',
+            'Если подходящей группы пока нет, мы продолжаем с индивидуальными занятиями и полезными материалами. Мы не продаем искусственное сообщество.',
+        ],
+    },
+}[lang];
+
+const applicationNextSteps = {
+    es: {
+        eyebrow: 'Solicitud revisada',
+        title: 'Qué pasa después de solicitar plaza',
+        intro: 'No te mandamos directo a pagar. Primero comprobamos si podemos ayudarte bien y qué formato tiene sentido.',
+        steps: [
+            {
+                title: 'Revisamos encaje',
+                body: 'Leemos tu nivel aproximado, objetivo, disponibilidad y plan de interés.',
+            },
+            {
+                title: 'Aclaramos nivel',
+                body: 'Si falta contexto, podemos enviarte preguntas breves o una prueba automática ligera. La evaluación humana se reserva para solicitudes serias.',
+            },
+            {
+                title: 'Proponemos siguiente paso',
+                body: 'Sólo después de confirmar encaje y disponibilidad hablamos de plan, grupo compatible si existe y pago.',
+            },
+        ],
+    },
+    en: {
+        eyebrow: 'Reviewed application',
+        title: 'What happens after you request a place',
+        intro: 'We do not send you straight to payment. First we check whether we can help properly and which format makes sense.',
+        steps: [
+            {
+                title: 'We review fit',
+                body: 'We read your approximate level, goal, availability and plan of interest.',
+            },
+            {
+                title: 'We clarify level',
+                body: 'If we need more context, we may send brief questions or a light automatic level check. Human assessment is reserved for serious applications.',
+            },
+            {
+                title: 'We propose the next step',
+                body: 'Only after confirming fit and availability do we discuss a plan, compatible group if one exists, and payment.',
+            },
+        ],
+    },
+    ru: {
+        eyebrow: 'Заявка с проверкой',
+        title: 'Что происходит после заявки',
+        intro: 'Мы не отправляем вас сразу к оплате. Сначала проверяем, можем ли помочь и какой формат подходит.',
+        steps: [
+            {
+                title: 'Проверяем совпадение',
+                body: 'Смотрим примерный уровень, цель, расписание и интересующий план.',
+            },
+            {
+                title: 'Уточняем уровень',
+                body: 'Если не хватает контекста, можем отправить короткие вопросы или лёгкую автоматическую проверку. Человеческая оценка остаётся для серьёзных заявок.',
+            },
+            {
+                title: 'Предлагаем следующий шаг',
+                body: 'Только после проверки совпадения и доступности обсуждаем план, совместимую группу, если она есть, и оплату.',
+            },
+        ],
+    },
+}[lang];
+
+const seoEntryRoutes = [
+    {
+        href: '/es/espanol-para-vivir-en-espana',
+        label: 'Vivir en España',
+        title: 'Español para vivir en España',
+        description: 'Para adultos que quieren entrar en la vida del país con conversación, cultura y contacto real.',
+    },
+    {
+        href: '/es/espanol-para-profesionales',
+        label: 'Trabajo y ciudad',
+        title: 'Español para profesionales',
+        description: 'Para profesionales que necesitan hablar con confianza en reuniones, trabajo y vida diaria.',
+    },
+    {
+        href: '/es/clases-de-conversacion-en-espanol',
+        label: 'Conversación A2/B1+',
+        title: 'Clases de conversación en español',
+        description: 'Para alumnos que entienden bastante, pero necesitan soltura, corrección y conversación real.',
+    },
+];
 
 const s = {
     bg: 'bg-[#E0F7FA]',
@@ -63,7 +320,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     
     {/* Navbar */}
     <nav class={`h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 ${s.bg}`}>
-        <div class="font-display text-lg md:text-xl tracking-tighter truncate mr-2 w-full md:w-auto">{t('nav.brand')}</div>
+        <div class="font-display text-lg md:text-xl tracking-tighter mr-2 w-full md:w-auto whitespace-nowrap overflow-visible leading-tight py-1">{t('nav.brand')}</div>
 
         {/* Desktop Navigation Links (Hidden on Mobile) */}
         <div class="hidden md:flex gap-6 items-center">
@@ -82,7 +339,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 {supportedLanguages.map((lng) => (
                     <a
                         href={getLangLink(lng)}
-                        class={`px-2 py-1 border ${s.border} uppercase transition-colors inline-block no-underline ${lang === lng ? `${s.accent} ${s.accentText}` : 'opacity-70 hover:opacity-100'}`}
+                        class={`px-2 py-1 border ${s.border} uppercase transition-colors inline-block no-underline ${lang === lng ? `${s.accent} ${s.accentText}` : 'text-[#006064] hover:bg-[#006064]/10'}`}
                     >
                         {lng}
                     </a>
@@ -193,12 +450,85 @@ const getLangLink = (targetLang) => `/${targetLang}`;
         levels={progressLevels}
     />
 
+    {/* Course Details */}
+    <section id="incluye" class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+        <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-2">
+            <div>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{courseDetails.includesTitle}</h2>
+                <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{courseDetails.includesIntro}</p>
+                <div class="mt-8 space-y-3">
+                    {courseDetails.includes.map((item) => (
+                        <div class="border-2 border-[#006064] bg-white p-4 shadow-[4px_4px_0px_0px_#006064]">
+                            <p class="font-sans text-base font-bold leading-7 text-[#006064]">{item}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{courseDetails.audienceTitle}</h2>
+                <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{courseDetails.audienceIntro}</p>
+                <div class="mt-8 space-y-3">
+                    {courseDetails.audience.map((item) => (
+                        <div class="border-2 border-[#006064] bg-white p-4 shadow-[4px_4px_0px_0px_#006064]">
+                            <p class="font-sans text-base font-bold leading-7 text-[#006064]">{item}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    {/* Honest community */}
+    <section id="comunidad" class="bg-white py-24 px-6 border-b-2 border-[#006064]">
+        <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-5">
+            <div class="lg:col-span-2">
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">{communityDetails.eyebrow}</p>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{communityDetails.title}</h2>
+                <p class="mt-4 text-lg leading-8 text-[#006064]/80 font-bold">{communityDetails.intro}</p>
+            </div>
+            <div class="lg:col-span-3 grid grid-cols-1 gap-4">
+                {communityDetails.points.map((point) => (
+                    <p class="border-2 border-[#006064] bg-[#E0F7FA] p-5 text-base font-bold leading-7 text-[#006064] shadow-[4px_4px_0px_0px_#006064]">
+                        {point}
+                    </p>
+                ))}
+            </div>
+        </div>
+    </section>
+
+    {lang === 'es' && (
+        <section id="rutas" class="bg-white py-24 px-6 border-b-2 border-[#006064]">
+            <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-3">
+                <div>
+                    <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">Rutas de entrada</p>
+                    <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">Encuentra tu punto de partida</h2>
+                    <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">
+                        Si ya sabes por qué necesitas español, entra por la página que mejor encaja contigo.
+                    </p>
+                </div>
+                <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {seoEntryRoutes.map((route) => (
+                        <a href={route.href} class="group border-2 border-[#006064] bg-[#E0F7FA] p-5 shadow-[4px_4px_0px_0px_#006064] transition-transform hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-[#006064]/20">
+                            <p class="font-mono text-xs uppercase tracking-widest text-[#006064]">{route.label}</p>
+                            <h3 class="mt-3 font-display text-2xl text-[#006064]">{route.title}</h3>
+                            <p class="mt-3 font-sans text-base font-bold leading-7 text-[#006064]">{route.description}</p>
+                            <span class="mt-5 inline-block font-mono text-xs uppercase font-bold border-b-2 border-[#006064] group-hover:opacity-70">
+                                Ver ruta
+                            </span>
+                        </a>
+                    ))}
+                </div>
+            </div>
+        </section>
+    )}
+
     {/* Pricing */}
     <PricingSection 
         client:load
-        packages={packages || []}
+        packages={packages}
         lang={lang}
         isLoggedIn={isLoggedIn}
+        checkoutMode="application"
         translations={pricingTranslations}
     />
 
@@ -209,27 +539,40 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 <h2 class="font-display text-4xl lg:text-5xl text-[#006064] mb-8">{t('team.headline')}</h2>
 
                 <div class="max-w-md mx-auto mb-8">
-                    <p class="text-[#006064]/70 font-mono text-sm md:text-base uppercase tracking-wide mb-4">{t('team.manifesto')}</p>
+                    <p class="text-[#006064] font-mono text-sm md:text-base uppercase tracking-wide mb-4">{t('team.manifesto')}</p>
                     <p class="font-sans text-lg md:text-xl text-[#006064] font-bold leading-tight">{t('team.closing')}</p>
                 </div>
 
-                <p class="font-sans text-xl text-[#006064]/70 max-w-2xl mx-auto">{t('team.subtitle')}</p>
+                <p class="font-sans text-xl text-[#006064] max-w-2xl mx-auto">{t('team.subtitle')}</p>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
-                {teamMembers.map((member, index) => (
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-10">
+                {teamMembersWithIrene.map((member, index) => {
+                    const memberImage = teamImages[index];
+                    const fallbackInitials = member.name.slice(0, 2).toUpperCase();
+
+                    return (
                     <div class="flex flex-col">
                         <div class="aspect-square bg-gray-200 rounded-lg mb-4 w-full overflow-hidden border-2 border-[#006064]">
+                            {memberImage ? (
                                 <img
-                                    src={(index === 0 ? avatarAlejandro : avatarAlin).src}
+                                    src={memberImage.src}
                                     alt={member.name}
                                     class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
                                     loading="lazy"
                                     decoding="async"
                                 />
+                            ) : (
+                                <div
+                                    class="w-full h-full bg-[#E0F7FA] text-[#006064] flex items-center justify-center"
+                                    aria-hidden="true"
+                                >
+                                    <span class="font-display text-6xl">{fallbackInitials}</span>
+                                </div>
+                            )}
                         </div>
                         <h3 class="font-display text-2xl text-[#006064] mb-1">{member.name}</h3>
-                        <p class="font-sans text-sm uppercase tracking-wide text-[#006064]/50 mb-4">{member.role}</p>
+                        <p class="font-sans text-sm uppercase tracking-wide text-[#006064] mb-4">{member.role}</p>
                         <div class="flex flex-wrap gap-2 mb-4">
                             {member.languages.map((langString) => (
                                 <span class="bg-[#006064]/10 text-[#006064] text-xs px-2 py-1 rounded font-bold">
@@ -237,11 +580,12 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                                 </span>
                             ))}
                         </div>
-                        <p class="font-sans text-base text-[#006064]/70">
+                        <p class="font-sans text-base text-[#006064]">
                             {member.bio}
                         </p>
                     </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
     </section>
@@ -270,7 +614,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                             id={`faq-content-${index}`}
                             class="faq-content overflow-hidden transition-all duration-300 max-h-0 opacity-0"
                         >
-                            <p class="font-sans text-base text-[#006064]/80 leading-relaxed pb-6">
+                            <p class="font-sans text-base text-[#006064] leading-relaxed pb-6">
                                 {item.answer}
                             </p>
                         </div>
@@ -282,12 +626,28 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 
     {/* Lead Capture Section */}
     <section id="contacto" class="py-24 px-6 border-t-2 border-[#006064] bg-[#E0F7FA]">
-        <div class="max-w-4xl mx-auto">
-             <LeadCaptureForm 
+        <div class="max-w-6xl mx-auto grid grid-cols-1 gap-10 lg:grid-cols-[1fr_28rem] lg:items-start">
+            <div>
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">{applicationNextSteps.eyebrow}</p>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{applicationNextSteps.title}</h2>
+                <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{applicationNextSteps.intro}</p>
+                <div class="mt-8 grid grid-cols-1 gap-4">
+                    {applicationNextSteps.steps.map((step, index) => (
+                        <div class="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064]">
+                            <p class="font-mono text-xs uppercase tracking-widest text-[#006064]">0{index + 1}</p>
+                            <h3 class="mt-2 font-display text-2xl text-[#006064]">{step.title}</h3>
+                            <p class="mt-2 font-sans text-base font-bold leading-7 text-[#006064]">{step.body}</p>
+                        </div>
+                    ))}
+                </div>
+            </div>
+            <div>
+                <LeadCaptureForm
                 client:visible
                 lang={lang}
                 translations={leadCaptureTranslations}
             />
+            </div>
         </div>
     </section>
 
@@ -303,11 +663,11 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                     {t('footer.address')}<br />{t('footer.city')}<br />{t('footer.email')}
                 </div>
                 <div class="flex gap-4 mb-4">
-                    <a href={`/${lang}/legal`} class="font-mono text-xs uppercase opacity-60 hover:opacity-100 transition-opacity">
+                    <a href={`/${lang}/legal`} class="font-mono text-xs uppercase text-[#006064] hover:underline transition-colors">
                         {t('legal.title')}
                     </a>
                 </div>
-                <p class="font-sans text-xs opacity-60">&copy; {new Date().getFullYear()} {t('footer.copyright')}</p>
+                <p class="font-sans text-xs text-[#006064]">&copy; {new Date().getFullYear()} {t('footer.copyright')}</p>
             </div>
         </div>
     </footer>

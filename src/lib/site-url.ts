@@ -1,6 +1,10 @@
 import { readRuntimeEnv } from './runtime-env';
 
-const DEFAULT_SITE_URL = import.meta.env.DEV
+const metaEnv = (import.meta as ImportMeta & {
+    env?: { DEV?: boolean | string };
+}).env;
+
+const DEFAULT_SITE_URL = String(metaEnv?.DEV) === 'true'
     ? 'http://localhost:4321'
     : 'https://espanolhonesto.com';
 

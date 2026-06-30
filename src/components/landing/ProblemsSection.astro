@@ -24,7 +24,7 @@ const { headline, subtext, statements } = Astro.props;
         <div class="lg:col-span-3 space-y-8">
             {statements.map((statement, index) => (
                 <div class="relative pl-2">
-                    <span class="absolute -top-6 -left-4 font-display text-8xl text-[#006064]/10 select-none pointer-events-none">
+                    <span aria-hidden="true" class="absolute -top-6 -left-4 font-display text-8xl text-[#006064]/10 select-none pointer-events-none">
                         0{index + 1}
                     </span>
                     <p class="relative z-10 font-sans text-lg md:text-xl text-[#006064] font-medium leading-relaxed">

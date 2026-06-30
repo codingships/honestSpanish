@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DEFAULT_CLASS_DURATION_MINUTES } from '../../lib/class-duration';
+import { CLASS_DURATION_OPTIONS_MINUTES, DEFAULT_CLASS_DURATION_MINUTES } from '../../lib/class-duration';
 
 interface Student {
     id: string;
@@ -33,7 +33,7 @@ export default function BulkScheduleModal({
     const [startDate, setStartDate] = useState('');
     const [startTime, setStartTime] = useState('10:00');
     const [numberOfClasses, setNumberOfClasses] = useState(8);
-    const [duration] = useState(DEFAULT_CLASS_DURATION_MINUTES);
+    const [duration, setDuration] = useState(DEFAULT_CLASS_DURATION_MINUTES);
 
     // Generated list of dates
     const [scheduledDates, setScheduledDates] = useState<Date[]>([]);
@@ -49,6 +49,7 @@ export default function BulkScheduleModal({
             setStartDate('');
             setStartTime('10:00');
             setNumberOfClasses(8);
+            setDuration(DEFAULT_CLASS_DURATION_MINUTES);
             setScheduledDates([]);
             setError(null);
             setSuccessCount(null);
@@ -225,6 +226,21 @@ export default function BulkScheduleModal({
                                 onChange={(e) => setNumberOfClasses(parseInt(e.target.value) || 0)}
                                 className="w-full p-3 border-2 border-white bg-[#004d40] text-white focus:outline-none focus:border-[#E0F7FA]"
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-mono opacity-80 mb-2">Duracion por clase</label>
+                            <select
+                                value={duration}
+                                onChange={(e) => setDuration(Number(e.target.value))}
+                                className="w-full p-3 border-2 border-white bg-[#004d40] text-white focus:outline-none focus:border-[#E0F7FA]"
+                            >
+                                {CLASS_DURATION_OPTIONS_MINUTES.map((minutes) => (
+                                    <option key={minutes} value={minutes}>
+                                        {minutes} minutos
+                                    </option>
+                                ))}
+                            </select>
                         </div>
 
                         <button

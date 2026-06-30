@@ -24,13 +24,11 @@ vi.mock('../../src/lib/supabase-admin', () => ({
     })),
 }));
 
-vi.mock('../../src/lib/google/calendar', () => ({
-    cancelClassEvent: vi.fn().mockResolvedValue(undefined),
-    checkTeacherAvailability: vi.fn(),
-}));
-
-vi.mock('../../src/lib/email', () => ({
-    sendClassCancelledToBoth: vi.fn().mockResolvedValue(undefined),
+vi.mock('../../src/lib/internal-job-service', () => ({
+    checkTeacherAvailabilityViaInternalService: vi.fn().mockResolvedValue(true),
+    filterSlotsAgainstGoogleViaInternalService: vi.fn().mockResolvedValue([]),
+    isInternalJobServiceConfigured: vi.fn().mockReturnValue(true),
+    triggerFulfillmentProcessing: vi.fn(),
 }));
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -245,5 +243,67 @@ describe('CRIT-02: No module-level supabaseAdmin', () => {
                 );
             }
         }
+    });
+});
+
+describe('Cloudflare runtime boundaries', () => {
+    it('API routes do not import Google SDKs or the fulfillment processor', async () => {
+        const fs = await import('fs');
+        const path = await import('path');
+        const apiDir = 'src/pages/api';
+        const findings: string[] = [];
+
+        const moduleSpecifiersFrom = (source: string) => {
+            const patterns = [
+                /\bimport\s+(?:type\s+)?[\s\S]*?\sfrom\s*['"]([^'"]+)['"]/g,
+                /\bimport\s*['"]([^'"]+)['"]/g,
+                /\bexport\s+(?:type\s+)?[\s\S]*?\sfrom\s*['"]([^'"]+)['"]/g,
+                /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+                /\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+            ];
+
+            return patterns.flatMap((pattern) => Array.from(source.matchAll(pattern), (match) => match[1]));
+        };
+
+        const normalizeModuleSpecifier = (fromFile: string, specifier: string) => {
+            const withoutExtension = (value: string) => value
+                .replace(/\\/g, '/')
+                .replace(/\.(?:[cm]?[jt]sx?)$/, '');
+
+            if (!specifier.startsWith('.')) return withoutExtension(specifier);
+
+            return withoutExtension(path.relative(
+                process.cwd(),
+                path.resolve(path.dirname(fromFile), specifier)
+            ));
+        };
+
+        const isForbiddenApiRuntimeImport = (specifier: string) => {
+            return /(?:^|\/)(?:src\/)?lib\/google(?:\/|$)/.test(specifier)
+                || /(?:^|\/)(?:src\/)?lib\/fulfillment\/jobs(?:\/|$)/.test(specifier);
+        };
+
+        const checkDir = (dir: string) => {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    checkDir(fullPath);
+                    continue;
+                }
+                if (!entry.name.endsWith('.ts')) continue;
+
+                const content = fs.readFileSync(fullPath, 'utf-8');
+                for (const specifier of moduleSpecifiersFrom(content)) {
+                    const normalized = normalizeModuleSpecifier(fullPath, specifier);
+                    if (isForbiddenApiRuntimeImport(normalized)) {
+                        findings.push(`${fullPath} imports forbidden runtime module ${specifier}`);
+                    }
+                }
+            }
+        };
+
+        checkDir(apiDir);
+        expect(findings).toEqual([]);
     });
 });

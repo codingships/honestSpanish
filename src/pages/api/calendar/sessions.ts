@@ -1,8 +1,14 @@
 import type { APIRoute } from 'astro';
 import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
-import { runAfterResponse } from '../../../lib/cloudflare-runtime';
-import { enqueueSessionFulfillment, processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
-import { fulfillSingleSession } from '../../../lib/fulfillment/session-fulfillment';
+import { checkTeacherAvailabilitySlots } from '../../../lib/calendar/availability';
+import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
+import { recordFirstClassScheduledSafe } from '../../../lib/crm/onboarding';
+import { enqueueSessionFulfillment } from '../../../lib/fulfillment/queue';
+import {
+    checkTeacherAvailabilityViaInternalService,
+    isInternalJobServiceConfigured,
+    triggerFulfillmentProcessing,
+} from '../../../lib/internal-job-service';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
@@ -98,6 +104,10 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'studentId and scheduledAt are required' }), { status: 400 });
     }
 
+    if (profile.role === 'admin' && !teacherId) {
+        return new Response(JSON.stringify({ error: 'teacherId is required for admin scheduling' }), { status: 400 });
+    }
+
     const finalTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
 
     // IDOR Protection: verify teacher owns this student
@@ -115,6 +125,28 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Verificar suscripción
+    const { data: targetStudentProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', studentId)
+        .maybeSingle();
+
+    if (targetStudentProfile?.role !== 'student') {
+        return new Response(JSON.stringify({ error: 'studentId must belong to a student profile' }), { status: 400 });
+    }
+
+    if (profile.role === 'admin') {
+        const { data: targetTeacherProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', finalTeacherId)
+            .maybeSingle();
+
+        if (targetTeacherProfile?.role !== 'teacher') {
+            return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+        }
+    }
+
     const { data: subscription } = await supabase
         .from('subscriptions')
         .select('id, sessions_used, sessions_total')
@@ -132,6 +164,7 @@ export const POST: APIRoute = async (context) => {
     // Corrección: Si es null, usamos 0 como valor por defecto
     const sessionsUsed = subscription.sessions_used ?? 0;
     const sessionsTotal = subscription.sessions_total ?? 0;
+    const shouldRecordFirstClass = sessionsUsed === 0;
 
     if (sessionsUsed >= sessionsTotal) {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 400 });
@@ -153,6 +186,16 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Time slot is not available' }), { status: 409 });
     }
 
+    const campusAvailability = await checkTeacherAvailabilitySlots(supabaseAdmin, {
+        teacherId: finalTeacherId,
+        scheduledAts: [scheduledAt],
+        durationMinutes,
+    });
+
+    if (!campusAvailability.ok) {
+        return new Response(JSON.stringify({ error: campusAvailability.error }), { status: campusAvailability.status });
+    }
+
     // Verificar conflictos (Google Calendar Real)
     // Extraemos el email del profesor para consultarlo en Calendar
     const { data: teacherProfile } = await supabase
@@ -162,11 +205,19 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (!externalIntegrationsDisabled && teacherProfile && teacherProfile.email) {
-        // Necesitamos importar checkTeacherAvailability al inicio del archivo
-        const { checkTeacherAvailability } = await import('../../../lib/google/calendar');
+        if (!isInternalJobServiceConfigured(context)) {
+            return new Response(JSON.stringify({
+                error: 'Calendar availability service is not configured'
+            }), { status: 503 });
+        }
+
         let isFree = false;
         try {
-            isFree = await checkTeacherAvailability(teacherProfile.email, scheduledDate, endTime);
+            isFree = await checkTeacherAvailabilityViaInternalService(context, {
+                teacherEmail: teacherProfile.email,
+                startTime: scheduledDate.toISOString(),
+                endTime: endTime.toISOString(),
+            });
         } catch (availabilityError) {
             console.error('[Sessions] Availability check failed:', availabilityError);
             return new Response(JSON.stringify({
@@ -228,6 +279,40 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 409 });
     }
 
+    await recordCrmActivityForProfileSafe(supabaseAdmin, {
+        profileId: session.student_id,
+        email: session.student?.email ?? null,
+        fullName: session.student?.full_name ?? null,
+        actorId: user.id,
+        lifecycleStage: 'customer',
+        source: 'calendar',
+        activityType: 'class',
+        subject: 'Clase programada',
+        body: session.teacher?.full_name || session.teacher?.email || null,
+        occurredAt: session.scheduled_at,
+        relatedEntityType: 'session_scheduled',
+        relatedEntityId: session.id,
+        metadata: {
+            session_id: session.id,
+            teacher_id: session.teacher_id,
+            scheduled_at: session.scheduled_at,
+            duration_minutes: session.duration_minutes,
+            status: session.status,
+        },
+    });
+
+    if (shouldRecordFirstClass) {
+        await recordFirstClassScheduledSafe(supabaseAdmin, {
+            profileId: session.student_id,
+            email: session.student?.email ?? null,
+            fullName: session.student?.full_name ?? null,
+            subscriptionId: subscription.id,
+            sessionId: session.id,
+            teacherId: session.teacher_id,
+            scheduledAt: session.scheduled_at,
+        });
+    }
+
     let fulfillment: 'queued' | 'fallback' | 'skipped' = 'skipped';
     if (!externalIntegrationsDisabled) {
         const fulfillmentQueued = await enqueueSessionFulfillment(supabaseAdmin, session, {
@@ -235,13 +320,10 @@ export const POST: APIRoute = async (context) => {
             sendEmail: true,
         });
 
-        fulfillment = fulfillmentQueued ? 'queued' : 'fallback';
-        runAfterResponse(
-            context,
-            fulfillmentQueued
-                ? processDueFulfillmentJobs({ limit: 3, supabaseAdmin })
-                : fulfillSingleSession(supabaseAdmin, session.id, { autoCreateMeeting, sendEmail: true })
-        );
+        fulfillment = fulfillmentQueued ? 'queued' : 'skipped';
+        if (fulfillmentQueued) {
+            triggerFulfillmentProcessing(context, 3);
+        }
     }
 
     return new Response(JSON.stringify({

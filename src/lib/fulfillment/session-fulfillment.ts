@@ -3,6 +3,7 @@ import { createClassEvent } from '../google/calendar';
 import { createClassDocument, getFileLink } from '../google/drive';
 import { getPrivateProfiles } from '../profiles-private';
 import { sendClassConfirmation } from '../email';
+import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
 import { DEFAULT_CLASS_DURATION_MINUTES } from '../class-duration';
 import type { Database } from '../../types/database.types';
 
@@ -18,6 +19,7 @@ type SessionWithJoins = Database['public']['Tables']['sessions']['Row'] & {
 };
 
 type ProcessedClass = {
+    session: SessionWithJoins;
     date: Date;
     meetLink?: string | null;
     documentLink?: string | null;
@@ -188,6 +190,7 @@ async function createArtifactsForSession(
     }
 
     return {
+        session,
         date: new Date(session.scheduled_at),
         meetLink,
         documentLink,
@@ -230,19 +233,40 @@ export async function fulfillSingleSession(
         throw new Error(`Session ${session.id} is missing student or teacher email`);
     }
 
+    const classDetails = {
+        date: formatClassDate(processedClass.date),
+        time: formatClassTime(processedClass.date),
+        duration: session.duration_minutes || DEFAULT_CLASS_DURATION_MINUTES,
+        meetLink: processedClass.meetLink,
+        documentLink: processedClass.documentLink,
+    };
+
     await sendConfirmationOrThrow(
         student.email,
         student.full_name || student.email.split('@')[0] || 'Estudiante',
         teacher.email,
         teacher.full_name || 'Profesor',
-        {
-            date: formatClassDate(processedClass.date),
-            time: formatClassTime(processedClass.date),
-            duration: session.duration_minutes || DEFAULT_CLASS_DURATION_MINUTES,
-            meetLink: processedClass.meetLink,
-            documentLink: processedClass.documentLink,
-        }
+        classDetails
     );
+
+    await recordClassEmailOutInCrmSafe(supabaseAdmin, {
+        template: 'class_confirmation',
+        sessionId: session.id,
+        studentId: student.id || session.student_id,
+        studentEmail: student.email,
+        studentName: student.full_name,
+        teacherId: teacher.id || session.teacher_id,
+        teacherEmail: teacher.email,
+        teacherName: teacher.full_name,
+        subscriptionId: session.subscription_id,
+        scheduledAt: session.scheduled_at,
+        durationMinutes: classDetails.duration,
+        dateLabel: classDetails.date,
+        timeLabel: classDetails.time,
+        meetLink: classDetails.meetLink,
+        documentLink: classDetails.documentLink,
+        source: 'session_fulfillment',
+    });
 }
 
 export async function fulfillSessionBatch(
@@ -286,17 +310,43 @@ export async function fulfillSessionBatch(
     }
 
     const firstClass = processedClasses.sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+    const classDetails = {
+        date: `${formatClassDate(firstClass.date)} (+ ${processedClasses.length - 1} clases agendadas)`,
+        time: formatClassTime(firstClass.date),
+        duration: firstSession.duration_minutes || DEFAULT_CLASS_DURATION_MINUTES,
+        meetLink: firstClass.meetLink,
+        documentLink: firstClass.documentLink,
+    };
+
     await sendConfirmationOrThrow(
         student.email,
         student.full_name || student.email.split('@')[0] || 'Estudiante',
         teacher.email,
         teacher.full_name || 'Profesor',
-        {
-            date: `${formatClassDate(firstClass.date)} (+ ${processedClasses.length - 1} clases agendadas)`,
-            time: formatClassTime(firstClass.date),
-            duration: firstSession.duration_minutes || DEFAULT_CLASS_DURATION_MINUTES,
-            meetLink: firstClass.meetLink,
-            documentLink: firstClass.documentLink,
-        }
+        classDetails
     );
+
+    const batchSessionIds = processedClasses.map((processedClass) => processedClass.session.id);
+    await Promise.all(processedClasses.map((processedClass) => recordClassEmailOutInCrmSafe(supabaseAdmin, {
+        template: 'class_confirmation',
+        sessionId: processedClass.session.id,
+        studentId: student.id || processedClass.session.student_id,
+        studentEmail: student.email,
+        studentName: student.full_name,
+        teacherId: teacher.id || processedClass.session.teacher_id,
+        teacherEmail: teacher.email,
+        teacherName: teacher.full_name,
+        subscriptionId: processedClass.session.subscription_id,
+        scheduledAt: processedClass.session.scheduled_at,
+        durationMinutes: processedClass.session.duration_minutes || DEFAULT_CLASS_DURATION_MINUTES,
+        dateLabel: formatClassDate(processedClass.date),
+        timeLabel: formatClassTime(processedClass.date),
+        meetLink: processedClass.meetLink,
+        documentLink: processedClass.documentLink,
+        source: 'bulk_session_fulfillment',
+        extraMetadata: {
+            batch_size: processedClasses.length,
+            batch_session_ids: batchSessionIds,
+        },
+    })));
 }

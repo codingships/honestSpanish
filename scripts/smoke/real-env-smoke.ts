@@ -802,7 +802,7 @@ async function runSchedulingLifecycleSmoke(options: {
     result.driveFolderUrl = studentDriveState?.driveFolderUrl ?? null;
 
     const schedulingSubscription = await createSchedulingSubscription(options.student.id, options.activePackage);
-    const scheduledCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 55);
+    const scheduledCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 50);
     const slot = scheduledCandidate.slot;
     result.slotIso = slot.toISOString();
     result.initialScheduleStatus = scheduledCandidate.response.status;
@@ -825,7 +825,7 @@ async function runSchedulingLifecycleSmoke(options: {
         body: {
             studentId: options.student.id,
             scheduledAt: slot.toISOString(),
-            durationMinutes: 55,
+            durationMinutes: 50,
             autoCreateMeeting: true,
         },
     });
@@ -861,7 +861,7 @@ async function runSchedulingLifecycleSmoke(options: {
         body: {
             studentId: options.student.id,
             scheduledAt: slot.toISOString(),
-            durationMinutes: 55,
+            durationMinutes: 50,
             autoCreateMeeting: true,
         },
     });
@@ -875,7 +875,7 @@ async function runSchedulingLifecycleSmoke(options: {
     result.rebookCalendarEventId = rebookSession?.calendar_event_id ?? null;
     result.usageAfterRebook = await getSubscriptionUsage(schedulingSubscription.id);
 
-    const completeCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 55);
+    const completeCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 50);
     const completedSessionId = extractSessionId(completeCandidate.response.body);
     result.completedSessionId = completedSessionId;
     const completedScheduledSession = completedSessionId
@@ -911,7 +911,7 @@ async function runSchedulingLifecycleSmoke(options: {
     result.completedNotesStored = completedSession?.teacher_notes === `Smoke completion notes ${options.suffix}`;
     result.usageAfterComplete = await getSubscriptionUsage(schedulingSubscription.id);
 
-    const noShowCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 55);
+    const noShowCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 50);
     const noShowSessionId = extractSessionId(noShowCandidate.response.body);
     result.noShowSessionId = noShowSessionId;
     const noShowScheduledSession = noShowSessionId
@@ -1759,7 +1759,7 @@ async function createReminderSession(options: {
                 teacher_id: options.teacherId,
                 subscription_id: options.subscriptionId,
                 scheduled_at: scheduledAt,
-                duration_minutes: 55,
+                duration_minutes: 50,
                 status: 'scheduled',
                 reminder_sent: false,
             })

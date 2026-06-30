@@ -1,17 +1,49 @@
 import type { APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
 import { getPrivateProfile, upsertPrivateProfile } from '../../lib/profiles-private';
+import { readRuntimeEnv } from '../../lib/runtime-env';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
 import { getSiteUrl } from '../../lib/site-url';
 
+const supportedCheckoutLangs = new Set(['es', 'en', 'ru']);
+
+function normalizeCheckoutLang(value: unknown): 'es' | 'en' | 'ru' {
+    return typeof value === 'string' && supportedCheckoutLangs.has(value)
+        ? value as 'es' | 'en' | 'ru'
+        : 'es';
+}
+
+function isStripePriceId(value: unknown): value is string {
+    return typeof value === 'string' && /^price_[A-Za-z0-9_]+$/.test(value);
+}
+
+function isCheckoutEnabled(context: Parameters<APIRoute>[0]): boolean {
+    return readRuntimeEnv('CHECKOUT_ENABLED', context)?.trim().toLowerCase() === 'true';
+}
+
 export const POST: APIRoute = async (context) => {
     try {
+        if (!isCheckoutEnabled(context)) {
+            return new Response(JSON.stringify({ error: 'Checkout is disabled' }), {
+                status: 403,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         // Parse request body
         const body = await context.request.json();
-        const { priceId, lang = 'es' } = body;
+        const { priceId } = body;
+        const lang = normalizeCheckoutLang(body.lang);
 
         if (!priceId) {
             return new Response(JSON.stringify({ error: 'priceId is required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        if (!isStripePriceId(priceId)) {
+            return new Response(JSON.stringify({ error: 'Invalid price ID' }), {
                 status: 400,
                 headers: { 'Content-Type': 'application/json' },
             });
@@ -57,12 +89,23 @@ export const POST: APIRoute = async (context) => {
         }
 
         // Validate priceId belongs to an active package in our system
-        const { data: validPackage } = await supabase
+        const { data: activePackages, error: packagesError } = await supabase
             .from('packages')
-            .select('id')
-            .or(`stripe_price_1m.eq.${priceId},stripe_price_3m.eq.${priceId},stripe_price_6m.eq.${priceId}`)
-            .eq('is_active', true)
-            .maybeSingle();
+            .select('id, stripe_price_1m, stripe_price_3m, stripe_price_6m')
+            .eq('is_active', true);
+
+        if (packagesError) {
+            return new Response(JSON.stringify({ error: 'Internal server error' }), {
+                status: 500,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const validPackage = activePackages?.find((pkg) => (
+            pkg.stripe_price_1m === priceId ||
+            pkg.stripe_price_3m === priceId ||
+            pkg.stripe_price_6m === priceId
+        ));
 
         if (!validPackage) {
             return new Response(JSON.stringify({ error: 'Invalid price ID' }), {

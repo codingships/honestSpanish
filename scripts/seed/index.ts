@@ -96,10 +96,13 @@ async function createSubscriptionsAndSessions(studentIds: string[], teacherIds: 
         return;
     }
 
-    const essentialPack = packages.find(p => p.name === 'essential');
+    const preferredPackageNames = ['standard', 'hybrid', 'group', 'bootcamp'];
+    const selectedPack = preferredPackageNames
+        .map((name) => packages.find(p => p.name === name))
+        .find(Boolean);
 
-    if (!essentialPack) {
-        console.error('❌ No se encontró el paquete "essential".');
+    if (!selectedPack) {
+        console.error('❌ No se encontró ningún paquete actual para seed (standard, hybrid, group, bootcamp).');
         return;
     }
 
@@ -119,12 +122,12 @@ async function createSubscriptionsAndSessions(studentIds: string[], teacherIds: 
     if (!existingSubs || existingSubs.length === 0) {
         const { data: sub } = await supabase.from('subscriptions').insert({
             student_id: studentIds[0],
-            package_id: essentialPack.id,
+            package_id: selectedPack.id,
             status: 'active',
             duration_months: 1,
             starts_at: today.toISOString().split('T')[0],
             ends_at: nextMonth.toISOString().split('T')[0],
-            sessions_total: essentialPack.sessions_per_month,
+            sessions_total: selectedPack.sessions_per_month,
             sessions_used: 1 // 1 consumed
         }).select('id').single();
 
@@ -156,7 +159,7 @@ async function createSubscriptionsAndSessions(studentIds: string[], teacherIds: 
             student_id: studentIds[0],
             teacher_id: teacherIds[0],
             scheduled_at: yesterday.toISOString(),
-            duration_minutes: 60,
+            duration_minutes: 50,
             status: 'completed'
         });
 
@@ -169,7 +172,7 @@ async function createSubscriptionsAndSessions(studentIds: string[], teacherIds: 
             student_id: studentIds[0],
             teacher_id: teacherIds[0],
             scheduled_at: tomorrow.toISOString(),
-            duration_minutes: 60,
+            duration_minutes: 50,
             status: 'scheduled'
         });
 

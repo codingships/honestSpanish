@@ -1,0 +1,192 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import SegmentLandingPage from '../../components/landing/SegmentLandingPage.astro';
+import { getLandingPageData } from '../../lib/landing-data';
+
+const lang = 'es';
+const { packages, isLoggedIn } = await getLandingPageData(Astro);
+
+const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: 'Clases de conversación en español online | Español Honesto',
+    description: 'Clases de conversación en español para adultos A2/B1+ que entienden bastante, pero necesitan soltura, corrección y conversación real.',
+    inLanguage: 'es-ES',
+};
+
+const answers = {
+    title: 'Respuestas rápidas',
+    intro: 'Lo esencial si entiendes español, pero te bloqueas al hablar.',
+    items: [
+        {
+            question: '¿Qué son las clases de conversación en español de Español Honesto?',
+            answer: 'Son clases online para adultos que ya entienden algo de español y necesitan pasar de responder con frases cortas a participar en conversaciones reales. Trabajamos soltura, corrección, vocabulario activo, escucha y criterio cultural desde un nivel aproximado A2/B1 o superior.',
+        },
+        {
+            question: '¿Para qué nivel encajan?',
+            answer: 'Encajan sobre todo con alumnos A2, B1 y B2 que entienden más de lo que pueden decir. Si todavía no sabes tu nivel exacto, la solicitud de plaza recoge nivel aproximado y objetivos para decidir si conviene conversación, base gramatical o una prueba ligera.',
+        },
+        {
+            question: '¿Se corrigen errores o sólo se habla?',
+            answer: 'Se habla con intención y se corrige con criterio. No cortamos cada frase para perseguir perfección, pero sí registramos errores frecuentes, alternativas naturales, vocabulario útil y tareas para que la conversación deje aprendizaje visible.',
+        },
+        {
+            question: '¿Hay conversación grupal?',
+            answer: 'Puede haber conversación grupal cuando existen alumnos compatibles por nivel, ritmo e intereses. No vendemos grupos garantizados ni mezclamos alumnos al azar: primero revisamos encaje y después proponemos el formato.',
+        },
+        {
+            question: '¿Cómo se solicita plaza?',
+            answer: 'Primero cuentas tu nivel aproximado, objetivos, disponibilidad y plan de interés. Después revisamos si hay encaje, si conviene clase privada, grupo compatible cuando exista o una prueba automática ligera para aclarar necesidades.',
+        },
+    ],
+};
+
+const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: answers.items.map((item) => ({
+        '@type': 'Question',
+        name: item.question,
+        acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+        },
+    })),
+};
+
+const pricingTranslations = {
+    title: 'Planes',
+    subtitle: 'Conversación con seguimiento, no charla suelta.',
+    headers: {
+        name: 'Plan',
+        price: 'Precio',
+        includes: 'Incluye',
+        action: 'Acción',
+    },
+    month: '/mes',
+    select: 'Solicitar plaza',
+    recommended: 'Recomendado',
+    plans: {
+        group: { name: 'Grupo compatible', description: 'Conversación guiada con otros alumnos cuando haya grupo adecuado.', features: [] },
+        standard: { name: 'Conversación mensual', description: 'Clase privada semanal para ganar soltura y corregir patrones.', features: [] },
+        hybrid: { name: 'Híbrido conversación', description: 'Privadas, grupo compatible y seguimiento con dos profesores.', features: [] },
+        bootcamp: { name: 'Intensivo conversación', description: 'Ritmo intensivo para desbloquear habla en poco tiempo.', features: [] },
+    },
+    modal: {
+        title: 'Elige duración',
+        duration1: '1 mes',
+        duration3: '3 meses',
+        duration6: '6 meses',
+        save: 'Ahorras',
+        total: 'Total',
+        perMonth: 'al mes',
+        continue: 'Continuar',
+        login: 'Inicia sesión para continuar',
+        loading: 'Procesando...',
+        error: 'No se pudo continuar.',
+        close: 'Cerrar',
+        contact: 'Contactar',
+        contactMessage: 'Antes de pagar confirmamos encaje, nivel y disponibilidad.',
+    },
+};
+---
+
+<BaseLayout
+    title="Clases de conversación en español online | Español Honesto"
+    description="Clases de conversación en español online para adultos A2/B1+ que quieren hablar con más soltura, corrección y criterio cultural."
+    lang={lang}
+    canonicalPath="/clases-de-conversacion-en-espanol"
+    alternateLangs={['es']}
+>
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)} />
+    <script is:inline type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+
+    <SegmentLandingPage
+        lang={lang}
+        navLabel="/ Conversación"
+        packages={packages}
+        isLoggedIn={isLoggedIn}
+        pricingTranslations={pricingTranslations}
+        hero={{
+            headline1: 'HABLAR',
+            headline2: 'SIN',
+            headline3: 'CONGELARTE',
+            manifesto: 'Conversación, corrección y criterio',
+            subtitle: 'Clases de conversación en español para adultos que entienden bastante, pero necesitan participar con más soltura en conversaciones reales.',
+            ready: '¿Quieres dejar de quedarte fuera de la conversación?',
+            ctaText: 'SOLICITAR PLAZA',
+        }}
+        problems={{
+            headline: 'ENTENDER NO ES LO MISMO QUE PARTICIPAR',
+            subtext: 'El bloqueo aparece justo cuando la conversación se vuelve real.',
+            statements: [
+                'Lees y escuchas bastante, pero al hablar vuelves siempre a las mismas frases.',
+                'En conversaciones rápidas entiendes la idea, pero llegas tarde para responder.',
+                'Te falta vocabulario activo, recursos para ganar tiempo y seguridad para equivocarte sin desaparecer.',
+                'No necesitas charla suelta: necesitas conversación guiada, corrección útil y continuidad.',
+            ],
+        }}
+        method={{
+            headline: 'Conversar con estructura',
+            manifesto: 'A2/B1+ • SOLTURA • ERRORES • MATICES',
+            closing: 'No prometemos fluidez mágica. Convertimos cada conversación en material de trabajo.',
+            subtitle: 'Cada clase combina tema real, corrección seleccionada y seguimiento para que hablar deje de ser improvisar a ciegas.',
+            columns: [
+                { number: '01', title: 'Tema real', description: 'Hablamos de vida diaria, ciudad, trabajo, cultura, relaciones, trámites o intereses propios.' },
+                { number: '02', title: 'Corrección útil', description: 'Detectamos patrones, frases comodín, errores repetidos y alternativas más naturales.' },
+                { number: '03', title: 'Transferencia', description: 'Sales con vocabulario activo, mini tareas y estrategias para usar el español fuera de clase.' },
+            ],
+        }}
+        fit={{
+            title: 'Para quién encaja',
+            intro: 'Esta ruta está pensada para adultos con base que quieren hablar mejor, no empezar desde cero ni comprar conversación vacía.',
+            items: [
+                'Alumnos A2/B1+ que entienden bastante, pero se bloquean al responder.',
+                'Adultos +30 que quieren conversación adulta, cultura y criterio.',
+                'Personas que quieren corregir errores frecuentes sin perder naturalidad.',
+                'Estudiantes que necesitan una rutina para pasar de español pasivo a español usable.',
+            ],
+        }}
+        community={{
+            title: 'Conversación con otras personas, cuando tiene sentido',
+            body: 'La conversación grupal puede ayudar mucho, pero sólo si el grupo tiene compatibilidad real.',
+            notes: [
+                'No usamos grupos como relleno ni como versión barata de una clase privada.',
+                'Primero revisamos nivel, intereses y ritmo; después vemos si encajas con un grupo o si conviene clase privada.',
+                'La comunidad es una dirección del proyecto: se construye con buenos emparejamientos, no con promesas vacías.',
+            ],
+        }}
+        contexts={{
+            title: 'Lo que se practica en conversación',
+            intro: 'La conversación no se reduce a hablar por hablar. Usamos situaciones que obligan a elegir registro, explicar, matizar y reaccionar.',
+            items: [
+                {
+                    label: 'Small talk',
+                    title: 'Entrar y salir de conversaciones cotidianas',
+                    body: 'Practicamos cómo empezar, sostener y cerrar conversaciones sobre planes, clima, ciudad, familia, trabajo o fin de semana sin quedarte en respuestas mínimas.',
+                },
+                {
+                    label: 'Opinión',
+                    title: 'Decir algo propio sin sonar brusco',
+                    body: 'Trabajamos acuerdo, desacuerdo, matices, dudas y ejemplos para que puedas participar sin traducir literalmente desde tu idioma.',
+                },
+                {
+                    label: 'Reparación',
+                    title: 'Seguir hablando cuando falta una palabra',
+                    body: 'Entrenas circunloquios, reformulaciones, preguntas de aclaración y estrategias para no abandonar la conversación cuando aparece un hueco.',
+                },
+                {
+                    label: 'Cultura',
+                    title: 'Entender referencias y ritmo social',
+                    body: 'Usamos temas de España, ciudad, trabajo, humor y vida diaria para que la conversación tenga contexto y no sea sólo gramática disfrazada.',
+                },
+            ],
+        }}
+        answers={answers}
+        lead={{
+            title: 'SOLICITA PLAZA',
+            subtitle: 'Cuéntanos tu nivel, dónde te bloqueas y qué conversaciones quieres poder sostener.',
+            interest: 'Conversación en español',
+        }}
+    />
+</BaseLayout>

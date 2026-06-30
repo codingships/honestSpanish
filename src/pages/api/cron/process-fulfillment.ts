@@ -1,10 +1,10 @@
 import type { APIRoute } from 'astro';
-import { processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
+import { processFulfillmentJobs } from '../../../lib/internal-job-service';
 import { readRuntimeEnv } from '../../../lib/runtime-env';
 
-export const POST: APIRoute = async ({ request }) => {
-    const authHeader = request.headers.get('Authorization');
-    const expectedToken = readRuntimeEnv('CRON_SECRET');
+export const POST: APIRoute = async (context) => {
+    const authHeader = context.request.headers.get('Authorization');
+    const expectedToken = readRuntimeEnv('CRON_SECRET', context);
 
     if (!expectedToken || authHeader !== `Bearer ${expectedToken}`) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -13,7 +13,7 @@ export const POST: APIRoute = async ({ request }) => {
         });
     }
 
-    const result = await processDueFulfillmentJobs({ limit: 20 });
+    const result = await processFulfillmentJobs(context, 20);
 
     return new Response(JSON.stringify(result), {
         status: 200,

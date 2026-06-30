@@ -10,13 +10,13 @@ This project uses three testing layers: unit tests (Vitest), E2E tests (Playwrig
 
 ```bash
 # Run all unit tests
-npm run test:unit
+pnpm test:run
 
 # Run with coverage
-npm run test:coverage
+pnpm test:coverage
 
 # Run specific file
-npx vitest run tests/api/create-checkout.test.ts
+pnpm exec vitest run tests/api/create-checkout.test.ts
 ```
 
 ### Writing Unit Tests
@@ -37,16 +37,16 @@ describe('FeatureName', () => {
 
 ```bash
 # Run all E2E tests
-npm run test:e2e
+pnpm test:e2e
 
 # Run specific role tests
-npm run test:e2e -- --grep "student"
+pnpm test:e2e -- --grep "student"
 
 # Run in UI mode
-npx playwright test --ui
+pnpm exec playwright test --ui
 
 # Run headed (visible browser)
-npx playwright test --headed
+pnpm exec playwright test --headed
 ```
 
 ### E2E Test Structure
@@ -66,7 +66,7 @@ Edit `tests/e2e/*.setup.ts` for auth state.
 
 ```bash
 # Run load tests
-npm run test:load
+pnpm test:load
 
 # Run specific scenario
 k6 run tests/load/api-load.js
@@ -75,10 +75,10 @@ k6 run tests/load/api-load.js
 ## Pre-PR Checklist
 
 // turbo-all
-1. `npm run lint`
-2. `npm run typecheck`
-3. `npm run test:unit`
-4. `npm run test:e2e`
+1. `pnpm lint`
+2. `pnpm typecheck`
+3. `pnpm test:run`
+4. `pnpm test:e2e`
 
 ## Skill References
 

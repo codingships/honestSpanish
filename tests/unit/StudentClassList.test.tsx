@@ -41,7 +41,7 @@ const mockTranslations = {
 const makeSession = (overrides: Record<string, unknown> = {}) => ({
     id: `session-${Math.random().toString(36).slice(2)}`,
     scheduled_at: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
-    duration_minutes: 60,
+    duration_minutes: 50,
     status: 'scheduled',
     meet_link: 'https://meet.google.com/abc-def',
     drive_doc_url: null as string | null,
@@ -299,9 +299,27 @@ describe('StudentClassList — canJoin logic', () => {
         expect(screen.queryByText(mockTranslations.joinClass)).toBeNull();
     });
 
-    it('hides join button when session ended 61 min ago', () => {
+    it('keeps join button available when a 50 min session is overrunning', () => {
         const session = makeSession({
-            scheduled_at: new Date(Date.now() - 61 * 60 * 1000).toISOString(),
+            scheduled_at: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+            status: 'scheduled',
+            meet_link: 'https://meet.google.com/test',
+        });
+        render(
+            <StudentClassList
+                upcomingSessions={[session]}
+                pastSessions={[]}
+                lang="es"
+                translations={mockTranslations}
+            />
+        );
+        expect(screen.getByText(mockTranslations.joinClass)).toBeDefined();
+    });
+
+    it('hides join button after the duration plus overrun window has passed', () => {
+        const session = makeSession({
+            scheduled_at: new Date(Date.now() - 171 * 60 * 1000).toISOString(),
+            duration_minutes: 50,
             status: 'scheduled',
             meet_link: 'https://meet.google.com/test',
         });

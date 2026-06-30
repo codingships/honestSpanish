@@ -22,7 +22,7 @@ const { headline, manifesto, closing, subtitle, columns } = Astro.props;
             <h2 class="font-display text-4xl lg:text-5xl text-white mb-6 leading-tight">{headline}</h2>
 
             <div class="max-w-md mb-12">
-                <p class="text-[#E0F7FA]/70 font-mono text-sm md:text-base uppercase tracking-wide mb-4">{manifesto}</p>
+                <p class="text-[#E0F7FA] font-mono text-sm md:text-base uppercase tracking-wide mb-4">{manifesto}</p>
                 <p class="font-sans text-lg md:text-xl text-white font-bold leading-tight">{closing}</p>
             </div>
 
@@ -33,7 +33,7 @@ const { headline, manifesto, closing, subtitle, columns } = Astro.props;
         <div class="grid grid-cols-1 md:grid-cols-3 gap-12">
             {columns.map((col) => (
                 <div class="relative">
-                    <span class="font-display text-6xl text-white/20 mb-4 block select-none">
+                    <span aria-hidden="true" class="font-display text-6xl text-white/60 mb-4 block select-none">
                         {col.number}
                     </span>
                     <h3 class="font-display text-xl text-white mb-4 uppercase tracking-wide">{col.title}</h3>

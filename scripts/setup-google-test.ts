@@ -65,10 +65,10 @@ async function run() {
             let { data: pkg } = await supabase.from('packages').select('id').limit(1).single();
             if (!pkg) {
                 const { data: newPkg, error: pkgErr } = await supabase.from('packages').insert({
-                    name: 'essential',
-                    display_name: '{"es": "Esencial", "en": "Essential", "ru": "Базовый"}',
+                    name: 'standard',
+                    display_name: '{"es": "Mensual Estándar", "en": "Standard Monthly", "ru": "Стандартный месяц"}',
                     sessions_per_month: 4,
-                    price_monthly: 16000,
+                    price_monthly: 14500,
                     stripe_price_1m: 'x',
                     stripe_price_3m: 'y',
                     is_active: true
@@ -90,8 +90,8 @@ async function run() {
         }
 
         await supabase.from('sessions').insert([
-            { student_id: student.id, teacher_id: teacher.id, status: 'completed', duration_minutes: 60, scheduled_at: today.toISOString(), subscription_id: sub!.id },
-            { student_id: student.id, teacher_id: teacher.id, status: 'scheduled', duration_minutes: 60, scheduled_at: tomorrow.toISOString(), subscription_id: sub!.id },
+            { student_id: student.id, teacher_id: teacher.id, status: 'completed', duration_minutes: 50, scheduled_at: today.toISOString(), subscription_id: sub!.id },
+            { student_id: student.id, teacher_id: teacher.id, status: 'scheduled', duration_minutes: 50, scheduled_at: tomorrow.toISOString(), subscription_id: sub!.id },
         ]);
 
         const { data: newSessions } = await supabase.from('sessions').select('*').eq('student_id', student.id).eq('teacher_id', teacher.id);

@@ -30,10 +30,10 @@ describe('getLangFromUrl', () => {
 describe('useTranslations', () => {
     it('returns string value for a top-level key', () => {
         const t = useTranslations('es');
-        // nav.brand is "ESPAÑOL HONESTO"
         const result = t('nav.brand');
         expect(typeof result).toBe('string');
         expect(result).not.toBe('nav.brand');
+        expect(result).toBe('ESPAÑOL HONESTO');
     });
 
     it('returns the key itself as fallback for nonexistent key', () => {
@@ -59,6 +59,31 @@ describe('useTranslations', () => {
     it('returns correct value for auth.login', () => {
         const t = useTranslations('es');
         expect(t('auth.login')).toBe('Iniciar sesión');
+    });
+
+    it('does not expose mojibake in critical Spanish campus labels', () => {
+        const t = useTranslations('es');
+        const labels = [
+            t('nav.brand'),
+            t('auth.login'),
+            t('campus.nav.myStudents'),
+            t('campus.teacher.calendar.title'),
+            t('campus.nav.account'),
+            t('campus.nav.logout'),
+        ];
+
+        expect(labels).toEqual([
+            'ESPAÑOL HONESTO',
+            'Iniciar sesión',
+            'Mis estudiantes',
+            'Mi Calendario',
+            'Mi cuenta',
+            'Cerrar sesión',
+        ]);
+
+        for (const label of labels) {
+            expect(label).not.toMatch(/(?:Ã|Â|Ð|ðŸ|â€|â†)/);
+        }
     });
 
     it('works for English locale', () => {

@@ -1,23 +1,21 @@
-export const config = {
-    runtime: 'nodejs'
-};
 import type { APIContext, APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
-import { getPrivateProfile, upsertPrivateProfile } from '../../lib/profiles-private';
+import { recordCrmActivityForProfileSafe } from '../../lib/crm/activity-sync';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
-import { createStudentFolderStructure } from '../../lib/google/student-folder';
-import { sendWelcomeEmail } from '../../lib/email';
-import { getSiteUrl } from '../../lib/site-url';
-import { runAfterResponse } from '../../lib/cloudflare-runtime';
-import { enqueueWelcomeFulfillment, processDueFulfillmentJobs } from '../../lib/fulfillment/jobs';
+import { enqueueWelcomeFulfillment } from '../../lib/fulfillment/queue';
+import { triggerFulfillmentProcessing } from '../../lib/internal-job-service';
 import { readRuntimeEnv } from '../../lib/runtime-env';
 import type Stripe from 'stripe';
 import type { Database } from '../../types/database.types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
+function isStripePriceId(value: unknown): value is string {
+    return typeof value === 'string' && /^price_[A-Za-z0-9_]+$/.test(value);
+}
+
 export const POST: APIRoute = async (context) => {
     const { request } = context;
-    // Lazy init inside handler — avoids module-level env var issues on Cloudflare Workers cold start
+    // Lazy init inside handler to avoid module-level env var issues on Cloudflare Workers cold start.
     const supabaseAdmin = createSupabaseAdminClient();
     const webhookSecret = readRuntimeEnv('STRIPE_WEBHOOK_SECRET');
 
@@ -59,7 +57,7 @@ export const POST: APIRoute = async (context) => {
                 headers: { 'Content-Type': 'application/json' },
             });
         }
-        // Any other DB error: log but continue — better to risk a duplicate than miss a payment
+        // Any other DB error: log but continue; better to risk a duplicate than miss a payment.
         console.error('[Webhook] Error recording event ID:', idempotencyError);
     }
 
@@ -123,26 +121,32 @@ async function handleCheckoutCompleted(
     context: APIContext
 ) {
     // For subscription mode, metadata is on the subscription, not the session
-    const userId = session.metadata?.userId
-        || (session.subscription
-            ? (await stripe.subscriptions.retrieve(session.subscription as string)).metadata?.userId
-            : null);
-    const priceId = session.metadata?.priceId
-        || (session.subscription
-            ? (await stripe.subscriptions.retrieve(session.subscription as string)).metadata?.priceId
-            : null);
+    const stripeSubscription = session.subscription
+        ? await stripe.subscriptions.retrieve(session.subscription as string)
+        : null;
+    const userId = session.metadata?.userId || stripeSubscription?.metadata?.userId;
+    const priceId = session.metadata?.priceId || stripeSubscription?.metadata?.priceId;
 
     if (!userId || !priceId) {
         console.error('[Webhook] Missing metadata in checkout session');
         return;
     }
 
+    if (!isStripePriceId(priceId)) {
+        console.error('[Webhook] Invalid Stripe price ID in checkout session metadata');
+        return;
+    }
+
     // Find the package that matches the priceId
-    const { data: pkg, error: pkgError } = await supabaseAdmin
+    const { data: packages, error: pkgError } = await supabaseAdmin
         .from('packages')
-        .select('*')
-        .or(`stripe_price_1m.eq.${priceId},stripe_price_3m.eq.${priceId},stripe_price_6m.eq.${priceId}`)
-        .single();
+        .select('*');
+
+    const pkg = packages?.find((candidate) => (
+        candidate.stripe_price_1m === priceId ||
+        candidate.stripe_price_3m === priceId ||
+        candidate.stripe_price_6m === priceId
+    ));
 
     if (pkgError || !pkg) {
         console.error('[Webhook] Package not found for priceId:', priceId);
@@ -187,8 +191,10 @@ async function handleCheckoutCompleted(
         return;
     }
 
+    const paymentDescription = `${pkg.name} - ${durationMonths} month(s) - Initial`;
+
     // Create payment record
-    const { error: paymentError } = await supabaseAdmin
+    const { data: payment, error: paymentError } = await supabaseAdmin
         .from('payments')
         .insert({
             student_id: userId,
@@ -198,11 +204,32 @@ async function handleCheckoutCompleted(
             status: 'succeeded',
             stripe_invoice_id: session.invoice as string | null,
             stripe_payment_intent_id: session.payment_intent as string | null,
-            description: `${pkg.name} - ${durationMonths} month(s) - Initial`,
-        });
+            description: paymentDescription,
+        })
+        .select('id')
+        .single();
 
     if (paymentError) {
         console.error('[Webhook] Error creating payment:', paymentError);
+    } else if (payment) {
+        await recordCrmActivityForProfileSafe(supabaseAdmin, {
+            profileId: userId,
+            lifecycleStage: 'customer',
+            source: 'stripe',
+            activityType: 'payment',
+            subject: 'Pago inicial recibido',
+            body: paymentDescription,
+            relatedEntityType: 'payment',
+            relatedEntityId: payment.id,
+            metadata: {
+                status: 'succeeded',
+                amount: session.amount_total ?? 0,
+                currency: session.currency ?? 'eur',
+                subscription_id: subscription.id,
+                stripe_invoice_id: session.invoice as string | null,
+                stripe_payment_intent_id: session.payment_intent as string | null,
+            },
+        });
     }
 
     // Save Stripe subscription ID in our subscription record for future reference
@@ -215,18 +242,18 @@ async function handleCheckoutCompleted(
 
     console.log(`[Webhook] Successfully processed initial payment for user ${userId}, subscription ${subscription.id}`);
 
-    // Create Google Drive folder structure and welcome email through the persistent job queue.
     const fulfillmentQueued = await enqueueWelcomeFulfillment(supabaseAdmin, {
         userId,
         packageId: pkg.id,
+        subscriptionId: subscription.id,
     });
 
-    runAfterResponse(
-        context,
-        fulfillmentQueued
-            ? processDueFulfillmentJobs({ limit: 5, supabaseAdmin })
-            : createDriveFolderForStudent(supabaseAdmin, userId, pkg)
-    );
+    if (!fulfillmentQueued) {
+        console.error('[Webhook] Welcome fulfillment could not be queued');
+        return;
+    }
+
+    triggerFulfillmentProcessing(context, 5);
 }
 
 // ============================================
@@ -301,8 +328,10 @@ async function handleInvoicePaid(supabaseAdmin: SupabaseClient<Database>, invoic
         console.error('[Webhook] Error extending subscription:', updateError);
     }
 
+    const paymentDescription = `${renewalMonths}-month renewal`;
+
     // Record the payment
-    const { error: paymentError } = await supabaseAdmin
+    const { data: payment, error: paymentError } = await supabaseAdmin
         .from('payments')
         .insert({
             student_id: userId,
@@ -313,11 +342,35 @@ async function handleInvoicePaid(supabaseAdmin: SupabaseClient<Database>, invoic
             stripe_invoice_id: invoice.id,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
-            description: `${renewalMonths}-month renewal`,
-        });
+            description: paymentDescription,
+        })
+        .select('id')
+        .single();
 
     if (paymentError) {
         console.error('[Webhook] Error creating renewal payment:', paymentError);
+    } else if (payment) {
+        await recordCrmActivityForProfileSafe(supabaseAdmin, {
+            profileId: userId,
+            lifecycleStage: 'customer',
+            source: 'stripe',
+            activityType: 'payment',
+            subject: 'Renovacion pagada',
+            body: paymentDescription,
+            relatedEntityType: 'payment',
+            relatedEntityId: payment.id,
+            metadata: {
+                status: 'succeeded',
+                amount: invoice.amount_paid ?? 0,
+                currency: invoice.currency ?? 'eur',
+                subscription_id: subscription.id,
+                stripe_invoice_id: invoice.id,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
+                renewal_months: renewalMonths,
+                additional_sessions: additionalSessions,
+            },
+        });
     }
 
     console.log(`[Webhook] Renewal processed for user ${userId}: +${additionalSessions} sessions for ${renewalMonths} month(s), extended to ${newEndsAt.toISOString().split('T')[0]}`);
@@ -369,7 +422,9 @@ async function handleInvoicePaymentFailed(supabaseAdmin: SupabaseClient<Database
         console.error('[Webhook] Error pausing subscription after failed payment:', updateError);
     }
 
-    const { error: paymentError } = await supabaseAdmin
+    const paymentDescription = `${failureMonths}-month payment failed`;
+
+    const { data: payment, error: paymentError } = await supabaseAdmin
         .from('payments')
         .insert({
             student_id: userId,
@@ -380,11 +435,34 @@ async function handleInvoicePaymentFailed(supabaseAdmin: SupabaseClient<Database
             stripe_invoice_id: invoice.id,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
-            description: `${failureMonths}-month payment failed`,
-        });
+            description: paymentDescription,
+        })
+        .select('id')
+        .single();
 
     if (paymentError) {
         console.error('[Webhook] Error recording failed payment:', paymentError);
+    } else if (payment) {
+        await recordCrmActivityForProfileSafe(supabaseAdmin, {
+            profileId: userId,
+            lifecycleStage: 'customer',
+            source: 'stripe',
+            activityType: 'payment',
+            subject: 'Pago fallido',
+            body: paymentDescription,
+            relatedEntityType: 'payment',
+            relatedEntityId: payment.id,
+            metadata: {
+                status: 'failed',
+                amount: invoice.amount_due ?? invoice.amount_remaining ?? invoice.total ?? 0,
+                currency: invoice.currency ?? 'eur',
+                subscription_id: subscription.id,
+                stripe_invoice_id: invoice.id,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                stripe_payment_intent_id: (invoice as any).payment_intent as string | null,
+                failure_months: failureMonths,
+            },
+        });
     }
 
     console.log(`[Webhook] Payment failed for user ${userId}; subscription ${subscription.id} paused`);
@@ -538,105 +616,5 @@ function mapStripeSubscriptionStatus(
             return 'pending';
         default:
             return null;
-    }
-}
-
-// ============================================
-// Create Drive folder + send welcome email
-// ============================================
-async function createDriveFolderForStudent(
-    supabaseAdmin: SupabaseClient<Database>,
-    userId: string,
-    pkg: Database['public']['Tables']['packages']['Row']
-): Promise<void> {
-    let driveFolderLink: string | null = null;
-    try {
-        // Get student data with assigned teacher
-        const { data: student, error: studentError } = await supabaseAdmin
-            .from('profiles')
-            .select(`
-                id,
-                full_name,
-                email,
-                student_teachers!student_teachers_student_id_fkey(
-                    is_primary,
-                    teacher:profiles!student_teachers_teacher_id_fkey(full_name)
-                )
-            `)
-            .eq('id', userId)
-            .single();
-
-        if (studentError || !student) {
-            console.error('[Webhook] Could not fetch student for folder creation:', studentError);
-            return;
-        }
-
-        const studentPrivate = await getPrivateProfile(userId, supabaseAdmin);
-
-        // Skip if already has folder
-        if (studentPrivate?.drive_folder_id) {
-            console.log(`[Webhook] Student ${userId} already has Drive folder, skipping`);
-            return;
-        }
-
-        // Get primary teacher name
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const teachers = student.student_teachers as unknown as any[];
-
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const primaryTeacher = teachers?.find((st: any) => st.is_primary);
-        const teacherName = primaryTeacher?.teacher?.full_name || null;
-
-        console.log(`[Webhook] Creating Drive folder for ${student.full_name || student.email}`);
-
-        // Create folder structure (creates all levels: A2, B1, B2, C1)
-        const result = await createStudentFolderStructure({
-            studentName: student.full_name || student.email?.split('@')[0] || 'Estudiante',
-            studentEmail: student.email,
-            teacherName,
-        });
-
-        // Persist the folder ID in the private profile store
-        try {
-            await upsertPrivateProfile(userId, {
-                drive_folder_id: result.rootFolderId,
-                drive_folder_url: result.rootFolderLink,
-                google_account_email: null,
-            }, supabaseAdmin);
-            console.log(`[Webhook] Successfully created Drive folder for student ${userId}: ${result.rootFolderId}`);
-            driveFolderLink = result.rootFolderLink;
-        } catch (updateError) {
-            console.error('[Webhook] Error updating profile with folder ID:', updateError);
-        }
-
-    } catch (error) {
-        // Log error but don't throw - folder creation shouldn't block payment
-        console.error('[Webhook] Error creating Drive folder (non-blocking):',
-            error instanceof Error ? error.message : 'Unknown error');
-    }
-
-    // Send welcome email
-    try {
-        const { data: student } = await supabaseAdmin
-            .from('profiles')
-            .select('full_name, email')
-            .eq('id', userId)
-            .single();
-
-        if (student?.email) {
-            const publicUrl = getSiteUrl('https://espanolhonesto.com');
-
-            const displayNameObj = pkg.display_name as unknown as { es?: string };
-
-            await sendWelcomeEmail(student.email, {
-                studentName: student.full_name || 'Estudiante',
-                packageName: displayNameObj?.es || pkg.name || 'Español',
-                loginUrl: `${publicUrl}/es/login`,
-                driveFolderUrl: driveFolderLink || undefined,
-            });
-        }
-    } catch (error) {
-        console.error('[Webhook] Error sending welcome email (non-blocking):',
-            error instanceof Error ? error.message : 'Unknown error');
     }
 }

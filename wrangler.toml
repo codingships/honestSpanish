@@ -7,3 +7,4 @@ compatibility_flags = ["nodejs_compat"]
 # Las variables sensibles se configuran en el dashboard de Cloudflare
 # Aquí solo van las no sensibles
 NODE_ENV = "production"
+CHECKOUT_ENABLED = "false"

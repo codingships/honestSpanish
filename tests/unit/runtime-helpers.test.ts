@@ -10,15 +10,16 @@ describe('normalizeClassDurationMinutes', () => {
         expect(normalizeClassDurationMinutes(-20)).toBe(DEFAULT_CLASS_DURATION_MINUTES);
     });
 
-    it('accepts numbers and numeric strings', () => {
-        expect(normalizeClassDurationMinutes(55)).toBe(55);
-        expect(normalizeClassDurationMinutes('60')).toBe(60);
-        expect(normalizeClassDurationMinutes(74.6)).toBe(75);
+    it('accepts the supported class durations', () => {
+        expect(normalizeClassDurationMinutes(30)).toBe(30);
+        expect(normalizeClassDurationMinutes('40')).toBe(40);
+        expect(normalizeClassDurationMinutes(50)).toBe(50);
     });
 
-    it('keeps durations inside the supported scheduling bounds', () => {
-        expect(normalizeClassDurationMinutes(5)).toBe(15);
-        expect(normalizeClassDurationMinutes(240)).toBe(180);
+    it('defaults unsupported durations to the launch default', () => {
+        expect(normalizeClassDurationMinutes(55)).toBe(DEFAULT_CLASS_DURATION_MINUTES);
+        expect(normalizeClassDurationMinutes('60')).toBe(DEFAULT_CLASS_DURATION_MINUTES);
+        expect(normalizeClassDurationMinutes(74.6)).toBe(DEFAULT_CLASS_DURATION_MINUTES);
     });
 });
 

@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 1,
+  "updatedAt": "2026-06-05T00:00:00.000Z",
+  "launchDecision": "blocked",
+  "checks": [
+    {
+      "id": "cleanup_agents_decision",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "repo",
+      "summary": "Decision pendiente sobre mantener .agent/ y .agents/ versionados o moverlos fuera del repo.",
+      "evidence": [
+        {
+          "type": "path",
+          "value": "CLEANUP.md",
+          "note": "Propuesta de limpieza."
+        }
+      ]
+    },
+    {
+      "id": "legal_owner_controller",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "production copy",
+      "summary": "Falta completar datos reales de titular/controlador en las paginas legales.",
+      "evidence": [
+        {
+          "type": "path",
+          "value": "LEGAL_INPUTS_REQUIRED.md",
+          "note": "Datos legales requeridos."
+        }
+      ]
+    },
+    {
+      "id": "legal_human_review",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "production copy",
+      "summary": "Falta revision humana de privacidad, cookies, terminos y subprocesadores.",
+      "evidence": [
+        {
+          "type": "path",
+          "value": "LEGAL_INPUTS_REQUIRED.md",
+          "note": "Subprocesadores y validacion pendiente."
+        }
+      ]
+    },
+    {
+      "id": "accessibility_manual",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging",
+      "summary": "Falta revision manual de teclado, foco, screen reader, zoom, mobile real y formularios criticos.",
+      "evidence": [
+        {
+          "type": "manual_note",
+          "value": "Pendiente de ejecutar en staging con dispositivos/navegadores reales.",
+          "note": "No sustituido por axe automatico."
+        }
+      ]
+    },
+    {
+      "id": "security_external",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging and production",
+      "summary": "Falta cerrar baseline RC de RLS real, ubicacion de service role, WAF/Turnstile actual, logs y permisos visibles; rotacion final queda para cierre final.",
+      "evidence": [
+        {
+          "type": "manual_note",
+          "value": "Registrar paneles revisados sin copiar secretos.",
+          "note": "Supabase, Cloudflare, Stripe, Google, Resend y Sentry, sin rotar claves finales ahora."
+        }
+      ]
+    },
+    {
+      "id": "payments_staging",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging",
+      "summary": "Falta compra Stripe test staging, webhook real, subscription/payment, portal y reconciliacion.",
+      "evidence": [
+        {
+          "type": "path",
+          "value": "../../scripts/smoke-checkout.ts",
+          "note": "Smoke disponible para checkout autenticado."
+        }
+      ]
+    },
+    {
+      "id": "operations_external",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging and production",
+      "summary": "Falta verificar baseline RC de Cloudflare Fulfillment Worker staging, fulfillment_jobs, Resend staging, Workers Logs/observability, postura Supabase Free y rollback; cron config/deployment/secret-name evidence queda cubierto por preflight staging.",
+      "evidence": [
+        {
+          "type": "path",
+          "value": "RUNBOOK.md",
+          "note": "Runbook operativo."
+        }
+      ]
+    },
+    {
+      "id": "content_review",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging",
+      "summary": "Falta revision humana de copy ES/EN/RU, precios, emails, estados vacios y errores.",
+      "evidence": [
+        {
+          "type": "manual_note",
+          "value": "Registrar rutas, capturas o documento de aprobacion de copy.",
+          "note": "El audit automatico solo valida estructura."
+        }
+      ]
+    },
+    {
+      "id": "database_readiness",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging and production",
+      "summary": "Falta confirmar separacion Supabase staging/production, asignaciones, suscripcion staging, migraciones production, RLS, postura Free sin backups programados, admin_audit_log y fulfillment_jobs.",
+      "evidence": [
+        {
+          "type": "path",
+          "value": "../../db/schema.sql",
+          "note": "Schema oficial, no prueba externa."
+        }
+      ]
+    },
+    {
+      "id": "integration_readiness",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging and production",
+      "summary": "Falta verificar Stripe live, Google folders/templates, Resend, Turnstile dominios y fulfillment/reminder worker.",
+      "evidence": [
+        {
+          "type": "manual_note",
+          "value": "Registrar paneles, URLs y capturas sin secretos.",
+          "note": "Integraciones externas."
+        }
+      ]
+    },
+    {
+      "id": "seo_llm_final",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "production domain after final copy/legal",
+      "summary": "Falta revision SEO/LLM final con dominio, copy, legal, modo de pagos y decision de tipografia rusa definitivos: Search Console o equivalente, snippets, sitemap, robots, canonical/hreflang, JSON-LD, llms.txt, fuente rusa premium/fallback y exclusion de campus/demo/private/API.",
+      "evidence": [
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-seo/<timestamp>/summary.md",
+          "note": "Apoyo automatico; no sustituye Search Console/Core Web Vitals/revision final."
+        },
+        {
+          "type": "manual_note",
+          "value": "Registrar URLs revisadas, decision de indexacion legal y decision de tipografia rusa premium/fallback sin secretos, fuentes comerciales, facturas ni datos fiscales.",
+          "note": "SEO/LLM final."
+        }
+      ]
+    },
+    {
+      "id": "final_smoke",
+      "status": "pending",
+      "owner": "Alin",
+      "verifiedAt": "2026-06-05T00:00:00.000Z",
+      "environment": "staging then production",
+      "summary": "Falta smoke end-to-end: registro, checkout, webhook, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion y retry.",
+      "evidence": [
+        {
+          "type": "manual_note",
+          "value": "Registrar resultados finales antes de cambiar launchDecision.",
+          "note": "Smoke final."
+        }
+      ]
+    }
+  ]
+}

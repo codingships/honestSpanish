@@ -1,0 +1,18 @@
+# Keep text files normalized across Windows/macOS/Linux.
+* text=auto eol=lf
+
+# Binary assets.
+*.avif binary
+*.gif binary
+*.ico binary
+*.jpeg binary
+*.jpg binary
+*.pdf binary
+*.png binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.mp4 binary
+*.zip binary

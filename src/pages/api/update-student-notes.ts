@@ -2,18 +2,10 @@ import type { APIRoute } from 'astro';
 import { upsertPrivateProfile } from '../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
 
+const MAX_STUDENT_NOTES_LENGTH = 5000;
+
 export const POST: APIRoute = async (context) => {
     try {
-        const body = await context.request.json();
-        const { studentId, notes } = body;
-
-        if (!studentId) {
-            return new Response(JSON.stringify({ error: 'studentId is required' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' },
-            });
-        }
-
         // Get Supabase client and verify user
         const supabase = createSupabaseServerClient(context);
         const { data: { user } } = await supabase.auth.getUser();
@@ -21,6 +13,40 @@ export const POST: APIRoute = async (context) => {
         if (!user) {
             return new Response(JSON.stringify({ error: 'Unauthorized' }), {
                 status: 401,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        let body: Record<string, unknown>;
+        try {
+            body = await context.request.json();
+        } catch {
+            return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const { studentId, notes } = body;
+
+        if (typeof studentId !== 'string' || !studentId.trim()) {
+            return new Response(JSON.stringify({ error: 'studentId is required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        if (notes !== undefined && notes !== null && typeof notes !== 'string') {
+            return new Response(JSON.stringify({ error: 'notes must be a string' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const safeNotes = typeof notes === 'string' ? notes : '';
+        if (safeNotes.length > MAX_STUDENT_NOTES_LENGTH) {
+            return new Response(JSON.stringify({ error: 'notes is too long' }), {
+                status: 400,
                 headers: { 'Content-Type': 'application/json' },
             });
         }
@@ -45,7 +71,7 @@ export const POST: APIRoute = async (context) => {
                 .from('student_teachers')
                 .select('id')
                 .eq('teacher_id', user.id)
-                .eq('student_id', studentId)
+                .eq('student_id', studentId.trim())
                 .single();
 
             if (!assignment) {
@@ -58,7 +84,7 @@ export const POST: APIRoute = async (context) => {
 
         // Update student notes
         try {
-            await upsertPrivateProfile(studentId, { notes: notes || '' });
+            await upsertPrivateProfile(studentId.trim(), { notes: safeNotes });
         } catch (updateError) {
             console.error('Error updating notes:', updateError);
             return new Response(JSON.stringify({ error: 'Failed to update notes' }), {

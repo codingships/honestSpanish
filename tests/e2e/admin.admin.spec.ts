@@ -48,14 +48,16 @@ test.describe('Admin Dashboard', () => {
         await page.waitForLoadState('domcontentloaded');
         await page.waitForTimeout(1000);
 
-        // Look for any clickable student link or row
-        const studentLink = page.locator('a[href*="/admin/students/"], table tr:not(:first-child) a').first();
+        // Look for any clickable student detail link.
+        const studentLink = page.locator('a[href*="/admin/student/"]').first();
         const isVisible = await studentLink.isVisible({ timeout: 5000 }).catch(() => false);
 
         if (isVisible) {
             await studentLink.click();
             await page.waitForLoadState('domcontentloaded');
-            expect(page.url()).toContain('/admin');
+            expect(page.url()).toContain('/admin/student/');
+            await expect(page.getByText('Ficha CRM')).toBeVisible({ timeout: 10000 });
+            await expect(page.getByText('Historial CRM unificado')).toBeVisible({ timeout: 10000 });
         } else {
             test.info().annotations.push({ type: 'note', description: 'No student links found — possibly empty test data' });
         }

@@ -1,0 +1,38 @@
+{
+    "name": "@espanol-honesto/fulfillment-worker",
+    "version": "1.0.0",
+    "private": true,
+    "packageManager": "pnpm@10.33.0",
+    "type": "module",
+    "engines": {
+        "node": ">=20",
+        "pnpm": "10.33.0"
+    },
+    "devEngines": {
+        "packageManager": {
+            "name": "pnpm",
+            "version": "10.33.0",
+            "onFail": "error"
+        }
+    },
+    "scripts": {
+        "preinstall": "node ../../scripts/enforce-pnpm.cjs",
+        "dev": "wrangler dev --local --port 8788",
+        "deploy": "wrangler deploy",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@googleapis/calendar": "^14.2.0",
+        "@googleapis/docs": "^9.2.0",
+        "@googleapis/drive": "^20.0.0",
+        "@supabase/supabase-js": "^2.90.0",
+        "google-auth-library": "^10.5.0",
+        "resend": "^6.7.0"
+    },
+    "devDependencies": {
+        "@cloudflare/workers-types": "^4.20260415.1",
+        "@types/node": "^22.10.2",
+        "typescript": "^5.9.3",
+        "wrangler": "^4.59.3"
+    }
+}

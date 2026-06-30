@@ -142,7 +142,7 @@ async function ensureProfile(user: TestUser, id: string) {
 }
 
 async function choosePackage(): Promise<PackageRow> {
-    const preferred = ['standard', 'hybrid', 'essential'];
+    const preferred = ['standard', 'hybrid', 'group', 'bootcamp'];
 
     for (const name of preferred) {
         const { data, error } = await supabase
@@ -286,7 +286,7 @@ async function clearE2eSessions(studentId: string, teacherId: string) {
 async function findFreeSessionTime(teacherId: string, startOffsetDays: number, hour: number): Promise<string> {
     for (let offset = startOffsetDays; offset < startOffsetDays + 60; offset++) {
         const candidate = daysFromNow(offset, hour, 10);
-        const end = new Date(candidate.getTime() + 55 * 60 * 1000);
+        const end = new Date(candidate.getTime() + 50 * 60 * 1000);
 
         const { data, error } = await supabase
             .from('sessions')
@@ -321,7 +321,7 @@ async function seedSessions(input: {
                 student_id: input.studentId,
                 teacher_id: input.teacherId,
                 scheduled_at: futureAt,
-                duration_minutes: 55,
+                duration_minutes: 50,
                 meet_link: 'https://meet.google.com/e2e-seed-future',
                 status: 'scheduled',
                 teacher_notes: 'E2E seed: future scheduled class',
@@ -331,7 +331,7 @@ async function seedSessions(input: {
                 student_id: input.studentId,
                 teacher_id: input.teacherId,
                 scheduled_at: pastAt,
-                duration_minutes: 55,
+                duration_minutes: 50,
                 meet_link: 'https://meet.google.com/e2e-seed-past',
                 status: 'completed',
                 teacher_notes: 'E2E seed: completed class',

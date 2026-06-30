@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import StudentCancelModal from './StudentCancelModal';
+import { isClassJoinWindowOpen } from '../../lib/class-access';
 
 interface Session {
     id: string;
@@ -80,11 +81,7 @@ export default function StudentClassList({
 
     const canJoin = (session: Session) => {
         if (!session.meet_link || session.status !== 'scheduled') return false;
-        const sessionTime = new Date(session.scheduled_at);
-        const now = new Date();
-        const minutesUntil = (sessionTime.getTime() - now.getTime()) / (1000 * 60);
-        // El enlace está siempre disponible antes de que acabe la clase
-        return minutesUntil >= -60;
+        return isClassJoinWindowOpen(session.scheduled_at, session.duration_minutes);
     };
 
     const isStartingSoon = (session: Session) => {
@@ -167,7 +164,7 @@ export default function StudentClassList({
                                     href={session.meet_link}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="flex items-center justify-center gap-2 px-6 py-3 bg-[#00897B] text-white font-bold uppercase text-sm hover:bg-[#00796B] transition-colors rounded"
+                                    className="flex items-center justify-center gap-2 px-6 py-3 bg-[#006064] text-white font-bold uppercase text-sm hover:bg-[#004d40] transition-colors rounded"
                                 >
                                     <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                                         <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />

@@ -1,6 +1,16 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
+async function getProfileRole(supabase: ReturnType<typeof createSupabaseServerClient>, profileId: string) {
+    const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', profileId)
+        .maybeSingle();
+
+    return data?.role;
+}
+
 // GET: Obtener disponibilidad del profesor
 export const GET: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
@@ -23,9 +33,16 @@ export const GET: APIRoute = async (context) => {
 
     // Obtener teacherId del query param (admin puede ver de cualquier profesor)
     const url = new URL(context.request.url);
-    const teacherId = profile.role === 'admin'
-        ? url.searchParams.get('teacherId') || user.id
-        : user.id;
+    const requestedTeacherId = url.searchParams.get('teacherId');
+    if (profile.role === 'admin' && !requestedTeacherId) {
+        return new Response(JSON.stringify({ error: 'teacherId is required for admin availability queries' }), { status: 400 });
+    }
+
+    const teacherId = profile.role === 'admin' ? requestedTeacherId as string : user.id;
+
+    if (profile.role === 'admin' && await getProfileRole(supabase, teacherId) !== 'teacher') {
+        return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+    }
 
     const { data, error } = await supabase
         .from('teacher_availability')
@@ -69,6 +86,16 @@ export const POST: APIRoute = async (context) => {
 
     // Solo admin puede crear para otro profesor
     const targetTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
+
+    if (profile.role === 'admin') {
+        if (!teacherId) {
+            return new Response(JSON.stringify({ error: 'teacherId is required for admin availability changes' }), { status: 400 });
+        }
+
+        if (await getProfileRole(supabase, targetTeacherId) !== 'teacher') {
+            return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+        }
+    }
 
     // Validar datos
     if (dayOfWeek === undefined || !startTime || !endTime) {

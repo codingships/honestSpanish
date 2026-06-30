@@ -3,6 +3,7 @@ import BaseLayout from './BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import type { CollectionEntry } from 'astro:content';
 import TableOfContents from '../components/blog/TableOfContents.astro';
+import { getBlogEntrySlug } from '../lib/blog-routes';
 
 interface Heading {
   depth: number;
@@ -45,10 +46,26 @@ const articleSchema = {
       "knowsAbout": ["Spanish language", "DELE", "SIELE", "Spanish grammar", "Language acquisition"]
   }]
 };
-// Get the slug without the language prefix for canonical path
-const slugParts = post.slug.split('/');
-const postSlug = slugParts.length > 1 ? slugParts.slice(1).join('/') : post.slug;
+const postSlug = getBlogEntrySlug(post);
 const canonicalPath = `/blog/${postSlug}`;
+
+const blogCta = {
+  es: {
+    heading: post.data.ctaText || '¿Quieres llevar esto a una conversación real?',
+    button: 'Solicitar plaza',
+    href: post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}#contacto`,
+  },
+  en: {
+    heading: post.data.ctaText || 'Want to turn this into real conversation?',
+    button: 'Apply for a place',
+    href: post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}#contacto`,
+  },
+  ru: {
+    heading: post.data.ctaText || 'Хотите перейти к живой разговорной практике?',
+    button: 'Оставить заявку',
+    href: post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}#contacto`,
+  },
+}[lang];
 ---
 
 <BaseLayout 
@@ -122,13 +139,12 @@ const canonicalPath = `/blog/${postSlug}`;
 
         {/* CTA Section */}
         <section class="bg-[#006064] text-white py-24 text-center px-6">
-            <h2 class="font-display text-4xl mb-6">{post.data.ctaText || t('common.ctaReady')}</h2>
+            <h2 class="font-display text-4xl mb-6">{blogCta.heading}</h2>
              <a
-                href={post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}/#planes`}
+                href={blogCta.href}
                 class="inline-block bg-white text-[#006064] px-8 py-4 text-lg font-bold border-2 border-transparent hover:bg-[#E0F7FA] transition-all uppercase tracking-wider"
             >
-                {post.data.ctaText ? t('common.ctaContact') : t('common.ctaContact')} 
-                {/* Fallback to global contact label if we just change the H2 and Link, or allow a custom ctaButtonText in the future */}
+                {blogCta.button}
             </a>
         </section>
 

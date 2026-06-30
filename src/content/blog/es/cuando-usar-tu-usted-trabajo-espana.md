@@ -6,6 +6,7 @@ author: "alin"
 category: "cultura"
 tags: ["cultura", "negocios", "pronombres", "formalidad"]
 lang: "es"
+draft: true
 ctaText: "Aprende el español formal e informal con casos reales"
 ctaLink: "/espanol-para-profesionales"
 ---

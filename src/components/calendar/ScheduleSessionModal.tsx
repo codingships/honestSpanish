@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DEFAULT_CLASS_DURATION_MINUTES } from '../../lib/class-duration';
+import { CLASS_DURATION_OPTIONS_MINUTES, DEFAULT_CLASS_DURATION_MINUTES } from '../../lib/class-duration';
 
 interface Student {
     id: string;
@@ -203,6 +203,24 @@ export default function ScheduleSessionModal({
                             min={today}
                             className="w-full p-3 border-2 border-[#006064] text-[#006064]"
                         />
+
+                        <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
+                            {t.duration}
+                        </label>
+                        <select
+                            value={duration}
+                            onChange={(e) => {
+                                setDuration(Number(e.target.value));
+                                setSelectedSlot(null);
+                            }}
+                            className="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
+                        >
+                            {CLASS_DURATION_OPTIONS_MINUTES.map((minutes) => (
+                                <option key={minutes} value={minutes}>
+                                    {minutes} {t.minutes}
+                                </option>
+                            ))}
+                        </select>
 
                         <button
                             onClick={() => setStep(3)}

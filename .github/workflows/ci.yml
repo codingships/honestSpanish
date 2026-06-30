@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, staging ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, staging ]
 
 jobs:
   build-and-test:
@@ -22,7 +22,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20.x'
+          node-version: '22.12.0'
           cache: 'pnpm'
 
       - name: Install dependencies
@@ -39,6 +39,30 @@ jobs:
 
       - name: Run unit tests
         run: pnpm run test:run
+
+      - name: Check fulfillment Worker types
+        run: pnpm run fulfillment:typecheck
+
+      - name: Check tracked secrets
+        run: pnpm run secrets:check
+
+      - name: Check no-real-payments guard
+        run: pnpm run launch:no-real-payments
+
+      - name: Build
+        env:
+          PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
+          PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
+          SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
+          PUBLIC_STRIPE_PUBLISHABLE_KEY: "pk_test_placeholder"
+          STRIPE_SECRET_KEY: "sk_test_placeholder"
+          STRIPE_WEBHOOK_SECRET: "whsec_placeholder"
+          PUBLIC_TURNSTILE_SITE_KEY: "placeholder-turnstile-site-key"
+          TURNSTILE_SECRET_KEY: "placeholder-turnstile-secret-key"
+          PUBLIC_SITE_URL: "https://example.com"
+          PUBLIC_APP_ENV: "test"
+          CHECKOUT_ENABLED: "false"
+        run: pnpm run build
 
       - name: Cache Playwright browsers
         uses: actions/cache@v4
@@ -61,3 +85,75 @@ jobs:
           PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
           SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
         run: pnpm exec playwright test --project=public
+
+  deploy-cloudflare:
+    needs: build-and-test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'Production' || 'staging' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
+          PUBLIC_APP_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          FULFILLMENT_WORKER_URL: ${{ secrets.FULFILLMENT_WORKER_URL }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          CHECKOUT_ENABLED: "false"
+        run: pnpm run build
+
+      - name: Select Cloudflare project
+        id: project
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_NAME}" = "main" ]; then
+            echo "name=${{ vars.CLOUDFLARE_PAGES_PROJECT_PRODUCTION }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${{ vars.CLOUDFLARE_PAGES_PROJECT_STAGING }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy Cloudflare Pages
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler pages deploy dist --project-name "${{ steps.project.outputs.name }}" --branch "${{ github.ref_name }}"
+
+      - name: Verify staging checkout is disabled
+        if: github.ref_name == 'staging'
+        env:
+          STAGING_PAGES_URL: ${{ vars.CLOUDFLARE_PAGES_STAGING_URL || 'https://bb19b410.espanol-honesto-staging.pages.dev' }}
+        run: pnpm run launch:no-real-payments -- --deployed-url "$STAGING_PAGES_URL"
+
+      - name: Deploy Cloudflare Fulfillment Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter @espanol-honesto/fulfillment-worker run deploy -- --env "${{ github.ref_name == 'main' && 'production' || 'staging' }}"

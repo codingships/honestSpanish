@@ -49,9 +49,13 @@ test.describe('Lead Magnet Form — public', () => {
         // Now we can safely fill the form without React wiping our values.
         const nameInput = page.locator('#contacto form input[name="name"]');
         const emailInput = page.locator('#contacto form input[name="email"]');
+        const goalInput = page.locator('#contacto form textarea[name="learningGoal"]');
+        const availabilityInput = page.locator('#contacto form textarea[name="availability"]');
 
         await nameInput.fill('Playwright Test User');
         await emailInput.fill('e2e-test-lead@espanolhonesto.com');
+        await goalInput.fill('Quiero hablar mejor para vivir en España y entender conversaciones reales.');
+        await availabilityInput.fill('Entre semana por la tarde, Europe/Madrid.');
 
         // Verify the name was actually set (if still empty, something is wrong)
         await expect(nameInput).toHaveValue('Playwright Test User');
@@ -61,6 +65,7 @@ test.describe('Lead Magnet Form — public', () => {
         if (await selectInterest.count() > 0) {
             await selectInterest.selectOption({ index: 1 });
         }
+        await page.locator('#contacto form select[name="currentLevel"]').selectOption('b1');
 
         // Check the privacy consent checkbox
         await page.locator('#consent').check();
@@ -72,7 +77,7 @@ test.describe('Lead Magnet Form — public', () => {
         await page.locator('#contacto form button[type="submit"]').click();
 
         // Wait for the success message to appear
-        const successMessage = page.locator('text="¡Gracias! Te escribiremos pronto."');
+        const successMessage = page.locator('text="Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad."');
         await expect(successMessage).toBeVisible({ timeout: 5000 });
     });
 
@@ -95,7 +100,7 @@ test.describe('Lead Magnet Form — public', () => {
         await page.locator('#contacto form button[type="submit"]').click();
 
         // Success message should NOT appear
-        const successMessage = page.locator('text="¡Gracias! Te escribiremos pronto."');
+        const successMessage = page.locator('text="Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad."');
         await expect(successMessage).not.toBeVisible();
     });
 });

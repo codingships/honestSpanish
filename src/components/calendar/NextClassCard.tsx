@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { isClassJoinWindowOpen } from '../../lib/class-access';
 
 interface Session {
     id: string;
@@ -86,8 +87,7 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
 
     const canJoin = () => {
         if (!session.meet_link) return false;
-        const minutesUntil = diffMs / (1000 * 60);
-        return minutesUntil >= -60;
+        return isClassJoinWindowOpen(session.scheduled_at, session.duration_minutes);
     };
 
     const isStartingSoon = diffHours <= 2 && diffHours >= 0;
@@ -125,13 +125,13 @@ export default function NextClassCard({ session, lang, translations: t }: NextCl
             </div>
 
             <div className="mt-4 space-y-2">
-                {/* Join Meet button - visible when class is starting soon */}
+                {/* Join Meet button */}
                 {canJoin() && session.meet_link ? (
                     <a
                         href={session.meet_link}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-center gap-2 w-full py-3 bg-[#00897B] text-white text-sm font-bold uppercase hover:bg-[#00796B] transition-colors rounded"
+                        className="flex items-center justify-center gap-2 w-full py-3 bg-[#006064] text-white text-sm font-bold uppercase hover:bg-[#004d40] transition-colors rounded"
                     >
                         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                             <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />

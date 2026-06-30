@@ -21,17 +21,21 @@ export const TEST_USERS = {
 };
 
 export const TEST_PACKAGES = {
-    esencial: {
-        name: 'Esencial',
+    group: {
+        name: 'Grupal Externo',
         sessionsPerMonth: 4,
     },
-    intensivo: {
-        name: 'Intensivo',
-        sessionsPerMonth: 6,
+    standard: {
+        name: 'Mensual Estándar',
+        sessionsPerMonth: 4,
     },
-    premium: {
-        name: 'Premium',
-        sessionsPerMonth: 12,
+    hybrid: {
+        name: 'Híbrido Mensual',
+        sessionsPerMonth: 4,
+    },
+    bootcamp: {
+        name: 'Intensivo Bootcamp',
+        sessionsPerMonth: 20,
     },
 };
 

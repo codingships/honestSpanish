@@ -33,10 +33,15 @@ const secretPatterns = [
   { name: "Stripe secret key", regex: /sk_(live|test)_[A-Za-z0-9]{20,}/g },
   { name: "Stripe webhook secret", regex: /whsec_[A-Za-z0-9]{20,}/g },
   { name: "Google API key", regex: /AIza[0-9A-Za-z_-]{30,}/g },
-  { name: "Resend API key", regex: /re_[A-Za-z0-9_]{20,}/g },
+  { name: "Resend API key", regex: /(?<![A-Za-z0-9_])re_[A-Za-z0-9_]{20,}/g },
   { name: "Private key block", regex: /-----BEGIN PRIVATE KEY-----/g },
   { name: "Database URL with password", regex: /(postgres|postgresql|mysql|mongodb)(:\/\/|\+srv:\/\/)[^\s"']+:[^\s"']+@/g },
 ];
+
+const allowedSecretLikeSubstrings = new Set([
+  // Keep this list for intentional prose/examples; identifier-embedded re_
+  // substrings are filtered by the Resend boundary check above.
+]);
 
 function listedFiles() {
   const output = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
@@ -74,7 +79,9 @@ function scanFile(file) {
 
     for (const pattern of secretPatterns) {
       pattern.regex.lastIndex = 0;
-      if (pattern.regex.test(line)) {
+      const matches = [...line.matchAll(pattern.regex)]
+        .filter((match) => !allowedSecretLikeSubstrings.has(match[0]));
+      if (matches.length > 0) {
         findings.push({
           file,
           line: index + 1,

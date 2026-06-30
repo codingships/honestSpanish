@@ -1,0 +1,33 @@
+---
+import SupportTicketsManager from '../../../../components/admin/SupportTicketsManager';
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+---
+
+<CampusLayout
+    title="Soporte"
+    user={{ ...user, ...profile }}
+    lang={lang}
+>
+    <SupportTicketsManager client:load />
+</CampusLayout>

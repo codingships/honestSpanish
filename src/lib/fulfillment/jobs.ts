@@ -1,122 +1,48 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '../supabase-admin';
+import { recordPostPaymentOnboardingSafe } from '../crm/onboarding';
 import { createStudentFolderStructure } from '../google/student-folder';
 import { getPrivateProfile, upsertPrivateProfile } from '../profiles-private';
 import { sendWelcomeEmail } from '../email';
 import { getSiteUrl } from '../site-url';
 import { fulfillSessionBatch, fulfillSingleSession } from './session-fulfillment';
-import type { Database, Json } from '../../types/database.types';
+import { cancelClassEvent } from '../google/calendar';
+import { sendClassCancelled } from '../email';
+import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
+import type { Database } from '../../types/database.types';
+import {
+    asFulfillmentPayload,
+    enqueueBulkSessionFulfillment,
+    enqueueFulfillmentJob,
+    enqueueSessionCancellation,
+    enqueueSessionFulfillment,
+    enqueueWelcomeFulfillment,
+    isMissingJobsTable,
+    type FulfillmentJobRow,
+    type FulfillmentJobType,
+    type FulfillmentJobPayload,
+} from './queue';
 
-export type FulfillmentJobType =
-    | 'session_fulfillment'
-    | 'bulk_session_fulfillment'
-    | 'welcome_fulfillment';
-
-type FulfillmentJobPayload = {
-    sessionId?: string;
-    sessionIds?: string[];
-    userId?: string;
-    packageId?: string;
-    autoCreateMeeting?: boolean;
-    sendEmail?: boolean;
+export {
+    enqueueBulkSessionFulfillment,
+    enqueueFulfillmentJob,
+    enqueueSessionCancellation,
+    enqueueSessionFulfillment,
+    enqueueWelcomeFulfillment,
+    type FulfillmentJobPayload,
+    type FulfillmentJobRow,
+    type FulfillmentJobType,
 };
 
-type FulfillmentJobRow = Database['public']['Tables']['fulfillment_jobs']['Row'];
-
-function asPayload(value: Json | null): FulfillmentJobPayload {
-    return value && typeof value === 'object' && !Array.isArray(value)
-        ? value as FulfillmentJobPayload
-        : {};
-}
+const supportedWelcomeLocales = new Set(['es', 'en', 'ru']);
 
 function nextRunAt(attempts: number): string {
     const delaySeconds = Math.min(30 * Math.pow(2, Math.max(attempts - 1, 0)), 30 * 60);
     return new Date(Date.now() + delaySeconds * 1000).toISOString();
 }
 
-function isMissingJobsTable(error: { code?: string; message?: string } | null): boolean {
-    return error?.code === '42P01' || error?.message?.includes('fulfillment_jobs') === true;
-}
-
-export async function enqueueFulfillmentJob(
-    supabaseAdmin: SupabaseClient<Database>,
-    input: {
-        jobType: FulfillmentJobType;
-        sessionId?: string | null;
-        subscriptionId?: string | null;
-        studentId?: string | null;
-        payload: FulfillmentJobPayload;
-        runAt?: string;
-    }
-): Promise<boolean> {
-    const { error } = await supabaseAdmin
-        .from('fulfillment_jobs')
-        .insert({
-            job_type: input.jobType,
-            session_id: input.sessionId ?? null,
-            subscription_id: input.subscriptionId ?? null,
-            student_id: input.studentId ?? null,
-            payload: input.payload as Json,
-            run_at: input.runAt ?? new Date().toISOString(),
-        });
-
-    if (error) {
-        if (isMissingJobsTable(error)) {
-            console.warn('[Fulfillment] fulfillment_jobs table is missing; using direct fallback');
-            return false;
-        }
-        throw error;
-    }
-
-    return true;
-}
-
-export async function enqueueSessionFulfillment(
-    supabaseAdmin: SupabaseClient<Database>,
-    session: Pick<Database['public']['Tables']['sessions']['Row'], 'id' | 'subscription_id' | 'student_id'>,
-    options: { autoCreateMeeting?: boolean; sendEmail?: boolean } = {}
-): Promise<boolean> {
-    return enqueueFulfillmentJob(supabaseAdmin, {
-        jobType: 'session_fulfillment',
-        sessionId: session.id,
-        subscriptionId: session.subscription_id,
-        studentId: session.student_id,
-        payload: {
-            sessionId: session.id,
-            autoCreateMeeting: options.autoCreateMeeting ?? true,
-            sendEmail: options.sendEmail ?? true,
-        },
-    });
-}
-
-export async function enqueueBulkSessionFulfillment(
-    supabaseAdmin: SupabaseClient<Database>,
-    sessions: Pick<Database['public']['Tables']['sessions']['Row'], 'id' | 'subscription_id' | 'student_id'>[],
-    options: { autoCreateMeeting?: boolean; sendEmail?: boolean } = {}
-): Promise<boolean> {
-    if (sessions.length === 0) return true;
-
-    return enqueueFulfillmentJob(supabaseAdmin, {
-        jobType: 'bulk_session_fulfillment',
-        subscriptionId: sessions[0].subscription_id,
-        studentId: sessions[0].student_id,
-        payload: {
-            sessionIds: sessions.map((session) => session.id),
-            autoCreateMeeting: options.autoCreateMeeting ?? true,
-            sendEmail: options.sendEmail ?? true,
-        },
-    });
-}
-
-export async function enqueueWelcomeFulfillment(
-    supabaseAdmin: SupabaseClient<Database>,
-    input: { userId: string; packageId: string }
-): Promise<boolean> {
-    return enqueueFulfillmentJob(supabaseAdmin, {
-        jobType: 'welcome_fulfillment',
-        studentId: input.userId,
-        payload: input,
-    });
+function normalizeWelcomeLocale(value: unknown) {
+    return typeof value === 'string' && supportedWelcomeLocales.has(value) ? value : 'en';
 }
 
 async function processWelcomeFulfillment(
@@ -133,6 +59,7 @@ async function processWelcomeFulfillment(
             id,
             full_name,
             email,
+            preferred_language,
             student_teachers!student_teachers_student_id_fkey(
                 is_primary,
                 teacher:profiles!student_teachers_teacher_id_fkey(full_name)
@@ -189,20 +116,128 @@ async function processWelcomeFulfillment(
     const emailSent = await sendWelcomeEmail(student.email, {
         studentName: student.full_name || 'Estudiante',
         packageName,
-        loginUrl: `${getSiteUrl('https://espanolhonesto.com')}/es/login`,
+        loginUrl: `${getSiteUrl('https://espanolhonesto.com')}/${normalizeWelcomeLocale(student.preferred_language)}/login`,
         driveFolderUrl: driveFolderUrl ?? undefined,
     });
 
     if (!emailSent) {
         throw new Error('Resend did not accept welcome email');
     }
+
+    await recordPostPaymentOnboardingSafe(supabaseAdmin, {
+        profileId: payload.userId,
+        email: student.email,
+        fullName: student.full_name,
+        subscriptionId: payload.subscriptionId ?? null,
+        packageId: payload.packageId,
+        packageName,
+        driveFolderUrl,
+    });
+}
+
+async function processSessionCancellation(
+    supabaseAdmin: SupabaseClient<Database>,
+    payload: FulfillmentJobPayload,
+    job: FulfillmentJobRow
+) {
+    const sessionId = payload.sessionId || job.session_id;
+    if (!sessionId) throw new Error('session_cancellation requires sessionId');
+
+    const { data: session, error } = await supabaseAdmin
+        .from('sessions')
+        .select(`
+            id,
+            subscription_id,
+            student_id,
+            teacher_id,
+            scheduled_at,
+            duration_minutes,
+            meet_link,
+            drive_doc_url,
+            calendar_event_id,
+            student:profiles!sessions_student_id_fkey(id, full_name, email),
+            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+        `)
+        .eq('id', sessionId)
+        .single();
+
+    if (error || !session) {
+        throw error ?? new Error('Session not found for cancellation fulfillment');
+    }
+
+    if (session.calendar_event_id) {
+        const cancelled = await cancelClassEvent(session.calendar_event_id);
+        if (!cancelled) {
+            throw new Error('Google Calendar event cancellation failed');
+        }
+
+        await supabaseAdmin
+            .from('sessions')
+            .update({
+                calendar_event_id: null,
+                meet_link: null,
+            })
+            .eq('id', sessionId);
+    }
+
+    if (payload.sendEmail === false || !session.scheduled_at) return;
+
+    const student = Array.isArray(session.student) ? session.student[0] : session.student;
+    const teacher = Array.isArray(session.teacher) ? session.teacher[0] : session.teacher;
+
+    if (!student?.email || !teacher?.email) {
+        throw new Error('Cancellation email is missing student or teacher email');
+    }
+
+    const classDetails = {
+        date: new Date(session.scheduled_at).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }),
+        time: new Date(session.scheduled_at).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid' }),
+        reason: payload.reason || 'Sin motivo especificado',
+        cancelledBy: payload.cancelledBy || 'admin',
+    };
+
+    const studentEmailSent = await sendClassCancelled(student.email, {
+        recipientName: student.full_name || 'Estudiante',
+        ...classDetails,
+    });
+    const teacherEmailSent = await sendClassCancelled(teacher.email, {
+        recipientName: teacher.full_name || 'Profesor',
+        ...classDetails,
+    });
+
+    if (!studentEmailSent || !teacherEmailSent) {
+        throw new Error('Resend did not accept one or more cancellation emails');
+    }
+
+    await recordClassEmailOutInCrmSafe(supabaseAdmin, {
+        template: 'class_cancelled',
+        sessionId,
+        studentId: session.student_id,
+        studentEmail: student.email,
+        studentName: student.full_name,
+        teacherId: session.teacher_id,
+        teacherEmail: teacher.email,
+        teacherName: teacher.full_name,
+        subscriptionId: session.subscription_id,
+        scheduledAt: session.scheduled_at,
+        durationMinutes: session.duration_minutes,
+        dateLabel: classDetails.date,
+        timeLabel: classDetails.time,
+        meetLink: session.meet_link,
+        documentLink: session.drive_doc_url,
+        source: 'session_cancellation',
+        extraMetadata: {
+            cancelled_by: payload.cancelledBy || 'admin',
+            cancellation_reason: payload.reason || null,
+        },
+    });
 }
 
 async function processJob(
     supabaseAdmin: SupabaseClient<Database>,
     job: FulfillmentJobRow
 ) {
-    const payload = asPayload(job.payload);
+    const payload = asFulfillmentPayload(job.payload);
 
     switch (job.job_type as FulfillmentJobType) {
         case 'session_fulfillment': {
@@ -225,6 +260,9 @@ async function processJob(
         }
         case 'welcome_fulfillment':
             await processWelcomeFulfillment(supabaseAdmin, payload);
+            return;
+        case 'session_cancellation':
+            await processSessionCancellation(supabaseAdmin, payload, job);
             return;
         default:
             throw new Error(`Unsupported fulfillment job type: ${job.job_type}`);

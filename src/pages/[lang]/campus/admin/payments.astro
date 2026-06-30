@@ -1,5 +1,6 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import PaymentRecoveryActions from '../../../../components/admin/PaymentRecoveryActions';
 import { useTranslations } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 
@@ -33,6 +34,7 @@ const { data: paymentsRaw } = await supabase
     .from('payments')
     .select(`
         id,
+        student_id,
         amount,
         currency,
         status,
@@ -54,6 +56,7 @@ const { data: paymentsRaw } = await supabase
 
 const payments = (paymentsRaw || []).map((pay: any) => ({
     id: pay.id,
+    student_id: pay.student_id,
     amount: pay.amount,
     currency: pay.currency || 'eur',
     status: pay.status,
@@ -243,6 +246,9 @@ const getStripeUrl = (paymentIntentId: string | null) => {
                                     ) : (
                                         <span class="text-xs text-[#006064]/40">—</span>
                                     )}
+                                    <div class="mt-2 flex justify-end">
+                                        <PaymentRecoveryActions client:load paymentId={payment.id} status={payment.status} />
+                                    </div>
                                 </td>
                             </tr>
                         );

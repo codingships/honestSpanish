@@ -12,27 +12,27 @@ Run this checklist before creating a Pull Request.
 
 1. **Lint check**
    ```bash
-   npm run lint
+   pnpm lint
    ```
 
 2. **Type check**
    ```bash
-   npm run typecheck
+   pnpm typecheck
    ```
 
 3. **Unit tests**
    ```bash
-   npm run test:unit
+   pnpm test:run
    ```
 
 4. **E2E tests** (if UI changed)
    ```bash
-   npm run test:e2e
+   pnpm test:e2e
    ```
 
 5. **Build verification**
    ```bash
-   npm run build
+   pnpm build
    ```
 
 ## Manual Checks

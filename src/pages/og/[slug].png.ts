@@ -3,6 +3,7 @@ import { html } from 'satori-html';
 import { Resvg, initWasm } from '@resvg/resvg-wasm';
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
+import { getBlogEntrySlug, isPublishedBlogPost } from '../../lib/blog-routes';
 
 // Resvg WebAssembly Initialization Cache
 let wasmInitialized = false;
@@ -26,11 +27,7 @@ export const GET: APIRoute = async ({ params }) => {
   } else {
       // Buscar si el slug pertenece a un artículo del blog
       const blogPosts = await getCollection('blog');
-      const post = blogPosts.find(p => {
-          const parts = p.slug.split('/');
-          const cleanSlug = parts.length > 1 ? parts.slice(1).join('/') : p.slug;
-          return cleanSlug === slug;
-      });
+      const post = blogPosts.find(p => isPublishedBlogPost(p) && getBlogEntrySlug(p) === slug);
 
       if (post) {
           title = post.data.title;
