@@ -15,7 +15,15 @@ name = "espanolhonesto-staging"
 [env.staging.vars]
 NODE_ENV = "production"
 PUBLIC_APP_ENV = "staging"
+PUBLIC_SITE_URL = "https://espanolhonesto-staging.alindev95.workers.dev"
+FULFILLMENT_WORKER_URL = "https://espanol-honesto-fulfillment-staging.alindev95.workers.dev"
 CHECKOUT_ENABLED = "false"
+CHECKOUT_ENABLED_OVERRIDE = "false"
+EMAIL_DELIVERY_MODE = "allowlist"
+EMAIL_DAILY_RECIPIENT_LIMIT = "10"
+EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"
+PUBLIC_TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
+SENTRY_ENVIRONMENT = "staging"
 
 [env.production]
 name = "espanolhonesto"

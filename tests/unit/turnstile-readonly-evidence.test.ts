@@ -11,6 +11,8 @@ describe('Turnstile launch evidence', () => {
     it('keeps runtime read-only evidence scoped to siteverify and optional widget listing', () => {
         for (const snippet of [
             'siteverify_fake_token_rejection',
+            'siteverify_official_test_key_acceptance',
+            'official_staging_test',
             'turnstile_widgets_readonly',
             'cloudflare_api_token_readonly',
             'expected_domains',

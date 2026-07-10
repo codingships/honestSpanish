@@ -47,6 +47,8 @@ mkdirSync(outputDir, { recursive: true });
 
 const siteKey = process.env.PUBLIC_TURNSTILE_SITE_KEY;
 const secretKey = process.env.TURNSTILE_SECRET_KEY;
+const officialTestMode = siteKey === '1x00000000000000000000AA'
+    && secretKey === '1x0000000000000000000000000000000AA';
 const cloudflareApiToken = process.env.CLOUDFLARE_API_TOKEN;
 const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
 const expectedDomains = expectedTurnstileDomains();
@@ -57,7 +59,7 @@ if (secretKey) {
     checks.push(await checkFakeTokenRejection());
 }
 
-if (cloudflareApiToken && cloudflareAccountId) {
+if (!officialTestMode && cloudflareApiToken && cloudflareAccountId) {
     checks.push(await checkCloudflareToken());
     const widgetCheck = await checkTurnstileWidgetList();
     checks.push(widgetCheck);
@@ -96,13 +98,13 @@ function checkEnvironment(): Check {
         ['CLOUDFLARE_ACCOUNT_ID', cloudflareAccountId],
         ['CLOUDFLARE_API_TOKEN', cloudflareApiToken],
     ].filter(([, value]) => !value).map(([key]) => key);
-    const siteKeyShape = siteKey?.startsWith('0x') ? 'present_turnstile_shape' : siteKey ? 'present_unrecognized' : 'missing';
-    const secretShape = secretKey?.startsWith('0x') ? 'present_turnstile_shape' : secretKey ? 'present_unrecognized' : 'missing';
+    const siteKeyShape = officialTestMode ? 'official_test_always_pass' : siteKey?.startsWith('0x') ? 'present_turnstile_shape' : siteKey ? 'present_unrecognized' : 'missing';
+    const secretShape = officialTestMode ? 'official_test_always_pass' : secretKey?.startsWith('0x') ? 'present_turnstile_shape' : secretKey ? 'present_unrecognized' : 'missing';
 
     return {
-        status: missingRequired.length > 0 ? 'failed' : missingCloudflareApi.length > 0 ? 'warning' : 'ok',
+        status: missingRequired.length > 0 ? 'failed' : !officialTestMode && missingCloudflareApi.length > 0 ? 'warning' : 'ok',
         name: 'environment_shape',
-        message: missingRequired.length === 0 && missingCloudflareApi.length === 0
+        message: missingRequired.length === 0 && (officialTestMode || missingCloudflareApi.length === 0)
             ? 'Turnstile runtime and Cloudflare read-only API inputs are present.'
             : 'Turnstile runtime or Cloudflare read-only API inputs are incomplete.',
         details: [
@@ -112,6 +114,7 @@ function checkEnvironment(): Check {
             `site_key=${compactId(siteKey)}`,
             `site_key_shape=${siteKeyShape}`,
             `secret_key=${secretShape}`,
+            `mode=${officialTestMode ? 'official_staging_test' : 'managed_widget'}`,
             `account=${compactId(cloudflareAccountId)}`,
             `expected_domains=${expectedDomains.join('|')}`,
         ],
@@ -131,14 +134,20 @@ async function checkFakeTokenRejection(): Promise<Check> {
         const payload = await response.json() as { success?: boolean; 'error-codes'?: string[] };
         const errorCodes = payload['error-codes'] ?? [];
         const secretError = errorCodes.some((code) => code === 'invalid-input-secret' || code === 'missing-input-secret');
-        const ok = response.ok && payload.success === false && !secretError;
+        const ok = officialTestMode
+            ? response.ok && payload.success === true && !secretError
+            : response.ok && payload.success === false && !secretError;
 
         return {
             status: ok ? 'ok' : 'failed',
-            name: 'siteverify_fake_token_rejection',
+            name: officialTestMode ? 'siteverify_official_test_key_acceptance' : 'siteverify_fake_token_rejection',
             message: ok
-                ? 'Turnstile siteverify is reachable and rejects a deliberately invalid token without reporting a secret-key error.'
-                : 'Turnstile siteverify did not reject the invalid token in the expected way.',
+                ? officialTestMode
+                    ? 'Turnstile siteverify accepts the official always-pass staging test key as expected.'
+                    : 'Turnstile siteverify is reachable and rejects a deliberately invalid token without reporting a secret-key error.'
+                : officialTestMode
+                    ? 'Turnstile siteverify did not accept the official staging test key as expected.'
+                    : 'Turnstile siteverify did not reject the invalid token in the expected way.',
             details: [
                 `http_status=${response.status}`,
                 `success=${Boolean(payload.success)}`,

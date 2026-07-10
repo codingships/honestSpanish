@@ -92,6 +92,11 @@ if (useLocalStaging) {
     for (const key of optionalWebKeys) {
         if (source[key]) output[key] = source[key]!;
     }
+    const sentryDsn = source.PUBLIC_SENTRY_DSN || process.env.PUBLIC_SENTRY_DSN;
+    if (sentryDsn) {
+        output.PUBLIC_SENTRY_DSN = sentryDsn;
+        output.SENTRY_ENVIRONMENT = 'staging';
+    }
 
     writeFileSync(
         targetPath,

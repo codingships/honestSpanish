@@ -21,6 +21,10 @@ workers_dev = true
 
 [env.staging.vars]
 PUBLIC_APP_ENV = "staging"
+PUBLIC_SITE_URL = "https://espanolhonesto-staging.alindev95.workers.dev"
+EMAIL_DELIVERY_MODE = "allowlist"
+EMAIL_DAILY_RECIPIENT_LIMIT = "10"
+EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"
 
 [env.production]
 name = "espanol-honesto-fulfillment-production"
