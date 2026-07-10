@@ -279,7 +279,7 @@ function validateSmokeCoverage(): SmokePackCheck {
         'getDriveClient',
         '/api/calendar/sessions',
         '/api/calendar/session-action',
-        '/api/cron/send-reminders',
+        '/internal/reminders/send-exact',
         '/api/admin/fulfillment-jobs?status=failed&limit=100',
         'waitForAdminJobAudit',
         'cancelClassEvent',

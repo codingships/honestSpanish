@@ -1964,12 +1964,14 @@ describe('operations runbook launch readiness', () => {
             'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
             'writes-ok:<host>',
             'real-env-smoke.ts',
+            '/internal/reminders/send-exact',
             'outputs/real-env-smoke/<timestamp>/summary.md',
             'No password reset for owner/admin/teacher accounts.',
             'No Cloudflare deploy/domain/DNS writes.',
         ]) {
             expect(finalSmokePack).toContain(snippet);
         }
+        expect(finalSmokePack).not.toContain('/api/cron/send-reminders');
 
         for (const snippet of [
             'launch-staging-smoke-rehearsal-runner',
