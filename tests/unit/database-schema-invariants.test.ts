@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const schema = readFileSync('db/schema.sql', 'utf8').replace(/\r\n/g, '\n');
+const profileHardeningMigration = readFileSync('supabase/migrations/005_harden_profile_updates_and_rpc.sql', 'utf8').replace(/\r\n/g, '\n');
+const schemaDriftMigration = readFileSync('supabase/migrations/006_reconcile_schema_drift.sql', 'utf8').replace(/\r\n/g, '\n');
 const leadEnrichmentMigration = readFileSync('supabase/migrations/018_enrich_leads_for_application.sql', 'utf8').replace(/\r\n/g, '\n');
 const preferredPackageMigration = readFileSync('supabase/migrations/019_capture_preferred_package_on_leads.sql', 'utf8').replace(/\r\n/g, '\n');
 const crmMigration = readFileSync('supabase/migrations/20260624163423_add_crm_core.sql', 'utf8').replace(/\r\n/g, '\n');
@@ -10,12 +12,22 @@ const levelCheckMigration = readFileSync('supabase/migrations/20260625215008_add
 const sessionWriteHardeningMigration = readFileSync('supabase/migrations/021_harden_session_write_policies.sql', 'utf8').replace(/\r\n/g, '\n');
 const webhookProcessingMigration = readFileSync('supabase/migrations/022_track_stripe_webhook_processing_state.sql', 'utf8').replace(/\r\n/g, '\n');
 const webhookProcessedAtDefaultMigration = readFileSync('supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql', 'utf8').replace(/\r\n/g, '\n');
+const runtimeDriftReconciliationMigration = readFileSync('supabase/migrations/20260710133000_reconcile_runtime_schema_drift.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const rlsSecurityPatch = readFileSync('db/rls_security_patch.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
 
 describe('database schema security invariants', () => {
+    it('bootstraps is_admin before later migrations create dependent policies', () => {
+        expect(profileHardeningMigration).toContain('CREATE OR REPLACE FUNCTION public.is_admin()');
+        expect(profileHardeningMigration).toContain('SECURITY DEFINER');
+        expect(profileHardeningMigration).toContain('SET search_path = public');
+        expect(profileHardeningMigration).toContain('REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC');
+        expect(profileHardeningMigration).toContain('GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated');
+        expect(schemaDriftMigration).toContain('ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()');
+    });
+
     it('protects profile role and email from direct authenticated profile updates', () => {
         expect(schema).toContain('CREATE OR REPLACE FUNCTION private.protect_profile_role()');
         expect(schema).toContain('CREATE TRIGGER protect_profile_role_trigger');
@@ -53,6 +65,21 @@ describe('database schema security invariants', () => {
         expect(schema).toContain('REVOKE EXECUTE ON FUNCTION get_available_slots(UUID, DATE, INTEGER) FROM anon');
         expect(schema).toContain('REVOKE EXECUTE ON FUNCTION get_available_slots(UUID, DATE, INTEGER) FROM authenticated');
         expect(schema).toContain('GRANT EXECUTE ON FUNCTION get_available_slots(UUID, DATE, INTEGER) TO service_role');
+
+        for (const snippet of [
+            'CREATE OR REPLACE FUNCTION public.get_available_slots',
+            'p_duration_minutes INTEGER DEFAULT 50',
+            'SECURITY DEFINER',
+            'SET search_path = public',
+            'REVOKE EXECUTE ON FUNCTION public.get_available_slots(UUID, DATE, INTEGER) FROM anon',
+            'REVOKE EXECUTE ON FUNCTION public.get_available_slots(UUID, DATE, INTEGER) FROM authenticated',
+            'GRANT EXECUTE ON FUNCTION public.get_available_slots(UUID, DATE, INTEGER) TO service_role',
+            'RENAME CONSTRAINT leads_email_unique TO leads_email_key',
+            'ADD CONSTRAINT leads_email_key UNIQUE (email)',
+            'duplicate lead emails exist',
+        ]) {
+            expect(runtimeDriftReconciliationMigration).toContain(snippet);
+        }
     });
 
     it('keeps student and teacher sessions writes behind server-side workflows', () => {
