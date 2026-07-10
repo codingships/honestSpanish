@@ -82,7 +82,7 @@ function reviewStaticNoRealPaymentsMode(): CheckResult {
         ['.env.example', 'CHECKOUT_ENABLED=false'],
         ['src/pages/api/create-checkout.ts', 'isCheckoutEnabled(context)'],
         ['src/pages/api/create-checkout.ts', 'Checkout is disabled'],
-        ['src/pages/api/create-checkout.ts', 'status: 403'],
+        ['src/pages/api/create-checkout.ts', "jsonResponse({ error: 'Checkout is disabled' }, 403)"],
         ['src/lib/checkout-enabled.ts', "readRuntimeEnv('CHECKOUT_ENABLED_OVERRIDE'"],
         ['src/lib/checkout-enabled.ts', "readRuntimeEnv('CHECKOUT_ENABLED'"],
         ['src/components/LandingPage.astro', 'checkoutMode={checkoutMode}'],

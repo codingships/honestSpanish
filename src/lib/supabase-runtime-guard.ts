@@ -2,6 +2,8 @@ import type { APIContext } from 'astro';
 import { readRuntimeEnv, requireRuntimeEnv } from './runtime-env';
 
 const DEPLOYED_ENVIRONMENTS = new Set(['staging', 'production']);
+const BUILD_SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL;
+const BUILD_SUPABASE_ANON_KEY = import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
 
 export function supabaseProjectRef(value: string | undefined): string | null {
     if (!value) return null;
@@ -17,10 +19,7 @@ export function supabaseProjectRef(value: string | undefined): string | null {
 export function getSupabaseRuntimeConfig(context?: Pick<APIContext, 'locals'>) {
     const appEnvironment = (readRuntimeEnv('PUBLIC_APP_ENV', context) ?? 'dev').trim().toLowerCase();
     const nodeEnvironment = (readRuntimeEnv('NODE_ENV', context) ?? '').trim().toLowerCase();
-    const importMeta = import.meta as ImportMeta & {
-        env?: Record<string, string | undefined>;
-    };
-    const buildUrl = importMeta.env?.PUBLIC_SUPABASE_URL?.trim();
+    const buildUrl = BUILD_SUPABASE_URL?.trim();
     const runtimeUrl = readRuntimeEnv('PUBLIC_SUPABASE_URL', context)?.trim();
     const expectedProjectRef = readRuntimeEnv('SUPABASE_EXPECTED_PROJECT_REF', context)?.trim();
     const workerIdentity = readRuntimeEnv('WORKER_IDENTITY', context)?.trim() ?? '';
@@ -68,10 +67,7 @@ export function getSupabaseRuntimeConfig(context?: Pick<APIContext, 'locals'>) {
 }
 
 export function getSupabaseAnonKey(context?: Pick<APIContext, 'locals'>): string {
-    const importMeta = import.meta as ImportMeta & {
-        env?: Record<string, string | undefined>;
-    };
     return readRuntimeEnv('PUBLIC_SUPABASE_ANON_KEY', context)
-        ?? importMeta.env?.PUBLIC_SUPABASE_ANON_KEY
+        ?? BUILD_SUPABASE_ANON_KEY
         ?? requireRuntimeEnv('PUBLIC_SUPABASE_ANON_KEY', context);
 }

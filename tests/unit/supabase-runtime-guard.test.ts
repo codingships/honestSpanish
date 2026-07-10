@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const runtimeEnv = vi.hoisted(() => ({
@@ -16,6 +17,13 @@ vi.mock('../../src/lib/runtime-env', () => ({
 }));
 
 describe('Supabase runtime isolation', () => {
+    it('uses statically analyzable Vite env access for build/runtime binding', () => {
+        const source = readFileSync('src/lib/supabase-runtime-guard.ts', 'utf8');
+        expect(source).toContain('import.meta.env.PUBLIC_SUPABASE_URL');
+        expect(source).toContain('import.meta.env.PUBLIC_SUPABASE_ANON_KEY');
+        expect(source).not.toContain('const importMeta = import.meta');
+    });
+
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();

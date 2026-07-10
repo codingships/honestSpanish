@@ -39,6 +39,7 @@ describe('no-real-payments launch mode', () => {
             'POST empty JSON body',
             'does not contact Stripe',
             'deployed environment',
+            "jsonResponse({ error: 'Checkout is disabled' }, 403)",
         ]) {
             expect(script).toContain(snippet);
         }
