@@ -4,6 +4,12 @@ import { type Browser, type Page } from 'playwright';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    ADULT_CONFIRMATION_PATH,
+    classifyAuthLanding,
+    describeStudentAdultGate,
+    type AccessibilityAuthRole,
+} from './accessibility-auth-policy';
 import { launchChromiumForLaunch } from './playwright-browser';
 
 interface PageTarget {
@@ -12,17 +18,20 @@ interface PageTarget {
     expectedPathIncludes?: string;
 }
 
-type AuthRole = 'student' | 'teacher' | 'admin';
-
 interface AuthenticatedPageTarget extends PageTarget {
-    role: AuthRole;
+    role: AccessibilityAuthRole;
 }
+
+type PageCoverage = 'route-audited' | 'adult-gate-audited' | 'not-audited';
 
 interface PageResult {
     name: string;
     url: string;
     finalUrl: string;
     status: 'ok' | 'failed';
+    coverage: PageCoverage;
+    scope: string;
+    protectedRoutes?: string[];
     violations: Array<{
         id: string;
         impact: string | null;
@@ -98,7 +107,7 @@ try {
     const failed = results.filter((result) => result.status === 'failed');
     const accessibilityManualWorksheetPath = path.join(outputDir, 'accessibility-manual-worksheet.md');
     const summary = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         startedAt: startedAt.toISOString(),
         endedAt: new Date().toISOString(),
         status: failed.length > 0 ? 'BLOCKED' : 'OK',
@@ -128,7 +137,7 @@ try {
 }
 
 function startDevServer(port: number, logPath: string): ChildProcessWithoutNullStreams {
-    const child = spawn(corepackCommand(), ['pnpm', 'exec', 'astro', 'dev', '--host', '127.0.0.1', '--port', String(port)], {
+    const child = spawn(corepackCommand(), ['pnpm', 'dev', '--', '--host', '127.0.0.1', '--port', String(port)], {
         cwd: process.cwd(),
         env: {
             ...process.env,
@@ -151,19 +160,31 @@ function startDevServer(port: number, logPath: string): ChildProcessWithoutNullS
 async function waitForServer(url: string): Promise<void> {
     const timeoutAt = Date.now() + 120_000;
     let lastError = '';
+    let consecutiveReadyResponses = 0;
+    const readinessUrl = new URL('/es', url).toString();
 
     while (Date.now() < timeoutAt) {
         try {
-            const response = await fetch(url, { redirect: 'manual' });
-            if (response.status >= 200 && response.status < 500) return;
-            lastError = `HTTP ${response.status}`;
+            const response = await fetch(readinessUrl, { redirect: 'follow' });
+            const body = await response.text();
+            const hasCompleteDocument = /<html\b[^>]*\blang=(?:"es"|'es')/iu.test(body)
+                && /<title>[^<]+<\/title>/iu.test(body)
+                && body.includes('<body');
+            if (response.status >= 200 && response.status < 400 && hasCompleteDocument) {
+                consecutiveReadyResponses += 1;
+                if (consecutiveReadyResponses >= 2) return;
+            } else {
+                consecutiveReadyResponses = 0;
+                lastError = `HTTP ${response.status}, completeDocument=${hasCompleteDocument}, body=${body.length} bytes`;
+            }
         } catch (error) {
+            consecutiveReadyResponses = 0;
             lastError = error instanceof Error ? error.message : String(error);
         }
-        await sleep(500);
+        await sleep(750);
     }
 
-    throw new Error(`Timed out waiting for ${url}. Last error: ${lastError}`);
+    throw new Error(`Timed out waiting for ${readinessUrl}. Last error: ${lastError}`);
 }
 
 async function auditPage(page: Page, target: PageTarget): Promise<PageResult> {
@@ -201,7 +222,9 @@ async function auditPageOnce(page: Page, target: PageTarget): Promise<PageResult
         if (status >= 400) {
             errors.push(`HTTP status ${status}.`);
         }
-        if (target.expectedPathIncludes && !new URL(finalUrl).pathname.includes(target.expectedPathIncludes)) {
+        const reachedExpectedPath = !target.expectedPathIncludes
+            || new URL(finalUrl).pathname.includes(target.expectedPathIncludes);
+        if (!reachedExpectedPath) {
             errors.push(`Expected final path to include ${target.expectedPathIncludes}, got ${new URL(finalUrl).pathname}.`);
         }
 
@@ -221,6 +244,10 @@ async function auditPageOnce(page: Page, target: PageTarget): Promise<PageResult
             url,
             finalUrl,
             status: errors.length === 0 && violations.length === 0 ? 'ok' : 'failed',
+            coverage: status < 400 && reachedExpectedPath ? 'route-audited' : 'not-audited',
+            scope: status < 400 && reachedExpectedPath
+                ? 'Axe completed against the expected route surface.'
+                : 'The expected route surface was not reached, so its content was not audited.',
             violations,
             errors,
         };
@@ -230,6 +257,8 @@ async function auditPageOnce(page: Page, target: PageTarget): Promise<PageResult
             url,
             finalUrl: page.url(),
             status: 'failed',
+            coverage: 'not-audited',
+            scope: 'The automated accessibility scan did not complete for this route.',
             violations: [],
             errors: [error instanceof Error ? error.message : String(error)],
         };
@@ -243,7 +272,7 @@ function hasViteErrorOverlay(result: PageResult): boolean {
 }
 
 async function auditAuthenticatedCampus(browser: Browser, results: PageResult[]): Promise<void> {
-    for (const role of ['student', 'teacher', 'admin'] as AuthRole[]) {
+    for (const role of ['student', 'teacher', 'admin'] as AccessibilityAuthRole[]) {
         const roleTargets = authenticatedTargets.filter((target) => target.role === role);
         const credentials = getCredentials(role);
 
@@ -254,6 +283,8 @@ async function auditAuthenticatedCampus(browser: Browser, results: PageResult[])
                     url: `${baseUrl}${target.path}`,
                     finalUrl: '',
                     status: 'failed',
+                    coverage: 'not-audited',
+                    scope: 'No authenticated route content was audited because the role credentials were unavailable.',
                     violations: [],
                     errors: [`Missing ${role} test credentials in .env.test or environment.`],
                 });
@@ -269,7 +300,27 @@ async function auditAuthenticatedCampus(browser: Browser, results: PageResult[])
             const page = await context.newPage();
 
             try {
-                await loginAs(page, role, credentials);
+                const landing = await loginAs(page, role, credentials);
+                if (landing === 'adult-gate') {
+                    const protectedRoutes = roleTargets.map((target) => target.path);
+                    const gateResult = await auditPage(page, {
+                        name: 'student 18+ confirmation gate (student route content not audited)',
+                        path: ADULT_CONFIRMATION_PATH,
+                        expectedPathIncludes: ADULT_CONFIRMATION_PATH,
+                    });
+                    results.push({
+                        ...gateResult,
+                        coverage: gateResult.coverage === 'route-audited'
+                            ? 'adult-gate-audited'
+                            : 'not-audited',
+                        scope: gateResult.coverage === 'route-audited'
+                            ? describeStudentAdultGate(protectedRoutes)
+                            : 'The student reached the 18+ gate, but its accessibility scan did not complete; protected student route content was not audited.',
+                        protectedRoutes,
+                    });
+                    audited = true;
+                    break;
+                }
                 for (const target of roleTargets) {
                     results.push(await auditPage(page, target));
                 }
@@ -292,6 +343,8 @@ async function auditAuthenticatedCampus(browser: Browser, results: PageResult[])
                     url: `${baseUrl}${target.path}`,
                     finalUrl: '',
                     status: 'failed',
+                    coverage: 'not-audited',
+                    scope: 'No authenticated route content was audited because authentication or role routing failed.',
                     violations: [],
                     errors: [`Could not authenticate ${role} test user or load role dashboard after 2 attempts: ${safeError(lastError)}`],
                 });
@@ -300,13 +353,11 @@ async function auditAuthenticatedCampus(browser: Browser, results: PageResult[])
     }
 }
 
-async function loginAs(page: Page, role: AuthRole, credentials: { email: string; password: string }): Promise<void> {
-    const expectedPath = {
-        student: '/es/campus',
-        teacher: '/es/campus/teacher',
-        admin: '/es/campus/admin',
-    }[role];
-
+async function loginAs(
+    page: Page,
+    role: AccessibilityAuthRole,
+    credentials: { email: string; password: string },
+): Promise<'role-surface' | 'adult-gate'> {
     await page.goto(`${baseUrl}/es/login`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
     await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
 
@@ -326,18 +377,26 @@ async function loginAs(page: Page, role: AuthRole, credentials: { email: string;
     await passwordInput.fill(credentials.password);
 
     await Promise.all([
-        page.waitForURL((url) => url.pathname.startsWith(expectedPath), { timeout: 30_000 }),
+        page.waitForURL((url) => {
+            const landing = classifyAuthLanding(role, url.pathname);
+            return landing.kind !== 'unexpected'
+                || url.pathname === ADULT_CONFIRMATION_PATH
+                || (url.pathname === '/es/login' && url.searchParams.has('error'));
+        }, { timeout: 30_000 }),
         submitButton.click(),
     ]);
     await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => undefined);
 
-    if (!new URL(page.url()).pathname.startsWith(expectedPath)) {
+    const landing = classifyAuthLanding(role, new URL(page.url()).pathname);
+    if (landing.kind === 'unexpected') {
         const visibleError = await page.locator('.bg-red-100, [role="alert"]').first().textContent({ timeout: 1_000 }).catch(() => '');
-        throw new Error(`Expected ${role} login to reach ${expectedPath}, got ${new URL(page.url()).pathname}.${visibleError ? ` Visible error: ${visibleError}` : ''}`);
+        throw new Error(`Expected ${role} login to reach ${landing.expectedPath}, got ${new URL(page.url()).pathname}.${visibleError ? ` Visible error: ${visibleError}` : ''}`);
     }
+
+    return landing.kind;
 }
 
-function getCredentials(role: AuthRole): { email: string; password: string } | null {
+function getCredentials(role: AccessibilityAuthRole): { email: string; password: string } | null {
     const prefix = role.toUpperCase();
     const email = process.env[`TEST_${prefix}_EMAIL`];
     const password = process.env[`TEST_${prefix}_PASSWORD`];
@@ -392,8 +451,8 @@ function renderMarkdown(summary: {
         `- Output: ${summary.outputDir}`,
         `- Manual worksheet: ${summary.accessibilityManualWorksheetPath}`,
         '',
-        '| Status | Page | Final URL | Issues |',
-        '| --- | --- | --- | --- |',
+        '| Status | Coverage | Page | Final URL | Scope / issues |',
+        '| --- | --- | --- | --- | --- |',
     ];
 
     for (const result of summary.results) {
@@ -401,10 +460,10 @@ function renderMarkdown(summary: {
             ...result.errors,
             ...result.violations.map((violation) => `${violation.id} (${violation.impact || 'unknown'}): ${violation.help}`),
         ];
-        lines.push(`| ${result.status} | ${escapeCell(result.name)} | ${escapeCell(result.finalUrl)} | ${escapeCell(issues.join(' / ') || 'None')} |`);
+        lines.push(`| ${result.status} | ${result.coverage} | ${escapeCell(result.name)} | ${escapeCell(result.finalUrl)} | ${escapeCell([result.scope, ...issues].join(' / '))} |`);
         for (const violation of result.violations) {
             if (violation.nodes.length > 0) {
-                lines.push(`|  |  |  | ${escapeCell(`${violation.id} nodes: ${violation.nodes.join(', ')}`)} |`);
+                lines.push(`|  |  |  |  | ${escapeCell(`${violation.id} nodes: ${violation.nodes.join(', ')}`)} |`);
             }
         }
     }
@@ -412,7 +471,12 @@ function renderMarkdown(summary: {
     lines.push('');
     lines.push('## Scope');
     lines.push('');
-    lines.push('This is a launch smoke check for obvious WCAG 2 A/AA regressions on public pages, login, legal pages, unauthenticated campus redirect, and authenticated student/teacher/admin campus surfaces. It does not replace a manual accessibility review.');
+    lines.push('This is a launch smoke check for obvious WCAG 2 A/AA regressions on public pages, login, legal pages, unauthenticated campus redirect, and authenticated campus access. Teacher and admin routes are always audited directly. Student routes are audited directly when the test account has a persisted adult attestation; otherwise the authenticated 18+ gate is audited and the report explicitly marks student route content as not audited. It does not replace a manual accessibility review.');
+    const adultGate = summary.results.find((result) => result.coverage === 'adult-gate-audited');
+    if (adultGate) {
+        lines.push('');
+        lines.push(`Student gate evidence: ${adultGate.scope}`);
+    }
     lines.push('');
 
     return `${lines.join('\n')}\n`;
@@ -444,12 +508,12 @@ function renderAccessibilityManualWorksheet(summary: {
         '',
         '## Automated Scope',
         '',
-        '| Result | Page | Final URL |',
-        '| --- | --- | --- |',
+        '| Result | Coverage | Page | Final URL | Scope |',
+        '| --- | --- | --- | --- | --- |',
     ];
 
     for (const result of summary.results) {
-        lines.push(`| ${result.status} | ${escapeCell(result.name)} | ${escapeCell(result.finalUrl || result.url)} |`);
+        lines.push(`| ${result.status} | ${result.coverage} | ${escapeCell(result.name)} | ${escapeCell(result.finalUrl || result.url)} | ${escapeCell(result.scope)} |`);
     }
 
     lines.push('');

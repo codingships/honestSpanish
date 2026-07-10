@@ -96,7 +96,8 @@ function reviewCloudflareFulfillmentWorker(): Finding {
         '"name": "@espanol-honesto/fulfillment-worker"',
         '"packageManager": "pnpm@10.33.0"',
         '"dev": "wrangler dev --local --port 8788"',
-        '"deploy": "wrangler deploy"',
+        '"deploy": "wrangler deploy --env staging"',
+        '"deploy:production": "wrangler deploy --env production"',
         '"typecheck": "tsc --noEmit"',
         '@googleapis/calendar',
         '@googleapis/drive',
@@ -192,7 +193,8 @@ function reviewFulfillmentWorkerRuntime(): Finding {
     const details = [
         ...missingSnippets(path.join('workers', 'fulfillment', 'package.json'), packageJson, [
             '"packageManager": "pnpm@10.33.0"',
-            '"deploy": "wrangler deploy"',
+            '"deploy": "wrangler deploy --env staging"',
+            '"deploy:production": "wrangler deploy --env production"',
             '"typecheck": "tsc --noEmit"',
             '@googleapis/calendar',
             '@googleapis/drive',

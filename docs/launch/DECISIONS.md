@@ -176,7 +176,7 @@ Contras:
 
 Decision: cuenta antes de pagar.
 
-Decision: Español Honesto no acepta alumnos menores de 18 años. Solicitud, diagnóstico, registro y checkout exigen declaración expresa de mayoría de edad; leads y checkout conservan versión y fecha de la declaración. No se recoge fecha de nacimiento.
+Decision: Español Honesto no acepta alumnos menores de 18 años. Solicitud, diagnóstico, registro y checkout exigen declaración expresa de mayoría de edad; leads, perfiles de alumno y checkout conservan versión y fecha de la declaración. El campus bloquea a alumnos sin declaración persistida y les ofrece un flujo de confirmación dedicado; administradores y profesores quedan fuera de ese bloqueo por rol. No se recoge fecha de nacimiento.
 
 Pros:
 - Webhooks simples.

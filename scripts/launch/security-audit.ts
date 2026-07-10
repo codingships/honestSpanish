@@ -346,6 +346,11 @@ function reviewServiceRoleBoundary(): Finding {
         // Central server-side runtime env helper. It may name secrets, but
         // must not cross into component/client boundaries.
         path.join('src', 'lib', 'runtime-env.ts'),
+        // Runtime attestation hashes server configuration and its internal API
+        // exposes only the opaque proof. Both files are server-only boundaries;
+        // the component/client scan below remains deliberately unchanged.
+        path.join('src', 'lib', 'runtime-attestation.ts'),
+        path.join('src', 'pages', 'api', 'internal', 'runtime-attestation.ts'),
         path.join('src', 'env.d.ts'),
     ].map(normalizePath));
 

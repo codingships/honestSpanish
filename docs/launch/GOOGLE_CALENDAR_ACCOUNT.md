@@ -8,6 +8,7 @@ Estado: decision operativa para RC y cierre final. No se ha tocado Google ni nin
 - Los eventos de clase se crean en el calendario `primary` de `GOOGLE_ADMIN_EMAIL`.
 - El alumno y el profesor se anaden como asistentes del evento.
 - La disponibilidad se comprueba contra el email del profesor guardado en `profiles.email`.
+- Si Google omite ese calendario o devuelve un error por calendario (por ejemplo `global:notFound`), web y Fulfillment Worker fallan cerrados y no ofrecen huecos como si estuvieran libres.
 - El campus guarda `sessions.calendar_event_id` y `sessions.meet_link` cuando el fulfillment crea el evento.
 - Cancelar una clase intenta borrar el evento de Calendar y limpiar los campos de la sesion.
 
@@ -32,6 +33,7 @@ Para RC, no se hace el cambio de modelo. Si el calendario operativo y el email d
 - `GOOGLE_ADMIN_EMAIL` debe poder crear eventos con Meet.
 - La service account debe tener domain-wide delegation y scopes de Calendar/Drive/Docs necesarios.
 - Si el calendario del profesor es una cuenta Gmail externa, debe compartir disponibilidad con la cuenta impersonada o aceptar invitaciones de la cuenta que crea eventos.
+- Para el fixture actual de staging, compartir el calendario principal de `TEST_TEACHER_EMAIL` con `GOOGLE_ADMIN_EMAIL` usando el permiso mínimo “ver solo libre/ocupado (ocultar detalles)”. El conector Calendar está autenticado como `GOOGLE_ADMIN_EMAIL` y no puede concederse ese permiso desde la cuenta externa.
 - La prueba final debe confirmar que FreeBusy ve conflictos reales del profesor.
 - La prueba final debe confirmar que el evento y Meet aparecen para las partes esperadas.
 - No usar datos de alumnos reales en staging.
