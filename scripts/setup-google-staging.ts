@@ -13,6 +13,7 @@ import { drive } from '@googleapis/drive';
 import { JWT } from 'google-auth-library';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { normalizeGooglePrivateKey } from '../src/lib/google/private-key';
 
 const stagingRootName = process.env.GOOGLE_STAGING_ROOT_FOLDER_NAME || 'STAGING - Espanol Honesto';
 const stagingTemplateName = process.env.GOOGLE_STAGING_TEMPLATE_DOC_NAME || 'STAGING - Plantilla de clase';
@@ -35,7 +36,7 @@ for (const key of requiredEnv) {
 
 const auth = new JWT({
     email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    key: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY!.replace(/\\n/g, '\n'),
+    key: normalizeGooglePrivateKey(process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY!),
     scopes: ['https://www.googleapis.com/auth/drive'],
     subject: process.env.GOOGLE_ADMIN_EMAIL,
 });

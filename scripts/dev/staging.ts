@@ -1,9 +1,14 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 const sourcePath = '.env.staging';
 const targetPath = '.dev.vars.staging';
 const stagingRef = 'mzjyvmlxfpzdfdjzxxyj';
+const isolatedEnvDirectory = path.join(tmpdir(), 'espanol-honesto', 'staging-env');
+const turnstileTestSiteKey = '1x00000000000000000000AA';
+const turnstileTestSecretKey = '1x0000000000000000000000000000000AA';
 const requiredKeys = [
     'PUBLIC_SUPABASE_URL',
     'PUBLIC_SUPABASE_ANON_KEY',
@@ -73,6 +78,8 @@ if (useLocalStaging) {
     if (source.PUBLIC_STRIPE_PUBLISHABLE_KEY && !source.PUBLIC_STRIPE_PUBLISHABLE_KEY.startsWith('pk_test_')) {
         throw new Error('[env:staging:sync] Refusing a non-test Stripe publishable key in local staging.');
     }
+    source.PUBLIC_TURNSTILE_SITE_KEY ||= turnstileTestSiteKey;
+    source.TURNSTILE_SECRET_KEY ||= turnstileTestSecretKey;
 
     output = {
         PUBLIC_APP_ENV: 'staging',
@@ -103,6 +110,8 @@ const childEnv = { ...process.env };
 if (useLocalStaging) {
     for (const key of inheritedProviderKeys) childEnv[key] = '';
     Object.assign(childEnv, output);
+    mkdirSync(isolatedEnvDirectory, { recursive: true });
+    childEnv.ESPANOL_RUNTIME_ENV_DIR = isolatedEnvDirectory;
     childEnv.CLOUDFLARE_ENV = 'staging';
     childEnv.CLOUDFLARE_INCLUDE_PROCESS_ENV = 'true';
 }

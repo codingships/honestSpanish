@@ -88,6 +88,25 @@ describe('email and Google runtime config helpers', () => {
         expect(validateGoogleConfig(config)).toEqual({ valid: true, missing: [] });
     });
 
+    it('normalizes dotenv line-continuation PEM serialization', async () => {
+        const continuedPrivateKey = [
+            ['-----BEGIN ', 'PRIVATE KEY-----\\'].join(''),
+            'abc\\',
+            ['-----END ', 'PRIVATE KEY-----\\'].join(''),
+        ].join('\n');
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => (
+            key === 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY' ? continuedPrivateKey : undefined
+        ));
+
+        const { getGoogleConfig } = await import('../../src/lib/google/config');
+
+        expect(getGoogleConfig().serviceAccountPrivateKey).toBe([
+            ['-----BEGIN ', 'PRIVATE KEY-----'].join(''),
+            'abc',
+            ['-----END ', 'PRIVATE KEY-----'].join(''),
+        ].join('\n'));
+    });
+
     it('fails closed when required Google runtime fields are missing', async () => {
         const { getGoogleConfig, validateGoogleConfig } = await import('../../src/lib/google/config');
 

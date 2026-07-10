@@ -5,6 +5,7 @@ import * as dotenv from 'dotenv';
 import { JWT } from 'google-auth-library';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { normalizeGooglePrivateKey } from '../../src/lib/google/private-key';
 
 type Status = 'ok' | 'warning' | 'failed';
 
@@ -43,7 +44,7 @@ const checks: Check[] = [checkEnvironment()];
 if (serviceAccountEmail && serviceAccountPrivateKey && adminEmail && driveRootFolderId && templateDocId) {
     const auth = new JWT({
         email: serviceAccountEmail,
-        key: serviceAccountPrivateKey.replace(/\\n/g, '\n'),
+        key: normalizeGooglePrivateKey(serviceAccountPrivateKey),
         scopes: [
             'https://www.googleapis.com/auth/drive',
             'https://www.googleapis.com/auth/calendar',

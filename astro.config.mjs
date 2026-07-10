@@ -11,6 +11,7 @@ import sentry from '@sentry/astro';
 import { loadEnv } from 'vite';
 import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 
 const e2eRuntimeRoot = new URL('./tests/e2e/runtime/', import.meta.url);
 const e2eRuntimeIsolated = process.env.E2E_RUNTIME_ISOLATED === 'true';
@@ -27,7 +28,11 @@ if (
 ) {
     throw new Error('[env] Local staging refused: run pnpm env:staging:sync to create the allowlisted .dev.vars.staging file.');
 }
-const envDirectory = e2eRuntimeIsolated ? fileURLToPath(e2eRuntimeRoot) : process.cwd();
+const envDirectory = e2eRuntimeIsolated
+    ? fileURLToPath(e2eRuntimeRoot)
+    : process.env.ESPANOL_RUNTIME_ENV_DIR
+        ? path.resolve(process.env.ESPANOL_RUNTIME_ENV_DIR)
+        : process.cwd();
 const envMode = e2eRuntimeIsolated
     ? 'test'
     : process.env.CLOUDFLARE_ENV || process.env.NODE_ENV || 'staging';
@@ -121,6 +126,10 @@ export default defineConfig({
         enabled: false,
     },
     vite: {
+        envDir: envDirectory,
+        ...(process.env.ESPANOL_RUNTIME_ENV_DIR ? {
+            cacheDir: path.join(process.cwd(), 'node_modules', '.vite-staging'),
+        } : {}),
         ...(e2eRuntimeIsolated ? { envDir: fileURLToPath(e2eRuntimeRoot) } : {}),
         define: {
             __SENTRY_DSN__: JSON.stringify(sentryDsn),

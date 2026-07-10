@@ -17,21 +17,6 @@ type Handler = (body: JsonObject) => Promise<JsonObject>;
 const SCHEDULED_FULFILLMENT_JOB_LIMIT = 5;
 const FULFILLMENT_WORKER_ID = 'cloudflare-fulfillment-worker';
 
-function applyRuntimeEnv(env: Env): void {
-    const globalWithProcess = globalThis as {
-        process?: { env?: Record<string, string | undefined> };
-    };
-
-    globalWithProcess.process ??= { env: {} };
-    globalWithProcess.process.env ??= {};
-
-    for (const [key, value] of Object.entries(env)) {
-        if (typeof value === 'string') {
-            globalWithProcess.process.env[key] = value;
-        }
-    }
-}
-
 function internalSecret(env: Env): string | null {
     return env.INTERNAL_JOB_SECRET || null;
 }
@@ -351,8 +336,7 @@ async function handleSendReminders(): Promise<JsonObject> {
     return { ...reminders, fulfillment };
 }
 
-async function handleScheduled(env: Env): Promise<void> {
-    applyRuntimeEnv(env);
+async function handleScheduled(): Promise<void> {
     const supabaseAdmin = createSupabaseAdminClient();
 
     await processDueFulfillmentJobs({
@@ -375,8 +359,6 @@ const routes: Record<string, Handler> = {
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
-        applyRuntimeEnv(env);
-
         const url = new URL(request.url);
 
         if (request.method === 'GET' && url.pathname === '/health') {
@@ -410,9 +392,9 @@ export default {
 
     async scheduled(
         _controller: ScheduledController,
-        env: Env,
+        _env: Env,
         ctx: ExecutionContext
     ): Promise<void> {
-        ctx.waitUntil(handleScheduled(env));
+        ctx.waitUntil(handleScheduled());
     },
 };
