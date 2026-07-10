@@ -207,12 +207,12 @@ Cloudflare local:
 ```bash
 # Staging es el destino seguro por defecto.
 pnpm build
-pnpm deploy
+pnpm run deploy
 
 # Solo en la ventana production aprobada. No sustituir por `pnpm build`.
 pnpm build:production:release
 pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
-pnpm deploy:production # alias de dry-run; nunca escribe production
+pnpm run deploy:production # alias de dry-run; nunca escribe production
 ```
 
 Cloudflare Fulfillment Worker local:

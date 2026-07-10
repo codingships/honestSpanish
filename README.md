@@ -21,8 +21,8 @@ Plataforma para academia online de espanol: web publica multilingue, campus priv
 pnpm dev
 pnpm build
 pnpm preview
-pnpm deploy
-pnpm deploy:production # dry-run solamente; production usa los gates siguientes
+pnpm run deploy
+pnpm run deploy:production # dry-run solamente; production usa los gates siguientes
 pnpm launch:cloudflare-production-fulfillment-bootstrap
 pnpm launch:cloudflare-production-worker-phase1
 pnpm launch:cloudflare-production-worker-secrets

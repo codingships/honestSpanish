@@ -15,7 +15,7 @@ Guidance for Codex and other coding agents in this repository.
 pnpm dev
 pnpm build
 pnpm preview
-pnpm deploy
+pnpm run deploy
 pnpm typecheck
 pnpm fulfillment:dev
 pnpm fulfillment:typecheck

@@ -24,7 +24,7 @@ describe('operations runbook launch readiness', () => {
         expect(ci).toContain('Verify staging checkout is disabled');
         expect(ci).toContain('CLOUDFLARE_ENV');
         expect(ci).toContain('deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run');
-        expect(ci).toContain('run: pnpm deploy');
+        expect(ci).toContain('run: pnpm run deploy');
         expect(ci).not.toContain('pnpm run deploy -- --dry-run');
         expect(ci).toContain('pnpm run build:production:release');
         expect(ci).toContain('Validate inert production Fulfillment bootstrap package');

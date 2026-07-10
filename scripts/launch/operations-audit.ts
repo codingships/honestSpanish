@@ -190,7 +190,7 @@ function reviewCiDeployPipeline(): Finding {
         'CLOUDFLARE_API_TOKEN',
         'pnpm run build:production:release',
         'deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run',
-        'run: pnpm deploy',
+        'run: pnpm run deploy',
         'Verify staging checkout is disabled',
         'CLOUDFLARE_STAGING_URL',
         '--deployed-url "$STAGING_WORKER_URL"',

@@ -23,7 +23,7 @@ describe('Cloudflare launch environment safety', () => {
         expect(packageJson).toContain('deploy-built-worker.ts --environment staging --execute');
         expect(packageJson).toContain('deploy-built-worker.ts --environment production --dry-run');
         expect(workflow).toContain('deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run');
-        expect(workflow).toContain('run: pnpm deploy');
+        expect(workflow).toContain('run: pnpm run deploy');
     });
 
     it('uses safe top-level Worker names so bare deploys cannot overwrite production', () => {
@@ -58,7 +58,7 @@ describe('Cloudflare launch environment safety', () => {
         expect(ci).toContain('if: github.ref_name == \'staging\'');
         expect(ci).toContain('wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars');
         expect(ci).toContain('deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run');
-        expect(ci).toContain('run: pnpm deploy');
+        expect(ci).toContain('run: pnpm run deploy');
         expect(ci).not.toContain('wrangler deploy --config workers/fulfillment/wrangler.toml --env production --keep-vars');
         expect(ci).not.toContain('run deploy -- --env');
     });
