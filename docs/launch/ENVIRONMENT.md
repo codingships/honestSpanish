@@ -16,7 +16,7 @@ No commitear valores reales. Los archivos `.env*` reales estan ignorados por Git
 | --- | --- | --- | --- |
 | Web Cloudflare objetivo | Worker `espanolhonesto-staging` en `https://espanolhonesto-staging.alindev95.workers.dev` | Worker objetivo `espanolhonesto` | Staging existe. El Worker production aun no existe. |
 | Web Cloudflare legado | Pages `espanol-honesto-staging` | Pages `espanolhonesto`, todavia asociado a los dominios finales | No borrar ni mover dominios hasta probar el Worker production por URL directa y aprobar el cutover. |
-| Fulfillment | Worker `espanol-honesto-fulfillment-staging` | Worker objetivo `espanol-honesto-fulfillment-production` | Staging existe y tiene cron/secrets por nombre. Production aun no existe. |
+| Fulfillment | Worker `espanol-honesto-fulfillment-staging`, conectado al web por `FULFILLMENT_SERVICE` | Worker objetivo `espanol-honesto-fulfillment-production` y binding production pendiente | Staging existe, tiene cron/secrets y pasó el smoke integral. Production aun no existe. |
 | Supabase | Proyecto `mzjyvmlxfpzdfdjzxxyj` | Proyecto `vkkahxsybhbutszerawz` | Proyectos separados. Aplicar y verificar migraciones staging primero; la nueva atestacion 18+ requiere `20260710120000_enforce_adult_lead_attestation.sql`. |
 | Stripe | Test mode | Live mode en ventana final | No mezclar keys, Prices, clientes ni webhook secrets. El default queda cerrado y `CHECKOUT_ENABLED_OVERRIDE` abre/cierra UI y API. |
 | Google | Carpeta `STAGING - Espanol Honesto` y plantilla `STAGING - Plantilla de clase`, confirmadas sin crearlas de nuevo | Raiz/plantilla production existentes | Drive/template separados. Calendar usa el mismo modelo `primary` de `GOOGLE_ADMIN_EMAIL`; no existe calendar ID por entorno. |
@@ -76,7 +76,7 @@ Inventario de rotacion por entorno:
 | --- | --- | --- | --- |
 | Supabase | `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL` operativo | Cloudflare Astro Worker, Fulfillment Worker, GitHub, migraciones locales | Rotar JWT/keys con ventana de mantenimiento si invalida sesiones. |
 | Stripe | `STRIPE_SECRET_KEY`, `PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `CHECKOUT_ENABLED`, `CHECKOUT_ENABLED_OVERRIDE`, `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para auditoria read-only | Cloudflare Astro Worker, GitHub | Test y live separados; Price IDs no son secretos. Defaults `false`; el override final abre/cierra UI y API sin editar `wrangler.toml`. |
-| Cloudflare internals | `FULFILLMENT_WORKER_URL`, `INTERNAL_JOB_SECRET`, `CRON_SECRET` | Pages, Worker, GitHub | `INTERNAL_JOB_SECRET`/`CRON_SECRET` deben ser distintos por entorno. |
+| Cloudflare internals | binding `FULFILLMENT_SERVICE`, `FULFILLMENT_WORKER_URL`, `INTERNAL_JOB_SECRET`, `CRON_SECRET` | Astro Worker, Fulfillment Worker, GitHub | El binding no es secreto y debe apuntar al Worker del mismo entorno. `INTERNAL_JOB_SECRET`/`CRON_SECRET` deben ser distintos por entorno. |
 | Google | `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_ADMIN_EMAIL`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`, `GOOGLE_TEMPLATE_DOC_ID` | Fulfillment Worker | Crear clave nueva, validar, borrar antigua. |
 | Resend | `RESEND_API_KEY`, `EMAIL_FROM`, `RESEND_FROM_EMAIL`, `EMAIL_DELIVERY_MODE`, `EMAIL_RECIPIENT_ALLOWLIST`, limites de destinatarios | Astro Worker y Fulfillment Worker | Validar envio antes de revocar. Cada destinatario consume una unidad; staging y production comparten el margen del plan si usan la misma cuenta Resend. |
 | Turnstile | `PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Astro Worker | Revisar dominios permitidos si cambia site key. |
@@ -120,6 +120,7 @@ Variables por entorno:
 - `CRON_SECRET`
 - `FULFILLMENT_WORKER_URL`
 - `INTERNAL_JOB_SECRET`
+- Service binding `FULFILLMENT_SERVICE` al Fulfillment Worker del mismo entorno. Debe existir en staging y production; el target se despliega primero.
 - `SUPPORT_ALERT_EMAIL` opcional; si falta, soporte usa `ADMIN_EMAIL` y despues `alejandro@espanolhonesto.com`.
 - `RESEND_API_KEY`, `EMAIL_FROM`/`RESEND_FROM_EMAIL` para los emails de lead, soporte y previews que salen desde el Astro Worker.
 - `EMAIL_DELIVERY_MODE`: ausente/`disabled` falla cerrado; staging solo puede usar `allowlist`; `live` solo funciona con `PUBLIC_APP_ENV=production`.
@@ -127,7 +128,7 @@ Variables por entorno:
 - La allowlist de staging queda limitada a las tres cuentas propias de prueba ya definidas como `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` y `TEST_STUDENT_EMAIL`. Sus valores se copian al secreto `EMAIL_RECIPIENT_ALLOWLIST` de ambos Workers staging, nunca al repositorio.
 - `EMAIL_DAILY_RECIPIENT_LIMIT` y `EMAIL_MONTHLY_RECIPIENT_LIMIT`: staging tiene techo 10/100 y production 80/2.400, aunque se configuren cifras superiores.
 
-Cloudflare Astro Worker no necesita claves Google si ninguna ruta API importa Google SDK.
+Cloudflare Astro Worker no necesita claves Google si ninguna ruta API importa Google SDK. En Cloudflare debe usar `FULFILLMENT_SERVICE.fetch(...)`; el fallback por URL queda reservado a local y los entornos desplegados fallan cerrados si falta el binding.
 
 ## Cloudflare Fulfillment Worker
 
@@ -138,7 +139,7 @@ Crear dos Workers desde `workers/fulfillment/wrangler.toml`:
 - `espanol-honesto-fulfillment-production`
   - Health check: `/health`
 
-El Fulfillment Worker declara un cron horario (`0 * * * *`) para procesar jobs pendientes y recordatorios. Las rutas internas siguen disponibles para disparos manuales o desde la app Astro Worker.
+El Fulfillment Worker declara un cron horario (`0 * * * *`) para procesar jobs pendientes y recordatorios. Las rutas internas siguen disponibles para disparos manuales o desde la app Astro Worker. Para cada entorno, desplegar primero este Worker y después el Astro Worker que declara `FULFILLMENT_SERVICE`; no usar `fetch()` público entre Workers de la misma cuenta.
 
 Despliegue:
 

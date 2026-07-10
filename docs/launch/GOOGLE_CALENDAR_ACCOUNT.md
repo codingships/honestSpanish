@@ -1,6 +1,6 @@
 # Google Calendar Account Decision
 
-Estado: decision operativa para RC y cierre final. No se ha tocado Google ni ningun secreto al crear este documento.
+Estado: decisión operativa verificada en staging el 2026-07-10. El calendario docente externo compartió únicamente libre/ocupado y el smoke cercado confirmó Drive, Docs, Calendar, Meet, un email allowlisted y cleanup completo.
 
 ## Comportamiento Actual Del Codigo
 
@@ -32,15 +32,17 @@ Para RC, no se hace el cambio de modelo. Si el calendario operativo y el email d
 
 - `GOOGLE_ADMIN_EMAIL` debe poder crear eventos con Meet.
 - La service account debe tener domain-wide delegation y scopes de Calendar/Drive/Docs necesarios.
-- Si el calendario del profesor es una cuenta Gmail externa, debe compartir disponibilidad con la cuenta impersonada o aceptar invitaciones de la cuenta que crea eventos.
+- Si el calendario del profesor es una cuenta Gmail externa, debe compartir disponibilidad con la cuenta impersonada. Aceptar invitaciones no sustituye el permiso FreeBusy necesario para calcular huecos.
 - Para el fixture actual de staging, compartir el calendario principal de `TEST_TEACHER_EMAIL` con `GOOGLE_ADMIN_EMAIL` usando el permiso mínimo “ver solo libre/ocupado (ocultar detalles)”. El conector Calendar está autenticado como `GOOGLE_ADMIN_EMAIL` y no puede concederse ese permiso desde la cuenta externa.
 - La prueba final debe confirmar que FreeBusy ve conflictos reales del profesor.
 - La prueba final debe confirmar que el evento y Meet aparecen para las partes esperadas.
 - No usar datos de alumnos reales en staging.
 
+La incorporación de cada profesor externo debe incluir este permiso mínimo. El alumno no comparte su calendario: solo recibe la invitación del evento.
+
 ## Smoke Final
 
-El cierre final debe probar:
+Staging ya cubrió los pasos siguientes el 2026-07-10; production debe repetirlos con sus recursos antes de abrir tráfico:
 
 1. Crear una clase test con `autoCreateMeeting=true`.
 2. Confirmar que se crea `sessions.calendar_event_id`.
@@ -65,5 +67,5 @@ Para launch viable, esta decision queda cerrada si:
 
 - El comportamiento actual esta documentado.
 - Alin decide si `profiles.email` basta o si hay que crear `calendar_email`.
-- El smoke final cubre Calendar/Meet en el entorno real de lanzamiento.
+- El smoke staging cubre Calendar/Meet y cleanup; el smoke production repite la verificación en el entorno real de lanzamiento.
 - Cualquier cambio de modelo queda en tarea separada antes de production, no mezclado con legal, Stripe o rotacion de claves.

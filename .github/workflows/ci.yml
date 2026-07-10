@@ -132,6 +132,12 @@ jobs:
           CHECKOUT_ENABLED: "false"
         run: pnpm run build
 
+      - name: Deploy Cloudflare Fulfillment Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm --filter @espanol-honesto/fulfillment-worker run deploy -- --env "${{ github.ref_name == 'main' && 'production' || 'staging' }}"
+
       - name: Validate Cloudflare Worker deploy package
         env:
           CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
@@ -157,9 +163,3 @@ jobs:
             exit 1
           fi
           pnpm run launch:no-real-payments -- --deployed-url "$STAGING_WORKER_URL"
-
-      - name: Deploy Cloudflare Fulfillment Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --filter @espanol-honesto/fulfillment-worker run deploy -- --env "${{ github.ref_name == 'main' && 'production' || 'staging' }}"

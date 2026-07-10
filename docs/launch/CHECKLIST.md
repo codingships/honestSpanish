@@ -229,13 +229,13 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Aviso de renovación implementado localmente: `invoice.upcoming` encola `renewal_notice` durable e idempotente y envía fecha, importe, periodo, plazo/canales y consecuencia en ES/EN/RU mediante la pasarela de email.
 - [ ] Gate externo: configurar `invoice.upcoming` a 15 días en los webhooks Stripe test/live y verificar una entrega real en staging antes de habilitar cobros.
 - [ ] Stripe live production en la ventana final: el lanzamiento aceptara pagos reales desde el primer dia; mantener default y override `false` hasta Go/No-Go.
-- [ ] Google folders/templates staging. Root, plantilla, Docs y calendario primario exactos responden; las versiones opacas de web y fulfillment quedan atestiguadas. El preflight 2026-07-10 se detiene de forma segura porque el calendario externo de `TEST_TEACHER_EMAIL` todavía no comparte FreeBusy con `GOOGLE_ADMIN_EMAIL`; tras conceder “ver solo libre/ocupado”, falta ejecutar el smoke con cleanup y un único email allowlisted.
+- [x] Google folders/templates staging. Root, plantilla, Docs, Calendar y Meet quedaron verificados en el smoke cercado del 2026-07-10 después de compartir el calendario externo de `TEST_TEACHER_EMAIL` con `GOOGLE_ADMIN_EMAIL` usando “ver solo libre/ocupado”. El ensayo creó y verificó carpeta, documento, evento y Meet, añadió deberes, envió exactamente un email allowlisted y terminó con `cleanup=ok` y `result=ok`; la cuenta del alumno no compartió calendario ni concedió permisos.
 - [ ] Guardar IDs Google staging en KeePassXC.
 - [ ] Google folders/templates produccion.
 - [x] Resend staging/test. Evidencia: envio directo de smoke a `TEST_ADMIN_EMAIL` devolvio HTTP 200; no se usaron destinatarios de alumnos ni contenido privado.
 - [ ] Resend produccion.
 - [ ] Turnstile dominios reales.
-- [x] Cloudflare Fulfillment Worker con `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`: staging separado y atestiguado; `espanolhonesto-staging` ejecuta `fe317736-e936-4c8f-8c08-d48d88657489` y `espanol-honesto-fulfillment-staging` ejecuta `9be2ea8f-427d-4834-b7fb-311c5d1e4c50`, ambos al 100 %, checkout cerrado e identidad de versión verificada el 2026-07-10. El trigger horario `0 * * * *` fue sincronizado explícitamente en fulfillment staging. Production Worker, secretos live y smoke final quedan fuera de este cierre de staging.
+- [x] Cloudflare Fulfillment Worker con service binding privado `FULFILLMENT_SERVICE`, `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`: staging separado y atestiguado; `espanolhonesto-staging` ejecuta `e28549c4-f35d-45cc-ac8f-0da8ab80fdfb` y `espanol-honesto-fulfillment-staging` ejecuta `9be2ea8f-427d-4834-b7fb-311c5d1e4c50`, ambos al 100 %, checkout cerrado e identidad de versión verificada el 2026-07-10. El candidato web pasó el smoke integral antes de promoción y la URL estable pasó el preflight posterior; el trigger horario `0 * * * *` sigue sincronizado en fulfillment staging. Production Worker, binding production, secretos live y smoke final quedan fuera de este cierre de staging.
 
 ## Legal
 

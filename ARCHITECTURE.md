@@ -17,6 +17,8 @@ Responsable de:
 - Encolar trabajo en `fulfillment_jobs`.
 - Delegar disponibilidad/Drive/Docs/Calendar/Resend al Cloudflare Fulfillment Worker.
 
+La delegación desplegada usa el service binding privado `FULFILLMENT_SERVICE`. `FULFILLMENT_WORKER_URL` se mantiene como URL canónica y fallback local, mientras `INTERNAL_JOB_SECRET` autentica cada petición; staging y production no recurren a `fetch()` público entre Workers de la misma cuenta.
+
 Regla: `src/pages/api/**` no debe importar `src/lib/google/**` ni `src/lib/fulfillment/jobs.ts`.
 
 ### Cloudflare Fulfillment Worker

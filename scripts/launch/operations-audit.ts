@@ -174,6 +174,11 @@ function reviewCiDeployPipeline(): Finding {
         '@espanol-honesto/fulfillment-worker',
         'run deploy -- --env',
     ]);
+    const fulfillmentDeployIndex = content.indexOf('name: Deploy Cloudflare Fulfillment Worker');
+    const webDeployIndex = content.indexOf('name: Deploy Cloudflare Worker');
+    if (fulfillmentDeployIndex < 0 || webDeployIndex < 0 || fulfillmentDeployIndex >= webDeployIndex) {
+        details.push(`${file}: fulfillment Worker must deploy before the bound Astro Worker.`);
+    }
 
     return {
         status: details.length === 0 ? 'ok' : 'failed',
@@ -189,6 +194,8 @@ function reviewFulfillmentWorkerRuntime(): Finding {
     const packageJson = readIfExists(path.join('workers', 'fulfillment', 'package.json'));
     const worker = readIfExists(path.join('workers', 'fulfillment', 'src', 'index.ts'));
     const internalClient = readIfExists(path.join('src', 'lib', 'internal-job-service.ts'));
+    const webWranglerFile = 'wrangler.toml';
+    const webWrangler = readIfExists(webWranglerFile);
     const cronRoute = readIfExists(path.join('src', 'pages', 'api', 'cron', 'send-reminders.ts'));
     const details = [
         ...missingSnippets(path.join('workers', 'fulfillment', 'package.json'), packageJson, [
@@ -215,6 +222,8 @@ function reviewFulfillmentWorkerRuntime(): Finding {
             'sendClassReminder',
         ]),
         ...missingSnippets(path.join('src', 'lib', 'internal-job-service.ts'), internalClient, [
+            'cloudflare:workers',
+            'FULFILLMENT_SERVICE',
             'FULFILLMENT_WORKER_URL',
             'INTERNAL_JOB_SERVICE_URL',
             'INTERNAL_JOB_SECRET',
@@ -225,6 +234,16 @@ function reviewFulfillmentWorkerRuntime(): Finding {
             'checkTeacherAvailabilityViaInternalService',
             'filterSlotsAgainstGoogleViaInternalService',
         ]),
+        ...missingSnippets(webWranglerFile, webWrangler, [
+            '[[env.staging.services]]',
+            'service = "espanol-honesto-fulfillment-staging"',
+            '[[env.production.services]]',
+            'service = "espanol-honesto-fulfillment-production"',
+            'binding = "FULFILLMENT_SERVICE"',
+        ]),
+        ...(webWrangler.includes('global_fetch_strictly_public')
+            ? [`${webWranglerFile}: public same-zone fetch compatibility flag must not replace the private service binding.`]
+            : []),
         ...missingSnippets(path.join('src', 'pages', 'api', 'cron', 'send-reminders.ts'), cronRoute, [
             'CRON_SECRET',
             'Authorization',

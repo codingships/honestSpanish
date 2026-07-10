@@ -45,6 +45,7 @@ Recuperacion:
 - Admin > Jobs > Reintentar.
 - Admin > Jobs > Procesar pendientes.
 - Si el Cloudflare Fulfillment Worker esta caido, revisar `/health`, secrets y deploy.
+- Si la llamada interna devuelve 404/1042 sin aparecer en logs del Fulfillment Worker, comprobar que el Astro Worker declara `FULFILLMENT_SERVICE` hacia el Worker del mismo entorno. No habilitar `global_fetch_strictly_public` como sustituto.
 
 ### Clase sin Meet/Doc/email
 
@@ -132,7 +133,7 @@ Precondiciones obligatorias:
 2. Migraciones aplicadas en staging y production, incluida la atestacion 18+.
 3. Compra Stripe test staging completa: checkout, webhook idempotente, suscripcion/cuota, email contractual, Drive, portal, cancelacion y reembolso reconciliado.
 4. Confirmar en esa compra que el alcance inicial sigue siendo tarjeta, sin códigos promocionales, y que el importe de la renovación coincide con el resumen contractual.
-5. Worker web `espanolhonesto` y Fulfillment Worker `espanol-honesto-fulfillment-production` creados, conectados y probados por URL directa sin mover aun el dominio.
+5. Worker web `espanolhonesto` y Fulfillment Worker `espanol-honesto-fulfillment-production` creados, conectados mediante `FULFILLMENT_SERVICE` y probados por URL directa sin mover aun el dominio.
 6. Keys, Price IDs y webhook secret live pertenecen todos al mismo modo/cuenta; webhook live apunta al Worker production.
 7. Stripe Portal permite cancelar al final del periodo; aviso de renovacion y canal de desistimiento estan operativos.
 
@@ -160,13 +161,13 @@ Rollback financiero inmediato:
 2. Abrir PR hacia `staging`.
 3. CI debe pasar: typecheck, lint, tests, build, E2E publico y secrets-check.
 4. Merge a `staging`.
-5. GitHub Actions despliega el Cloudflare Astro Worker staging y el Cloudflare Fulfillment Worker staging.
+5. GitHub Actions despliega primero el Cloudflare Fulfillment Worker staging y después el Astro Worker staging con `FULFILLMENT_SERVICE` apuntando al target ya existente.
 6. Validar smoke staging.
 7. Abrir PR de `staging` hacia `main`.
 8. CI debe pasar.
 9. Merge a `main`.
 10. Aprobar el environment `production` en GitHub Actions.
-11. GitHub Actions despliega el Cloudflare Astro Worker production y el Cloudflare Fulfillment Worker production. Los dominios se mueven desde Pages legado solo despues del probe directo y la aprobacion de cutover.
+11. GitHub Actions despliega primero el Cloudflare Fulfillment Worker production y después el Astro Worker production con su binding. Los dominios se mueven desde Pages legado solo despues del probe directo y la aprobacion de cutover.
 
 ### Deploy Manual Local
 

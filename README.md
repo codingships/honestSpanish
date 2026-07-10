@@ -95,7 +95,7 @@ El trabajo pesado se delega a `workers/fulfillment`, desplegado como Cloudflare 
 - Filtra disponibilidad contra Google Calendar.
 - Ejecuta recordatorios.
 
-El Astro Worker y el Fulfillment Worker se comunican con `FULFILLMENT_WORKER_URL` y `INTERNAL_JOB_SECRET`.
+En Cloudflare, el Astro Worker llama al Fulfillment Worker mediante el service binding privado `FULFILLMENT_SERVICE`; `FULFILLMENT_WORKER_URL` conserva la URL canónica de la petición y `INTERNAL_JOB_SECRET` añade autenticación en profundidad. La URL pública solo es fallback local: staging y production fallan cerrados si falta el binding.
 
 ## Entornos Y Deploy
 

@@ -149,10 +149,17 @@ function reviewIntegrationRuntimeHooks(): Finding {
             'sendDueReminders',
         ]),
         ...missingSnippets(path.join('src', 'lib', 'internal-job-service.ts'), readIfExists(path.join('src', 'lib', 'internal-job-service.ts')), [
+            'FULFILLMENT_SERVICE',
             'FULFILLMENT_WORKER_URL',
             'INTERNAL_JOB_SECRET',
             'sendDueReminders',
             '/internal/reminders/send',
+        ]),
+        ...missingSnippets('wrangler.toml', readIfExists('wrangler.toml'), [
+            '[[env.staging.services]]',
+            'service = "espanol-honesto-fulfillment-staging"',
+            '[[env.production.services]]',
+            'service = "espanol-honesto-fulfillment-production"',
         ]),
         ...missingSnippets(path.join('workers', 'fulfillment', 'src', 'index.ts'), readIfExists(path.join('workers', 'fulfillment', 'src', 'index.ts')), [
             'INTERNAL_JOB_SECRET',
@@ -281,7 +288,7 @@ function reviewLaunchSequenceAndRunbook(): Finding {
             'final_smoke',
             'Stripe live production en la ventana final',
             'pagos reales desde el primer dia',
-            'Cloudflare Fulfillment Worker con `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`',
+            'Cloudflare Fulfillment Worker con service binding privado `FULFILLMENT_SERVICE`, `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`',
         ]),
     ];
 

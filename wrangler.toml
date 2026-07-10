@@ -39,6 +39,10 @@ binding = "CF_VERSION_METADATA"
 [env.production]
 name = "espanolhonesto"
 
+[[env.production.services]]
+binding = "FULFILLMENT_SERVICE"
+service = "espanol-honesto-fulfillment-production"
+
 [env.production.vars]
 NODE_ENV = "production"
 PUBLIC_APP_ENV = "production"
