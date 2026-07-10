@@ -7,7 +7,7 @@ Estado: apoyo para operar sin cobros reales hasta el cierre final de Stripe.
 ## Que Prueba
 
 - `.env.example` mantiene `CHECKOUT_ENABLED=false`.
-- `/api/create-checkout` falla cerrado con 403 antes de tocar Supabase o Stripe si `CHECKOUT_ENABLED` no es `true`.
+- `/api/create-checkout` usa `src/lib/checkout-enabled.ts` y falla cerrado con 403 antes de tocar Supabase o Stripe. `CHECKOUT_ENABLED_OVERRIDE` prevalece sobre `CHECKOUT_ENABLED`; ambos quedan en `false` para staging sin cobros.
 - Las landings publicas usan `PricingSection` en modo `application`.
 - Los tests de checkout y pricing publicos pasan.
 - `corepack pnpm launch:payments` sigue pasando.

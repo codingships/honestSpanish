@@ -137,6 +137,11 @@ const rcNoRealPaymentsSlice = [
         requiredForStagingDeploy: true,
     },
     {
+        path: 'src/lib/checkout-enabled.ts',
+        role: 'Single checkout feature gate: CHECKOUT_ENABLED_OVERRIDE takes precedence over the fail-closed CHECKOUT_ENABLED default.',
+        requiredForStagingDeploy: true,
+    },
+    {
         path: 'src/lib/runtime-env.ts',
         role: 'Cloudflare/Astro runtime env reader used by the checkout guard.',
         requiredForStagingDeploy: true,
@@ -372,6 +377,7 @@ function classifyPath(filePath: string): string {
     if (matchesAny(filePath, [
         /^docs\/launch\/NO_REAL_PAYMENTS\.md$/,
         /^src\/components\/admin\/(?:FulfillmentJobsManager|PaymentRecoveryActions|ProductCatalogManager|SubscriptionRenewalActions)/,
+        /^src\/lib\/(?:checkout-enabled|stripe-webhook-events)\.ts$/,
         /^src\/lib\/fulfillment\/(?:jobs|queue)\.ts$/,
         /^src\/lib\/internal-job-service\.ts$/,
         /^src\/pages\/\[lang\]\/campus\/admin\/(?:jobs|packages|payments)\.astro$/,
@@ -836,9 +842,12 @@ function renderRcStagingPackageFiles(): string {
 
 function rcGuardSnippets(): Array<{ path: string; snippet: string; label: string }> {
     return [
-        { path: 'src/pages/api/create-checkout.ts', snippet: "readRuntimeEnv('CHECKOUT_ENABLED'", label: 'checkout reads CHECKOUT_ENABLED' },
+        { path: 'src/pages/api/create-checkout.ts', snippet: "import { isCheckoutEnabled } from '../../lib/checkout-enabled'", label: 'checkout imports the shared feature gate' },
+        { path: 'src/pages/api/create-checkout.ts', snippet: 'if (!isCheckoutEnabled(context))', label: 'checkout applies the shared feature gate before request parsing' },
         { path: 'src/pages/api/create-checkout.ts', snippet: 'Checkout is disabled', label: 'checkout disabled response' },
         { path: 'src/pages/api/create-checkout.ts', snippet: 'status: 403', label: 'checkout disabled status 403' },
+        { path: 'src/lib/checkout-enabled.ts', snippet: "readRuntimeEnv('CHECKOUT_ENABLED_OVERRIDE'", label: 'feature gate reads CHECKOUT_ENABLED_OVERRIDE first' },
+        { path: 'src/lib/checkout-enabled.ts', snippet: "readRuntimeEnv('CHECKOUT_ENABLED'", label: 'feature gate reads CHECKOUT_ENABLED default' },
         { path: 'wrangler.toml', snippet: 'CHECKOUT_ENABLED = "false"', label: 'Worker default CHECKOUT_ENABLED=false' },
     ];
 }

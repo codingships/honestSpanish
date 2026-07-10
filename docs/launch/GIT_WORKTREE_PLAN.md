@@ -77,8 +77,9 @@ Aunque el deployed probe actual este cerrado con `403 Checkout is disabled`, un 
 Requeridos para que staging pueda servir el guard:
 
 - `src/pages/api/create-checkout.ts`: devuelve `403 Checkout is disabled` antes de parsear body, Supabase o Stripe salvo que `CHECKOUT_ENABLED=true`.
+- `src/lib/checkout-enabled.ts`: centraliza el gate y da prioridad a `CHECKOUT_ENABLED_OVERRIDE` sobre el default fail-closed.
 - `src/lib/runtime-env.ts`: lectura correcta de variables runtime en Cloudflare/Astro.
-- `wrangler.toml`: default no secreto `CHECKOUT_ENABLED = "false"` para Pages.
+- `wrangler.toml`: default no secreto `CHECKOUT_ENABLED = "false"` para el Worker.
 
 Evidencia y runbook que deben viajar cerca del cambio:
 
@@ -100,7 +101,7 @@ Artefactos utiles:
 
 - `rc-staging-package.md`: manifiesto humano de readiness local vs `HEAD`.
 - `rc-staging-package-files.txt`: lista plana de runtime + evidencia.
-- `rc-staging-runtime-diff.patch`: diff review-only limitado a `src/pages/api/create-checkout.ts`, `src/lib/runtime-env.ts` y `wrangler.toml`.
+- `rc-staging-runtime-diff.patch`: diff review-only limitado a `src/pages/api/create-checkout.ts`, `src/lib/checkout-enabled.ts`, `src/lib/runtime-env.ts` y `wrangler.toml`.
 - `rc-staging-runtime-manifest.json`: hashes SHA-256 y estado `workingTreeGuardReady`/`headGuardReady` de la slice runtime.
 
 No autoriza Supabase writes, production Pages, Stripe live, `CHECKOUT_ENABLED=true`, pagos reales ni final secrets.
@@ -240,7 +241,7 @@ Ultima evidencia fuerte de higiene Git:
 - Listas planas por paquete: `outputs/launch-worktree/2026-06-26T21-18-07-795Z/package-file-lists/`.
 - Slice Cloudflare Pages staging: `outputs/launch-worktree/2026-06-26T21-18-07-795Z/rc-staging-package.md`.
 - Resultado de slice: `Working tree guard ready: yes`, `Current HEAD guard ready: no`, `Required runtime files present: yes`.
-- Implicacion: el arbol local tiene el guard sin cobros reales, pero el `HEAD` que podria desplegar Cloudflare no lo contiene completo; `src/pages/api/create-checkout.ts`, `src/lib/runtime-env.ts` y `wrangler.toml` deben viajar en el paquete/deploy staging antes de confiar en `CHECKOUT_ENABLED=false`.
+- Implicacion: el arbol local tiene el guard sin cobros reales, pero un `HEAD` anterior podria no contenerlo completo; `src/pages/api/create-checkout.ts`, `src/lib/checkout-enabled.ts`, `src/lib/runtime-env.ts` y `wrangler.toml` deben viajar en el paquete/deploy staging antes de confiar en `CHECKOUT_ENABLED=false`.
 
 Evidencia operativa historica de launch:
 
