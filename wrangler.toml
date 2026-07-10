@@ -15,6 +15,10 @@ CHECKOUT_ENABLED = "false"
 [env.staging]
 name = "espanolhonesto-staging"
 
+[[env.staging.services]]
+binding = "FULFILLMENT_SERVICE"
+service = "espanol-honesto-fulfillment-staging"
+
 [env.staging.vars]
 NODE_ENV = "production"
 PUBLIC_APP_ENV = "staging"

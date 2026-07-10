@@ -1,4 +1,5 @@
 import type { APIContext } from 'astro';
+import { env as cloudflareEnv } from 'cloudflare:workers';
 import { runAfterResponse } from './cloudflare-runtime';
 import { readRuntimeEnv } from './runtime-env';
 
@@ -8,6 +9,26 @@ type InternalJobServiceOptions = {
     context?: Pick<APIContext, 'locals'>;
     method?: 'GET' | 'POST';
 };
+
+type InternalServiceBinding = {
+    fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
+};
+
+function getServiceBinding(): InternalServiceBinding | null {
+    const candidate = (cloudflareEnv as { FULFILLMENT_SERVICE?: unknown }).FULFILLMENT_SERVICE;
+    if (!candidate || typeof candidate !== 'object' || !('fetch' in candidate)) {
+        return null;
+    }
+
+    return typeof (candidate as InternalServiceBinding).fetch === 'function'
+        ? candidate as InternalServiceBinding
+        : null;
+}
+
+function requiresServiceBinding(context?: Pick<APIContext, 'locals'>): boolean {
+    const appEnvironment = readRuntimeEnv('PUBLIC_APP_ENV', context);
+    return appEnvironment === 'staging' || appEnvironment === 'production';
+}
 
 function getServiceUrl(context?: Pick<APIContext, 'locals'>): string | null {
     const value = readRuntimeEnv('FULFILLMENT_WORKER_URL', context)
@@ -21,7 +42,8 @@ function getInternalSecret(context?: Pick<APIContext, 'locals'>): string | null 
 }
 
 export function isInternalJobServiceConfigured(context?: Pick<APIContext, 'locals'>): boolean {
-    return Boolean(getServiceUrl(context) && getInternalSecret(context));
+    const baseConfigured = Boolean(getServiceUrl(context) && getInternalSecret(context));
+    return baseConfigured && (!requiresServiceBinding(context) || Boolean(getServiceBinding()));
 }
 
 export async function callInternalJobService<T = JsonObject>(
@@ -36,14 +58,23 @@ export async function callInternalJobService<T = JsonObject>(
         throw new Error('Internal job service is not configured');
     }
 
-    const response = await fetch(`${baseUrl}${path}`, {
+    const serviceBinding = getServiceBinding();
+    if (!serviceBinding && requiresServiceBinding(options.context)) {
+        throw new Error('Internal job service binding is not configured');
+    }
+
+    const requestUrl = `${baseUrl}${path}`;
+    const requestInit: RequestInit = {
         method: options.method ?? 'POST',
         headers: {
             Authorization: `Bearer ${secret}`,
             'Content-Type': 'application/json',
         },
         body: options.method === 'GET' ? undefined : JSON.stringify(body),
-    });
+    };
+    const response = serviceBinding
+        ? await serviceBinding.fetch(requestUrl, requestInit)
+        : await fetch(requestUrl, requestInit);
 
     const text = await response.text();
     let data: JsonObject = {};

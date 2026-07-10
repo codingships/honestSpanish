@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { env as cloudflareEnv } from 'cloudflare:workers';
 import {
     callInternalJobService,
     isInternalJobServiceConfigured,
     processFulfillmentJobs,
 } from '../../src/lib/internal-job-service';
+
+const mutableCloudflareEnv = cloudflareEnv as unknown as Record<string, unknown>;
 
 const makeContext = (env: Record<string, string | undefined>) => {
     for (const key of [
@@ -11,6 +14,7 @@ const makeContext = (env: Record<string, string | undefined>) => {
         'INTERNAL_JOB_SERVICE_URL',
         'INTERNAL_JOB_SECRET',
         'CRON_SECRET',
+        'PUBLIC_APP_ENV',
     ]) {
         vi.stubEnv(key, env[key] ?? '');
     }
@@ -23,6 +27,7 @@ describe('internal job service client', () => {
         vi.unstubAllGlobals();
         vi.unstubAllEnvs();
         vi.restoreAllMocks();
+        delete mutableCloudflareEnv.FULFILLMENT_SERVICE;
     });
 
     it('detects whether service URL and secret are configured', () => {
@@ -57,6 +62,44 @@ describe('internal job service client', () => {
             }),
             body: JSON.stringify({ value: 1 }),
         }));
+    });
+
+    it('uses the private service binding in hosted environments', async () => {
+        const bindingFetch = vi.fn().mockResolvedValue(
+            new Response(JSON.stringify({ ok: true }), { status: 200 }),
+        );
+        mutableCloudflareEnv.FULFILLMENT_SERVICE = { fetch: bindingFetch };
+        const publicFetch = vi.fn();
+        vi.stubGlobal('fetch', publicFetch);
+
+        await expect(callInternalJobService('/internal/test', { value: 1 }, {
+            context: makeContext({
+                FULFILLMENT_WORKER_URL: 'https://jobs.example.com',
+                INTERNAL_JOB_SECRET: 'secret',
+                PUBLIC_APP_ENV: 'staging',
+            }) as any,
+        })).resolves.toEqual({ ok: true });
+
+        expect(bindingFetch).toHaveBeenCalledWith(
+            'https://jobs.example.com/internal/test',
+            expect.objectContaining({
+                method: 'POST',
+                headers: expect.objectContaining({ Authorization: 'Bearer secret' }),
+            }),
+        );
+        expect(publicFetch).not.toHaveBeenCalled();
+    });
+
+    it('fails closed in hosted environments when the service binding is missing', async () => {
+        const context = makeContext({
+            FULFILLMENT_WORKER_URL: 'https://jobs.example.com',
+            INTERNAL_JOB_SECRET: 'secret',
+            PUBLIC_APP_ENV: 'staging',
+        }) as any;
+
+        expect(isInternalJobServiceConfigured(context)).toBe(false);
+        await expect(callInternalJobService('/internal/test', {}, { context }))
+            .rejects.toThrow('Internal job service binding is not configured');
     });
 
     it('throws a clear error when the service is not configured', async () => {
