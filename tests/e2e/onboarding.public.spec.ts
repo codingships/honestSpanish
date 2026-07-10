@@ -63,4 +63,14 @@ test.describe('Fase 1 UAT: Onboarding y Seguridad', () => {
         const successMsg = page.locator('.bg-green-100');
         await expect(successMsg.first()).toBeVisible({ timeout: 8000 });
     });
+
+    test('1.3.C: Reset password sin sesion muestra recuperacion de enlace invalido', async ({ page }) => {
+        await page.goto('/es/reset-password');
+
+        await expect(page.getByRole('heading', { name: 'Restablecer contraseña' })).toBeVisible();
+        await expect(page.getByRole('alert')).toContainText('Este enlace no es valido o ha caducado');
+        await expect(page.getByRole('link', { name: 'Iniciar sesión' })).toHaveAttribute('href', '/es/login');
+        await expect(page.getByLabel('Nueva contraseña', { exact: true })).toBeDisabled();
+        await expect(page.getByRole('button', { name: 'Restablecer contraseña' })).toBeDisabled();
+    });
 });

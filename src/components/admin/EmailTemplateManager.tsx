@@ -7,6 +7,11 @@ type EmailPreview = {
     html: string;
 };
 
+type EmailPreviewResponse = Partial<EmailPreview> & {
+    error?: string;
+    message?: string;
+};
+
 const templateOptions: Array<{ value: EmailPreviewType; label: string; description: string }> = [
     { value: 'welcome', label: 'Bienvenida alumno', description: 'Alta de plan y acceso al campus.' },
     { value: 'confirmation', label: 'Confirmacion clase', description: 'Clase programada con Meet y documento.' },
@@ -40,6 +45,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
 
     useEffect(() => {
         const controller = new AbortController();
+        let isActive = true;
 
         async function loadPreview() {
             setIsLoading(true);
@@ -50,24 +56,31 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
                 const response = await fetch(`/api/email/send-test?type=${selectedType}`, {
                     signal: controller.signal,
                 });
-                const data = await response.json();
+                const data = await response.json() as EmailPreviewResponse;
+                if (!isActive) return;
                 if (!response.ok) throw new Error(data.error || 'No se pudo cargar la plantilla');
-                setPreview(data);
+                setPreview(data.type && data.subject && data.html ? data as EmailPreview : null);
             } catch (err) {
-                if ((err as Error).name !== 'AbortError') {
+                if (isActive && (err as Error).name !== 'AbortError') {
                     setError(err instanceof Error ? err.message : 'No se pudo cargar la plantilla');
                     setPreview(null);
                 }
             } finally {
-                setIsLoading(false);
+                if (isActive) setIsLoading(false);
             }
         }
 
         void loadPreview();
-        return () => controller.abort();
+        return () => {
+            isActive = false;
+            controller.abort();
+        };
     }, [selectedType]);
 
     const sendTestEmail = async () => {
+        const email = recipientEmail.trim();
+        if (!email) return;
+
         setIsSending(true);
         setError(null);
         setMessage(null);
@@ -76,9 +89,9 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
             const response = await fetch('/api/email/send-test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: selectedType, email: recipientEmail }),
+                body: JSON.stringify({ type: selectedType, email }),
             });
-            const data = await response.json();
+            const data = await response.json() as EmailPreviewResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo enviar el email');
             setMessage(data.message || 'Email enviado');
         } catch (err) {
@@ -135,7 +148,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
                 </div>
 
                 {(message || error) && (
-                    <div className={`border-2 p-3 font-mono text-xs ${error ? 'border-red-500 bg-red-50 text-red-700' : 'border-green-600 bg-green-50 text-green-700'}`}>
+                    <div role={error ? 'alert' : 'status'} className={`border-2 p-3 font-mono text-xs ${error ? 'border-red-500 bg-red-50 text-red-700' : 'border-green-600 bg-green-50 text-green-700'}`}>
                         {error || message}
                     </div>
                 )}
@@ -143,7 +156,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
                 <button
                     type="button"
                     onClick={() => void sendTestEmail()}
-                    disabled={isSending || isLoading || !recipientEmail}
+                    disabled={isSending || isLoading || !recipientEmail.trim()}
                     className="w-full border-2 border-[#006064] bg-[#006064] px-4 py-3 text-sm font-bold uppercase text-white hover:bg-[#004d40] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     {isSending ? 'Enviando...' : 'Enviar prueba'}

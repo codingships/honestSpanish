@@ -551,6 +551,7 @@ function renderSeoLlmWorksheet(report: SeoReport): string {
     lines.push('| Check | How To Verify | Evidence To Record |');
     lines.push('| --- | --- | --- |');
     lines.push('| domain canonical | Confirm production serves `https://espanolhonesto.com` consistently and redirects unwanted host variants. | `manual_note` with tested URLs and status codes. |');
+    lines.push('| live-domain automated probe | Run `pnpm launch:live-domain-readonly -- --base-url https://espanolhonesto.com --host-variant https://www.espanolhonesto.com` after the final deployment to verify canonical host behavior, robots, sitemap, `llms.txt`, key public routes, metadata and mojibake. | `outputs/launch-live-domain-readonly-evidence/<timestamp>/summary.md`; no Search Console tokens, cookies or private data. |');
     lines.push('| robots and sitemap | Open `/robots.txt`, `/sitemap-index.xml` and `/sitemap-public.xml`; confirm public pages are allowed and private/demo/API routes are absent. | URLs or redacted screenshots. |');
     lines.push('| canonical/hreflang | Inspect ES/EN/RU landing and key blog/legal pages for canonical and hreflang/x-default correctness. | `manual_note` with routes checked. |');
     lines.push('| legal index policy | Decide whether final legal pages should stay `noindex` or become indexable; ensure sitemap and robots match the decision. | Decision note with owner and date. |');
@@ -572,7 +573,7 @@ function renderSeoLlmWorksheet(report: SeoReport): string {
     lines.push('');
     lines.push('## Completion');
     lines.push('');
-    lines.push('Keep SEO/LLM final open until the final public domain, final legal content, final copy and premium Russian typography decision are stable. Mark it closed in `docs/launch/CHECKLIST.md` only when this worksheet has current non-secret evidence and `pnpm launch:seo`, `pnpm launch:verify` and `pnpm launch:status` have been rerun.');
+    lines.push('Keep SEO/LLM final open until the final public domain, final legal content, final copy and premium Russian typography decision are stable. Mark it closed in `docs/launch/CHECKLIST.md` only when this worksheet has current non-secret evidence and `pnpm launch:live-domain-readonly`, `pnpm launch:seo`, `pnpm launch:verify` and `pnpm launch:status` have been rerun.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;

@@ -94,6 +94,19 @@ function createAdminClientForPackage(before: Record<string, unknown>, after: Rec
     return { client, beforeQuery, updateQuery, auditInsert };
 }
 
+function createAdminClientForCreate(created: Record<string, unknown>) {
+    const createQuery = createSingleQuery({ data: created, error: null });
+    const auditInsert = vi.fn().mockResolvedValue({ error: null });
+    const client = {
+        from: vi.fn((table: string) => {
+            if (table === 'packages') return createQuery;
+            if (table === 'admin_audit_log') return { insert: auditInsert };
+            throw new Error(`Unexpected table ${table}`);
+        }),
+    };
+    return { client, createQuery, auditInsert };
+}
+
 function contextWithBody(body: Record<string, unknown>, method: 'PATCH' | 'POST' = 'PATCH') {
     return {
         request: {
@@ -151,6 +164,43 @@ describe('/api/admin/packages', () => {
         expect(createSupabaseAdminClient).not.toHaveBeenCalled();
     });
 
+    it('rejects invalid create_package payload before creating an admin client', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+
+        const { POST } = await import('../../src/pages/api/admin/packages');
+        const response = await POST(contextWithBody({
+            action: 'create_package',
+            name: 'x',
+            displayName: { es: '', en: 'New', ru: 'New' },
+            priceMonthlyEur: 0,
+            sessionsPerMonth: 0,
+            hasGroupSession: false,
+            hasDualTeacher: false,
+            isActive: false,
+        }, 'POST') as any);
+
+        expect(response.status).toBe(400);
+        expect(createSupabaseAdminClient).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid sync_stripe payload before creating an admin client', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+
+        const { POST } = await import('../../src/pages/api/admin/packages');
+        const response = await POST(contextWithBody({
+            action: 'sync_stripe',
+            packageId: 'not-a-uuid',
+            durations: [2],
+        }, 'POST') as any);
+
+        expect(response.status).toBe(400);
+        expect(createSupabaseAdminClient).not.toHaveBeenCalled();
+    });
+
     it('clears stored Stripe Price IDs when the monthly package price changes', async () => {
         const before = packageRow();
         const after = packageRow({
@@ -187,6 +237,56 @@ describe('/api/admin/packages', () => {
             action: 'package.update',
             before,
             after,
+        }));
+    });
+
+    it('creates a package with validated price, quotas and audit logging', async () => {
+        const created = packageRow({
+            id: '00000000-0000-4000-8000-000000000202',
+            name: 'intensive',
+            display_name: { es: 'Intensivo', en: 'Intensive', ru: 'Intensive' },
+            price_monthly: 22000,
+            sessions_per_month: 8,
+            has_group_session: false,
+            has_dual_teacher: true,
+            is_active: false,
+            stripe_product_id: null,
+            stripe_price_1m: null,
+            stripe_price_3m: null,
+            stripe_price_6m: null,
+        });
+        const { client, createQuery, auditInsert } = createAdminClientForCreate(created);
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { POST } = await import('../../src/pages/api/admin/packages');
+        const response = await POST(contextWithBody({
+            action: 'create_package',
+            name: ' intensive ',
+            displayName: { es: ' Intensivo ', en: ' Intensive ', ru: ' Intensive ' },
+            priceMonthlyEur: 220,
+            sessionsPerMonth: 8,
+            hasGroupSession: false,
+            hasDualTeacher: true,
+            isActive: false,
+        }, 'POST') as any);
+
+        expect(response.status).toBe(201);
+        expect(createQuery.insert).toHaveBeenCalledWith({
+            name: 'intensive',
+            display_name: { es: 'Intensivo', en: 'Intensive', ru: 'Intensive' },
+            price_monthly: 22000,
+            sessions_per_month: 8,
+            has_group_session: false,
+            has_dual_teacher: true,
+            is_active: false,
+        });
+        expect(auditInsert).toHaveBeenCalledWith(expect.objectContaining({
+            action: 'package.create',
+            entity_id: created.id,
+            after: created,
         }));
     });
 

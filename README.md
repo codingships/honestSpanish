@@ -4,7 +4,7 @@ Plataforma para academia online de espanol: web publica multilingue, campus priv
 
 ## Stack
 
-- Astro 6 SSR en Cloudflare Pages.
+- Astro 6 SSR en Cloudflare Workers.
 - React islands para UI interactiva.
 - Supabase Auth/Postgres/RLS.
 - Stripe Checkout, Portal y webhooks.
@@ -22,10 +22,11 @@ pnpm dev
 pnpm build
 pnpm preview
 pnpm deploy
+pnpm deploy:production
 pnpm typecheck
 pnpm lint
 pnpm test:run
-pnpm test:e2e -- --project=public
+pnpm test:e2e --project=public
 pnpm fulfillment:dev
 pnpm fulfillment:typecheck
 pnpm google:setup-staging
@@ -84,7 +85,7 @@ La secuencia de trabajo esta en `docs/launch/LAUNCH_SEQUENCE.md`: separa tareas 
 
 ## Arquitectura Operativa
 
-La app principal vive en Cloudflare Pages. Las rutas API de Pages no importan Google SDKs ni procesan jobs pesados.
+La app principal vive en un Cloudflare Astro Worker. Las rutas API de la app no importan Google SDKs ni procesan jobs pesados.
 
 El trabajo pesado se delega a `workers/fulfillment`, desplegado como Cloudflare Worker:
 
@@ -94,7 +95,7 @@ El trabajo pesado se delega a `workers/fulfillment`, desplegado como Cloudflare 
 - Filtra disponibilidad contra Google Calendar.
 - Ejecuta recordatorios.
 
-Cloudflare Pages y el Worker se comunican con `FULFILLMENT_WORKER_URL` y `INTERNAL_JOB_SECRET`.
+El Astro Worker y el Fulfillment Worker se comunican con `FULFILLMENT_WORKER_URL` y `INTERNAL_JOB_SECRET`.
 
 ## Entornos Y Deploy
 
@@ -102,7 +103,9 @@ Cloudflare Pages y el Worker se comunican con `FULFILLMENT_WORKER_URL` y `INTERN
 - `staging`: rama `staging`, `https://staging.espanolhonesto.com`.
 - `production`: rama `main`, `https://espanolhonesto.com`.
 
-CI valida typecheck, lint, tests, build, E2E publico y secrets-check. En `push` a `staging` o `main`, despliega Cloudflare Pages y el Cloudflare Fulfillment Worker solo si la validacion pasa. El environment `production` de GitHub debe requerir aprobacion manual.
+CI valida typecheck, lint, tests, build, E2E publico y secrets-check. En `push` a `staging` o `main`, despliega el Cloudflare Astro Worker y el Cloudflare Fulfillment Worker solo si la validacion pasa. El environment `production` de GitHub debe requerir aprobacion manual.
+
+Para E2E, ejecuta proyectos Playwright de forma secuencial o en una unica invocacion con varios `--project`. No lances dos procesos `playwright test` separados a la vez en el mismo workspace, porque comparten `test-results/artifacts`. Playwright usa un worker por defecto para que el dev server y el estado de autenticacion sean deterministas; usa `PLAYWRIGHT_WORKERS=<n>` solo para diagnosticos explicitos de paralelismo.
 
 ## Fuentes De Verdad
 

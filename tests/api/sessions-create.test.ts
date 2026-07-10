@@ -119,6 +119,30 @@ describe('POST /api/calendar/sessions', () => {
         expect(response.status).toBe(403);
     });
 
+    it('returns 400 before scheduling when manual meetLink is unsafe', async () => {
+        const mockSupabase = createMockSupabaseClient();
+        mockSupabase.from = vi.fn((table: string) => {
+            if (table !== 'profiles') throw new Error(`Unexpected table ${table}`);
+            return {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
+            };
+        });
+        await setSupabaseClients(mockSupabase);
+
+        const { POST } = await import('../../src/pages/api/calendar/sessions');
+        const response = await POST(makeContext({
+            studentId: 'student-1',
+            scheduledAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+            meetLink: 'javascript:alert(1)',
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toContain('HTTPS Google Meet URL');
+    });
+
     it('returns 400 when admin scheduling does not provide teacherId', async () => {
         const mockSupabase = createMockSupabaseClient();
         mockSupabase.from = vi.fn().mockReturnValue({
@@ -135,7 +159,7 @@ describe('POST /api/calendar/sessions', () => {
         }) as any);
 
         expect(response.status).toBe(400);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.error).toContain('teacherId');
     });
 
@@ -167,7 +191,7 @@ describe('POST /api/calendar/sessions', () => {
         }) as any);
 
         expect(response.status).toBe(400);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.error).toContain('teacherId must belong to a teacher profile');
     });
 
@@ -206,7 +230,7 @@ describe('POST /api/calendar/sessions', () => {
             scheduledAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
         }) as any);
         expect(response.status).toBe(400);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.error).toContain('subscription');
     });
 
@@ -233,7 +257,7 @@ describe('POST /api/calendar/sessions', () => {
                 chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
                 chain.single.mockResolvedValue({
-                    data: { id: 'sub-1', sessions_used: 8, sessions_total: 8 },
+                    data: { id: 'sub-1', sessions_used: 8, sessions_total: 8, ends_at: '2099-12-31' },
                     error: null,
                 });
             }
@@ -248,8 +272,50 @@ describe('POST /api/calendar/sessions', () => {
             scheduledAt: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
         }) as any);
         expect(response.status).toBe(400);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.error).toContain('sessions remaining');
+    });
+
+    it('rejects an individual session scheduled after the subscription end date', async () => {
+        const mockSupabase = createMockSupabaseClient();
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                gte: vi.fn().mockReturnThis(),
+                order: vi.fn().mockReturnThis(),
+                limit: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+                maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'student' }, error: null }),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
+            } else if (table === 'subscriptions') {
+                chain.single.mockResolvedValue({
+                    data: {
+                        id: 'sub-1',
+                        sessions_used: 0,
+                        sessions_total: 8,
+                        ends_at: '2026-10-10',
+                    },
+                    error: null,
+                });
+            }
+            return chain;
+        });
+        await setSupabaseClients(mockSupabase);
+
+        const { POST } = await import('../../src/pages/api/calendar/sessions');
+        const response = await POST(makeContext({
+            studentId: 'student-1',
+            scheduledAt: '2026-10-11T10:00:00.000Z',
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toBe('Session cannot be scheduled after the subscription end date');
     });
 
     it('returns 201 and session data when everything is valid', async () => {
@@ -283,7 +349,7 @@ describe('POST /api/calendar/sessions', () => {
                 chain.single = vi.fn().mockImplementation(() => {
                     // optimisitc lock check vs get active sub
                     return Promise.resolve({
-                        data: { id: 'sub-1', sessions_used: 2, sessions_total: 8 },
+                        data: { id: 'sub-1', sessions_used: 2, sessions_total: 8, ends_at: '2099-12-31' },
                         error: null,
                     });
                 });
@@ -306,9 +372,10 @@ describe('POST /api/calendar/sessions', () => {
         }) as any);
 
         expect(response.status).toBe(201);
-        const body = await response.json();
-        expect(body.session).toBeDefined();
-        expect(body.session.id).toBe('session-new');
+        const body = await response.json() as JsonBody;
+        const session = body.session;
+        expect(session).toBeDefined();
+        expect(session?.id).toBe('session-new');
         expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(mockSupabase, expect.objectContaining({
             profileId: 'student-1',
             email: 'student@test.com',
@@ -353,7 +420,7 @@ describe('POST /api/calendar/sessions', () => {
                 chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
                 chain.single.mockResolvedValue({
-                    data: { id: 'sub-1', sessions_used: 0, sessions_total: 8 },
+                    data: { id: 'sub-1', sessions_used: 0, sessions_total: 8, ends_at: '2099-12-31' },
                     error: null,
                 });
             } else if (table === 'sessions') {
@@ -411,7 +478,7 @@ describe('POST /api/calendar/sessions', () => {
                 chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
                 chain.single.mockResolvedValue({
-                    data: { id: 'sub-1', sessions_used: 2, sessions_total: 8 },
+                    data: { id: 'sub-1', sessions_used: 2, sessions_total: 8, ends_at: '2099-12-31' },
                     error: null,
                 });
             } else if (table === 'sessions') {
@@ -429,7 +496,7 @@ describe('POST /api/calendar/sessions', () => {
             studentId: 'student-1',
             scheduledAt,
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(409);
         expect(body.error).toContain('outside teacher availability');
@@ -470,7 +537,7 @@ describe('POST /api/calendar/sessions', () => {
             } else if (table === 'subscriptions') {
                 chain.single = vi.fn().mockImplementation(() => {
                     return Promise.resolve({
-                        data: { id: 'sub-1', sessions_used: 3, sessions_total: 8 },
+                        data: { id: 'sub-1', sessions_used: 3, sessions_total: 8, ends_at: '2099-12-31' },
                         error: null,
                     });
                 });

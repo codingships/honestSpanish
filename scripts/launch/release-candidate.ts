@@ -24,6 +24,7 @@ interface ReleaseCandidateReadiness {
     phaseOneOpenChecks: string[];
     releaseCandidateOpenChecks: string[];
     finalOnlyOpenChecks: string[];
+    strictQaOpenChecks: string[];
     acceptedRiskChecks?: string[];
     provenNow: string[];
     nextDecision: string;
@@ -40,6 +41,7 @@ interface ReleaseCandidateReport {
     endedAt: string;
     status: ReleaseCandidateStatus;
     outputDir: string;
+    stagingUrl: string;
     statusSummaryPath: string | null;
     steps: StepResult[];
     releaseCandidateReadiness: ReleaseCandidateReadiness | null;
@@ -54,9 +56,13 @@ const readyStatuses = new Set<ReleaseCandidateStatus>([
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-rc', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
-const stagingPagesUrl = readArgValue('--staging-pages-url')
-    ?? process.env.CLOUDFLARE_PAGES_STAGING_URL
-    ?? 'https://espanol-honesto-staging.pages.dev';
+const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const stagingUrl = readArgValue('--staging-url')
+    ?? readArgValue('--staging-worker-url')
+    ?? readArgValue('--staging-pages-url')
+    ?? process.env.CLOUDFLARE_WORKERS_STAGING_URL
+    ?? process.env.CLOUDFLARE_STAGING_URL
+    ?? DEFAULT_WORKER_STAGING_URL;
 
 console.log(`[launch:rc] Output: ${outputDir}`);
 
@@ -64,24 +70,31 @@ const steps: StepResult[] = [
     runStep('launch:phase1'),
     runStep('launch:functional-rc'),
     runStep('launch:payments'),
-    runStep('launch:no-real-payments', ['--', '--deployed-url', stagingPagesUrl]),
-    runStep('launch:staging-no-real-payments-remediation', ['--', '--deployed-url', stagingPagesUrl]),
+    runStep('launch:no-real-payments', ['--', '--deployed-url', stagingUrl]),
+    runStep('launch:staging-no-real-payments-remediation', ['--', '--deployed-url', stagingUrl]),
     runStep('launch:rc-external-closure'),
     runStep('launch:status'),
 ];
 const statusSummary = readLatestStatusSummary();
 const report = buildReport(statusSummary);
 writeReport(report);
+// The first launch:status run is needed to compute RC readiness, but it runs
+// before this RC summary exists. Run status once more after writing the report
+// so the dashboard points at the RC that was just generated.
+steps.push(runStep('launch:status', [], 'launch:status-post-rc'));
+const postReportStatusSummary = readLatestStatusSummary();
+const finalReport = buildReport(postReportStatusSummary);
+writeReport(finalReport);
 
-console.log(`[launch:rc] Status: ${report.status}`);
+console.log(`[launch:rc] Status: ${finalReport.status}`);
 console.log(`[launch:rc] Summary: ${path.join(outputDir, 'summary.md')}`);
 
-if (!readyStatuses.has(report.status)) {
+if (!readyStatuses.has(finalReport.status)) {
     process.exit(1);
 }
 
-function runStep(script: string, extraArgs: string[] = []): StepResult {
-    const logPath = path.join(outputDir, `${slug(script)}.log`);
+function runStep(script: string, extraArgs: string[] = [], stepName = script): StepResult {
+    const logPath = path.join(outputDir, `${slug(stepName)}.log`);
     const command = corepackCommand();
     const args = ['pnpm', script, ...extraArgs];
     const result = spawnSync(command, args, {
@@ -104,7 +117,7 @@ function runStep(script: string, extraArgs: string[] = []): StepResult {
     ].join('\n'), 'utf8');
 
     return {
-        name: script,
+        name: stepName,
         exitCode: result.status,
         status: result.status === 0 ? 'ok' : 'failed',
         logPath,
@@ -121,6 +134,7 @@ function buildReport(statusSummary: { path: string; summary: StatusSummary } | n
         endedAt: new Date().toISOString(),
         status,
         outputDir,
+        stagingUrl,
         statusSummaryPath: statusSummary?.path ?? null,
         steps,
         releaseCandidateReadiness: readiness,
@@ -130,7 +144,7 @@ function buildReport(statusSummary: { path: string; summary: StatusSummary } | n
 function deriveReleaseCandidateStatus(readiness: ReleaseCandidateReadiness | null): ReleaseCandidateStatus {
     if (!readiness) return 'NO_EVIDENCE';
 
-    const failedStatusStep = steps.find((step) => step.name === 'launch:status' && step.status === 'failed');
+    const failedStatusStep = steps.find((step) => step.name.startsWith('launch:status') && step.status === 'failed');
     if (failedStatusStep) return 'NO_EVIDENCE';
 
     const failedPaymentStep = steps.find((step) => step.name === 'launch:payments' && step.status === 'failed');
@@ -163,6 +177,7 @@ function renderMarkdown(report: ReleaseCandidateReport): string {
         `- Status: ${report.status}`,
         `- Started: ${report.startedAt}`,
         `- Ended: ${report.endedAt}`,
+        `- Staging URL: ${report.stagingUrl}`,
         `- Output: ${report.outputDir}`,
         `- Status summary: ${report.statusSummaryPath ?? 'missing'}`,
         '',
@@ -187,6 +202,7 @@ function renderMarkdown(report: ReleaseCandidateReport): string {
         lines.push(`| RC Open | ${escapeCell(listValue(readiness.releaseCandidateOpenChecks))} |`);
         lines.push(`| Accepted Risks | ${escapeCell(listValue(readiness.acceptedRiskChecks ?? []))} |`);
         lines.push(`| Final-Only Open | ${escapeCell(listValue(readiness.finalOnlyOpenChecks))} |`);
+        lines.push(`| Strict-QA Open | ${escapeCell(listValue(readiness.strictQaOpenChecks))} |`);
         lines.push(`| Next Decision | ${escapeCell(readiness.nextDecision)} |`);
         lines.push('');
         lines.push('Already proven for RC scope:');

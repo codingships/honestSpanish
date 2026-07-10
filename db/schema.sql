@@ -32,6 +32,9 @@ CREATE TABLE leads (
     level_check_received_at TIMESTAMPTZ,
     level_check_reviewed_at TIMESTAMPTZ,
     level_check_raw_cleared_at TIMESTAMPTZ,
+    adult_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+    adult_confirmed_at TIMESTAMPTZ,
+    age_policy_version TEXT,
     consent_given BOOLEAN NOT NULL DEFAULT FALSE,
     ip_address TEXT,
     status lead_status DEFAULT 'new',
@@ -161,6 +164,9 @@ CREATE TABLE payments (
     status payment_status DEFAULT 'pending',
     stripe_payment_intent_id TEXT,
     stripe_invoice_id TEXT,
+    amount_refunded INTEGER NOT NULL DEFAULT 0 CHECK (amount_refunded >= 0 AND amount_refunded <= amount),
+    stripe_refund_id TEXT,
+    refunded_at TIMESTAMPTZ,
     description TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -169,17 +175,21 @@ CREATE TABLE payments (
 CREATE TABLE processed_webhook_events (
     stripe_event_id TEXT PRIMARY KEY,
     event_type TEXT NOT NULL,
+    processing_status TEXT NOT NULL DEFAULT 'processing' CHECK (processing_status IN ('processing', 'succeeded', 'failed')),
+    processing_error TEXT,
+    processed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- 10. FULFILLMENT JOBS (Google Workspace + Resend reliability)
 CREATE TABLE fulfillment_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    job_type TEXT NOT NULL CHECK (job_type IN ('session_fulfillment', 'bulk_session_fulfillment', 'welcome_fulfillment', 'session_cancellation')),
+    job_type TEXT NOT NULL CHECK (job_type IN ('session_fulfillment', 'bulk_session_fulfillment', 'welcome_fulfillment', 'session_cancellation', 'renewal_notice')),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'succeeded', 'failed', 'cancelled')),
     session_id UUID REFERENCES sessions(id) ON DELETE CASCADE,
     subscription_id UUID REFERENCES subscriptions(id) ON DELETE CASCADE,
     student_id UUID REFERENCES profiles(id) ON DELETE CASCADE,
+    dedupe_key TEXT,
     payload JSONB NOT NULL DEFAULT '{}'::jsonb,
     attempts INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
     max_attempts INTEGER NOT NULL DEFAULT 5 CHECK (max_attempts > 0),
@@ -189,6 +199,24 @@ CREATE TABLE fulfillment_jobs (
     last_error TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10B. EMAIL RECIPIENT BUDGET (Resend Free quota guard)
+CREATE TABLE email_recipient_budget_usage (
+    budget_scope TEXT NOT NULL CHECK (
+        char_length(budget_scope) BETWEEN 1 AND 64
+        AND budget_scope ~ '^[a-z0-9:_-]+$'
+    ),
+    period_kind TEXT NOT NULL CHECK (period_kind IN ('day', 'month')),
+    period_start DATE NOT NULL,
+    recipient_count INTEGER NOT NULL DEFAULT 0 CHECK (recipient_count >= 0),
+    last_source TEXT NOT NULL CHECK (
+        char_length(last_source) BETWEEN 1 AND 80
+        AND last_source ~ '^[a-z0-9_.:-]+$'
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (budget_scope, period_kind, period_start)
 );
 
 -- 11. SUPPORT TICKETS
@@ -337,6 +365,7 @@ CREATE INDEX idx_sessions_scheduled ON sessions(scheduled_at);
 CREATE INDEX idx_payments_student ON payments(student_id);
 CREATE INDEX idx_fulfillment_jobs_due ON fulfillment_jobs(status, run_at) WHERE status IN ('pending', 'failed');
 CREATE INDEX idx_fulfillment_jobs_session ON fulfillment_jobs(session_id) WHERE session_id IS NOT NULL;
+CREATE UNIQUE INDEX idx_fulfillment_jobs_type_dedupe ON fulfillment_jobs(job_type, dedupe_key) WHERE dedupe_key IS NOT NULL;
 CREATE INDEX idx_support_tickets_status_created ON support_tickets(status, created_at DESC);
 CREATE INDEX idx_support_tickets_user ON support_tickets(user_id, created_at DESC);
 CREATE UNIQUE INDEX crm_contacts_primary_email_lower_unique ON crm_contacts (lower(primary_email));
@@ -388,6 +417,7 @@ ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE processed_webhook_events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE fulfillment_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE email_recipient_budget_usage ENABLE ROW LEVEL SECURITY;
 ALTER TABLE support_tickets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_audit_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE leads ENABLE ROW LEVEL SECURITY;
@@ -403,6 +433,11 @@ REVOKE ALL ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activ
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents TO service_role;
 
+REVOKE ALL ON TABLE email_recipient_budget_usage FROM anon;
+REVOKE ALL ON TABLE email_recipient_budget_usage FROM authenticated;
+REVOKE ALL ON TABLE email_recipient_budget_usage FROM public;
+GRANT SELECT, INSERT, UPDATE ON TABLE email_recipient_budget_usage TO service_role;
+
 REVOKE ALL ON TABLE support_tickets FROM anon;
 REVOKE ALL ON TABLE support_tickets FROM authenticated;
 REVOKE ALL ON TABLE support_tickets FROM public;
@@ -414,6 +449,107 @@ REVOKE ALL ON SCHEMA private FROM anon;
 REVOKE ALL ON SCHEMA private FROM authenticated;
 GRANT USAGE ON SCHEMA private TO authenticated;
 GRANT USAGE ON SCHEMA private TO service_role;
+
+-- Atomic, service-role-only recipient reservation. The hard ceilings preserve
+-- margin below Resend Free's 100/day and 3,000/month provider limits.
+CREATE OR REPLACE FUNCTION public.reserve_email_recipient_budget(
+    p_budget_scope TEXT,
+    p_recipient_count INTEGER,
+    p_daily_limit INTEGER,
+    p_monthly_limit INTEGER,
+    p_source TEXT
+)
+RETURNS TABLE (
+    daily_used INTEGER,
+    monthly_used INTEGER
+)
+LANGUAGE plpgsql
+SECURITY INVOKER
+SET search_path = ''
+AS $$
+DECLARE
+    v_now TIMESTAMPTZ := NOW();
+    v_day_start DATE := (v_now AT TIME ZONE 'UTC')::DATE;
+    v_month_start DATE := date_trunc('month', v_now AT TIME ZONE 'UTC')::DATE;
+    v_daily_used INTEGER;
+    v_monthly_used INTEGER;
+BEGIN
+    IF p_budget_scope IS NULL
+       OR char_length(p_budget_scope) NOT BETWEEN 1 AND 64
+       OR p_budget_scope !~ '^[a-z0-9:_-]+$' THEN
+        RAISE EXCEPTION 'email_budget_invalid_scope' USING ERRCODE = '22023';
+    END IF;
+
+    IF p_source IS NULL
+       OR char_length(p_source) NOT BETWEEN 1 AND 80
+       OR p_source !~ '^[a-z0-9_.:-]+$' THEN
+        RAISE EXCEPTION 'email_budget_invalid_source' USING ERRCODE = '22023';
+    END IF;
+
+    IF p_recipient_count IS NULL OR p_recipient_count < 1 OR p_recipient_count > 80 THEN
+        RAISE EXCEPTION 'email_budget_invalid_recipient_count' USING ERRCODE = '22023';
+    END IF;
+
+    IF p_daily_limit IS NULL OR p_daily_limit < 1 OR p_daily_limit > 80 THEN
+        RAISE EXCEPTION 'email_budget_invalid_daily_limit' USING ERRCODE = '22023';
+    END IF;
+
+    IF p_monthly_limit IS NULL OR p_monthly_limit < 1 OR p_monthly_limit > 2400 THEN
+        RAISE EXCEPTION 'email_budget_invalid_monthly_limit' USING ERRCODE = '22023';
+    END IF;
+
+    IF p_recipient_count > p_daily_limit THEN
+        RAISE EXCEPTION 'email_budget_daily_exceeded' USING ERRCODE = 'P0001';
+    END IF;
+
+    IF p_recipient_count > p_monthly_limit THEN
+        RAISE EXCEPTION 'email_budget_monthly_exceeded' USING ERRCODE = 'P0001';
+    END IF;
+
+    INSERT INTO public.email_recipient_budget_usage AS usage (
+        budget_scope, period_kind, period_start, recipient_count,
+        last_source, created_at, updated_at
+    ) VALUES (
+        p_budget_scope, 'day', v_day_start, p_recipient_count,
+        p_source, v_now, v_now
+    )
+    ON CONFLICT (budget_scope, period_kind, period_start) DO UPDATE
+    SET recipient_count = usage.recipient_count + EXCLUDED.recipient_count,
+        last_source = EXCLUDED.last_source,
+        updated_at = v_now
+    WHERE usage.recipient_count + EXCLUDED.recipient_count <= p_daily_limit
+    RETURNING usage.recipient_count INTO v_daily_used;
+
+    IF v_daily_used IS NULL THEN
+        RAISE EXCEPTION 'email_budget_daily_exceeded' USING ERRCODE = 'P0001';
+    END IF;
+
+    INSERT INTO public.email_recipient_budget_usage AS usage (
+        budget_scope, period_kind, period_start, recipient_count,
+        last_source, created_at, updated_at
+    ) VALUES (
+        p_budget_scope, 'month', v_month_start, p_recipient_count,
+        p_source, v_now, v_now
+    )
+    ON CONFLICT (budget_scope, period_kind, period_start) DO UPDATE
+    SET recipient_count = usage.recipient_count + EXCLUDED.recipient_count,
+        last_source = EXCLUDED.last_source,
+        updated_at = v_now
+    WHERE usage.recipient_count + EXCLUDED.recipient_count <= p_monthly_limit
+    RETURNING usage.recipient_count INTO v_monthly_used;
+
+    IF v_monthly_used IS NULL THEN
+        RAISE EXCEPTION 'email_budget_monthly_exceeded' USING ERRCODE = 'P0001';
+    END IF;
+
+    RETURN QUERY SELECT v_daily_used, v_monthly_used;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.reserve_email_recipient_budget(TEXT, INTEGER, INTEGER, INTEGER, TEXT) FROM public;
+REVOKE ALL ON FUNCTION public.reserve_email_recipient_budget(TEXT, INTEGER, INTEGER, INTEGER, TEXT) FROM anon;
+REVOKE ALL ON FUNCTION public.reserve_email_recipient_budget(TEXT, INTEGER, INTEGER, INTEGER, TEXT) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.reserve_email_recipient_budget(TEXT, INTEGER, INTEGER, INTEGER, TEXT) TO service_role;
 
 -- Helper function: checks if current user is admin.
 -- It lives outside the exposed public API schema.
@@ -586,25 +722,12 @@ CREATE POLICY "Admins can manage profiles_private"
 CREATE POLICY "Admins can manage sessions" 
     ON sessions FOR ALL TO authenticated USING ((select private.is_admin()));
 
-CREATE POLICY "Students can cancel own sessions" 
-    ON sessions FOR UPDATE 
-    USING (student_id = auth.uid()) WITH CHECK (student_id = auth.uid() AND status = 'cancelled');
-
 CREATE POLICY "Students can view own sessions" 
     ON sessions FOR SELECT USING (student_id = auth.uid());
 
 CREATE POLICY "Teachers can view assigned sessions"
     ON sessions FOR SELECT
     USING (teacher_id = auth.uid());
-
-CREATE POLICY "Teachers can create assigned sessions"
-    ON sessions FOR INSERT
-    WITH CHECK (teacher_id = auth.uid() AND EXISTS (SELECT 1 FROM student_teachers st WHERE st.teacher_id = auth.uid() AND st.student_id = sessions.student_id));
-
-CREATE POLICY "Teachers can update assigned sessions"
-    ON sessions FOR UPDATE
-    USING (teacher_id = auth.uid())
-    WITH CHECK (teacher_id = auth.uid() AND EXISTS (SELECT 1 FROM student_teachers st WHERE st.teacher_id = auth.uid() AND st.student_id = sessions.student_id));
 
 -- STUDENT_TEACHERS POLICIES
 CREATE POLICY "Admins can manage assignments" 
@@ -755,11 +878,11 @@ CREATE TRIGGER update_profiles_updated_at
     BEFORE UPDATE ON profiles
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
-CREATE OR REPLACE FUNCTION protect_profile_role()
+CREATE OR REPLACE FUNCTION private.protect_profile_role()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = public, private, pg_temp
 AS $$
 BEGIN
     IF auth.uid() IS NULL THEN
@@ -782,14 +905,14 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION protect_profile_role() FROM anon;
-REVOKE EXECUTE ON FUNCTION protect_profile_role() FROM authenticated;
-REVOKE EXECUTE ON FUNCTION protect_profile_role() FROM public;
-GRANT EXECUTE ON FUNCTION protect_profile_role() TO service_role;
+REVOKE ALL ON FUNCTION private.protect_profile_role() FROM public;
+REVOKE ALL ON FUNCTION private.protect_profile_role() FROM anon;
+REVOKE ALL ON FUNCTION private.protect_profile_role() FROM authenticated;
+GRANT EXECUTE ON FUNCTION private.protect_profile_role() TO service_role;
 
 CREATE TRIGGER protect_profile_role_trigger
     BEFORE UPDATE ON profiles
-    FOR EACH ROW EXECUTE FUNCTION protect_profile_role();
+    FOR EACH ROW EXECUTE FUNCTION private.protect_profile_role();
 
 CREATE TRIGGER enforce_student_teacher_profile_roles
     BEFORE INSERT OR UPDATE OF student_id, teacher_id ON student_teachers

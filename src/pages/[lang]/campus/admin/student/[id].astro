@@ -3,6 +3,7 @@ import CampusLayout from '../../../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../../../i18n/utils';
 import { emptyCrmContactDetail, getCrmContactDetail } from '../../../../../lib/crm/contact-detail';
 import { getPrivateProfile } from '../../../../../lib/profiles-private';
+import { createSupabaseAdminClient } from '../../../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
 import TeacherNotes from '../../../../../components/TeacherNotes';
 import AssignTeacherButton from '../../../../../components/admin/AssignTeacherButton';
@@ -119,7 +120,8 @@ const { data: payments } = await supabase
 
 let crmDetail = emptyCrmContactDetail;
 try {
-    crmDetail = await getCrmContactDetail(supabase, {
+    const supabaseAdmin = createSupabaseAdminClient();
+    crmDetail = await getCrmContactDetail(supabaseAdmin, {
         profileId: studentId,
         email: student.email,
     });

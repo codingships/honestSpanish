@@ -1,8 +1,8 @@
 import type { APIRoute } from 'astro';
 import { z } from 'zod';
-import { getEmailFrom, getResend } from '../../../lib/email/client';
+import { describeEmailSendError } from '../../../lib/email/errors';
 import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
-import { sendSupportTicketReceivedEmail } from '../../../lib/email';
+import { deliverEmail, sendSupportTicketReceivedEmail } from '../../../lib/email';
 import { readRuntimeEnv } from '../../../lib/runtime-env';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
@@ -84,15 +84,15 @@ async function sendSupportAlertEmail(input: {
         <p style="white-space: pre-wrap;">${escapeHtml(input.message)}</p>
     `;
 
-    const { error } = await getResend().emails.send({
-        from: getEmailFrom(),
+    const result = await deliverEmail({
         to: [to],
         subject: `Soporte Espanol Honesto: ${subjectTitle}`,
         html,
+        source: 'support_internal_alert',
     });
 
-    if (error) {
-        throw new Error(error.message || 'Resend could not send support alert');
+    if (!result.ok) {
+        throw result.error ?? new Error(result.reason);
     }
 }
 
@@ -216,7 +216,7 @@ export const POST: APIRoute = async (context) => {
         }
     } catch (error) {
         userEmailSent = false;
-        console.error('[SupportAlert] Ticket created but user acknowledgement failed:', error);
+        console.error('[SupportAlert] Ticket created but user acknowledgement failed:', describeEmailSendError(error));
     }
 
     let internalAlertSent = true;
@@ -231,7 +231,7 @@ export const POST: APIRoute = async (context) => {
         });
     } catch (error) {
         internalAlertSent = false;
-        console.error('[SupportAlert] Ticket created but email alert failed:', error);
+        console.error('[SupportAlert] Ticket created but email alert failed:', describeEmailSendError(error));
     }
 
     return json({

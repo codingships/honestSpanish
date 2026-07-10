@@ -137,6 +137,51 @@ describe('/api/teacher/availability', () => {
         expect(availabilityQuery.chain.insert).not.toHaveBeenCalled();
     });
 
+    it('rejects invalid POST JSON before inserting availability', async () => {
+        const { supabase, availabilityQuery } = makeSupabase();
+        await setSupabase(supabase);
+
+        const context = makeContext({ method: 'POST' });
+        context.request.json = vi.fn().mockRejectedValue(new Error('bad json'));
+
+        const { POST } = await import('../../src/pages/api/teacher/availability');
+        const response = await POST(context as any);
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({ error: 'Invalid JSON body' });
+        expect(availabilityQuery.chain.insert).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid day values before inserting availability', async () => {
+        const { supabase, availabilityQuery } = makeSupabase();
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/teacher/availability');
+        const response = await POST(makeContext({
+            method: 'POST',
+            body: { teacherId: 'teacher-1', dayOfWeek: 7, startTime: '09:00', endTime: '10:00' },
+        }) as any);
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({ error: 'Invalid availability slot' });
+        expect(availabilityQuery.chain.insert).not.toHaveBeenCalled();
+    });
+
+    it('rejects invalid time ranges before inserting availability', async () => {
+        const { supabase, availabilityQuery } = makeSupabase();
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/teacher/availability');
+        const response = await POST(makeContext({
+            method: 'POST',
+            body: { teacherId: 'teacher-1', dayOfWeek: 1, startTime: '10:00', endTime: '09:00' },
+        }) as any);
+
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toEqual({ error: 'Invalid availability time range' });
+        expect(availabilityQuery.chain.insert).not.toHaveBeenCalled();
+    });
+
     it('allows a teacher to create only their own availability even if a teacherId is supplied', async () => {
         const { supabase, availabilityQuery } = makeSupabase({
             user: { id: 'teacher-1', email: 'teacher@example.com' },

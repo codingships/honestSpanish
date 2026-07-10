@@ -9,6 +9,7 @@ Fuente runtime: Supabase `packages`, gestionado desde `/es/campus/admin/packages
 - Stripe Price IDs son inmutables.
 - Si cambia el precio mensual, el CRM borra los Price IDs guardados.
 - Un paquete activo sin `stripe_price_1m`, `stripe_price_3m` y `stripe_price_6m` no esta listo para checkout.
+- El checkout inicial acepta tarjeta y mantiene los códigos promocionales desactivados para que el importe contratado y renovado coincida con el resumen contractual probado.
 - Cambios de precio/cuota afectan solo nuevas compras.
 - Mientras Stripe siga en modo prueba, no aceptar pagos reales. Para un soft launch sin pagos, checkout debe quedar desactivado, oculto o bloqueado por datos/configuracion, y la decision debe quedar como riesgo aceptado en `docs/launch/MANUAL_EVIDENCE.local.json`.
 - La entrada comercial recomendada antes de pagos reales es `solicitar plaza`: el formulario publico recoge plan de interes, interes, nivel aproximado, objetivo, disponibilidad y pagina de origen en `leads`, y el email automatico confirma que primero se revisa encaje antes de comprar.

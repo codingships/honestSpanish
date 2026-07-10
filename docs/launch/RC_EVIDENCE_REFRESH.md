@@ -6,7 +6,7 @@ Estado que debe comprobarse antes de cerrar:
 
 - `corepack pnpm launch:phase1`: `BLOCKED` por 2 evidencias manuales/externas abiertas.
 - `corepack pnpm launch:rc`: `RC_BLOCKED_BY_PHASE_1`.
-- `corepack pnpm launch:status`: `BLOCKED`, 9 blockers, 0 warnings, 9 Open Go/No-Go.
+- `corepack pnpm launch:status`: usar la ultima salida real como fuente de verdad; el refresh estricto de 2026-07-03 queda en `BLOCKED`, 6 blockers, 0 warnings, 7 Open Go/No-Go.
 - RC no se puede congelar mientras sigan abiertos `database_readiness` u `operations_external`.
 - `no_real_payments_staging` esta cerrado en Cloudflare Pages staging mientras el deployed probe siga probando `403 Checkout is disabled`; si se redepliega o cambia runtime/config, repetir la verificacion. Si vuelve `400 priceId is required`, un guard local o un cambio sin desplegar no basta para cerrar RC.
 - Revision Supabase read-only de 2026-06-26: staging `espanol-staging` y production `espanol-honesto` estan activos, pero ambos schemas alojados van por detras del codigo actual; production ademas muestra logs Postgres recientes por drift de schema en `public.leads` (`current_level` y `level_check_status` no existen).
@@ -17,10 +17,11 @@ Estado que debe comprobarse antes de cerrar:
 Este corte resume la forma actual de leer el estado al reanudar el goal. No debe copiar timestamps concretos como fuente de verdad; ejecutar los comandos y usar el ultimo `<timestamp>` impreso por cada uno.
 
 - Goal visible y goal durable `launch-viable-espanol-honesto`: alineados.
-- `outputs/launch-status/<timestamp>/summary.md`: debe indicar `BLOCKED`, 9 blockers, 0 warnings y 9 Open Go/No-Go hasta cerrar los scopes externos/final-only.
-- `outputs/launch-manual-evidence/<timestamp>/summary.md`: `FAILED` esperado mientras Fase 1 mantenga `database_readiness` y `operations_external`, y Fase 3 mantenga 6 final-only.
+- `outputs/launch-status/<timestamp>/summary.md`: debe indicar `BLOCKED` hasta cerrar los scopes externos/final-only; en el refresh estricto de 2026-07-03 quedan 6 blockers, 0 warnings y 7 Open Go/No-Go.
+- `outputs/launch-manual-evidence/<timestamp>/summary.md`: `FAILED` esperado mientras Fase 1 mantenga `database_readiness`/`operations_external` o Fase 3 mantenga checks final-only; en el refresh estricto de 2026-07-03 quedan 5 final-only.
 - `outputs/launch-phase-1/<timestamp>/summary.md`: `BLOCKED` esperado por `database_readiness` y `operations_external`.
-- `outputs/launch-staging-database-rollout/<timestamp>/summary.md`: debe quedar `OK`; paquete local Supabase staging listo para approval, con `readyForStagingApproval=true`.
+- `outputs/launch-staging-database-rollout/<timestamp>/summary.md`: debe quedar `OK` para el paquete local de schema/CRM staging, con `readyForStagingApproval=true` si ese scope sigue pendiente.
+- `outputs/launch-supabase-security-rollout/<timestamp>/summary.md`: debe quedar `OK`; paquete local-only de `SEC-014`/`SEC-015` listo para approval, con manifest, bundle, SQL de verificacion y rollback.
 - `outputs/launch-operations-external-closure/<timestamp>/summary.md`: `WARNING` esperado hasta revisar evidencia manual; requiere `readyForManualEvidenceReview=true` y `wranglerReadOnlyIncluded=true`.
 - `outputs/launch-staging-no-real-payments-remediation/<timestamp>/summary.md`: `WARNING` aceptable por `local_deployment_gap` mientras el deployed probe siga OK con `403 Checkout is disabled`; `FAILED` reabre el scope.
 - `outputs/launch-rc-external-closure/<timestamp>/next-approval.md`: siguiente approval atomico recomendado, actualmente `supabase_staging_schema_rollout` si Cloudflare Pages sigue OK.
@@ -28,7 +29,8 @@ Este corte resume la forma actual de leer el estado al reanudar el goal. No debe
 Permisos separados, ninguno implicito:
 
 - Cloudflare Pages staging: `outputs/launch-staging-no-real-payments-remediation/<timestamp>/approval-request.md`.
-- Supabase staging: `outputs/launch-staging-database-rollout/<timestamp>/approval-request.md`.
+- Supabase schema/CRM staging: `outputs/launch-staging-database-rollout/<timestamp>/approval-request.md`.
+- Supabase security `SEC-014`/`SEC-015`: `outputs/launch-supabase-security-rollout/<timestamp>/approval-request.md`.
 - Operations evidence read-only: `outputs/launch-operations-external-closure/<timestamp>/approval-request.md`.
 
 ## Ultimo Refresh Local
@@ -48,8 +50,9 @@ Refresh local de apoyo ejecutado el 2026-06-26 despues de endurecer el contrato 
 - `corepack pnpm launch:no-real-payments -- --deployed-url https://espanol-honesto-staging.pages.dev`: OK; staging devuelve `403 Checkout is disabled`.
 - `corepack pnpm launch:staging-no-real-payments-remediation`: WARNING aceptable si solo queda `local_deployment_gap`; cerrar o mantener este warning depende de versionar/empaquetar la slice runtime antes de futuros redeploys. Usar el ultimo `outputs/launch-staging-no-real-payments-remediation/<timestamp>/staging-no-real-payments-remediation-pack.md`.
 - `corepack pnpm launch:phase1`: BLOCKED esperado solo por `database_readiness` y `operations_external` hasta que haya evidencia externa fresca. Usar el ultimo `outputs/launch-phase-1/<timestamp>/summary.md`.
-- `corepack pnpm launch:rc-external-closure`: WARNING esperado con Cloudflare Pages OK y pendientes `supabase_staging_schema_rollout` y `operations_external_evidence`. Usar el ultimo `outputs/launch-rc-external-closure/<timestamp>/rc-external-closure-pack.md`.
-- `corepack pnpm launch:status`: BLOCKED esperado con 9 blockers, 0 warnings y 9 Open Go/No-Go mientras los final-only y externos sigan abiertos. Usar el ultimo `outputs/launch-status/<timestamp>/summary.md`.
+- `corepack pnpm launch:supabase-security-rollout`: OK esperado; genera el paquete local-only para `SEC-014`/`SEC-015`. Usar el ultimo `outputs/launch-supabase-security-rollout/<timestamp>/summary.md`.
+- `corepack pnpm launch:rc-external-closure`: WARNING esperado con Cloudflare Pages OK y pendientes Supabase/operations si esos scopes siguen abiertos. Usar el ultimo `outputs/launch-rc-external-closure/<timestamp>/rc-external-closure-pack.md`.
+- `corepack pnpm launch:status`: BLOCKED esperado mientras los final-only y externos sigan abiertos; usar el ultimo `outputs/launch-status/<timestamp>/summary.md` y no los numeros copiados en esta guia.
 
 Este refresh prueba que el codigo local y el RC funcional mockeado siguen coherentes; no cierra por si solo ninguna evidencia externa.
 
@@ -84,6 +87,7 @@ corepack pnpm launch:operations
 corepack pnpm launch:staging-operations
 corepack pnpm launch:operations-external-closure
 corepack pnpm launch:staging-db-rollout
+corepack pnpm launch:supabase-security-rollout
 corepack pnpm launch:staging-no-real-payments-remediation
 corepack pnpm launch:rc-external-closure
 corepack pnpm launch:security
@@ -113,6 +117,13 @@ Rutas utiles despues de ejecutar los comandos:
 - `outputs/launch-staging-database-rollout/<timestamp>/staging-migration-bundle.sql`
 - `outputs/launch-staging-database-rollout/<timestamp>/staging-migration-manifest.json`
 - `outputs/launch-staging-database-rollout/<timestamp>/manual-evidence-dry-run.txt`
+- `outputs/launch-supabase-security-rollout/<timestamp>/summary.md`
+- `outputs/launch-supabase-security-rollout/<timestamp>/supabase-security-rollout-manifest.json`
+- `outputs/launch-supabase-security-rollout/<timestamp>/supabase-security-migration-bundle.sql`
+- `outputs/launch-supabase-security-rollout/<timestamp>/approval-request.md`
+- `outputs/launch-supabase-security-rollout/<timestamp>/post-apply-verification.sql`
+- `outputs/launch-supabase-security-rollout/<timestamp>/rollback.sql`
+- `outputs/launch-supabase-security-rollout/<timestamp>/manual-evidence-dry-run.txt`
 - `outputs/launch-staging-no-real-payments-remediation/<timestamp>/staging-no-real-payments-remediation-pack.md`
 - `outputs/launch-staging-no-real-payments-remediation/<timestamp>/pages-staging-build-manifest.json`
 - `outputs/launch-rc-external-closure/<timestamp>/rc-external-closure-pack.md`
@@ -140,10 +151,11 @@ Esto genera `outputs/launch-rc-external-closure/<timestamp>/rc-external-closure-
 El pack consolida los objetivos staging-only de RC. En el estado actual, Cloudflare Pages debe aparecer `ok`; Supabase staging y operations evidence siguen pendientes:
 
 - `cloudflare_pages_no_real_payments`: Cloudflare Pages project `espanol-honesto-staging`; cerrado con deployed probe `403 Checkout is disabled`. Si el manifiesto dice que `HEAD/deploy` no contiene el guard o se prepara un nuevo redeploy, revisar la slice minima, `pages-staging-build-manifest.json` y volver a comprobar con `corepack pnpm launch:no-real-payments -- --deployed-url https://espanol-honesto-staging.pages.dev`.
-- `supabase_staging_schema_rollout`: Supabase `espanol-staging` (`mzjyvmlxfpzdfdjzxxyj`); aplicar/verificar migraciones de staging y repetir hosted schema check.
+- `supabase_staging_schema_rollout`: Supabase `espanol-staging` (`mzjyvmlxfpzdfdjzxxyj`); aplicar/verificar migraciones de schema/CRM staging y repetir hosted schema check si ese scope sigue pendiente.
+- `supabase_security_rollout`: Supabase `espanol-staging` (`mzjyvmlxfpzdfdjzxxyj`) primero y `espanol-honesto` (`vkkahxsybhbutszerawz`) solo despues de staging OK; aplicar/verificar `021`, `022` y `20260702124757` para `SEC-014`/`SEC-015`.
 - `operations_external_evidence`: Worker fulfillment staging, Resend staging y Admin Jobs staging UI/runtime; cerrar con evidencia externa/no secreta. Admin Jobs staging UI/runtime depende de `database_readiness`: revisarlo despues de cerrar Supabase staging o registrar una aceptacion RC explicita de que la evidencia local UI/API/tests sustituye temporalmente esa comprobacion.
 
-La hoja RC enlaza los packs especificos cuando existen: `outputs/launch-staging-no-real-payments-remediation/<timestamp>/approval-request.md` para Cloudflare checkout staging, `outputs/launch-staging-database-rollout/<timestamp>/approval-request.md` para Supabase staging y `outputs/launch-operations-external-closure/<timestamp>/approval-request.md` para operations evidence. Si un approval especifico existe, usarlo como texto principal; el approval RC consolidado sirve para ver el mapa completo y evitar mezclar scopes. Para operations, revisar tambien `outputs/launch-operations-external-closure/<timestamp>/operations-external-evidence-manifest.json` antes de registrar evidencia manual.
+La hoja RC enlaza los packs especificos cuando existen: `outputs/launch-staging-no-real-payments-remediation/<timestamp>/approval-request.md` para Cloudflare checkout staging, `outputs/launch-staging-database-rollout/<timestamp>/approval-request.md` para Supabase schema/CRM staging, `outputs/launch-supabase-security-rollout/<timestamp>/approval-request.md` para `SEC-014`/`SEC-015` y `outputs/launch-operations-external-closure/<timestamp>/approval-request.md` para operations evidence. Si un approval especifico existe, usarlo como texto principal; el approval RC consolidado sirve para ver el mapa completo y evitar mezclar scopes. Para operations, revisar tambien `outputs/launch-operations-external-closure/<timestamp>/operations-external-evidence-manifest.json` antes de registrar evidencia manual.
 
 Usar `outputs/launch-rc-external-closure/<timestamp>/next-approval.md` cuando se quiera avanzar de una accion en una accion: el archivo elige el primer item abierto, priorizando fallos antes que warnings, produce un texto de approval de un solo recurso y anade checklist de ejecucion con condiciones de parada.
 
@@ -183,15 +195,16 @@ Lectura de solo lectura hecha el 2026-06-26:
 
 Antes de marcar `database_readiness` como `pass`, hay que:
 
-1. Confirmar explicitamente que se permite escribir primero en Supabase staging `espanol-staging` (`mzjyvmlxfpzdfdjzxxyj`).
+1. Confirmar explicitamente que se permite escribir primero en Supabase staging `espanol-staging` (`mzjyvmlxfpzdfdjzxxyj`) para el scope concreto que se vaya a tocar.
 2. Ejecutar `corepack pnpm launch:staging-db-rollout` y revisar `outputs/launch-staging-database-rollout/<timestamp>/rollout-plan.md`, `outputs/launch-staging-database-rollout/<timestamp>/staging-migration-manifest.json`, `outputs/launch-staging-database-rollout/<timestamp>/approval-request.md` y `outputs/launch-staging-database-rollout/<timestamp>/manual-evidence-dry-run.txt`.
-3. Confirmar historial remoto con `supabase migration list --db-url <STAGING_DATABASE_URL>` o dashboard, manteniendo el URL fuera del repo. Si se usa CLI, hacer antes `supabase db push --dry-run --db-url <STAGING_DATABASE_URL>` y parar si quiere aplicar migraciones fuera de la lista del pack.
-4. Aplicar/verificar en staging las migraciones completas en orden, no fragmentos sueltos, salvo que una inspeccion read-only demuestre que solo falta una reparacion idempotente estrecha.
-5. Ejecutar la SQL de solo lectura generada en `outputs/launch-operations/<timestamp>/hosted-schema-check.sql` o copiada en `outputs/launch-staging-database-rollout/<timestamp>/post-write-hosted-schema-check.sql` contra staging. Esa SQL solo consulta metadata (`information_schema`, `pg_indexes`, `pg_class`, `pg_policies` y privilegios de tabla), no datos de alumnos/leads.
-6. Rerun de la app/checks en staging: solicitud, CRM admin, diagnostico ligero, emails comerciales mock/staging y onboarding post-pago sin cobros reales.
-7. Confirmar explicitamente si production entra en el RC. Si entra, confirmar backup/export, Pro upgrade o riesgo aceptado segun `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` antes de cualquier cambio destructivo o deployment production.
-8. Aplicar/verificar production solo despues de esa confirmacion, rerun de la SQL read-only y comprobacion de logs sin errores `leads.current_level` / `leads.level_check_status`.
-9. Seguir `outputs/launch-operations/<timestamp>/hosted-schema-closure-plan.md` y `outputs/launch-staging-database-rollout/<timestamp>/rollout-plan.md` para decidir si se aplican migraciones completas en orden, una reparacion idempotente mas estrecha o si el entorno queda fuera del RC.
+3. Ejecutar `corepack pnpm launch:supabase-security-rollout` y revisar `outputs/launch-supabase-security-rollout/<timestamp>/summary.md`, `outputs/launch-supabase-security-rollout/<timestamp>/supabase-security-rollout-manifest.json`, `outputs/launch-supabase-security-rollout/<timestamp>/approval-request.md`, `outputs/launch-supabase-security-rollout/<timestamp>/post-apply-verification.sql` y `outputs/launch-supabase-security-rollout/<timestamp>/rollback.sql` antes de tocar `SEC-014`/`SEC-015`.
+4. Confirmar historial remoto con `supabase migration list --db-url <STAGING_DATABASE_URL>` o dashboard, manteniendo el URL fuera del repo. Si se usa CLI, hacer antes `supabase db push --dry-run --db-url <STAGING_DATABASE_URL>` y parar si quiere aplicar migraciones fuera de la lista del pack aprobado.
+5. Aplicar/verificar en staging las migraciones completas en orden, no fragmentos sueltos, salvo que una inspeccion read-only demuestre que solo falta una reparacion idempotente estrecha.
+6. Ejecutar la SQL de solo lectura generada en `outputs/launch-operations/<timestamp>/hosted-schema-check.sql` o copiada en `outputs/launch-staging-database-rollout/<timestamp>/post-write-hosted-schema-check.sql` contra staging. Para `SEC-014`/`SEC-015`, ejecutar ademas `outputs/launch-supabase-security-rollout/<timestamp>/post-apply-verification.sql`. Esas SQL solo consultan metadata (`information_schema`, `pg_indexes`, `pg_class`, `pg_policies`, `pg_proc`, triggers y privilegios), no datos de alumnos/leads.
+7. Rerun de la app/checks en staging: solicitud, CRM admin, diagnostico ligero, emails comerciales mock/staging y onboarding post-pago sin cobros reales.
+8. Confirmar explicitamente si production entra en el RC. Si entra, confirmar backup/export, Pro upgrade o riesgo aceptado segun `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` antes de cualquier cambio destructivo o deployment production.
+9. Aplicar/verificar production solo despues de esa confirmacion, rerun de la SQL read-only y comprobacion de logs sin errores `leads.current_level` / `leads.level_check_status`; para `SEC-014`/`SEC-015`, production solo despues de staging OK.
+10. Seguir `outputs/launch-operations/<timestamp>/hosted-schema-closure-plan.md`, `outputs/launch-staging-database-rollout/<timestamp>/rollout-plan.md` y `outputs/launch-supabase-security-rollout/<timestamp>/summary.md` para decidir si se aplican migraciones completas en orden, una reparacion idempotente mas estrecha o si el entorno queda fuera del RC.
 
 Revisar:
 
@@ -201,6 +214,7 @@ Revisar:
 - RLS revisado para tablas criticas: `profiles`, `profiles_private`, `payments`, `subscriptions`, `sessions`, `student_teachers`, `fulfillment_jobs`, `admin_audit_log`, `leads` y tablas CRM.
 - Policies admin y privilegios `authenticated`/`service_role` revisados para tablas nuevas de CRM/diagnostico, teniendo en cuenta que Supabase puede no exponer tablas nuevas al Data API automaticamente.
 - El pack `launch:staging-db-rollout` debe pasar `data_api_rls_grants_scan`: las tablas nuevas en `public` tienen RLS, policies y grants explicitos antes de pedir write externo.
+- El pack `launch:supabase-security-rollout` debe pasar OK 0/0: confirma que `021`, `022` y `20260702124757` tienen scope estrecho, hashes, approval, verification SQL y rollback antes de pedir write externo para `SEC-014`/`SEC-015`.
 - El `staging-migration-manifest.json` debe coincidir con el plan: target `espanol-staging`, hashes SHA-256, bundle hash, preflight, post-checks y scope prohibido. Si falta o no coincide, no pedir approval.
 - `admin_audit_log` y `fulfillment_jobs` sirven para recuperacion/admin.
 - Supabase Free no tiene backups programados nativos; backup/export final, Pro upgrade o accepted risk quedan para cierre final antes de cambios destructivos/production.
@@ -208,7 +222,7 @@ Revisar:
 
 Dry run para registrar evidencia despues de revisar:
 
-Usar el `manual-evidence-dry-run.txt` generado por `launch:staging-db-rollout` como base del registro de `database_readiness`; ese dry run enlaza tambien el `staging-migration-manifest.json`. Anadir `--write` solo despues de revisar el dry run, sustituir la nota generica por una nota concreta y confirmar que ya no hay drift de columnas en `public.leads`.
+Usar el `manual-evidence-dry-run.txt` generado por `launch:staging-db-rollout` como base del registro de `database_readiness`; ese dry run enlaza tambien el `staging-migration-manifest.json`. Para `SEC-014`/`SEC-015`, usar ademas el `manual-evidence-dry-run.txt` generado por `launch:supabase-security-rollout` y enlazar su manifest/verification SQL. Anadir `--write` solo despues de revisar el dry run, sustituir la nota generica por una nota concreta y confirmar que ya no hay drift de columnas en `public.leads` ni drift de RLS/trigger/webhook-state en los proyectos aprobados.
 
 ## Refrescar `operations_external`
 
@@ -255,6 +269,7 @@ Despues de cerrar los scopes inmediatos, con evidencia real/no secreta:
 1. Cloudflare Pages staging sigue probando `403 Checkout is disabled` para `/api/create-checkout`.
 2. `database_readiness` tiene Supabase staging aplicado/verificado y hosted schema check sin missing critico.
 3. `operations_external` tiene Workers Logs/observability, Resend staging y Admin Jobs staging UI/runtime revisados o aceptados con alcance RC; cron config/deployment/secret-name evidence viene del preflight staging.
+4. El tracker estricto no mantiene `SEC-*` abiertos; si `SEC-014` o `SEC-015` siguen abiertos, `launch:phase1` y `launch:rc` deben seguir bloqueados aunque la evidencia manual de Fase 1 este limpia.
 
 Ejecutar:
 
@@ -269,11 +284,11 @@ corepack pnpm launch:status
 
 Resultado esperado:
 
-- `launch:phase1`: `PHASE_1_READY`.
+- `launch:phase1`: `PHASE_1_READY` solo si no quedan `SEC-*` abiertos en `strict-qa-results.json`; con `SEC-014`/`SEC-015` abiertos debe quedar `BLOCKED`.
 - `launch:no-real-payments`: sin fallo desplegado de staging; `/api/create-checkout` devuelve `403`.
 - `launch:rc-external-closure`: sin fallo de `cloudflare_pages_no_real_payments` y sin warnings pendientes de Supabase/operations si ya se cerraron.
-- `launch:rc`: `RC_READY_WITH_FINAL_BLOCKERS`.
-- `launch:status`: bloqueado solo por cierre final deliberado.
+- `launch:rc`: `RC_READY_WITH_FINAL_BLOCKERS` solo despues de cerrar `SEC-*`; mientras sigan abiertos debe quedar `RC_BLOCKED_BY_PHASE_1`.
+- `launch:status`: bloqueado solo por cierre final deliberado despues de cerrar `SEC-*`; antes debe listar `SEC-014`/`SEC-015` como blockers de Fase 1.
 
 ## Si No Se Puede Revisar Ahora
 
@@ -281,5 +296,6 @@ No marcar `pass`. Mantener el RC bloqueado y dejar estas tareas como trabajo inm
 
 - `database_readiness`
 - `operations_external`
+- `SEC-014` y `SEC-015` si el tracker estricto los conserva abiertos
 
-El producto puede seguir avanzando en local/staging, pero no conviene declarar RC congelable hasta refrescar esta evidencia.
+El producto puede seguir avanzando en local/staging, pero no conviene declarar RC congelable hasta refrescar esta evidencia y cerrar/verificar los `SEC-*` del tracker canonico.

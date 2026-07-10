@@ -5,11 +5,7 @@ import {
     recordLeadEmailOutInCrmSafe,
     syncLeadCaptureToCrmSafe,
 } from '../../../lib/crm/lead-capture';
-import {
-    sendLevelCheckInviteEmail,
-    sendMissingInfoEmail,
-    sendProposalNextStepEmail,
-} from '../../../lib/email';
+import { signLeadEmailToken } from '../../../lib/lead-email-token';
 import { getSiteUrl } from '../../../lib/site-url';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
@@ -110,6 +106,18 @@ function isMissingLevelCheckColumn(error: { code?: string; message?: string } | 
     return message.includes('level_check_') && (error?.code === 'PGRST204' || error?.code === '42703' || error?.code === undefined);
 }
 
+function isMissingLeadSummaryOptionalColumn(error: { code?: string; message?: string } | null | undefined) {
+    const message = error?.message ?? '';
+    return (
+        message.includes('current_level')
+        || message.includes('interest')
+        || message.includes('preferred_package')
+        || message.includes('source_path')
+    )
+        && message.includes('leads')
+        && (error?.code === 'PGRST204' || error?.code === '42703' || error?.code === undefined);
+}
+
 function buildLeadStatusUpdate(status: LeadStatus, now: string, options: { clearLevelCheckRaw?: boolean } = {}): TablesUpdate<'leads'> {
     const update: TablesUpdate<'leads'> = {
         status,
@@ -165,11 +173,17 @@ function preferredLeadLanguage(lang: string | null | undefined): 'es' | 'en' | '
     return lang === 'es' || lang === 'ru' ? lang : 'en';
 }
 
-function buildDiagnosticUrl(context: APIContext, lead: Pick<Lead, 'lang' | 'email'>) {
+async function buildDiagnosticUrl(context: APIContext, lead: Pick<Lead, 'id' | 'lang' | 'email'>) {
     const requestOrigin = new URL(context.request.url).origin;
     const diagnosticUrl = new URL(`${getSiteUrl(requestOrigin)}/${preferredLeadLanguage(lead.lang)}/diagnostico`);
     if (lead.email) {
-        diagnosticUrl.searchParams.set('email', lead.email.trim().toLowerCase());
+        const normalizedEmail = lead.email.trim().toLowerCase();
+        diagnosticUrl.searchParams.set('email', normalizedEmail);
+        diagnosticUrl.searchParams.set('leadId', lead.id);
+        diagnosticUrl.searchParams.set('token', await signLeadEmailToken({
+            leadId: lead.id,
+            email: normalizedEmail,
+        }));
     }
     return diagnosticUrl.toString();
 }
@@ -663,14 +677,34 @@ async function attachCrmOpportunityData(
 async function loadLeadPipelineSummary(
     supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>
 ) {
-    const { data: leads, error } = await supabaseAdmin
+    const summaryResult = await supabaseAdmin
         .from('leads')
         .select('id, status, interest, current_level, preferred_package, source_path, created_at')
         .order('created_at', { ascending: false })
         .limit(500);
+    let leads = summaryResult.data;
+    const error = summaryResult.error;
 
     if (error) {
-        throw error;
+        if (!isMissingLeadSummaryOptionalColumn(error)) {
+            throw error;
+        }
+
+        const fallback = await supabaseAdmin
+            .from('leads')
+            .select('id, status, created_at')
+            .order('created_at', { ascending: false })
+            .limit(500);
+        if (fallback.error) {
+            throw fallback.error;
+        }
+        leads = (fallback.data ?? []).map((lead) => ({
+            ...lead,
+            interest: null,
+            current_level: null,
+            preferred_package: null,
+            source_path: null,
+        }));
     }
 
     const summaryLeads = (leads ?? []) as LeadSummaryRecord[];
@@ -948,7 +982,8 @@ async function sendLevelCheckInvite(
         return { error: jsonResponse({ error: 'Lead has no email' }, 400), lead: null };
     }
 
-    const diagnosticUrl = buildDiagnosticUrl(context, before as Lead);
+    const { sendLevelCheckInviteEmail } = await import('../../../lib/email');
+    const diagnosticUrl = await buildDiagnosticUrl(context, before as Lead);
     const sent = await sendLevelCheckInviteEmail(before.email, {
         recipientName: before.name ?? undefined,
         diagnosticUrl,
@@ -1139,7 +1174,8 @@ async function sendSalesFollowUpEmail(
         return { error: consentError, lead: null };
     }
 
-    const diagnosticUrl = buildDiagnosticUrl(context, before as Lead);
+    const { sendMissingInfoEmail, sendProposalNextStepEmail } = await import('../../../lib/email');
+    const diagnosticUrl = await buildDiagnosticUrl(context, before as Lead);
     const sent = input.template === 'missing_info'
         ? await sendMissingInfoEmail(before.email, {
             recipientName: before.name ?? undefined,

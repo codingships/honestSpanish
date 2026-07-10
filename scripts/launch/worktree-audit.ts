@@ -55,6 +55,16 @@ const packageDefinitions = [
         validation: ['corepack pnpm launch:cleanup', 'corepack pnpm launch:sequence', 'corepack pnpm launch:status'],
     },
     {
+        id: 'database_security_external',
+        title: 'Supabase seguridad externa y migraciones',
+        description: 'Parches SQL, migraciones Supabase y pruebas de invariantes que preparan los fixes externos SEC-* sin aplicarlos automaticamente.',
+        validation: [
+            'corepack pnpm exec vitest run --coverage=false tests/unit/database-schema-invariants.test.ts tests/api/sessions-create.test.ts tests/api/stripe-webhook.test.ts',
+            'corepack pnpm launch:security',
+            'corepack pnpm launch:staging-db-rollout',
+        ],
+    },
+    {
         id: 'public_seo_conversion',
         title: 'Superficie publica, SEO y conversion',
         description: 'Landing pages, blog, SEO, i18n publico, captacion y contenido de conversion.',
@@ -133,7 +143,7 @@ const rcNoRealPaymentsSlice = [
     },
     {
         path: 'wrangler.toml',
-        role: 'Non-secret Pages default CHECKOUT_ENABLED=false for no-real-payments deployments.',
+        role: 'Non-secret Worker default CHECKOUT_ENABLED=false for no-real-payments deployments.',
         requiredForStagingDeploy: true,
     },
     {
@@ -289,6 +299,12 @@ function classifyPath(filePath: string): string {
     if (matchesAny(filePath, [/^\.agent\//, /^\.agents\//])) return 'agent_tooling';
 
     if (matchesAny(filePath, [
+        /^db\/rls_security_patch\.sql$/,
+        /^supabase\/migrations\/(?:021_harden_session_write_policies|022_track_stripe_webhook_processing_state|20260702124757_harden_profile_role_trigger)\.sql$/,
+        /^tests\/unit\/database-schema-invariants\.test\.ts$/,
+    ])) return 'database_security_external';
+
+    if (matchesAny(filePath, [
         /^AGENTS\.md$/,
         /^README\.md$/,
         /^ARCHITECTURE\.md$/,
@@ -307,27 +323,30 @@ function classifyPath(filePath: string): string {
         /^supabase\/\.temp\//,
         /^supabase\/migrations\/(?:011|014|015|016|017)_/,
         /^src\/pages\/\[lang\]\/legal(?:\/|\.astro$)/,
-        /^tests\/unit\/(?:database-schema-invariants|functional-rc-runbook|operations-runbook|no-real-payments-runbook)\.test\.ts$/,
+        /^tests\/unit\/(?:database-schema-invariants|functional-rc-runbook|operations-runbook|no-real-payments-runbook|sentry-astro-config|sentry-readonly-evidence)\.test\.ts$/,
     ])) return 'base_launch_cleanup';
 
     if (matchesAny(filePath, [
         /^docs\/launch\/(?:CONVERSION_ARCHITECTURE|LAUNCH_MARKETING_PLAN|SEO_INTENT_MAP|SEO_LLM_FINAL)\.md$/,
         /^public\/(?:robots\.txt|llms\.txt)$/,
         /^src\/components\/(?:LandingPage|LeadCaptureForm|PricingModal|PricingSection)\./,
+        /^src\/components\/(?:AuthForm|CookieBanner|ResetPasswordForm)\./,
         /^src\/components\/landing\//,
         /^src\/content(?:\/|\.config\.ts$)/,
         /^src\/i18n\//,
         /^src\/layouts\/(?:BaseLayout|BlogLayout|LegalLayout)\./,
         /^src\/lib\/(?:blog-routes|landing-data|landing-schema|site-url)\.ts$/,
         /^src\/pages\/(?:\[lang\]\/blog|en\/index|es\/index|es\/espanol-para-profesionales|es\/clases-de-conversacion-en-espanol|es\/espanol-para-vivir-en-espana|ru\/index|sitemap-public|og\/)/,
+        /^src\/pages\/404\.astro$/,
         /^src\/styles\/global\.css$/,
-        /^tests\/(?:e2e\/(?:checkout\.public|lead-magnet\.public)\.spec|unit\/(?:i18n|i18n-encoding|landing-public-content|landing-schema|seo-surface)\.test)/,
+        /^tests\/(?:e2e\/(?:auth|checkout|cookie-banner|demo-guide|environment-banner|landing-page|lead-magnet|legal-and-system|onboarding|public-residual)\.public\.spec|unit\/(?:auth-form|i18n|i18n-encoding|landing-public-content|landing-schema|pricing-modal|pricing-section|reset-password-form|seo-surface)\.test)/,
     ])) return 'public_seo_conversion';
 
     if (matchesAny(filePath, [
         /^docs\/launch\/LEVEL_CHECK\.md$/,
         /^src\/components\/LevelCheckForm\.tsx$/,
         /^src\/components\/admin\/(?:Crm|LeadManager)/,
+        /^src\/lib\/lead-email-token\.ts$/,
         /^src\/lib\/crm\//,
         /^src\/pages\/\[lang\]\/campus\/admin\/(?:crm|leads)/,
         /^src\/pages\/\[lang\]\/diagnostico\.astro$/,
@@ -335,7 +354,7 @@ function classifyPath(filePath: string): string {
         /^src\/pages\/api\/admin\/(?:crm|leads)\//,
         /^src\/pages\/api\/admin\/leads\.ts$/,
         /^supabase\/migrations\/(?:018|019|020|20260624163423|20260624185757|20260625213116|20260625215008)/,
-        /^tests\/(?:api\/(?:subscribe|level-check|admin-leads|admin-crm-contact-actions)|unit\/(?:crm-|lead-manager-source))/
+        /^tests\/(?:api\/(?:subscribe|level-check|admin-leads|admin-crm-contact-actions)|e2e\/diagnostico\.public\.spec|unit\/(?:crm-|lead-capture-form|lead-manager|lead-manager-source|level-check-form))/
     ])) return 'crm_requests_diagnostic';
 
     if (matchesAny(filePath, [
@@ -347,12 +366,12 @@ function classifyPath(filePath: string): string {
         /^src\/pages\/\[lang\]\/campus\/(?:admin\/emails|admin\/support|support)\.astro$/,
         /^src\/pages\/api\/(?:email|support)\//,
         /^src\/pages\/api\/admin\/support-tickets\.ts$/,
-        /^tests\/(?:api\/(?:email-send-test|support-alert|admin-support-tickets)|unit\/(?:email-templates|crm-class-email|crm-onboarding|student-onboarding-source|session-fulfillment|support-))/
+        /^tests\/(?:api\/(?:email-send-test|support-alert|admin-support-tickets)|unit\/(?:email-google-config|email-template-manager|email-templates|crm-class-email|crm-onboarding|student-onboarding-source|session-fulfillment|support-))/
     ])) return 'emails_support_onboarding';
 
     if (matchesAny(filePath, [
         /^docs\/launch\/NO_REAL_PAYMENTS\.md$/,
-        /^src\/components\/admin\/(?:FulfillmentJobsManager|PaymentRecoveryActions|SubscriptionRenewalActions)/,
+        /^src\/components\/admin\/(?:FulfillmentJobsManager|PaymentRecoveryActions|ProductCatalogManager|SubscriptionRenewalActions)/,
         /^src\/lib\/fulfillment\/(?:jobs|queue)\.ts$/,
         /^src\/lib\/internal-job-service\.ts$/,
         /^src\/pages\/\[lang\]\/campus\/admin\/(?:jobs|packages|payments)\.astro$/,
@@ -361,19 +380,21 @@ function classifyPath(filePath: string): string {
         /^supabase\/migrations\/010_/,
         /^workers\/fulfillment\//,
         /^workers\/reminder-cron\//,
-        /^tests\/(?:api\/(?:create-checkout|stripe-webhook|admin-packages|admin-fulfillment-jobs)|unit\/(?:fulfillment-jobs|internal-job-service|payment-recovery-actions|subscription-renewal-actions))/
+        /^tests\/(?:api\/(?:create-checkout|create-portal-session|cron-routes|stripe-webhook|admin-packages|admin-fulfillment-jobs)|unit\/(?:fulfillment-jobs|fulfillment-worker-auth|internal-job-service|payment-recovery-actions|product-catalog-manager|real-env-smoke-safety|stripe-readonly-evidence|subscription-renewal-actions))/
     ])) return 'payments_worker_no_real_payments';
 
     if (matchesAny(filePath, [
+        /^src\/components\/account\//,
         /^src\/components\/calendar\//,
-        /^src\/components\/admin\/StudentFilters\.tsx$/,
+        /^src\/components\/(?:TeacherNotes)\./,
+        /^src\/components\/admin\/(?:AssignTeacherModal|StudentFilters|UserManager)\.tsx$/,
         /^docs\/launch\/GOOGLE_CALENDAR_ACCOUNT\.md$/,
         /^src\/layouts\/CampusLayout\.astro$/,
         /^src\/lib\/calendar\//,
         /^src\/lib\/(?:class-access|class-duration)\.ts$/,
-        /^src\/pages\/\[lang\]\/campus\/(?:index|admin\/index|admin\/student\/)/,
+        /^src\/pages\/\[lang\]\/campus\/(?:index|classes|admin\/index|admin\/calendar|admin\/student\/|admin\/students|teacher\/calendar)/,
         /^src\/pages\/api\/(?:account|admin\/assign-teacher|admin\/remove-teacher|calendar|drive|google|teacher|test|update-student-notes)/,
-        /^tests\/(?:api\/(?:assign-teacher|available-slots|bulk-sessions|link-google-drive|post-login|recurring-sessions|remove-teacher|session-action|sessions-create|teacher-availability|update-profile|update-student-notes|append-homework)|unit\/(?:StudentClassList|TeacherCalendar|calendar-availability|class-access|madrid-time))/
+        /^tests\/(?:api\/(?:admin-users|assign-teacher|available-slots|bulk-sessions|create-student-folder|full-class-flow|link-google-drive|post-login|recurring-sessions|remove-teacher|session-action|sessions-create|teacher-availability|update-profile|update-student-notes|append-homework)|e2e\/(?:campus-residual\.(?:admin|student|teacher)|scheduling\.admin)\.spec|unit\/(?:admin-calendar|admin-schedule-modal|admin-students-page|assign-teacher-modal|AvailabilityManager|bulk-schedule-modal|meeting-link|next-class-card|post-class-report|profile-form|schedule-session-modal|session-detail-modal|StudentClassList|student-cancel-modal|student-filters|TeacherCalendar|teacher-notes|user-manager|calendar-availability|class-access|madrid-time))/
     ])) return 'calendar_teachers_campus';
 
     if (matchesAny(filePath, [
@@ -384,6 +405,8 @@ function classifyPath(filePath: string): string {
         /^\.gitignore$/,
         /^astro\.config\.mjs$/,
         /^package\.json$/,
+        /^patches\//,
+        /^playwright\.config\.ts$/,
         /^pnpm-lock\.yaml$/,
         /^pnpm-workspace\.yaml$/,
         /^wrangler\.toml$/,
@@ -398,7 +421,8 @@ function classifyPath(filePath: string): string {
         /^src\/pages\/api\/demo\//,
         /^scripts\/(?:check-secrets|prepare-e2e-data|seed|setup-google|setup-google-staging|smoke|style)\//,
         /^scripts\/(?:check-secrets|prepare-e2e-data|setup-google-test|setup-google-staging)\./,
-        /^tests\/(?:api\/security-regression|e2e\/(?:admin|admin-visual|fixtures)|unit\/(?:api-query-construction|runtime-env|runtime-helpers))/
+        /^tests\/types\//,
+        /^tests\/(?:api\/(?:demo-login|security-regression)|e2e\/(?:admin|admin-visual|fixtures|student\.setup|teacher\.setup)|unit\/(?:api-query-construction|runtime-env|runtime-helpers))/
     ])) return 'deps_config_ci';
 
     return 'unpackaged_review';
@@ -487,9 +511,9 @@ function renderSummary(report: WorktreeReport): string {
         '',
         '## Next Step',
         '',
-        'Review `commit-package-plan.md` before staging. Use its RC no-real-payments slice before redeploying Cloudflare Pages staging, and keep agent tooling in a separate decision from product runtime changes.',
+        'Review `commit-package-plan.md` before staging. Use its RC no-real-payments slice before redeploying Cloudflare Worker staging, and keep agent tooling in a separate decision from product runtime changes.',
         'Use `package-file-lists/` for plain per-package file lists when reviewing or preparing separate commits.',
-        'Use `rc-staging-package.md` as the smallest local package manifest before asking for Cloudflare Pages staging approval.',
+        'Use `rc-staging-package.md` as the smallest local package manifest before asking for Cloudflare Worker staging approval.',
         'Use `rc-staging-package-files.txt` as the plain file list for reviewing the exact no-real-payments staging slice.',
         'Use `rc-staging-runtime-diff.patch` as a review-only diff of the runtime files that must be represented in the staging deploy source.',
         'Use `rc-staging-runtime-manifest.json` for machine-readable hashes and guard-snippet status of the runtime slice.',
@@ -537,7 +561,7 @@ function renderCommitPackagePlan(): string {
         '',
         'Do not freeze or redeploy the release candidate while `database_readiness` or `operations_external` remain open. If `no_real_payments_staging` reopens after a runtime/config change, close it again with fresh non-secret evidence before freeze.',
         '',
-        'The staging deployment package must include the runtime files required by the RC no-real-payments slice below. A local-only guard is not enough evidence: Cloudflare Pages staging must prove checkout is blocked with `403 Checkout is disabled`, not `400 priceId is required`.',
+        'The staging deployment package must include the runtime files required by the RC no-real-payments slice below. A local-only guard is not enough evidence: Cloudflare Worker staging must prove checkout is blocked with `403 Checkout is disabled`, not `400 priceId is required`.',
         '',
         'Keep `.agent/` and `.agents/` tooling in a separate review decision from product runtime commits. Do not use this plan as approval for Cloudflare writes, Supabase writes, Stripe live mode, production Pages changes, real checkout enablement, final secrets, legal real data, Search Console/domain work or production smoke.',
         '',
@@ -548,12 +572,12 @@ function renderCommitPackagePlan(): string {
         'Deploy/redeploy staging only after explicit Cloudflare staging approval. This slice does not authorize Supabase writes, production Pages changes, Stripe live mode or real checkout enablement.',
         '',
         'Plain file lists for all packages are generated in `package-file-lists/`; use them for review only, not as automatic staging commands.',
-        'The generated `rc-staging-runtime-diff.patch` is review-only. It limits the diff to the runtime files required by Cloudflare Pages staging; do not apply it blindly or treat it as approval to deploy.',
+        'The generated `rc-staging-runtime-diff.patch` is review-only. It limits the diff to the runtime files required by Cloudflare Worker staging; do not apply it blindly or treat it as approval to deploy.',
         '',
         'Validation:',
         '- `corepack pnpm exec vitest run --coverage=false tests/api/create-checkout.test.ts tests/unit/no-real-payments-runbook.test.ts`',
         '- `corepack pnpm launch:no-real-payments`',
-        '- After staging deploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://espanol-honesto-staging.pages.dev`',
+        '- After staging deploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://espanolhonesto-staging.alindev95.workers.dev`',
         '- If staging still fails: `corepack pnpm launch:staging-no-real-payments-remediation`',
         '',
         '| Required for staging deploy | Status | Package | Path | Role |',
@@ -619,7 +643,7 @@ function renderRcStagingPackage(): string {
     const lines = [
         '# RC Staging Package',
         '',
-        'Local-only manifest for the smallest package needed before Cloudflare Pages staging can prove no-real-payments mode. This file is generated by `corepack pnpm launch:worktree`; it does not stage, commit, deploy or authorize external writes.',
+        'Local-only manifest for the smallest package needed before Cloudflare Worker staging can prove no-real-payments mode. This file is generated by `corepack pnpm launch:worktree`; it does not stage, commit, deploy or authorize external writes.',
         '',
         '## Current Result',
         '',
@@ -680,14 +704,14 @@ function renderRcStagingPackage(): string {
         '- Use `rc-staging-runtime-diff.patch` to review the exact runtime diff that must be included in the staging deploy source.',
         '- Use `rc-staging-runtime-manifest.json` to compare hashes/guard status if a deployment package needs source verification.',
         '- If `Current HEAD guard ready` is `no`, package these runtime files into the staging deploy source before relying on `CHECKOUT_ENABLED=false`.',
-        '- Get explicit approval for Cloudflare Pages project `espanol-honesto-staging` before redeploying or changing variables.',
-        '- Do not touch production Pages, Stripe live, real checkout enablement, Supabase, legal real data, final secrets, domain/Search Console or production smoke.',
+        '- Get explicit approval for Cloudflare Worker `espanolhonesto-staging` before redeploying or changing variables.',
+        '- Do not touch production Worker, Stripe live, real checkout enablement, Supabase, legal real data, final secrets, domain/Search Console or production smoke.',
         '',
         '## Validation',
         '',
         '- `corepack pnpm exec vitest run --coverage=false tests/api/create-checkout.test.ts tests/unit/no-real-payments-runbook.test.ts`',
         '- `corepack pnpm launch:no-real-payments`',
-        '- After approved staging redeploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://espanol-honesto-staging.pages.dev`',
+        '- After approved staging redeploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://espanolhonesto-staging.alindev95.workers.dev`',
         '- If staging still returns `400 priceId is required`: `corepack pnpm launch:staging-no-real-payments-remediation`',
         '',
     );
@@ -707,10 +731,10 @@ function renderRcStagingRuntimeDiff(): string {
     const lines = [
         '# RC staging runtime diff for no-real-payments mode',
         '# Generated by corepack pnpm launch:worktree. Review-only; it does not stage, commit, deploy, apply, move or delete anything.',
-        '# Scope: required runtime files for Cloudflare Pages staging checkout blocking.',
+        '# Scope: required runtime files for Cloudflare Worker staging checkout blocking.',
         '# This file may contain environment variable names from source code, but must not contain secret values.',
         '# Required post-deploy proof: /api/create-checkout returns 403 with Checkout is disabled on the staging URL.',
-        '# Forbidden scope: production Pages, Stripe live, CHECKOUT_ENABLED=true, real checkout, Supabase writes, legal real data, final secrets, domain/Search Console and production smoke.',
+        '# Forbidden scope: production Worker, Stripe live, CHECKOUT_ENABLED=true, real checkout, Supabase writes, legal real data, final secrets, domain/Search Console and production smoke.',
         '',
     ];
 
@@ -760,12 +784,12 @@ function buildRcStagingRuntimeManifest(): unknown {
     return {
         schemaVersion: 1,
         generatedAt: new Date().toISOString(),
-        purpose: 'Review-only manifest for the required Cloudflare Pages staging no-real-payments runtime slice.',
+        purpose: 'Review-only manifest for the required Cloudflare Worker staging no-real-payments runtime slice.',
         scope: {
-            target: 'Cloudflare Pages project espanol-honesto-staging',
+            target: 'Cloudflare Worker espanolhonesto-staging',
             requiredPostDeployProof: '/api/create-checkout returns 403 with Checkout is disabled on the staging URL.',
             forbidden: [
-                'production Pages',
+                'production Worker',
                 'Stripe live',
                 'CHECKOUT_ENABLED=true',
                 'real checkout',
@@ -795,7 +819,7 @@ function renderRcStagingPackageFiles(): string {
         '# RC staging no-real-payments package files',
         '# Generated by corepack pnpm launch:worktree. This is a review manifest only; it does not stage, commit, deploy or authorize external writes.',
         '',
-        '# Required runtime files for Cloudflare Pages staging deploy/source',
+        '# Required runtime files for Cloudflare Worker staging deploy/source',
         ...rcNoRealPaymentsSlice
             .filter((entry) => entry.requiredForStagingDeploy)
             .map((entry) => entry.path),
@@ -815,7 +839,7 @@ function rcGuardSnippets(): Array<{ path: string; snippet: string; label: string
         { path: 'src/pages/api/create-checkout.ts', snippet: "readRuntimeEnv('CHECKOUT_ENABLED'", label: 'checkout reads CHECKOUT_ENABLED' },
         { path: 'src/pages/api/create-checkout.ts', snippet: 'Checkout is disabled', label: 'checkout disabled response' },
         { path: 'src/pages/api/create-checkout.ts', snippet: 'status: 403', label: 'checkout disabled status 403' },
-        { path: 'wrangler.toml', snippet: 'CHECKOUT_ENABLED = "false"', label: 'Pages default CHECKOUT_ENABLED=false' },
+        { path: 'wrangler.toml', snippet: 'CHECKOUT_ENABLED = "false"', label: 'Worker default CHECKOUT_ENABLED=false' },
     ];
 }
 

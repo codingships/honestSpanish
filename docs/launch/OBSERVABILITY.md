@@ -31,10 +31,12 @@ Verificar en staging o production segun fase:
 2. `PUBLIC_SENTRY_DSN` configurado solo donde debe capturar errores.
 3. `SENTRY_AUTH_TOKEN` disponible solo en CI/deploy o secret manager cuando se suben sourcemaps.
 4. `SENTRY_UPLOAD_SOURCEMAPS` no esta activado localmente por accidente.
-5. Alertas tienen owner y canal revisado.
-6. Privacy/scrubbing: no capturar tokens, cookies, passwords, payloads de pago, service role, datos privados de alumnos ni URLs con secretos.
-7. Release/deploy tags o contexto suficiente para saber que version fallo.
-8. Si Sentry no esta disponible en la fase actual, registrar accepted risk con owner, motivo, fallback y plan de revision.
+5. `SENTRY_CAPTURE_LOCAL=false` por defecto para que dev/QA local no contamine production.
+6. `SENTRY_ENVIRONMENT` solo se usa como override deliberado; si falta, captura local opt-in debe ir a `local-<NODE_ENV>` y deploys deben usar `PUBLIC_APP_ENV`.
+7. Alertas tienen owner y canal revisado.
+8. Privacy/scrubbing: no capturar tokens, cookies, passwords, payloads de pago, service role, datos privados de alumnos ni URLs con secretos.
+9. Release/deploy tags o contexto suficiente para saber que version fallo.
+10. Si Sentry no esta disponible en la fase actual, registrar accepted risk con owner, motivo, fallback y plan de revision.
 
 ## Fallback Sin Sentry Completo
 

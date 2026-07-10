@@ -8,6 +8,7 @@ interface SourceSummary {
     status?: string;
     outputDir?: string;
     endedAt?: string;
+    deployedUrl?: string;
 }
 
 interface ManualEvidenceCheck {
@@ -62,13 +63,14 @@ const approvalRequestPath = path.join(outputDir, 'approval-request.md');
 const nextApprovalPath = path.join(outputDir, 'next-approval.md');
 mkdirSync(outputDir, { recursive: true });
 
+const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
 const stagingDatabaseRollout = latestJson<SourceSummary>('launch-staging-database-rollout', 'summary.json');
 const operationsExternalClosure = latestJson<SourceSummary>('launch-operations-external-closure', 'summary.json');
 const noRealPaymentsRemediation = latestJson<SourceSummary>('launch-staging-no-real-payments-remediation', 'summary.json');
 const noRealPaymentsClosure = latestJson<SourceSummary>('launch-no-real-payments', 'summary.json');
 const noRealPaymentsApproval = latestEvidenceFile('launch-staging-no-real-payments-remediation', 'approval-request.md');
 const noRealPaymentsRemediationPack = latestEvidenceFile('launch-staging-no-real-payments-remediation', 'staging-no-real-payments-remediation-pack.md');
-const noRealPaymentsBuildManifest = latestEvidenceFile('launch-staging-no-real-payments-remediation', 'pages-staging-build-manifest.json');
+const noRealPaymentsBuildManifest = latestEvidenceFile('launch-staging-no-real-payments-remediation', 'worker-staging-build-manifest.json');
 const rcStagingPackage = latestEvidenceFile('launch-worktree', 'rc-staging-package.md');
 const rcStagingPackageFiles = latestEvidenceFile('launch-worktree', 'rc-staging-package-files.txt');
 const rcStagingRuntimeDiff = latestEvidenceFile('launch-worktree', 'rc-staging-runtime-diff.patch');
@@ -83,6 +85,11 @@ const manualEvidencePath = path.join(process.cwd(), 'docs', 'launch', 'MANUAL_EV
 const manualEvidence = readManualEvidence(manualEvidencePath);
 const databaseReadinessEvidence = manualEvidence?.checks?.find((check) => check.id === 'database_readiness') ?? null;
 const operationsExternalEvidence = manualEvidence?.checks?.find((check) => check.id === 'operations_external') ?? null;
+const noRealPaymentsProbeUrl = noRealPaymentsRemediation?.data.deployedUrl
+    ?? process.env.CLOUDFLARE_WORKERS_STAGING_URL
+    ?? process.env.CLOUDFLARE_STAGING_URL
+    ?? DEFAULT_WORKER_STAGING_URL;
+const noRealPaymentsProbeCommand = `corepack pnpm launch:no-real-payments -- --deployed-url ${noRealPaymentsProbeUrl}`;
 
 const actions: ExternalAction[] = [
     buildCloudflareCheckoutAction(noRealPaymentsRemediation, noRealPaymentsClosure, noRealPaymentsRemediationPack, noRealPaymentsApproval),
@@ -135,18 +142,18 @@ function buildCloudflareCheckoutAction(
     const isVerified = closureStatus === 'OK' || sourceStatus === 'OK';
 
     return {
-        id: 'cloudflare_pages_no_real_payments',
+        id: 'cloudflare_worker_no_real_payments',
         status: isVerified ? 'ok' : isBlocked ? 'failed' : 'warning',
         owner: 'Alin/Codex after explicit external-write confirmation',
-        target: 'Cloudflare Pages project espanol-honesto-staging',
-        permission: 'Staging write approval required before changing Cloudflare Pages config or redeploying staging.',
-        preflight: `Read-only confirm Cloudflare account, Pages project name and staging environment before any write; list variable names only, never values. Review ${rcStagingPackage ? toRelative(rcStagingPackage) : 'the latest rc-staging-package.md from launch:worktree'}, ${rcStagingPackageFiles ? toRelative(rcStagingPackageFiles) : 'the latest rc-staging-package-files.txt from launch:worktree'}, ${rcStagingRuntimeDiff ? toRelative(rcStagingRuntimeDiff) : 'the latest rc-staging-runtime-diff.patch from launch:worktree'}, ${rcStagingRuntimeManifest ? toRelative(rcStagingRuntimeManifest) : 'the latest rc-staging-runtime-manifest.json from launch:worktree'} and ${noRealPaymentsBuildManifest ? toRelative(noRealPaymentsBuildManifest) : 'the latest pages-staging-build-manifest.json from launch:staging-no-real-payments-remediation'} before relying on CHECKOUT_ENABLED=false.`,
-        action: 'If the deployed source lacks the checkout guard, package and redeploy the current Pages code/config first; then set or verify non-secret variable CHECKOUT_ENABLED=false for the staging environment.',
+        target: 'Cloudflare Worker espanolhonesto-staging',
+        permission: 'Staging write approval required before changing Cloudflare Worker config or redeploying staging.',
+        preflight: `Read-only confirm Cloudflare account, Worker name and staging environment before any write; list variable names only, never values. Review ${rcStagingPackage ? toRelative(rcStagingPackage) : 'the latest rc-staging-package.md from launch:worktree'}, ${rcStagingPackageFiles ? toRelative(rcStagingPackageFiles) : 'the latest rc-staging-package-files.txt from launch:worktree'}, ${rcStagingRuntimeDiff ? toRelative(rcStagingRuntimeDiff) : 'the latest rc-staging-runtime-diff.patch from launch:worktree'}, ${rcStagingRuntimeManifest ? toRelative(rcStagingRuntimeManifest) : 'the latest rc-staging-runtime-manifest.json from launch:worktree'} and ${noRealPaymentsBuildManifest ? toRelative(noRealPaymentsBuildManifest) : 'the latest worker-staging-build-manifest.json from launch:staging-no-real-payments-remediation'} before relying on CHECKOUT_ENABLED=false.`,
+        action: 'If the deployed source lacks the checkout guard, package and redeploy the current Worker code/config first; then set or verify non-secret variable CHECKOUT_ENABLED=false for the staging environment.',
         evidence: isVerified
             ? 'Latest no-real-payments evidence says the deployed checkout endpoint is blocked.'
             : 'Latest staging no-real-payments remediation shows staging checkout is not blocked or needs confirmation.',
-        recordEvidence: 'Record non-secret evidence: Pages project, environment, CHECKOUT_ENABLED=false as a state claim, deployment timestamp and no-real-payments command output path.',
-        verify: 'corepack pnpm launch:no-real-payments -- --deployed-url https://espanol-honesto-staging.pages.dev',
+        recordEvidence: 'Record non-secret evidence: Worker name, environment, CHECKOUT_ENABLED=false as a state claim, deployment timestamp and no-real-payments command output path.',
+        verify: noRealPaymentsProbeCommand,
         sourcePath: closure?.file ?? source?.file ?? null,
         supportPath,
         approvalPath,
@@ -301,7 +308,7 @@ function renderClosurePack(report: RcExternalClosureReport): string {
         '',
         '## Approval Scopes',
         '',
-        '- Cloudflare Pages staging checkout block can be approved on its own; use its specific approval request when available.',
+        '- Cloudflare Worker staging checkout block can be approved on its own; use its specific approval request when available.',
         '- Supabase staging schema rollout can be approved on its own; use its specific approval request when available.',
         '- Operations external evidence is read-only by default; use its specific approval request when available and ask separately before sending a staging test email, triggering a job or changing config.',
         '- One approval must not be treated as approval for the other scopes.',
@@ -321,7 +328,7 @@ function renderClosurePack(report: RcExternalClosureReport): string {
         '',
         '## Suggested Order',
         '',
-        '1. Cloudflare Pages staging checkout block: close `cloudflare_pages_no_real_payments`, then rerun `corepack pnpm launch:no-real-payments -- --deployed-url https://espanol-honesto-staging.pages.dev`.',
+        `1. Cloudflare Worker staging checkout block: close \`cloudflare_worker_no_real_payments\`, then rerun \`${noRealPaymentsProbeCommand}\`.`,
         '2. Supabase staging schema: close `supabase_staging_schema_rollout`, then rerun hosted schema verification and staging flows.',
         '3. Operations evidence: close `operations_external_evidence`, then record non-secret manual evidence and rerun `corepack pnpm launch:phase1`.',
         '4. Freeze RC with `corepack pnpm launch:rc` only after Phase 1 and RC-specific checks are clear.',
@@ -457,12 +464,12 @@ function firstOpenAction(actions: ExternalAction[]): ExternalAction | null {
 }
 
 function nextApprovalExecutionChecklist(action: ExternalAction): string[] {
-    if (action.id === 'cloudflare_pages_no_real_payments') {
+    if (action.id === 'cloudflare_worker_no_real_payments') {
         return [
-            '1. Review the latest `rc-staging-package.md`, `rc-staging-package-files.txt`, `rc-staging-runtime-diff.patch`, `rc-staging-runtime-manifest.json`, `pages-staging-build-manifest.json` and specific Cloudflare approval request linked above.',
-            '2. Confirm the Cloudflare account, Pages project and environment serving the staging URL before any write.',
+            '1. Review the latest `rc-staging-package.md`, `rc-staging-package-files.txt`, `rc-staging-runtime-diff.patch`, `rc-staging-runtime-manifest.json`, `worker-staging-build-manifest.json` and specific Cloudflare approval request linked above.',
+            '2. Confirm the Cloudflare account, Worker and environment serving the staging URL before any write.',
             '3. If `Current HEAD guard ready` is `no`, package and deploy the listed runtime slice before relying on `CHECKOUT_ENABLED=false`.',
-            '4. If using local build output, require `pages-staging-build-manifest.json` to show `readyForStagingDeployPackage=true`.',
+            '4. If using local build output, require `worker-staging-build-manifest.json` to show `readyForStagingDeployPackage=true`.',
             '5. Set or verify only the non-secret `CHECKOUT_ENABLED=false` state for the staging environment after the guard is deployed.',
             '6. Run the post-check command and confirm `/api/create-checkout` returns `403` with `Checkout is disabled`.',
             '7. Rerun `corepack pnpm launch:rc-external-closure` and `corepack pnpm launch:status` so the dashboard points to fresh evidence.',
@@ -495,11 +502,11 @@ function nextApprovalStopConditions(action: ExternalAction): string[] {
         '- Stop if a dashboard or command would expose secret values, private rows, tokens, private URLs or personal data in evidence.',
     ];
 
-    if (action.id === 'cloudflare_pages_no_real_payments') {
+    if (action.id === 'cloudflare_worker_no_real_payments') {
         return [
             ...common,
             '- Stop if the deployment source does not contain the checkout guard and you are only changing `CHECKOUT_ENABLED`; a variable-only change is not enough evidence.',
-            '- Stop if using local build output and `pages-staging-build-manifest.json` is missing or does not show `readyForStagingDeployPackage=true`.',
+            '- Stop if using local build output and `worker-staging-build-manifest.json` is missing or does not show `readyForStagingDeployPackage=true`.',
             '- Stop if the intended value is `CHECKOUT_ENABLED=true` or if live Stripe Price IDs are part of the action.',
             '- Stop if the post-check still returns `400 priceId is required`; rerun the staging remediation command instead of marking the action closed.',
         ];

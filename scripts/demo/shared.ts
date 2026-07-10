@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
-export const DEFAULT_STAGING_BASE_URL = 'https://espanol-honesto-staging.pages.dev';
+export const DEFAULT_STAGING_BASE_URL = 'https://staging.espanolhonesto.com';
 export const DEFAULT_LOCAL_BASE_URL = 'http://localhost:4321';
 
 export type DemoMode = 'safe' | 'interactive' | 'full' | 'local';

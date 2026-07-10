@@ -1,9 +1,10 @@
 import type { APIRoute } from 'astro';
 import { stripe } from '../../lib/stripe';
 import { getPrivateProfile, upsertPrivateProfile } from '../../lib/profiles-private';
-import { readRuntimeEnv } from '../../lib/runtime-env';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
 import { getSiteUrl } from '../../lib/site-url';
+import { hasAcceptedCheckoutPolicies, LEGAL_POLICY_VERSION } from '../../lib/legal-policy';
+import { isCheckoutEnabled } from '../../lib/checkout-enabled';
 
 const supportedCheckoutLangs = new Set(['es', 'en', 'ru']);
 
@@ -17,9 +18,13 @@ function isStripePriceId(value: unknown): value is string {
     return typeof value === 'string' && /^price_[A-Za-z0-9_]+$/.test(value);
 }
 
-function isCheckoutEnabled(context: Parameters<APIRoute>[0]): boolean {
-    return readRuntimeEnv('CHECKOUT_ENABLED', context)?.trim().toLowerCase() === 'true';
-}
+type CheckoutRequest = {
+    priceId?: unknown;
+    lang?: unknown;
+    adultConfirmed?: unknown;
+    termsAccepted?: unknown;
+    serviceStartRequested?: unknown;
+};
 
 export const POST: APIRoute = async (context) => {
     try {
@@ -31,9 +36,16 @@ export const POST: APIRoute = async (context) => {
         }
 
         // Parse request body
-        const body = await context.request.json();
+        const body = await context.request.json() as CheckoutRequest;
         const { priceId } = body;
         const lang = normalizeCheckoutLang(body.lang);
+
+        if (!hasAcceptedCheckoutPolicies(body)) {
+            return new Response(JSON.stringify({ error: 'Adult confirmation and policy acceptance are required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
 
         if (!priceId) {
             return new Response(JSON.stringify({ error: 'priceId is required' }), {
@@ -151,10 +163,21 @@ export const POST: APIRoute = async (context) => {
 
         // Get site URL for redirects
         const siteUrl = getSiteUrl();
+        const policyAcceptedAt = new Date().toISOString();
+        const policyMetadata = {
+            adultConfirmed: 'true',
+            adultConfirmedAt: policyAcceptedAt,
+            termsAccepted: 'true',
+            termsAcceptedAt: policyAcceptedAt,
+            serviceStartRequested: 'true',
+            serviceStartRequestedAt: policyAcceptedAt,
+            legalPolicyVersion: LEGAL_POLICY_VERSION,
+        };
 
         // Create Checkout Session (subscription mode for recurring billing)
         const session = await stripe.checkout.sessions.create({
             mode: 'subscription',
+            payment_method_types: ['card'],
             customer: stripeCustomerId,
             line_items: [
                 {
@@ -164,18 +187,22 @@ export const POST: APIRoute = async (context) => {
             ],
             success_url: `${siteUrl}/${lang}/campus?payment=success`,
             cancel_url: `${siteUrl}/${lang}/#pricing`,
-            allow_promotion_codes: true,
+            // Launch contract and renewal emails assume the reviewed package amount.
+            // Promotions can be introduced later with matching contractual copy/tests.
+            allow_promotion_codes: false,
             subscription_data: {
                 metadata: {
                     userId: user.id,
                     priceId,
                     lang,
+                    ...policyMetadata,
                 },
             },
             metadata: {
                 userId: user.id,
                 priceId,
                 lang,
+                ...policyMetadata,
             },
         });
 

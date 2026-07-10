@@ -29,7 +29,11 @@ interface RuntimeReport {
 
 const startedAt = new Date();
 const args = process.argv.slice(2);
-const baseUrl = readArg('--base-url') ?? 'https://espanol-honesto-staging.pages.dev';
+const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const baseUrl = readArg('--base-url')
+    ?? process.env.CLOUDFLARE_WORKERS_STAGING_URL
+    ?? process.env.CLOUDFLARE_STAGING_URL
+    ?? DEFAULT_WORKER_STAGING_URL;
 const envFile = readArg('--env-file') ?? '.env.test';
 const headed = args.includes('--headed');
 const outputDir = path.join(process.cwd(), 'outputs', 'admin-jobs-staging-runtime', stamp(startedAt));

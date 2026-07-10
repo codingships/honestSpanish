@@ -5,7 +5,20 @@ import { enqueueSessionCancellation } from '../../../lib/fulfillment/queue';
 import { triggerFulfillmentProcessing } from '../../../lib/internal-job-service';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import type { Database } from '../../../types/database.types';
+import type { Database, Json } from '../../../types/database.types';
+
+const NO_SHOW_GRACE_PERIOD_MS = 15 * 60 * 1000;
+
+const isSessionReport = (value: unknown): value is Json => {
+    return value === null || typeof value === 'string' || (typeof value === 'object' && !Array.isArray(value));
+};
+
+const formatReportForActivityBody = (value: unknown): string | null => {
+    if (typeof value === 'string') return value;
+    if (value === null || value === undefined) return null;
+
+    return JSON.stringify(value);
+};
 
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
@@ -39,7 +52,7 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Invalid action' }), { status: 400 });
     }
 
-const { data: session, error: fetchError } = await supabase
+    const { data: session, error: fetchError } = await supabase
         .from('sessions')
         .select(`
             *,
@@ -63,19 +76,18 @@ const { data: session, error: fetchError } = await supabase
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
-    if (action === 'cancel') {
-        if (isStudent && !isAdmin && session.scheduled_at) {
-            const hoursUntilClass = (new Date(session.scheduled_at).getTime() - Date.now()) / (1000 * 60 * 60);
-            if (hoursUntilClass < 24) {
-                return new Response(JSON.stringify({
-                    error: 'Student cancellations require at least 24 hours notice.',
-                }), { status: 409 });
-            }
-        }
+    const supabaseAdmin = createSupabaseAdminClient();
 
+    if (action === 'cancel') {
         const cancelledAt = new Date().toISOString();
         const cancelledBy = isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student');
-        const { data: cancelResult, error: updateError } = await supabase
+        const hoursUntilClass = session.scheduled_at
+            ? (new Date(session.scheduled_at).getTime() - Date.now()) / (1000 * 60 * 60)
+            : null;
+        const lateStudentCancellation = cancelledBy === 'student'
+            && hoursUntilClass !== null
+            && hoursUntilClass < 24;
+        const { data: cancelResult, error: updateError } = await supabaseAdmin
             .from('sessions')
             .update({
                 status: 'cancelled',
@@ -95,14 +107,13 @@ const { data: session, error: fetchError } = await supabase
             return new Response(JSON.stringify({ error: 'Session is already cancelled or completed' }), { status: 409 });
         }
 
-        const supabaseAdmin = createSupabaseAdminClient();
         const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
         let quotaRestoreAttempted = false;
         let quotaRestored = false;
         let previousSessionsUsed: number | null = null;
         let nextSessionsUsed: number | null = null;
 
-        if (subscription) {
+        if (subscription && !lateStudentCancellation) {
             const currentUsed = subscription.sessions_used ?? 0;
             previousSessionsUsed = currentUsed;
             if (currentUsed > 0) {
@@ -156,6 +167,8 @@ const { data: session, error: fetchError } = await supabase
                 quota_restored: quotaRestored,
                 previous_sessions_used: previousSessionsUsed,
                 next_sessions_used: nextSessionsUsed,
+                late_student_cancellation: lateStudentCancellation,
+                hours_until_class: hoursUntilClass,
             },
         });
 
@@ -177,6 +190,7 @@ const { data: session, error: fetchError } = await supabase
             fulfillment: fulfillmentQueued ? 'queued' : 'skipped',
             calendarEventQueued: Boolean(sessionData.calendar_event_id),
             quotaRestored,
+            quotaConsumed: lateStudentCancellation,
         }), { status: 200 });
     }
 
@@ -191,6 +205,15 @@ const { data: session, error: fetchError } = await supabase
 
         if ((action === 'complete' || action === 'no_show') && session.scheduled_at && new Date(session.scheduled_at) > new Date()) {
             return new Response(JSON.stringify({ error: 'Session has not started yet.' }), { status: 409 });
+        }
+
+        if (action === 'no_show' && session.scheduled_at) {
+            const noShowAvailableAt = new Date(session.scheduled_at).getTime() + NO_SHOW_GRACE_PERIOD_MS;
+            if (Date.now() < noShowAvailableAt) {
+                return new Response(JSON.stringify({
+                    error: 'A no-show can only be recorded 15 minutes after the scheduled start time.',
+                }), { status: 409 });
+            }
         }
 
         const stateChangedAt = new Date().toISOString();
@@ -210,14 +233,16 @@ const { data: session, error: fetchError } = await supabase
             updateData.teacher_notes = body.notes ?? null;
         }
 
+        let reportActivityBody: string | null = null;
         if (body.report !== undefined) {
-            if (body.report !== null && typeof body.report !== 'string') {
-                return new Response(JSON.stringify({ error: 'report must be a string' }), { status: 400 });
+            if (!isSessionReport(body.report)) {
+                return new Response(JSON.stringify({ error: 'report must be a string or object' }), { status: 400 });
             }
             updateData.post_class_report = body.report ?? null;
+            reportActivityBody = formatReportForActivityBody(body.report);
         }
 
-        let updateQuery = supabase
+        let updateQuery = supabaseAdmin
             .from('sessions')
             .update(updateData)
             .eq('id', sessionId);
@@ -237,7 +262,6 @@ const { data: session, error: fetchError } = await supabase
         }
 
         if (action === 'complete' || action === 'no_show' || body.notes !== undefined || body.report !== undefined) {
-            const supabaseAdmin = createSupabaseAdminClient();
             const occurredAt = stateChangedAt;
             const subject = action === 'complete'
                 ? 'Clase completada'
@@ -254,11 +278,10 @@ const { data: session, error: fetchError } = await supabase
                 source: 'calendar',
                 activityType: 'class',
                 subject,
-                body: typeof body.report === 'string'
-                    ? body.report
-                    : typeof body.notes === 'string'
+                body: reportActivityBody
+                    ?? (typeof body.notes === 'string'
                         ? body.notes
-                        : null,
+                        : null),
                 occurredAt,
                 relatedEntityType: action === 'complete'
                     ? 'session_completed'

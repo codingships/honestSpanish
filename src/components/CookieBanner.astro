@@ -7,16 +7,19 @@ const { lang } = Astro.props;
 
 const texts = {
     es: {
+        notice: 'Aviso de cookies',
         message: 'Utilizamos cookies técnicas para el funcionamiento del sitio.',
         accept: 'Aceptar',
         more: 'Más información'
     },
     en: {
+        notice: 'Cookie notice',
         message: 'We use technical cookies for the site to function.',
         accept: 'Accept',
         more: 'More info'
     },
     ru: {
+        notice: 'Уведомление о cookies',
         message: 'Мы используем технические файлы cookie для работы сайта.',
         accept: 'Принять',
         more: 'Подробнее'
@@ -28,8 +31,12 @@ const t = texts[lang as keyof typeof texts] || texts.es;
 
 <div 
     id="cookie-banner" 
+    role="region"
+    aria-label={t.notice}
+    aria-hidden="true"
     class="fixed bottom-0 left-0 right-0 bg-[#006064] text-white p-4 z-50 transform translate-y-full transition-transform duration-300"
     data-visible="false"
+    hidden
 >
     <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <p class="text-sm text-center sm:text-left">
@@ -38,6 +45,7 @@ const t = texts[lang as keyof typeof texts] || texts.es;
         </p>
         <button 
             id="accept-cookies"
+            type="button"
             class="px-6 py-2 bg-white text-[#006064] font-bold text-sm uppercase hover:bg-[#E0F7FA] transition-colors whitespace-nowrap border-2 border-white"
         >
             {t.accept}
@@ -45,21 +53,94 @@ const t = texts[lang as keyof typeof texts] || texts.es;
     </div>
 </div>
 
+<style is:global>
+    html[data-cookie-banner-visible="true"] body {
+        padding-bottom: var(--cookie-banner-offset, 0px);
+    }
+</style>
+
 <script>
     const banner = document.getElementById('cookie-banner');
     const acceptBtn = document.getElementById('accept-cookies');
-    
-    // Check if already accepted
-    if (!localStorage.getItem('cookie_consent')) {
-        setTimeout(() => {
+
+    const getStorageItem = (key: string) => {
+        try {
+            return window.localStorage.getItem(key);
+        } catch {
+            return null;
+        }
+    };
+
+    const setStorageItem = (key: string, value: string) => {
+        try {
+            window.localStorage.setItem(key, value);
+        } catch {
+            // Storage can be blocked in private or hardened browser modes.
+        }
+    };
+
+    const setFocusableState = (enabled: boolean) => {
+        banner?.querySelectorAll('a, button').forEach((element) => {
+            if (enabled) {
+                element.removeAttribute('tabindex');
+            } else {
+                element.setAttribute('tabindex', '-1');
+            }
+        });
+    };
+
+    const updatePageOffset = () => {
+        if (!banner || banner.getAttribute('data-visible') !== 'true') {
+            return;
+        }
+
+        const height = banner.getBoundingClientRect().height;
+        document.documentElement.style.setProperty('--cookie-banner-offset', `${height}px`);
+        document.documentElement.setAttribute('data-cookie-banner-visible', 'true');
+    };
+
+    const clearPageOffset = () => {
+        document.documentElement.removeAttribute('data-cookie-banner-visible');
+        document.documentElement.style.removeProperty('--cookie-banner-offset');
+    };
+
+    const showBanner = () => {
+        banner?.removeAttribute('hidden');
+        banner?.setAttribute('aria-hidden', 'false');
+        banner?.setAttribute('data-visible', 'true');
+        setFocusableState(true);
+        window.requestAnimationFrame(() => {
             banner?.classList.remove('translate-y-full');
-            banner?.setAttribute('data-visible', 'true');
+            updatePageOffset();
+        });
+    };
+
+    const hideBanner = () => {
+        banner?.classList.add('translate-y-full');
+        banner?.setAttribute('aria-hidden', 'true');
+        banner?.setAttribute('data-visible', 'false');
+        setFocusableState(false);
+        window.setTimeout(() => {
+            if (banner?.getAttribute('data-visible') === 'false') {
+                banner.setAttribute('hidden', '');
+                clearPageOffset();
+            }
+        }, 300);
+    };
+
+    setFocusableState(false);
+
+    if (!getStorageItem('cookie_consent')) {
+        setTimeout(() => {
+            showBanner();
         }, 1000);
     }
     
     acceptBtn?.addEventListener('click', () => {
-        localStorage.setItem('cookie_consent', 'accepted');
-        localStorage.setItem('cookie_consent_date', new Date().toISOString());
-        banner?.classList.add('translate-y-full');
+        setStorageItem('cookie_consent', 'accepted');
+        setStorageItem('cookie_consent_date', new Date().toISOString());
+        hideBanner();
     });
+
+    window.addEventListener('resize', updatePageOffset);
 </script>

@@ -1,11 +1,25 @@
 /**
  * Email Module - Main exports
  */
-export { resend, getEmailFrom, getResend } from './client';
+export {
+    deliverEmail,
+    getEmailDeliveryPolicy,
+    PRODUCTION_EMAIL_DAILY_RECIPIENT_LIMIT,
+    PRODUCTION_EMAIL_MONTHLY_RECIPIENT_LIMIT,
+    STAGING_EMAIL_DAILY_RECIPIENT_LIMIT,
+    STAGING_EMAIL_MONTHLY_RECIPIENT_LIMIT,
+    type BudgetedEmail,
+    type EmailDeliveryFailureReason,
+    type EmailDeliveryMode,
+    type EmailDeliveryPolicy,
+    type EmailDeliveryResult,
+} from './delivery';
 
 export {
     baseTemplate,
     welcomeEmailTemplate,
+    renewalNoticeEmailTemplate,
+    renewalNoticeSubject,
     classConfirmationTemplate,
     classReminderTemplate,
     classCancelledTemplate,
@@ -16,6 +30,8 @@ export {
     supportTicketReceivedTemplate,
     supportTicketUpdatedTemplate,
     type WelcomeEmailData,
+    type RenewalNoticeEmailData,
+    type RenewalNoticeLocale,
     type ClassConfirmationData,
     type ClassReminderData,
     type ClassCancelledData,
@@ -29,6 +45,7 @@ export {
 
 export {
     sendWelcomeEmail,
+    sendRenewalNoticeEmail,
     sendClassConfirmation,
     sendClassReminder,
     sendClassCancelled,
@@ -41,4 +58,3 @@ export {
     sendSupportTicketReceivedEmail,
     sendSupportTicketUpdatedEmail,
 } from './send';
-

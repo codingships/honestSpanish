@@ -7,6 +7,7 @@ import {
     isEmailPreviewType,
     sendEmailPreview,
 } from '../../../lib/email/previews';
+import { describeEmailSendError } from '../../../lib/email/errors';
 
 const sendTestSchema = z.object({
     type: z.enum(emailPreviewTypes),
@@ -78,7 +79,7 @@ export const POST: APIRoute = async (context) => {
                 : 'Failed to send email',
         }, success ? 200 : 500);
     } catch (error) {
-        console.error('[EmailTest] Error sending preview:', error);
+        console.error('[EmailTest] Error sending preview:', describeEmailSendError(error));
         return json({ error: 'Failed to send test email' }, 500);
     }
 };

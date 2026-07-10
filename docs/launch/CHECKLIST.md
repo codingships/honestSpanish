@@ -47,9 +47,9 @@ pnpm launch:secondary-review
 pnpm launch:status
 ```
 
-`launch:gate` ejecuta `launch:verify`, `launch:phase1`, `launch:secondary-review` y `launch:status` en orden, escribe evidencias en `outputs/launch-gate/<timestamp>/`, genera `evidence-index.json` con primaria, Fase 1 y evidencia manual para validar la corrida actual, y sale con error mientras el gate este bloqueado. `launch:verify` escribe evidencias en `outputs/launch-verification/<timestamp>/` y solo puede producir candidato a READY. `launch:phase1` escribe evidencias en `outputs/launch-phase-1/<timestamp>/`, ejecuta solo `launch:cleanup`, `launch:worktree`, `launch:content`, `launch:accessibility`, `launch:operations`, `launch:security`, `launch:manual-evidence` y `launch:status`, y sale con error mientras queden pendientes inmediatos de Fase 1; no toca legal real, Stripe live, rotacion final de claves ni smoke de produccion. `launch:rc` escribe evidencias en `outputs/launch-rc/<timestamp>/`, ejecuta `launch:phase1`, `launch:payments`, `launch:no-real-payments` y `launch:status`, y evalua solo Release Candidate: puede pasar con bloqueos final-only abiertos, pero debe fallar mientras queden pendientes de Fase 1 o pagos/no-cobros no sean coherentes; `payments_staging` queda final-only mientras no se acepten pagos reales. `launch:sequence` escribe evidencias en `outputs/launch-sequence/<timestamp>/` y audita que la secuencia de trabajo distinga tareas de ahora, bloqueos final-only y condiciones de READY. `launch:cleanup` audita sin borrar archivos que los historicos obsoletos no sigan vivos, que los artefactos locales esten ignorados y que `.agent/.agents` dependan de una decision humana registrada. `launch:seo` escribe evidencias en `outputs/launch-seo/<timestamp>/`, audita crawlability, sitemap/robots, canonical/hreflang, JSON-LD y `/llms.txt`, y genera una worksheet de cierre final SEO/LLM sin sustituir Search Console, Core Web Vitals ni revision final de copy/legal. `launch:public-visual` escribe evidencias en `outputs/launch-public-visual/<timestamp>/`, abre la home ES y las tres landings SEO en desktop/mobile, guarda capturas y bloquea si detecta mojibake, texto publico antiguo sin acentos, overflow horizontal, enlaces publicos a demo/campus/API o falta de CTA `solicitar plaza`. `launch:legal` escribe evidencias en `outputs/launch-legal/<timestamp>/`, detecta placeholders legales, subprocesadores, cookies, decision de terminos y flujo de evidencia legal; no sustituye revision humana ni asesoria legal. `launch:final-readiness` escribe evidencias en `outputs/launch-final-readiness/<timestamp>/` y genera worksheets para `integration_readiness` y `final_smoke` sin activar Stripe live ni ejecutar humo de produccion. `launch:manual-evidence:init` crea el archivo local si falta y permite `--sync-missing --dry-run` para comprobar checks nuevos sin sobrescribir evidencia existente. `launch:manual-evidence:record` ayuda a registrar checks locales en dry run por defecto y solo escribe con `--write`; no sustituye la comprobacion humana. `launch:manual-evidence` valida el formato y frescura de `docs/launch/MANUAL_EVIDENCE.local.json`, que no se versiona, y genera `manual-evidence-index.md`, `next-actions.md`, `phase-1-closure-pack.md` y pendientes accionables agrupados por fase. `launch:secondary-review` revisa la evidencia, esta checklist, `Current Evidence` y el ultimo audit manual; exige que la checklist, el indice de evidencia del gate o el ultimo `launch:status` apunten al ultimo primario, la ultima Fase 1 y el ultimo audit manual, verifica que `manual-evidence-index.md`, `next-actions.md`, `phase-1-closure-pack.md`, `final-closure-pack.md` y `launch:status` preserven los 12 checks manuales por fase, y bloquea mientras queden Go/No-Go blockers, evidencia manual fallida o revision secundaria sin cerrar. `launch:status` resume tambien la ultima corrida de `launch:gate`, con pasos fallidos, `Current Evidence`, `Urgency Summary`, `Release Candidate Readiness`, `Phase 1 Focus`, pendientes manuales agrupados por fase y `final-closure-pack.md`, para evitar que el dashboard oculte que el Gate completo no paso o que mezcle tareas inmediatas con bloqueos final-only.
+`launch:gate` ejecuta `launch:verify`, `launch:phase1`, `launch:secondary-review` y `launch:status` en orden, escribe evidencias en `outputs/launch-gate/<timestamp>/`, genera `evidence-index.json` con primaria, Fase 1 y evidencia manual para validar la corrida actual, y sale con error mientras el gate este bloqueado. `launch:verify` escribe evidencias en `outputs/launch-verification/<timestamp>/` y solo puede producir candidato a READY. `launch:phase1` escribe evidencias en `outputs/launch-phase-1/<timestamp>/`, ejecuta solo soporte inmediato (`launch:cleanup`, `launch:worktree`, `launch:content`, `launch:accessibility`, `launch:operations`, `launch:operations-external-closure`, `launch:staging-db-rollout`, `launch:supabase-security-rollout`, `launch:security`, `launch:manual-evidence` y `launch:status`) y sale con error mientras queden pendientes inmediatos de Fase 1 o hallazgos `SEC-*` abiertos en el tracker estricto; no toca legal real, Stripe live, rotacion final de claves, smoke de produccion ni writes externos de Supabase. `launch:rc` escribe evidencias en `outputs/launch-rc/<timestamp>/`, ejecuta `launch:phase1`, `launch:payments`, `launch:no-real-payments` y `launch:status`, y evalua solo Release Candidate: puede pasar con bloqueos final-only abiertos, pero debe fallar mientras queden pendientes de Fase 1 o pagos/no-cobros no sean coherentes; `payments_staging` queda final-only mientras no se acepten pagos reales. `launch:sequence` escribe evidencias en `outputs/launch-sequence/<timestamp>/` y audita que la secuencia de trabajo distinga tareas de ahora, bloqueos final-only y condiciones de READY. `launch:cleanup` audita sin borrar archivos que los historicos obsoletos no sigan vivos, que los artefactos locales esten ignorados y que `.agent/.agents` dependan de una decision humana registrada. `launch:seo` escribe evidencias en `outputs/launch-seo/<timestamp>/`, audita crawlability, sitemap/robots, canonical/hreflang, JSON-LD y `/llms.txt`, y genera una worksheet de cierre final SEO/LLM sin sustituir Search Console, Core Web Vitals ni revision final de copy/legal. `launch:public-visual` escribe evidencias en `outputs/launch-public-visual/<timestamp>/`, abre la home ES y las tres landings SEO en desktop/mobile, guarda capturas y bloquea si detecta mojibake, texto publico antiguo sin acentos, overflow horizontal, enlaces publicos a demo/campus/API o falta de CTA `solicitar plaza`. `launch:legal` escribe evidencias en `outputs/launch-legal/<timestamp>/`, detecta placeholders legales, subprocesadores, cookies, decision de terminos y flujo de evidencia legal; no sustituye revision humana ni asesoria legal. `launch:final-readiness` escribe evidencias en `outputs/launch-final-readiness/<timestamp>/` y genera worksheets para `integration_readiness` y `final_smoke` sin activar Stripe live ni ejecutar humo de produccion. `launch:manual-evidence:init` crea el archivo local si falta y permite `--sync-missing --dry-run` para comprobar checks nuevos sin sobrescribir evidencia existente. `launch:manual-evidence:record` ayuda a registrar checks locales en dry run por defecto y solo escribe con `--write`; no sustituye la comprobacion humana. `launch:manual-evidence` valida el formato y frescura de `docs/launch/MANUAL_EVIDENCE.local.json`, que no se versiona, y genera `manual-evidence-index.md`, `next-actions.md`, `phase-1-closure-pack.md` y pendientes accionables agrupados por fase. `launch:secondary-review` revisa la evidencia, esta checklist, `Current Evidence` y el ultimo audit manual; exige que la checklist, el indice de evidencia del gate o el ultimo `launch:status` apunten al ultimo primario, la ultima Fase 1 y el ultimo audit manual, verifica que `manual-evidence-index.md`, `next-actions.md`, `phase-1-closure-pack.md`, `final-closure-pack.md` y `launch:status` preserven los 12 checks manuales por fase, y bloquea mientras queden Go/No-Go blockers, evidencia manual fallida o revision secundaria sin cerrar. `launch:status` resume tambien la ultima corrida de `launch:gate`, con pasos fallidos, `Current Evidence`, `Urgency Summary`, `Release Candidate Readiness`, `Phase 1 Focus`, pendientes manuales agrupados por fase y `final-closure-pack.md`, para evitar que el dashboard oculte que el Gate completo no paso o que mezcle tareas inmediatas con bloqueos final-only.
 
-Actualizacion de gates RC: `launch:phase1` tambien ejecuta `launch:operations-external-closure` y `launch:staging-db-rollout`, y `launch:rc` tambien ejecuta `launch:functional-rc`, `launch:staging-no-real-payments-remediation` y `launch:rc-external-closure` antes de `launch:status`.
+Actualizacion de gates RC: `launch:phase1` tambien ejecuta `launch:operations-external-closure`, `launch:staging-db-rollout` y `launch:supabase-security-rollout`, y bloquea si `strict-qa-results.json` mantiene `SEC-*` abiertos. `launch:rc` tambien ejecuta `launch:functional-rc`, `launch:staging-no-real-payments-remediation` y `launch:rc-external-closure` antes de `launch:status`.
 
 Evidencia vigente:
 
@@ -137,7 +137,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Banner staging/test creado.
 - [x] Script Google staging creado.
 - [x] CI preparado para `staging` y `main`. Evidencia: `.github/workflows/ci.yml`.
-- [x] Pipeline preparado para deploy Cloudflare Pages/Worker tras CI. Evidencia: `.github/workflows/ci.yml`, `workers/fulfillment/wrangler.toml`.
+- [x] Pipeline preparado para deploy del Cloudflare Astro Worker y del Fulfillment Worker tras CI. Evidencia: `.github/workflows/ci.yml`, `wrangler.toml`, `workers/fulfillment/wrangler.toml`.
 - [x] Typecheck app pasa.
 - [x] Typecheck fulfillment Worker pasa.
 - [x] `pnpm lint` pasa. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-lint.log`; revalidado localmente el 2026-06-11.
@@ -157,27 +157,29 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] `pnpm launch:accessibility` pasa. Evidencia vigente via `pnpm launch:status` -> `Current Evidence`; ultima revalidacion local conocida: `outputs/launch-accessibility/2026-06-12T14-20-42-919Z/summary.md`.
 - [ ] `pnpm launch:manual-evidence` pasa. Evidencia vigente via `pnpm launch:status` -> `Current Evidence` -> `Manual Evidence Audit`; debe seguir fallando mientras queden checks humanos/final-only en `pending`. No usar conteos antiguos como fuente de verdad: revisar `manual-evidence-index.md`, `next-actions.md`, `phase-1-closure-pack.md` y `final-closure-pack.md` enlazados por el ultimo `pnpm launch:status`.
 - [x] `pnpm secrets:check` pasa. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-secrets-check.log`.
-- [x] Deploy Cloudflare staging verificado en `https://espanol-honesto-staging.pages.dev` y deployment `https://a2e6f14b.espanol-honesto-staging.pages.dev`.
+- [x] Deploy Pages staging legado verificado en `https://espanol-honesto-staging.pages.dev` y deployment `https://a2e6f14b.espanol-honesto-staging.pages.dev`; no es el target SSR vigente.
+- [ ] Cloudflare Astro Worker staging `espanolhonesto-staging` configurado con secretos por nombre y smoke directo completo. El Worker existe, pero el preflight read-only de 2026-07-10 devuelve cero secretos para el Worker web.
 - [x] Deploy Cloudflare Fulfillment Worker staging verificado. Evidencia: `espanol-honesto-fulfillment-staging` responde `/health` con 200, rechaza rutas internas sin autenticacion con 401, acepta autenticacion interna y expone cron `0 * * * *`; ver tambien `docs/launch/MANUAL_EVIDENCE.local.json` (`operations_external`).
 - [ ] Deploy Cloudflare produccion verificado.
 - [ ] Deploy Cloudflare Fulfillment Worker produccion verificado.
 - [x] GitHub environment `staging` creado.
 - [x] GitHub environment production creado con aprobacion manual (`Production` en GitHub).
 - [ ] Branch `staging` creada desde el codigo valido actual.
-- [x] Cloudflare Pages project staging creado (`espanol-honesto-staging`).
-- [x] Cloudflare Pages project production creado (`espanolhonesto`).
+- [x] Cloudflare Pages project staging legado creado (`espanol-honesto-staging`).
+- [x] Cloudflare Pages project production legado creado (`espanolhonesto`) y conserva temporalmente los dominios finales.
 - [x] Cloudflare staging KV `SESSION` configurado.
-- [x] Cloudflare staging secrets basicos configurados.
+- [x] Secrets basicos del Pages staging legado configurados; esto no demuestra la configuracion del Astro Worker staging.
 - [x] Cloudflare custom domain `staging.espanolhonesto.com` creado; pendiente de validacion DNS/SSL si aparece como `initializing`.
 - [ ] GitHub secret `CLOUDFLARE_API_TOKEN` configurado.
 - [ ] GitHub secret `FULFILLMENT_WORKER_URL` configurado por entorno.
-- [ ] `INTERNAL_JOB_SECRET` configurado igual en Cloudflare Pages y Cloudflare Fulfillment Worker por entorno. Staging resincronizado el 2026-06-10; falta production.
+- [ ] `INTERNAL_JOB_SECRET` configurado igual en Cloudflare Astro Worker y Cloudflare Fulfillment Worker por entorno. Staging debe verificarse de nuevo en los Workers vigentes; falta production.
 - [x] Cloudflare Fulfillment Worker staging creado (`espanol-honesto-fulfillment-staging`, `https://espanol-honesto-fulfillment-staging.alindev95.workers.dev`).
 - [ ] Cloudflare Fulfillment Worker production creado.
 
 ## Database
 
-- [ ] `database_readiness` RC cerrado con hosted schema actual: la evidencia fresca de 2026-06-26 reabrio este check porque Supabase staging y production no reflejan las migraciones actuales de leads/CRM/idiomas/diagnostico; production muestra fallos por `public.leads.current_level` y `public.leads.level_check_status` ausentes. Resolver staging primero con el ultimo `outputs/launch-staging-database-rollout/<timestamp>/rollout-plan.md`; production queda excluida hasta confirmacion explicita y backup posture.
+- [ ] `database_readiness` RC cerrado con hosted schema actual. El dry-run real de 2026-07-10 contra staging `mzjyvmlxfpzdfdjzxxyj` se nego a escribir porque 16 versiones remotas no existen localmente; `20260710120000` y `20260710123000` siguen solo en local. Reconciliar el historial sin `migration repair` automatico, volver a ejecutar dry-run y aplicar/verificar staging antes de tocar production.
+- [ ] Historial de migraciones staging reconciliado: documentar la equivalencia de las 16 versiones remotas sin archivo local y de las migraciones locales antiguas ausentes del historial remoto. No marcar versiones como applied/reverted sin revisar su SQL/esquema real.
 - [x] Supabase staging inicializado con `db/schema.sql`.
 - [x] Trigger `handle_new_user` corregido con `search_path = public`. Evidencia: `db/schema.sql`, `supabase/migrations/011_fix_auth_user_trigger_search_path.sql`.
 - [x] Usuarios de prueba staging creados.
@@ -205,7 +207,12 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Blog publico sin articulos incompletos indexables: los borradores con notas de redactor quedan excluidos de listado, detalle, RSS, sitemap y OG. Evidencia: `src/content.config.ts`, `src/lib/blog-routes.ts`, `src/pages/[lang]/blog/[slug].astro`, `src/pages/[lang]/blog/index.astro`, `src/pages/[lang]/blog/rss.xml.ts`, `src/pages/sitemap-public.xml.ts`, `src/pages/og/[slug].png.ts`, `scripts/launch/content-audit.ts` y `tests/unit/seo-surface.test.ts`.
 - [x] Solicitud de plaza previa a compra directa enriquecida con plan de interes, nivel aproximado, objetivo, disponibilidad y pagina de origen; el endpoint actualiza por email en vez de fallar con duplicados, el CRM admin filtra por estado, muestra los datos de encaje y registra cambios en `admin_audit_log`, y el email automatico confirma revision de encaje antes de compra. Evidencia: `src/components/LeadCaptureForm.tsx`, `src/pages/api/subscribe.ts`, `src/pages/api/admin/leads.ts`, `src/components/admin/LeadManager.tsx`, `src/lib/email/templates.ts`, `supabase/migrations/018_enrich_leads_for_application.sql`, `supabase/migrations/019_capture_preferred_package_on_leads.sql`, `tests/api/subscribe.test.ts`, `tests/api/admin-leads.test.ts`, `tests/unit/email-templates.test.ts`, `tests/unit/lead-manager-source.test.ts`, `tests/e2e/lead-magnet.public.spec.ts`, `outputs/visual-checks/lead-application-2026-06-12T10-44-12-915Z/summary.json`, `outputs/visual-checks/admin-leads-2026-06-12T11-08-24-260Z/summary.json`.
 - [x] Checkout UI/API listo solo en paquetes activos con Stripe IDs completos. Evidencia: `outputs/launch-payments/2026-06-05T21-58-33-837Z/summary.md`.
+- [x] Politica 18+ aplicada en solicitud, diagnostico, registro y checkout; checkout conserva version/fecha en Stripe y leads requieren migracion dedicada. Evidencia: `src/lib/legal-policy.ts`, formularios/API y `supabase/migrations/20260710120000_enforce_adult_lead_attestation.sql`.
+- [x] Cancelacion/caducidad/no-show alineados con terminos: 24 h restaura, <24 h consume, no-show desde +15 min y ninguna reserva posterior a `ends_at`. Evidencia: APIs de calendario y pruebas focalizadas.
+- [x] Confirmacion post-pago incluye resumen contractual, renovacion, cuota, fechas, politica de clases, version de terminos y enlaces de soporte/desistimiento. Evidencia: `src/lib/email/templates.ts`, payload de fulfillment y webhook.
 - [ ] Checkout listo en datos reales de staging/live: paquetes activos tienen Stripe IDs del modo correcto y compra test completada.
+- [ ] Aplicar en Supabase staging y verificar `20260710120000_enforce_adult_lead_attestation.sql`; production solo tras backup/preflight y aprobacion exacta.
+- [ ] Aplicar en Supabase staging y verificar `20260710123000_track_stripe_refunds.sql`; production solo tras backup/preflight, compra/reembolso test y aprobacion exacta.
 - [ ] Flujo registro antes de pago validado con usuarios reales de prueba.
 
 ## Operacion
@@ -219,9 +226,11 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 
 ## Integraciones
 
-- [ ] Stripe test staging.
-- [ ] Stripe live produccion.
-- [ ] Google folders/templates staging. Parcial: Calendar availability read-only via Worker staging OK; falta Drive/template/folder staging sin tocar datos reales.
+- [ ] Stripe test staging con compra, webhook, confirmacion contractual, portal, cancelacion y reembolso/reconciliacion.
+- [x] Aviso de renovación implementado localmente: `invoice.upcoming` encola `renewal_notice` durable e idempotente y envía fecha, importe, periodo, plazo/canales y consecuencia en ES/EN/RU mediante la pasarela de email.
+- [ ] Gate externo: configurar `invoice.upcoming` a 15 días en los webhooks Stripe test/live y verificar una entrega real en staging antes de habilitar cobros.
+- [ ] Stripe live production en la ventana final: el lanzamiento aceptara pagos reales desde el primer dia; mantener default y override `false` hasta Go/No-Go.
+- [ ] Google folders/templates staging. Los recursos exactos ya existen y `.env.staging` local fue alineado en modo discover-only; falta reestablecer/verificar esos IDs en el Worker staging opaco y ejecutar smoke con cleanup.
 - [ ] Guardar IDs Google staging en KeePassXC.
 - [ ] Google folders/templates produccion.
 - [x] Resend staging/test. Evidencia: envio directo de smoke a `TEST_ADMIN_EMAIL` devolvio HTTP 200; no se usaron destinatarios de alumnos ni contenido privado.
@@ -231,10 +240,10 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 
 ## Legal
 
-- [ ] Datos reales del titular. Bloqueo automatico: placeholders en `src/pages/[lang]/legal/aviso-legal.astro` y `src/pages/[lang]/legal/privacidad.astro`. Inputs requeridos en `docs/launch/LEGAL_INPUTS_REQUIRED.md`; evidencia dedicada: `outputs/launch-legal/2026-06-05T21-58-32-287Z/summary.md`.
-- [ ] Privacidad revisada. Sentry y Cloudflare ya aparecen como subprocesadores; falta validacion legal humana del texto completo.
+- [ ] Datos reales del titular. Ahora hay datos visibles de ejemplo centralizados y marcados; `LEGAL_IDENTITY_MODE='example'` bloquea gate y build production hasta sustituirlos por datos verificados.
+- [ ] Privacidad revisada. ES/EN/RU ya comparten estructura, politica 18+ y subprocesadores; falta validacion legal humana del texto completo y transferencias/retencion.
 - [ ] Cookies revisada.
-- [ ] Terminos revisados.
+- [ ] Terminos revisados. Ya reflejan 18+, recurrencia 1/3/6, caducidad, 24 h, no-show +15 min, desistimiento, devoluciones y modelo; falta asesoria y validacion externa de aviso de renovacion/portal/reembolso.
 - [ ] Subprocesadores revisados: Supabase, Stripe, Google, Resend, Sentry, Cloudflare.
 
 ## Marketing/SEO
@@ -258,6 +267,9 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [ ] Registro.
 - [ ] Checkout.
 - [ ] Webhook.
+- [ ] Confirmacion contractual por email.
+- [ ] Cancelacion de renovacion en Stripe Portal.
+- [ ] Reembolso test y reconciliacion en `payments`.
 - [ ] Drive bienvenida.
 - [ ] Email bienvenida.
 - [ ] Reserva clase.

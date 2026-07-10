@@ -3,7 +3,7 @@ import { createSupabaseAdminClient } from '../supabase-admin';
 import { recordPostPaymentOnboardingSafe } from '../crm/onboarding';
 import { createStudentFolderStructure } from '../google/student-folder';
 import { getPrivateProfile, upsertPrivateProfile } from '../profiles-private';
-import { sendWelcomeEmail } from '../email';
+import { sendRenewalNoticeEmail, sendWelcomeEmail } from '../email';
 import { getSiteUrl } from '../site-url';
 import { fulfillSessionBatch, fulfillSingleSession } from './session-fulfillment';
 import { cancelClassEvent } from '../google/calendar';
@@ -17,6 +17,7 @@ import {
     enqueueSessionCancellation,
     enqueueSessionFulfillment,
     enqueueWelcomeFulfillment,
+    enqueueRenewalNotice,
     isMissingJobsTable,
     type FulfillmentJobRow,
     type FulfillmentJobType,
@@ -29,6 +30,7 @@ export {
     enqueueSessionCancellation,
     enqueueSessionFulfillment,
     enqueueWelcomeFulfillment,
+    enqueueRenewalNotice,
     type FulfillmentJobPayload,
     type FulfillmentJobRow,
     type FulfillmentJobType,
@@ -43,6 +45,73 @@ function nextRunAt(attempts: number): string {
 
 function normalizeWelcomeLocale(value: unknown) {
     return typeof value === 'string' && supportedWelcomeLocales.has(value) ? value : 'en';
+}
+
+function localizedPackageName(
+    displayName: Database['public']['Tables']['packages']['Row']['display_name'],
+    fallback: string,
+    locale: 'es' | 'en' | 'ru'
+): string {
+    if (!displayName || typeof displayName !== 'object' || Array.isArray(displayName)) return fallback;
+    const names = displayName as Record<string, unknown>;
+    const localized = names[locale];
+    return typeof localized === 'string' && localized.trim() ? localized : fallback;
+}
+
+async function processRenewalNotice(
+    supabaseAdmin: SupabaseClient<Database>,
+    payload: FulfillmentJobPayload
+) {
+    if (
+        !payload.userId
+        || !payload.packageId
+        || !payload.subscriptionId
+        || !payload.renewalAt
+        || !payload.cancelBy
+        || !Number.isInteger(payload.durationMonths)
+        || !Number.isInteger(payload.amountTotal)
+        || !payload.currency
+    ) {
+        throw new Error('renewal_notice requires subscription, renewal and charge details');
+    }
+
+    const { data: student, error: studentError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, full_name, email, preferred_language')
+        .eq('id', payload.userId)
+        .single();
+    if (studentError || !student?.email) {
+        throw studentError ?? new Error('Student email not found for renewal notice');
+    }
+
+    const { data: pkg, error: packageError } = await supabaseAdmin
+        .from('packages')
+        .select('name, display_name')
+        .eq('id', payload.packageId)
+        .single();
+    if (packageError || !pkg) {
+        throw packageError ?? new Error('Package not found for renewal notice');
+    }
+
+    const locale = normalizeWelcomeLocale(student.preferred_language) as 'es' | 'en' | 'ru';
+    const siteUrl = getSiteUrl('https://espanolhonesto.com');
+    const emailSent = await sendRenewalNoticeEmail(student.email, {
+        locale,
+        studentName: student.full_name || 'Estudiante',
+        packageName: localizedPackageName(pkg.display_name, pkg.name, locale),
+        renewalAt: payload.renewalAt,
+        cancelBy: payload.cancelBy,
+        durationMonths: payload.durationMonths as number,
+        amountTotal: payload.amountTotal as number,
+        currency: payload.currency,
+        accountUrl: `${siteUrl}/${locale}/campus/account`,
+        supportUrl: `${siteUrl}/${locale}/campus/support`,
+        termsUrl: `${siteUrl}/${locale}/legal/terminos`,
+    });
+
+    if (!emailSent) {
+        throw new Error('Resend did not accept renewal notice email');
+    }
 }
 
 async function processWelcomeFulfillment(
@@ -112,12 +181,23 @@ async function processWelcomeFulfillment(
     const packageName = typeof displayName === 'object' && displayName && !Array.isArray(displayName)
         ? String((displayName as { es?: string }).es || pkg.name)
         : pkg.name;
+    const welcomeLocale = normalizeWelcomeLocale(student.preferred_language);
 
     const emailSent = await sendWelcomeEmail(student.email, {
         studentName: student.full_name || 'Estudiante',
         packageName,
-        loginUrl: `${getSiteUrl('https://espanolhonesto.com')}/${normalizeWelcomeLocale(student.preferred_language)}/login`,
+        loginUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/login`,
         driveFolderUrl: driveFolderUrl ?? undefined,
+        durationMonths: payload.durationMonths,
+        startsAt: payload.startsAt,
+        endsAt: payload.endsAt,
+        sessionsTotal: payload.sessionsTotal,
+        amountTotal: payload.amountTotal,
+        currency: payload.currency,
+        legalPolicyVersion: payload.legalPolicyVersion,
+        policyAcceptedAt: payload.policyAcceptedAt,
+        termsUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/legal/terminos`,
+        supportUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/campus/support`,
     });
 
     if (!emailSent) {
@@ -264,6 +344,9 @@ async function processJob(
         case 'session_cancellation':
             await processSessionCancellation(supabaseAdmin, payload, job);
             return;
+        case 'renewal_notice':
+            await processRenewalNotice(supabaseAdmin, payload);
+            return;
         default:
             throw new Error(`Unsupported fulfillment job type: ${job.job_type}`);
     }
@@ -298,7 +381,7 @@ export async function processDueFulfillmentJobs(options: {
         if (job.attempts >= job.max_attempts) continue;
 
         const attempts = job.attempts + 1;
-        const { error: lockError } = await supabaseAdmin
+        const { data: lockedJob, error: lockError } = await supabaseAdmin
             .from('fulfillment_jobs')
             .update({
                 status: 'processing',
@@ -308,13 +391,17 @@ export async function processDueFulfillmentJobs(options: {
                 last_error: null,
             })
             .eq('id', job.id)
-            .in('status', ['pending', 'failed']);
+            .in('status', ['pending', 'failed'])
+            .select('id')
+            .maybeSingle();
 
         if (lockError) {
             console.error('[Fulfillment] Could not lock job:', lockError);
             failed += 1;
             continue;
         }
+
+        if (!lockedJob) continue;
 
         try {
             await processJob(supabaseAdmin, { ...job, attempts, status: 'processing' });

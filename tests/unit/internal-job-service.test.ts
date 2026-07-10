@@ -5,20 +5,32 @@ import {
     processFulfillmentJobs,
 } from '../../src/lib/internal-job-service';
 
-const makeContext = (env: Record<string, string | undefined>) => ({
-    locals: {
-        runtime: { env },
-    },
-});
+const makeContext = (env: Record<string, string | undefined>) => {
+    for (const key of [
+        'FULFILLMENT_WORKER_URL',
+        'INTERNAL_JOB_SERVICE_URL',
+        'INTERNAL_JOB_SECRET',
+        'CRON_SECRET',
+    ]) {
+        vi.stubEnv(key, env[key] ?? '');
+    }
+
+    return { locals: {} };
+};
 
 describe('internal job service client', () => {
     afterEach(() => {
         vi.unstubAllGlobals();
+        vi.unstubAllEnvs();
         vi.restoreAllMocks();
     });
 
     it('detects whether service URL and secret are configured', () => {
         expect(isInternalJobServiceConfigured(makeContext({}) as any)).toBe(false);
+        expect(isInternalJobServiceConfigured(makeContext({
+            FULFILLMENT_WORKER_URL: 'https://jobs.example.com',
+            CRON_SECRET: 'cron-only',
+        }) as any)).toBe(false);
         expect(isInternalJobServiceConfigured(makeContext({
             FULFILLMENT_WORKER_URL: 'https://jobs.example.com',
             INTERNAL_JOB_SECRET: 'secret',
@@ -61,7 +73,7 @@ describe('internal job service client', () => {
         await expect(callInternalJobService('/internal/test', {}, {
             context: makeContext({
                 INTERNAL_JOB_SERVICE_URL: 'https://jobs.example.com',
-                CRON_SECRET: 'fallback-secret',
+                INTERNAL_JOB_SECRET: 'secret',
             }) as any,
         })).rejects.toThrow('Fulfillment worker unavailable');
     });
@@ -74,7 +86,7 @@ describe('internal job service client', () => {
         await expect(callInternalJobService('/internal/test', {}, {
             context: makeContext({
                 INTERNAL_JOB_SERVICE_URL: 'https://jobs.example.com',
-                CRON_SECRET: 'fallback-secret',
+                INTERNAL_JOB_SECRET: 'secret',
             }) as any,
         })).rejects.toThrow('Internal job service returned 502');
     });

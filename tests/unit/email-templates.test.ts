@@ -9,6 +9,7 @@ import {
     levelCheckInviteTemplate,
     missingInfoEmailTemplate,
     proposalNextStepEmailTemplate,
+    renewalNoticeEmailTemplate,
     supportTicketReceivedTemplate,
     supportTicketUpdatedTemplate,
     welcomeEmailTemplate,
@@ -18,6 +19,38 @@ const mojibakePattern = /(?:Ã|Â|Ð|ðŸ|â€|â|â|�)/;
 const emailTemplateManagerSource = readFileSync('src/components/admin/EmailTemplateManager.tsx', 'utf8');
 
 describe('lead application email', () => {
+    it.each([
+        ['es', 'Tu suscripción se renovará próximamente', 'Fecha prevista de cobro', '3 meses', 'Plazo de cancelación', 'Si no cancelas a tiempo'],
+        ['en', 'Your subscription will renew soon', 'Expected charge date', '3 months', 'Cancellation deadline', 'If you do not cancel in time'],
+        ['ru', 'Ваша подписка скоро продлится', 'Предполагаемая дата списания', '3 месяца', 'Срок отмены', 'Если вы не отмените продление вовремя'],
+    ] as const)('renders the complete upcoming-renewal notice in %s', (locale, title, date, period, deadline, consequence) => {
+        const html = renewalNoticeEmailTemplate({
+            locale,
+            studentName: 'Alina <script>alert(1)</script>',
+            packageName: 'Hybrid <img src=x>',
+            renewalAt: '2026-10-10T12:00:00.000Z',
+            cancelBy: '2026-10-10T12:00:00.000Z',
+            durationMonths: 3,
+            amountTotal: 27000,
+            currency: 'eur',
+            accountUrl: 'https://example.com/account',
+            supportUrl: 'https://example.com/support',
+            termsUrl: 'https://example.com/terms',
+        });
+
+        expect(html).toContain(title);
+        expect(html).toContain(date);
+        expect(html).toContain('270');
+        expect(html).toContain(period);
+        expect(html).toContain(deadline);
+        expect(html).toContain(consequence);
+        expect(html).toContain('Alina &lt;script&gt;alert(1)&lt;/script&gt;');
+        expect(html).toContain('Hybrid &lt;img src=x&gt;');
+        expect(html).not.toContain('<script');
+        expect(html).not.toContain('<img');
+        expect(html).not.toMatch(mojibakePattern);
+    });
+
     it('confirms the application and explains fit review before purchase', () => {
         const html = leadWelcomeTemplate({ recipientName: 'Alina' });
 
@@ -63,6 +96,16 @@ describe('lead application email', () => {
             packageName: 'Hybrid Plan',
             loginUrl: 'https://example.com/es/campus',
             driveFolderUrl: 'https://drive.google.com/example',
+            durationMonths: 3,
+            startsAt: '2026-07-10',
+            endsAt: '2026-10-10',
+            sessionsTotal: 12,
+            amountTotal: 64800,
+            currency: 'eur',
+            legalPolicyVersion: '2026-07-10',
+            policyAcceptedAt: '2026-07-10T10:00:00.000Z',
+            termsUrl: 'https://example.com/es/legal/terminos',
+            supportUrl: 'https://example.com/es/campus/support',
         });
 
         expect(preview.subject).toBe('Welcome to Español Honesto');
@@ -72,6 +115,12 @@ describe('lead application email', () => {
         expect(html).toContain('Reply with any schedule limits before your first class');
         expect(html).toContain('coordinate your first class manually');
         expect(html).toContain('Your materials folder');
+        expect(html).toContain('Your contract summary');
+        expect(html).toContain('Subscription period: 3 month(s), 2026-07-10 to 2026-10-10');
+        expect(html).toContain('Class allowance for this period: 12');
+        expect(html).toContain('Automatic renewal');
+        expect(html).toContain('Terms version: 2026-07-10');
+        expect(html).toContain('/es/legal/terminos');
         expect(html).not.toMatch(mojibakePattern);
     });
 

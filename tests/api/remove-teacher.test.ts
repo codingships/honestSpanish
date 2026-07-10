@@ -68,7 +68,7 @@ describe('POST /api/admin/remove-teacher', () => {
 
         const { POST } = await import('../../src/pages/api/admin/remove-teacher');
         const response = await POST(makeInvalidJsonContext() as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toBe('Invalid JSON body');

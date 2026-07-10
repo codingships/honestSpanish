@@ -10,6 +10,24 @@ No commitear valores reales. Los archivos `.env*` reales estan ignorados por Git
 | staging | Pruebas reales antes de publicar | `https://staging.espanolhonesto.com` | `staging` | Datos y servicios de prueba |
 | production | Servicio real | `https://espanolhonesto.com` | `main` | Datos, pagos y alumnos reales |
 
+## Mapa Operativo Actual (2026-07-10)
+
+| Capa | Staging confirmado | Production confirmado | Estado/accion |
+| --- | --- | --- | --- |
+| Web Cloudflare objetivo | Worker `espanolhonesto-staging` en `https://espanolhonesto-staging.alindev95.workers.dev` | Worker objetivo `espanolhonesto` | Staging existe. El Worker production aun no existe. |
+| Web Cloudflare legado | Pages `espanol-honesto-staging` | Pages `espanolhonesto`, todavia asociado a los dominios finales | No borrar ni mover dominios hasta probar el Worker production por URL directa y aprobar el cutover. |
+| Fulfillment | Worker `espanol-honesto-fulfillment-staging` | Worker objetivo `espanol-honesto-fulfillment-production` | Staging existe y tiene cron/secrets por nombre. Production aun no existe. |
+| Supabase | Proyecto `mzjyvmlxfpzdfdjzxxyj` | Proyecto `vkkahxsybhbutszerawz` | Proyectos separados. Aplicar y verificar migraciones staging primero; la nueva atestacion 18+ requiere `20260710120000_enforce_adult_lead_attestation.sql`. |
+| Stripe | Test mode | Live mode en ventana final | No mezclar keys, Prices, clientes ni webhook secrets. El default queda cerrado y `CHECKOUT_ENABLED_OVERRIDE` abre/cierra UI y API. |
+| Google | Carpeta `STAGING - Espanol Honesto` y plantilla `STAGING - Plantilla de clase`, confirmadas sin crearlas de nuevo | Raiz/plantilla production existentes | Drive/template separados. Calendar usa el mismo modelo `primary` de `GOOGLE_ADMIN_EMAIL`; no existe calendar ID por entorno. |
+| Resend | Credencial staging local presente; debe operar solo en `allowlist` | Pendiente de verificacion production | Pasarela unica fail-closed y presupuesto persistente pendientes de desplegar con `20260710083915_enforce_resend_recipient_budget.sql`. Reserva staging 10 destinatarios/dia y 100/mes; production 80/dia y 2.400/mes. |
+| Sentry | `.env.staging` local no captura; CI/deploy necesita DSN y `SENTRY_ORG`/`SENTRY_PROJECT` | Pendiente de alertas y scrubbing final | Sin org/project no se suben sourcemaps aunque exista token. |
+| Turnstile | Pendiente verificar widget y dominios staging | Pendiente verificar dominios finales | Site key y secret separados por entorno cuando sea posible. |
+
+Gate externo obligatorio de renovación: en cada endpoint webhook de Stripe (test en staging y live en production), habilitar `invoice.upcoming` y configurar el aviso de factura próxima a 15 días. Confirmar con entrega real de prueba que el evento llega al endpoint correcto antes de activar cobros; el código local no puede cerrar este gate del Dashboard de Stripe.
+
+El entorno local por defecto es staging: `pnpm dev` sincroniza primero un `.dev.vars.staging` allowlisted desde `.env.staging`, fija `CLOUDFLARE_ENV=staging` y arranca Astro con `--mode staging`. `astro.config.mjs` rechaza staging local si falta ese archivo. `pnpm dev:production-data` fija `CLOUDFLARE_ENV=production` mediante un runner separado y nunca es el comando normal de QA. La antigua `.dev.vars` raiz no debe existir porque `@astrojs/cloudflare` la carga siempre en `process.env`; los valores production locales viven en `.dev.vars.production`. El sync staging copia solo Supabase y claves web opcionales que esten explicitamente en `.env.staging`, exige Stripe test si aparece y excluye Google, Resend, DB URLs y usuarios de test. `.env.staging` apunta al proyecto staging y conserva los recursos Google para el Fulfillment Worker, no para el Worker web.
+
 ## Filosofia
 
 - El codigo es el mismo entre staging y production.
@@ -31,7 +49,7 @@ Inventario humano:
 
 Runtime:
 
-- Cloudflare Pages: secretos de la app Astro/SSR.
+- Cloudflare Astro Worker: secretos de la app Astro/SSR.
 - Cloudflare Fulfillment Worker: secretos de Google/Resend y jobs internos.
 - GitHub Environments: secretos de deploy/CI, no como almacen principal.
 - Supabase/Stripe/Google/Resend/Sentry: rotar y consultar claves en su propio panel.
@@ -56,24 +74,24 @@ Inventario de rotacion por entorno:
 
 | Proveedor | Secretos/valores | Donde se consumen | Nota |
 | --- | --- | --- | --- |
-| Supabase | `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL` operativo | Cloudflare Pages, Worker, GitHub, migraciones locales | Rotar JWT/keys con ventana de mantenimiento si invalida sesiones. |
-| Stripe | `STRIPE_SECRET_KEY`, `PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `CHECKOUT_ENABLED` | Cloudflare Pages, GitHub | Test y live separados; Price IDs no son secretos. `CHECKOUT_ENABLED` debe quedarse `false` salvo decision explicita de aceptar checkout. |
+| Supabase | `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL` operativo | Cloudflare Astro Worker, Fulfillment Worker, GitHub, migraciones locales | Rotar JWT/keys con ventana de mantenimiento si invalida sesiones. |
+| Stripe | `STRIPE_SECRET_KEY`, `PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `CHECKOUT_ENABLED`, `CHECKOUT_ENABLED_OVERRIDE`, `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para auditoria read-only | Cloudflare Astro Worker, GitHub | Test y live separados; Price IDs no son secretos. Defaults `false`; el override final abre/cierra UI y API sin editar `wrangler.toml`. |
 | Cloudflare internals | `FULFILLMENT_WORKER_URL`, `INTERNAL_JOB_SECRET`, `CRON_SECRET` | Pages, Worker, GitHub | `INTERNAL_JOB_SECRET`/`CRON_SECRET` deben ser distintos por entorno. |
 | Google | `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_ADMIN_EMAIL`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`, `GOOGLE_TEMPLATE_DOC_ID` | Fulfillment Worker | Crear clave nueva, validar, borrar antigua. |
-| Resend | `RESEND_API_KEY`, `EMAIL_FROM`, `RESEND_FROM_EMAIL` | Fulfillment Worker | Validar envio antes de revocar. |
-| Turnstile | `PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Pages | Revisar dominios permitidos si cambia site key. |
-| Sentry | `PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_UPLOAD_SOURCEMAPS` | App build, GitHub/CI | Token de auth es secreto; DSN es publico pero entorno-especifico. |
+| Resend | `RESEND_API_KEY`, `EMAIL_FROM`, `RESEND_FROM_EMAIL`, `EMAIL_DELIVERY_MODE`, `EMAIL_RECIPIENT_ALLOWLIST`, limites de destinatarios | Astro Worker y Fulfillment Worker | Validar envio antes de revocar. Cada destinatario consume una unidad; staging y production comparten el margen del plan si usan la misma cuenta Resend. |
+| Turnstile | `PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Astro Worker | Revisar dominios permitidos si cambia site key. |
+| Sentry | `PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_CAPTURE_LOCAL`, `SENTRY_ENVIRONMENT`, `SENTRY_MAX_UNRESOLVED_ISSUES`, `SENTRY_UPLOAD_SOURCEMAPS` | App build, GitHub/CI | Token de auth es secreto; DSN es publico pero entorno-especifico. `SENTRY_ORG`/`SENTRY_PROJECT` hacen determinista la auditoria read-only y la subida de sourcemaps. `SENTRY_CAPTURE_LOCAL=false` evita que dev/QA local contamine Sentry production; `SENTRY_ENVIRONMENT` es override opcional. `SENTRY_MAX_UNRESOLVED_ISSUES` solo controla el umbral local de warning en `pnpm launch:sentry-readonly`; no modifica Sentry. |
 | GitHub/Cloudflare deploy | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub Environments | Token con permisos minimos y aprobacion production. |
 
-## Cloudflare Pages
+## Cloudflare Astro Worker
 
-Crear dos Pages projects:
+Crear dos Workers desde `wrangler.toml`:
 
-- `espanol-honesto-staging`
-  - Production branch: `staging`
+- `espanolhonesto-staging`
+  - `CLOUDFLARE_ENV=staging`
   - Custom domain: `staging.espanolhonesto.com`
 - `espanolhonesto`
-  - Production branch: `main`
+  - `CLOUDFLARE_ENV=production`
   - Custom domain: `espanolhonesto.com`
 
 Variables por entorno:
@@ -86,18 +104,29 @@ Variables por entorno:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para que `pnpm launch:stripe-readonly` alerte si un webhook habilitado apunta a un host no esperado.
 - `CHECKOUT_ENABLED=false` hasta decidir pagos reales o checkout test deliberado.
+- `CHECKOUT_ENABLED_OVERRIDE=false` o ausente hasta la activacion exacta; `true` solo despues del Go/No-Go y `false` como rollback inmediato.
 - `PUBLIC_TURNSTILE_SITE_KEY`
 - `TURNSTILE_SECRET_KEY`
 - `PUBLIC_SENTRY_DSN`
 - `SENTRY_AUTH_TOKEN`
+- `SENTRY_ORG` y `SENTRY_PROJECT` opcionales para `pnpm launch:sentry-readonly`, recomendados para CI/deploy y sourcemaps.
+- `SENTRY_CAPTURE_LOCAL=false` por defecto; poner `true` solo para depurar captura local deliberada sin mezclarla con production.
+- `SENTRY_ENVIRONMENT` opcional; si falta, captura local opt-in usa `local-<NODE_ENV>` y entornos desplegados usan `PUBLIC_APP_ENV`.
+- `SENTRY_MAX_UNRESOLVED_ISSUES=0` por defecto para que cualquier issue sin resolver en el entorno auditado deje warning QA; subirlo solo con aceptacion explicita de riesgo.
 - `SENTRY_UPLOAD_SOURCEMAPS` opcional; solo `true` para subidas locales intencionales. En CI/deploy se permite por `CI=true`.
 - `CRON_SECRET`
 - `FULFILLMENT_WORKER_URL`
 - `INTERNAL_JOB_SECRET`
 - `SUPPORT_ALERT_EMAIL` opcional; si falta, soporte usa `ADMIN_EMAIL` y despues `alejandro@espanolhonesto.com`.
+- `RESEND_API_KEY`, `EMAIL_FROM`/`RESEND_FROM_EMAIL` para los emails de lead, soporte y previews que salen desde el Astro Worker.
+- `EMAIL_DELIVERY_MODE`: ausente/`disabled` falla cerrado; staging solo puede usar `allowlist`; `live` solo funciona con `PUBLIC_APP_ENV=production`.
+- `EMAIL_RECIPIENT_ALLOWLIST`: destinatarios separados por coma o punto y coma para staging; no guardar esta lista en el repo si contiene direcciones reales.
+- La allowlist de staging queda limitada a las tres cuentas propias de prueba ya definidas como `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` y `TEST_STUDENT_EMAIL`. Sus valores se copian al secreto `EMAIL_RECIPIENT_ALLOWLIST` de ambos Workers staging, nunca al repositorio.
+- `EMAIL_DAILY_RECIPIENT_LIMIT` y `EMAIL_MONTHLY_RECIPIENT_LIMIT`: staging tiene techo 10/100 y production 80/2.400, aunque se configuren cifras superiores.
 
-Cloudflare Pages no necesita claves Google si ninguna ruta API importa Google SDK.
+Cloudflare Astro Worker no necesita claves Google si ninguna ruta API importa Google SDK.
 
 ## Cloudflare Fulfillment Worker
 
@@ -108,7 +137,7 @@ Crear dos Workers desde `workers/fulfillment/wrangler.toml`:
 - `espanol-honesto-fulfillment-production`
   - Health check: `/health`
 
-El Worker declara un cron horario (`0 * * * *`) para procesar jobs pendientes y recordatorios. Las rutas internas siguen disponibles para disparos manuales o desde Cloudflare Pages.
+El Fulfillment Worker declara un cron horario (`0 * * * *`) para procesar jobs pendientes y recordatorios. Las rutas internas siguen disponibles para disparos manuales o desde la app Astro Worker.
 
 Despliegue:
 
@@ -132,10 +161,16 @@ Variables:
 - `RESEND_API_KEY`
 - `EMAIL_FROM`
 - `RESEND_FROM_EMAIL`
+- `EMAIL_DELIVERY_MODE`
+- `EMAIL_RECIPIENT_ALLOWLIST`
+- `EMAIL_DAILY_RECIPIENT_LIMIT`
+- `EMAIL_MONTHLY_RECIPIENT_LIMIT`
 - `INTERNAL_JOB_SECRET`
 - `CRON_SECRET`
 
-`INTERNAL_JOB_SECRET` debe ser igual en Cloudflare Pages y Cloudflare Fulfillment Worker para el mismo entorno, y distinto entre staging y production.
+`INTERNAL_JOB_SECRET` debe ser igual en Cloudflare Astro Worker y Cloudflare Fulfillment Worker para el mismo entorno, y distinto entre staging y production.
+
+Resend usa una sola pasarela para todos los envios de ambos Workers. Antes de llamar al proveedor reserva de forma atomica el numero de destinatarios en Supabase para el dia y el mes UTC; ambos Workers comparten contador y todos los runtimes distintos de production comparten el scope `nonproduction`, sin override configurable. Si falta la migracion, la configuracion, la allowlist o el servicio de presupuesto, no envia. Una reserva no se devuelve cuando Resend rechaza el correo: el conteo conservador evita reintentos que excedan la cuota. Si staging y production usan la misma cuenta Free, sus asignaciones maximas combinadas son 90 destinatarios/dia y 2.500/mes, dejando margen bajo 100/3.000.
 
 ## GitHub Environments
 
@@ -158,6 +193,8 @@ Secrets por environment:
 - `TURNSTILE_SECRET_KEY`
 - `PUBLIC_SENTRY_DSN`
 - `SENTRY_AUTH_TOKEN`
+- `SENTRY_ORG`
+- `SENTRY_PROJECT`
 - `CRON_SECRET`
 - `FULFILLMENT_WORKER_URL`
 - `INTERNAL_JOB_SECRET`
@@ -169,13 +206,16 @@ Variables por environment:
 - `PUBLIC_SITE_URL`
 - `PUBLIC_APP_ENV`
 - `CHECKOUT_ENABLED=false` hasta cierre deliberado de pagos.
-- `CLOUDFLARE_PAGES_PROJECT_STAGING`
-- `CLOUDFLARE_PAGES_PROJECT_PRODUCTION`
+- `CHECKOUT_ENABLED_OVERRIDE=false` o ausente hasta la ventana de activacion.
+- `CLOUDFLARE_STAGING_URL`
+- `CLOUDFLARE_WORKERS_STAGING_URL` opcional si se quiere separar el nombre de la URL publica.
 
 Valores actuales:
 
-- `CLOUDFLARE_PAGES_PROJECT_STAGING=espanol-honesto-staging`
-- `CLOUDFLARE_PAGES_PROJECT_PRODUCTION=espanolhonesto`
+- Worker staging: `espanolhonesto-staging`
+- Worker production: `espanolhonesto`
+- URL staging preferida para probes RC/no-real-payments: `https://espanolhonesto-staging.alindev95.workers.dev`
+- Dominio custom staging: `https://staging.espanolhonesto.com` (evidencia de dominio/integracion cuando DNS/SSL/routing esten verificados).
 
 ## Supabase
 
@@ -198,16 +238,23 @@ Operativo:
 
 Usar `SUPABASE_DB_URL` solo para migraciones/SQL. No lo usa la app.
 
+La pasarela de email requiere aplicar `supabase/migrations/20260710083915_enforce_resend_recipient_budget.sql` primero en staging y despues en production. La tabla solo contiene contadores agregados, tiene RLS y la funcion de reserva es ejecutable exclusivamente por `service_role`.
+
 ## Stripe
 
 - Staging: test mode.
-- Production: live mode.
+- Production: live mode, activado solo en la ventana final porque se aceptaran pagos reales desde el primer dia.
+- `CHECKOUT_ENABLED=false` sigue siendo el default versionado. `CHECKOUT_ENABLED_OVERRIDE=true` es el interruptor final; devolverlo a `false` bloquea tanto la UI como `/api/create-checkout` antes de Supabase o Stripe.
+- Antes de activar: datos legales verificados, Price IDs live en Supabase production, webhook live al Worker production, portal de cliente con cancelacion al final del periodo, avisos de renovacion, compra y reembolso de prueba, y confirmacion contractual por email.
 - Webhook secret diferente por entorno.
+- `pnpm launch:stripe-readonly` audita production y `pnpm launch:stripe-readonly:staging` combina Stripe test con Supabase staging de forma explicita. Ambos verifican el project ref, activacion de cuenta, hosts y el conjunto minimo de eventos webhook contra `STRIPE_EXPECTED_WEBHOOK_HOSTS`; un host antiguo, eventos incompletos o una cuenta sin cobros/payouts debe quedar como warning hasta revisarlo en dashboard.
 - Los Price IDs viven en Supabase `packages`.
 
 ## Google
 
 Staging y production deben tener carpetas y templates diferenciados.
+
+Estado confirmado 2026-07-10: la carpeta `STAGING - Espanol Honesto` y la plantilla `STAGING - Plantilla de clase` ya existen y se descubrieron con `--discover-only`; `.env.staging` fue actualizado localmente sin imprimir IDs. El Worker staging lista los cinco secretos Google requeridos por nombre, pero sus valores son opacos: antes del smoke hay que reestablecer explicitamente los dos IDs staging o probarlos mediante un smoke con cleanup.
 
 Decision de cuenta de calendario: `docs/launch/GOOGLE_CALENDAR_ACCOUNT.md`. El codigo actual crea eventos en el calendario `primary` de `GOOGLE_ADMIN_EMAIL` y usa `profiles.email` del profesor para disponibilidad/invitaciones. Si el calendario operativo debe ser distinto del email de login/perfil, hay que crear un cambio de modelo separado antes de production.
 
@@ -232,9 +279,12 @@ Mantener documentado fuera del repo:
 - Email impersonado.
 - Proceso de rotacion.
 
+Riesgo aceptado actual: se mantiene service account con domain-wide delegation para esta fase. Los controles compensatorios son no guardar claves en repo/docs/outputs/logs, guardar secretos solo en KeePassXC y secret managers, aislar Google SDK en el Fulfillment Worker, separar carpetas/templates por entorno, rotar la clave antes del Go/No-Go publico y revisar scopes delegados durante esa rotacion. Si una clave puede haberse filtrado, no se vuelve a una clave vieja: se pausa el flujo afectado, se rota la clave, se revoca la anterior, se redepliega el Worker y se valida Drive/Calendar/Docs/Meet.
+
 ## Local/E2E
 
 - `.env` puede apuntar a servicios reales o staging, pero no se commitea.
+- `pnpm dev` carga `.env.staging` por defecto. Usar `pnpm dev:production-data` exige intencion expresa y no forma parte de la QA normal.
 - `.env.test` debe usar usuarios de prueba y tampoco se commitea.
 - `E2E_DISABLE_EXTERNAL_INTEGRATIONS=true` evita side effects Google/Resend en pruebas locales de booking.
 - `DEMO_GUIDE_ENABLED=false` y `DEMO_GUIDE_LOGIN_ENABLED=false` deben quedar apagados en `.env.test` y en `.env.test.example` para los flujos normales.

@@ -4,9 +4,11 @@ import {
     syncLeadCaptureToCrmSafe,
 } from '../../lib/crm/lead-capture';
 import { recordLevelCheckInCrmSafe } from '../../lib/crm/level-check';
+import { verifyLeadEmailToken } from '../../lib/lead-email-token';
 import { readRuntimeEnv } from '../../lib/runtime-env';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import type { Database, Json } from '../../types/database.types';
+import { hasAcceptedAdultPolicy, LEGAL_POLICY_VERSION } from '../../lib/legal-policy';
 
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 type LeadUpdate = Database['public']['Tables']['leads']['Update'];
@@ -128,7 +130,7 @@ async function verifyTurnstile(token: unknown, clientAddress: string | undefined
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: turnstileBody,
     });
-    const turnstileData = await turnstileRes.json();
+    const turnstileData = await turnstileRes.json() as { success?: boolean };
 
     if (!turnstileData.success) {
         return { ok: false, status: 403, message: 'Security verification failed.' };
@@ -140,7 +142,7 @@ async function verifyTurnstile(token: unknown, clientAddress: string | undefined
 export const POST: APIRoute = async ({ request, clientAddress }) => {
     let payload: Record<string, unknown>;
     try {
-        payload = await request.json();
+        payload = await request.json() as Record<string, unknown>;
     } catch {
         return jsonResponse({ error: 'Invalid JSON body' }, 400);
     }
@@ -153,11 +155,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const useContext = textOrNull(payload.useContext, 500);
     const writtenSample = textOrNull(payload.writtenSample, 1200);
     const sourcePath = normalizeSourcePath(payload.sourcePath);
+    const leadId = textOrNull(payload.leadId, 80);
+    const leadToken = textOrNull(payload.token, 180);
     const canSendAudioLater = Boolean(payload.canSendAudioLater);
     const consent = Boolean(payload.consent);
 
     if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
         return jsonResponse({ error: 'Invalid email' }, 400);
+    }
+
+    if (!hasAcceptedAdultPolicy(payload.adultConfirmed)) {
+        return jsonResponse({ error: 'You must confirm that you are at least 18.' }, 400);
     }
 
     if (!consent) {
@@ -204,6 +212,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     };
 
     const levelCheckUpdate: LeadUpdate = {
+        adult_confirmed: true,
+        adult_confirmed_at: now,
+        age_policy_version: LEGAL_POLICY_VERSION,
         current_level: currentLevel,
         lang: normalizedLang,
         consent_given: true,
@@ -227,6 +238,18 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
     if (findError) {
         return jsonResponse({ error: 'Could not load lead' }, 500);
+    }
+
+    const canUpdateExistingLead = existingLead?.id && leadId && leadToken
+        ? await verifyLeadEmailToken({
+            leadId,
+            email: normalizedEmail,
+            token: leadToken,
+        }) && leadId === existingLead.id
+        : false;
+
+    if (existingLead?.id && !canUpdateExistingLead) {
+        return jsonResponse({ message: 'Success' });
     }
 
     const saveResult = existingLead?.id

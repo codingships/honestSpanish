@@ -28,6 +28,16 @@ interface StudentFiltersProps {
         assignTeacher: string;
         registered: string;
         viewDetails: string;
+        count: string;
+        name: string;
+        email: string;
+        plan: string;
+        status: string;
+        teacher: string;
+        actions: string;
+        active: string;
+        unassigned: string;
+        noResults: string;
     };
     packages: { name: string; displayName: string }[];
 }
@@ -82,7 +92,7 @@ export default function StudentFilters({ students, lang, translations: t, packag
             if (endsAt && endsAt < now) {
                 return { text: t.expired, class: 'bg-red-100 text-red-700' };
             }
-            return { text: 'Activo', class: 'bg-green-100 text-green-700' };
+            return { text: t.active, class: 'bg-green-100 text-green-700' };
         }
         return { text: t.expired, class: 'bg-red-100 text-red-700' };
     };
@@ -101,12 +111,15 @@ export default function StudentFilters({ students, lang, translations: t, packag
             class: colors[student.package_name] || 'bg-gray-100 text-gray-700',
         };
     };
+    const resultCountText = `${filteredStudents.length} ${t.count}`;
 
     return (
         <div>
             {/* Filters */}
             <div className="flex flex-col md:flex-row gap-4 mb-6">
+                <label className="sr-only" htmlFor="student-filter-search">{t.search}</label>
                 <input
+                    id="student-filter-search"
                     type="text"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
@@ -114,7 +127,9 @@ export default function StudentFilters({ students, lang, translations: t, packag
                     className="flex-1 p-3 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-[#006064] placeholder-[#006064]/40"
                 />
 
+                <label className="sr-only" htmlFor="student-filter-status">{t.filterStatus}</label>
                 <select
+                    id="student-filter-status"
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
                     className="p-3 border-2 border-[#006064] bg-white text-[#006064] font-mono text-sm"
@@ -125,7 +140,9 @@ export default function StudentFilters({ students, lang, translations: t, packag
                     <option value="expired">{t.expired}</option>
                 </select>
 
+                <label className="sr-only" htmlFor="student-filter-plan">{t.filterPlan}</label>
                 <select
+                    id="student-filter-plan"
                     value={planFilter}
                     onChange={(e) => setPlanFilter(e.target.value)}
                     className="p-3 border-2 border-[#006064] bg-white text-[#006064] font-mono text-sm"
@@ -138,8 +155,8 @@ export default function StudentFilters({ students, lang, translations: t, packag
             </div>
 
             {/* Results count */}
-            <p className="text-sm text-[#006064]/60 mb-4 font-mono">
-                {filteredStudents.length} estudiantes
+            <p className="text-sm text-[#006064]/60 mb-4 font-mono" role="status" aria-live="polite">
+                {resultCountText}
             </p>
 
             {/* Table */}
@@ -147,17 +164,23 @@ export default function StudentFilters({ students, lang, translations: t, packag
                 <table className="w-full border-2 border-[#006064]">
                     <thead className="bg-[#006064] text-white">
                         <tr>
-                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Nombre</th>
-                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden md:table-cell">Email</th>
-                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">Plan</th>
-                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden lg:table-cell">Estado</th>
-                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden lg:table-cell">Profesor</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">{t.name}</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden md:table-cell">{t.email}</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider">{t.plan}</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden lg:table-cell">{t.status}</th>
+                            <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden lg:table-cell">{t.teacher}</th>
                             <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider hidden md:table-cell">{t.registered}</th>
-                            <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider">Acciones</th>
+                            <th className="px-4 py-3 text-center text-xs font-bold uppercase tracking-wider">{t.actions}</th>
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-[#006064]/20">
-                        {filteredStudents.map((student) => {
+                        {filteredStudents.length === 0 ? (
+                            <tr>
+                                <td colSpan={7} className="px-4 py-12 text-center text-[#006064]/60 font-mono">
+                                    {t.noResults}
+                                </td>
+                            </tr>
+                        ) : filteredStudents.map((student) => {
                             const statusBadge = getStatusBadge(student);
                             const planBadge = getPlanBadge(student);
 
@@ -181,7 +204,7 @@ export default function StudentFilters({ students, lang, translations: t, packag
                                                 {planBadge.text}
                                             </span>
                                         ) : (
-                                            <span className="text-xs text-[#006064]/40">—</span>
+                                            <span className="text-xs text-[#006064]/40" aria-label={t.noPlan}>-</span>
                                         )}
                                     </td>
                                     <td className="px-4 py-3 hidden lg:table-cell">
@@ -191,7 +214,7 @@ export default function StudentFilters({ students, lang, translations: t, packag
                                     </td>
                                     <td className="px-4 py-3 text-sm text-[#006064]/80 hidden lg:table-cell">
                                         {student.teacher_name || (
-                                            <span className="text-[#006064]/40 italic">Sin asignar</span>
+                                            <span className="text-[#006064]/40 italic">{t.unassigned}</span>
                                         )}
                                     </td>
                                     <td className="px-4 py-3 text-sm text-[#006064]/60 font-mono hidden md:table-cell">
@@ -212,11 +235,6 @@ export default function StudentFilters({ students, lang, translations: t, packag
                 </table>
             </div>
 
-            {filteredStudents.length === 0 && (
-                <div className="text-center py-12 text-[#006064]/60 font-mono">
-                    No se encontraron estudiantes
-                </div>
-            )}
         </div>
     );
 }

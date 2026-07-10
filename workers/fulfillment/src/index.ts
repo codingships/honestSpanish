@@ -1,3 +1,5 @@
+/// <reference types="@cloudflare/workers-types" />
+
 import { processDueFulfillmentJobs } from '../../../src/lib/fulfillment/jobs';
 import { sendClassReminder } from '../../../src/lib/email';
 import { recordClassEmailOutInCrmSafe } from '../../../src/lib/crm/class-email';
@@ -11,6 +13,9 @@ type JsonObject = Record<string, unknown>;
 type Env = Record<string, string | undefined>;
 type AvailableSlot = { slot_start: string; slot_end: string };
 type Handler = (body: JsonObject) => Promise<JsonObject>;
+
+const SCHEDULED_FULFILLMENT_JOB_LIMIT = 5;
+const FULFILLMENT_WORKER_ID = 'cloudflare-fulfillment-worker';
 
 function applyRuntimeEnv(env: Env): void {
     const globalWithProcess = globalThis as {
@@ -28,7 +33,7 @@ function applyRuntimeEnv(env: Env): void {
 }
 
 function internalSecret(env: Env): string | null {
-    return env.INTERNAL_JOB_SECRET || env.CRON_SECRET || null;
+    return env.INTERNAL_JOB_SECRET || null;
 }
 
 function json(status: number, body: JsonObject): Response {
@@ -59,7 +64,7 @@ async function handleProcessJobs(body: JsonObject): Promise<JsonObject> {
     const limit = typeof body.limit === 'number' ? body.limit : 20;
     return processDueFulfillmentJobs({
         limit,
-        workerId: 'cloudflare-fulfillment-worker',
+        workerId: FULFILLMENT_WORKER_ID,
     });
 }
 
@@ -212,8 +217,9 @@ async function handleCreateStudentFolder(body: JsonObject): Promise<JsonObject> 
     return result as unknown as JsonObject;
 }
 
-async function handleSendReminders(): Promise<JsonObject> {
-    const supabaseAdmin = createSupabaseAdminClient();
+async function sendDueReminders(
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>
+): Promise<JsonObject> {
     const result = {
         success: true,
         timestamp: new Date().toISOString(),
@@ -221,7 +227,6 @@ async function handleSendReminders(): Promise<JsonObject> {
         sent: 0,
         failed: 0,
         errors: [] as string[],
-        fulfillment: await processDueFulfillmentJobs({ limit: 20, supabaseAdmin }),
     };
 
     const now = new Date();
@@ -338,9 +343,24 @@ async function handleSendReminders(): Promise<JsonObject> {
     return result;
 }
 
+async function handleSendReminders(): Promise<JsonObject> {
+    const supabaseAdmin = createSupabaseAdminClient();
+    const fulfillment = await processDueFulfillmentJobs({ limit: 20, supabaseAdmin });
+    const reminders = await sendDueReminders(supabaseAdmin);
+
+    return { ...reminders, fulfillment };
+}
+
 async function handleScheduled(env: Env): Promise<void> {
     applyRuntimeEnv(env);
-    await handleSendReminders();
+    const supabaseAdmin = createSupabaseAdminClient();
+
+    await processDueFulfillmentJobs({
+        limit: SCHEDULED_FULFILLMENT_JOB_LIMIT,
+        workerId: FULFILLMENT_WORKER_ID,
+        supabaseAdmin,
+    });
+    await sendDueReminders(supabaseAdmin);
 }
 
 const routes: Record<string, Handler> = {

@@ -24,7 +24,6 @@ Estas tareas no son bloqueantes mientras se mantenga la decision actual. Si se a
 | Tarea | Estado | Notas |
 | --- | --- | --- |
 | Comprar fuente y factura | Final-only | No afecta al runtime mientras el ruso sea legible y Alin acepte el fallback para RC; antes de Go/No-Go, comprar/licenciar la familia oficial con soporte cirilico o registrar fallback aceptado. No guardar factura ni datos fiscales en el repo. |
-| Foto definitiva de Irene | Pendiente | La web usa un fallback neutro de iniciales en `src/components/LandingPage.astro`; sustituirlo por foto real cuando exista asset aprobado. |
 | Foto de Alex | Revisada parcialmente | Si el problema era resolucion, queda hecho; si se quiere cambio estetico, tratar como contenido final. |
 | Blog profesional ES | Draft | Los articulos incompletos con notas de redactor quedan con `draft: true` y fuera de blog/RSS/sitemap/rutas publicas. |
 | Resenas | Pospuesta | No inventar prueba social; usar solo testimonios reales con autorizacion. |

@@ -123,7 +123,13 @@ async function signInAndCreateCheckout(email: string, password: string, priceId:
         await page.waitForURL(/\/campus/, { timeout: 15000 });
 
         const response = await page.request.post('/api/create-checkout', {
-            data: { priceId, lang: 'es' },
+            data: {
+                priceId,
+                lang: 'es',
+                adultConfirmed: true,
+                termsAccepted: true,
+                serviceStartRequested: true,
+            },
         });
 
         const json = await response.json() as { url?: string; error?: string };

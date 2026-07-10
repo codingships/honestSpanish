@@ -34,21 +34,29 @@ export default function AdminScheduleModal({
     };
 
     const today = new Date().toISOString().split('T')[0];
+    const titleId = 'admin-schedule-modal-title';
+    const closeLabel = t.close || t.cancel || 'Cerrar';
+    const canContinueFromTimeStep = Boolean(logic.selectedSlot || (logic.useCustomTime && logic.customTime));
 
     if (!isOpen) return null;
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/50" onClick={onClose} aria-hidden="true" />
 
-            <div className="relative bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                className="relative bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto"
+            >
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="font-display text-xl text-[#006064] uppercase">{t.scheduleClass}</h2>
-                    <button onClick={onClose} className="text-[#006064] hover:opacity-70 text-2xl">×</button>
+                    <h2 id={titleId} className="font-display text-xl text-[#006064] uppercase">{t.scheduleClass}</h2>
+                    <button type="button" aria-label={closeLabel} onClick={onClose} className="text-[#006064] hover:opacity-70 text-2xl">×</button>
                 </div>
 
                 {logic.error && (
-                    <div className="mb-4 p-3 bg-red-100 text-red-700 text-sm font-bold border-l-4 border-red-500">
+                    <div role="alert" className="mb-4 p-3 bg-red-100 text-red-700 text-sm font-bold border-l-4 border-red-500">
                         {logic.error}
                     </div>
                 )}
@@ -57,8 +65,9 @@ export default function AdminScheduleModal({
                 {logic.step === 1 && (
                     <div className="space-y-4">
                         <div>
-                            <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectStudent}</label>
+                            <label htmlFor="admin-schedule-student" className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectStudent}</label>
                             <select
+                                id="admin-schedule-student"
                                 value={logic.selectedStudent}
                                 onChange={(e) => logic.setSelectedStudent(e.target.value)}
                                 className="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
@@ -71,8 +80,9 @@ export default function AdminScheduleModal({
                         </div>
 
                         <div>
-                            <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectTeacher}</label>
+                            <label htmlFor="admin-schedule-teacher" className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectTeacher}</label>
                             <select
+                                id="admin-schedule-teacher"
                                 value={logic.selectedTeacher}
                                 onChange={(e) => logic.setSelectedTeacher(e.target.value)}
                                 className="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
@@ -85,6 +95,7 @@ export default function AdminScheduleModal({
                         </div>
 
                         <button
+                            type="button"
                             onClick={() => logic.setStep(2)}
                             disabled={!logic.selectedStudent || !logic.selectedTeacher}
                             className="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -97,10 +108,11 @@ export default function AdminScheduleModal({
                 {/* Step 2: Fecha */}
                 {logic.step === 2 && (
                     <div className="space-y-4">
-                        <button onClick={() => logic.setStep(1)} className="text-sm text-[#006064] hover:opacity-70">← Volver</button>
+                        <button type="button" onClick={() => logic.setStep(1)} className="text-sm text-[#006064] hover:opacity-70">← Volver</button>
                         <div>
-                            <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectDate}</label>
+                            <label htmlFor="admin-schedule-date" className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectDate}</label>
                             <input
+                                id="admin-schedule-date"
                                 type="date"
                                 value={logic.selectedDate}
                                 onChange={(e) => logic.setSelectedDate(e.target.value)}
@@ -110,10 +122,11 @@ export default function AdminScheduleModal({
                         </div>
 
                         <div>
-                            <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
+                            <label htmlFor="admin-schedule-duration" className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
                                 {t.duration}
                             </label>
                             <select
+                                id="admin-schedule-duration"
                                 value={logic.duration}
                                 onChange={(e) => {
                                     logic.setDuration(Number(e.target.value));
@@ -133,6 +146,7 @@ export default function AdminScheduleModal({
                         <div className="p-3 bg-[#E0F7FA] border border-[#006064]/20 space-y-3">
                             <label className="flex items-center gap-2 cursor-pointer select-none">
                                 <input
+                                    id="admin-schedule-recurring"
                                     type="checkbox"
                                     checked={logic.isRecurring}
                                     onChange={(e) => logic.setIsRecurring(e.target.checked)}
@@ -149,8 +163,9 @@ export default function AdminScheduleModal({
                                         </strong> hasta la fecha final.
                                     </p>
                                     <div>
-                                        <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">Fecha final (opcional)</label>
+                                        <label htmlFor="admin-schedule-recurring-end" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">Fecha final (opcional)</label>
                                         <input
+                                            id="admin-schedule-recurring-end"
                                             type="date"
                                             value={logic.recurringEndDate}
                                             onChange={(e) => logic.setRecurringEndDate(e.target.value)}
@@ -164,6 +179,7 @@ export default function AdminScheduleModal({
                         </div>
 
                         <button
+                            type="button"
                             onClick={() => logic.setStep(3)}
                             disabled={!logic.selectedDate}
                             className="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -176,11 +192,12 @@ export default function AdminScheduleModal({
                 {/* Step 3: Hora */}
                 {logic.step === 3 && (
                     <div className="space-y-4">
-                        <button onClick={() => logic.setStep(2)} className="text-sm text-[#006064] hover:opacity-70">← Volver</button>
+                        <button type="button" onClick={() => logic.setStep(2)} className="text-sm text-[#006064] hover:opacity-70">← Volver</button>
 
                         <div className="flex items-center gap-4 p-3 bg-[#E0F7FA] border border-[#006064]/20">
                             <label className="flex items-center gap-2 cursor-pointer select-none">
                                 <input
+                                    id="admin-schedule-use-custom-time"
                                     type="checkbox"
                                     checked={logic.useCustomTime}
                                     onChange={(e) => {
@@ -195,8 +212,9 @@ export default function AdminScheduleModal({
 
                         {logic.useCustomTime ? (
                             <div>
-                                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">Hora personalizada</label>
+                                <label htmlFor="admin-schedule-custom-time" className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">Hora personalizada</label>
                                 <input
+                                    id="admin-schedule-custom-time"
                                     type="time"
                                     value={logic.customTime}
                                     onChange={(e) => logic.setCustomTime(e.target.value)}
@@ -205,20 +223,23 @@ export default function AdminScheduleModal({
                             </div>
                         ) : (
                             <div>
-                                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectTime}</label>
+                                <p className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">{t.selectTime}</p>
                                 {logic.isLoading ? (
-                                    <div className="text-center py-8 text-[#006064]/60 animate-pulse">Buscando huecos...</div>
+                                    <div role="status" className="text-center py-8 text-[#006064]/60 animate-pulse">Buscando huecos...</div>
                                 ) : logic.availableSlots.length === 0 ? (
                                     <div className="text-center py-8 text-[#006064]/60 bg-gray-50 border-2 border-dashed">
                                         No hay horarios disponibles.
-                                        <button onClick={() => logic.setUseCustomTime(true)} className="block w-full mt-2 text-sm text-[#006064] underline font-bold">Usar hora personalizada</button>
+                                        <button type="button" onClick={() => logic.setUseCustomTime(true)} className="block w-full mt-2 text-sm text-[#006064] underline font-bold">Usar hora personalizada</button>
                                     </div>
                                 ) : (
                                     <div className="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
                                         {logic.availableSlots.map((slot, index) => (
                                             <button
                                                 key={index}
+                                                type="button"
                                                 onClick={() => logic.setSelectedSlot(slot)}
+                                                aria-pressed={logic.selectedSlot?.slot_start === slot.slot_start}
+                                                aria-label={`${t.selectTime}: ${formatTime(slot.slot_start)}`}
                                                 className={`p-2 border-2 text-sm font-mono transition-all ${logic.selectedSlot?.slot_start === slot.slot_start
                                                     ? 'bg-[#006064] text-white border-[#006064] scale-105 shadow-md'
                                                     : 'border-[#006064]/30 text-[#006064] hover:border-[#006064] hover:bg-[#E0F7FA]'
@@ -232,8 +253,9 @@ export default function AdminScheduleModal({
                             </div>
                         )}
 
-                        {(logic.selectedSlot || logic.useCustomTime) && (
+                        {canContinueFromTimeStep && (
                             <button
+                                type="button"
                                 onClick={() => logic.setStep(4)}
                                 className="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                             >
@@ -246,7 +268,7 @@ export default function AdminScheduleModal({
                 {/* Step 4: Confirmar y Notificar */}
                 {logic.step === 4 && (
                     <div className="space-y-4">
-                        <button onClick={() => logic.setStep(3)} className="text-sm text-[#006064] hover:opacity-70">← Volver</button>
+                        <button type="button" onClick={() => logic.setStep(3)} className="text-sm text-[#006064] hover:opacity-70">← Volver</button>
 
                         <div className="p-4 bg-[#E0F7FA] border border-[#006064]/20 space-y-2">
                             <h3 className="font-bold text-[#006064] uppercase border-b border-[#006064]/20 pb-1 mb-2">Resumen de la Clase</h3>
@@ -293,8 +315,9 @@ export default function AdminScheduleModal({
 
                             {!logic.autoCreateMeeting && (
                                 <div>
-                                    <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">Link manual (opcional)</label>
+                                    <label htmlFor="admin-schedule-meet-link" className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">Link manual (opcional)</label>
                                     <input
+                                        id="admin-schedule-meet-link"
                                         type="url"
                                         value={logic.meetLink}
                                         onChange={(e) => logic.setMeetLink(e.target.value)}
@@ -306,8 +329,10 @@ export default function AdminScheduleModal({
                         </div>
 
                         <button
+                            type="button"
                             onClick={logic.handleSubmit}
                             disabled={logic.isLoading}
+                            aria-busy={logic.isLoading}
                             className="w-full px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors disabled:opacity-50 flex justify-center items-center gap-2"
                         >
                             {logic.isLoading ? (
@@ -320,18 +345,19 @@ export default function AdminScheduleModal({
 
                         {/* Recurring result summary */}
                         {logic.recurringResult && (
-                            <div className="p-4 bg-green-50 border-2 border-green-500 space-y-2">
+                            <div role="status" className="p-4 bg-green-50 border-2 border-green-500 space-y-2">
                                 <p className="font-bold text-green-700">
                                     ✅ {logic.recurringResult.created} clases creadas
                                 </p>
                                 {logic.recurringResult.errors && logic.recurringResult.errors.length > 0 && (
-                                    <div className="text-xs text-red-600 space-y-1">
+                                    <div role="alert" className="text-xs text-red-600 space-y-1">
                                         {logic.recurringResult.errors.map((err, i) => (
                                             <p key={i}>⚠ {err}</p>
                                         ))}
                                     </div>
                                 )}
                                 <button
+                                    type="button"
                                     onClick={() => { onClose(); window.location.reload(); }}
                                     className="w-full mt-2 px-4 py-2 bg-green-600 text-white font-bold uppercase text-sm border-2 border-green-600 hover:bg-green-700 transition-colors"
                                 >

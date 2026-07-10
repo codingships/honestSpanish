@@ -422,10 +422,41 @@ export type Database = {
           },
         ]
       }
-      fulfillment_jobs: {
+      email_recipient_budget_usage: {
         Row: {
-          attempts: number
-          created_at: string | null
+          budget_scope: string
+          created_at: string
+          last_source: string
+          period_kind: string
+          period_start: string
+          recipient_count: number
+          updated_at: string
+        }
+        Insert: {
+          budget_scope: string
+          created_at?: string
+          last_source: string
+          period_kind: string
+          period_start: string
+          recipient_count?: number
+          updated_at?: string
+        }
+        Update: {
+          budget_scope?: string
+          created_at?: string
+          last_source?: string
+          period_kind?: string
+          period_start?: string
+          recipient_count?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      fulfillment_jobs: {
+          Row: {
+            attempts: number
+            created_at: string | null
+            dedupe_key: string | null
           id: string
           job_type: string
           last_error: string | null
@@ -440,9 +471,10 @@ export type Database = {
           subscription_id: string | null
           updated_at: string | null
         }
-        Insert: {
-          attempts?: number
-          created_at?: string | null
+          Insert: {
+            attempts?: number
+            created_at?: string | null
+            dedupe_key?: string | null
           id?: string
           job_type: string
           last_error?: string | null
@@ -457,9 +489,10 @@ export type Database = {
           subscription_id?: string | null
           updated_at?: string | null
         }
-        Update: {
-          attempts?: number
-          created_at?: string | null
+          Update: {
+            attempts?: number
+            created_at?: string | null
+            dedupe_key?: string | null
           id?: string
           job_type?: string
           last_error?: string | null
@@ -551,6 +584,9 @@ export type Database = {
       }
       leads: {
         Row: {
+          adult_confirmed: boolean
+          adult_confirmed_at: string | null
+          age_policy_version: string | null
           consent_given: boolean
           created_at: string | null
           crm_contact_id: string | null
@@ -582,6 +618,9 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          adult_confirmed?: boolean
+          adult_confirmed_at?: string | null
+          age_policy_version?: string | null
           consent_given?: boolean
           created_at?: string | null
           crm_contact_id?: string | null
@@ -613,6 +652,9 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          adult_confirmed?: boolean
+          adult_confirmed_at?: string | null
+          age_policy_version?: string | null
           consent_given?: boolean
           created_at?: string | null
           crm_contact_id?: string | null
@@ -648,6 +690,7 @@ export type Database = {
       payments: {
         Row: {
           amount: number
+          amount_refunded: number
           created_at: string | null
           currency: string | null
           description: string | null
@@ -655,11 +698,14 @@ export type Database = {
           status: Database["public"]["Enums"]["payment_status"] | null
           stripe_invoice_id: string | null
           stripe_payment_intent_id: string | null
+          stripe_refund_id: string | null
+          refunded_at: string | null
           student_id: string
           subscription_id: string | null
         }
         Insert: {
           amount: number
+          amount_refunded?: number
           created_at?: string | null
           currency?: string | null
           description?: string | null
@@ -667,11 +713,14 @@ export type Database = {
           status?: Database["public"]["Enums"]["payment_status"] | null
           stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_refund_id?: string | null
+          refunded_at?: string | null
           student_id: string
           subscription_id?: string | null
         }
         Update: {
           amount?: number
+          amount_refunded?: number
           created_at?: string | null
           currency?: string | null
           description?: string | null
@@ -679,6 +728,8 @@ export type Database = {
           status?: Database["public"]["Enums"]["payment_status"] | null
           stripe_invoice_id?: string | null
           stripe_payment_intent_id?: string | null
+          stripe_refund_id?: string | null
+          refunded_at?: string | null
           student_id?: string
           subscription_id?: string | null
         }
@@ -703,16 +754,25 @@ export type Database = {
         Row: {
           created_at: string | null
           event_type: string
+          processed_at: string | null
+          processing_error: string | null
+          processing_status: string
           stripe_event_id: string
         }
         Insert: {
           created_at?: string | null
           event_type: string
+          processed_at?: string | null
+          processing_error?: string | null
+          processing_status?: string
           stripe_event_id: string
         }
         Update: {
           created_at?: string | null
           event_type?: string
+          processed_at?: string | null
+          processing_error?: string | null
+          processing_status?: string
           stripe_event_id?: string
         }
         Relationships: []
@@ -1123,6 +1183,19 @@ export type Database = {
         }[]
       }
       is_admin: { Args: never; Returns: boolean }
+      reserve_email_recipient_budget: {
+        Args: {
+          p_budget_scope: string
+          p_daily_limit: number
+          p_monthly_limit: number
+          p_recipient_count: number
+          p_source: string
+        }
+        Returns: {
+          daily_used: number
+          monthly_used: number
+        }[]
+      }
     }
     Enums: {
       lead_status: "new" | "contacted" | "discarded"

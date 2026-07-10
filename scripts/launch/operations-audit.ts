@@ -120,7 +120,6 @@ function reviewCloudflareFulfillmentWorker(): Finding {
         '/health',
         'isAuthorized',
         'INTERNAL_JOB_SECRET',
-        'CRON_SECRET',
         '/internal/jobs/process',
         '/internal/google/availability',
         '/internal/google/filter-available-slots',
@@ -162,11 +161,13 @@ function reviewCiDeployPipeline(): Finding {
         'pnpm exec playwright test --project=public',
         'deploy-cloudflare:',
         "environment: ${{ github.ref_name == 'main' && 'Production' || 'staging' }}",
+        'CLOUDFLARE_ENV',
         'CLOUDFLARE_API_TOKEN',
-        'wrangler pages deploy dist',
+        'pnpm exec wrangler deploy --dry-run',
+        'pnpm exec wrangler deploy --keep-vars',
         'Verify staging checkout is disabled',
-        'CLOUDFLARE_PAGES_STAGING_URL',
-        '--deployed-url "$STAGING_PAGES_URL"',
+        'CLOUDFLARE_STAGING_URL',
+        '--deployed-url "$STAGING_WORKER_URL"',
         'FULFILLMENT_WORKER_URL',
         'Deploy Cloudflare Fulfillment Worker',
         '@espanol-honesto/fulfillment-worker',
@@ -177,7 +178,7 @@ function reviewCiDeployPipeline(): Finding {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'GitHub CI and deploy pipeline',
         message: details.length === 0
-            ? 'CI covers build/test/security basics plus Cloudflare Pages and fulfillment Worker deploy.'
+            ? 'CI covers build/test/security basics plus Cloudflare Worker deploy, staging checkout verification and fulfillment Worker deploy.'
             : 'CI/deploy pipeline is missing launch-critical steps.',
         details,
     };
@@ -187,6 +188,7 @@ function reviewFulfillmentWorkerRuntime(): Finding {
     const packageJson = readIfExists(path.join('workers', 'fulfillment', 'package.json'));
     const worker = readIfExists(path.join('workers', 'fulfillment', 'src', 'index.ts'));
     const internalClient = readIfExists(path.join('src', 'lib', 'internal-job-service.ts'));
+    const cronRoute = readIfExists(path.join('src', 'pages', 'api', 'cron', 'send-reminders.ts'));
     const details = [
         ...missingSnippets(path.join('workers', 'fulfillment', 'package.json'), packageJson, [
             '"packageManager": "pnpm@10.33.0"',
@@ -200,7 +202,6 @@ function reviewFulfillmentWorkerRuntime(): Finding {
             '/health',
             'isAuthorized',
             'INTERNAL_JOB_SECRET',
-            'CRON_SECRET',
             '/internal/jobs/process',
             '/internal/google/availability',
             '/internal/google/filter-available-slots',
@@ -215,7 +216,6 @@ function reviewFulfillmentWorkerRuntime(): Finding {
             'FULFILLMENT_WORKER_URL',
             'INTERNAL_JOB_SERVICE_URL',
             'INTERNAL_JOB_SECRET',
-            'CRON_SECRET',
             'Authorization',
             'runAfterResponse',
             'processFulfillmentJobs',
@@ -223,13 +223,18 @@ function reviewFulfillmentWorkerRuntime(): Finding {
             'checkTeacherAvailabilityViaInternalService',
             'filterSlotsAgainstGoogleViaInternalService',
         ]),
+        ...missingSnippets(path.join('src', 'pages', 'api', 'cron', 'send-reminders.ts'), cronRoute, [
+            'CRON_SECRET',
+            'Authorization',
+            'sendDueReminders',
+        ]),
     ];
 
     return {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'fulfillment Worker runtime boundary',
         message: details.length === 0
-            ? 'Fulfillment Worker exposes authenticated internal endpoints and Cloudflare Pages delegates jobs through the internal client.'
+            ? 'Fulfillment Worker exposes INTERNAL_JOB_SECRET-authenticated internal endpoints, the Astro Worker delegates jobs through the internal client, and the app cron route gates reminder triggers with CRON_SECRET.'
             : 'Fulfillment Worker or internal client is missing launch-critical runtime hooks.',
         details,
     };
@@ -306,11 +311,11 @@ function reviewRuntimeEnvironmentDocs(): Finding {
     const envExample = readIfExists('.env.example');
     const details = [
         ...missingSnippets(path.join('docs', 'launch', 'ENVIRONMENT.md'), environmentDoc, [
-            'Cloudflare Pages',
+            'Cloudflare Astro Worker',
             'Cloudflare Fulfillment Worker',
             'GitHub Environments',
-            'debe ser igual en Cloudflare Pages y Cloudflare Fulfillment Worker',
-            'Cloudflare Pages no necesita claves Google',
+            'debe ser igual en Cloudflare Astro Worker y Cloudflare Fulfillment Worker',
+            'Cloudflare Astro Worker no necesita claves Google',
             'pnpm google:setup-staging',
             'KeePassXC',
         ]),
@@ -336,7 +341,7 @@ function reviewRuntimeEnvironmentDocs(): Finding {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'runtime environment documentation',
         message: details.length === 0
-            ? 'Environment documentation and .env.example cover Cloudflare Pages, fulfillment Worker, GitHub, Google, Resend, Sentry and Turnstile.'
+            ? 'Environment documentation and .env.example cover Cloudflare Astro Worker, fulfillment Worker, GitHub, Google, Resend, Sentry and Turnstile.'
             : 'Environment documentation is missing launch-critical runtime variables or setup notes.',
         details,
     };
@@ -360,6 +365,9 @@ function reviewObservabilityPolicy(): Finding {
             'Fulfillment/cron',
             'Support alert failure',
             'SENTRY_UPLOAD_SOURCEMAPS',
+            'SENTRY_CAPTURE_LOCAL=false',
+            'SENTRY_ENVIRONMENT',
+            'local-<NODE_ENV>',
             'Privacy/scrubbing',
             'Fallback Sin Sentry Completo',
             'riskAcceptedBy',
@@ -371,10 +379,24 @@ function reviewObservabilityPolicy(): Finding {
             'PUBLIC_SENTRY_DSN',
             'SENTRY_AUTH_TOKEN',
             'sentrySourcemapsEnabled',
+            'SENTRY_CAPTURE_LOCAL',
+            'sentryCaptureAllowed',
+            'sentryEnvironment',
+            '__SENTRY_ENVIRONMENT__',
+        ]),
+        ...missingSnippets('sentry.client.config.ts', readIfExists('sentry.client.config.ts'), [
+            '__SENTRY_ENVIRONMENT__',
+            'environment: environment || undefined',
+        ]),
+        ...missingSnippets('sentry.server.config.ts', readIfExists('sentry.server.config.ts'), [
+            '__SENTRY_ENVIRONMENT__',
+            'environment: environment || undefined',
         ]),
         ...missingSnippets('.env.example', envExample, [
             'SENTRY_AUTH_TOKEN',
             'PUBLIC_SENTRY_DSN',
+            'SENTRY_CAPTURE_LOCAL=false',
+            'SENTRY_ENVIRONMENT=',
         ]),
     ];
 
@@ -519,10 +541,6 @@ function missingSnippets(file: string, content: string, snippets: string[]): str
         .map((snippet) => `${file}: missing ${snippet}.`);
 }
 
-function countOccurrences(content: string, needle: string): number {
-    return content.split(needle).length - 1;
-}
-
 function readIfExists(file: string): string {
     return existsSync(file) ? readFileSync(file, 'utf8') : '';
 }
@@ -581,12 +599,12 @@ function renderOperationsReadinessWorksheet(report: OperationsReport): string {
     lines.push('');
     lines.push('| Check | How To Verify | Evidence To Record |');
     lines.push('| --- | --- | --- |');
-    lines.push('| Cloudflare fulfillment Worker | For RC, check the staging Worker, `/health`, deploy settings, secrets, logs, Pages-to-Worker URL alignment and `workers/fulfillment/wrangler.toml`. Read-only support commands: `corepack pnpm exec wrangler deployments status --env staging --json`, `corepack pnpm exec wrangler deployments list --env staging --json`, `corepack pnpm exec wrangler versions list --env staging --json`, `corepack pnpm exec wrangler secret list --env staging`. Track production Worker in final-only closure unless Alin expands RC scope. | `dashboard` plus `manual_note` with service names, environments and result; secret names are OK, secret values are not. |');
+    lines.push('| Cloudflare fulfillment Worker | For RC, check the staging Worker, `/health`, deploy settings, secrets, logs, Astro-Worker-to-fulfillment URL alignment and `workers/fulfillment/wrangler.toml`. Read-only support commands: `corepack pnpm exec wrangler deployments status --env staging --json`, `corepack pnpm exec wrangler deployments list --env staging --json`, `corepack pnpm exec wrangler versions list --env staging --json`, `corepack pnpm exec wrangler secret list --env staging`. Track production Worker in final-only closure unless Alin expands RC scope. | `dashboard` plus `manual_note` with service names, environments and result; secret names are OK, secret values are not. |');
     lines.push('| fulfillment_jobs | Inspect a due or test job, run process_due, retry and cancel from Admin > Jobs, and confirm `admin_audit_log` records the action. | `dashboard`, `path` to runbook, or `manual_note`; no private user data. |');
     lines.push('| Google Workspace | For RC, confirm only the staging/read-only checks already in scope. If Google Drive/templates are unclear or risky, keep them in final-only closure and do not block RC on them. | `dashboard` or `manual_note` with IDs shortened/redacted. |');
     lines.push('| Resend email | Verify sender/domain, test delivery, event visibility, bounce/suppression handling and reply/support route. | `dashboard`, `screenshot` redacted or `manual_note`. |');
     lines.push('| cron and reminders | Verify Cloudflare cron/API path, `CRON_SECRET`, `INTERNAL_JOB_SECRET`, `FULFILLMENT_WORKER_URL`, site URL alignment and reminder logs. | `dashboard` or `manual_note` with environment and timestamp. |');
-    lines.push('| backups and rollback | Confirm Supabase Free backup posture, Cloudflare Pages/Worker rollback route, and the rollback section in `docs/launch/RUNBOOK.md`. If Supabase stays Free, follow `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`: final manual logical backup/export, Pro upgrade, or accepted risk before production deploy/destructive migration. | `dashboard`, `screenshot`, `path` to `docs/launch/RUNBOOK.md`, `path` to `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`, or `manual_note`. |');
+    lines.push('| backups and rollback | Confirm Supabase Free backup posture, Cloudflare Worker rollback route, and the rollback section in `docs/launch/RUNBOOK.md`. If Supabase stays Free, follow `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`: final manual logical backup/export, Pro upgrade, or accepted risk before production deploy/destructive migration. | `dashboard`, `screenshot`, `path` to `docs/launch/RUNBOOK.md`, `path` to `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`, or `manual_note`. |');
     lines.push('| incident and rollback drill | Confirm the `Simulacro De Incidente Y Rollback` in `docs/launch/RUNBOOK.md` has been walked through: staging job/ticket incident, owner decision, recovery action, rollback tabletop or real rollback, and post-checks. | `manual_note`, redacted screenshots, or accepted risk with rollback plan; no secrets or private data. |');
     lines.push('| incidents and monitoring | Confirm Sentry alerts, support process, owner escalation and where launch incidents are tracked. Use `docs/launch/OBSERVABILITY.md` for minimum alert coverage and fallback rules. | `dashboard` or `manual_note`. |');
     lines.push('');

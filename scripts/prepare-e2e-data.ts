@@ -1,18 +1,35 @@
 /**
  * Prepare Supabase data required by Playwright E2E tests.
  *
- * Reads Supabase credentials from .env and test user credentials from .env.test.
+ * Selects the allowlisted staging Supabase project through the Playwright
+ * environment guard. It refuses the base/production-labelled project.
  * This script writes only Supabase auth/database records and does not call
  * Stripe, Google Workspace, or Resend.
  *
- * Run: pnpm exec tsx scripts/prepare-e2e-data.ts
+ * Run after explicit staging write approval:
+ * E2E_STAGING_WRITE_CONFIRMATION=writes-ok:mzjyvmlxfpzdfdjzxxyj \
+ *   pnpm exec tsx scripts/prepare-e2e-data.ts
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import * as dotenv from 'dotenv';
 import type { Database } from '../src/types/database.types';
+import {
+    configurePlaywrightEnvironment,
+    STAGING_SUPABASE_PROJECT_REF,
+} from '../tests/e2e/environment-guard';
 
-dotenv.config({ path: '.env' });
-dotenv.config({ path: '.env.test', override: true });
+const selectedEnvironment = configurePlaywrightEnvironment();
+const expectedConfirmation = `writes-ok:${STAGING_SUPABASE_PROJECT_REF}`;
+
+if (
+    selectedEnvironment.target !== 'staging' ||
+    selectedEnvironment.supabaseRef !== STAGING_SUPABASE_PROJECT_REF
+) {
+    throw new Error('E2E data preparation is allowed only on the approved staging Supabase project');
+}
+
+if (process.env.E2E_STAGING_WRITE_CONFIRMATION !== expectedConfirmation) {
+    throw new Error(`Refusing staging writes without E2E_STAGING_WRITE_CONFIRMATION=${expectedConfirmation}`);
+}
 
 const supabaseUrl = process.env.PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

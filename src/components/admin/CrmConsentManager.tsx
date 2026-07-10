@@ -50,7 +50,7 @@ export default function CrmConsentManager({ contactId, consents }: CrmConsentMan
     const [noticeVersion, setNoticeVersion] = useState('privacy-v1');
     const [capturedAt, setCapturedAt] = useState('');
     const [saving, setSaving] = useState<string | null>(null);
-    const [message, setMessage] = useState<string | null>(null);
+    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
     const postAction = async (payload: Record<string, unknown>) => {
         const response = await fetch('/api/admin/crm/contact-actions', {
@@ -60,7 +60,7 @@ export default function CrmConsentManager({ contactId, consents }: CrmConsentMan
         });
 
         if (!response.ok) {
-            const body = await response.json().catch(() => null);
+            const body = await response.json().catch(() => null) as { error?: string } | null;
             throw new Error(body?.error || 'CRM consent action failed');
         }
     };
@@ -85,11 +85,11 @@ export default function CrmConsentManager({ contactId, consents }: CrmConsentMan
                 noticeVersion: noticeVersion.trim() || null,
                 capturedAt: capturedAt ? new Date(capturedAt).toISOString() : null,
             });
-            setMessage('Base legal guardada.');
+            setMessage({ type: 'success', text: 'Base legal guardada.' });
             setProof('');
             reloadSoon();
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'No se pudo guardar la base legal.');
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo guardar la base legal.' });
         } finally {
             setSaving(null);
         }
@@ -105,10 +105,10 @@ export default function CrmConsentManager({ contactId, consents }: CrmConsentMan
                 consentId,
                 reason: 'Opt-out registrado desde ficha CRM',
             });
-            setMessage('Opt-out registrado.');
+            setMessage({ type: 'success', text: 'Opt-out registrado.' });
             reloadSoon();
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'No se pudo registrar el opt-out.');
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo registrar el opt-out.' });
         } finally {
             setSaving(null);
         }
@@ -245,7 +245,11 @@ export default function CrmConsentManager({ contactId, consents }: CrmConsentMan
                 >
                     {saving === 'upsert' ? 'Guardando...' : 'Guardar base legal'}
                 </button>
-                {message && <p className="mt-3 font-mono text-xs text-[#006064]">{message}</p>}
+                {message && (
+                    <p role={message.type === 'success' ? 'status' : 'alert'} className="mt-3 font-mono text-xs text-[#006064]">
+                        {message.text}
+                    </p>
+                )}
             </div>
         </div>
     );

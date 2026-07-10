@@ -8,6 +8,11 @@ type DemoRole = 'student' | 'teacher' | 'admin';
 const roles: DemoRole[] = ['student', 'teacher', 'admin'];
 const langs = ['es', 'en', 'ru'];
 
+type DemoLoginRequest = {
+    role?: unknown;
+    lang?: unknown;
+};
+
 export const POST: APIRoute = async (context) => {
     const { request } = context;
     const url = new URL(request.url);
@@ -17,12 +22,16 @@ export const POST: APIRoute = async (context) => {
         return json({ error: enabled.message }, 403);
     }
 
-    const body = await request.json().catch(() => ({}));
-    const role = roles.includes(body.role) ? body.role : null;
-    const lang = langs.includes(body.lang) ? body.lang : 'es';
+    const body = await request.json().catch(() => ({})) as DemoLoginRequest;
+    const role = typeof body.role === 'string' && roles.includes(body.role as DemoRole) ? body.role as DemoRole : null;
+    const lang = typeof body.lang === 'string' && langs.includes(body.lang) ? body.lang : 'es';
 
     if (!role) {
         return json({ error: 'Rol de demo no valido.' }, 400);
+    }
+
+    if (role === 'admin' && !isLocalDemoHost(url.hostname)) {
+        return json({ error: 'Login admin de demo desactivado fuera de localhost.' }, 403);
     }
 
     const credentials = getDemoCredentials(role);
@@ -44,10 +53,7 @@ export const POST: APIRoute = async (context) => {
 };
 
 function getDemoLoginState(hostname: string): { ok: true } | { ok: false; message: string } {
-    const isAllowedHost = hostname === 'localhost'
-        || hostname === '127.0.0.1'
-        || hostname === '0.0.0.0'
-        || hostname.endsWith('.localhost')
+    const isAllowedHost = isLocalDemoHost(hostname)
         || hostname.endsWith('.trycloudflare.com');
 
     if (!isAllowedHost) {
@@ -65,6 +71,13 @@ function getDemoLoginState(hostname: string): { ok: true } | { ok: false; messag
         ok: false,
         message: 'Login de demo desactivado. Arranca con pnpm dev:demo o define DEMO_GUIDE_LOGIN_ENABLED=true.',
     };
+}
+
+function isLocalDemoHost(hostname: string): boolean {
+    return hostname === 'localhost'
+        || hostname === '127.0.0.1'
+        || hostname === '0.0.0.0'
+        || hostname.endsWith('.localhost');
 }
 
 function getDemoCredentials(role: DemoRole): { email?: string; password?: string } {

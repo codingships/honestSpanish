@@ -49,6 +49,13 @@ interface PricingSectionProps {
             close: string;
             contact: string;
             contactMessage: string;
+            adultConfirmation?: string;
+            termsAcceptance?: string;
+            termsLink?: string;
+            and?: string;
+            privacyLink?: string;
+            serviceStartRequest?: string;
+            policyError?: string;
         };
     };
 }
@@ -112,6 +119,13 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             close: t.modal?.close || 'Cerrar',
             contact: t.modal?.contact || 'Consultar',
             contactMessage: t.modal?.contactMessage || 'Escribenos para confirmar disponibilidad.',
+            adultConfirmation: t.modal?.adultConfirmation || 'Confirmo que tengo 18 años o más.',
+            termsAcceptance: t.modal?.termsAcceptance || 'He leído y acepto los',
+            termsLink: t.modal?.termsLink || 'Términos',
+            and: t.modal?.and || 'y la',
+            privacyLink: t.modal?.privacyLink || 'Política de Privacidad',
+            serviceStartRequest: t.modal?.serviceStartRequest || 'Solicito que el servicio pueda comenzar durante el periodo legal de desistimiento.',
+            policyError: t.modal?.policyError || 'Debes confirmar y aceptar las condiciones antes de continuar.',
         },
     };
 
@@ -254,7 +268,19 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                             <div className="col-span-2 text-center">{copy.headers.action}</div>
                         </div>
 
-                        {packages.map((pkg, index) => {
+                        {packages.length === 0 ? (
+                            <div className={`border-t-2 ${s.border} py-10 text-center`} role="status" aria-live="polite">
+                                <p className="mx-auto max-w-2xl text-sm font-bold text-[#006064]">
+                                    {copy.modal.contactMessage}
+                                </p>
+                                <a
+                                    href={`/${lang}#contacto`}
+                                    className={`mt-4 inline-block border ${s.border} px-6 py-2 text-xs font-bold uppercase transition-all hover:bg-[#006064] hover:text-white`}
+                                >
+                                    {copy.modal.contact}
+                                </a>
+                            </div>
+                        ) : packages.map((pkg, index) => {
                             const key = pkg.name || `plan-${index}`;
                             const highlight = pkg.name === recommendedPlanName;
                             const isRecommended = highlight;
@@ -267,6 +293,17 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                             };
                             const planFeatures = getPlanFeatures(pkg, planTranslations.features);
                             const priceDisplay = getPriceDisplay(pkg);
+                            const preferredPackageLabel = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
+                            const applicationHref = `/${lang}?preferredPackage=${encodeURIComponent(pkg.name)}&preferredPackageLabel=${encodeURIComponent(preferredPackageLabel)}#contacto`;
+                            const actionClass = `
+                                w-auto px-6 ${highlight ? 'py-4' : 'py-2'}
+                                ${highlight
+                                    ? `${s.accent} ${s.accentText} text-sm shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px]`
+                                    : `hover:bg-[#006064] hover:text-white text-xs`
+                                }
+                                border ${s.border} font-bold uppercase transition-all
+                                disabled:opacity-50 disabled:cursor-not-allowed
+                            `;
 
                             return (
                                 <div
@@ -313,31 +350,41 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
 
                                     {/* Action Button */}
                                     <div className="col-span-2 flex justify-center">
-                                        <button
-                                            onClick={() => {
-                                                if (!pkg) return;
-                                                if (checkoutEnabled) {
-                                                    handleSelectPlan(pkg);
-                                                    return;
-                                                }
-                                                requestApplication(pkg);
-                                            }}
-                                            disabled={!pkg}
-                                            data-plan={key}
-                                            data-testid={`select-plan-${key}`}
-                                            aria-describedby={checkoutMode === 'application' ? 'pricing-application-note' : undefined}
-                                            className={`
-                                                w-auto px-6 ${highlight ? 'py-4' : 'py-2'} 
-                                                ${highlight
-                                                    ? `${s.accent} ${s.accentText} text-sm shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px]`
-                                                    : `hover:bg-[#006064] hover:text-white text-xs`
-                                                }
-                                                border ${s.border} font-bold uppercase transition-all
-                                                disabled:opacity-50 disabled:cursor-not-allowed
-                                            `}
-                                        >
-                                            {checkoutMode === 'application' ? copy.select : checkoutReady ? copy.select : copy.modal.contact}
-                                        </button>
+                                        {checkoutMode === 'application' ? (
+                                            <a
+                                                href={applicationHref}
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    requestApplication(pkg);
+                                                }}
+                                                data-plan={key}
+                                                data-preferred-package={pkg.name}
+                                                data-preferred-package-label={preferredPackageLabel}
+                                                data-testid={`select-plan-${key}`}
+                                                aria-describedby="pricing-application-note"
+                                                className={actionClass}
+                                            >
+                                                {copy.select}
+                                            </a>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (!pkg) return;
+                                                    if (checkoutEnabled) {
+                                                        handleSelectPlan(pkg);
+                                                        return;
+                                                    }
+                                                    requestApplication(pkg);
+                                                }}
+                                                disabled={!pkg}
+                                                data-plan={key}
+                                                data-testid={`select-plan-${key}`}
+                                                className={actionClass}
+                                            >
+                                                {checkoutReady ? copy.select : copy.modal.contact}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             );

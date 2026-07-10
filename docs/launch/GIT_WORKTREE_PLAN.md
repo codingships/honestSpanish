@@ -242,7 +242,9 @@ Ultima evidencia fuerte de higiene Git:
 - Resultado de slice: `Working tree guard ready: yes`, `Current HEAD guard ready: no`, `Required runtime files present: yes`.
 - Implicacion: el arbol local tiene el guard sin cobros reales, pero el `HEAD` que podria desplegar Cloudflare no lo contiene completo; `src/pages/api/create-checkout.ts`, `src/lib/runtime-env.ts` y `wrangler.toml` deben viajar en el paquete/deploy staging antes de confiar en `CHECKOUT_ENABLED=false`.
 
-Ultima evidencia operativa de launch:
+Evidencia operativa historica de launch:
+
+Nota: este bloque conserva el corte de 2026-06-26 para entender el paquete de worktree. No usar sus contadores como estado actual sin rerun; la fuente viva es `corepack pnpm --config.verify-deps-before-run=false launch:status` y el tracker estricto.
 
 - Ultima validacion runtime local:
   - `corepack pnpm --config.verify-deps-before-run=false fulfillment:typecheck`: PASS (`command-2026-06-26T21-12-26-433940-00-00`).
@@ -250,14 +252,14 @@ Ultima evidencia operativa de launch:
   - `corepack pnpm --config.verify-deps-before-run=false typecheck`: PASS (`command-2026-06-26T21-12-29-640646-00-00`).
   - `corepack pnpm --config.verify-deps-before-run=false test:run`: PASS, 65 archivos y 402 tests (`command-2026-06-26T21-12-55-908413-00-00`).
   - `corepack pnpm --config.verify-deps-before-run=false build`: PASS (`command-2026-06-26T21-15-30-782681-00-00`).
-- `corepack pnpm --config.verify-deps-before-run=false launch:status`: `BLOCKED`, 9 blockers, 0 warnings y 9 Open Go/No-Go.
+- Corte historico `corepack pnpm --config.verify-deps-before-run=false launch:status`: `BLOCKED`, 9 blockers, 0 warnings y 9 Open Go/No-Go. En el refresh estricto posterior de 2026-07-03, `launch:status` debe leerse de nuevo y ya no se deben reutilizar estos numeros como actuales.
 - Estado fresco: `outputs/launch-status/2026-06-26T22-24-21-933Z/summary.md`.
 - Full Launch Gate fresco: `outputs/launch-gate/2026-06-26T21-27-25-187Z/summary.md`, `BLOCKED` con 3 pasos fallidos.
 - Primary verification fresco: `outputs/launch-verification/2026-06-26T21-27-25-628Z/summary.md`, `BLOCKED` por `pnpm launch:legal`.
 - Secondary review fresco: `outputs/launch-secondary-review/2026-06-26T21-31-46-535Z/secondary-review.md`, `BLOCKED`.
 - RC fresco: `outputs/launch-rc/2026-06-26T21-20-29-677Z/summary.md`, `RC_BLOCKED_BY_PHASE_1`. El status puede marcarlo stale porque el gate posterior regenero Phase 1/manual evidence; no perseguir ese ping-pong salvo antes de re-freeze RC.
 - Fase 1 fresca: `outputs/launch-phase-1/2026-06-26T21-30-37-606Z/summary.md`, bloqueada por `database_readiness` y `operations_external`.
-- Manual evidence fresco: `outputs/launch-manual-evidence/2026-06-26T21-31-44-923Z/summary.md`, Fase 1 con 2 abiertos y Fase 3 con 6 final-only.
+- Manual evidence historico: `outputs/launch-manual-evidence/2026-06-26T21-31-44-923Z/summary.md`, Fase 1 con 2 abiertos y Fase 3 con 6 final-only. El refresh estricto posterior de 2026-07-03 redujo ese contador final-only; rerun antes de decidir Go/No-Go.
 - Functional RC fresco: `outputs/launch-functional-rc/2026-06-26T21-21-51-162Z/summary.md`, OK y 0 failed groups.
 - Payments audit fresco: `outputs/launch-payments/2026-06-26T22-08-14-270Z/summary.md`, OK, 0 fallos y 0 warnings.
 - Operations audit fresco: `outputs/launch-operations/2026-06-26T21-31-43-057Z/summary.md`, OK y con hosted schema check SQL fresco.
@@ -279,5 +281,5 @@ Bloqueos restantes:
 - Smoke production/final.
 - Fuente rusa premium.
 - Decision separada sobre herramientas de agente.
-- Resolver/verificar `database_readiness` con staging primero y evidencia no secreta; el paquete Supabase staging local esta fresco y listo para aprobacion contra `espanol-staging`.
+- Resolver/verificar `database_readiness` con staging primero y evidencia no secreta; separar el paquete de schema/CRM staging del paquete `launch:supabase-security-rollout` para `SEC-014`/`SEC-015`, y no aplicar ninguno sin aprobacion externa explicita.
 - Cerrar `operations_external` con cron/logs, Resend staging y Admin Jobs staging UI/runtime; el preflight Worker/Wrangler staging ya esta fresco y OK.

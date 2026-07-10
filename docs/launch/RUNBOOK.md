@@ -10,8 +10,8 @@
 6. Admin/teacher reserva clase.
 7. Cloudflare encola `session_fulfillment`.
 8. Cloudflare Fulfillment Worker crea Doc, Calendar, Meet y emails.
-9. Cron llama `/api/cron/send-reminders`.
-10. Cloudflare Pages delega recordatorios al Cloudflare Fulfillment Worker.
+9. El cron horario del Fulfillment Worker procesa como maximo 5 jobs pendientes/reintentos y despues envia recordatorios.
+10. Los endpoints internos/manuales permiten procesar o recuperar jobs sin esperar al siguiente cron.
 
 ## Incidentes
 
@@ -92,6 +92,20 @@ Recuperacion:
 - Sincronizar Stripe desde CRM.
 - Confirmar que vuelve a estar checkout-ready.
 
+### Desistimiento o reembolso
+
+El inicio del reembolso es una operación humana en Stripe Dashboard; el webhook `charge.refunded` reconcilia después el importe y estado del pago local, pero no decide por sí solo si debe terminar la suscripción ni cuánto acceso corresponde conservar.
+
+1. Abrir o vincular el ticket de soporte y verificar comprador, pago, versión contractual, fecha de contratación, solicitud de inicio, clases ya prestadas y fundamento del reembolso.
+2. Calcular y documentar el importe total o proporcional con revisión humana. No pegar datos de tarjeta ni secretos en CRM, logs o evidencias.
+3. Si debe cesar la renovación, cancelarla en Stripe antes de reembolsar. Si procede suspender acceso inmediato, pausar/cancelar la suscripción local y revisar las reservas futuras; no asumir que el reembolso lo hará automáticamente.
+4. Ejecutar el reembolso sobre el cargo correcto en Stripe Dashboard y conservar solo identificadores abreviados en la evidencia.
+5. Confirmar entrega de `charge.refunded` y verificar en `payments` `amount_refunded`, `stripe_refund_id`, `refunded_at` y `status` (`succeeded` para parcial, `refunded` para total).
+6. Reconciliar manualmente suscripción, saldo, reservas y cualquier excepción aprobada. Registrar quién decidió, cuándo, importe, motivo y resultado.
+7. Si el webhook falla, no repetir el reembolso: recuperar/reintentar el evento y comprobar Stripe antes de cualquier segunda acción.
+
+Antes del lanzamiento debe ensayarse en Stripe test un reembolso parcial y uno total, incluida la cancelación de renovación y la reconciliación de acceso/cuota.
+
 ### Launch sin pagos reales
 
 Si se decide abrir una version publica sin activar Stripe live, revisar:
@@ -106,6 +120,38 @@ Recuperacion:
 - Desactivar paquetes o borrar Price IDs incorrectos desde `/es/campus/admin/packages`.
 - Mantener Stripe en test hasta completar `payments_staging` e `integration_readiness`.
 
+Este modo ya no es la postura comercial final: queda como rollback inmediato si Stripe live, legal, webhook, portal o fulfillment presentan un incidente.
+
+### Activacion Stripe Live En La Ventana Final
+
+Objetivo: aceptar pagos reales desde el primer dia sin depender de editar `wrangler.toml` segundos antes.
+
+Precondiciones obligatorias:
+
+1. `LEGAL_IDENTITY_MODE='verified'`, revision humana registrada y build production desbloqueada.
+2. Migraciones aplicadas en staging y production, incluida la atestacion 18+.
+3. Compra Stripe test staging completa: checkout, webhook idempotente, suscripcion/cuota, email contractual, Drive, portal, cancelacion y reembolso reconciliado.
+4. Confirmar en esa compra que el alcance inicial sigue siendo tarjeta, sin códigos promocionales, y que el importe de la renovación coincide con el resumen contractual.
+5. Worker web `espanolhonesto` y Fulfillment Worker `espanol-honesto-fulfillment-production` creados, conectados y probados por URL directa sin mover aun el dominio.
+6. Keys, Price IDs y webhook secret live pertenecen todos al mismo modo/cuenta; webhook live apunta al Worker production.
+7. Stripe Portal permite cancelar al final del periodo; aviso de renovacion y canal de desistimiento estan operativos.
+
+Secuencia:
+
+1. Ejecutar preflight read-only y declarar la cuenta Cloudflare, Worker `espanolhonesto`, cuenta/mode Stripe live y proyecto Supabase production que se van a tocar.
+2. Mantener `CHECKOUT_ENABLED=false` en config y `CHECKOUT_ENABLED_OVERRIDE=false` mientras se cargan/verifican secrets.
+3. Sincronizar paquetes production con Prices live y verificar que ningun ID empieza en test/mode incorrecto.
+4. Probar por URL directa production con checkout cerrado, luego fijar el secret runtime `CHECKOUT_ENABLED_OVERRIDE=true` solo en el Worker `espanolhonesto` con aprobacion exacta.
+5. Confirmar que la landing muestra checkout, que falta de aceptaciones devuelve 400 y que una compra real controlada recorre webhook, confirmacion y fulfillment.
+6. Registrar evidencia no secreta y abrir trafico. No imprimir keys, Checkout URLs privadas, emails, IDs de Google ni payloads completos.
+
+Rollback financiero inmediato:
+
+1. Fijar `CHECKOUT_ENABLED_OVERRIDE=false` en el Worker production; esto oculta el checkout y hace que la API devuelva 403 antes de Supabase/Stripe.
+2. Mantener webhook y fulfillment activos para terminar/reconciliar compras ya cobradas.
+3. No borrar Prices, clientes ni eventos; investigar y reembolsar desde Stripe cuando corresponda.
+4. Si el problema es fulfillment, pausar nuevas compras, recuperar jobs desde Admin &gt; Jobs y mantener trazabilidad de pagos.
+
 ## Deploy
 
 ### Flujo Normal
@@ -114,13 +160,13 @@ Recuperacion:
 2. Abrir PR hacia `staging`.
 3. CI debe pasar: typecheck, lint, tests, build, E2E publico y secrets-check.
 4. Merge a `staging`.
-5. GitHub Actions despliega Cloudflare Pages staging y Cloudflare Fulfillment Worker staging.
+5. GitHub Actions despliega el Cloudflare Astro Worker staging y el Cloudflare Fulfillment Worker staging.
 6. Validar smoke staging.
 7. Abrir PR de `staging` hacia `main`.
 8. CI debe pasar.
 9. Merge a `main`.
 10. Aprobar el environment `production` en GitHub Actions.
-11. GitHub Actions despliega Cloudflare Pages production y Cloudflare Fulfillment Worker production.
+11. GitHub Actions despliega el Cloudflare Astro Worker production y el Cloudflare Fulfillment Worker production. Los dominios se mueven desde Pages legado solo despues del probe directo y la aprobacion de cutover.
 
 ### Deploy Manual Local
 
@@ -136,7 +182,11 @@ pnpm secrets:check
 Cloudflare local:
 
 ```bash
+# Staging es el destino seguro por defecto.
 pnpm deploy
+
+# Solo en la ventana production aprobada.
+pnpm deploy:production
 ```
 
 Cloudflare Fulfillment Worker local:
@@ -161,9 +211,9 @@ Orden recomendado:
 
 1. Preparar entradas KeePassXC por entorno: Dev, Staging, Production y GitHub CI. Registrar fecha de rotacion, origen, permisos y responsable, sin pegar valores en docs.
 2. Generar o rotar secretos en el proveedor original: Supabase, Stripe, Cloudflare, Google, Resend, Turnstile, Sentry y GitHub.
-3. Actualizar consumidores de staging: Cloudflare Pages, Cloudflare Fulfillment Worker y GitHub environment `staging`.
+3. Actualizar consumidores de staging: Cloudflare Astro Worker, Cloudflare Fulfillment Worker y GitHub environment `staging`.
 4. Ejecutar smoke staging: auth, checkout test si aplica, webhook test, Worker `/health`, job seguro, Resend test, Turnstile y logs.
-5. Actualizar consumidores de production: Cloudflare Pages, Cloudflare Fulfillment Worker y GitHub environment `Production`.
+5. Actualizar consumidores de production: Cloudflare Astro Worker, Cloudflare Fulfillment Worker y GitHub environment `Production`.
 6. Ejecutar comprobaciones locales y de cierre:
 
 ```bash
@@ -181,7 +231,7 @@ Notas por proveedor:
 
 - Supabase: staging y production usan proyectos separados. Si se rota el JWT secret o claves anon/service role, planificar una ventana de mantenimiento porque puede invalidar tokens existentes. Actualizar todas las referencias antes de aceptar trafico.
 - Stripe: mantener test y live separados. Rotar `STRIPE_SECRET_KEY`, `PUBLIC_STRIPE_PUBLISHABLE_KEY` y `STRIPE_WEBHOOK_SECRET` por entorno. Los Price IDs no son secretos, pero deben pertenecer al modo correcto.
-- Cloudflare: actualizar secrets de Pages y Worker por entorno. `INTERNAL_JOB_SECRET` y `CRON_SECRET` deben coincidir entre Pages/Worker solo dentro del mismo entorno y ser distintos entre staging y production.
+- Cloudflare: actualizar secrets de Pages y Worker por entorno. `INTERNAL_JOB_SECRET` debe coincidir entre Pages y Fulfillment Worker dentro del mismo entorno. `CRON_SECRET` debe mantenerse separado de `INTERNAL_JOB_SECRET`; ambos deben ser distintos entre staging y production.
 - Google: crear una clave nueva para la service account, actualizar Worker, validar Drive/Calendar/Docs/Meet y borrar la clave antigua. Revisar scopes de domain-wide delegation.
 - Resend: crear API key con permisos minimos, validar envio y revocar la anterior.
 - Turnstile: si cambia site key, actualizar tambien la variable publica y revisar dominios permitidos.

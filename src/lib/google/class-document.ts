@@ -6,6 +6,7 @@ import { docs } from '@googleapis/docs';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
 import { copyFile, getFileLink } from './drive';
+import { describeGoogleError } from './logging';
 
 export interface CreateClassDocumentOptions {
     studentId: string;
@@ -45,7 +46,7 @@ export async function createClassDocument(
     const firstName = studentName.split(' ')[0];
     const docName = `${dateStr} - Ejercicios - ${firstName}`;
 
-    console.log(`[ClassDocument] Creating document: ${docName}`);
+    console.log('[ClassDocument] Creating class document');
 
     // 1. Copy template to exercises folder
     if (!googleConfig.templateDocId) {
@@ -62,7 +63,7 @@ export async function createClassDocument(
         throw new Error('Failed to copy template document');
     }
 
-    console.log(`[ClassDocument] Created document: ${copiedDoc.id}`);
+    console.log('[ClassDocument] Created class document');
 
     // 2. Get shareable link
     const documentLink = await getFileLink(copiedDoc.id);
@@ -72,8 +73,7 @@ export async function createClassDocument(
         await addEntryToIndexDocument(indexDocId, dateStr, documentLink);
     } catch (error) {
         // Log but don't fail - document is already created
-        console.error('[ClassDocument] Warning: Could not update index document:',
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[ClassDocument] Warning: Could not update index document:', describeGoogleError(error));
     }
 
     return {
@@ -147,7 +147,7 @@ async function addEntryToIndexDocument(
 
         console.log(`[ClassDocument] Added entry to index: ${dateStr}`);
     } catch (error) {
-        console.error('[ClassDocument] Error updating index:', error);
+        console.error('[ClassDocument] Error updating index:', describeGoogleError(error));
         throw error;
     }
 }
@@ -165,7 +165,7 @@ export async function createClassDocumentsBatch(
             const result = await createClassDocument(opt);
             results.push(result);
         } catch (error) {
-            console.error(`[ClassDocument] Failed to create doc for ${opt.studentName}:`, error);
+            console.error('[ClassDocument] Failed to create class document:', describeGoogleError(error));
         }
     }
 

@@ -1,9 +1,10 @@
 import { test as setup, expect } from '@playwright/test';
+import { saveVerifiedStagingAuthState } from './helpers/auth';
 
 const authFile = 'tests/e2e/.auth/admin.json';
 
 setup('authenticate as admin', async ({ page }) => {
-    await page.goto('/es/login');
+    await page.goto('/es/login', { waitUntil: 'domcontentloaded' });
 
     // Esperar hidratación del componente AuthForm
     await page.waitForFunction(() => {
@@ -16,9 +17,9 @@ setup('authenticate as admin', async ({ page }) => {
 
     await page.click('button[type="submit"]');
 
-    await page.waitForURL(/\/campus\/admin/, { timeout: 15000 });
+    await page.waitForURL(/\/campus\/admin/, { timeout: 15000, waitUntil: 'domcontentloaded' });
 
     await expect(page).toHaveURL(/\/campus\/admin/);
 
-    await page.context().storageState({ path: authFile });
+    await saveVerifiedStagingAuthState(page, authFile);
 });

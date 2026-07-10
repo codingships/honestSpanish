@@ -24,6 +24,13 @@ const statusLabels: Record<TicketStatus | 'all', string> = {
     all: 'Todos',
 };
 
+type WorkingAction = { ticketId: string; status: TicketStatus } | null;
+
+type SupportTicketsResponse = {
+    error?: string;
+    tickets?: SupportTicket[];
+};
+
 function formatDate(value: string | null): string {
     if (!value) return '-';
     return new Date(value).toLocaleString('es-ES', {
@@ -47,36 +54,41 @@ export default function SupportTicketsManager() {
     const [tickets, setTickets] = useState<SupportTicket[]>([]);
     const [status, setStatus] = useState<TicketStatus | 'all'>('open');
     const [isLoading, setIsLoading] = useState(true);
-    const [workingId, setWorkingId] = useState<string | null>(null);
+    const [workingAction, setWorkingAction] = useState<WorkingAction>(null);
     const [notesByTicket, setNotesByTicket] = useState<Record<string, string>>({});
     const [message, setMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const isMutating = workingAction !== null;
 
-    const loadTickets = useCallback(async () => {
+    const loadTickets = useCallback(async (signal?: AbortSignal) => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch(`/api/admin/support-tickets?status=${status}&limit=100`);
-            const data = await response.json();
+            const response = await fetch(`/api/admin/support-tickets?status=${status}&limit=100`, { signal });
+            const data = await response.json() as SupportTicketsResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudieron cargar los avisos');
+            if (signal?.aborted) return;
             const nextTickets = data.tickets || [];
             setTickets(nextTickets);
             setNotesByTicket(Object.fromEntries(
                 nextTickets.map((ticket: SupportTicket) => [ticket.id, ticket.admin_notes || ''])
             ));
         } catch (err) {
+            if (signal?.aborted) return;
             setError(err instanceof Error ? err.message : 'No se pudieron cargar los avisos');
         } finally {
-            setIsLoading(false);
+            if (!signal?.aborted) setIsLoading(false);
         }
     }, [status]);
 
     useEffect(() => {
-        void loadTickets();
+        const controller = new AbortController();
+        void loadTickets(controller.signal);
+        return () => controller.abort();
     }, [loadTickets]);
 
     const updateTicket = async (ticketId: string, nextStatus: TicketStatus) => {
-        setWorkingId(ticketId);
+        setWorkingAction({ ticketId, status: nextStatus });
         setMessage(null);
         setError(null);
         try {
@@ -89,14 +101,14 @@ export default function SupportTicketsManager() {
                     adminNotes: notesByTicket[ticketId] || undefined,
                 }),
             });
-            const data = await response.json();
+            const data = await response.json() as SupportTicketsResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo actualizar el aviso');
             setMessage('Aviso actualizado');
             await loadTickets();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'No se pudo actualizar el aviso');
         } finally {
-            setWorkingId(null);
+            setWorkingAction(null);
         }
     };
 
@@ -105,8 +117,11 @@ export default function SupportTicketsManager() {
             <div className="flex flex-wrap gap-2">
                 {statuses.map((item) => (
                     <button
+                        type="button"
                         key={item}
                         onClick={() => setStatus(item)}
+                        disabled={isLoading || isMutating}
+                        aria-pressed={status === item}
                         className={`border-2 px-3 py-2 text-xs font-bold uppercase ${status === item ? 'border-[#006064] bg-[#006064] text-white' : 'border-[#006064]/40 bg-white text-[#006064]'}`}
                     >
                         {statusLabels[item]}
@@ -115,7 +130,10 @@ export default function SupportTicketsManager() {
             </div>
 
             {(message || error) && (
-                <div className={`border-2 p-4 font-mono text-sm ${error ? 'border-red-500 bg-red-50 text-red-700' : 'border-green-600 bg-green-50 text-green-700'}`}>
+                <div
+                    role={error ? 'alert' : 'status'}
+                    className={`border-2 p-4 font-mono text-sm ${error ? 'border-red-500 bg-red-50 text-red-700' : 'border-green-600 bg-green-50 text-green-700'}`}
+                >
                     {error || message}
                 </div>
             )}
@@ -138,7 +156,7 @@ export default function SupportTicketsManager() {
                     </thead>
                     <tbody className="divide-y divide-[#006064]/20">
                         {isLoading ? (
-                            <tr><td colSpan={6} className="p-5 font-mono text-[#006064]">Cargando...</td></tr>
+                            <tr><td colSpan={6} role="status" className="p-5 font-mono text-[#006064]">Cargando...</td></tr>
                         ) : tickets.length === 0 ? (
                             <tr><td colSpan={6} className="p-5 font-mono text-[#006064]">No hay avisos para este filtro</td></tr>
                         ) : tickets.map((ticket) => (
@@ -175,6 +193,7 @@ export default function SupportTicketsManager() {
                                         id={`ticket-notes-${ticket.id}`}
                                         value={notesByTicket[ticket.id] || ''}
                                         onChange={(event) => setNotesByTicket((current) => ({ ...current, [ticket.id]: event.target.value }))}
+                                        disabled={isMutating}
                                         rows={4}
                                         maxLength={2000}
                                         className="w-full min-w-[220px] border border-[#006064]/40 p-2 text-sm text-[#006064] focus:border-[#006064] focus:outline-none"
@@ -183,22 +202,28 @@ export default function SupportTicketsManager() {
                                 <td className="p-3 text-right">
                                     <div className="flex flex-col items-end gap-2">
                                         <button
+                                            type="button"
                                             onClick={() => void updateTicket(ticket.id, 'triaged')}
-                                            disabled={workingId === ticket.id || ticket.status === 'triaged'}
+                                            disabled={isMutating || ticket.status === 'triaged'}
+                                            aria-busy={workingAction?.ticketId === ticket.id && workingAction.status === 'triaged'}
                                             className="border border-[#006064] px-3 py-2 text-xs font-bold uppercase text-[#006064] disabled:opacity-50"
                                         >
                                             Revisado
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={() => void updateTicket(ticket.id, 'closed')}
-                                            disabled={workingId === ticket.id || ticket.status === 'closed'}
+                                            disabled={isMutating || ticket.status === 'closed'}
+                                            aria-busy={workingAction?.ticketId === ticket.id && workingAction.status === 'closed'}
                                             className="border border-green-700 px-3 py-2 text-xs font-bold uppercase text-green-800 disabled:opacity-50"
                                         >
                                             Cerrar
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={() => void updateTicket(ticket.id, 'open')}
-                                            disabled={workingId === ticket.id || ticket.status === 'open'}
+                                            disabled={isMutating || ticket.status === 'open'}
+                                            aria-busy={workingAction?.ticketId === ticket.id && workingAction.status === 'open'}
                                             className="border border-yellow-700 px-3 py-2 text-xs font-bold uppercase text-yellow-800 disabled:opacity-50"
                                         >
                                             Reabrir

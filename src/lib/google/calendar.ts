@@ -4,6 +4,7 @@
  */
 import { calendar, calendar_v3 } from '@googleapis/calendar';
 import { getAuthClient } from './auth';
+import { describeGoogleError } from './logging';
 
 let cachedCalendarClient: calendar_v3.Calendar | null = null;
 
@@ -86,9 +87,9 @@ export async function createEventWithMeet(options: CreateEventOptions): Promise<
             ep => ep.entryPointType === 'video'
         )?.uri || null;
 
-        console.log(`[Calendar] Created event: ${options.summary} (${event.id})`);
+        console.log('[Calendar] Created event');
         if (meetLink) {
-            console.log(`[Calendar] Meet link: ${meetLink}`);
+            console.log('[Calendar] Meet conference created');
         }
 
         return {
@@ -98,7 +99,7 @@ export async function createEventWithMeet(options: CreateEventOptions): Promise<
             hangoutLink: event.hangoutLink || null,
         };
     } catch (error) {
-        console.error('[Calendar] Error creating event:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Error creating event:', describeGoogleError(error));
         throw error;
     }
 }
@@ -117,7 +118,7 @@ export async function getEvent(eventId: string, calendarId: string = 'primary'):
 
         return response.data;
     } catch (error) {
-        console.error('[Calendar] Error getting event:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Error getting event:', describeGoogleError(error));
         return null;
     }
 }
@@ -139,10 +140,10 @@ export async function updateEvent(
             requestBody: updates,
         });
 
-        console.log(`[Calendar] Updated event: ${eventId}`);
+        console.log('[Calendar] Updated event');
         return response.data;
     } catch (error) {
-        console.error('[Calendar] Error updating event:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Error updating event:', describeGoogleError(error));
         throw error;
     }
 }
@@ -160,7 +161,7 @@ export async function deleteEvent(eventId: string, calendarId: string = 'primary
             sendUpdates: 'all', // Notify attendees
         });
 
-        console.log(`[Calendar] Deleted event: ${eventId}`);
+        console.log('[Calendar] Deleted event');
         return true;
     } catch (error) {
         const status =
@@ -169,11 +170,11 @@ export async function deleteEvent(eventId: string, calendarId: string = 'primary
                 : undefined;
 
         if (status === 404 || status === 410) {
-            console.warn(`[Calendar] Event ${eventId} was already absent in Google Calendar`);
+            console.warn('[Calendar] Event was already absent in Google Calendar');
             return true;
         }
 
-        console.error('[Calendar] Error deleting event:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Error deleting event:', describeGoogleError(error));
         return false;
     }
 }
@@ -198,7 +199,7 @@ export async function listUpcomingEvents(
 
         return response.data.items || [];
     } catch (error) {
-        console.error('[Calendar] Error listing events:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Error listing events:', describeGoogleError(error));
         return [];
     }
 }
@@ -230,7 +231,7 @@ export async function checkTeacherAvailability(
         // If there are busy slots, the teacher is not available
         return busySlots.length === 0;
     } catch (error) {
-        console.error(`[Calendar] Error checking availability for ${teacherEmail}:`, error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Error checking teacher availability:', describeGoogleError(error));
         // Fail-closed: if we can't verify availability, reject the booking.
         // Better to refuse a valid slot than to double-book.
         throw new Error(`Cannot verify teacher availability: ${error instanceof Error ? error.message : 'unknown error'}`);
@@ -325,8 +326,10 @@ export async function createClassEvent(options: CreateClassEventOptions): Promis
             ep => ep.entryPointType === 'video'
         )?.uri || event.hangoutLink || '';
 
-        console.log(`[Calendar] Created class event: ${options.summary} (${event.id})`);
-        console.log(`[Calendar] Meet link: ${meetLink}`);
+        console.log('[Calendar] Created class event');
+        if (meetLink) {
+            console.log('[Calendar] Meet conference created');
+        }
 
         return {
             eventId: event.id || '',
@@ -334,7 +337,7 @@ export async function createClassEvent(options: CreateClassEventOptions): Promis
             htmlLink: event.htmlLink || '',
         };
     } catch (error) {
-        console.error('[Calendar] Error creating class event:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Error creating class event:', describeGoogleError(error));
         throw error;
     }
 }
@@ -392,11 +395,10 @@ export async function updateCalendarEvent(
             requestBody: patch,
         });
 
-        console.log(`[Calendar] Updated event: ${eventId}`);
+        console.log('[Calendar] Updated event');
         return true;
     } catch (error) {
-        console.error('[Calendar] Failed to update event:',
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Calendar] Failed to update event:', describeGoogleError(error));
         return false;
     }
 }

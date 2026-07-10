@@ -114,11 +114,18 @@ export default function AssignTeacherModal({
             />
 
             {/* Modal */}
-            <div className="relative bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] p-6 max-w-md w-full mx-4">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="assign-teacher-title"
+                className="relative bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] p-6 max-w-md w-full mx-4"
+            >
                 {/* Header */}
                 <div className="flex justify-between items-center mb-6">
-                    <h2 className="font-display text-xl text-[#006064] uppercase">{t.title}</h2>
+                    <h2 id="assign-teacher-title" className="font-display text-xl text-[#006064] uppercase">{t.title}</h2>
                     <button
+                        type="button"
+                        aria-label="Close"
                         onClick={onClose}
                         className="text-[#006064] hover:opacity-70 text-2xl"
                     >
@@ -144,10 +151,11 @@ export default function AssignTeacherModal({
 
                 {/* Teacher select */}
                 <div className="mb-4">
-                    <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
+                    <label htmlFor="assign-teacher-select" className="block text-xs font-mono uppercase text-[#006064]/60 mb-2">
                         {t.select}
                     </label>
                     <select
+                        id="assign-teacher-select"
                         value={selectedTeacherId}
                         onChange={(e) => setSelectedTeacherId(e.target.value)}
                         className="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
@@ -162,8 +170,9 @@ export default function AssignTeacherModal({
                 </div>
 
                 {/* Primary checkbox */}
-                <label className="flex items-center gap-2 mb-6 cursor-pointer">
+                <label htmlFor="assign-teacher-primary" className="flex items-center gap-2 mb-6 cursor-pointer">
                     <input
+                        id="assign-teacher-primary"
                         type="checkbox"
                         checked={isPrimary}
                         onChange={(e) => setIsPrimary(e.target.checked)}
@@ -174,7 +183,7 @@ export default function AssignTeacherModal({
 
                 {/* Message */}
                 {message && (
-                    <div className={`mb-4 p-3 text-sm font-bold ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                    <div role={message.type === 'success' ? 'status' : 'alert'} className={`mb-4 p-3 text-sm font-bold ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                         }`}>
                         {message.text}
                     </div>
@@ -183,6 +192,7 @@ export default function AssignTeacherModal({
                 {/* Buttons */}
                 <div className="flex gap-2">
                     <button
+                        type="button"
                         onClick={handleAssign}
                         disabled={!selectedTeacherId || isLoading}
                         className={`flex-1 px-4 py-3 font-bold uppercase text-sm border-2 border-[#006064] transition-colors ${!selectedTeacherId || isLoading
@@ -195,6 +205,7 @@ export default function AssignTeacherModal({
 
                     {currentTeacherId && (
                         <button
+                            type="button"
                             onClick={handleRemove}
                             disabled={isLoading}
                             className="px-4 py-3 font-bold uppercase text-sm border-2 border-red-500 text-red-500 hover:bg-red-500 hover:text-white transition-colors"

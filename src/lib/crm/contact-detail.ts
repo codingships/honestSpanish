@@ -87,7 +87,10 @@ export const emptyCrmContactDetail: CrmContactDetail = {
 };
 
 function isMissingTable(error: { code?: string; message?: string } | null | undefined) {
-  return error?.code === '42P01' || error?.message?.includes('does not exist') === true;
+  return error?.code === '42P01'
+    || error?.code === 'PGRST205'
+    || error?.message?.includes('does not exist') === true
+    || error?.message?.includes('Could not find the table') === true;
 }
 
 async function loadSupportTickets(supabase: AdminSupabaseClient, profileId: string) {

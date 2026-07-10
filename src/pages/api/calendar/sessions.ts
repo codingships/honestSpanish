@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
 import { checkTeacherAvailabilitySlots } from '../../../lib/calendar/availability';
+import { compareDateKeys, normalizeDateInputToDateKey } from '../../../lib/calendar/madrid-time';
+import { normalizeManualMeetingLink } from '../../../lib/calendar/meeting-link';
 import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
 import { recordFirstClassScheduledSafe } from '../../../lib/crm/onboarding';
 import { enqueueSessionFulfillment } from '../../../lib/fulfillment/queue';
@@ -12,6 +14,15 @@ import {
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
+
+type CreateSessionRequest = {
+    studentId?: unknown;
+    teacherId?: unknown;
+    scheduledAt?: unknown;
+    durationMinutes?: unknown;
+    meetLink?: unknown;
+    autoCreateMeeting?: unknown;
+};
 
 
 // GET: Obtener sesiones (Sin cambios, solo añadido tipado)
@@ -95,10 +106,20 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
-    const body = await context.request.json();
-    const { studentId, teacherId, scheduledAt, durationMinutes: rawDurationMinutes, meetLink, autoCreateMeeting = true } = body;
+    const body = await context.request.json() as CreateSessionRequest;
+    const studentId = typeof body.studentId === 'string' ? body.studentId : '';
+    const teacherId = typeof body.teacherId === 'string' ? body.teacherId : '';
+    const scheduledAt = typeof body.scheduledAt === 'string' ? body.scheduledAt : '';
+    const rawDurationMinutes = body.durationMinutes;
+    const meetLink = body.meetLink;
+    const autoCreateMeeting = typeof body.autoCreateMeeting === 'boolean' ? body.autoCreateMeeting : true;
     const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
+    const manualMeetLink = normalizeManualMeetingLink(meetLink);
     const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
+
+    if (!manualMeetLink.ok) {
+        return new Response(JSON.stringify({ error: manualMeetLink.error }), { status: 400 });
+    }
 
     if (!studentId || !scheduledAt) {
         return new Response(JSON.stringify({ error: 'studentId and scheduledAt are required' }), { status: 400 });
@@ -149,7 +170,7 @@ export const POST: APIRoute = async (context) => {
 
     const { data: subscription } = await supabase
         .from('subscriptions')
-        .select('id, sessions_used, sessions_total')
+        .select('id, sessions_used, sessions_total, ends_at')
         .eq('student_id', studentId)
         .eq('status', 'active')
         .gte('ends_at', new Date().toISOString())
@@ -159,6 +180,22 @@ export const POST: APIRoute = async (context) => {
 
     if (!subscription) {
         return new Response(JSON.stringify({ error: 'Student has no active subscription' }), { status: 400 });
+    }
+
+    const scheduledDateKey = normalizeDateInputToDateKey(scheduledAt);
+    if (!scheduledDateKey) {
+        return new Response(JSON.stringify({ error: 'scheduledAt must be a valid date' }), { status: 400 });
+    }
+
+    const subscriptionEndDateKey = normalizeDateInputToDateKey(subscription.ends_at);
+    if (!subscriptionEndDateKey) {
+        return new Response(JSON.stringify({ error: 'Subscription end date is invalid' }), { status: 500 });
+    }
+
+    if (compareDateKeys(scheduledDateKey, subscriptionEndDateKey) > 0) {
+        return new Response(JSON.stringify({
+            error: 'Session cannot be scheduled after the subscription end date',
+        }), { status: 400 });
     }
 
     // Corrección: Si es null, usamos 0 como valor por defecto
@@ -233,7 +270,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Crear la sesión
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
         .from('sessions')
         .insert({
             subscription_id: subscription.id,
@@ -241,7 +278,7 @@ export const POST: APIRoute = async (context) => {
             teacher_id: finalTeacherId,
             scheduled_at: scheduledAt,
             duration_minutes: durationMinutes,
-            meet_link: meetLink || null, // Guardamos el link manual si existe
+            meet_link: manualMeetLink.value,
             status: 'scheduled'
         })
         .select(`
@@ -272,7 +309,7 @@ export const POST: APIRoute = async (context) => {
             console.error('[Sessions] Failed to consume subscription quota:', quotaUpdateError);
         }
         // Another concurrent request already used the last session — cancel this one
-        await supabase
+        await supabaseAdmin
             .from('sessions')
             .update({ status: 'cancelled' })
             .eq('id', session.id);

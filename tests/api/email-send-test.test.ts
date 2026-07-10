@@ -99,6 +99,33 @@ describe('/api/email/send-test', () => {
         expect(sendEmailPreview).toHaveBeenCalledWith('support-updated', 'admin@example.com');
     });
 
+    it('redacts provider errors when a test email throws', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { sendEmailPreview } = await import('../../src/lib/email/previews');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(sendEmailPreview).mockRejectedValueOnce({
+            message: 'Recipient preview.target@example.com was rejected',
+            statusCode: 422,
+        });
+
+        try {
+            const { POST } = await import('../../src/pages/api/email/send-test');
+            const response = await POST(postContext({ type: 'support-updated', email: 'preview.target@example.com' }) as any);
+            const body = await readJson(response);
+
+            expect(response.status).toBe(500);
+            expect(body.error).toBe('Failed to send test email');
+            expect(errorSpy).toHaveBeenCalledWith(
+                '[EmailTest] Error sending preview:',
+                'Recipient p***t@example.com was rejected status=422'
+            );
+            expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('preview.target@example.com');
+        } finally {
+            errorSpy.mockRestore();
+        }
+    });
+
     it('rejects unauthenticated users', async () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         vi.mocked(createSupabaseServerClient).mockReturnValue(createUnauthenticatedMockClient() as any);

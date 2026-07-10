@@ -8,6 +8,7 @@ const allowedHexColors = new Set([
     '#4285f4',
     '#6a131c',
     '#8a1924',
+    '#b2ebf2',
     '#e0f7fa',
     '#f0fdfa',
     '#f6fe51',

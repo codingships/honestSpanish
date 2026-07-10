@@ -17,9 +17,7 @@ function getServiceUrl(context?: Pick<APIContext, 'locals'>): string | null {
 }
 
 function getInternalSecret(context?: Pick<APIContext, 'locals'>): string | null {
-    return readRuntimeEnv('INTERNAL_JOB_SECRET', context)
-        ?? readRuntimeEnv('CRON_SECRET', context)
-        ?? null;
+    return readRuntimeEnv('INTERNAL_JOB_SECRET', context) ?? null;
 }
 
 export function isInternalJobServiceConfigured(context?: Pick<APIContext, 'locals'>): boolean {

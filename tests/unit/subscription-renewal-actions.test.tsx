@@ -4,7 +4,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import SubscriptionRenewalActions from '../../src/components/admin/SubscriptionRenewalActions';
 
 describe('SubscriptionRenewalActions', () => {
+    const subscriptionId = '80000000-0000-4000-8000-000000000001';
+
     beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-01-15T09:30:00.000Z'));
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             ok: true,
             json: vi.fn().mockResolvedValue({ existing: false, task: { id: 'task-1' } }),
@@ -12,11 +16,12 @@ describe('SubscriptionRenewalActions', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         vi.unstubAllGlobals();
     });
 
-    it('creates a CRM renewal task for active subscriptions', async () => {
-        render(<SubscriptionRenewalActions subscriptionId="80000000-0000-4000-8000-000000000001" status="active" />);
+    it('creates a CRM renewal task for active subscriptions with the selected due date', async () => {
+        render(<SubscriptionRenewalActions subscriptionId={subscriptionId} status="active" />);
 
         fireEvent.change(screen.getByLabelText('Plazo de renovacion'), {
             target: { value: 'one_week' },
@@ -32,16 +37,65 @@ describe('SubscriptionRenewalActions', () => {
         const payload = JSON.parse(request?.body as string);
         expect(payload).toEqual({
             action: 'create_subscription_renewal_task',
-            subscriptionId: '80000000-0000-4000-8000-000000000001',
-            dueAt: expect.any(String),
+            subscriptionId,
+            dueAt: '2026-01-22T10:00:00.000Z',
         });
-        expect(Number.isNaN(Date.parse(payload.dueAt))).toBe(false);
-        expect(await screen.findByText('Tarea CRM creada')).toBeInTheDocument();
+        expect(await screen.findByRole('status')).toHaveTextContent('Tarea CRM creada');
     });
 
     it('does not render actions for inactive subscriptions', () => {
-        const { container } = render(<SubscriptionRenewalActions subscriptionId="80000000-0000-4000-8000-000000000001" status="cancelled" />);
+        const { container, rerender } = render(<SubscriptionRenewalActions subscriptionId={subscriptionId} status="cancelled" />);
 
         expect(container).toBeEmptyDOMElement();
+
+        rerender(<SubscriptionRenewalActions subscriptionId={subscriptionId} status={null} />);
+        expect(container).toBeEmptyDOMElement();
+    });
+
+    it('announces an existing open renewal task without creating duplicate uncertainty', async () => {
+        vi.mocked(fetch).mockResolvedValueOnce({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ existing: true, task: { id: 'task-1' } }),
+        } as unknown as Response);
+        render(<SubscriptionRenewalActions subscriptionId={subscriptionId} status="active" />);
+
+        fireEvent.click(screen.getByText('Crear tarea'));
+
+        expect(await screen.findByRole('status')).toHaveTextContent('Ya hay tarea abierta');
+    });
+
+    it('locks renewal controls while the task is being created', async () => {
+        let resolveFetch!: (value: Response) => void;
+        vi.mocked(fetch).mockReturnValueOnce(new Promise((resolve) => {
+            resolveFetch = resolve;
+        }) as Promise<Response>);
+        render(<SubscriptionRenewalActions subscriptionId={subscriptionId} status="active" />);
+
+        fireEvent.click(screen.getByText('Crear tarea'));
+
+        const select = screen.getByLabelText('Plazo de renovacion');
+        const button = screen.getByRole('button', { name: 'Creando...' });
+        expect(select).toBeDisabled();
+        expect(button).toBeDisabled();
+        expect(button).toHaveAttribute('aria-busy', 'true');
+
+        resolveFetch({
+            ok: true,
+            json: vi.fn().mockResolvedValue({ existing: false, task: { id: 'task-1' } }),
+        } as unknown as Response);
+
+        await waitFor(() => expect(screen.getByRole('button', { name: 'Crear tarea' })).not.toBeDisabled());
+    });
+
+    it('announces API errors as alerts', async () => {
+        vi.mocked(fetch).mockResolvedValueOnce({
+            ok: false,
+            json: vi.fn().mockResolvedValue({ error: 'CRM no disponible' }),
+        } as unknown as Response);
+        render(<SubscriptionRenewalActions subscriptionId={subscriptionId} status="active" />);
+
+        fireEvent.click(screen.getByText('Crear tarea'));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('CRM no disponible');
     });
 });

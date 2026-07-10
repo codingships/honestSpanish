@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { LEGAL_POLICY_VERSION } from '../lib/legal-policy';
 
 // Helper function to get lang from URL at redirect time
 const getLangFromUrl = () => {
@@ -16,6 +17,7 @@ export default function AuthForm({ lang: langProp, translations }) {
     const [mode, setMode] = useState('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [adultConfirmed, setAdultConfirmed] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [successMessage, setSuccessMessage] = useState(null);
@@ -26,6 +28,7 @@ export default function AuthForm({ lang: langProp, translations }) {
         setMode(newMode);
         setError(null);
         setSuccessMessage(null);
+        setAdultConfirmed(false);
     };
 
     const handleForgotPassword = async (e) => {
@@ -33,15 +36,16 @@ export default function AuthForm({ lang: langProp, translations }) {
         setLoading(true);
         setError(null);
         setSuccessMessage(null);
+        const normalizedEmail = email.trim();
 
         try {
             // Best practice: don't reveal if email exists. Always show success.
-            // Errors are logged silently to avoid email enumeration attacks.
-            await supabase.auth.resetPasswordForEmail(email, {
+            // Errors are intentionally swallowed to avoid email enumeration attacks.
+            await supabase.auth.resetPasswordForEmail(normalizedEmail, {
                 redirectTo: `${window.location.origin}/${lang}/reset-password`,
             });
         } catch (err) {
-            console.error('Reset password error (silent):', err);
+            void err;
         } finally {
             setLoading(false);
             // Always show success regardless of outcome
@@ -54,11 +58,18 @@ export default function AuthForm({ lang: langProp, translations }) {
         setLoading(true);
         setError(null);
         setSuccessMessage(null);
+        const normalizedEmail = email.trim();
+
+        if (mode === 'register' && !adultConfirmed) {
+            setError(t.auth.error.adultRequired);
+            setLoading(false);
+            return;
+        }
 
         try {
             if (mode === 'login') {
                 const { error } = await supabase.auth.signInWithPassword({
-                    email,
+                    email: normalizedEmail,
                     password,
                 });
                 if (error) throw error;
@@ -66,14 +77,17 @@ export default function AuthForm({ lang: langProp, translations }) {
                 const currentLang = getLangFromUrl();
                 window.location.href = `/api/auth/post-login?lang=${currentLang}`;
             } else {
-                const fullName = email.split('@')[0];
+                const fullName = normalizedEmail.split('@')[0];
 
                 const { data, error } = await supabase.auth.signUp({
-                    email,
+                    email: normalizedEmail,
                     password,
                     options: {
                         data: {
                             full_name: fullName,
+                            adult_confirmed: true,
+                            adult_confirmed_at: new Date().toISOString(),
+                            age_policy_version: LEGAL_POLICY_VERSION,
                         }
                     }
                 });
@@ -81,22 +95,11 @@ export default function AuthForm({ lang: langProp, translations }) {
 
                 if (data?.session) {
                     window.location.href = `/api/auth/post-login?lang=${getLangFromUrl()}`;
-                } else if (data?.user && !data?.user?.identities?.length === 0) {
-                    setSuccessMessage(t.auth.success.registered);
                 } else {
-                    const { error: loginError } = await supabase.auth.signInWithPassword({
-                        email,
-                        password,
-                    });
-                    if (!loginError) {
-                        window.location.href = `/api/auth/post-login?lang=${getLangFromUrl()}`;
-                    } else {
-                        setSuccessMessage(t.auth.success.registered);
-                    }
+                    setSuccessMessage(t.auth.success.registered);
                 }
             }
         } catch (err) {
-            console.error(err);
             if (err.message && err.message.includes("Invalid login credentials")) {
                 setError(t.auth.error.invalidCredentials);
             } else if (err.message && err.message.includes("User already registered")) {
@@ -137,13 +140,13 @@ export default function AuthForm({ lang: langProp, translations }) {
                     </div>
 
                     {error && (
-                        <div className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
+                        <div role="alert" className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
                             {error}
                         </div>
                     )}
 
                     {successMessage && (
-                        <div className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
+                        <div role="status" className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
                             {successMessage}
                         </div>
                     )}
@@ -168,6 +171,7 @@ export default function AuthForm({ lang: langProp, translations }) {
                         <button
                             type="submit"
                             disabled={loading}
+                            aria-busy={loading}
                             className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             {loading ? '...' : t.auth.sendResetLink}
@@ -176,7 +180,9 @@ export default function AuthForm({ lang: langProp, translations }) {
 
                     <div className="mt-6 text-center">
                         <button
+                            type="button"
                             onClick={() => switchMode('login')}
+                            disabled={loading}
                             className="text-sm font-bold text-[#006064] underline hover:opacity-70"
                         >
                             {t.auth.backToLogin}
@@ -201,13 +207,13 @@ export default function AuthForm({ lang: langProp, translations }) {
                 </div>
 
                 {error && (
-                    <div className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
+                    <div role="alert" className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
                         {error}
                     </div>
                 )}
 
                 {successMessage && (
-                    <div className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
+                    <div role="status" className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
                         {successMessage}
                     </div>
                 )}
@@ -245,9 +251,23 @@ export default function AuthForm({ lang: langProp, translations }) {
                         />
                     </div>
 
+                    {mode === 'register' && (
+                        <label className="flex items-start gap-3 text-xs leading-5 text-[#006064]/80">
+                            <input
+                                type="checkbox"
+                                checked={adultConfirmed}
+                                onChange={(event) => setAdultConfirmed(event.currentTarget.checked)}
+                                aria-required="true"
+                                className="mt-1 h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
+                            />
+                            <span>{t.auth.adultConfirmation}</span>
+                        </label>
+                    )}
+
                     <button
                         type="submit"
                         disabled={loading}
+                        aria-busy={loading}
                         className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                         {loading ? '...' : (mode === 'login' ? t.auth.submitLogin : t.auth.submitRegister)}
@@ -258,7 +278,9 @@ export default function AuthForm({ lang: langProp, translations }) {
                     <p>
                         {mode === 'login' ? t.auth.noAccount : t.auth.hasAccount}{' '}
                         <button
+                            type="button"
                             onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
+                            disabled={loading}
                             className="font-bold underline hover:opacity-70"
                         >
                             {mode === 'login' ? t.auth.register : t.auth.login}
@@ -269,7 +291,9 @@ export default function AuthForm({ lang: langProp, translations }) {
                 {mode === 'login' && (
                     <div className="mt-2 text-center text-xs font-mono text-[#006064]/60">
                         <button
+                            type="button"
                             onClick={() => switchMode('forgotPassword')}
+                            disabled={loading}
                             className="text-[#006064] hover:underline"
                         >
                             {t.auth.forgotPassword}

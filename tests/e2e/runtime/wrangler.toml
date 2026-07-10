@@ -1,0 +1,9 @@
+name = "espanol-honesto-e2e-local"
+compatibility_date = "2026-06-08"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+NODE_ENV = "development"
+CHECKOUT_ENABLED = "false"
+E2E_DISABLE_EXTERNAL_INTEGRATIONS = "true"
+E2E_RUNTIME_ISOLATED = "true"

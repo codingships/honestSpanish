@@ -6,6 +6,30 @@
     const STORAGE_COORDS = 'ehDemoGuideCoords';
     const STORAGE_COMPACT = 'ehDemoGuideCompact';
 
+    const safeStorage = {
+        getItem(key) {
+            try {
+                return window.localStorage.getItem(key);
+            } catch {
+                return null;
+            }
+        },
+        setItem(key, value) {
+            try {
+                window.localStorage.setItem(key, value);
+            } catch {
+                // Demo mode must remain usable in hardened browser storage modes.
+            }
+        },
+        removeItem(key) {
+            try {
+                window.localStorage.removeItem(key);
+            } catch {
+                // Ignore blocked storage during demo cleanup/reset.
+            }
+        },
+    };
+
     const params = new URLSearchParams(window.location.search);
     const demoParam = params.get('demo');
     const isTryCloudflareHost = window.location.hostname.endsWith('.trycloudflare.com');
@@ -16,25 +40,27 @@
     const shouldReset = params.get('demoStart') === '1' || params.get('resetDemo') === '1';
 
     if (shouldDisable) {
-        localStorage.removeItem(STORAGE_ENABLED);
-        localStorage.removeItem(STORAGE_INDEX);
+        safeStorage.removeItem(STORAGE_ENABLED);
+        safeStorage.removeItem(STORAGE_INDEX);
         return;
     }
 
     if (shouldEnable) {
-        localStorage.setItem(STORAGE_ENABLED, '1');
+        safeStorage.setItem(STORAGE_ENABLED, '1');
     }
 
     if (requestedLauncher && shouldReset) {
-        localStorage.removeItem(STORAGE_ENABLED);
+        safeStorage.removeItem(STORAGE_ENABLED);
     }
 
     if (shouldReset) {
-        localStorage.setItem(STORAGE_INDEX, '0');
-        localStorage.removeItem(STORAGE_COORDS);
+        safeStorage.setItem(STORAGE_INDEX, '0');
+        safeStorage.removeItem(STORAGE_COORDS);
     }
 
-    if (localStorage.getItem(STORAGE_ENABLED) !== '1') {
+    const guideEnabled = shouldEnable || safeStorage.getItem(STORAGE_ENABLED) === '1';
+
+    if (!guideEnabled) {
         if (shouldShowLauncher) renderLauncher();
         return;
     }
@@ -84,6 +110,8 @@
 
         const launcher = document.createElement('section');
         launcher.id = 'eh-guide-launcher';
+        launcher.setAttribute('role', 'region');
+        launcher.setAttribute('aria-label', 'Lanzador de demo guiada');
         const label = document.createElement('strong');
         label.textContent = 'Demo guiada';
         const button = document.createElement('button');
@@ -468,7 +496,7 @@
     ];
 
     const clampIndex = (value) => Math.min(Math.max(value, 0), steps.length - 1);
-    let index = clampIndex(Number.parseInt(localStorage.getItem(STORAGE_INDEX) || '0', 10) || 0);
+    let index = clampIndex(Number.parseInt(safeStorage.getItem(STORAGE_INDEX) || '0', 10) || 0);
     let isBusy = false;
     let statusMessage = '';
 
@@ -517,7 +545,7 @@
             }
 
             index = clampIndex(index + 1);
-            localStorage.setItem(STORAGE_INDEX, String(index));
+            safeStorage.setItem(STORAGE_INDEX, String(index));
             window.location.assign(data.redirectTo || steps[index].route);
         } catch (error) {
             isBusy = false;
@@ -528,7 +556,7 @@
 
     function goToStep(nextIndex) {
         index = clampIndex(nextIndex);
-        localStorage.setItem(STORAGE_INDEX, String(index));
+        safeStorage.setItem(STORAGE_INDEX, String(index));
         statusMessage = '';
         const step = steps[index];
         if (!routeMatches(step.route)) {
@@ -539,17 +567,17 @@
     }
 
     function finish() {
-        localStorage.removeItem(STORAGE_ENABLED);
-        localStorage.removeItem(STORAGE_INDEX);
+        safeStorage.removeItem(STORAGE_ENABLED);
+        safeStorage.removeItem(STORAGE_INDEX);
         document.getElementById('eh-guide-overlay')?.remove();
     }
 
     function togglePosition(overlay) {
-        const current = localStorage.getItem(STORAGE_POSITION) || 'right';
+        const current = safeStorage.getItem(STORAGE_POSITION) || 'right';
         const positions = ['right', 'left', 'top'];
         const next = positions[(positions.indexOf(current) + 1) % positions.length] || 'right';
-        localStorage.setItem(STORAGE_POSITION, next);
-        localStorage.removeItem(STORAGE_COORDS);
+        safeStorage.setItem(STORAGE_POSITION, next);
+        safeStorage.removeItem(STORAGE_COORDS);
         overlay.classList.remove('eh-guide-right', 'eh-guide-left', 'eh-guide-top');
         overlay.classList.add(`eh-guide-${next}`);
         overlay.style.left = '';
@@ -559,8 +587,8 @@
     }
 
     function toggleCompact(overlay, button) {
-        const compact = localStorage.getItem(STORAGE_COMPACT) === '1' ? '0' : '1';
-        localStorage.setItem(STORAGE_COMPACT, compact);
+        const compact = safeStorage.getItem(STORAGE_COMPACT) === '1' ? '0' : '1';
+        safeStorage.setItem(STORAGE_COMPACT, compact);
         overlay.classList.toggle('eh-guide-compact', compact === '1');
         button.textContent = compact === '1' ? 'Expandir' : 'Compacto';
     }
@@ -650,7 +678,7 @@
 
     function readCoords() {
         try {
-            const parsed = JSON.parse(localStorage.getItem(STORAGE_COORDS) || 'null');
+            const parsed = JSON.parse(safeStorage.getItem(STORAGE_COORDS) || 'null');
             if (Number.isFinite(parsed?.left) && Number.isFinite(parsed?.top)) return parsed;
         } catch {
             return null;
@@ -678,7 +706,7 @@
         overlay.style.top = `${next.top}px`;
         overlay.style.right = 'auto';
         overlay.style.bottom = 'auto';
-        localStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
+        safeStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
     }
 
     function enableDrag(overlay, handle) {
@@ -696,7 +724,7 @@
             overlay.style.top = `${next.top}px`;
             overlay.style.right = 'auto';
             overlay.style.bottom = 'auto';
-            localStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
+            safeStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
         };
 
         const stop = (event) => {
@@ -763,8 +791,10 @@
         }
 
         overlay.title = 'Arrastra el panel para moverlo.';
-        const position = localStorage.getItem(STORAGE_POSITION) || 'right';
-        const compact = localStorage.getItem(STORAGE_COMPACT) === '1';
+        overlay.setAttribute('role', 'region');
+        overlay.setAttribute('aria-label', 'Guia de demo');
+        const position = safeStorage.getItem(STORAGE_POSITION) || 'right';
+        const compact = safeStorage.getItem(STORAGE_COMPACT) === '1';
         overlay.className = `eh-guide-${position}${compact ? ' eh-guide-compact' : ''}`;
         overlay.style.left = '';
         overlay.style.right = '';
@@ -774,6 +804,7 @@
 
         const top = document.createElement('div');
         top.className = 'eh-guide-topline';
+        top.setAttribute('aria-label', 'Arrastrar guia de demo');
         const counter = document.createElement('span');
         counter.textContent = `Paso ${index + 1} de ${steps.length}`;
         const badge = document.createElement('span');
@@ -785,13 +816,15 @@
         const compactButton = makeButton(compact ? 'Expandir' : 'Compacto', () => toggleCompact(overlay, compactButton));
         tools.append(moveButton, compactButton);
         top.append(counter, badge, tools);
-        enableDrag(overlay, overlay);
+        enableDrag(overlay, top);
 
         const title = document.createElement('h2');
         title.textContent = step.title;
 
         const status = document.createElement('p');
         status.className = 'eh-guide-status';
+        status.setAttribute('role', 'status');
+        status.setAttribute('aria-live', 'polite');
         status.textContent = statusMessage;
         status.hidden = !statusMessage;
 

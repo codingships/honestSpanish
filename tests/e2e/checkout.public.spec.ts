@@ -9,7 +9,7 @@ test.describe('Public pricing application flow', () => {
             await plansSection.scrollIntoViewIfNeeded();
         }
 
-        const selectButton = page.locator('button[data-testid^="select-plan-"]').first();
+        const selectButton = page.locator('[data-testid^="select-plan-"]').first();
 
         if (await selectButton.count() > 0) {
             await selectButton.click();

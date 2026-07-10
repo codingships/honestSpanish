@@ -63,6 +63,16 @@ export interface WelcomeEmailData {
     packageName: string;
     loginUrl: string;
     driveFolderUrl?: string;
+    durationMonths?: number;
+    startsAt?: string;
+    endsAt?: string;
+    sessionsTotal?: number;
+    amountTotal?: number;
+    currency?: string;
+    legalPolicyVersion?: string;
+    policyAcceptedAt?: string;
+    termsUrl?: string;
+    supportUrl?: string;
 }
 
 export function welcomeEmailTemplate(data: WelcomeEmailData): string {
@@ -70,6 +80,21 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
     const packageName = escapeEmailHtml(data.packageName);
     const loginUrl = safeEmailUrl(data.loginUrl);
     const driveFolderUrl = safeEmailUrl(data.driveFolderUrl);
+    const termsUrl = safeEmailUrl(data.termsUrl);
+    const supportUrl = safeEmailUrl(data.supportUrl);
+    const durationMonths = Number.isInteger(data.durationMonths) ? String(data.durationMonths) : '';
+    const sessionsTotal = Number.isInteger(data.sessionsTotal) ? String(data.sessionsTotal) : '';
+    const startsAt = escapeEmailHtml(data.startsAt || '');
+    const endsAt = escapeEmailHtml(data.endsAt || '');
+    const legalPolicyVersion = escapeEmailHtml(data.legalPolicyVersion || '');
+    const policyAcceptedAt = escapeEmailHtml(data.policyAcceptedAt || '');
+    const currency = typeof data.currency === 'string' && /^[a-z]{3}$/i.test(data.currency)
+        ? data.currency.toUpperCase()
+        : 'EUR';
+    const amountPaid = Number.isInteger(data.amountTotal) && (data.amountTotal ?? 0) >= 0
+        ? new Intl.NumberFormat('en-IE', { style: 'currency', currency }).format((data.amountTotal ?? 0) / 100)
+        : '';
+    const hasContractDetails = Boolean(durationMonths && startsAt && endsAt && sessionsTotal && amountPaid);
     const content = `
         <h2 style="color: #006064; margin: 0 0 20px 0;">Welcome, ${studentName}</h2>
 
@@ -77,6 +102,30 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
             Your <strong>${packageName}</strong> plan is active.
             We are glad to have you with us.
         </p>
+
+        ${hasContractDetails ? `
+        <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
+            <p style="margin: 0 0 12px 0; color: #006064; font-weight: bold;">Your contract summary</p>
+            <ul style="margin: 0; padding-left: 20px; color: #333333; line-height: 1.7;">
+                <li>Plan: ${packageName}</li>
+                <li>Subscription period: ${durationMonths} month(s), ${startsAt} to ${endsAt}</li>
+                <li>Class allowance for this period: ${sessionsTotal}</li>
+                <li>Amount charged at the start of the period: ${escapeEmailHtml(amountPaid)}</li>
+                <li>Automatic renewal: the same amount and period recur until renewal is disabled before the next charge.</li>
+                <li>Unused classes expire on ${endsAt} and do not roll over, subject to statutory rights and approved exceptions.</li>
+                <li>Class cancellation: at least 24 hours restores the credit; later cancellation or no-show consumes it, subject to a justified support exception.</li>
+            </ul>
+            ${legalPolicyVersion ? `<p style="margin: 12px 0 0 0; color: #666666; font-size: 12px;">Terms version: ${legalPolicyVersion}${policyAcceptedAt ? ` · accepted ${policyAcceptedAt}` : ''}</p>` : ''}
+        </div>
+        ` : ''}
+
+        ${termsUrl ? `
+        <p style="color: #333333; font-size: 14px; line-height: 1.6;">
+            Your terms, 14-day withdrawal information and model form are available at
+            <a href="${termsUrl}" style="color: #006064;">${termsUrl}</a>.
+            ${supportUrl ? `To cancel renewal, report an incident or exercise withdrawal, use <a href="${supportUrl}" style="color: #006064;">support</a> or reply to this email.` : ''}
+        </p>
+        ` : ''}
 
         <div style="background-color: #E0F7FA; padding: 20px; margin: 25px 0; border-left: 4px solid #006064;">
             <p style="margin: 0 0 10px 0; color: #006064; font-weight: bold;">Next steps:</p>
@@ -110,6 +159,165 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
             Speak soon,<br>
             <strong>The Español Honesto team</strong>
         </p>
+    `;
+
+    return baseTemplate(content);
+}
+
+// ============================================
+// Upcoming Renewal Notice
+// ============================================
+
+export type RenewalNoticeLocale = 'es' | 'en' | 'ru';
+
+export interface RenewalNoticeEmailData {
+    locale: RenewalNoticeLocale;
+    studentName: string;
+    packageName: string;
+    renewalAt: string;
+    cancelBy: string;
+    durationMonths: number;
+    amountTotal: number;
+    currency: string;
+    accountUrl: string;
+    supportUrl: string;
+    termsUrl: string;
+}
+
+const renewalNoticeCopy = {
+    es: {
+        subject: 'Aviso de renovación de tu suscripción - Español Honesto',
+        title: 'Tu suscripción se renovará próximamente',
+        hello: 'Hola',
+        intro: 'Te avisamos con antelación de la próxima renovación automática de tu suscripción.',
+        plan: 'Plan',
+        chargeDate: 'Fecha prevista de cobro',
+        amount: 'Importe',
+        period: 'Nuevo periodo',
+        deadline: 'Plazo de cancelación',
+        deadlineText: 'antes de la fecha prevista de cobro indicada arriba',
+        cancel: 'Puedes desactivar la renovación desde tu cuenta. También puedes solicitarlo por soporte o respondiendo a este correo antes del plazo.',
+        consequence: 'Si no cancelas a tiempo, se cobrará el importe indicado y la suscripción se renovará por el mismo periodo.',
+        accountButton: 'GESTIONAR RENOVACIÓN',
+        support: 'Contactar con soporte',
+        terms: 'Consultar condiciones',
+        signoff: 'Equipo de Español Honesto',
+    },
+    en: {
+        subject: 'Your subscription renewal notice - Español Honesto',
+        title: 'Your subscription will renew soon',
+        hello: 'Hello',
+        intro: 'This is advance notice of the upcoming automatic renewal of your subscription.',
+        plan: 'Plan',
+        chargeDate: 'Expected charge date',
+        amount: 'Amount',
+        period: 'New period',
+        deadline: 'Cancellation deadline',
+        deadlineText: 'before the expected charge date shown above',
+        cancel: 'You can turn off renewal from your account. You may also ask support or reply to this email before the deadline.',
+        consequence: 'If you do not cancel in time, the stated amount will be charged and the subscription will renew for the same period.',
+        accountButton: 'MANAGE RENEWAL',
+        support: 'Contact support',
+        terms: 'View terms',
+        signoff: 'The Español Honesto team',
+    },
+    ru: {
+        subject: 'Уведомление о продлении подписки - Español Honesto',
+        title: 'Ваша подписка скоро продлится',
+        hello: 'Здравствуйте',
+        intro: 'Заранее уведомляем вас о предстоящем автоматическом продлении подписки.',
+        plan: 'Тариф',
+        chargeDate: 'Предполагаемая дата списания',
+        amount: 'Сумма',
+        period: 'Новый период',
+        deadline: 'Срок отмены',
+        deadlineText: 'до указанной выше предполагаемой даты списания',
+        cancel: 'Отключить продление можно в личном кабинете. До истечения срока также можно обратиться в поддержку или ответить на это письмо.',
+        consequence: 'Если вы не отмените продление вовремя, указанная сумма будет списана, а подписка продлится на тот же период.',
+        accountButton: 'УПРАВЛЯТЬ ПРОДЛЕНИЕМ',
+        support: 'Связаться с поддержкой',
+        terms: 'Посмотреть условия',
+        signoff: 'Команда Español Honesto',
+    },
+} as const;
+
+const renewalIntlLocales: Record<RenewalNoticeLocale, string> = {
+    es: 'es-ES',
+    en: 'en-GB',
+    ru: 'ru-RU',
+};
+
+function renewalPeriodLabel(locale: RenewalNoticeLocale, months: number): string {
+    if (locale === 'es') return `${months} ${months === 1 ? 'mes' : 'meses'}`;
+    if (locale === 'en') return `${months} ${months === 1 ? 'month' : 'months'}`;
+
+    const mod10 = months % 10;
+    const mod100 = months % 100;
+    const unit = mod10 === 1 && mod100 !== 11
+        ? 'месяц'
+        : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
+            ? 'месяца'
+            : 'месяцев';
+    return `${months} ${unit}`;
+}
+
+export function renewalNoticeSubject(locale: RenewalNoticeLocale): string {
+    return renewalNoticeCopy[locale].subject;
+}
+
+export function renewalNoticeEmailTemplate(data: RenewalNoticeEmailData): string {
+    const copy = renewalNoticeCopy[data.locale];
+    const intlLocale = renewalIntlLocales[data.locale];
+    const renewalDate = new Date(data.renewalAt);
+    const cancelDate = new Date(data.cancelBy);
+    if (!Number.isFinite(renewalDate.getTime()) || !Number.isFinite(cancelDate.getTime())) {
+        throw new Error('Renewal notice requires valid renewal and cancellation dates');
+    }
+
+    const currency = /^[a-z]{3}$/i.test(data.currency) ? data.currency.toUpperCase() : 'EUR';
+    const amountTotal = Number.isInteger(data.amountTotal) && data.amountTotal >= 0 ? data.amountTotal : 0;
+    const durationMonths = Number.isInteger(data.durationMonths) && data.durationMonths > 0
+        ? data.durationMonths
+        : 1;
+    const formatDate = (value: Date) => new Intl.DateTimeFormat(intlLocale, {
+        dateStyle: 'long',
+        timeZone: 'Europe/Madrid',
+    }).format(value);
+    const amount = new Intl.NumberFormat(intlLocale, {
+        style: 'currency',
+        currency,
+    }).format(amountTotal / 100);
+    const studentName = escapeEmailHtml(data.studentName);
+    const packageName = escapeEmailHtml(data.packageName);
+    const accountUrl = safeEmailUrl(data.accountUrl);
+    const supportUrl = safeEmailUrl(data.supportUrl);
+    const termsUrl = safeEmailUrl(data.termsUrl);
+
+    const content = `
+        <h2 style="color: #006064; margin: 0 0 20px 0;">${copy.title}</h2>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.hello} ${studentName},</p>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.intro}</p>
+
+        <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
+            <p style="margin: 0; color: #333333; font-size: 15px; line-height: 1.8;">
+                <strong>${copy.plan}:</strong> ${packageName}<br>
+                <strong>${copy.chargeDate}:</strong> ${escapeEmailHtml(formatDate(renewalDate))}<br>
+                <strong>${copy.amount}:</strong> ${escapeEmailHtml(amount)}<br>
+                <strong>${copy.period}:</strong> ${escapeEmailHtml(renewalPeriodLabel(data.locale, durationMonths))}<br>
+                <strong>${copy.deadline}:</strong> ${copy.deadlineText} (${escapeEmailHtml(formatDate(cancelDate))})
+            </p>
+        </div>
+
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.cancel}</p>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;"><strong>${copy.consequence}</strong></p>
+
+        ${accountUrl ? `<p style="text-align: center; margin: 30px 0;"><a href="${accountUrl}" style="display: inline-block; background-color: #006064; color: #ffffff; padding: 15px 32px; text-decoration: none; font-weight: bold;">${copy.accountButton}</a></p>` : ''}
+        <p style="color: #666666; font-size: 14px; line-height: 1.7;">
+            ${supportUrl ? `<a href="${supportUrl}" style="color: #006064;">${copy.support}</a>` : ''}
+            ${supportUrl && termsUrl ? ' · ' : ''}
+            ${termsUrl ? `<a href="${termsUrl}" style="color: #006064;">${copy.terms}</a>` : ''}
+        </p>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.signoff}</p>
     `;
 
     return baseTemplate(content);

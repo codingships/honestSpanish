@@ -1,10 +1,26 @@
 name = "espanolhonesto"
-pages_build_output_dir = "dist"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+keep_vars = true
 
 [vars]
-# Las variables sensibles se configuran en el dashboard de Cloudflare
-# Aquí solo van las no sensibles
+# Las variables sensibles se configuran en el dashboard de Cloudflare.
+# Aqui solo van defaults no sensibles y fail-closed.
 NODE_ENV = "production"
+CHECKOUT_ENABLED = "false"
+
+[env.staging]
+name = "espanolhonesto-staging"
+
+[env.staging.vars]
+NODE_ENV = "production"
+PUBLIC_APP_ENV = "staging"
+CHECKOUT_ENABLED = "false"
+
+[env.production]
+name = "espanolhonesto"
+
+[env.production.vars]
+NODE_ENV = "production"
+PUBLIC_APP_ENV = "production"
 CHECKOUT_ENABLED = "false"

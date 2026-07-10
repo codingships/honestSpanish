@@ -11,9 +11,13 @@
 import 'dotenv/config';
 import { drive } from '@googleapis/drive';
 import { JWT } from 'google-auth-library';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 
 const stagingRootName = process.env.GOOGLE_STAGING_ROOT_FOLDER_NAME || 'STAGING - Espanol Honesto';
 const stagingTemplateName = process.env.GOOGLE_STAGING_TEMPLATE_DOC_NAME || 'STAGING - Plantilla de clase';
+const discoverOnly = process.argv.includes('--discover-only');
+const updateEnvStaging = process.argv.includes('--update-env-staging');
 
 const requiredEnv = [
     'GOOGLE_SERVICE_ACCOUNT_EMAIL',
@@ -78,6 +82,10 @@ async function ensureStagingRoot() {
         return { id: existing.id, link: existing.webViewLink, created: false };
     }
 
+    if (discoverOnly) {
+        throw new Error(`Missing exact staging Drive folder: ${stagingRootName}`);
+    }
+
     const response = await driveClient.files.create({
         requestBody: {
             name: stagingRootName,
@@ -105,6 +113,10 @@ async function ensureStagingTemplate(parentId: string) {
         return { id: existing.id, link: existing.webViewLink, created: false };
     }
 
+    if (discoverOnly) {
+        throw new Error(`Missing exact staging template: ${stagingTemplateName}`);
+    }
+
     const response = await driveClient.files.copy({
         fileId: process.env.GOOGLE_TEMPLATE_DOC_ID!,
         requestBody: {
@@ -127,14 +139,45 @@ async function main() {
     const root = await ensureStagingRoot();
     const template = await ensureStagingTemplate(root.id);
 
+    if (updateEnvStaging) {
+        updateEnvFile(path.join(process.cwd(), '.env.staging'), {
+            GOOGLE_SERVICE_ACCOUNT_EMAIL: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL!,
+            GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY!,
+            GOOGLE_ADMIN_EMAIL: process.env.GOOGLE_ADMIN_EMAIL!,
+            GOOGLE_DRIVE_ROOT_FOLDER_ID: root.id,
+            GOOGLE_TEMPLATE_DOC_ID: template.id,
+        });
+    }
+
     console.log('Google staging resources ready.');
-    console.log(`GOOGLE_DRIVE_ROOT_FOLDER_ID=${root.id}`);
-    console.log(`GOOGLE_TEMPLATE_DOC_ID=${template.id}`);
     console.log(`root_created=${root.created}`);
     console.log(`template_created=${template.created}`);
+    console.log(`env_staging_updated=${updateEnvStaging}`);
+}
 
-    if (root.link) console.log(`root_link=${root.link}`);
-    if (template.link) console.log(`template_link=${template.link}`);
+function updateEnvFile(file: string, values: Record<string, string>): void {
+    const original = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    const lines = original ? original.split(/\r?\n/) : [];
+    const pending = new Map(Object.entries(values));
+    const updated = lines.map((line) => {
+        const match = line.match(/^\s*([A-Z0-9_]+)\s*=/);
+        if (!match || !pending.has(match[1])) return line;
+
+        const value = pending.get(match[1])!;
+        pending.delete(match[1]);
+        return `${match[1]}=${serializeEnvValue(value)}`;
+    });
+
+    if (updated.length > 0 && updated.at(-1) !== '') updated.push('');
+    for (const [key, value] of pending) {
+        updated.push(`${key}=${serializeEnvValue(value)}`);
+    }
+    updated.push('');
+    writeFileSync(file, updated.join('\n'), 'utf8');
+}
+
+function serializeEnvValue(value: string): string {
+    return JSON.stringify(value.replace(/\r?\n/g, '\\n'));
 }
 
 main().catch((error) => {

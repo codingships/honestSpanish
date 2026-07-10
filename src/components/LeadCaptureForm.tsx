@@ -42,6 +42,7 @@ interface LeadCaptureFormProps {
         availability: string;
         availabilityPlaceholder: string;
         placeholder: string;
+        adultConfirmation: string;
         consent: string;
         privacyLink: string;
         button: string;
@@ -49,10 +50,15 @@ interface LeadCaptureFormProps {
         error: string;
         loading: string;
         consentError: string;
+        adultError: string;
         securityError: string;
     };
     onSuccess?: () => void;
 }
+
+type LeadCaptureResponse = {
+    error?: string;
+};
 
 export default function LeadCaptureForm({ lang, translations: t, onSuccess }: LeadCaptureFormProps) {
     const [formData, setFormData] = useState({
@@ -66,6 +72,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
         availability: '',
         preferredPackage: '',
         preferredPackageLabel: '',
+        adultConfirmed: false,
         consent: false,
     });
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
@@ -93,11 +100,13 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
 
     useEffect(() => {
         const applyPreferredPackage = (detail: PreferredPackageDetail | null | undefined) => {
-            if (!detail?.preferredPackage) return;
+            const preferredPackage = detail?.preferredPackage?.trim();
+            if (!preferredPackage) return;
+            const preferredPackageLabel = detail?.preferredPackageLabel?.trim() || preferredPackage;
             setFormData(prev => ({
                 ...prev,
-                preferredPackage: detail.preferredPackage || '',
-                preferredPackageLabel: detail.preferredPackageLabel || detail.preferredPackage || '',
+                preferredPackage,
+                preferredPackageLabel,
             }));
         };
 
@@ -106,6 +115,22 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
             if (stored) applyPreferredPackage(JSON.parse(stored) as PreferredPackageDetail);
         } catch {
             // Ignore unavailable or malformed session storage.
+        }
+
+        try {
+            const url = new URL(window.location.href);
+            const preferredPackage = url.searchParams.get('preferredPackage');
+            if (preferredPackage) {
+                applyPreferredPackage({
+                    preferredPackage,
+                    preferredPackageLabel: url.searchParams.get('preferredPackageLabel') || preferredPackage,
+                });
+                url.searchParams.delete('preferredPackage');
+                url.searchParams.delete('preferredPackageLabel');
+                window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+            }
+        } catch {
+            // Ignore malformed URLs or restricted history access.
         }
 
         const handlePreferredPackage = (event: Event) => {
@@ -118,6 +143,12 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+
+        if (!formData.adultConfirmed) {
+            setErrorMessage(t.adultError);
+            setStatus('error');
+            return;
+        }
 
         if (!formData.consent) {
             setErrorMessage(t.consentError);
@@ -147,7 +178,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                 }),
             });
 
-            const data = await response.json();
+            const data = await response.json() as LeadCaptureResponse;
 
             if (!response.ok) {
                 throw new Error(data.error || 'Error subscribing');
@@ -166,6 +197,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                 availability: '',
                 preferredPackage: '',
                 preferredPackageLabel: '',
+                adultConfirmed: false,
                 consent: false,
             });
             try {
@@ -185,11 +217,11 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
             <p className="font-sans text-[#006064] mb-6 text-sm text-center">{t.subtitle}</p>
 
             {status === 'success' ? (
-                <div className="bg-green-100 border-2 border-green-500 text-green-700 p-4 font-bold text-sm text-center">
+                <div role="status" aria-live="polite" className="bg-green-100 border-2 border-green-500 text-green-700 p-4 font-bold text-sm text-center">
                     {t.success}
                 </div>
             ) : (
-                <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+                <form onSubmit={handleSubmit} className="flex flex-col gap-4" aria-busy={status === 'loading'}>
                     {/* Name */}
                     <div>
                         <label htmlFor="lead-name" className="block text-xs font-bold uppercase text-[#006064] mb-1">{t.name}</label>
@@ -320,7 +352,19 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         />
                     </div>
 
-                    {/* Consent Checkbox */}
+                    <label className="flex items-start gap-2 mt-2 text-xs text-[#006064]/80 leading-snug">
+                        <input
+                            type="checkbox"
+                            name="adultConfirmed"
+                            checked={formData.adultConfirmed}
+                            onChange={handleChange}
+                            aria-required="true"
+                            className="mt-1 w-4 h-4 text-[#006064] border-2 border-[#006064] rounded focus:ring-[#006064]/20"
+                        />
+                        <span>{t.adultConfirmation}</span>
+                    </label>
+
+                    {/* Privacy consent */}
                     <div className="flex items-start gap-2 mt-2">
                         <input
                             type="checkbox"
@@ -328,7 +372,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             id="consent"
                             checked={formData.consent}
                             onChange={handleChange}
-                            required
+                            aria-required="true"
                             className="mt-1 w-4 h-4 text-[#006064] border-2 border-[#006064] rounded focus:ring-[#006064]/20"
                         />
                         <label htmlFor="consent" className="text-xs text-[#006064]/80 leading-snug">
@@ -353,6 +397,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                     <button
                         type="submit"
                         disabled={status === 'loading'}
+                        aria-busy={status === 'loading'}
                         className={`
                             w-full mt-2 py-3 font-bold text-sm uppercase tracking-widest
                             border-2 border-[#006064] 

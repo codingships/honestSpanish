@@ -56,6 +56,7 @@ const targets: PageTarget[] = [
     { name: 'login es', path: '/es/login' },
     { name: 'legal notice es', path: '/es/legal/aviso-legal' },
     { name: 'privacy es', path: '/es/legal/privacidad' },
+    { name: 'terms es', path: '/es/legal/terminos' },
     { name: 'cookies es', path: '/es/legal/cookies' },
     { name: 'campus unauth redirect', path: '/es/campus', expectedPathIncludes: '/es/login' },
 ];

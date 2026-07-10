@@ -81,10 +81,37 @@ describe('POST /api/calendar/recurring-sessions', () => {
 
         const { POST } = await import('../../src/pages/api/calendar/recurring-sessions');
         const response = await POST(makeInvalidJsonContext() as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toBe('Invalid JSON body');
+    });
+
+    it('returns 400 before recurring scheduling when manual meetLink is unsafe', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'teacher-1' } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn(() => ({
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
+        } as any));
+        await setClient(mockSupabase);
+
+        const { POST } = await import('../../src/pages/api/calendar/recurring-sessions');
+        const response = await POST(makeContext({
+            studentId: 'student-1',
+            dayOfWeek: 2,
+            time: '10:00',
+            startDate: '2026-10-06',
+            meetLink: 'http://meet.google.com/abc-defg-hij',
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toContain('HTTPS Google Meet URL');
     });
 
     it('does not require teacherId when a teacher schedules their own recurring classes', async () => {
@@ -121,7 +148,7 @@ describe('POST /api/calendar/recurring-sessions', () => {
             time: '10:00',
             startDate: '2026-10-06',
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toContain('subscription');
@@ -147,7 +174,7 @@ describe('POST /api/calendar/recurring-sessions', () => {
             time: '10:00',
             startDate: '2026-10-06',
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toContain('teacherId');
@@ -185,10 +212,59 @@ describe('POST /api/calendar/recurring-sessions', () => {
             time: '10:00',
             startDate: '2026-10-06',
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toContain('teacherId must belong to a teacher profile');
+    });
+
+    it('rejects a recurring range that extends after the subscription end date', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'teacher-1' } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                gte: vi.fn().mockReturnThis(),
+                order: vi.fn().mockReturnThis(),
+                limit: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+                maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'student' }, error: null }),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
+            } else if (table === 'subscriptions') {
+                chain.single.mockResolvedValue({
+                    data: {
+                        id: 'sub-1',
+                        sessions_used: 0,
+                        sessions_total: 10,
+                        ends_at: '2026-10-20',
+                    },
+                    error: null,
+                });
+            }
+            return chain;
+        });
+        await setClient(mockSupabase);
+
+        const { POST } = await import('../../src/pages/api/calendar/recurring-sessions');
+        const response = await POST(makeContext({
+            studentId: 'student-1',
+            dayOfWeek: 2,
+            time: '10:00',
+            startDate: '2026-10-06',
+            endDate: '2026-10-27',
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toBe('Recurring sessions cannot be scheduled after the subscription end date');
     });
 
     it('records first-class onboarding from the earliest recurring session', async () => {
@@ -278,15 +354,21 @@ describe('POST /api/calendar/recurring-sessions', () => {
                 error: null,
             }),
             from: vi.fn((table: string) => {
-                if (table !== 'subscriptions') {
-                    throw new Error(`Unexpected admin table ${table}`);
+                if (table === 'sessions') {
+                    return {
+                        insert: vi.fn().mockReturnThis(),
+                        select: vi.fn().mockResolvedValue({ data: createdSessions, error: null }),
+                    };
                 }
-                return {
-                    update: vi.fn().mockReturnThis(),
-                    eq: vi.fn().mockReturnThis(),
-                    select: vi.fn().mockReturnThis(),
-                    single: vi.fn().mockResolvedValue({ data: { id: 'sub-1' }, error: null }),
-                };
+                if (table === 'subscriptions') {
+                    return {
+                        update: vi.fn().mockReturnThis(),
+                        eq: vi.fn().mockReturnThis(),
+                        select: vi.fn().mockReturnThis(),
+                        single: vi.fn().mockResolvedValue({ data: { id: 'sub-1' }, error: null }),
+                    };
+                }
+                throw new Error(`Unexpected admin table ${table}`);
             }),
         };
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');

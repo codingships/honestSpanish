@@ -65,7 +65,7 @@ Condiciones esperadas:
 - `pnpm launch:manual-evidence` puede seguir fallando solo por checks final-only documentados.
 - `pnpm launch:secondary-review` confirma que no hay contradicciones entre checklist, evidencia y estado real.
 
-Si se decide publicar una version sin pagos reales, checkout debe quedar desactivado, oculto o bloqueado por configuracion/datos. Esa decision debe aparecer en `docs/launch/MANUAL_EVIDENCE.local.json` antes del cierre final de pagos.
+La decision vigente es aceptar pagos reales desde el primer dia. El modo sin pagos reales queda como rollback: checkout debe quedar desactivado, oculto o bloqueado por `CHECKOUT_ENABLED_OVERRIDE=false` sin desactivar webhook ni reconciliacion de cobros ya realizados.
 
 ## Fase 3: cierre final
 
@@ -75,16 +75,16 @@ Runbook operativo: `docs/launch/FINAL_CLOSURE.md`.
 
 Orden recomendado:
 
-1. Congelar copy publico, paquetes, dominio, modo de pagos y decision de lanzar con o sin pagos reales.
-2. Completar datos legales reales en `docs/launch/LEGAL_INPUTS_REQUIRED.md`, `src/pages/[lang]/legal/aviso-legal.astro` y `src/pages/[lang]/legal/privacidad.astro`.
+1. Congelar copy publico, paquetes, dominio y la activacion ya decidida de pagos reales desde el primer dia.
+2. Completar los datos legales reales en `src/lib/legal-identity.ts`, cambiar el modo a `verified` y comprobar aviso/privacidad/terminos en ES/EN/RU.
 3. Revisar aviso legal, privacidad, cookies, terminos y subprocesadores con criterio humano.
-4. Activar o validar Stripe live solo si se van a aceptar pagos reales; si no, probar que checkout queda desactivado, oculto o bloqueado.
+4. Stripe live: completar primero compra/cancelacion/reembolso test staging; despues configurar keys, Prices, webhook y Portal live manteniendo `CHECKOUT_ENABLED_OVERRIDE=false` hasta el Go/No-Go.
 5. Ejecutar backup logico/manual de Supabase fuera del repo o subir a Pro si se necesita backup gestionado antes de production/destructivo.
 6. Rotar claves solo despues de congelar copy, legal, pagos y dominio definitivos; configurar secretos definitivos por entorno.
-7. Verificar Cloudflare Worker, Supabase, Google, Resend, Turnstile, Sentry, Cloudflare Pages y cron en entorno real.
+7. Verificar Cloudflare Astro Worker, Cloudflare Fulfillment Worker, Supabase, Google, Resend, Turnstile, Sentry y cron en entorno real.
 8. Ejecutar `pnpm launch:seo` y `pnpm launch:public-visual`; revisar SEO/LLM final: sitemap, robots, canonical/hreflang, structured data si aplica, snippets, contenido indexable, paginas que no deben indexarse y render visual desktop/mobile de la superficie publica.
 9. Decidir reviews, Telegram, telemetria y prueba de nivel definitiva solo si entran en launch; si se activa telemetria, actualizar legal/cookies/consentimiento antes.
-10. Ejecutar smoke final: registro, checkout si aplica, webhook, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion y retry de job.
+10. Ejecutar smoke final: registro 18+, checkout con aceptaciones, webhook, confirmacion contractual, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion, reembolso/reconciliacion y retry de job.
 11. Ejecutar `pnpm launch:gate`.
 12. Si la checklist se actualiza despues del Gate, ejecutar `pnpm launch:secondary-review` y `pnpm launch:status`.
 
@@ -98,10 +98,10 @@ Orden recomendado:
 | `security_external` | Fase 1 y repetir en Fase 3 | Baseline RC de RLS, WAF/Turnstile actual, logs y permisos visibles; rotacion final queda para Fase 3. |
 | `operations_external` | Fase 1 y repetir en Fase 3 | Worker staging, jobs, Resend staging, Workers Logs/observability, postura Supabase Free y rollback baseline; cron config/deployment/secret-name evidence por preflight staging. |
 | `database_readiness` | Fase 1 y repetir en Fase 3 | Supabase staging/production separados, migraciones, RLS, tablas criticas y postura Free sin backups programados. |
-| `payments_staging` | Fase 3 | Stripe test end-to-end en staging antes de activar pagos reales; si no hay pagos, confirma checkout bloqueado/desactivado. |
+| `payments_staging` | Fase 3 | Stripe test end-to-end en staging antes de activar live: checkout, webhook, Portal, confirmacion contractual, cancelacion y reembolso/reconciliacion. |
 | `legal_owner_controller` | Fase 3 | Datos legales reales aplicados sin placeholders. |
 | `legal_human_review` | Fase 3 | Texto legal y subprocesadores revisados por humano. |
-| `integration_readiness` | Fase 3 | Stripe live si aplica, Google, Resend, Turnstile y cron reales. |
+| `integration_readiness` | Fase 3 | Stripe live para pagos desde el primer dia y rollback cerrado, Cloudflare Astro Worker, Cloudflare Fulfillment Worker, Supabase, Google, Resend, Turnstile, Sentry, cron y observabilidad reales. |
 | `seo_llm_final` | Fase 3 | SEO/LLM final con dominio/copy/legal definitivos, fuente rusa premium/fallback, Search Console si esta disponible y exclusion de rutas privadas/demo/API. |
 | `final_smoke` | Fase 3 | Flujo real completo antes de aceptar trafico publico. |
 
@@ -131,7 +131,7 @@ Puede quedar para el final:
 No debe quedar para despues del launch:
 
 - Legal real si la pagina acepta trafico publico comercial.
-- Stripe live si se aceptan pagos reales.
+- Stripe live para pagos reales desde el primer dia, tras ensayo test staging y con rollback del checkout.
 - RLS, backup/export final, secretos definitivos y Worker production.
 - SEO/LLM si se declara el sitio acabado/publicable.
 - Rollback operativo.

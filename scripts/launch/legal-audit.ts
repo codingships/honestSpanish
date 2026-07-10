@@ -30,6 +30,7 @@ const legalFiles = [
     path.join('src', 'pages', '[lang]', 'legal.astro'),
     path.join('src', 'pages', '[lang]', 'legal', 'aviso-legal.astro'),
     path.join('src', 'pages', '[lang]', 'legal', 'privacidad.astro'),
+    path.join('src', 'pages', '[lang]', 'legal', 'terminos.astro'),
     path.join('src', 'pages', '[lang]', 'legal', 'cookies.astro'),
 ];
 
@@ -80,7 +81,7 @@ function reviewLegalRouteFiles(): Finding {
         status: missing.length === 0 ? 'ok' : 'failed',
         area: 'legal route files',
         message: missing.length === 0
-            ? 'Legal index, notice, privacy and cookie route files exist.'
+            ? 'Legal index, notice, privacy, terms and cookie route files exist.'
             : 'Required legal route files are missing.',
         details: missing,
     };
@@ -91,13 +92,18 @@ function reviewOwnerControllerPlaceholders(): Finding {
     const details = legalFiles
         .filter((file) => existsSync(file))
         .flatMap((file) => findLineMatches(file, placeholderPattern));
+    const identityFile = path.join('src', 'lib', 'legal-identity.ts');
+    const identitySource = readIfExists(identityFile);
+    if (/LEGAL_IDENTITY_MODE\s*=\s*['"]example['"]/.test(identitySource)) {
+        details.unshift(`${identityFile}: LEGAL_IDENTITY_MODE is example; verified public owner/controller data is still required.`);
+    }
 
     return {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'owner and controller data',
         message: details.length === 0
-            ? 'No owner/controller placeholders were detected in legal pages.'
-            : 'Legal pages still contain launch-blocking owner/controller placeholders.',
+            ? 'Verified owner/controller mode is active and no placeholders were detected in legal pages.'
+            : 'Legal identity is still example data or contains launch-blocking owner/controller placeholders.',
         details,
     };
 }
@@ -177,6 +183,9 @@ function reviewCommercialTermsDecision(): Finding {
     const termsRoute = path.join('src', 'pages', '[lang]', 'legal', 'terminos.astro');
     const legalInputs = readIfExists(path.join('docs', 'launch', 'LEGAL_INPUTS_REQUIRED.md'));
     const checklist = readIfExists(path.join('docs', 'launch', 'CHECKLIST.md'));
+    const terms = readIfExists(termsRoute);
+    const checkout = readIfExists(path.join('src', 'pages', 'api', 'create-checkout.ts'));
+    const stripeWebhook = readIfExists(path.join('src', 'pages', 'api', 'stripe-webhook.ts'));
     const termsInputsDocumented = [
         'Condiciones de compra',
         'Cancelaciones',
@@ -195,15 +204,38 @@ function reviewCommercialTermsDecision(): Finding {
     if (!existsSync(termsRoute)) {
         details.push(`${termsRoute} is not present; decide whether public terms live in a dedicated page or inside existing legal pages.`);
     }
+    for (const section of [
+        'eligibility',
+        'purchase',
+        'renewal',
+        'classes-expiry',
+        'cancellation',
+        'withdrawal-refunds',
+        'termination',
+        'support',
+        'changes-law',
+        'withdrawal-form',
+    ]) {
+        if (!terms.includes(`id="${section}"`)) details.push(`${termsRoute}: missing canonical section ${section}.`);
+    }
+    for (const snippet of [
+        'adultConfirmed',
+        'termsAccepted',
+        'serviceStartRequested',
+        'LEGAL_POLICY_VERSION',
+    ]) {
+        if (!checkout.includes(snippet)) details.push(`src/pages/api/create-checkout.ts: missing ${snippet}.`);
+    }
+    if (!stripeWebhook.includes("case 'charge.refunded'")) {
+        details.push('src/pages/api/stripe-webhook.ts: missing Stripe refund reconciliation.');
+    }
 
     return {
-        status: details.length === 0 ? 'ok' : termsInputsDocumented && checklist.includes('Terminos revisados') ? 'warning' : 'failed',
+        status: details.length === 0 ? 'ok' : 'failed',
         area: 'commercial terms',
         message: details.length === 0
             ? 'Commercial terms inputs and public terms route are present.'
-            : termsInputsDocumented && checklist.includes('Terminos revisados')
-                ? 'Commercial terms are tracked as a legal launch decision, but no dedicated public terms page was detected.'
-                : 'Commercial terms launch inputs are under-documented.',
+            : 'Commercial terms or versioned checkout acceptance are incomplete.',
         details,
     };
 }
@@ -289,7 +321,7 @@ function renderNextActions(report: LegalReport): string {
     lines.push('## Closure Steps', '');
     lines.push('- Fill real owner/controller inputs in `docs/launch/LEGAL_INPUTS_REQUIRED.md`; do not invent values.');
     lines.push('- Update legal pages in the published languages and remove placeholders.');
-    lines.push('- Decide whether commercial terms need a dedicated public page or are covered in existing legal pages.');
+    lines.push('- Review the dedicated commercial terms page together with privacy, cookies and subprocessors during `legal_human_review`.');
     lines.push('- Record `legal_owner_controller` and `legal_human_review` in `docs/launch/MANUAL_EVIDENCE.local.json` with non-secret evidence.');
     lines.push('- Rerun `pnpm launch:legal`, `pnpm launch:verify`, `pnpm launch:manual-evidence`, `pnpm launch:secondary-review` and `pnpm launch:status`.');
     lines.push('');
@@ -333,7 +365,7 @@ function renderLegalClosureWorksheet(report: LegalReport): string {
     lines.push('| --- | --- | --- |');
     lines.push('| Privacy | Review privacy text, controller/processor language, data categories, retention, rights and contact path. | `manual_note` with reviewer, date and scope; optional local `document`. |');
     lines.push('| Cookies | Review cookie policy, Turnstile, Supabase, Cloudflare, Sentry and Stripe/checkout cookie behavior. | `manual_note` plus `command_output` from `pnpm launch:legal`. |');
-    lines.push('| Terms | Decide whether commercial terms need a dedicated public page or are covered in existing legal pages. | `manual_note` with decision and rollback/mitigation if deferred. |');
+    lines.push('| Terms | Review the dedicated public commercial terms page for purchase flow, checkout mode, class duration, cancellation, no-show and support wording. | `manual_note` with reviewer, date, scope and rollback/mitigation if any wording is deferred. |');
     lines.push('| Subprocessors | Confirm Supabase, Stripe, Google, Resend, Sentry and Cloudflare are acceptable for launch. | `manual_note` with vendor list reviewed. |');
     lines.push('| Risk acceptance | If any legal item is accepted as risk, document `riskAcceptedBy`, `riskRationale` and `rollbackPlan`. | `manual_note` and local `document`, no private advisor text required. |');
     lines.push('');

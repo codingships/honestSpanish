@@ -49,7 +49,7 @@ describe('POST /api/account/update-profile', () => {
 
         const { POST } = await import('../../src/pages/api/account/update-profile');
         const response = await POST(makeInvalidJsonContext() as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toBe('Invalid JSON body');
@@ -64,7 +64,7 @@ describe('POST /api/account/update-profile', () => {
         const response = await POST(makeContext({ fullName: 'New Name' }) as any);
 
         expect(response.status).toBe(200);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.success).toBe(true);
     });
 

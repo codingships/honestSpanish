@@ -66,7 +66,21 @@ export default function AdminCalendar({
             'border-l-indigo-500', 'border-l-teal-500',
         ];
         const index = teachers.findIndex(t => t.id === teacherId);
+        if (index < 0) return 'border-l-gray-400';
         return colors[index % colors.length];
+    };
+
+    const previousLabel = logic.view === 'week'
+        ? (lang === 'es' ? 'Semana anterior' : 'Previous week')
+        : (lang === 'es' ? 'Mes anterior' : 'Previous month');
+    const nextLabel = logic.view === 'week'
+        ? (lang === 'es' ? 'Semana siguiente' : 'Next week')
+        : (lang === 'es' ? 'Mes siguiente' : 'Next month');
+    const teacherFilterLabel = lang === 'es' ? 'Filtrar por profesor' : 'Filter by teacher';
+    const sessionButtonLabel = (session: Session) => {
+        const studentName = session.student?.full_name || session.student?.email?.split('@')[0] || 'Sin alumno';
+        const teacherName = session.teacher?.full_name || session.teacher?.email || 'Sin profesor';
+        return `${formatTime(session.scheduled_at)} - ${studentName} - ${teacherName}`;
     };
 
     return (
@@ -75,11 +89,11 @@ export default function AdminCalendar({
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
                 {/* Navegación */}
                 <div className="flex items-center gap-2">
-                    <button onClick={logic.goToPrev} className="p-2 border-2 border-[#006064] text-[#006064] hover:bg-[#006064] hover:text-white transition-colors font-bold">←</button>
-                    <button onClick={logic.goToToday} className="px-4 py-2 border-2 border-[#006064] text-[#006064] hover:bg-[#006064] hover:text-white transition-colors font-bold text-sm uppercase">
+                    <button type="button" aria-label={previousLabel} onClick={logic.goToPrev} className="p-2 border-2 border-[#006064] text-[#006064] hover:bg-[#006064] hover:text-white transition-colors font-bold">←</button>
+                    <button type="button" onClick={logic.goToToday} className="px-4 py-2 border-2 border-[#006064] text-[#006064] hover:bg-[#006064] hover:text-white transition-colors font-bold text-sm uppercase">
                         {t.today}
                     </button>
-                    <button onClick={logic.goToNext} className="p-2 border-2 border-[#006064] text-[#006064] hover:bg-[#006064] hover:text-white transition-colors font-bold">→</button>
+                    <button type="button" aria-label={nextLabel} onClick={logic.goToNext} className="p-2 border-2 border-[#006064] text-[#006064] hover:bg-[#006064] hover:text-white transition-colors font-bold">→</button>
                     <span className="ml-4 font-display text-lg text-[#006064]">
                         {logic.view === 'week'
                             ? `${formatDate(logic.weekStart)} - ${formatDate(logic.weekEnd)}`
@@ -92,16 +106,21 @@ export default function AdminCalendar({
                 <div className="flex flex-wrap items-center gap-3">
                     <div className="flex border-2 border-[#006064]">
                         <button
+                            type="button"
+                            aria-pressed={logic.view === 'week'}
                             onClick={() => logic.setView('week')}
                             className={`px-3 py-1 text-sm font-bold ${logic.view === 'week' ? 'bg-[#006064] text-white' : 'text-[#006064]'}`}
                         >{t.week}</button>
                         <button
+                            type="button"
+                            aria-pressed={logic.view === 'month'}
                             onClick={() => logic.setView('month')}
                             className={`px-3 py-1 text-sm font-bold ${logic.view === 'month' ? 'bg-[#006064] text-white' : 'text-[#006064]'}`}
                         >{t.month}</button>
                     </div>
 
                     <select
+                        aria-label={teacherFilterLabel}
                         value={logic.filterTeacher}
                         onChange={(e) => logic.setFilterTeacher(e.target.value)}
                         className="p-2 border-2 border-[#006064] bg-white text-[#006064] text-sm"
@@ -115,6 +134,7 @@ export default function AdminCalendar({
                     </select>
 
                     <button
+                        type="button"
                         onClick={() => setIsScheduleModalOpen(true)}
                         className="px-4 py-2 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                     >
@@ -139,7 +159,9 @@ export default function AdminCalendar({
                             <div key={`cell-${index}`} className={`min-h-[150px] p-2 border-2 border-[#006064]/20 ${isToday(day) ? 'bg-[#E0F7FA]/50' : 'bg-white'}`}>
                                 {daySessions.map(session => (
                                     <button
+                                        type="button"
                                         key={session.id}
+                                        aria-label={sessionButtonLabel(session)}
                                         onClick={() => setSelectedSession(session)}
                                         className={`w-full text-left p-2 mb-1 text-xs border-l-4 rounded transition-all hover:scale-[1.02] ${getStatusColor(session.status)} ${getTeacherColor(session.teacher?.id)}`}
                                     >
@@ -172,7 +194,9 @@ export default function AdminCalendar({
                                     <p className={`text-xs font-bold mb-1 ${isToday(day) ? 'text-[#006064]' : 'text-gray-500'}`}>{day.getDate()}</p>
                                     {daySessions.slice(0, 3).map(session => (
                                         <button
+                                            type="button"
                                             key={session.id}
+                                            aria-label={sessionButtonLabel(session)}
                                             onClick={() => setSelectedSession(session)}
                                             className={`w-full text-left px-1 py-0.5 mb-0.5 text-[10px] rounded truncate ${getStatusColor(session.status)}`}
                                         >
@@ -196,7 +220,7 @@ export default function AdminCalendar({
                         const colors = ['bg-purple-500', 'bg-orange-500', 'bg-pink-500', 'bg-indigo-500', 'bg-teal-500'];
                         return (
                             <div key={teacher.id} className="flex items-center gap-2">
-                                <span className={`w-3 h-3 ${colors[index % colors.length]}`}></span>
+                                <span aria-hidden="true" className={`w-3 h-3 ${colors[index % colors.length]}`}></span>
                                 <span className="text-[#006064]/70">{teacher.full_name || teacher.email}</span>
                             </div>
                         );

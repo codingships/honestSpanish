@@ -5,6 +5,7 @@ type TaskType = 'email' | 'call' | 'whatsapp' | 'review' | 'admin';
 type CommunicationType = 'email_out' | 'email_in' | 'call' | 'whatsapp';
 type CommunicationDirection = 'inbound' | 'outbound';
 type CommunicationPurpose = 'transactional' | 'support' | 'sales_follow_up';
+type ActionMessage = { type: 'success' | 'error'; text: string };
 
 interface CrmContactActionsProps {
     contactId: string;
@@ -24,7 +25,7 @@ export default function CrmContactActions({ contactId, opportunityId }: CrmConta
     const [priority, setPriority] = useState<Priority>('normal');
     const [dueAt, setDueAt] = useState('');
     const [saving, setSaving] = useState<'note' | 'communication' | 'task' | null>(null);
-    const [message, setMessage] = useState<string | null>(null);
+    const [message, setMessage] = useState<ActionMessage | null>(null);
 
     const postAction = async (payload: Record<string, unknown>) => {
         const response = await fetch('/api/admin/crm/contact-actions', {
@@ -34,7 +35,7 @@ export default function CrmContactActions({ contactId, opportunityId }: CrmConta
         });
 
         if (!response.ok) {
-            const body = await response.json().catch(() => null);
+            const body = await response.json().catch(() => null) as { error?: string } | null;
             throw new Error(body?.error || 'CRM action failed');
         }
     };
@@ -55,11 +56,11 @@ export default function CrmContactActions({ contactId, opportunityId }: CrmConta
                 opportunityId: opportunityId ?? null,
                 body: noteBody,
             });
-            setMessage('Nota guardada.');
+            setMessage({ type: 'success', text: 'Nota guardada.' });
             setNoteBody('');
             reloadSoon();
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'No se pudo guardar la nota.');
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo guardar la nota.' });
         } finally {
             setSaving(null);
         }
@@ -89,13 +90,13 @@ export default function CrmContactActions({ contactId, opportunityId }: CrmConta
                 occurredAt: null,
                 consentOverrideReason: consentOverrideReason.trim() || null,
             });
-            setMessage('Comunicacion registrada.');
+            setMessage({ type: 'success', text: 'Comunicacion registrada.' });
             setCommunicationSubject('');
             setCommunicationBody('');
             setConsentOverrideReason('');
             reloadSoon();
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'No se pudo registrar la comunicacion.');
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo registrar la comunicacion.' });
         } finally {
             setSaving(null);
         }
@@ -116,12 +117,12 @@ export default function CrmContactActions({ contactId, opportunityId }: CrmConta
                 priority,
                 dueAt: dueAt ? new Date(dueAt).toISOString() : null,
             });
-            setMessage('Tarea creada.');
+            setMessage({ type: 'success', text: 'Tarea creada.' });
             setTaskTitle('');
             setDueAt('');
             reloadSoon();
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'No se pudo crear la tarea.');
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo crear la tarea.' });
         } finally {
             setSaving(null);
         }
@@ -272,7 +273,7 @@ export default function CrmContactActions({ contactId, opportunityId }: CrmConta
             </div>
 
             {message && (
-                <p className="font-mono text-xs text-[#006064] lg:col-span-3">{message}</p>
+                <p role={message.type === 'success' ? 'status' : 'alert'} className="font-mono text-xs text-[#006064] lg:col-span-3">{message.text}</p>
             )}
         </div>
     );

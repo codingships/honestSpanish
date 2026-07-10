@@ -180,6 +180,7 @@ function checkLaunchGateAutomation(packageJson: { scripts?: Record<string, strin
     const manualEvidenceInit = readIfExists(path.join('scripts', 'launch', 'manual-evidence-init.ts'));
     const sequenceAudit = readIfExists(path.join('scripts', 'launch', 'sequence-audit.ts'));
     const legalAudit = readIfExists(path.join('scripts', 'launch', 'legal-audit.ts'));
+    const releaseCandidate = readIfExists(path.join('scripts', 'launch', 'release-candidate.ts'));
     const secondaryReview = readIfExists(path.join('scripts', 'launch', 'secondary-review.ts'));
     const statusScript = readIfExists(path.join('scripts', 'launch', 'status.ts'));
     const operationsAudit = readIfExists(path.join('scripts', 'launch', 'operations-audit.ts'));
@@ -317,6 +318,11 @@ function checkLaunchGateAutomation(packageJson: { scripts?: Record<string, strin
         || !secondaryReview.includes('Phase 1 Focus')
         || !secondaryReview.includes('buildPhaseOneFocus')
         || !secondaryReview.includes('openManualCheckIdsFromSummary')
+        || !secondaryReview.includes('manualEvidenceCoverage')
+        || !secondaryReview.includes('Manual Evidence Coverage')
+        || !secondaryReview.includes('releaseCandidateReadiness.strictQaOpenChecks')
+        || !secondaryReview.includes('statusSummaryStrictQaBlockers')
+        || !secondaryReview.includes('final-only and strict-QA blockers')
         || !secondaryReview.includes('Launch status dashboard references the latest primary launch verification evidence')) {
         findings.push('scripts/launch/secondary-review.ts must accept gate evidence indexes and launch status dashboard sources while checking manual evidence/status/action-plan/closure-pack/final-closure-pack/current-evidence phase coverage and freshness.');
     }
@@ -367,6 +373,16 @@ function checkLaunchGateAutomation(packageJson: { scripts?: Record<string, strin
         || !statusScript.includes('Release Candidate Gate')) {
         findings.push('scripts/launch/status.ts must include the latest pnpm launch:rc run as a dashboard source.');
     }
+    if (!releaseCandidate.includes('strictQaOpenChecks')
+        || !releaseCandidate.includes('Strict-QA Open')
+        || !releaseCandidate.includes('Final-Only Open')) {
+        findings.push('scripts/launch/release-candidate.ts must render standalone strict-QA blockers alongside final-only blockers in the Release Candidate summary.');
+    }
+    if (!releaseCandidate.includes('DEFAULT_WORKER_STAGING_URL')
+        || !releaseCandidate.includes('CLOUDFLARE_WORKERS_STAGING_URL')
+        || !releaseCandidate.includes('stagingUrl')) {
+        findings.push('scripts/launch/release-candidate.ts must default RC no-real-payments probes to the direct Worker staging URL when no explicit staging URL is provided.');
+    }
     const releaseCandidateFreshnessBlock = statusScript.match(/const releaseCandidateFreshnessInputs:[\s\S]*?\];/)?.[0] ?? '';
     if (!releaseCandidateFreshnessBlock
         || releaseCandidateFreshnessBlock.includes("label: 'primary verification'")
@@ -374,6 +390,9 @@ function checkLaunchGateAutomation(packageJson: { scripts?: Record<string, strin
         || !releaseCandidateFreshnessBlock.includes("label: 'phase 1 gate'")
         || !releaseCandidateFreshnessBlock.includes("label: 'manual evidence'")
         || !releaseCandidateFreshnessBlock.includes("label: 'payments audit'")
+        || !statusScript.includes('CURRENT_FOR_RC_SCOPE')
+        || !statusScript.includes('isReleaseCandidateCurrentForScope')
+        || !statusScript.includes('newer final-only evidence')
         || !statusScript.includes('Do not rerun pnpm launch:rc only to clear stale RC status while Phase 1 and RC checks are clear')) {
         findings.push('scripts/launch/status.ts must keep release candidate freshness scoped to launch:rc-owned evidence and must not let primary verification stale the RC gate.');
     }
@@ -382,6 +401,7 @@ function checkLaunchGateAutomation(packageJson: { scripts?: Record<string, strin
     }
     if (!statusScript.includes('manualEvidenceByPhase')
         || !statusScript.includes('manualEvidencePhaseSummary')
+        || !statusScript.includes('manualEvidenceCoverage')
         || !statusScript.includes('currentEvidence')
         || !statusScript.includes('urgencySummary')
         || !statusScript.includes('phaseOneFocus')
@@ -409,7 +429,10 @@ function checkLaunchGateAutomation(packageJson: { scripts?: Record<string, strin
         || !statusScript.includes('Phase 1 Focus')
         || !statusScript.includes('Do not use legal real data, Stripe live, final API key rotation or production smoke')
         || !statusScript.includes('Manual Evidence Phase Summary')
+        || !statusScript.includes('Manual Evidence Coverage')
         || !statusScript.includes('Open Manual Evidence By Phase')
+        || !statusScript.includes('Strict-QA Open')
+        || !statusScript.includes('Strict-QA tracker blockers')
         || !statusScript.includes('Open Go/No-Go Breakdown')
         || !statusScript.includes('command-level rows are derived blockers')
         || !statusScript.includes('only when you have real final evidence or an explicit accepted risk')

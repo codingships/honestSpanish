@@ -9,8 +9,8 @@ const blog = defineCollection({
     schema: ({ image }) => z.object({
         title: z.string(),
         description: z.string(),
-        publishedAt: z.date(),
-        updatedAt: z.date().optional(),
+        publishedAt: z.coerce.date(),
+        updatedAt: z.coerce.date().optional(),
         author: z.enum(['alejandro', 'alin', 'equipo']),
         category: z.enum(['aprendizaje', 'niveles', 'expatriados', 'cultura', 'metodo']),
         tags: z.array(z.string()),

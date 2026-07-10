@@ -1,6 +1,7 @@
 import { useState } from 'react';
 
 type PipelineStage = 'new' | 'to_contact' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost' | 'nurture';
+type ActionMessage = { type: 'success' | 'error'; text: string };
 
 interface CrmOpportunityItem {
     id: string;
@@ -60,7 +61,7 @@ export default function CrmOpportunityList({
     emptyText = 'Sin oportunidades abiertas.',
 }: CrmOpportunityListProps) {
     const [savingId, setSavingId] = useState<string | null>(null);
-    const [message, setMessage] = useState<string | null>(null);
+    const [message, setMessage] = useState<ActionMessage | null>(null);
 
     const updateStage = async (opportunityId: string, newStage: PipelineStage) => {
         setSavingId(opportunityId);
@@ -78,14 +79,14 @@ export default function CrmOpportunityList({
             });
 
             if (!response.ok) {
-                const body = await response.json().catch(() => null);
+                const body = await response.json().catch(() => null) as { error?: string } | null;
                 throw new Error(body?.error || 'No se pudo actualizar la oportunidad.');
             }
 
-            setMessage('Etapa actualizada.');
+            setMessage({ type: 'success', text: 'Etapa actualizada.' });
             window.setTimeout(() => window.location.reload(), 350);
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'No se pudo actualizar la oportunidad.');
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo actualizar la oportunidad.' });
         } finally {
             setSavingId(null);
         }
@@ -100,6 +101,7 @@ export default function CrmOpportunityList({
             {opportunities.map((opportunity) => {
                 const packageName = getPackageName(opportunity, lang);
                 const isSaving = savingId === opportunity.id;
+                const isAnySaving = savingId !== null;
 
                 return (
                     <div key={opportunity.id} className="border-b border-[#006064]/10 pb-3 last:border-0">
@@ -122,7 +124,8 @@ export default function CrmOpportunityList({
                                 <select
                                     value={opportunity.stage}
                                     onChange={(event) => updateStage(opportunity.id, event.target.value as PipelineStage)}
-                                    disabled={isSaving}
+                                    disabled={isAnySaving}
+                                    aria-busy={isSaving}
                                     className="mt-1 block w-full border border-[#006064] bg-white px-2 py-1 text-xs normal-case text-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 disabled:opacity-50 md:w-40"
                                 >
                                     {stageOptions.map((option) => (
@@ -135,7 +138,9 @@ export default function CrmOpportunityList({
                 );
             })}
 
-            {message && <p className="font-mono text-xs text-[#006064]">{message}</p>}
+            {message && (
+                <p role={message.type === 'success' ? 'status' : 'alert'} className="font-mono text-xs text-[#006064]">{message.text}</p>
+            )}
         </div>
     );
 }

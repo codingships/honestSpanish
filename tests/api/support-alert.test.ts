@@ -17,29 +17,20 @@ vi.mock('../../src/lib/crm/activity-sync', () => ({
 }));
 
 const supportEmailMocks = vi.hoisted(() => ({
+    deliverEmail: vi.fn(),
     sendSupportTicketReceivedEmail: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../../src/lib/email', () => ({
+    deliverEmail: supportEmailMocks.deliverEmail,
     sendSupportTicketReceivedEmail: supportEmailMocks.sendSupportTicketReceivedEmail,
 }));
 
 const emailMocks = vi.hoisted(() => ({
-    send: vi.fn(),
     readRuntimeEnv: vi.fn((key: string) => {
         if (key === 'SUPPORT_ALERT_EMAIL') return 'support@example.com';
-        if (key === 'EMAIL_FROM') return 'Academia <hello@example.com>';
         return undefined;
     }),
-}));
-
-vi.mock('../../src/lib/email/client', () => ({
-    getEmailFrom: vi.fn(() => 'Academia <hello@example.com>'),
-    getResend: vi.fn(() => ({
-        emails: {
-            send: emailMocks.send,
-        },
-    })),
 }));
 
 vi.mock('../../src/lib/runtime-env', () => ({
@@ -108,7 +99,7 @@ async function readJson(response: Response) {
 describe('/api/support/alert', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        emailMocks.send.mockResolvedValue({ error: null });
+        supportEmailMocks.deliverEmail.mockResolvedValue({ ok: true });
         crmMocks.recordCrmActivityForProfileSafe.mockResolvedValue({ status: 'created' });
         supportEmailMocks.sendSupportTicketReceivedEmail.mockResolvedValue(true);
     });
@@ -127,7 +118,7 @@ describe('/api/support/alert', () => {
 
         expect(response.status).toBe(403);
         expect(insert).not.toHaveBeenCalled();
-        expect(emailMocks.send).not.toHaveBeenCalled();
+        expect(supportEmailMocks.deliverEmail).not.toHaveBeenCalled();
     });
 
     it('creates a ticket, normalizes same-origin page URLs and sends an email alert', async () => {
@@ -178,10 +169,10 @@ describe('/api/support/alert', () => {
             ticketId: body.ticketId,
             supportUrl: 'http://localhost:4321/es/campus/support',
         });
-        expect(emailMocks.send).toHaveBeenCalledWith(expect.objectContaining({
-            from: 'Academia <hello@example.com>',
+        expect(supportEmailMocks.deliverEmail).toHaveBeenCalledWith(expect.objectContaining({
             to: ['support@example.com'],
             subject: expect.stringContaining('No veo el enlace de Meet'),
+            source: 'support_internal_alert',
         }));
         expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
             profileId: 'user-1',
@@ -203,7 +194,15 @@ describe('/api/support/alert', () => {
     });
 
     it('keeps the ticket when the email notification fails', async () => {
-        emailMocks.send.mockResolvedValue({ error: { message: 'Email provider unavailable' } });
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        supportEmailMocks.deliverEmail.mockResolvedValue({
+            ok: false,
+            reason: 'provider_error',
+            error: {
+                message: 'Recipient student@example.com was rejected',
+                statusCode: 422,
+            },
+        });
         const { client, insert } = createSupportClient();
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         vi.mocked(createSupabaseServerClient).mockReturnValue(client as any);
@@ -226,6 +225,12 @@ describe('/api/support/alert', () => {
         expect(insert).toHaveBeenCalledWith(expect.objectContaining({
             page_url: null,
         }));
+        expect(errorSpy).toHaveBeenCalledWith(
+            '[SupportAlert] Ticket created but email alert failed:',
+            'Recipient s***t@example.com was rejected status=422'
+        );
+        expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('student@example.com');
+        errorSpy.mockRestore();
     });
 
     it('rejects unauthenticated and invalid support reports', async () => {

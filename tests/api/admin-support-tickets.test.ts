@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../src/lib/supabase-server', () => ({
@@ -125,6 +126,14 @@ describe('/api/admin/support-tickets', () => {
         vi.clearAllMocks();
         crmMocks.recordCrmActivityForProfileSafe.mockResolvedValue({ status: 'created' });
         emailMocks.sendSupportTicketUpdatedEmail.mockResolvedValue(true);
+    });
+
+    it('keeps email delivery code out of the read-only ticket listing path', () => {
+        const source = readFileSync('src/pages/api/admin/support-tickets.ts', 'utf8');
+        const getOnlySource = source.slice(0, source.indexOf('export const POST'));
+
+        expect(getOnlySource).not.toContain("../../../lib/email");
+        expect(source).toContain("await import('../../../lib/email')");
     });
 
     it('rejects non-admin users before creating an admin client', async () => {

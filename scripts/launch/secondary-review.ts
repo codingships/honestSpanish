@@ -97,6 +97,9 @@ interface SeoSummary {
 
 interface StatusSummary {
     status: string;
+    releaseCandidateReadiness?: {
+        strictQaOpenChecks?: string[];
+    };
     finalClosurePackPath?: string;
     sources: Array<{
         label: string;
@@ -115,6 +118,19 @@ interface StatusSummary {
         supportCommand?: string;
         evidenceMinimum?: string;
         nextStep?: string;
+    }>;
+    manualEvidenceCoverage?: Array<{
+        id?: string;
+        status?: string;
+        phase?: string;
+        area?: string;
+        message?: string;
+    }>;
+    blockers?: Array<{
+        area?: string;
+        name?: string;
+        message?: string;
+        details?: string[];
     }>;
     manualEvidencePhaseSummary?: unknown[];
     manualEvidenceByPhase?: Partial<Record<ManualEvidencePhase, unknown[]>>;
@@ -939,8 +955,10 @@ function reviewLaunchStatusDashboard(target: Finding[]): void {
         }
         if (!statusScript.includes('manualEvidenceByPhase')
             || !statusScript.includes('manualEvidencePhaseSummary')
+            || !statusScript.includes('manualEvidenceCoverage')
             || !statusScript.includes('Manual Evidence Phase Summary')
             || !statusScript.includes('Open Manual Evidence By Phase')
+            || !statusScript.includes('Manual Evidence Coverage')
             || !statusScript.includes('phase_1_now')
             || !statusScript.includes('phase_3_final')
             || !statusScript.includes('Phase 1 Focus')
@@ -953,6 +971,13 @@ function reviewLaunchStatusDashboard(target: Finding[]): void {
             || !statusScript.includes('final-closure-pack.md')
             || !statusScript.includes('Final Closure Pack')) {
             missing.push('scripts/launch/status.ts must generate the final-closure-pack.md used for final Go/No-Go review.');
+        }
+        if (!statusScript.includes('collectStrictQaOpenFindings')
+            || !statusScript.includes('strictQaOpenChecks')
+            || !statusScript.includes('## Strict-QA Tracker Blockers')
+            || !statusScript.includes('strictQaBlockerClosureRow')
+            || !statusScript.includes('Strict-QA tracker blockers')) {
+            missing.push('scripts/launch/status.ts must expose standalone strict-QA tracker blockers in RC readiness, Open Go/No-Go breakdown and the final closure pack.');
         }
         if (!gateScript.includes('writeGateReport(buildGateReport(null))') || !gateScript.includes("results.push(runStep('launch:status'))")) {
             missing.push('scripts/launch/gate.ts must write gate evidence before launch:status runs.');
@@ -1328,8 +1353,14 @@ function reviewLaunchStatusPhaseCoverage(
     if (!Array.isArray(summary.phaseOneFocus)) {
         missing.push('summary.json missing phaseOneFocus array');
     }
+    if (!Array.isArray(summary.manualEvidenceCoverage)) {
+        missing.push('summary.json missing manualEvidenceCoverage array');
+    }
     if (!markdown.includes('## Phase 1 Focus')) {
         missing.push('summary.md missing Phase 1 Focus section');
+    }
+    if (!markdown.includes('## Manual Evidence Coverage')) {
+        missing.push('summary.md missing Manual Evidence Coverage section');
     }
     if (!markdown.includes('Do not use legal real data, Stripe live, final API key rotation or production smoke')) {
         missing.push('summary.md missing Phase 1 final-only guardrail');
@@ -1372,6 +1403,9 @@ function reviewLaunchStatusPhaseCoverage(
                 presentCheckIds.add(item.id);
             }
         }
+    }
+    for (const item of summary.manualEvidenceCoverage ?? []) {
+        if (item?.id) presentCheckIds.add(item.id);
     }
     for (const id of requiredManualCheckIds) {
         if (!presentCheckIds.has(id) && !markdown.includes(id)) {
@@ -1490,6 +1524,8 @@ function reviewLaunchStatusFinalClosurePack(
         'Open Go/No-Go Breakdown',
         'command-level rows are derived blockers',
         'Final evidence checks',
+        'Strict-QA tracker blockers',
+        'Strict-QA Open',
         'Checklist command rows',
     ]) {
         if (!markdown.includes(snippet)) {
@@ -1498,6 +1534,19 @@ function reviewLaunchStatusFinalClosurePack(
     }
 
     const resolvedPackPath = packPath ? path.resolve(process.cwd(), packPath) : '';
+    const strictQaOpenChecks = summary.releaseCandidateReadiness?.strictQaOpenChecks;
+    const strictQaBlockers = statusSummaryStrictQaBlockers(summary);
+
+    if (!Array.isArray(strictQaOpenChecks)) {
+        missing.push('summary.json missing releaseCandidateReadiness.strictQaOpenChecks');
+    } else {
+        for (const id of strictQaOpenChecks) {
+            if (!markdown.includes(id)) {
+                missing.push(`summary.md missing strict-QA open check ${id}`);
+            }
+        }
+    }
+
     if (!packPath) {
         missing.push('final closure pack path is missing');
     } else if (!existsSync(resolvedPackPath)) {
@@ -1508,6 +1557,10 @@ function reviewLaunchStatusFinalClosurePack(
             '# Final Closure Pack',
             'Current Gate Snapshot',
             'Final-Only Checks',
+            'Strict-QA Open',
+            'Strict-QA Tracker Blockers',
+            'standalone strict-QA tracker blockers',
+            'strict-qa-results.json',
             'Record Final Evidence',
             'pnpm launch:manual-evidence:record',
             'Accepted-risk dry run',
@@ -1545,18 +1598,47 @@ function reviewLaunchStatusFinalClosurePack(
         } else {
             missing.push('summary.json missing manualEvidenceByPhase.phase_3_final for final closure pack cross-check');
         }
+
+        if (Array.isArray(strictQaOpenChecks)) {
+            for (const id of strictQaOpenChecks) {
+                if (!pack.includes(id)) {
+                    missing.push(`final closure pack missing strict-QA open check ${id}`);
+                }
+            }
+        }
+
+        if (strictQaBlockers.length > 0 && pack.includes('No standalone strict-QA tracker blockers are currently open.')) {
+            missing.push('final closure pack claims no standalone strict-QA tracker blockers while summary.json has strict-QA blockers');
+        }
+
+        for (const blocker of strictQaBlockers) {
+            const id = blocker.name ?? 'strict QA finding';
+            if (!pack.includes(id)) {
+                missing.push(`final closure pack missing strict-QA blocker ${id}`);
+            }
+            if (id === 'ERR-QA-SUPABASE-PROCESSED-AT-DEFAULT-149'
+                && !pack.includes('supabase-processed-at-default-approval-package.md')) {
+                missing.push('final closure pack missing Supabase processed_at approval package reference');
+            }
+        }
     }
 
     target.push({
         status: missing.length === 0 ? 'ok' : 'failed',
         area: 'launch status final closure pack',
         message: missing.length === 0
-            ? 'Launch status dashboard exposes a generated final closure pack for final-only blockers.'
+            ? 'Launch status dashboard exposes a generated final closure pack for final-only and strict-QA blockers.'
             : 'Launch status dashboard does not fully expose the generated final closure pack.',
         details: missing.length > 0
             ? missing
             : [toMarkdownPath(path.relative(process.cwd(), markdownPath)), toMarkdownPath(path.relative(process.cwd(), resolvedPackPath))],
     });
+}
+
+function statusSummaryStrictQaBlockers(summary: StatusSummary): Array<{ area?: string; name?: string; message?: string; details?: string[] }> {
+    return (summary.blockers ?? []).filter((blocker) =>
+        blocker.area === 'strict QA tracker' || blocker.area === 'strict QA security'
+    );
 }
 
 function findLatestEvidenceDir(folderName: string, summaryFileName: string): string | null {

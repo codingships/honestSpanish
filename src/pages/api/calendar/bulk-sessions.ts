@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro';
 import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
 import { checkTeacherAvailabilitySlots } from '../../../lib/calendar/availability';
+import { compareDateKeys, normalizeDateInputToDateKey } from '../../../lib/calendar/madrid-time';
+import { normalizeManualMeetingLink } from '../../../lib/calendar/meeting-link';
 import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
 import { recordFirstClassScheduledSafe } from '../../../lib/crm/onboarding';
 import { enqueueBulkSessionFulfillment } from '../../../lib/fulfillment/queue';
@@ -13,8 +15,36 @@ import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
 
+const ISO_DATE_TIME_WITH_ZONE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.\d{1,3})?)?(Z|[+-](\d{2}):(\d{2}))$/;
+
 function isValidDateString(value: unknown): value is string {
-    return typeof value === 'string' && !Number.isNaN(new Date(value).getTime());
+    if (typeof value !== 'string') {
+        return false;
+    }
+
+    const match = ISO_DATE_TIME_WITH_ZONE_PATTERN.exec(value);
+    if (!match) {
+        return false;
+    }
+
+    const [, yearRaw, monthRaw, dayRaw, hourRaw, minuteRaw, secondRaw, zoneRaw, offsetHourRaw, offsetMinuteRaw] = match;
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    const hour = Number(hourRaw);
+    const minute = Number(minuteRaw);
+    const second = Number(secondRaw ?? '0');
+    const maxDay = month >= 1 && month <= 12 ? new Date(Date.UTC(year, month, 0)).getUTCDate() : 0;
+
+    if (month < 1 || month > 12 || day < 1 || day > maxDay || hour > 23 || minute > 59 || second > 59) {
+        return false;
+    }
+
+    if (zoneRaw !== 'Z' && (Number(offsetHourRaw) > 23 || Number(offsetMinuteRaw) > 59)) {
+        return false;
+    }
+
+    return !Number.isNaN(new Date(value).getTime());
 }
 
 function findEarliestScheduledSession<T extends { scheduled_at: string | null }>(sessions: T[]) {
@@ -55,9 +85,13 @@ export const POST: APIRoute = async (context) => {
 
     const { studentId, teacherId, sessions: scheduledDates, durationMinutes: rawDurationMinutes, meetLink, autoCreateMeeting = true } = body;
     const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
-    const safeMeetLink = typeof meetLink === 'string' && meetLink.trim() ? meetLink.trim() : null;
+    const safeMeetLink = normalizeManualMeetingLink(meetLink);
     const shouldAutoCreateMeeting = typeof autoCreateMeeting === 'boolean' ? autoCreateMeeting : true;
     const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
+
+    if (!safeMeetLink.ok) {
+        return new Response(JSON.stringify({ error: safeMeetLink.error }), { status: 400 });
+    }
 
     if (typeof studentId !== 'string' || !studentId.trim() || !scheduledDates || !Array.isArray(scheduledDates) || scheduledDates.length === 0) {
         return new Response(JSON.stringify({ error: 'studentId and an array of sessions dates are required' }), { status: 400 });
@@ -117,7 +151,7 @@ export const POST: APIRoute = async (context) => {
 
     const { data: subscription } = await supabase
         .from('subscriptions')
-        .select('id, sessions_used, sessions_total')
+        .select('id, sessions_used, sessions_total, ends_at')
         .eq('student_id', studentId.trim())
         .eq('status', 'active')
         .gte('ends_at', new Date().toISOString())
@@ -127,6 +161,22 @@ export const POST: APIRoute = async (context) => {
 
     if (!subscription) {
         return new Response(JSON.stringify({ error: 'Student has no active subscription' }), { status: 400 });
+    }
+
+    const subscriptionEndDateKey = normalizeDateInputToDateKey(subscription.ends_at);
+    if (!subscriptionEndDateKey) {
+        return new Response(JSON.stringify({ error: 'Subscription end date is invalid' }), { status: 500 });
+    }
+
+    const hasSessionAfterSubscriptionEnd = scheduledDates.some((dateStr) => {
+        const scheduledDateKey = normalizeDateInputToDateKey(dateStr);
+        return scheduledDateKey !== null && compareDateKeys(scheduledDateKey, subscriptionEndDateKey) > 0;
+    });
+
+    if (hasSessionAfterSubscriptionEnd) {
+        return new Response(JSON.stringify({
+            error: 'Sessions cannot be scheduled after the subscription end date',
+        }), { status: 400 });
     }
 
     const sessionsUsed = subscription.sessions_used ?? 0;
@@ -232,11 +282,11 @@ export const POST: APIRoute = async (context) => {
         teacher_id: finalTeacherId,
         scheduled_at: dateStr,
         duration_minutes: durationMinutes,
-        meet_link: safeMeetLink,
+        meet_link: safeMeetLink.value,
         status: 'scheduled' as const,
     }));
 
-    const { data: createdSessions, error: insertError } = await supabase
+    const { data: createdSessions, error: insertError } = await supabaseAdmin
         .from('sessions')
         .insert(sessionsToInsert)
         .select(`
@@ -267,7 +317,7 @@ export const POST: APIRoute = async (context) => {
         }
         // Concurrency abort
         const createdIds = createdSessions.map((s: { id: string }) => s.id);
-        await supabase.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
+        await supabaseAdmin.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
         return new Response(JSON.stringify({ error: 'Concurrency error: No sessions remaining in subscription' }), { status: 409 });
     }
 

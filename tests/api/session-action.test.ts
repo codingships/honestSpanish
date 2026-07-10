@@ -59,6 +59,38 @@ const makeInvalidJsonContext = () => ({
     cookies: { set: vi.fn(), get: vi.fn() },
 });
 
+const makeSessionActionAdminClient = (onSessionUpdate: (data: unknown) => void = () => {}) => ({
+    from: vi.fn((table: string) => {
+        if (table === 'sessions') {
+            const chain: any = {
+                update: vi.fn((data: unknown) => {
+                    onSessionUpdate(data);
+                    return chain;
+                }),
+                eq: vi.fn().mockReturnThis(),
+                select: vi.fn().mockResolvedValue({ data: [{ id: 'session-1' }], error: null }),
+            };
+            return chain;
+        }
+
+        if (table === 'fulfillment_jobs') {
+            return {
+                insert: vi.fn().mockResolvedValue({ error: null }),
+            };
+        }
+
+        if (table === 'subscriptions') {
+            return {
+                update: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                select: vi.fn().mockResolvedValue({ data: [{ id: 'sub-1' }], error: null }),
+            };
+        }
+
+        throw new Error(`Unexpected admin table ${table}`);
+    }),
+});
+
 describe('POST /api/calendar/session-action', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -109,7 +141,7 @@ describe('POST /api/calendar/session-action', () => {
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
         const response = await POST(makeInvalidJsonContext() as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toBe('Invalid JSON body');
@@ -200,7 +232,7 @@ describe('POST /api/calendar/session-action', () => {
         expect(response.status).toBe(403);
     });
 
-    it('blocks student cancellations with less than 24 hours notice before updating the session', async () => {
+    it('allows a student cancellation with less than 24 hours notice but keeps the class consumed', async () => {
         const mockUser = { id: 'student-id', email: 'student@test.com' };
         const mockSession = {
             id: 'session-1',
@@ -213,7 +245,7 @@ describe('POST /api/calendar/session-action', () => {
             teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
             calendar_event_id: null,
         };
-        const sessionsUpdateMock = vi.fn().mockReturnThis();
+        const sessionsUpdateMock = vi.fn();
         const mockSupabase = createMockSupabaseClient({
             auth: {
                 getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
@@ -236,17 +268,85 @@ describe('POST /api/calendar/session-action', () => {
         });
 
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        const supabaseAdmin = makeSessionActionAdminClient(sessionsUpdateMock);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
         const response = await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(body.quotaRestored).toBe(false);
+        expect(body.quotaConsumed).toBe(true);
+        expect(sessionsUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
+        expect(supabaseAdmin.from).not.toHaveBeenCalledWith('subscriptions');
+        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(
+            supabaseAdmin,
+            expect.objectContaining({
+                metadata: expect.objectContaining({
+                    late_student_cancellation: true,
+                    quota_restore_attempted: false,
+                    quota_restored: false,
+                    previous_sessions_used: null,
+                    next_sessions_used: null,
+                }),
+            }),
+        );
+        expect(onboardingMocks.recordFirstClassCancelledSafe).toHaveBeenCalled();
+    });
+
+    it.each([
+        { role: 'teacher', userId: 'teacher-id' },
+        { role: 'admin', userId: 'admin-id' },
+    ])('blocks $role from marking no_show during the 15-minute grace period', async ({ role, userId }) => {
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            scheduled_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+            subscription: { id: 'sub-1', sessions_used: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+            calendar_event_id: null,
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: userId, email: `${role}@test.com` } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role }, error: null });
+            } else if (table === 'sessions') {
+                chain.single.mockResolvedValue({ data: mockSession, error: null });
+            }
+            return chain;
+        });
+        const sessionUpdate = vi.fn();
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(makeSessionActionAdminClient(sessionUpdate) as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'no_show' }) as any);
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(409);
-        expect(body.error).toBe('Student cancellations require at least 24 hours notice.');
-        expect(sessionsUpdateMock).not.toHaveBeenCalled();
-        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
-        expect(onboardingMocks.recordFirstClassCancelledSafe).not.toHaveBeenCalled();
+        expect(body.error).toBe('A no-show can only be recorded 15 minutes after the scheduled start time.');
+        expect(sessionUpdate).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordNoShowFollowUpSafe).not.toHaveBeenCalled();
     });
 
     it('returns 200 and success:true when student cancels their own session', async () => {
@@ -303,7 +403,7 @@ describe('POST /api/calendar/session-action', () => {
         const response = await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
 
         expect(response.status).toBe(200);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.success).toBe(true);
         expect(body.quotaRestored).toBe(true);
         expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(expect.any(Object), expect.objectContaining({
@@ -375,7 +475,9 @@ describe('POST /api/calendar/session-action', () => {
         });
 
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(makeSessionActionAdminClient(sessionsUpdateMock) as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
         await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
@@ -438,14 +540,7 @@ describe('POST /api/calendar/session-action', () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-        const supabaseAdmin = {
-            from: vi.fn().mockReturnValue({
-                insert: vi.fn().mockResolvedValue({ error: null }),
-                update: vi.fn().mockReturnThis(),
-                eq: vi.fn().mockReturnThis(),
-                gt: vi.fn().mockResolvedValue({ error: null }),
-            }),
-        };
+        const supabaseAdmin = makeSessionActionAdminClient(sessionUpdate);
         vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
@@ -454,7 +549,7 @@ describe('POST /api/calendar/session-action', () => {
             action: 'complete',
             report: 'Worked on professional introductions.',
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(200);
         expect(body.success).toBe(true);
@@ -479,6 +574,104 @@ describe('POST /api/calendar/session-action', () => {
             sessionId: 'session-1',
             teacherId: 'teacher-id',
             scheduledAt,
+            completedAt: expect.any(String),
+        }));
+    });
+
+    it('accepts a structured post-class report object for the JSONB report column', async () => {
+        const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
+        const scheduledAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const structuredReport = {
+            rating: 4,
+            skills: {
+                grammar: 'Excellent',
+                vocabulary: 'Good',
+                fluency: 'Good',
+                pronunciation: 'Needs Work',
+            },
+            teacher_comments: 'Buen progreso con los tiempos pasados.',
+            homework_text: 'Escribe 10 frases usando preterito e imperfecto.',
+            homework_drive_url: null,
+        };
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            scheduled_at: scheduledAt,
+            subscription: { id: 'sub-1', sessions_used: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+            calendar_event_id: 'event-1',
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
+            },
+        });
+        const sessionUpdate = vi.fn().mockReturnThis();
+        const sessionFetchChain: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({ data: mockSession, error: null }),
+        };
+        const sessionUpdateChain: any = {
+            update: vi.fn((data: unknown) => {
+                sessionUpdate(data);
+                return sessionUpdateChain;
+            }),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockResolvedValue({ data: [{ id: 'session-1' }], error: null }),
+        };
+        let sessionsFromCalls = 0;
+        mockSupabase.from = vi.fn((table: string) => {
+            if (table === 'profiles') {
+                return {
+                    select: vi.fn().mockReturnThis(),
+                    eq: vi.fn().mockReturnThis(),
+                    single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
+                };
+            }
+            if (table === 'sessions') {
+                sessionsFromCalls += 1;
+                return sessionsFromCalls === 1 ? sessionFetchChain : sessionUpdateChain;
+            }
+            throw new Error(`Unexpected table ${table}`);
+        });
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        const supabaseAdmin = makeSessionActionAdminClient(sessionUpdate);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+        const response = await POST(makeContext({
+            sessionId: 'session-1',
+            action: 'complete',
+            notes: structuredReport.teacher_comments,
+            report: structuredReport,
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(sessionUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            status: 'completed',
+            post_class_report: structuredReport,
+            teacher_notes: structuredReport.teacher_comments,
+        }));
+        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(supabaseAdmin, expect.objectContaining({
+            activityType: 'class',
+            subject: 'Clase completada',
+            body: JSON.stringify(structuredReport),
+            relatedEntityType: 'session_completed',
+        }));
+        expect(onboardingMocks.recordFirstClassCompletedSafe).toHaveBeenCalledWith(supabaseAdmin, expect.objectContaining({
+            profileId: 'student-id',
+            subscriptionId: 'sub-1',
+            sessionId: 'session-1',
             completedAt: expect.any(String),
         }));
     });
@@ -536,14 +729,7 @@ describe('POST /api/calendar/session-action', () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-        const supabaseAdmin = {
-            from: vi.fn().mockReturnValue({
-                insert: vi.fn().mockResolvedValue({ error: null }),
-                update: vi.fn().mockReturnThis(),
-                eq: vi.fn().mockReturnThis(),
-                gt: vi.fn().mockResolvedValue({ error: null }),
-            }),
-        };
+        const supabaseAdmin = makeSessionActionAdminClient(sessionUpdate);
         vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
@@ -552,7 +738,7 @@ describe('POST /api/calendar/session-action', () => {
             action: 'no_show',
             notes: 'Student did not join the call.',
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(200);
         expect(body.success).toBe(true);

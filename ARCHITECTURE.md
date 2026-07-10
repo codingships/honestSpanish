@@ -6,7 +6,7 @@ Modular monolith pragmatico: una app Astro para web/API transaccional y un Cloud
 
 ## Runtimes
 
-### Cloudflare Pages
+### Cloudflare Astro Worker
 
 Responsable de:
 
@@ -111,7 +111,7 @@ Meet no se corta automaticamente. Las duraciones comerciales disponibles son 30,
 
 Debe haber staging y produccion separados:
 
-- Cloudflare Pages.
+- Cloudflare Astro Worker.
 - Cloudflare Fulfillment Worker.
 - Supabase con proyectos separados para staging y production dentro de la misma cuenta, sin branching.
 - Stripe test/live.

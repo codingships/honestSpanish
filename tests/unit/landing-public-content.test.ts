@@ -124,15 +124,19 @@ describe('landing public launch content', () => {
         expect(landingSource).toContain('Для кого это');
     });
 
-    it('keeps Irene visible with a neutral fallback until the real image is approved', () => {
+    it('uses the approved Irene portrait in the public team section', () => {
         expect(landingSource).toContain('const ireneMemberByLang');
-        expect(landingSource).toContain("name: 'Irene'");
+        expect(landingSource).toContain("name: 'IRENE'");
         expect(landingSource).toContain("languages: ['ES', 'EN', 'CS', 'FR', 'LSE']");
-        expect(landingSource).toContain('const teamImages = [avatarAlejandro, avatarAlin, null]');
+        expect(landingSource).toContain("import avatarIrene from '../assets/avatar_irene.jpg'");
+        expect(landingSource).toContain('const teamImages = [avatarAlejandro, avatarAlin, avatarIrene]');
+        expect(landingSource).toContain('<Image');
+        expect(landingSource).toContain('src={memberImage}');
+        expect(landingSource).toContain('widths={[320, 480, 640]}');
         expect(landingSource).toContain('const fallbackInitials = member.name.slice(0, 2).toUpperCase()');
         expect(landingSource).not.toContain('const avatarIrenePlaceholder = avatarAlin');
-        expect(backlog).toContain('Foto definitiva de Irene');
-        expect(backlog).toContain('fallback neutro de iniciales');
+        expect(backlog).not.toContain('Foto definitiva de Irene');
+        expect(backlog).not.toContain('fallback neutro de iniciales');
     });
 
     it('keeps plan anchors aligned for navigation, schema and legacy links', () => {
@@ -143,9 +147,10 @@ describe('landing public launch content', () => {
         expect(pricingSource).toContain('id="plans-heading"');
     });
 
-    it('keeps public plan CTAs application-first instead of checkout-first', () => {
-        expect(landingSource).toContain('checkoutMode="application"');
-        expect(readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8')).toContain('checkoutMode="application"');
+    it('keeps public plan CTAs application-first by default and exposes checkout only through the runtime gate', () => {
+        expect(landingSource).toContain("isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application'");
+        expect(landingSource).toContain('checkoutMode={checkoutMode}');
+        expect(readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8')).toContain('checkoutMode={checkoutMode}');
         expect(pricingSource).toContain("checkoutMode?: 'application' | 'checkout'");
         expect(pricingSource).toContain("checkoutMode = 'application'");
         expect(pricingSource).toContain('requestApplication');
@@ -173,7 +178,7 @@ describe('landing public launch content', () => {
         expect(paymentsAuditSource).toContain('Checkout is disabled');
         expect(paymentsAuditSource).toContain('public CTAs remain application-first');
         expect(productsDoc).toContain('Mantener `CHECKOUT_ENABLED=false` para operar sin cobros reales');
-        expect(finalClosure).toContain('Lanzamiento sin pagos reales');
+        expect(finalClosure).toContain('Rollback sin nuevos cobros');
     });
 
     it('does not hardcode the Spanish contact fallback for missing prices', () => {

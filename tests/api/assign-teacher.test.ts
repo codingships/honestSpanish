@@ -13,6 +13,15 @@ const makeContext = (body: Record<string, unknown> = {}) => ({
     cookies: { set: vi.fn(), get: vi.fn() },
 });
 
+const makeInvalidJsonContext = () => ({
+    request: {
+        json: vi.fn().mockRejectedValue(new Error('bad json')),
+        headers: { get: vi.fn().mockReturnValue('') },
+        url: 'http://localhost:4321/api/admin/assign-teacher',
+    },
+    cookies: { set: vi.fn(), get: vi.fn() },
+});
+
 const makeProfilesQuery = (roleQueue: Array<string | null>) => {
     const chain: any = {
         select: vi.fn().mockReturnThis(),
@@ -44,6 +53,7 @@ const makeAssignmentQueries = ({
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         single: vi.fn().mockResolvedValue({ data: existingAssignment, error: existingError }),
+        maybeSingle: vi.fn().mockResolvedValue({ data: existingAssignment, error: existingError }),
     };
     const writeChain = { insert, update };
 
@@ -125,6 +135,18 @@ describe('POST /api/admin/assign-teacher', () => {
         await expect(POST(makeContext({ studentId: 'student-1' }) as any)).resolves.toMatchObject({ status: 400 });
     });
 
+    it('returns 400 for invalid JSON after admin authentication', async () => {
+        const { supabase } = makeSupabase();
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
+        const response = await POST(makeInvalidJsonContext() as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toBe('Invalid JSON body');
+    });
+
     it('rejects a studentId that does not belong to a student profile', async () => {
         const { supabase, assignment } = makeSupabase({ targetRoles: ['teacher', 'teacher'] });
         await setSupabase(supabase);
@@ -161,6 +183,23 @@ describe('POST /api/admin/assign-teacher', () => {
             student_id: 'student-1',
             teacher_id: 'teacher-1',
             is_primary: true,
+        });
+    });
+
+    it('creates a non-primary assignment when requested by the admin UI', async () => {
+        const { supabase, assignment } = makeSupabase();
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/admin/assign-teacher');
+        const response = await POST(makeContext({ studentId: ' student-1 ', teacherId: ' teacher-1 ', isPrimary: false }) as any);
+
+        expect(response.status).toBe(200);
+        expect(assignment.readChain.single).not.toHaveBeenCalled();
+        expect(assignment.readChain.maybeSingle).toHaveBeenCalled();
+        expect(assignment.insert).toHaveBeenCalledWith({
+            student_id: 'student-1',
+            teacher_id: 'teacher-1',
+            is_primary: false,
         });
     });
 

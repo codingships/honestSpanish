@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 
 interface AvailabilitySlot {
     id: string;
@@ -26,8 +26,14 @@ interface AvailabilityManagerProps {
         slotRemoved: string;
         errorAdding: string;
         errorRemoving: string;
+        invalidTimeRange?: string;
     };
 }
+
+type AvailabilityResponse = {
+    availability?: AvailabilitySlot;
+    error?: string;
+};
 
 export default function AvailabilityManager({
     initialAvailability,
@@ -39,7 +45,33 @@ export default function AvailabilityManager({
     const [isAddingSlot, setIsAddingSlot] = useState(false);
     const [newSlot, setNewSlot] = useState({ dayOfWeek: 1, startTime: '09:00', endTime: '10:00' });
     const [isLoading, setIsLoading] = useState(false);
+    const [removingSlotId, setRemovingSlotId] = useState<string | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const messageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    const clearMessageTimer = () => {
+        if (messageTimerRef.current) {
+            clearTimeout(messageTimerRef.current);
+            messageTimerRef.current = null;
+        }
+    };
+
+    const showMessage = (nextMessage: { type: 'success' | 'error'; text: string }, autoHide = false) => {
+        clearMessageTimer();
+        setMessage(nextMessage);
+        if (autoHide) {
+            messageTimerRef.current = setTimeout(() => {
+                setMessage(null);
+                messageTimerRef.current = null;
+            }, 3000);
+        }
+    };
+
+    useEffect(() => () => {
+        if (messageTimerRef.current) {
+            clearTimeout(messageTimerRef.current);
+        }
+    }, []);
 
     // Agrupar disponibilidad por día
     const availabilityByDay = availability.reduce((acc, slot) => {
@@ -50,7 +82,15 @@ export default function AvailabilityManager({
         return acc;
     }, {} as Record<number, AvailabilitySlot[]>);
 
+    const isTimeRangeValid = newSlot.startTime < newSlot.endTime;
+    const invalidTimeRangeMessage = t.invalidTimeRange || t.errorAdding;
+
     const handleAddSlot = async () => {
+        if (!isTimeRangeValid) {
+            showMessage({ type: 'error', text: invalidTimeRangeMessage });
+            return;
+        }
+
         setIsLoading(true);
         setMessage(null);
 
@@ -70,19 +110,18 @@ export default function AvailabilityManager({
                 throw new Error('Failed to add slot');
             }
 
-            const data = await response.json();
+            const data = await response.json() as AvailabilityResponse;
 
-            if (data.availability) {
-                setAvailability([...availability, data.availability]);
+            const availabilitySlot = data.availability;
+            if (availabilitySlot) {
+                setAvailability((currentAvailability) => [...currentAvailability, availabilitySlot]);
             }
 
             setIsAddingSlot(false);
             setNewSlot({ dayOfWeek: 1, startTime: '09:00', endTime: '10:00' });
-            setMessage({ type: 'success', text: t.slotAdded });
-
-            setTimeout(() => setMessage(null), 3000);
+            showMessage({ type: 'success', text: t.slotAdded }, true);
         } catch {
-            setMessage({ type: 'error', text: t.errorAdding });
+            showMessage({ type: 'error', text: t.errorAdding });
         } finally {
             setIsLoading(false);
         }
@@ -90,6 +129,7 @@ export default function AvailabilityManager({
 
     const handleRemoveSlot = async (slotId: string) => {
         setIsLoading(true);
+        setRemovingSlotId(slotId);
         setMessage(null);
 
         try {
@@ -103,13 +143,12 @@ export default function AvailabilityManager({
                 throw new Error('Failed to remove slot');
             }
 
-            setAvailability(availability.filter(s => s.id !== slotId));
-            setMessage({ type: 'success', text: t.slotRemoved });
-
-            setTimeout(() => setMessage(null), 3000);
+            setAvailability((currentAvailability) => currentAvailability.filter(s => s.id !== slotId));
+            showMessage({ type: 'success', text: t.slotRemoved }, true);
         } catch {
-            setMessage({ type: 'error', text: t.errorRemoving });
+            showMessage({ type: 'error', text: t.errorRemoving });
         } finally {
+            setRemovingSlotId(null);
             setIsLoading(false);
         }
     };
@@ -125,7 +164,7 @@ export default function AvailabilityManager({
         <div className="space-y-6">
             {/* Mensaje */}
             {message && (
-                <div className={`p-4 font-bold text-sm ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                <div role={message.type === 'success' ? 'status' : 'alert'} className={`p-4 font-bold text-sm ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
                     }`}>
                     {message.text}
                 </div>
@@ -155,8 +194,11 @@ export default function AvailabilityManager({
                                                 {formatTime(slot.start_time)} - {formatTime(slot.end_time)}
                                             </span>
                                             <button
+                                                type="button"
                                                 onClick={() => handleRemoveSlot(slot.id)}
                                                 disabled={isLoading}
+                                                aria-label={`${t.removeSlot}: ${formatTime(slot.start_time)} - ${formatTime(slot.end_time)}`}
+                                                aria-busy={removingSlotId === slot.id}
                                                 className="text-red-500 hover:text-red-700 font-bold text-lg leading-none"
                                                 title={t.removeSlot}
                                             >
@@ -175,7 +217,9 @@ export default function AvailabilityManager({
             {/* Botón añadir / Formulario */}
             {!isAddingSlot ? (
                 <button
+                    type="button"
                     onClick={() => setIsAddingSlot(true)}
+                    disabled={isLoading}
                     className="px-6 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                 >
                     + {t.addSlot}
@@ -187,12 +231,14 @@ export default function AvailabilityManager({
                     <div className="space-y-4">
                         {/* Día */}
                         <div>
-                            <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                            <label htmlFor="availability-day" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                                 {t.day}
                             </label>
                             <select
+                                id="availability-day"
                                 value={newSlot.dayOfWeek}
                                 onChange={(e) => setNewSlot({ ...newSlot, dayOfWeek: parseInt(e.target.value) })}
+                                disabled={isLoading}
                                 className="w-full p-3 border-2 border-[#006064] bg-white text-[#006064]"
                             >
                                 {weekDays.map(day => (
@@ -204,39 +250,54 @@ export default function AvailabilityManager({
                         {/* Hora inicio */}
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                                <label htmlFor="availability-start-time" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                                     {t.from}
                                 </label>
                                 <input
+                                    id="availability-start-time"
                                     type="time"
                                     value={newSlot.startTime}
                                     onChange={(e) => setNewSlot({ ...newSlot, startTime: e.target.value })}
+                                    disabled={isLoading}
+                                    aria-describedby={!isTimeRangeValid ? 'availability-time-error' : undefined}
                                     className="w-full p-3 border-2 border-[#006064] text-[#006064]"
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                                <label htmlFor="availability-end-time" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                                     {t.to}
                                 </label>
                                 <input
+                                    id="availability-end-time"
                                     type="time"
                                     value={newSlot.endTime}
                                     onChange={(e) => setNewSlot({ ...newSlot, endTime: e.target.value })}
+                                    disabled={isLoading}
+                                    aria-describedby={!isTimeRangeValid ? 'availability-time-error' : undefined}
                                     className="w-full p-3 border-2 border-[#006064] text-[#006064]"
                                 />
                             </div>
                         </div>
 
+                        {!isTimeRangeValid && (
+                            <p id="availability-time-error" role="alert" className="text-sm text-red-700 font-bold">
+                                {invalidTimeRangeMessage}
+                            </p>
+                        )}
+
                         {/* Botones */}
                         <div className="flex gap-2 pt-2">
                             <button
+                                type="button"
                                 onClick={handleAddSlot}
-                                disabled={isLoading}
+                                disabled={isLoading || !isTimeRangeValid}
+                                aria-busy={isLoading && removingSlotId === null}
                                 className="flex-1 px-4 py-3 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors disabled:opacity-50"
                             >
                                 {isLoading ? '...' : t.save}
                             </button>
                             <button
+                                type="button"
                                 onClick={() => setIsAddingSlot(false)}
                                 disabled={isLoading}
                                 className="px-4 py-3 bg-white text-[#006064] font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#E0F7FA] transition-colors"

@@ -274,17 +274,24 @@ const requiredChecks: RequiredCheck[] = [
         id: 'integration_readiness',
         area: 'integrations',
         phase: 'phase_3_final',
-        requirement: 'Stripe live, Google, Resend, Turnstile domains and fulfillment/reminder worker configuration are verified.',
+        requirement: 'Stripe test rehearsal and Stripe live readiness for real payments from day one, including CHECKOUT_ENABLED_OVERRIDE rollback, Cloudflare Pages-vs-Worker/domain ownership, production Worker secret-name posture, Google, Resend, Turnstile domains and fulfillment/reminder worker configuration are verified.',
         maxAgeDays: 14,
-        readyWhen: 'Live/staging integration settings are verified for Stripe, Google, Resend, Turnstile and reminders.',
+        readyWhen: 'Stripe test evidence is complete and Stripe live evidence supports real payments from day one, while CHECKOUT_ENABLED_OVERRIDE remains closed until Go/No-Go and is proven as rollback; Cloudflare custom domains serve the intended final runtime, production Worker and required secret names are verified, and Google, Resend, Turnstile and reminders are verified for the intended environment.',
         nextActions: [
-            'Verify Stripe live mode settings and webhook endpoints before production.',
+            'Verify Stripe test end to end, then Stripe live mode, webhook endpoints and CHECKOUT_ENABLED_OVERRIDE rollback before accepting real payments.',
+            'Review outputs/019f1a5e-2745-7c43-870d-544e6ba4e0b1/strict-qa-v2/cloudflare-domain-worker-preflight.md and close Cloudflare in phases: production Worker creation, secret-name setup, direct Worker URL probes, then custom-domain move only after separate explicit approval.',
             'Verify Google Drive template/root folder/admin account and Resend sender/domain.',
+            'Run pnpm launch:turnstile-readonly -- --env-file <env-file> as runtime support evidence, then separately verify the Cloudflare Turnstile widget domains in dashboard/API before marking this check pass.',
             'Verify Turnstile domains and fulfillment/reminder worker configuration.',
         ],
         evidenceExamples: [
-            'dashboard: "Stripe live webhook endpoints reviewed."',
+            'manual_note: "Payment posture verified: Stripe test mode for final rehearsal; no real payments accepted before live switch."',
+            'command_output: "outputs/019f1a5e-2745-7c43-870d-544e6ba4e0b1/strict-qa-v2/cloudflare-domain-worker-preflight.md"',
+            'manual_note: "Cloudflare final custom domains serve the intended runtime; production Worker and secret-name posture verified without printing values."',
+            'dashboard: "Stripe live webhook endpoints reviewed before accepting real payments."',
             'manual_note: "Google template/root folder and Resend sender verified."',
+            'command_output: "outputs/launch-turnstile-readonly-evidence/<timestamp>/summary.md"',
+            'dashboard: "Turnstile widget site key prefix and allowed domains reviewed; no secret key copied."',
         ],
     },
     {
@@ -1347,6 +1354,8 @@ function manualEvidenceDryRunOutputTypeFor(checkId: string): string | null {
             return 'launch-operations-external-closure';
         case 'database_readiness':
             return 'launch-staging-database-rollout';
+        case 'security_external':
+            return 'launch-supabase-security-rollout';
         case 'payments_staging':
             return 'launch-no-real-payments';
         default:

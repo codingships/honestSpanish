@@ -14,6 +14,16 @@ type FulfillmentJob = {
     session?: { scheduled_at: string | null; status: string | null } | null;
 };
 
+type FulfillmentJobsResponse = {
+    error?: string;
+    jobs?: FulfillmentJob[];
+    result?: {
+        processed?: number;
+        succeeded?: number;
+        failed?: number;
+    };
+};
+
 const statuses: Array<JobStatus | 'all'> = ['pending', 'failed', 'processing', 'succeeded', 'cancelled', 'all'];
 
 function formatDate(value: string | null): string {
@@ -44,23 +54,28 @@ export default function FulfillmentJobsManager() {
     const [message, setMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
 
-    const loadJobs = useCallback(async () => {
+    const loadJobs = useCallback(async (signal?: AbortSignal) => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await fetch(`/api/admin/fulfillment-jobs?status=${status}&limit=100`);
-            const data = await response.json();
+            const response = await fetch(`/api/admin/fulfillment-jobs?status=${status}&limit=100`, { signal });
+            const data = await response.json() as FulfillmentJobsResponse;
+            if (signal?.aborted) return;
             if (!response.ok) throw new Error(data.error || 'No se pudieron cargar los jobs');
             setJobs(data.jobs || []);
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'No se pudieron cargar los jobs');
+            if ((err as Error).name !== 'AbortError') {
+                setError(err instanceof Error ? err.message : 'No se pudieron cargar los jobs');
+            }
         } finally {
-            setIsLoading(false);
+            if (!signal?.aborted) setIsLoading(false);
         }
     }, [status]);
 
     useEffect(() => {
-        void loadJobs();
+        const controller = new AbortController();
+        void loadJobs(controller.signal);
+        return () => controller.abort();
     }, [loadJobs]);
 
     const runAction = async (action: 'retry' | 'cancel', jobId: string) => {
@@ -73,7 +88,7 @@ export default function FulfillmentJobsManager() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action, jobId }),
             });
-            const data = await response.json();
+            const data = await response.json() as FulfillmentJobsResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo actualizar el job');
             setMessage(action === 'retry' ? 'Job reprogramado' : 'Job cancelado');
             await loadJobs();
@@ -94,7 +109,7 @@ export default function FulfillmentJobsManager() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'process_due', limit: 20 }),
             });
-            const data = await response.json();
+            const data = await response.json() as FulfillmentJobsResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo procesar la cola');
             setMessage(`Procesados: ${data.result?.processed ?? 0}, correctos: ${data.result?.succeeded ?? 0}, fallidos: ${data.result?.failed ?? 0}`);
             await loadJobs();
@@ -105,6 +120,8 @@ export default function FulfillmentJobsManager() {
         }
     };
 
+    const isWorking = workingId !== null;
+
     return (
         <div className="space-y-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -112,7 +129,9 @@ export default function FulfillmentJobsManager() {
                     {statuses.map((item) => (
                         <button
                             key={item}
+                            type="button"
                             onClick={() => setStatus(item)}
+                            disabled={isWorking}
                             className={`border-2 px-3 py-2 text-xs font-bold uppercase ${status === item ? 'border-[#006064] bg-[#006064] text-white' : 'border-[#006064]/40 bg-white text-[#006064]'}`}
                         >
                             {item}
@@ -120,8 +139,10 @@ export default function FulfillmentJobsManager() {
                     ))}
                 </div>
                 <button
+                    type="button"
                     onClick={() => void processDue()}
-                    disabled={workingId === 'process_due'}
+                    disabled={isWorking}
+                    aria-busy={workingId === 'process_due'}
                     className="border-2 border-[#006064] bg-white px-4 py-2 text-xs font-bold uppercase text-[#006064] disabled:opacity-50"
                 >
                     {workingId === 'process_due' ? 'Procesando...' : 'Procesar pendientes'}
@@ -129,7 +150,7 @@ export default function FulfillmentJobsManager() {
             </div>
 
             {(message || error) && (
-                <div className={`border-2 p-4 font-mono text-sm ${error ? 'border-red-500 bg-red-50 text-red-700' : 'border-green-600 bg-green-50 text-green-700'}`}>
+                <div role={error ? 'alert' : 'status'} className={`border-2 p-4 font-mono text-sm ${error ? 'border-red-500 bg-red-50 text-red-700' : 'border-green-600 bg-green-50 text-green-700'}`}>
                     {error || message}
                 </div>
             )}
@@ -182,15 +203,19 @@ export default function FulfillmentJobsManager() {
                                 <td className="p-3 text-right">
                                     <div className="flex justify-end gap-2">
                                         <button
+                                            type="button"
                                             onClick={() => void runAction('retry', job.id)}
-                                            disabled={workingId === job.id || job.status === 'processing'}
+                                            disabled={isWorking || job.status === 'processing'}
+                                            aria-busy={workingId === job.id}
                                             className="border border-[#006064] px-3 py-2 text-xs font-bold uppercase text-[#006064] disabled:opacity-50"
                                         >
                                             Reintentar
                                         </button>
                                         <button
+                                            type="button"
                                             onClick={() => void runAction('cancel', job.id)}
-                                            disabled={workingId === job.id || job.status === 'succeeded' || job.status === 'cancelled'}
+                                            disabled={isWorking || job.status === 'succeeded' || job.status === 'cancelled'}
+                                            aria-busy={workingId === job.id}
                                             className="border border-red-600 px-3 py-2 text-xs font-bold uppercase text-red-700 disabled:opacity-50"
                                         >
                                             Cancelar

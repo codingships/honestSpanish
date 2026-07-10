@@ -37,6 +37,7 @@ interface LevelCheckTranslations {
     writtenSample: string;
     writtenSamplePlaceholder: string;
     audioLater: string;
+    adultConfirmation: string;
     consent: string;
     privacyLink: string;
     button: string;
@@ -44,6 +45,7 @@ interface LevelCheckTranslations {
     error: string;
     loading: string;
     consentError: string;
+    adultError: string;
     securityError: string;
 }
 
@@ -51,6 +53,10 @@ interface LevelCheckFormProps {
     lang: 'es' | 'en' | 'ru';
     translations: LevelCheckTranslations;
 }
+
+type LevelCheckResponse = {
+    error?: string;
+};
 
 export default function LevelCheckForm({ lang, translations: t }: LevelCheckFormProps) {
     const [formData, setFormData] = useState({
@@ -61,17 +67,24 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
         useContext: '',
         writtenSample: '',
         canSendAudioLater: false,
+        adultConfirmed: false,
         consent: false,
     });
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const [leadToken, setLeadToken] = useState<{ leadId: string; token: string } | null>(null);
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
         const email = params.get('email');
+        const leadId = params.get('leadId');
+        const token = params.get('token');
         if (email) {
             setFormData(prev => ({ ...prev, email }));
+        }
+        if (leadId && token) {
+            setLeadToken({ leadId, token });
         }
     }, []);
 
@@ -86,6 +99,12 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
 
     const handleSubmit = async (event: React.FormEvent) => {
         event.preventDefault();
+
+        if (!formData.adultConfirmed) {
+            setErrorMessage(t.adultError);
+            setStatus('error');
+            return;
+        }
 
         if (!formData.consent) {
             setErrorMessage(t.consentError);
@@ -108,12 +127,13 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     ...formData,
+                    ...(leadToken ?? {}),
                     lang,
                     sourcePath: typeof window === 'undefined' ? '' : window.location.pathname,
                     'cf-turnstile-response': turnstileToken,
                 }),
             });
-            const data = await response.json();
+            const data = await response.json() as LevelCheckResponse;
 
             if (!response.ok) {
                 throw new Error(data.error || t.error);
@@ -128,7 +148,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
 
     if (status === 'success') {
         return (
-            <div className="border-2 border-[#006064] bg-white p-8 text-center shadow-[8px_8px_0px_0px_#006064]">
+            <div role="status" aria-live="polite" className="border-2 border-[#006064] bg-white p-8 text-center shadow-[8px_8px_0px_0px_#006064]">
                 <h2 className="font-display text-2xl uppercase text-[#006064]">{t.title}</h2>
                 <p className="mt-4 text-sm leading-6 text-[#006064]">{t.success}</p>
             </div>
@@ -136,7 +156,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
     }
 
     return (
-        <form onSubmit={handleSubmit} className="border-2 border-[#006064] bg-white p-6 shadow-[8px_8px_0px_0px_#006064] sm:p-8">
+        <form onSubmit={handleSubmit} className="border-2 border-[#006064] bg-white p-6 shadow-[8px_8px_0px_0px_#006064] sm:p-8" aria-busy={status === 'loading'}>
             <div className="mb-6 text-center">
                 <h2 className="font-display text-2xl uppercase text-[#006064]">{t.title}</h2>
                 <p className="mt-3 text-sm leading-6 text-[#006064]">{t.subtitle}</p>
@@ -254,10 +274,22 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                 <label className="flex items-start gap-3 text-xs leading-5 text-[#006064]/80">
                     <input
                         type="checkbox"
+                        name="adultConfirmed"
+                        checked={formData.adultConfirmed}
+                        onChange={handleChange}
+                        aria-required="true"
+                        className="mt-1 h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
+                    />
+                    <span>{t.adultConfirmation}</span>
+                </label>
+
+                <label className="flex items-start gap-3 text-xs leading-5 text-[#006064]/80">
+                    <input
+                        type="checkbox"
                         name="consent"
                         checked={formData.consent}
                         onChange={handleChange}
-                        required
+                        aria-required="true"
                         className="mt-1 h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
                     />
                     <span>
@@ -284,6 +316,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                 <button
                     type="submit"
                     disabled={status === 'loading'}
+                    aria-busy={status === 'loading'}
                     className="mt-2 w-full border-2 border-[#006064] bg-[#006064] py-3 text-sm font-bold uppercase tracking-widest text-white transition-all hover:bg-[#004d40] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     {status === 'loading' ? t.loading : t.button}

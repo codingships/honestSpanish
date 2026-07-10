@@ -31,6 +31,7 @@ const findings: Finding[] = [
     reviewCronAndInternalEndpoints(),
     reviewStripePaymentSecurity(),
     reviewTurnstileLeadSecurity(),
+    reviewRuntimeSecretAccess(),
     reviewServiceRoleBoundary(),
     reviewSecurityRegressionTests(),
 ];
@@ -171,8 +172,8 @@ function reviewCronAndInternalEndpoints(): Finding {
     const checks: Array<[string, string[]]> = [
         [path.join('src', 'pages', 'api', 'cron', 'process-fulfillment.ts'), ['CRON_SECRET', 'Authorization', 'Bearer', '401']],
         [path.join('src', 'pages', 'api', 'cron', 'send-reminders.ts'), ['CRON_SECRET', 'Authorization', 'Bearer', '401']],
-        [path.join('src', 'lib', 'internal-job-service.ts'), ['INTERNAL_JOB_SECRET', 'CRON_SECRET', 'Authorization', 'Bearer']],
-        [path.join('workers', 'fulfillment', 'src', 'index.ts'), ['INTERNAL_JOB_SECRET', 'CRON_SECRET', 'isAuthorized', 'Bearer', '401']],
+        [path.join('src', 'lib', 'internal-job-service.ts'), ['INTERNAL_JOB_SECRET', 'Authorization', 'Bearer']],
+        [path.join('workers', 'fulfillment', 'src', 'index.ts'), ['INTERNAL_JOB_SECRET', 'isAuthorized', 'Bearer', '401']],
     ];
 
     const details = missingSnippets(checks);
@@ -194,7 +195,9 @@ function reviewStripePaymentSecurity(): Finding {
             'stripe-signature',
             'constructEvent',
             'processed_webhook_events',
-            "idempotencyError.code === '23505'",
+            'markWebhookEventProcessed',
+            "error.code === '23505'",
+            "markProcessed === 'failed'",
         ]],
         [path.join('src', 'pages', 'api', 'create-checkout.ts'), [
             'createSupabaseServerClient',
@@ -253,6 +256,85 @@ function reviewTurnstileLeadSecurity(): Finding {
         message: details.length === 0
             ? 'Lead capture requires consent, Turnstile verification and privacy-link evidence.'
             : 'Lead capture bot, consent or privacy-link controls are missing.',
+        details,
+    };
+}
+
+function reviewRuntimeSecretAccess(): Finding {
+    const details: string[] = [];
+    const runtimeEnvPath = path.join('src', 'lib', 'runtime-env.ts');
+    const runtimeEnv = readIfExists(runtimeEnvPath);
+    const privateKeys = [
+        'CRON_SECRET',
+        'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+        'INTERNAL_JOB_SECRET',
+        'LEVEL_CHECK_TOKEN_SECRET',
+        'RESEND_API_KEY',
+        'SENTRY_AUTH_TOKEN',
+        'STRIPE_SECRET_KEY',
+        'STRIPE_WEBHOOK_SECRET',
+        'SUPABASE_SERVICE_ROLE_KEY',
+        'TURNSTILE_SECRET_KEY',
+    ];
+
+    if (!runtimeEnv.includes("from 'astro:env/server'") || !runtimeEnv.includes('getSecret(key)')) {
+        details.push(`${runtimeEnvPath}: server values must use the adapter-provided astro:env/server getSecret() runtime.`);
+    }
+    if (runtimeEnv.includes('astro/env/runtime') || runtimeEnv.includes('import.meta.env')) {
+        details.push(`${runtimeEnvPath}: deprecated/internal or build-time environment access can bake secrets into the Worker bundle.`);
+    }
+
+    const runtimeSourceFiles = [
+        ...filesUnder('src'),
+        ...filesUnder('workers'),
+    ].filter((candidate) => /\.(ts|tsx|astro|js|jsx|cjs|mjs)$/.test(candidate));
+
+    for (const file of runtimeSourceFiles) {
+        const content = readIfExists(file);
+        for (const key of privateKeys) {
+            const directAccess = new RegExp(`import\\.meta\\.env\\.${key}\\b`);
+            const bracketAccess = new RegExp(`import\\.meta\\.env\\[['\"]${key}['\"]\\]`);
+            if (directAccess.test(content) || bracketAccess.test(content)) {
+                details.push(`${file}: accesses private runtime key ${key} through import.meta.env.`);
+            }
+        }
+    }
+
+    if (existsSync('dist')) {
+        const buildFiles = filesUnder('dist')
+            .filter((candidate) => /\.(js|mjs|cjs|json|html|map)$/.test(candidate));
+        const envFiles = ['.env', '.env.staging', '.dev.vars'];
+
+        for (const key of privateKeys) {
+            const values = new Set<string>();
+            for (const envFile of envFiles) {
+                const value = readEnvFileValue(envFile, key);
+                if (value && value.length >= 12 && !/placeholder|example|changeme|test-secret/i.test(value)) {
+                    values.add(value);
+                    values.add(JSON.stringify(value).slice(1, -1));
+                }
+            }
+
+            let leakedIn: string | null = null;
+            for (const file of buildFiles) {
+                const content = readIfExists(file);
+                if ([...values].some((value) => value.length >= 12 && content.includes(value))) {
+                    leakedIn = file;
+                    break;
+                }
+            }
+            if (leakedIn) {
+                details.push(`${leakedIn}: contains the configured value for private runtime key ${key}; value intentionally omitted.`);
+            }
+        }
+    }
+
+    return {
+        status: details.length === 0 ? 'ok' : 'failed',
+        area: 'runtime secret binding and bundle boundary',
+        message: details.length === 0
+            ? 'Private server values use Astro adapter runtime secrets and no configured private value is present in the current dist bundle.'
+            : 'Private server values can be or are embedded in the built Worker bundle instead of runtime secret bindings.',
         details,
     };
 }
@@ -348,6 +430,23 @@ function missingSnippets(checks: Array<[string, string[]]>): string[] {
 
 function readIfExists(file: string): string {
     return existsSync(file) ? readFileSync(file, 'utf8') : '';
+}
+
+function readEnvFileValue(file: string, key: string): string | undefined {
+    const line = readIfExists(file)
+        .split(/\r?\n/)
+        .map((candidate) => candidate.trim())
+        .find((candidate) => candidate.startsWith(`${key}=`));
+    if (!line) return undefined;
+
+    let value = line.slice(key.length + 1).trim();
+    if (
+        value.length >= 2 &&
+        ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'")))
+    ) {
+        value = value.slice(1, -1);
+    }
+    return value || undefined;
 }
 
 function filesUnder(root: string): string[] {

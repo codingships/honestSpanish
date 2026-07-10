@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
 type TaskType = 'email' | 'call' | 'whatsapp' | 'review' | 'admin';
+type ActionMessage = { type: 'success' | 'error'; text: string };
 
 interface CrmTaskItem {
     id: string;
@@ -77,7 +78,7 @@ function tomorrowMorningIso() {
 export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas.', showContact = false }: CrmTaskListProps) {
     const [savingTaskId, setSavingTaskId] = useState<string | null>(null);
     const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-    const [message, setMessage] = useState<string | null>(null);
+    const [message, setMessage] = useState<ActionMessage | null>(null);
     const [draft, setDraft] = useState({
         title: '',
         taskType: 'review' as TaskType,
@@ -93,7 +94,7 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
         });
 
         if (!response.ok) {
-            const body = await response.json().catch(() => null);
+            const body = await response.json().catch(() => null) as { error?: string } | null;
             throw new Error(body?.error || 'No se pudo actualizar la tarea.');
         }
     };
@@ -108,10 +109,10 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
 
         try {
             await postTaskAction(payload);
-            setMessage(successMessage);
+            setMessage({ type: 'success', text: successMessage });
             reloadSoon();
         } catch (error) {
-            setMessage(error instanceof Error ? error.message : 'No se pudo actualizar la tarea.');
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : 'No se pudo actualizar la tarea.' });
         } finally {
             setSavingTaskId(null);
         }
@@ -149,6 +150,7 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
         <div className="space-y-3">
             {tasks.map((task) => {
                 const isSaving = savingTaskId === task.id;
+                const isAnySaving = savingTaskId !== null;
                 const isEditing = editingTaskId === task.id;
                 const isActive = task.status === 'open' || task.status === 'snoozed';
                 const dueLabel = formatDateTime(task.due_at);
@@ -171,7 +173,8 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                         <button
                                             type="button"
                                             onClick={() => runAction(task.id, { action: 'claim_task', taskId: task.id }, 'Tarea asignada.')}
-                                            disabled={isSaving}
+                                            disabled={isAnySaving}
+                                            aria-busy={isSaving}
                                             className="border border-[#006064] bg-white px-2 py-1 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA] disabled:cursor-not-allowed disabled:opacity-50"
                                         >
                                             Asignarme
@@ -180,7 +183,8 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                     <button
                                         type="button"
                                         onClick={() => runAction(task.id, { action: 'complete_task', taskId: task.id }, 'Tarea completada.')}
-                                        disabled={isSaving}
+                                        disabled={isAnySaving}
+                                        aria-busy={isSaving}
                                         className="border border-[#006064] bg-[#006064] px-2 py-1 text-xs font-bold uppercase text-white hover:bg-[#004d40] disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Hecha
@@ -188,7 +192,8 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                     <button
                                         type="button"
                                         onClick={() => runAction(task.id, { action: 'snooze_task', taskId: task.id, dueAt: tomorrowMorningIso() }, 'Tarea aplazada.')}
-                                        disabled={isSaving}
+                                        disabled={isAnySaving}
+                                        aria-busy={isSaving}
                                         className="border border-[#006064] px-2 py-1 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA] disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Aplazar
@@ -196,7 +201,7 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                     <button
                                         type="button"
                                         onClick={() => beginEdit(task)}
-                                        disabled={isSaving}
+                                        disabled={isAnySaving}
                                         className="border border-[#006064] px-2 py-1 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA] disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Editar
@@ -204,7 +209,8 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                     <button
                                         type="button"
                                         onClick={() => runAction(task.id, { action: 'cancel_task', taskId: task.id }, 'Tarea cancelada.')}
-                                        disabled={isSaving}
+                                        disabled={isAnySaving}
+                                        aria-busy={isSaving}
                                         className="border border-[#6A131C] px-2 py-1 text-xs font-bold uppercase text-[#6A131C] hover:bg-[#6A131C] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Cancelar
@@ -216,14 +222,18 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                         {isEditing && (
                             <div className="mt-3 grid grid-cols-1 gap-2 border border-[#006064] bg-[#E0F7FA] p-3">
                                 <input
+                                    aria-label="Titulo de tarea"
                                     value={draft.title}
                                     onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))}
+                                    disabled={isAnySaving}
                                     className="border border-[#006064] bg-white p-2 text-sm text-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20"
                                 />
                                 <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
                                     <select
+                                        aria-label="Tipo de tarea"
                                         value={draft.taskType}
                                         onChange={(event) => setDraft((current) => ({ ...current, taskType: event.target.value as TaskType }))}
+                                        disabled={isAnySaving}
                                         className="border border-[#006064] bg-white p-2 text-sm text-[#006064]"
                                     >
                                         <option value="review">Revision</option>
@@ -233,8 +243,10 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                         <option value="admin">Admin</option>
                                     </select>
                                     <select
+                                        aria-label="Prioridad de tarea"
                                         value={draft.priority}
                                         onChange={(event) => setDraft((current) => ({ ...current, priority: event.target.value as Priority }))}
+                                        disabled={isAnySaving}
                                         className="border border-[#006064] bg-white p-2 text-sm text-[#006064]"
                                     >
                                         <option value="low">Baja</option>
@@ -243,9 +255,11 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                         <option value="urgent">Urgente</option>
                                     </select>
                                     <input
+                                        aria-label="Vencimiento de tarea"
                                         type="datetime-local"
                                         value={draft.dueAt}
                                         onChange={(event) => setDraft((current) => ({ ...current, dueAt: event.target.value }))}
+                                        disabled={isAnySaving}
                                         className="border border-[#006064] bg-white p-2 text-sm text-[#006064]"
                                     />
                                 </div>
@@ -253,7 +267,7 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                     <button
                                         type="button"
                                         onClick={() => saveEdit(task.id)}
-                                        disabled={isSaving || !draft.title.trim()}
+                                        disabled={isAnySaving || !draft.title.trim()}
                                         className="border border-[#006064] bg-[#006064] px-3 py-2 text-xs font-bold uppercase text-white hover:bg-[#004d40] disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Guardar
@@ -261,7 +275,7 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                                     <button
                                         type="button"
                                         onClick={() => setEditingTaskId(null)}
-                                        disabled={isSaving}
+                                        disabled={isAnySaving}
                                         className="border border-[#006064] px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Cerrar
@@ -273,7 +287,9 @@ export default function CrmTaskList({ tasks, emptyText = 'No hay tareas abiertas
                 );
             })}
 
-            {message && <p className="font-mono text-xs text-[#006064]">{message}</p>}
+            {message && (
+                <p role={message.type === 'success' ? 'status' : 'alert'} className="font-mono text-xs text-[#006064]">{message.text}</p>
+            )}
         </div>
     );
 }

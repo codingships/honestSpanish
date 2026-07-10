@@ -361,6 +361,7 @@ function checkLocalizedRoutes(): void {
         'src/pages/[lang]/legal.astro',
         'src/pages/[lang]/legal/aviso-legal.astro',
         'src/pages/[lang]/legal/privacidad.astro',
+        'src/pages/[lang]/legal/terminos.astro',
         'src/pages/[lang]/legal/cookies.astro',
         'src/pages/[lang]/campus/index.astro',
         'src/pages/[lang]/campus/classes.astro',
@@ -599,6 +600,11 @@ function renderContentReviewWorksheet(report: typeof summary): string {
             route: '/{locale}/legal/privacidad',
             source: 'src/pages/[lang]/legal/privacidad.astro',
             focus: 'processors, privacy wording and final legal placeholders.',
+        },
+        {
+            route: '/{locale}/legal/terminos',
+            source: 'src/pages/[lang]/legal/terminos.astro',
+            focus: 'commercial terms, checkout posture, class duration, cancellation and no-show expectations.',
         },
         {
             route: '/{locale}/legal/cookies',

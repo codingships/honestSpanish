@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
     loadLeadCaptureForCrm: vi.fn(),
     syncLeadCaptureToCrmSafe: vi.fn(),
     recordLevelCheckInCrmSafe: vi.fn(),
+    verifyLeadEmailToken: vi.fn(),
 }));
 
 vi.mock('../../src/lib/supabase-admin', () => ({
@@ -29,6 +30,10 @@ vi.mock('../../src/lib/crm/lead-capture', () => ({
 
 vi.mock('../../src/lib/crm/level-check', () => ({
     recordLevelCheckInCrmSafe: mocks.recordLevelCheckInCrmSafe,
+}));
+
+vi.mock('../../src/lib/lead-email-token', () => ({
+    verifyLeadEmailToken: mocks.verifyLeadEmailToken,
 }));
 
 type QueryResult = { data: unknown; error: unknown };
@@ -73,6 +78,7 @@ const validPayload = {
     canSendAudioLater: true,
     lang: 'en',
     sourcePath: '/en/diagnostico',
+    adultConfirmed: true,
     consent: true,
     'cf-turnstile-response': 'turnstile-token',
 };
@@ -116,6 +122,7 @@ describe('/api/level-check', () => {
             taskId: '30000000-0000-4000-8000-000000000001',
         });
         mocks.recordLevelCheckInCrmSafe.mockResolvedValue({ status: 'recorded', activityId: 'activity-1', taskId: 'task-1' });
+        mocks.verifyLeadEmailToken.mockResolvedValue(true);
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             json: vi.fn().mockResolvedValue({ success: true }),
         }));
@@ -129,8 +136,12 @@ describe('/api/level-check', () => {
         ];
 
         const { POST } = await import('../../src/pages/api/level-check');
-        const response = await POST(postContext(validPayload) as any);
-        const body = await response.json();
+        const response = await POST(postContext({
+            ...validPayload,
+            leadId: crmLead.id,
+            token: 'signed-token',
+        }) as any);
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(200);
         expect(body).toEqual({ message: 'Success' });
@@ -141,7 +152,15 @@ describe('/api/level-check', () => {
         expect((turnstileBody as URLSearchParams).get('remoteip')).toBe('203.0.113.20');
 
         expect(updates).toHaveLength(1);
+        expect(mocks.verifyLeadEmailToken).toHaveBeenCalledWith({
+            leadId: crmLead.id,
+            email: 'future.student@example.com',
+            token: 'signed-token',
+        });
         expect(updates[0]).toMatchObject({
+            adult_confirmed: true,
+            adult_confirmed_at: expect.any(String),
+            age_policy_version: '2026-07-10',
             current_level: 'b1',
             lang: 'en',
             consent_given: true,
@@ -182,6 +201,26 @@ describe('/api/level-check', () => {
         expect(mocks.recordLevelCheckInCrmSafe.mock.calls[0][1].metadata).not.toHaveProperty('written_sample');
     });
 
+    it('does not overwrite an existing lead when the public diagnostic has no signed token', async () => {
+        const updates: unknown[] = [];
+        mocks.queues.leads = [
+            createQuery({ data: { id: crmLead.id, email: crmLead.email, status: 'new' }, error: null }),
+            createQuery({ data: { id: crmLead.id }, error: null }, { updates }),
+        ];
+
+        const { POST } = await import('../../src/pages/api/level-check');
+        const response = await POST(postContext(validPayload) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(200);
+        expect(body).toEqual({ message: 'Success' });
+        expect(updates).toHaveLength(0);
+        expect(mocks.verifyLeadEmailToken).not.toHaveBeenCalled();
+        expect(mocks.loadLeadCaptureForCrm).not.toHaveBeenCalled();
+        expect(mocks.syncLeadCaptureToCrmSafe).not.toHaveBeenCalled();
+        expect(mocks.recordLevelCheckInCrmSafe).not.toHaveBeenCalled();
+    });
+
     it('creates a minimal lead if the diagnostic link is opened before an application exists', async () => {
         const inserts: unknown[] = [];
         mocks.queues.leads = [
@@ -197,6 +236,8 @@ describe('/api/level-check', () => {
         expect(inserts[0]).toMatchObject({
             email: 'future.student@example.com',
             status: 'new',
+            adult_confirmed: true,
+            age_policy_version: '2026-07-10',
             level_check_status: 'received',
             source_path: '/en/diagnostico',
         });
@@ -214,5 +255,17 @@ describe('/api/level-check', () => {
         expect(mocks.from).not.toHaveBeenCalled();
         expect(mocks.loadLeadCaptureForCrm).not.toHaveBeenCalled();
         expect(mocks.recordLevelCheckInCrmSafe).not.toHaveBeenCalled();
+    });
+
+    it('rejects diagnostics without an explicit adult confirmation before Turnstile', async () => {
+        const { POST } = await import('../../src/pages/api/level-check');
+        const response = await POST(postContext({
+            ...validPayload,
+            adultConfirmed: false,
+        }) as any);
+
+        expect(response.status).toBe(400);
+        expect(fetch).not.toHaveBeenCalled();
+        expect(mocks.from).not.toHaveBeenCalled();
     });
 });

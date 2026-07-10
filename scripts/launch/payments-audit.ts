@@ -69,7 +69,7 @@ function reviewCheckoutEndpoint(): Finding {
     const details = [
         ...missingSnippets(file, source, [
             'createSupabaseServerClient',
-            "readRuntimeEnv('CHECKOUT_ENABLED'",
+            'isCheckoutEnabled(context)',
             'Checkout is disabled',
             'auth.getUser',
             'priceId is required',
@@ -91,10 +91,13 @@ function reviewCheckoutEndpoint(): Finding {
             'stripe.customers.create',
             'stripe.checkout.sessions.create',
             "mode: 'subscription'",
+            'hasAcceptedCheckoutPolicies',
+            'LEGAL_POLICY_VERSION',
             'getSiteUrl',
             'success_url',
             'cancel_url',
-            'allow_promotion_codes',
+            "payment_method_types: ['card']",
+            'allow_promotion_codes: false',
             'subscription_data',
             'metadata',
             'userId',
@@ -164,15 +167,20 @@ function reviewStripeWebhookLifecycle(): Finding {
             'stripe.webhooks.constructEvent',
             'processed_webhook_events',
             'event.id',
-            "idempotencyError.code === '23505'",
+            'markWebhookEventProcessed',
+            "error.code === '23505'",
+            "markProcessed === 'failed'",
             'checkout.session.completed',
             'invoice.paid',
             'invoice.payment_failed',
+            'invoice.upcoming',
+            'charge.refunded',
             'customer.subscription.deleted',
             'customer.subscription.updated',
             'handleCheckoutCompleted',
             'handleInvoicePaid',
             'handleInvoicePaymentFailed',
+            'handleInvoiceUpcoming',
             'handleSubscriptionDeleted',
             'handleSubscriptionUpdated',
             ".from('packages')",
@@ -180,6 +188,7 @@ function reviewStripeWebhookLifecycle(): Finding {
             ".from('payments')",
             'isStripePriceId',
             'enqueueWelcomeFulfillment',
+            'enqueueRenewalNotice',
             'triggerFulfillmentProcessing',
             'findManagedSubscription',
             'mapStripeSubscriptionStatus',
@@ -195,6 +204,14 @@ function reviewStripeWebhookLifecycle(): Finding {
     if (/\.or\(\s*`/.test(source)) {
         details.push(`${file}: webhook builds a Supabase .or() filter with a template literal.`);
     }
+
+    const requiredEventsFile = path.join('src', 'lib', 'stripe-webhook-events.ts');
+    details.push(...missingSnippets(requiredEventsFile, readIfExists(requiredEventsFile), [
+        'REQUIRED_STRIPE_WEBHOOK_EVENTS',
+        'invoice.upcoming',
+        'customer.subscription.updated',
+        'customer.subscription.deleted',
+    ]));
 
     return {
         status: details.length === 0 ? 'ok' : 'failed',
@@ -309,6 +326,7 @@ function reviewPublicPricingUi(): Finding {
 function reviewNoRealPaymentsLaunchMode(): Finding {
     const envExampleFile = '.env.example';
     const checkoutFile = path.join('src', 'pages', 'api', 'create-checkout.ts');
+    const checkoutGateFile = path.join('src', 'lib', 'checkout-enabled.ts');
     const landingFile = path.join('src', 'components', 'LandingPage.astro');
     const segmentLandingFile = path.join('src', 'components', 'landing', 'SegmentLandingPage.astro');
     const pricingFile = path.join('src', 'components', 'PricingSection.tsx');
@@ -320,6 +338,7 @@ function reviewNoRealPaymentsLaunchMode(): Finding {
 
     const envExample = readIfExists(envExampleFile);
     const checkout = readIfExists(checkoutFile);
+    const checkoutGate = readIfExists(checkoutGateFile);
     const landing = readIfExists(landingFile);
     const segmentLanding = readIfExists(segmentLandingFile);
     const pricing = readIfExists(pricingFile);
@@ -334,15 +353,22 @@ function reviewNoRealPaymentsLaunchMode(): Finding {
             'CHECKOUT_ENABLED=false',
         ]),
         ...missingSnippets(checkoutFile, checkout, [
-            "readRuntimeEnv('CHECKOUT_ENABLED'",
+            'isCheckoutEnabled(context)',
             'Checkout is disabled',
             'status: 403',
         ]),
+        ...missingSnippets(checkoutGateFile, checkoutGate, [
+            "readRuntimeEnv('CHECKOUT_ENABLED_OVERRIDE'",
+            "readRuntimeEnv('CHECKOUT_ENABLED'",
+            "override === 'true'",
+        ]),
         ...missingSnippets(landingFile, landing, [
-            'checkoutMode="application"',
+            'checkoutMode={checkoutMode}',
+            "isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application'",
         ]),
         ...missingSnippets(segmentLandingFile, segmentLanding, [
-            'checkoutMode="application"',
+            'checkoutMode={checkoutMode}',
+            "isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application'",
         ]),
         ...missingSnippets(pricingFile, pricing, [
             "checkoutMode?: 'application' | 'checkout'",
@@ -368,8 +394,8 @@ function reviewNoRealPaymentsLaunchMode(): Finding {
             'sin pagos reales',
         ]),
         ...missingSnippets(finalClosureFile, finalClosure, [
-            'Lanzamiento sin pagos reales',
-            'Checkout desactivado, oculto o bloqueado',
+            'Rollback sin nuevos cobros',
+            '`CHECKOUT_ENABLED_OVERRIDE=false`',
         ]),
         ...missingSnippets(productsFile, products, [
             'CHECKOUT_ENABLED=false',
@@ -402,6 +428,9 @@ function reviewPaymentSchema(): Finding {
             'stripe_invoice_id TEXT',
             'CREATE TABLE payments',
             'stripe_payment_intent_id TEXT',
+            'amount_refunded INTEGER',
+            'stripe_refund_id TEXT',
+            'refunded_at TIMESTAMPTZ',
             'CREATE TABLE processed_webhook_events',
             'stripe_event_id TEXT PRIMARY KEY',
             'profiles_private_stripe_customer_unique',
@@ -447,7 +476,7 @@ function reviewPaymentTestsAndSmokes(): Finding {
             'Public pricing application flow',
             '/es',
             '#contacto form',
-            'button[data-testid^="select-plan-"]',
+            '[data-testid^="select-plan-"]',
         ]),
         ...missingSnippets(path.join('scripts', 'smoke-checkout.ts'), checkoutSmoke, [
             'createSmokeUser',

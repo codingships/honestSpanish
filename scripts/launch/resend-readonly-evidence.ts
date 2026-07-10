@@ -82,7 +82,7 @@ const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'resend-readonly-evidence', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
 
-const envFile = readArgValue('--env-file');
+const envFile = readArgValue('--env-file') ?? defaultEnvFile();
 const key = readApiKey(envFile);
 const keySource = envFile ? `${envFile}:RESEND_API_KEY` : 'process.env:RESEND_API_KEY';
 const redaction = [
@@ -160,6 +160,10 @@ function readApiKey(file: string | null): string | null {
     if (!existsSync(absolute)) return null;
     const parsed = parse(readFileSync(absolute, 'utf8'));
     return parsed.RESEND_API_KEY?.trim() || null;
+}
+
+function defaultEnvFile(): string | null {
+    return existsSync(path.resolve(process.cwd(), '.env')) ? '.env' : null;
 }
 
 function isPlaceholderKey(value: string): boolean {

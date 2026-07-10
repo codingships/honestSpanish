@@ -3,6 +3,10 @@ import { callInternalJobService } from '../../../lib/internal-job-service';
 import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
+type CreateStudentFolderRequest = {
+    studentId?: unknown;
+};
+
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
 
@@ -27,9 +31,9 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
-    let body;
+    let body: CreateStudentFolderRequest;
     try {
-        body = await context.request.json();
+        body = await context.request.json() as CreateStudentFolderRequest;
     } catch {
         return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
             status: 400,
@@ -37,7 +41,7 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
-    const { studentId } = body;
+    const studentId = typeof body.studentId === 'string' ? body.studentId : '';
     if (!studentId) {
         return new Response(JSON.stringify({ error: 'studentId is required' }), {
             status: 400,

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 type LeadStatus = 'new' | 'contacted' | 'discarded';
 type PipelineStage = 'new' | 'to_contact' | 'contacted' | 'qualified' | 'proposal' | 'won' | 'lost' | 'nurture';
 type LevelCheckStatus = 'not_requested' | 'recommended' | 'sent' | 'received' | 'reviewed' | 'waived';
+type ActionMessage = { type: 'success' | 'error'; text: string };
 
 interface SummaryItem {
     label: string;
@@ -84,9 +85,21 @@ interface Lead {
     } | null;
 }
 
+type LeadListResponse = Lead[] | {
+    error?: string;
+    leads?: Lead[];
+    summary?: LeadPipelineSummary;
+};
+
+type LeadMutationResponse = {
+    error?: string;
+    lead?: Partial<Lead>;
+    opportunity?: Lead['crm_opportunity'];
+};
+
 async function readApiErrorMessage(response: Response, fallback: string) {
     try {
-        const body = await response.json();
+        const body = await response.json() as { error?: string };
         return typeof body?.error === 'string' && body.error.trim() ? body.error : fallback;
     } catch {
         return fallback;
@@ -102,33 +115,46 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
     const [sendingLevelCheckId, setSendingLevelCheckId] = useState<string | null>(null);
     const [reviewingLevelCheckId, setReviewingLevelCheckId] = useState<string | null>(null);
     const [sendingSalesEmailId, setSendingSalesEmailId] = useState<string | null>(null);
+    const [actionMessage, setActionMessage] = useState<ActionMessage | null>(null);
     const [statusFilter, setStatusFilter] = useState<LeadStatus | 'all'>('new');
     const [summary, setSummary] = useState<LeadPipelineSummary>(emptyLeadPipelineSummary);
 
-    const fetchLeads = useCallback(async () => {
+    const fetchLeads = useCallback(async (signal?: AbortSignal) => {
         try {
             setLoading(true);
+            setError(null);
             const params = new URLSearchParams({ status: statusFilter, limit: '100' });
-            const res = await fetch(`/api/admin/leads?${params.toString()}`);
+            const res = await fetch(`/api/admin/leads?${params.toString()}`, { signal });
+            if (signal?.aborted) return;
             if (!res.ok) throw new Error(await readApiErrorMessage(res, 'Failed to fetch leads'));
-            const data = await res.json();
+            const data = await res.json() as LeadListResponse;
+            if (signal?.aborted) return;
             const nextLeads = Array.isArray(data) ? data : data.leads ?? [];
             setLeads(nextLeads);
-            setSummary(data.summary ?? buildVisibleLeadSummary(nextLeads));
+            if (Array.isArray(data)) {
+                setSummary(buildVisibleLeadSummary(nextLeads));
+            } else {
+                setSummary(data.summary ?? buildVisibleLeadSummary(nextLeads));
+            }
         } catch (err) {
-            setError(err instanceof Error ? err.message : 'Unknown error');
+            if ((err as Error).name !== 'AbortError') {
+                setError(err instanceof Error ? err.message : 'Unknown error');
+            }
         } finally {
-            setLoading(false);
+            if (!signal?.aborted) setLoading(false);
         }
     }, [statusFilter]);
 
     useEffect(() => {
-        fetchLeads();
+        const controller = new AbortController();
+        void fetchLeads(controller.signal);
+        return () => controller.abort();
     }, [fetchLeads]);
 
     const updateStatus = async (leadId: string, newStatus: LeadStatus) => {
         try {
             setUpdatingId(leadId);
+            setActionMessage(null);
             const res = await fetch('/api/admin/leads', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -136,7 +162,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
             });
 
             if (!res.ok) throw new Error(await readApiErrorMessage(res, 'Failed to update status'));
-            const data = await res.json();
+            const data = await res.json() as LeadMutationResponse;
             const updatedLead = data.lead;
 
             setLeads(prev => {
@@ -148,8 +174,9 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                     lead.id === leadId ? { ...lead, ...(updatedLead ?? {}), status: newStatus } : lead
                 );
             });
+            setActionMessage({ type: 'success', text: 'Estado actualizado.' });
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Error updating status');
+            setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error updating status' });
         } finally {
             setUpdatingId(null);
         }
@@ -158,6 +185,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
     const sendLevelCheck = async (leadId: string) => {
         try {
             setSendingLevelCheckId(leadId);
+            setActionMessage(null);
             const res = await fetch('/api/admin/leads', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -165,7 +193,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
             });
 
             if (!res.ok) throw new Error(await readApiErrorMessage(res, 'Failed to send diagnostic'));
-            const data = await res.json();
+            const data = await res.json() as LeadMutationResponse;
             const updatedLead = data.lead;
 
             setLeads(prev => prev.map(lead =>
@@ -173,8 +201,9 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                     ? { ...lead, ...(updatedLead ?? {}), level_check_status: updatedLead?.level_check_status ?? 'sent' }
                     : lead
             ));
+            setActionMessage({ type: 'success', text: 'Diagnostico enviado.' });
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Error sending diagnostic');
+            setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error sending diagnostic' });
         } finally {
             setSendingLevelCheckId(null);
         }
@@ -183,6 +212,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
     const reviewLevelCheck = async (leadId: string) => {
         try {
             setReviewingLevelCheckId(leadId);
+            setActionMessage(null);
             const res = await fetch('/api/admin/leads', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -190,7 +220,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
             });
 
             if (!res.ok) throw new Error(await readApiErrorMessage(res, 'Failed to mark diagnostic as reviewed'));
-            const data = await res.json();
+            const data = await res.json() as LeadMutationResponse;
             const updatedLead = data.lead;
 
             setLeads(prev => prev.map(lead =>
@@ -203,8 +233,9 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                     }
                     : lead
             ));
+            setActionMessage({ type: 'success', text: 'Diagnostico revisado y limpiado.' });
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Error reviewing diagnostic');
+            setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error reviewing diagnostic' });
         } finally {
             setReviewingLevelCheckId(null);
         }
@@ -213,6 +244,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
     const sendSalesEmail = async (leadId: string, template: 'missing_info' | 'proposal_next_step') => {
         try {
             setSendingSalesEmailId(`${leadId}:${template}`);
+            setActionMessage(null);
             const res = await fetch('/api/admin/leads', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -220,7 +252,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
             });
 
             if (!res.ok) throw new Error(await readApiErrorMessage(res, 'Failed to send follow-up email'));
-            const data = await res.json();
+            const data = await res.json() as LeadMutationResponse;
             const updatedLead = data.lead;
 
             setLeads(prev => prev.map(lead =>
@@ -228,8 +260,9 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                     ? { ...lead, ...(updatedLead ?? {}), status: updatedLead?.status ?? 'contacted' }
                     : lead
             ));
+            setActionMessage({ type: 'success', text: template === 'missing_info' ? 'Email de informacion enviado.' : 'Propuesta enviada.' });
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Error sending follow-up email');
+            setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error sending follow-up email' });
         } finally {
             setSendingSalesEmailId(null);
         }
@@ -240,6 +273,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
 
         try {
             setUpdatingStageId(opportunityId);
+            setActionMessage(null);
             const res = await fetch('/api/admin/leads', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
@@ -247,7 +281,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
             });
 
             if (!res.ok) throw new Error(await readApiErrorMessage(res, 'Failed to update CRM stage'));
-            const data = await res.json();
+            const data = await res.json() as LeadMutationResponse;
             const updatedOpportunity = data.opportunity;
 
             setLeads(prev => {
@@ -265,8 +299,9 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                     ? updated.filter(lead => lead.status === statusFilter)
                     : updated;
             });
+            setActionMessage({ type: 'success', text: 'Etapa CRM actualizada.' });
         } catch (err) {
-            alert(err instanceof Error ? err.message : 'Error updating CRM stage');
+            setActionMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error updating CRM stage' });
         } finally {
             setUpdatingStageId(null);
         }
@@ -377,9 +412,10 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
         const contactId = lead.crm_opportunity?.crm_contacts?.id || lead.crm_opportunity?.contact_id;
         return contactId ? `/${lang}/campus/admin/crm/contact/${contactId}` : null;
     };
+    const isAnyLeadAction = Boolean(updatingId || updatingStageId || sendingLevelCheckId || reviewingLevelCheckId || sendingSalesEmailId);
 
     if (loading) return <div className="text-gray-500 flex justify-center p-8"><span className="animate-pulse">Cargando leads...</span></div>;
-    if (error) return <div className="text-red-600 bg-red-50 p-4 rounded-xl border border-red-200">Error: {error}</div>;
+    if (error) return <div role="alert" className="text-red-600 bg-red-50 p-4 rounded-xl border border-red-200">Error: {error}</div>;
 
     return (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -394,6 +430,7 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                         <select
                             value={statusFilter}
                             onChange={(event) => setStatusFilter(event.target.value as LeadStatus | 'all')}
+                            disabled={isAnyLeadAction}
                             className="ml-0 sm:ml-2 mt-1 sm:mt-0 border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006064]/20"
                         >
                             {statusFilterOptions.map(option => (
@@ -406,6 +443,12 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                     </div>
                 </div>
             </div>
+
+            {actionMessage && (
+                <div role={actionMessage.type === 'success' ? 'status' : 'alert'} className={`mx-6 mt-4 rounded-xl border p-4 font-mono text-sm ${actionMessage.type === 'error' ? 'border-red-200 bg-red-50 text-red-700' : 'border-green-200 bg-green-50 text-green-700'}`}>
+                    {actionMessage.text}
+                </div>
+            )}
 
             <section aria-label="Aprendizaje SEO sin cookies" className="border-b border-gray-100 bg-gray-50">
                 <div className="grid grid-cols-1 divide-y divide-gray-100 lg:grid-cols-6 lg:divide-x lg:divide-y-0">
@@ -606,7 +649,8 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                                     <select
                                                         value={lead.crm_opportunity.stage}
                                                         onChange={(event) => updatePipelineStage(lead.id, lead.crm_opportunity!.id, event.target.value as PipelineStage)}
-                                                        disabled={updatingStageId === lead.crm_opportunity.id}
+                                                        disabled={isAnyLeadAction}
+                                                        aria-busy={updatingStageId === lead.crm_opportunity.id}
                                                         className="ml-2 mt-1 border border-gray-300 bg-white px-2 py-1 text-xs normal-case text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006064]/20 disabled:opacity-50"
                                                     >
                                                         {pipelineStageOptions.map(option => (
@@ -618,8 +662,10 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
 
                                             {canSendLevelCheck && (
                                                 <button
+                                                    type="button"
                                                     onClick={() => sendLevelCheck(lead.id)}
-                                                    disabled={sendingLevelCheckId === lead.id}
+                                                    disabled={isAnyLeadAction}
+                                                    aria-busy={sendingLevelCheckId === lead.id}
                                                     className="bg-[#E0F7FA] text-[#006064] hover:bg-[#b2ebf2] px-3 py-1.5 rounded text-xs font-bold transition-colors disabled:opacity-50"
                                                 >
                                                     {lead.level_check_status === 'sent' ? 'Reenviar diagnostico' : 'Enviar diagnostico'}
@@ -627,8 +673,10 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                             )}
                                             {lead.level_check_status === 'received' && (
                                                 <button
+                                                    type="button"
                                                     onClick={() => reviewLevelCheck(lead.id)}
-                                                    disabled={reviewingLevelCheckId === lead.id}
+                                                    disabled={isAnyLeadAction}
+                                                    aria-busy={reviewingLevelCheckId === lead.id}
                                                     className="bg-white text-[#006064] hover:bg-[#E0F7FA] px-3 py-1.5 rounded text-xs font-bold transition-colors border border-[#006064] disabled:opacity-50"
                                                 >
                                                     Revisar y limpiar
@@ -637,15 +685,19 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                             {canSendSalesEmail && (
                                                 <>
                                                     <button
+                                                        type="button"
                                                         onClick={() => sendSalesEmail(lead.id, 'missing_info')}
-                                                        disabled={sendingSalesEmailId === `${lead.id}:missing_info`}
+                                                        disabled={isAnyLeadAction}
+                                                        aria-busy={sendingSalesEmailId === `${lead.id}:missing_info`}
                                                         className="bg-white text-[#006064] hover:bg-[#E0F7FA] px-3 py-1.5 rounded text-xs font-bold transition-colors border border-[#006064] disabled:opacity-50"
                                                     >
                                                         Pedir info
                                                     </button>
                                                     <button
+                                                        type="button"
                                                         onClick={() => sendSalesEmail(lead.id, 'proposal_next_step')}
-                                                        disabled={sendingSalesEmailId === `${lead.id}:proposal_next_step`}
+                                                        disabled={isAnyLeadAction}
+                                                        aria-busy={sendingSalesEmailId === `${lead.id}:proposal_next_step`}
                                                         className="bg-[#006064] text-white hover:bg-[#004d40] px-3 py-1.5 rounded text-xs font-bold transition-colors disabled:opacity-50"
                                                     >
                                                         Enviar propuesta
@@ -657,15 +709,19 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                             {lead.status === 'new' && (
                                                 <>
                                                     <button
+                                                        type="button"
                                                         onClick={() => updateStatus(lead.id, 'contacted')}
-                                                        disabled={updatingId === lead.id}
+                                                        disabled={isAnyLeadAction}
+                                                        aria-busy={updatingId === lead.id}
                                                         className="bg-[#6A131C] text-white hover:bg-[#8A1924] px-3 py-1.5 rounded text-xs font-medium transition-colors shadow-sm disabled:opacity-50"
                                                     >
                                                         Marcar contactada
                                                     </button>
                                                     <button
+                                                        type="button"
                                                         onClick={() => updateStatus(lead.id, 'discarded')}
-                                                        disabled={updatingId === lead.id}
+                                                        disabled={isAnyLeadAction}
+                                                        aria-busy={updatingId === lead.id}
                                                         className="bg-gray-100 text-gray-700 hover:bg-gray-200 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50"
                                                     >
                                                         Descartar
@@ -675,15 +731,19 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                             {lead.status === 'contacted' && (
                                                 <>
                                                     <button
+                                                        type="button"
                                                         onClick={() => updateStatus(lead.id, 'new')}
-                                                        disabled={updatingId === lead.id}
+                                                        disabled={isAnyLeadAction}
+                                                        aria-busy={updatingId === lead.id}
                                                         className="bg-gray-200 text-gray-700 hover:bg-gray-300 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50"
                                                     >
                                                         Reabrir
                                                     </button>
                                                     <button
+                                                        type="button"
                                                         onClick={() => updateStatus(lead.id, 'discarded')}
-                                                        disabled={updatingId === lead.id}
+                                                        disabled={isAnyLeadAction}
+                                                        aria-busy={updatingId === lead.id}
                                                         className="bg-gray-100 text-gray-700 hover:bg-gray-200 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50"
                                                     >
                                                         Descartar
@@ -692,8 +752,10 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                             )}
                                             {lead.status === 'discarded' && (
                                                 <button
+                                                    type="button"
                                                     onClick={() => updateStatus(lead.id, 'new')}
-                                                    disabled={updatingId === lead.id}
+                                                    disabled={isAnyLeadAction}
+                                                    aria-busy={updatingId === lead.id}
                                                     className="bg-gray-200 text-gray-700 hover:bg-gray-300 px-3 py-1.5 rounded text-xs font-medium transition-colors disabled:opacity-50"
                                                 >
                                                     Reabrir

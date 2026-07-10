@@ -5,7 +5,8 @@ export type FulfillmentJobType =
     | 'session_fulfillment'
     | 'bulk_session_fulfillment'
     | 'welcome_fulfillment'
-    | 'session_cancellation';
+    | 'session_cancellation'
+    | 'renewal_notice';
 
 export type FulfillmentJobPayload = {
     sessionId?: string;
@@ -13,10 +14,23 @@ export type FulfillmentJobPayload = {
     userId?: string;
     packageId?: string;
     subscriptionId?: string | null;
+    durationMonths?: number;
+    startsAt?: string;
+    endsAt?: string;
+    sessionsTotal?: number;
+    amountTotal?: number;
+    currency?: string;
+    legalPolicyVersion?: string;
+    policyAcceptedAt?: string;
     autoCreateMeeting?: boolean;
     sendEmail?: boolean;
     cancelledBy?: 'admin' | 'teacher' | 'student';
     reason?: string | null;
+    stripeEventId?: string;
+    stripeInvoiceId?: string;
+    stripeSubscriptionId?: string;
+    renewalAt?: string;
+    cancelBy?: string;
 };
 
 export type FulfillmentJobRow = Database['public']['Tables']['fulfillment_jobs']['Row'];
@@ -40,6 +54,7 @@ export async function enqueueFulfillmentJob(
         studentId?: string | null;
         payload: FulfillmentJobPayload;
         runAt?: string;
+        dedupeKey?: string | null;
     }
 ): Promise<boolean> {
     const { error } = await supabaseAdmin
@@ -49,11 +64,15 @@ export async function enqueueFulfillmentJob(
             session_id: input.sessionId ?? null,
             subscription_id: input.subscriptionId ?? null,
             student_id: input.studentId ?? null,
+            dedupe_key: input.dedupeKey ?? null,
             payload: input.payload as Json,
             run_at: input.runAt ?? new Date().toISOString(),
         });
 
     if (error) {
+        if (error.code === '23505' && input.dedupeKey) {
+            return true;
+        }
         if (isMissingJobsTable(error)) {
             console.warn('[Fulfillment] fulfillment_jobs table is missing; cannot enqueue background work');
             return false;
@@ -62,6 +81,31 @@ export async function enqueueFulfillmentJob(
     }
 
     return true;
+}
+
+export async function enqueueRenewalNotice(
+    supabaseAdmin: SupabaseClient<Database>,
+    input: {
+        stripeEventId: string;
+        stripeInvoiceId?: string;
+        stripeSubscriptionId: string;
+        userId: string;
+        packageId: string;
+        subscriptionId: string;
+        renewalAt: string;
+        cancelBy: string;
+        durationMonths: number;
+        amountTotal: number;
+        currency: string;
+    }
+): Promise<boolean> {
+    return enqueueFulfillmentJob(supabaseAdmin, {
+        jobType: 'renewal_notice',
+        subscriptionId: input.subscriptionId,
+        studentId: input.userId,
+        dedupeKey: `renewal_notice:${input.stripeSubscriptionId}:${input.renewalAt}`,
+        payload: input,
+    });
 }
 
 export async function enqueueSessionFulfillment(
@@ -103,7 +147,19 @@ export async function enqueueBulkSessionFulfillment(
 
 export async function enqueueWelcomeFulfillment(
     supabaseAdmin: SupabaseClient<Database>,
-    input: { userId: string; packageId: string; subscriptionId?: string | null }
+    input: {
+        userId: string;
+        packageId: string;
+        subscriptionId?: string | null;
+        durationMonths?: number;
+        startsAt?: string;
+        endsAt?: string;
+        sessionsTotal?: number;
+        amountTotal?: number;
+        currency?: string;
+        legalPolicyVersion?: string;
+        policyAcceptedAt?: string;
+    }
 ): Promise<boolean> {
     return enqueueFulfillmentJob(supabaseAdmin, {
         jobType: 'welcome_fulfillment',

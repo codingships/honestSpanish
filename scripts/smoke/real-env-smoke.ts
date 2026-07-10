@@ -1,15 +1,24 @@
 import 'dotenv/config';
 
+import { randomUUID } from 'node:crypto';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { cancelClassEvent, getEvent } from '../../src/lib/google/calendar';
 import { getDriveClient } from '../../src/lib/google/drive';
 
-const BASE_URL = process.env.SMOKE_BASE_URL || 'https://espanolhonesto.com';
-const ADMIN_EMAIL = 'alejandro@espanolhonesto.com';
-const TEACHER_EMAIL = 'alindev95@gmail.com';
-const SHARED_PASSWORD = 'SmokePass!2026';
+const BASE_URL = normalizeAndConfirmSmokeBaseUrl(
+    requireEnv('SMOKE_BASE_URL'),
+    requireEnv('SMOKE_EXTERNAL_WRITES_CONFIRMATION')
+);
+const ADMIN_EMAIL = requireEnv('SMOKE_ADMIN_EMAIL');
+const ADMIN_PASSWORD = requireEnv('SMOKE_ADMIN_PASSWORD');
+const TEACHER_EMAIL = requireEnv('SMOKE_TEACHER_EMAIL');
+const TEACHER_PASSWORD = requireEnv('SMOKE_TEACHER_PASSWORD');
+const SMOKE_STUDENT_PASSWORD = process.env.SMOKE_STUDENT_PASSWORD || `Smoke-${randomUUID()}-Aa1`;
+const SMOKE_AUTH_USER_SCAN_MAX_PAGES = readPositiveIntegerEnv('SMOKE_AUTH_USER_SCAN_MAX_PAGES', 100);
 
 const supabaseUrl = process.env.PUBLIC_SUPABASE_URL;
 const anonKey = process.env.PUBLIC_SUPABASE_ANON_KEY;
@@ -88,7 +97,11 @@ type SessionRow = {
     reminder_sent: boolean | null;
 };
 
+type SmokeSectionKey = 'notes' | 'drive' | 'checkout' | 'webhook' | 'billingLifecycle' | 'schedulingLifecycle' | 'adminJobs';
+
 type SmokeResult = {
+    ok: boolean;
+    failedSections: SmokeSectionKey[];
     timestamp: string;
     remoteSchema: {
         profilesPrivateAvailable: boolean;
@@ -140,6 +153,8 @@ type SmokeResult = {
         checkoutBody: Json | string;
         stripeCustomerId: string | null;
         stripeSubscriptionId: string | null;
+        stripeSubscriptionCleanupStatus: string | null;
+        stripeSubscriptionCleanupError: string | null;
         initialWebhookStatus: number;
         initialSubscriptionStatus: string | null;
         initialDurationMonths: number | null;
@@ -208,6 +223,26 @@ type SmokeResult = {
         cleanupCancelStatus: number;
         finalUsage: number | null;
     };
+    adminJobs: {
+        ok: boolean;
+        adminJobsPageStatus: number;
+        adminJobsPageContainsTitle: boolean;
+        insertedJobId: string | null;
+        failedListStatus: number;
+        failedListContainsJob: boolean;
+        retryStatus: number;
+        retryBody: Json | string;
+        retriedStatus: string | null;
+        retryAuditLogged: boolean;
+        pendingListStatus: number;
+        pendingListContainsJob: boolean;
+        cancelStatus: number;
+        cancelBody: Json | string;
+        cancelledStatus: string | null;
+        cancelAuditLogged: boolean;
+        cleanupStatus: string | null;
+        error: Json | string | null;
+    };
     smokeUsers: {
         checkoutStudentEmail: string;
         driveStudentEmail: string;
@@ -228,6 +263,8 @@ async function main() {
     const notesText = `Smoke note ${timestamp}`;
 
     const result: SmokeResult = {
+        ok: false,
+        failedSections: [],
         timestamp,
         remoteSchema: {
             profilesPrivateAvailable: false,
@@ -347,6 +384,26 @@ async function main() {
             cleanupCancelStatus: 0,
             finalUsage: null,
         },
+        adminJobs: {
+            ok: false,
+            adminJobsPageStatus: 0,
+            adminJobsPageContainsTitle: false,
+            insertedJobId: null,
+            failedListStatus: 0,
+            failedListContainsJob: false,
+            retryStatus: 0,
+            retryBody: '',
+            retriedStatus: null,
+            retryAuditLogged: false,
+            pendingListStatus: 0,
+            pendingListContainsJob: false,
+            cancelStatus: 0,
+            cancelBody: '',
+            cancelledStatus: null,
+            cancelAuditLogged: false,
+            cleanupStatus: null,
+            error: null,
+        },
         smokeUsers: {
             checkoutStudentEmail,
             driveStudentEmail,
@@ -356,8 +413,8 @@ async function main() {
     };
 
     const [, teacherProfile] = await Promise.all([
-        ensurePasswordAndGetProfile(ADMIN_EMAIL, SHARED_PASSWORD),
-        ensurePasswordAndGetProfile(TEACHER_EMAIL, SHARED_PASSWORD),
+        getProfileForAuthUserByEmail(ADMIN_EMAIL),
+        getProfileForAuthUserByEmail(TEACHER_EMAIL),
     ]);
 
     const [checkoutStudent, driveStudent, lifecycleStudent, schedulingStudent, stripePrices, activePackage] = await Promise.all([
@@ -390,11 +447,11 @@ async function main() {
     result.remoteSchema.profilesPrivateAvailable = await tableExists('profiles_private');
     result.remoteSchema.profilesStillExposeLegacyPrivateColumns = await profilesStillExposeLegacyPrivateColumns();
 
-    const teacherSession = await createSessionCookieHeader(TEACHER_EMAIL, SHARED_PASSWORD);
-    const adminSession = await createSessionCookieHeader(ADMIN_EMAIL, SHARED_PASSWORD);
-    const checkoutStudentSession = await createSessionCookieHeader(checkoutStudent.email, SHARED_PASSWORD);
-    const driveStudentSession = await createSessionCookieHeader(driveStudent.email, SHARED_PASSWORD);
-    const lifecycleStudentSession = await createSessionCookieHeader(lifecycleStudent.email, SHARED_PASSWORD);
+    const teacherSession = await createSessionCookieHeader(TEACHER_EMAIL, TEACHER_PASSWORD);
+    const adminSession = await createSessionCookieHeader(ADMIN_EMAIL, ADMIN_PASSWORD);
+    const checkoutStudentSession = await createSessionCookieHeader(checkoutStudent.email, SMOKE_STUDENT_PASSWORD);
+    const driveStudentSession = await createSessionCookieHeader(driveStudent.email, SMOKE_STUDENT_PASSWORD);
+    const lifecycleStudentSession = await createSessionCookieHeader(lifecycleStudent.email, SMOKE_STUDENT_PASSWORD);
 
     const notesResponse = await authedJsonFetch(teacherSession, '/api/update-student-notes', {
         method: 'POST',
@@ -514,7 +571,22 @@ async function main() {
         activePackage,
     });
 
-    console.log(JSON.stringify(result, null, 2));
+    result.adminJobs = await runAdminJobsRecoverySmoke({
+        suffix,
+        adminSession,
+        student: schedulingStudent,
+        activePackage,
+    });
+
+    result.failedSections = getSmokeFailureSections(result);
+    result.ok = result.failedSections.length === 0;
+    const summaryPath = writeSmokeEvidence(result);
+    console.log(JSON.stringify(redactSmokeResult(result), null, 2));
+    console.log(`[real-env-smoke] Summary: ${summaryPath}`);
+
+    if (!result.ok) {
+        throw new Error(`Real environment smoke failed sections: ${result.failedSections.join(', ')}`);
+    }
 }
 
 async function runBillingLifecycleSmoke(options: {
@@ -529,6 +601,8 @@ async function runBillingLifecycleSmoke(options: {
         checkoutBody: '',
         stripeCustomerId: null,
         stripeSubscriptionId: null,
+        stripeSubscriptionCleanupStatus: null,
+        stripeSubscriptionCleanupError: null,
         initialWebhookStatus: 0,
         initialSubscriptionStatus: null,
         initialDurationMonths: null,
@@ -562,173 +636,182 @@ async function runBillingLifecycleSmoke(options: {
     }
 
     await ensureSmokeCustomerFundingSource(stripeCustomerId);
+    let stripeSubscriptionId: string | null = null;
 
-    const stripeSubscription = await stripe.subscriptions.create({
-        customer: stripeCustomerId,
-        items: [{ price: priceId }],
-        metadata: {
-            userId: options.student.id,
-            priceId,
-            smoke_managed: 'true',
-        },
-        payment_behavior: 'allow_incomplete',
-    });
-    result.stripeSubscriptionId = stripeSubscription.id;
+    try {
+        const stripeSubscription = await stripe.subscriptions.create({
+            customer: stripeCustomerId,
+            items: [{ price: priceId }],
+            metadata: {
+                userId: options.student.id,
+                priceId,
+                smoke_managed: 'true',
+            },
+            payment_behavior: 'allow_incomplete',
+        });
+        stripeSubscriptionId = stripeSubscription.id;
+        result.stripeSubscriptionId = stripeSubscription.id;
 
-    const initialWebhook = await postSignedWebhook(JSON.stringify({
-        id: `evt_smoke_billing_checkout_${options.suffix}`,
-        object: 'event',
-        type: 'checkout.session.completed',
-        data: {
+        const initialWebhook = await postSignedWebhook(JSON.stringify({
+            id: `evt_smoke_billing_checkout_${options.suffix}`,
+            object: 'event',
+            type: 'checkout.session.completed',
+            data: {
+                object: {
+                    id: `cs_smoke_billing_${options.suffix}`,
+                    object: 'checkout.session',
+                    metadata: {
+                        userId: options.student.id,
+                        priceId,
+                    },
+                    amount_total: options.activePackage.price_monthly * 3,
+                    currency: 'eur',
+                    invoice: `in_smoke_billing_initial_${options.suffix}`,
+                    payment_intent: `pi_smoke_billing_initial_${options.suffix}`,
+                    subscription: stripeSubscription.id,
+                },
+            },
+        }));
+        result.initialWebhookStatus = initialWebhook.status;
+
+        const initialSubscription = await waitForLatestSubscription(options.student.id, (row) => row.stripe_subscription_id === stripeSubscription.id);
+        result.initialSubscriptionStatus = initialSubscription?.status ?? null;
+        result.initialDurationMonths = initialSubscription?.duration_months ?? null;
+        result.initialEndsAt = initialSubscription?.ends_at ?? null;
+
+        await sendStripeEvent({
+            id: `evt_smoke_billing_paused_${options.suffix}`,
+            type: 'customer.subscription.updated',
             object: {
-                id: `cs_smoke_billing_${options.suffix}`,
-                object: 'checkout.session',
+                ...stripeSubscription,
+                status: 'past_due',
                 metadata: {
+                    ...stripeSubscription.metadata,
                     userId: options.student.id,
                     priceId,
                 },
-                amount_total: options.activePackage.price_monthly * 3,
-                currency: 'eur',
-                invoice: `in_smoke_billing_initial_${options.suffix}`,
-                payment_intent: `pi_smoke_billing_initial_${options.suffix}`,
+            },
+        });
+
+        const pausedSubscription = await waitForLatestSubscription(options.student.id, (row) => row.status === 'paused');
+        result.pausedAfterUpdate = pausedSubscription?.status === 'paused';
+
+        const failedInvoiceId = `in_smoke_billing_failed_${options.suffix}`;
+        await sendStripeEvent({
+            id: `evt_smoke_billing_failed_${options.suffix}`,
+            type: 'invoice.payment_failed',
+            object: {
+                id: failedInvoiceId,
+                object: 'invoice',
                 subscription: stripeSubscription.id,
+                amount_due: options.activePackage.price_monthly * 3,
+                amount_remaining: options.activePackage.price_monthly * 3,
+                total: options.activePackage.price_monthly * 3,
+                currency: 'eur',
+                payment_intent: `pi_smoke_billing_failed_${options.suffix}`,
             },
-        },
-    }));
-    result.initialWebhookStatus = initialWebhook.status;
+        });
 
-    const initialSubscription = await waitForLatestSubscription(options.student.id, (row) => row.stripe_subscription_id === stripeSubscription.id);
-    result.initialSubscriptionStatus = initialSubscription?.status ?? null;
-    result.initialDurationMonths = initialSubscription?.duration_months ?? null;
-    result.initialEndsAt = initialSubscription?.ends_at ?? null;
+        const pausedAfterFailure = await waitForLatestSubscription(options.student.id, (row) => row.status === 'paused');
+        result.pausedAfterFailure = pausedAfterFailure?.status === 'paused';
+        result.failedPaymentRecorded = await paymentExists(options.student.id, failedInvoiceId, 'failed');
 
-    await sendStripeEvent({
-        id: `evt_smoke_billing_paused_${options.suffix}`,
-        type: 'customer.subscription.updated',
-        object: {
-            ...stripeSubscription,
-            status: 'past_due',
-            metadata: {
-                ...stripeSubscription.metadata,
-                userId: options.student.id,
-                priceId,
+        await sendStripeEvent({
+            id: `evt_smoke_billing_resumed_${options.suffix}`,
+            type: 'customer.subscription.updated',
+            object: {
+                ...stripeSubscription,
+                status: 'active',
+                metadata: {
+                    ...stripeSubscription.metadata,
+                    userId: options.student.id,
+                    priceId,
+                },
             },
-        },
-    });
+        });
 
-    const pausedSubscription = await waitForLatestSubscription(options.student.id, (row) => row.status === 'paused');
-    result.pausedAfterUpdate = pausedSubscription?.status === 'paused';
+        const resumedSubscription = await waitForLatestSubscription(options.student.id, (row) => row.status === 'active');
+        result.resumedAfterUpdate = resumedSubscription?.status === 'active';
 
-    const failedInvoiceId = `in_smoke_billing_failed_${options.suffix}`;
-    await sendStripeEvent({
-        id: `evt_smoke_billing_failed_${options.suffix}`,
-        type: 'invoice.payment_failed',
-        object: {
-            id: failedInvoiceId,
-            object: 'invoice',
-            subscription: stripeSubscription.id,
-            amount_due: options.activePackage.price_monthly * 3,
-            amount_remaining: options.activePackage.price_monthly * 3,
-            total: options.activePackage.price_monthly * 3,
-            currency: 'eur',
-            payment_intent: `pi_smoke_billing_failed_${options.suffix}`,
-        },
-    });
+        if (!resumedSubscription) {
+            return result;
+        }
 
-    const pausedAfterFailure = await waitForLatestSubscription(options.student.id, (row) => row.status === 'paused');
-    result.pausedAfterFailure = pausedAfterFailure?.status === 'paused';
-    result.failedPaymentRecorded = await paymentExists(options.student.id, failedInvoiceId, 'failed');
+        await supabaseAdmin
+            .from('subscriptions')
+            .update({ sessions_used: 2 })
+            .eq('id', resumedSubscription.id);
 
-    await sendStripeEvent({
-        id: `evt_smoke_billing_resumed_${options.suffix}`,
-        type: 'customer.subscription.updated',
-        object: {
-            ...stripeSubscription,
-            status: 'active',
-            metadata: {
-                ...stripeSubscription.metadata,
-                userId: options.student.id,
-                priceId,
+        const expectedRenewedEndsAt = addMonthsToDateString(resumedSubscription.ends_at, 3);
+        result.expectedRenewedEndsAt = expectedRenewedEndsAt;
+
+        const renewedInvoiceId = `in_smoke_billing_renewal_${options.suffix}`;
+        const renewalResponse = await sendStripeEvent({
+            id: `evt_smoke_billing_renewal_${options.suffix}`,
+            type: 'invoice.paid',
+            object: {
+                id: renewedInvoiceId,
+                object: 'invoice',
+                subscription: stripeSubscription.id,
+                billing_reason: 'subscription_cycle',
+                amount_paid: options.activePackage.price_monthly * 3,
+                currency: 'eur',
+                payment_intent: `pi_smoke_billing_renewal_${options.suffix}`,
             },
-        },
-    });
+        });
 
-    const resumedSubscription = await waitForLatestSubscription(options.student.id, (row) => row.status === 'active');
-    result.resumedAfterUpdate = resumedSubscription?.status === 'active';
+        result.renewalStatus = renewalResponse.status;
 
-    if (!resumedSubscription) {
+        const renewedSubscription = await waitForLatestSubscription(options.student.id, (row) =>
+            row.ends_at === expectedRenewedEndsAt && row.status === 'active'
+        );
+        result.renewedEndsAt = renewedSubscription?.ends_at ?? null;
+        result.renewedSessionsTotal = renewedSubscription?.sessions_total ?? null;
+        result.renewedSessionsUsed = renewedSubscription?.sessions_used ?? null;
+        result.renewalPaymentRecorded = await paymentExists(options.student.id, renewedInvoiceId, 'succeeded');
+
+        const cancellationResponse = await sendStripeEvent({
+            id: `evt_smoke_billing_cancelled_${options.suffix}`,
+            type: 'customer.subscription.deleted',
+            object: {
+                ...stripeSubscription,
+                status: 'canceled',
+                metadata: {
+                    ...stripeSubscription.metadata,
+                    userId: options.student.id,
+                    priceId,
+                },
+            },
+        });
+
+        result.cancellationStatus = cancellationResponse.status;
+        const cancelledSubscription = await waitForLatestSubscription(options.student.id, (row) => row.status === 'cancelled');
+        result.cancelledAfterDelete = cancelledSubscription?.status === 'cancelled';
+
+        result.ok =
+            checkoutResponse.status === 200 &&
+            result.initialWebhookStatus === 200 &&
+            result.initialSubscriptionStatus === 'active' &&
+            result.initialDurationMonths === 3 &&
+            result.pausedAfterUpdate &&
+            result.pausedAfterFailure &&
+            result.failedPaymentRecorded &&
+            result.resumedAfterUpdate &&
+            result.renewalStatus === 200 &&
+            result.renewedEndsAt === expectedRenewedEndsAt &&
+            result.renewedSessionsTotal === options.activePackage.sessions_per_month * 3 &&
+            result.renewedSessionsUsed === 0 &&
+            result.renewalPaymentRecorded &&
+            result.cancellationStatus === 200 &&
+            result.cancelledAfterDelete;
+
         return result;
+    } finally {
+        if (stripeSubscriptionId) {
+            await recordSmokeStripeSubscriptionCleanup(result, stripeSubscriptionId);
+            result.ok = result.ok && result.stripeSubscriptionCleanupStatus === 'canceled';
+        }
     }
-
-    await supabaseAdmin
-        .from('subscriptions')
-        .update({ sessions_used: 2 })
-        .eq('id', resumedSubscription.id);
-
-    const expectedRenewedEndsAt = addMonthsToDateString(resumedSubscription.ends_at, 3);
-    result.expectedRenewedEndsAt = expectedRenewedEndsAt;
-
-    const renewedInvoiceId = `in_smoke_billing_renewal_${options.suffix}`;
-    const renewalResponse = await sendStripeEvent({
-        id: `evt_smoke_billing_renewal_${options.suffix}`,
-        type: 'invoice.paid',
-        object: {
-            id: renewedInvoiceId,
-            object: 'invoice',
-            subscription: stripeSubscription.id,
-            billing_reason: 'subscription_cycle',
-            amount_paid: options.activePackage.price_monthly * 3,
-            currency: 'eur',
-            payment_intent: `pi_smoke_billing_renewal_${options.suffix}`,
-        },
-    });
-
-    result.renewalStatus = renewalResponse.status;
-
-    const renewedSubscription = await waitForLatestSubscription(options.student.id, (row) =>
-        row.ends_at === expectedRenewedEndsAt && row.status === 'active'
-    );
-    result.renewedEndsAt = renewedSubscription?.ends_at ?? null;
-    result.renewedSessionsTotal = renewedSubscription?.sessions_total ?? null;
-    result.renewedSessionsUsed = renewedSubscription?.sessions_used ?? null;
-    result.renewalPaymentRecorded = await paymentExists(options.student.id, renewedInvoiceId, 'succeeded');
-
-    const cancellationResponse = await sendStripeEvent({
-        id: `evt_smoke_billing_cancelled_${options.suffix}`,
-        type: 'customer.subscription.deleted',
-        object: {
-            ...stripeSubscription,
-            status: 'canceled',
-            metadata: {
-                ...stripeSubscription.metadata,
-                userId: options.student.id,
-                priceId,
-            },
-        },
-    });
-
-    result.cancellationStatus = cancellationResponse.status;
-    const cancelledSubscription = await waitForLatestSubscription(options.student.id, (row) => row.status === 'cancelled');
-    result.cancelledAfterDelete = cancelledSubscription?.status === 'cancelled';
-
-    result.ok =
-        checkoutResponse.status === 200 &&
-        result.initialWebhookStatus === 200 &&
-        result.initialSubscriptionStatus === 'active' &&
-        result.initialDurationMonths === 3 &&
-        result.pausedAfterUpdate &&
-        result.pausedAfterFailure &&
-        result.failedPaymentRecorded &&
-        result.resumedAfterUpdate &&
-        result.renewalStatus === 200 &&
-        result.renewedEndsAt === expectedRenewedEndsAt &&
-        result.renewedSessionsTotal === options.activePackage.sessions_per_month * 3 &&
-        result.renewedSessionsUsed === 0 &&
-        result.renewalPaymentRecorded &&
-        result.cancellationStatus === 200 &&
-        result.cancelledAfterDelete;
-
-    return result;
 }
 
 async function runSchedulingLifecycleSmoke(options: {
@@ -1040,18 +1123,101 @@ async function runSchedulingLifecycleSmoke(options: {
     return result;
 }
 
-async function ensurePasswordAndGetProfile(email: string, password: string): Promise<RoleProfile> {
+async function runAdminJobsRecoverySmoke(options: {
+    suffix: string;
+    adminSession: string;
+    student: SmokeStudent;
+    activePackage: ActivePackage;
+}): Promise<SmokeResult['adminJobs']> {
+    const result: SmokeResult['adminJobs'] = {
+        ok: false,
+        adminJobsPageStatus: 0,
+        adminJobsPageContainsTitle: false,
+        insertedJobId: null,
+        failedListStatus: 0,
+        failedListContainsJob: false,
+        retryStatus: 0,
+        retryBody: '',
+        retriedStatus: null,
+        retryAuditLogged: false,
+        pendingListStatus: 0,
+        pendingListContainsJob: false,
+        cancelStatus: 0,
+        cancelBody: '',
+        cancelledStatus: null,
+        cancelAuditLogged: false,
+        cleanupStatus: null,
+        error: null,
+    };
+
+    try {
+        const adminJobsPage = await authedTextFetch(options.adminSession, '/es/campus/admin/jobs');
+        result.adminJobsPageStatus = adminJobsPage.status;
+        result.adminJobsPageContainsTitle = adminJobsPage.body.includes('Jobs operativos');
+
+        const insertedJob = await createSmokeFailedFulfillmentJob(options);
+        result.insertedJobId = insertedJob.id;
+
+        const failedListResponse = await authedJsonFetch(options.adminSession, '/api/admin/fulfillment-jobs?status=failed&limit=100');
+        result.failedListStatus = failedListResponse.status;
+        result.failedListContainsJob = jsonBodyContainsJobId(failedListResponse.body, insertedJob.id);
+
+        const retryResponse = await authedJsonFetch(options.adminSession, '/api/admin/fulfillment-jobs', {
+            method: 'POST',
+            body: { action: 'retry', jobId: insertedJob.id },
+        });
+        result.retryStatus = retryResponse.status;
+        result.retryBody = retryResponse.body;
+
+        const retriedJob = await waitForFulfillmentJobState(insertedJob.id, (job) => job.status === 'pending');
+        result.retriedStatus = retriedJob?.status ?? null;
+        result.retryAuditLogged = await waitForAdminJobAudit(insertedJob.id, 'fulfillment_job.retry');
+
+        const pendingListResponse = await authedJsonFetch(options.adminSession, '/api/admin/fulfillment-jobs?status=pending&limit=100');
+        result.pendingListStatus = pendingListResponse.status;
+        result.pendingListContainsJob = jsonBodyContainsJobId(pendingListResponse.body, insertedJob.id);
+
+        const cancelResponse = await authedJsonFetch(options.adminSession, '/api/admin/fulfillment-jobs', {
+            method: 'POST',
+            body: { action: 'cancel', jobId: insertedJob.id },
+        });
+        result.cancelStatus = cancelResponse.status;
+        result.cancelBody = cancelResponse.body;
+
+        const cancelledJob = await waitForFulfillmentJobState(insertedJob.id, (job) => job.status === 'cancelled');
+        result.cancelledStatus = cancelledJob?.status ?? null;
+        result.cancelAuditLogged = await waitForAdminJobAudit(insertedJob.id, 'fulfillment_job.cancel');
+        result.cleanupStatus = result.cancelledStatus === 'cancelled' ? 'cancelled_via_admin_api' : null;
+
+        result.ok =
+            result.adminJobsPageStatus === 200 &&
+            result.adminJobsPageContainsTitle &&
+            Boolean(result.insertedJobId) &&
+            result.failedListStatus === 200 &&
+            result.failedListContainsJob &&
+            result.retryStatus === 200 &&
+            result.retriedStatus === 'pending' &&
+            result.retryAuditLogged &&
+            result.pendingListStatus === 200 &&
+            result.pendingListContainsJob &&
+            result.cancelStatus === 200 &&
+            result.cancelledStatus === 'cancelled' &&
+            result.cancelAuditLogged;
+    } catch (error) {
+        result.error = redactErrorForSmokeEvidence(error);
+    } finally {
+        if (result.insertedJobId && result.cancelledStatus !== 'cancelled') {
+            result.cleanupStatus = await cancelSmokeFulfillmentJobDirectly(result.insertedJobId);
+        }
+    }
+
+    return result;
+}
+
+async function getProfileForAuthUserByEmail(email: string): Promise<RoleProfile> {
     const user = await getAuthUserByEmail(email);
     if (!user) {
         throw new Error(`Auth user not found for ${email}`);
-    }
-
-    const { error: updateError } = await supabaseAdmin.auth.admin.updateUserById(user.id, {
-        password,
-        email_confirm: true,
-    });
-    if (updateError) {
-        throw updateError;
     }
 
     const { data: profile, error } = await supabaseAdmin
@@ -1073,7 +1239,7 @@ async function ensureSmokeStudent(email: string, fullName: string): Promise<Smok
     if (!user) {
         const created = await supabaseAdmin.auth.admin.createUser({
             email,
-            password: SHARED_PASSWORD,
+            password: SMOKE_STUDENT_PASSWORD,
             email_confirm: true,
             user_metadata: {
                 full_name: fullName,
@@ -1085,7 +1251,7 @@ async function ensureSmokeStudent(email: string, fullName: string): Promise<Smok
         user = created.data.user;
     } else {
         const updated = await supabaseAdmin.auth.admin.updateUserById(user.id, {
-            password: SHARED_PASSWORD,
+            password: SMOKE_STUDENT_PASSWORD,
             email_confirm: true,
             user_metadata: {
                 full_name: fullName,
@@ -1151,7 +1317,7 @@ async function waitForProfile(profileId: string) {
 
 async function getAuthUserByEmail(email: string) {
     let page = 1;
-    while (page <= 10) {
+    while (page <= SMOKE_AUTH_USER_SCAN_MAX_PAGES) {
         const { data, error } = await supabaseAdmin.auth.admin.listUsers({ page, perPage: 100 });
         if (error) {
             throw error;
@@ -1220,6 +1386,14 @@ async function clearStudentRuntimeState(studentId: string) {
         throw subscriptionDeleteError;
     }
 
+    const { error: fulfillmentJobDeleteError } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .delete()
+        .eq('student_id', studentId);
+    if (fulfillmentJobDeleteError) {
+        throw fulfillmentJobDeleteError;
+    }
+
     if (await tableExists('profiles_private')) {
         const { error: privateResetError } = await supabaseAdmin
             .from('profiles_private')
@@ -1236,6 +1410,111 @@ async function clearStudentRuntimeState(studentId: string) {
             throw privateResetError;
         }
     }
+}
+
+async function createSmokeFailedFulfillmentJob(options: {
+    suffix: string;
+    student: SmokeStudent;
+    activePackage: ActivePackage;
+}) {
+    const { data, error } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .insert({
+            job_type: 'welcome_fulfillment',
+            status: 'failed',
+            student_id: options.student.id,
+            payload: {
+                userId: options.student.id,
+                packageId: options.activePackage.id,
+                locale: 'es',
+                smoke_managed: true,
+                source: 'real-env-smoke',
+                suffix: options.suffix,
+            },
+            attempts: 2,
+            max_attempts: 5,
+            run_at: new Date().toISOString(),
+            last_error: `Smoke controlled failure ${options.suffix}`,
+        })
+        .select('id,status,attempts,last_error,run_at')
+        .single();
+
+    if (error || !data) {
+        throw error ?? new Error('Could not create smoke fulfillment job');
+    }
+
+    return data;
+}
+
+async function cancelSmokeFulfillmentJobDirectly(jobId: string) {
+    const { error } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .update({
+            status: 'cancelled',
+            locked_at: null,
+            locked_by: null,
+        })
+        .eq('id', jobId);
+
+    return error ? `cleanup_failed:${error.code || 'unknown'}` : 'cancelled_directly';
+}
+
+async function waitForFulfillmentJobState(
+    jobId: string,
+    predicate: (job: { status: string | null }) => boolean,
+    timeoutMs: number = 15_000
+) {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < timeoutMs) {
+        const { data, error } = await supabaseAdmin
+            .from('fulfillment_jobs')
+            .select('id,status,attempts,last_error,run_at')
+            .eq('id', jobId)
+            .maybeSingle();
+
+        if (error) {
+            throw error;
+        }
+
+        if (data && predicate(data)) {
+            return data;
+        }
+
+        await sleep(500);
+    }
+
+    return null;
+}
+
+async function waitForAdminJobAudit(jobId: string, action: 'fulfillment_job.retry' | 'fulfillment_job.cancel') {
+    const startedAt = Date.now();
+
+    while (Date.now() - startedAt < 10_000) {
+        const { data, error } = await supabaseAdmin
+            .from('admin_audit_log')
+            .select('id')
+            .eq('entity_type', 'fulfillment_job')
+            .eq('entity_id', jobId)
+            .eq('action', action)
+            .limit(1);
+
+        if (error) {
+            throw error;
+        }
+
+        if ((data?.length ?? 0) > 0) {
+            return true;
+        }
+
+        await sleep(500);
+    }
+
+    return false;
+}
+
+function jsonBodyContainsJobId(body: Json | string, jobId: string) {
+    return typeof body !== 'string' && JSON.stringify(body).includes(jobId);
 }
 
 async function getActivePackage(): Promise<ActivePackage> {
@@ -1281,7 +1560,7 @@ async function createSessionCookieHeader(email: string, password: string) {
     }
 
     if (jar.length === 0) {
-        throw new Error(`No auth cookies generated for ${email}`);
+        throw new Error(`No auth cookies generated for ${redactSmokeString(email, 'email')}`);
     }
 
     return jar.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
@@ -1356,11 +1635,6 @@ async function waitForDriveState(
     }
 
     return null;
-}
-
-async function waitForDriveFolderId(studentId: string, timeoutMs: number = 30_000) {
-    const driveState = await waitForDriveState(studentId, (state) => Boolean(state.driveFolderId), timeoutMs);
-    return driveState?.driveFolderId ?? null;
 }
 
 async function getDriveState(studentId: string) {
@@ -1510,7 +1784,7 @@ async function authedTextFetch(cookieHeader: string, path: string) {
 async function ensureSmokeCustomerFundingSource(customerId: string) {
     const customer = await stripe.customers.retrieve(customerId);
     if (customer.deleted) {
-        throw new Error(`Stripe customer ${customerId} is deleted`);
+        throw new Error(`Stripe customer ${redactSmokeString(customerId, 'stripeCustomerId')} is deleted`);
     }
 
     const hasDefaultSource = Boolean(customer.default_source);
@@ -1523,6 +1797,34 @@ async function ensureSmokeCustomerFundingSource(customerId: string) {
     await stripe.customers.update(customerId, {
         source: 'tok_visa',
     });
+}
+
+async function recordSmokeStripeSubscriptionCleanup(
+    result: SmokeResult['billingLifecycle'],
+    stripeSubscriptionId: string
+) {
+    try {
+        const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+        if (subscription.status === 'canceled') {
+            result.stripeSubscriptionCleanupStatus = 'canceled';
+            return;
+        }
+
+        const cancelledSubscription = await stripe.subscriptions.cancel(stripeSubscriptionId);
+        result.stripeSubscriptionCleanupStatus = cancelledSubscription.status;
+    } catch (error) {
+        result.stripeSubscriptionCleanupStatus = 'failed';
+        result.stripeSubscriptionCleanupError = redactSmokeString(
+            error instanceof Error ? error.message : String(error),
+            'stripeSubscriptionCleanupError'
+        );
+    }
+}
+
+function getSmokeFailureSections(result: SmokeResult): SmokeSectionKey[] {
+    return smokeSectionStatuses(result)
+        .filter(([, ok]) => !ok)
+        .map(([section]) => section);
 }
 
 async function sendStripeEvent(event: { id: string; type: string; object: Record<string, unknown> }) {
@@ -1649,12 +1951,12 @@ async function scheduleFirstAvailableSession(teacherSession: string, studentId: 
             };
 
             if (response.status !== 409) {
-                throw new Error(`Scheduling probe failed at ${slot.toISOString()} with status ${response.status}: ${JSON.stringify(response.body)}`);
+                throw new Error(`Scheduling probe failed at ${slot.toISOString()} with status ${response.status}: ${JSON.stringify(redactJsonForSmokeEvidence(response.body))}`);
             }
         }
     }
 
-    throw new Error(`Could not schedule any candidate slot. Last failure: ${JSON.stringify(lastFailure)}`);
+    throw new Error(`Could not schedule any candidate slot. Last failure: ${JSON.stringify(redactJsonForSmokeEvidence(lastFailure))}`);
 }
 
 function extractSessionId(body: Json | string) {
@@ -1742,7 +2044,7 @@ async function convertSessionToPastWithoutRealtimeArtifacts(sessionId: string, c
         }
     }
 
-    throw new Error(`Could not find a non-conflicting past slot for session ${sessionId}`);
+    throw new Error(`Could not find a non-conflicting past slot for session ${redactSmokeString(sessionId, 'sessionId')}`);
 }
 
 async function createReminderSession(options: {
@@ -1808,7 +2110,234 @@ function sleep(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function writeSmokeEvidence(result: SmokeResult) {
+    const outputDir = path.join(process.cwd(), 'outputs', 'real-env-smoke', stamp(new Date(result.timestamp)));
+    mkdirSync(outputDir, { recursive: true });
+
+    const redactedResult = redactSmokeResult(result);
+    writeFileSync(path.join(outputDir, 'summary.json'), `${JSON.stringify(redactedResult, null, 2)}\n`, 'utf8');
+    writeFileSync(path.join(outputDir, 'summary.md'), renderSmokeSummary(result), 'utf8');
+
+    return path.join(outputDir, 'summary.md');
+}
+
+function renderSmokeSummary(result: SmokeResult) {
+    const lines = [
+        '# Real Environment Smoke Evidence',
+        '',
+        `- Status: ${result.ok ? 'OK' : 'FAILED'}`,
+        `- Timestamp: ${result.timestamp}`,
+        `- Base host: ${new URL(BASE_URL).host}`,
+        `- Failed sections: ${result.failedSections.length === 0 ? 'none' : result.failedSections.join(', ')}`,
+        '',
+        '## Scope',
+        '',
+        'This smoke creates or updates test users and calls Supabase, Stripe, Google and Resend. It only runs after `SMOKE_EXTERNAL_WRITES_CONFIRMATION` exactly matches `writes-ok:<host>` for `SMOKE_BASE_URL`. The JSON evidence is redacted before it is written.',
+        '',
+        '## Sections',
+        '',
+        '| Section | Status |',
+        '| --- | --- |',
+    ];
+
+    for (const [section, ok] of smokeSectionStatuses(result)) {
+        lines.push(`| ${section} | ${ok ? 'ok' : 'failed'} |`);
+    }
+
+    lines.push('');
+    lines.push('## Evidence Files');
+    lines.push('');
+    lines.push('- `summary.json`: redacted structured result for the smoke run.');
+    lines.push('- `summary.md`: this human-readable summary for manual evidence.');
+    lines.push('');
+    lines.push('## Manual Evidence Use');
+    lines.push('');
+    lines.push('Use this output as `command_output` support for `final_smoke` only after checking the intended staging/production environment and confirming any residual dashboard evidence without secrets.');
+    lines.push('');
+
+    return `${lines.join('\n')}\n`;
+}
+
+function smokeSectionStatuses(result: SmokeResult): Array<[SmokeSectionKey, boolean]> {
+    return [
+        ['notes', result.notes.ok],
+        ['drive', result.drive.ok],
+        ['checkout', result.checkout.ok],
+        ['webhook', result.webhook.ok],
+        ['billingLifecycle', result.billingLifecycle.ok],
+        ['schedulingLifecycle', result.schedulingLifecycle.ok],
+        ['adminJobs', result.adminJobs.ok],
+    ];
+}
+
+function redactSmokeResult(result: SmokeResult) {
+    return redactJsonForSmokeEvidence(result);
+}
+
+function redactJsonForSmokeEvidence(value: unknown, key = ''): unknown {
+    if (typeof value === 'string') {
+        return redactSmokeString(value, key);
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => redactJsonForSmokeEvidence(item, key));
+    }
+
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value).map(([entryKey, entryValue]) => [
+                entryKey,
+                redactJsonForSmokeEvidence(entryValue, key ? `${key}.${entryKey}` : entryKey),
+            ])
+        );
+    }
+
+    return value;
+}
+
+function redactSmokeString(value: string, key = '') {
+    if (!value) {
+        return value;
+    }
+
+    const normalizedKey = key.toLowerCase();
+    const redacted = redactFreeformSmokeString(value);
+
+    if (normalizedKey.includes('body')) {
+        return redacted === value ? '[redacted-response-body]' : redacted;
+    }
+
+    if (isSensitiveSmokeOutputKey(normalizedKey)) {
+        if (normalizedKey.includes('email')) {
+            return redacted;
+        }
+
+        if (normalizedKey.includes('url') || normalizedKey.includes('link')) {
+            return redactUrlForSmokeEvidence(value);
+        }
+
+        return `[redacted-${redactionLabelForKey(key)}]`;
+    }
+
+    return redacted;
+}
+
+function redactFreeformSmokeString(value: string) {
+    return value
+        .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
+        .replace(/https?:\/\/[^\s"')]+/g, (url) => redactUrlForSmokeEvidence(url))
+        .replace(/\b(?:cs|cus|sub|in|pi|evt|price|prod|pm|tok)_(?:test|live)?_?[A-Za-z0-9_]+\b/g, '[redacted-stripe-id]')
+        .replace(/\b(?:eyJ|ya29)[A-Za-z0-9._-]{20,}\b/g, '[redacted-token]');
+}
+
+function redactUrlForSmokeEvidence(value: string) {
+    try {
+        const url = new URL(value);
+        return `[redacted-url:${url.hostname}]`;
+    } catch {
+        return '[redacted-url]';
+    }
+}
+
+function isSensitiveSmokeOutputKey(normalizedKey: string) {
+    return [
+        'email',
+        'cookie',
+        'token',
+        'secret',
+        'signature',
+        'password',
+        'packagepriceid',
+        'stripecustomerid',
+        'stripesubscriptionid',
+        'stripeinvoiceid',
+        'drivefolderid',
+        'drivefolderurl',
+        'linkedgoogleemail',
+        'calendareventid',
+        'drivedocid',
+        'drivedocurl',
+        'meetlink',
+        'sessionid',
+        'rebooksessionid',
+        'completedsessionid',
+        'noshowsessionid',
+        'jobid',
+        'insertedjobid',
+    ].some((fragment) => normalizedKey.includes(fragment));
+}
+
+function redactionLabelForKey(key: string) {
+    const label = key.split('.').pop() || 'value';
+    return label.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+}
+
+function redactErrorForSmokeEvidence(error: unknown) {
+    if (error instanceof Error) {
+        return {
+            name: error.name,
+            message: redactSmokeString(error.message, 'errorMessage'),
+            stack: error.stack ? redactSmokeString(error.stack, 'stack') : undefined,
+        };
+    }
+
+    return redactJsonForSmokeEvidence(error);
+}
+
+function requireEnv(name: string): string {
+    const value = process.env[name]?.trim();
+    if (!value) {
+        throw new Error(`Missing ${name}. Real environment smoke must use explicit environment credentials and must not reset owner/teacher passwords.`);
+    }
+    return value;
+}
+
+function readPositiveIntegerEnv(name: string, defaultValue: number): number {
+    const value = process.env[name]?.trim();
+    if (!value) {
+        return defaultValue;
+    }
+
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+        throw new Error(`${name} must be a positive integer.`);
+    }
+
+    return parsed;
+}
+
+function stamp(date: Date): string {
+    return date.toISOString().replaceAll(':', '-').replaceAll('.', '-');
+}
+
+function normalizeAndConfirmSmokeBaseUrl(rawBaseUrl: string, confirmation: string): string {
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(rawBaseUrl);
+    } catch {
+        throw new Error('SMOKE_BASE_URL must be an absolute http(s) origin before running final smoke writes.');
+    }
+
+    if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        throw new Error('SMOKE_BASE_URL must use http or https before running final smoke writes.');
+    }
+
+    if ((parsedUrl.pathname !== '/' && parsedUrl.pathname !== '') || parsedUrl.search || parsedUrl.hash) {
+        throw new Error('SMOKE_BASE_URL must be an origin only, for example https://espanolhonesto.com.');
+    }
+
+    const expectedConfirmation = `writes-ok:${parsedUrl.host}`;
+    if (confirmation !== expectedConfirmation) {
+        throw new Error(
+            `SMOKE_EXTERNAL_WRITES_CONFIRMATION must be "${expectedConfirmation}" for ${parsedUrl.origin}. `
+            + 'This smoke creates or updates test users and calls Supabase, Stripe, Google and Resend.'
+        );
+    }
+
+    return parsedUrl.origin;
+}
+
 main().catch((error) => {
-    console.error(error);
+    console.error(redactErrorForSmokeEvidence(error));
     process.exitCode = 1;
 });

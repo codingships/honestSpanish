@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 type PhaseOneStatus = 'BLOCKED' | 'READY_WITH_ACCEPTED_RISKS' | 'PHASE_1_READY';
@@ -37,6 +37,26 @@ interface StatusSummary {
     outputDir: string;
 }
 
+interface StrictQaFinding {
+    errorId?: string;
+    status?: string;
+    severity?: string;
+    type?: string;
+    surface?: string;
+    summary?: string;
+    fix?: string;
+}
+
+interface StrictQaResults {
+    findings?: StrictQaFinding[];
+}
+
+interface StrictQaTrackerOutput {
+    file: string;
+    data: StrictQaResults;
+    endedAt: string;
+}
+
 interface PhaseOneReport {
     schemaVersion: 1;
     startedAt: string;
@@ -44,6 +64,7 @@ interface PhaseOneReport {
     status: PhaseOneStatus;
     outputDir: string;
     statusSummaryPath: string | null;
+    strictQaTrackerPath: string | null;
     steps: StepResult[];
     phaseOneOpenChecks: ManualPhaseCheck[];
     phaseOneArtifacts: {
@@ -62,6 +83,7 @@ const phaseOneSupportSteps = [
     { script: 'launch:operations', evidenceFolder: 'launch-operations' },
     { script: 'launch:operations-external-closure', evidenceFolder: 'launch-operations-external-closure' },
     { script: 'launch:staging-db-rollout', evidenceFolder: 'launch-staging-database-rollout' },
+    { script: 'launch:supabase-security-rollout', evidenceFolder: 'launch-supabase-security-rollout' },
     { script: 'launch:security', evidenceFolder: 'launch-security' },
 ];
 
@@ -124,10 +146,16 @@ function runStep(script: string, evidenceFolder: string): StepResult {
 
 function buildPhaseOneReport(statusSummary: { path: string; summary: StatusSummary } | null): PhaseOneReport {
     const manualSummary = readLatestManualEvidenceSummary();
+    const strictQaTracker = readLatestStrictQaResults();
+    const strictQaOpenSecurityChecks = collectStrictQaOpenSecurityFindings(strictQaTracker?.data ?? null)
+        .map(strictQaFindingToPhaseCheck);
     const supportFailures = steps
         .filter((step) => step.name !== 'launch:manual-evidence' && step.name !== 'launch:status')
         .filter((step) => step.status === 'failed');
-    const phaseOneOpenChecks = manualSummary?.manualEvidenceByPhase?.phase_1_now ?? [];
+    const phaseOneOpenChecks = mergePhaseOneChecks([
+        ...(manualSummary?.manualEvidenceByPhase?.phase_1_now ?? []),
+        ...strictQaOpenSecurityChecks,
+    ]);
     const phaseOneFailedChecks = phaseOneOpenChecks.filter((check) => check.status === 'failed');
     const phaseOneWarningChecks = phaseOneOpenChecks.filter((check) => check.status === 'warning');
     const status: PhaseOneStatus = supportFailures.length > 0 || !manualSummary || phaseOneFailedChecks.length > 0
@@ -143,6 +171,7 @@ function buildPhaseOneReport(statusSummary: { path: string; summary: StatusSumma
         status,
         outputDir,
         statusSummaryPath: statusSummary?.path ?? null,
+        strictQaTrackerPath: strictQaTracker?.file ?? null,
         steps: [...steps],
         phaseOneOpenChecks,
         phaseOneArtifacts: {
@@ -168,10 +197,11 @@ function renderMarkdown(report: PhaseOneReport): string {
         `- Ended: ${report.endedAt}`,
         `- Output: ${report.outputDir}`,
         `- Status summary: ${report.statusSummaryPath ?? 'missing'}`,
+        `- Strict QA tracker: ${toMarkdownPath(report.strictQaTrackerPath)}`,
         '',
         '## Scope',
         '',
-        'This command prepares the immediate launch work only: cleanup decision, Git worktree hygiene, content review, manual accessibility, database readiness, staging database rollout planning, external operations closure, and external security. It does not touch real legal data, Stripe live, final API key rotation or production smoke.',
+        'This command prepares the immediate launch work only: cleanup decision, Git worktree hygiene, content review, manual accessibility, database readiness, staging database rollout planning, Supabase security rollout planning, external operations closure, external security, and canonical strict-QA security blockers. It does not touch real legal data, Stripe live, final API key rotation, production smoke or external Supabase writes.',
         '',
         '## Support Audits',
         '',
@@ -211,7 +241,10 @@ function renderMarkdown(report: PhaseOneReport): string {
     lines.push('## Next Actions');
     lines.push('');
     if (report.status === 'BLOCKED') {
-    lines.push('- Open the Phase 1 closure pack, collect non-secret evidence for the open Phase 1 checks, update `docs/launch/MANUAL_EVIDENCE.local.json`, then rerun `pnpm launch:phase1`.');
+        lines.push('- Open the Phase 1 closure pack, collect non-secret evidence for the open Phase 1 checks, update `docs/launch/MANUAL_EVIDENCE.local.json`, then rerun `pnpm launch:phase1`.');
+        if (report.phaseOneOpenChecks.some((check) => /^SEC-\d+/i.test(check.id))) {
+            lines.push('- For `SEC-*` blockers, use the latest `pnpm launch:supabase-security-rollout` artifacts and do not apply Supabase SQL until the exact staging-first external approval and post-apply read-only verification are complete.');
+        }
     } else if (report.status === 'READY_WITH_ACCEPTED_RISKS') {
         lines.push('- Review accepted Phase 1 risks with Alin before freezing RC; Stripe/payment smoke remains final-only unless checkout is enabled.');
     } else {
@@ -220,7 +253,7 @@ function renderMarkdown(report: PhaseOneReport): string {
     lines.push('');
     lines.push('## Rule');
     lines.push('');
-    lines.push('This command exits non-zero while Phase 1 support audits fail or Phase 1 manual evidence remains pending/blocked. Final-only checks may still block the full Launch Gate even after Phase 1 is clear.');
+    lines.push('This command exits non-zero while Phase 1 support audits fail, Phase 1 manual evidence remains pending/blocked, or the canonical strict-QA tracker has open SEC-* findings. Final-only checks may still block the full Launch Gate even after Phase 1 is clear.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;
@@ -231,6 +264,67 @@ function readLatestManualEvidenceSummary(): ManualEvidenceSummary | null {
     if (!latestDir) return null;
 
     return JSON.parse(readFileSync(path.join(latestDir, 'summary.json'), 'utf8')) as ManualEvidenceSummary;
+}
+
+function readLatestStrictQaResults(): StrictQaTrackerOutput | null {
+    const outputsRoot = path.join(process.cwd(), 'outputs');
+    if (!existsSync(outputsRoot)) return null;
+
+    const candidates = readdirSync(outputsRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(outputsRoot, entry.name, 'strict-qa-v2', 'strict-qa-results.json'))
+        .filter((file) => existsSync(file))
+        .map((file) => ({
+            file,
+            mtimeMs: statSync(file).mtimeMs,
+        }))
+        .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    for (const candidate of candidates) {
+        try {
+            return {
+                file: candidate.file,
+                data: JSON.parse(readFileSync(candidate.file, 'utf8')) as StrictQaResults,
+                endedAt: new Date(candidate.mtimeMs).toISOString(),
+            };
+        } catch {
+            // Ignore corrupt historical tracker snapshots and try the next newest one.
+        }
+    }
+
+    return null;
+}
+
+function collectStrictQaOpenSecurityFindings(results: StrictQaResults | null): StrictQaFinding[] {
+    return (results?.findings ?? [])
+        .filter((finding) => String(finding.status ?? '').toLowerCase() === 'open')
+        .filter((finding) => /^SEC-\d+/i.test(String(finding.errorId ?? '')))
+        .sort((a, b) => String(a.errorId ?? '').localeCompare(String(b.errorId ?? '')));
+}
+
+function strictQaFindingToPhaseCheck(finding: StrictQaFinding): ManualPhaseCheck {
+    const errorId = finding.errorId ?? 'strict_qa_security';
+
+    return {
+        id: errorId,
+        area: 'strict QA security',
+        status: 'failed',
+        message: `${errorId} remains open in the canonical Strict QA tracker: ${finding.summary ?? 'No summary recorded.'}`,
+        details: [
+            `severity=${finding.severity ?? 'unknown'}`,
+            `type=${finding.type ?? 'unknown'}`,
+            `surface=${finding.surface ?? 'unknown'}`,
+            `fix=${finding.fix ?? 'No fix guidance recorded.'}`,
+        ],
+    };
+}
+
+function mergePhaseOneChecks(checks: ManualPhaseCheck[]): ManualPhaseCheck[] {
+    const byId = new Map<string, ManualPhaseCheck>();
+    for (const check of checks) {
+        byId.set(check.id, check);
+    }
+    return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 function readLatestStatusSummary(): { path: string; summary: StatusSummary } | null {

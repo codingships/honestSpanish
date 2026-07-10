@@ -1,35 +1,35 @@
--- =============================================
--- ESPAÑOL HONESTO - RLS SECURITY PATCH
--- =============================================
--- Soluciona permisos faltantes y cierra brechas (IDOR) en la base de datos viva.
+-- ESPANOL HONESTO - LEGACY RLS SECURITY PATCH
+--
+-- This manual patch is kept only as a historical/live-database aid.
+-- Prefer the canonical migrations in supabase/migrations/, especially:
+--   - 021_harden_session_write_policies.sql
+--   - 20260702124757_harden_profile_role_trigger.sql
+--
+-- Current invariant:
+-- - Students and teachers may read their allowed session rows.
+-- - Students and teachers must not write sessions directly through the Data API.
+-- - Server API routes perform quota, availability, cancellation-window,
+--   transition and fulfillment checks, then write with service-role.
 
--- 1. PROFILES: Permitir a los alumnos leer el perfil de los profesores que tienen asignados.
--- Sin esta política, un alumno no puede ver el nombre "Alejandro" en su interfaz web.
-CREATE POLICY "Students can view their teachers" 
-    ON profiles FOR SELECT 
+-- 1. PROFILES: let students read assigned teacher profiles.
+DROP POLICY IF EXISTS "Students can view their teachers" ON public.profiles;
+CREATE POLICY "Students can view their teachers"
+    ON public.profiles FOR SELECT
     USING (
         EXISTS (
-            SELECT 1 FROM student_teachers st 
-            WHERE st.student_id = auth.uid() 
-            AND st.teacher_id = profiles.id
+            SELECT 1 FROM public.student_teachers st
+            WHERE st.student_id = auth.uid()
+              AND st.teacher_id = profiles.id
         )
     );
 
--- 2. SESSIONS: Bloquear a los profesores para que no puedan agendar clases a alumnos que NO son suyos.
--- Borramos la política antigua demasiado permisiva
-DROP POLICY IF EXISTS "Teachers can view and update assigned sessions" ON sessions;
+-- 2. SESSIONS: remove historical direct student/teacher write paths.
+DROP POLICY IF EXISTS "Students can cancel own sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Teachers can create assigned sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Teachers can update assigned sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Teachers can view and update assigned sessions" ON public.sessions;
 
--- Creamos la nueva política restrictiva:
--- USING: Solo pueden ver/borrar sesiones donde ellos son el profesor.
--- WITH CHECK: Solo pueden crear/actualizar sesiones si el student_id pertenece a su lista de alumnos asignados.
-CREATE POLICY "Teachers can view and update assigned sessions" 
-    ON sessions FOR ALL 
-    USING (teacher_id = auth.uid())
-    WITH CHECK (
-        teacher_id = auth.uid() AND
-        EXISTS (
-            SELECT 1 FROM student_teachers st 
-            WHERE st.teacher_id = auth.uid() 
-            AND st.student_id = sessions.student_id
-        )
-    );
+DROP POLICY IF EXISTS "Teachers can view assigned sessions" ON public.sessions;
+CREATE POLICY "Teachers can view assigned sessions"
+    ON public.sessions FOR SELECT
+    USING (teacher_id = auth.uid());

@@ -138,6 +138,22 @@ describe('SEO and LLM public surface', () => {
         }
     });
 
+    it('keeps the live-domain probe aligned with current public sitemap and llms conventions', () => {
+        const liveDomainProbe = read('scripts/launch/live-domain-readonly-evidence.ts');
+
+        expect(liveDomainProbe).toContain('/sitemap-0.xml');
+        expect(liveDomainProbe).toContain('sitemap-public.xml or sitemap-0.xml');
+        expect(liveDomainProbe).toContain("body.includes('# Espa\\u00f1ol Honesto')");
+        expect(liveDomainProbe).toContain("body.includes('# Espanol Honesto')");
+        expect(liveDomainProbe).not.toContain("'# Espanol Honesto',");
+    });
+
+    it('keeps Keystatic out of production builds even when its flag is left enabled', () => {
+        const astroConfig = read('astro.config.mjs');
+
+        expect(astroConfig).toContain("env.KEYSTATIC_ENABLED === 'true' && process.env.NODE_ENV !== 'production'");
+    });
+
     it('guards landing FAQ structured data for answer engines', () => {
         const landingSchema = read('src/lib/landing-schema.ts');
         const seoAudit = read('scripts/launch/seo-audit.ts');
@@ -320,6 +336,7 @@ describe('SEO and LLM public surface', () => {
 
         expect(blogLayout).toContain('blogCta');
         expect(blogLayout).toContain("`/${lang}#contacto`");
+        expect(blogLayout).toContain("`/${lang}${post.data.ctaLink}`");
         expect(blogLayout).toContain('Solicitar plaza');
         expect(blogLayout).toContain('Apply for a place');
         expect(blogLayout).toContain('Оставить заявку');
@@ -327,6 +344,16 @@ describe('SEO and LLM public surface', () => {
         expect(blogIndex).toContain('blogIndexCta');
         expect(blogIndex).toContain("href={`/${lang}#contacto`}");
         expect(conversionArchitecture).toContain('indice y posts enlazan al formulario de solicitud');
+
+        for (const professionalPost of [
+            'src/content/blog/es/como-escribir-correo-formal-espanol-plantillas.md',
+            'src/content/blog/es/cuando-usar-tu-usted-trabajo-espana.md',
+            'src/content/blog/es/espanol-profesionales-guia-definitiva-trabajar-espana.md',
+            'src/content/blog/es/sindrome-impostor-trabajando-espanol.md',
+            'src/content/blog/es/vocabulario-reuniones-trabajo-espanol.md',
+        ]) {
+            expect(read(professionalPost)).toContain('ctaLink: "/espanol-para-profesionales"');
+        }
     });
 
     it('keeps canonical, hreflang, OG and noindex primitives in the shared layout', () => {

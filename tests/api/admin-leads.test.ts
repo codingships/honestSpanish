@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
     sendMissingInfoEmail: vi.fn(),
     sendProposalNextStepEmail: vi.fn(),
     getSiteUrl: vi.fn(() => 'https://staging.espanolhonesto.com'),
+    signLeadEmailToken: vi.fn(),
     loadLeadCaptureForCrm: vi.fn(),
     syncLeadCaptureToCrmSafe: vi.fn(),
     recordLeadEmailOutInCrmSafe: vi.fn(),
@@ -26,6 +27,10 @@ vi.mock('../../src/lib/email', () => ({
 
 vi.mock('../../src/lib/site-url', () => ({
     getSiteUrl: mocks.getSiteUrl,
+}));
+
+vi.mock('../../src/lib/lead-email-token', () => ({
+    signLeadEmailToken: mocks.signLeadEmailToken,
 }));
 
 vi.mock('../../src/lib/crm/lead-capture', () => ({
@@ -166,6 +171,10 @@ async function readJson(response: Response) {
     return response.json() as Promise<Record<string, unknown>>;
 }
 
+function expectedDiagnosticUrl(leadId: string) {
+    return `https://staging.espanolhonesto.com/en/diagnostico?email=student%40example.com&leadId=${leadId}&token=signed-level-token`;
+}
+
 describe('/api/admin/leads', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -173,6 +182,7 @@ describe('/api/admin/leads', () => {
         mocks.sendMissingInfoEmail.mockResolvedValue(true);
         mocks.sendProposalNextStepEmail.mockResolvedValue(true);
         mocks.getSiteUrl.mockReturnValue('https://staging.espanolhonesto.com');
+        mocks.signLeadEmailToken.mockResolvedValue('signed-level-token');
         mocks.loadLeadCaptureForCrm.mockResolvedValue({
             id: '00000000-0000-4000-8000-000000000005',
             email: 'student@example.com',
@@ -356,6 +366,60 @@ describe('/api/admin/leads', () => {
         expect(summaryOpportunitiesQuery.in).toHaveBeenCalledWith('legacy_lead_id', ['lead-visible', 'lead-summary']);
     });
 
+    it('keeps the admin lead list available when optional summary columns are not migrated yet', async () => {
+        const lead = { id: 'lead-1', status: 'new', email: 'student@example.com' };
+        const fallbackSummaryLead = {
+            id: 'lead-summary',
+            status: 'new',
+            created_at: '2026-06-24T08:00:00.000Z',
+        };
+        const visibleLeadsQuery = createAwaitableQuery({ data: [lead], error: null });
+        const missingOptionalSummaryColumnQuery = createAwaitableQuery({
+            data: null,
+            error: {
+                code: '42703',
+                message: 'column leads.source_path does not exist',
+            },
+        });
+        const fallbackSummaryQuery = createAwaitableQuery({ data: [fallbackSummaryLead], error: null });
+        const opportunitiesQuery = createAwaitableQuery({
+            data: null,
+            error: { code: '42P01', message: 'relation "crm_opportunities" does not exist' },
+        });
+        const summaryOpportunitiesQuery = createAwaitableQuery({
+            data: null,
+            error: { code: '42P01', message: 'relation "crm_opportunities" does not exist' },
+        });
+        const leadQueries = [visibleLeadsQuery, missingOptionalSummaryColumnQuery, fallbackSummaryQuery];
+        const opportunityQueries = [opportunitiesQuery, summaryOpportunitiesQuery];
+        const client = {
+            from: vi.fn((table: string) => {
+                if (table === 'leads') return leadQueries.shift();
+                if (table === 'crm_opportunities') return opportunityQueries.shift();
+                throw new Error(`Unexpected table ${table}`);
+            }),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { GET } = await import('../../src/pages/api/admin/leads');
+        const response = await GET(getContext('/api/admin/leads?status=all&limit=25') as any);
+        const body = await readJson(response);
+
+        expect(response.status).toBe(200);
+        expect(body.leads).toEqual([{ ...lead, crm_opportunity: null }]);
+        expect(body.summary).toMatchObject({
+            totalLeads: 1,
+            topSourcePaths: [{ label: 'Sin ruta', count: 1 }],
+            topInterests: [{ label: 'Sin interes', count: 1 }],
+            topPreferredPackages: [{ label: 'Sin plan', count: 1 }],
+            levelSummary: [{ label: 'Sin nivel', count: 1 }],
+        });
+        expect(client.from).toHaveBeenCalledWith('leads');
+    });
+
     it('updates lead status and writes an admin audit log', async () => {
         const before = {
             id: '00000000-0000-4000-8000-000000000002',
@@ -445,13 +509,17 @@ describe('/api/admin/leads', () => {
         expect(response.status).toBe(200);
         expect(body).toMatchObject({
             lead: after,
-            diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=student%40example.com',
+            diagnosticUrl: expectedDiagnosticUrl(before.id),
             emailSent: true,
+        });
+        expect(mocks.signLeadEmailToken).toHaveBeenCalledWith({
+            leadId: before.id,
+            email: 'student@example.com',
         });
         expect(mocks.getSiteUrl).toHaveBeenCalledWith('http://localhost:4321');
         expect(mocks.sendLevelCheckInviteEmail).toHaveBeenCalledWith('student@example.com', {
             recipientName: 'Student',
-            diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=student%40example.com',
+            diagnosticUrl: expectedDiagnosticUrl(before.id),
         });
         expect(updateQuery.update).toHaveBeenCalledWith({
             level_check_status: 'sent',
@@ -778,7 +846,7 @@ describe('/api/admin/leads', () => {
         });
         expect(mocks.sendMissingInfoEmail).toHaveBeenCalledWith('student@example.com', {
             recipientName: 'Student',
-            diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=student%40example.com',
+            diagnosticUrl: expectedDiagnosticUrl(before.id),
         });
         expect(mocks.recordLeadEmailOutInCrmSafe).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
             contactId: '10000000-0000-4000-8000-000000000005',

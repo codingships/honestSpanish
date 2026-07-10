@@ -108,6 +108,19 @@ const calendarTranslations = {
     markNoShow: t('campus.teacher.calendar.markNoShow'),
     cancelSession: t('campus.teacher.calendar.cancelSession'),
     addNotes: t('campus.teacher.calendar.addNotes'),
+    noSlots: t('campus.teacher.calendar.noSlots'),
+    day: t('campus.teacher.calendar.day'),
+    slotAdded: t('campus.teacher.calendar.slotAdded'),
+    slotRemoved: t('campus.teacher.calendar.slotRemoved'),
+    errorAdding: t('campus.teacher.calendar.errorAdding'),
+    errorRemoving: t('campus.teacher.calendar.errorRemoving'),
+    invalidTimeRange: t('campus.teacher.calendar.invalidTimeRange'),
+    status: t('campus.teacher.calendar.status'),
+    dateTime: t('campus.teacher.calendar.dateTime'),
+    meetLink: t('campus.teacher.calendar.meetLink'),
+    saveNotes: t('campus.teacher.calendar.saveNotes'),
+    updated: t('campus.teacher.calendar.updated'),
+    sessionNotesPlaceholder: t('campus.teacher.calendar.sessionNotesPlaceholder'),
     dayNames: dayNames[lang] || dayNames['es'],
     continue: t('campus.teacher.calendar.continue'),
     back: t('campus.teacher.calendar.back'),
@@ -140,23 +153,31 @@ const calendarTranslations = {
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b-2 border-[#006064] mb-6">
+    <div class="flex border-b-2 border-[#006064] mb-6" role="tablist" aria-label={t('campus.teacher.calendar.title')}>
         <button 
             id="tab-calendar"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            aria-controls="view-calendar"
             class="px-6 py-3 font-bold text-sm uppercase border-b-4 border-[#006064] text-[#006064] bg-white -mb-[2px]"
         >
-            📅 {t('campus.teacher.calendar.schedule')}
+            <span aria-hidden="true">📅</span> {t('campus.teacher.calendar.schedule')}
         </button>
         <button 
             id="tab-availability"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            aria-controls="view-availability"
             class="px-6 py-3 font-bold text-sm uppercase text-[#006064]/60 hover:text-[#006064] transition-colors"
         >
-            ⏰ {t('campus.teacher.calendar.availability')}
+            <span aria-hidden="true">⏰</span> {t('campus.teacher.calendar.availability')}
         </button>
     </div>
 
     <!-- Calendar View -->
-    <div id="view-calendar">
+    <div id="view-calendar" role="tabpanel" aria-labelledby="tab-calendar">
         <TeacherCalendar 
             client:load
             sessions={sessions || []}
@@ -168,7 +189,7 @@ const calendarTranslations = {
     </div>
 
     <!-- Availability View -->
-    <div id="view-availability" class="hidden">
+    <div id="view-availability" class="hidden" role="tabpanel" aria-labelledby="tab-availability" hidden>
         <AvailabilityManager 
             client:load
             initialAvailability={availability || []}
@@ -191,15 +212,23 @@ const calendarTranslations = {
             tabCalendar?.classList.remove('text-[#006064]/60');
             tabAvailability?.classList.remove('border-b-4', 'border-[#006064]', 'bg-white', '-mb-[2px]');
             tabAvailability?.classList.add('text-[#006064]/60');
+            tabCalendar?.setAttribute('aria-selected', 'true');
+            tabAvailability?.setAttribute('aria-selected', 'false');
             viewCalendar?.classList.remove('hidden');
             viewAvailability?.classList.add('hidden');
+            viewCalendar?.removeAttribute('hidden');
+            viewAvailability?.setAttribute('hidden', '');
         } else {
             tabAvailability?.classList.add('border-b-4', 'border-[#006064]', 'bg-white', '-mb-[2px]');
             tabAvailability?.classList.remove('text-[#006064]/60');
             tabCalendar?.classList.remove('border-b-4', 'border-[#006064]', 'bg-white', '-mb-[2px]');
             tabCalendar?.classList.add('text-[#006064]/60');
+            tabAvailability?.setAttribute('aria-selected', 'true');
+            tabCalendar?.setAttribute('aria-selected', 'false');
             viewAvailability?.classList.remove('hidden');
             viewCalendar?.classList.add('hidden');
+            viewAvailability?.removeAttribute('hidden');
+            viewCalendar?.setAttribute('hidden', '');
         }
     }
 

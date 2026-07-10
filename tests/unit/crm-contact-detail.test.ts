@@ -75,6 +75,36 @@ describe('getCrmContactDetail', () => {
         expect(detail.consents).toEqual([]);
     });
 
+    it('treats PostgREST schema-cache misses as CRM not migrated yet', async () => {
+        const client = createClient({
+            support_tickets: createQuery({ data: [], error: null }),
+            sessions: createQuery({ data: [], error: null }),
+            crm_contacts: createQuery({
+                data: null,
+                error: {
+                    code: 'PGRST205',
+                    message: "Could not find the table 'public.crm_contacts' in the schema cache",
+                },
+            }),
+        });
+
+        const detail = await getCrmContactDetail(client as any, {
+            profileId: 'student-1',
+            email: 'student@example.com',
+        });
+
+        expect(detail).toMatchObject({
+            isReady: false,
+            contact: null,
+            opportunities: [],
+            tasks: [],
+            activities: [],
+            consents: [],
+            supportTickets: [],
+            sessions: [],
+        });
+    });
+
     it('loads the CRM contact, pipeline, tasks and activity timeline when CRM exists', async () => {
         const contact = {
             id: 'contact-1',

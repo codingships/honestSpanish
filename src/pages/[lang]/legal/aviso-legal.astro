@@ -1,6 +1,7 @@
 ---
 export const prerender = true;
 import LegalLayout from '../../../layouts/LegalLayout.astro';
+import { LEGAL_IDENTITY_MODE, legalIdentity } from '../../../lib/legal-identity';
 
 export function getStaticPaths() {
     return [
@@ -16,21 +17,26 @@ const content = {
     es: {
         title: 'Aviso Legal',
         description: 'Información legal sobre Español Honesto',
-        lastUpdated: 'Última actualización: 13 de enero de 2026',
+        lastUpdated: 'Última actualización: 10 de julio de 2026',
     },
     en: {
         title: 'Legal Notice',
         description: 'Legal information about Español Honesto',
-        lastUpdated: 'Last updated: January 13, 2026',
+        lastUpdated: 'Last updated: July 10, 2026',
     },
     ru: {
         title: 'Правовая информация',
         description: 'Юридическая информация о Español Honesto',
-        lastUpdated: 'Последнее обновление: 13 января 2026',
+        lastUpdated: 'Последнее обновление: 10 июля 2026',
     },
 };
 
 const t = content[lang as keyof typeof content] || content.es;
+const exampleNotice = lang === 'en'
+    ? 'EXAMPLE LEGAL IDENTITY — not valid for production or real payments.'
+    : lang === 'ru'
+        ? 'ПРИМЕР ЮРИДИЧЕСКИХ ДАННЫХ — недействителен для production и реальных платежей.'
+        : 'DATOS LEGALES DE EJEMPLO — no válidos para producción ni pagos reales.';
 ---
 
 <LegalLayout 
@@ -39,16 +45,17 @@ const t = content[lang as keyof typeof content] || content.es;
     lastUpdated={t.lastUpdated}
     lang={lang!}
 >
+    {LEGAL_IDENTITY_MODE === 'example' && <p><strong>{exampleNotice}</strong></p>}
     {lang === 'es' && (
         <>
             <h2>1. Datos identificativos</h2>
             <p>En cumplimiento del artículo 10 de la Ley 34/2002, de 11 de julio, de Servicios de la Sociedad de la Información y Comercio Electrónico, se informa:</p>
             <ul>
-                <li><strong>Titular:</strong> [NOMBRE COMPLETO O RAZÓN SOCIAL]</li>
-                <li><strong>NIF/CIF:</strong> [NÚMERO]</li>
-                <li><strong>Domicilio:</strong> [DIRECCIÓN COMPLETA], Madrid, España</li>
-                <li><strong>Email:</strong> alejandro@espanolhonesto.com</li>
-                <li><strong>Actividad:</strong> Servicios de enseñanza de español para extranjeros</li>
+                <li><strong>Titular:</strong> {legalIdentity.ownerName}</li>
+                <li><strong>NIF/CIF:</strong> {legalIdentity.taxId}</li>
+                <li><strong>Domicilio:</strong> {legalIdentity.address}</li>
+                <li><strong>Email:</strong> {legalIdentity.email}</li>
+                <li><strong>Actividad:</strong> {legalIdentity.activity}</li>
             </ul>
 
             <h2>2. Objeto</h2>
@@ -77,7 +84,7 @@ const t = content[lang as keyof typeof content] || content.es;
             <p>Este sitio web puede contener enlaces a sitios de terceros. Español Honesto no asume ninguna responsabilidad sobre el contenido de dichos sitios.</p>
 
             <h2>7. Legislación aplicable y jurisdicción</h2>
-            <p>Las relaciones entre Español Honesto y el usuario se regirán por la legislación española, sometiéndose cualquier controversia a los Juzgados y Tribunales de Madrid.</p>
+            <p>Las relaciones entre Español Honesto y el usuario se regirán por la legislación española. Cuando el usuario sea consumidor, se respetará el fuero imperativo que resulte aplicable y no se impondrá una sumisión que limite sus derechos.</p>
         </>
     )}
 
@@ -86,10 +93,10 @@ const t = content[lang as keyof typeof content] || content.es;
             <h2>1. Identification</h2>
             <p>In compliance with Spanish Law 34/2002, the following information is provided:</p>
             <ul>
-                <li><strong>Owner:</strong> [FULL NAME OR COMPANY NAME]</li>
-                <li><strong>Tax ID:</strong> [NUMBER]</li>
-                <li><strong>Address:</strong> [FULL ADDRESS], Madrid, Spain</li>
-                <li><strong>Email:</strong> alejandro@espanolhonesto.com</li>
+                <li><strong>Owner:</strong> {legalIdentity.ownerName}</li>
+                <li><strong>Tax ID:</strong> {legalIdentity.taxId}</li>
+                <li><strong>Address:</strong> {legalIdentity.address}</li>
+                <li><strong>Email:</strong> {legalIdentity.email}</li>
                 <li><strong>Activity:</strong> Spanish language teaching services for foreigners</li>
             </ul>
 
@@ -119,7 +126,7 @@ const t = content[lang as keyof typeof content] || content.es;
             <p>This website may contain links to third-party sites. Español Honesto assumes no responsibility for their content.</p>
 
             <h2>7. Applicable Law</h2>
-            <p>Relations between Español Honesto and users are governed by Spanish law, with any disputes submitted to the Courts of Madrid.</p>
+            <p>Relations between Español Honesto and users are governed by Spanish law. Mandatory consumer jurisdiction rules remain fully applicable and are not limited by these terms.</p>
         </>
     )}
 
@@ -128,10 +135,10 @@ const t = content[lang as keyof typeof content] || content.es;
             <h2>1. Идентификация</h2>
             <p>В соответствии с испанским законодательством (Закон 34/2002) предоставляется следующая информация:</p>
             <ul>
-                <li><strong>Владелец:</strong> [ПОЛНОЕ ИМЯ ИЛИ НАЗВАНИЕ КОМПАНИИ]</li>
-                <li><strong>ИНН:</strong> [НОМЕР]</li>
-                <li><strong>Адрес:</strong> [ПОЛНЫЙ АДРЕС], Мадрид, Испания</li>
-                <li><strong>Email:</strong> alejandro@espanolhonesto.com</li>
+                <li><strong>Владелец:</strong> {legalIdentity.ownerName}</li>
+                <li><strong>ИНН:</strong> {legalIdentity.taxId}</li>
+                <li><strong>Адрес:</strong> {legalIdentity.address}</li>
+                <li><strong>Email:</strong> {legalIdentity.email}</li>
                 <li><strong>Деятельность:</strong> Услуги по обучению испанскому языку для иностранцев</li>
             </ul>
 
@@ -158,7 +165,7 @@ const t = content[lang as keyof typeof content] || content.es;
             </ul>
 
             <h2>6. Применимое право</h2>
-            <p>Отношения между Español Honesto и пользователями регулируются испанским законодательством.</p>
+            <p>Отношения между Español Honesto и пользователями регулируются испанским законодательством. Обязательные правила о подсудности для потребителей сохраняют полную силу.</p>
         </>
     )}
 </LegalLayout>

@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
-    upsert: vi.fn(),
-    adminSend: vi.fn(),
+    insert: vi.fn(),
+    update: vi.fn(),
+    updateEq: vi.fn(),
+    deliverEmail: vi.fn(),
     sendLeadWelcomeEmail: vi.fn(),
     loadLeadCaptureForCrm: vi.fn(),
     syncLeadCaptureToCrmSafe: vi.fn(),
@@ -19,7 +21,7 @@ vi.mock('../../src/lib/supabase-admin', () => ({
     createSupabaseAdminClient: vi.fn(() => ({
         from: vi.fn((table: string) => {
             if (table !== 'leads') throw new Error(`Unexpected table ${table}`);
-            return { upsert: mocks.upsert };
+            return { insert: mocks.insert, update: mocks.update };
         }),
     })),
 }));
@@ -30,12 +32,7 @@ vi.mock('../../src/lib/runtime-env', () => ({
 }));
 
 vi.mock('../../src/lib/email', () => ({
-    getEmailFrom: vi.fn(() => 'Academia <hello@example.com>'),
-    getResend: vi.fn(() => ({
-        emails: {
-            send: mocks.adminSend,
-        },
-    })),
+    deliverEmail: mocks.deliverEmail,
     sendLeadWelcomeEmail: mocks.sendLeadWelcomeEmail,
 }));
 
@@ -57,8 +54,10 @@ function postContext(body: Record<string, unknown>) {
 describe('/api/subscribe', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        mocks.upsert.mockResolvedValue({ error: null });
-        mocks.adminSend.mockReturnValue(Promise.resolve({ error: null }));
+        mocks.insert.mockResolvedValue({ error: null });
+        mocks.updateEq.mockResolvedValue({ error: null });
+        mocks.update.mockReturnValue({ eq: mocks.updateEq });
+        mocks.deliverEmail.mockResolvedValue({ ok: true });
         mocks.sendLeadWelcomeEmail.mockResolvedValue(true);
         mocks.loadLeadCaptureForCrm.mockResolvedValue({
             id: '00000000-0000-4000-8000-000000000001',
@@ -92,7 +91,7 @@ describe('/api/subscribe', () => {
         }));
     });
 
-    it('upserts enriched application details by normalized email', async () => {
+    it('inserts enriched application details by normalized email', async () => {
         const { POST } = await import('../../src/pages/api/subscribe');
         const response = await POST(postContext({
             email: '  Future.Student@Example.COM ',
@@ -106,6 +105,7 @@ describe('/api/subscribe', () => {
             otherLanguages: 'Romanian',
             sourcePath: '/es/espanol-para-vivir-en-espana',
             lang: 'es',
+            adultConfirmed: true,
             consent: true,
             'cf-turnstile-response': 'turnstile-token',
         }) as any);
@@ -116,7 +116,7 @@ describe('/api/subscribe', () => {
         expect((turnstileBody as URLSearchParams).get('secret')).toBe('turnstile-secret');
         expect((turnstileBody as URLSearchParams).get('response')).toBe('turnstile-token');
         expect((turnstileBody as URLSearchParams).get('remoteip')).toBe('203.0.113.10');
-        expect(mocks.upsert).toHaveBeenCalledWith({
+        expect(mocks.insert).toHaveBeenCalledWith({
             email: 'future.student@example.com',
             name: 'Future Student',
             interest: 'general',
@@ -128,16 +128,18 @@ describe('/api/subscribe', () => {
             lang: 'es',
             spoken_languages: ['ru', 'en', 'romanian'],
             is_russian_speaker: true,
+            adult_confirmed: true,
+            adult_confirmed_at: expect.any(String),
+            age_policy_version: '2026-07-10',
             consent_given: true,
             ip_address: '203.0.113.10',
             status: 'new',
             updated_at: expect.any(String),
-        }, {
-            onConflict: 'email',
         });
-        expect(mocks.adminSend).toHaveBeenCalledWith(expect.objectContaining({
+        expect(mocks.deliverEmail).toHaveBeenCalledWith(expect.objectContaining({
             to: ['alejandro@espanolhonesto.com'],
             subject: expect.stringContaining('Future Student'),
+            source: 'lead_admin_notification',
         }));
         expect(mocks.sendLeadWelcomeEmail).toHaveBeenCalledWith('future.student@example.com', {
             recipientName: 'Future Student',
@@ -155,6 +157,70 @@ describe('/api/subscribe', () => {
         }));
     });
 
+    it('redacts admin notification provider errors without failing lead capture', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.deliverEmail.mockResolvedValueOnce({
+            ok: false,
+            reason: 'provider_error',
+            error: {
+                message: 'Recipient future.student@example.com was rejected',
+                statusCode: 422,
+            },
+        });
+
+        const { POST } = await import('../../src/pages/api/subscribe');
+        const response = await POST(postContext({
+            email: 'future.student@example.com',
+            name: 'Future Student',
+            interest: 'general',
+            lang: 'es',
+            adultConfirmed: true,
+            consent: true,
+            'cf-turnstile-response': 'turnstile-token',
+        }) as any);
+        await Promise.resolve();
+
+        expect(response.status).toBe(200);
+        expect(errorSpy).toHaveBeenCalledWith(
+            'Error notifying admin:',
+            'Recipient f***t@example.com was rejected status=422'
+        );
+        expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('future.student@example.com');
+        errorSpy.mockRestore();
+    });
+
+    it('redacts thrown lead email errors before returning a generic failure', async () => {
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.sendLeadWelcomeEmail.mockRejectedValueOnce({
+            message: 'Recipient student@example.com was rejected',
+            statusCode: 503,
+        });
+
+        try {
+            const { POST } = await import('../../src/pages/api/subscribe');
+            const response = await POST(postContext({
+                email: 'student@example.com',
+                name: 'Student',
+                interest: 'general',
+                lang: 'es',
+                adultConfirmed: true,
+                consent: true,
+                'cf-turnstile-response': 'turnstile-token',
+            }) as any);
+            const body = await response.json() as JsonBody;
+
+            expect(response.status).toBe(500);
+            expect(body).toEqual({ error: 'Error al enviar email' });
+            expect(errorSpy).toHaveBeenCalledWith(
+                '[Subscribe] Lead/email flow error:',
+                'Recipient s***t@example.com was rejected status=503'
+            );
+            expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('student@example.com');
+        } finally {
+            errorSpy.mockRestore();
+        }
+    });
+
     it('rejects failed Turnstile before writing the lead', async () => {
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             json: vi.fn().mockResolvedValue({ success: false }),
@@ -163,18 +229,19 @@ describe('/api/subscribe', () => {
         const { POST } = await import('../../src/pages/api/subscribe');
         const response = await POST(postContext({
             email: 'student@example.com',
+            adultConfirmed: true,
             consent: true,
             'cf-turnstile-response': 'bad-token',
         }) as any);
 
         expect(response.status).toBe(403);
-        expect(mocks.upsert).not.toHaveBeenCalled();
-        expect(mocks.adminSend).not.toHaveBeenCalled();
+        expect(mocks.insert).not.toHaveBeenCalled();
+        expect(mocks.deliverEmail).not.toHaveBeenCalled();
         expect(mocks.syncLeadCaptureToCrmSafe).not.toHaveBeenCalled();
     });
 
     it('keeps lead capture working if preferred_package migration is not applied yet', async () => {
-        mocks.upsert
+        mocks.insert
             .mockResolvedValueOnce({
                 error: {
                     code: 'PGRST204',
@@ -190,17 +257,52 @@ describe('/api/subscribe', () => {
             interest: 'general',
             preferredPackage: 'group',
             lang: 'es',
+            adultConfirmed: true,
             consent: true,
             'cf-turnstile-response': 'turnstile-token',
         }) as any);
 
         expect(response.status).toBe(200);
-        expect(mocks.upsert).toHaveBeenCalledTimes(2);
-        expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ preferred_package: 'group' });
-        expect(mocks.upsert.mock.calls[1][0]).not.toHaveProperty('preferred_package');
-        expect(mocks.upsert.mock.calls[1][0]).not.toHaveProperty('spoken_languages');
-        expect(mocks.upsert.mock.calls[1][0]).not.toHaveProperty('is_russian_speaker');
-        expect(mocks.adminSend).toHaveBeenCalled();
+        expect(mocks.insert).toHaveBeenCalledTimes(2);
+        expect(mocks.insert.mock.calls[0][0]).toMatchObject({ preferred_package: 'group' });
+        expect(mocks.insert.mock.calls[1][0]).not.toHaveProperty('preferred_package');
+        expect(mocks.insert.mock.calls[1][0]).not.toHaveProperty('spoken_languages');
+        expect(mocks.insert.mock.calls[1][0]).not.toHaveProperty('is_russian_speaker');
+        expect(mocks.deliverEmail).toHaveBeenCalled();
+    });
+
+    it('returns success without overwriting or syncing an existing email', async () => {
+        mocks.insert.mockResolvedValue({
+            error: {
+                code: '23505',
+                message: 'duplicate key value violates unique constraint "leads_email_key"',
+            },
+        });
+
+        const { POST } = await import('../../src/pages/api/subscribe');
+        const response = await POST(postContext({
+            email: 'existing@example.com',
+            name: 'Attacker Chosen Name',
+            interest: 'general',
+            lang: 'en',
+            adultConfirmed: true,
+            consent: true,
+            'cf-turnstile-response': 'turnstile-token',
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(200);
+        expect(body).toEqual({ message: 'Success' });
+        expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({
+            adult_confirmed: true,
+            age_policy_version: '2026-07-10',
+            consent_given: true,
+        }));
+        expect(mocks.update.mock.calls[0][0]).not.toHaveProperty('name');
+        expect(mocks.loadLeadCaptureForCrm).not.toHaveBeenCalled();
+        expect(mocks.syncLeadCaptureToCrmSafe).not.toHaveBeenCalled();
+        expect(mocks.deliverEmail).not.toHaveBeenCalled();
+        expect(mocks.sendLeadWelcomeEmail).not.toHaveBeenCalled();
     });
 
     it('does not record a CRM email activity when the lead confirmation email fails', async () => {
@@ -212,6 +314,7 @@ describe('/api/subscribe', () => {
             name: 'Student',
             interest: 'general',
             lang: 'en',
+            adultConfirmed: true,
             consent: true,
             'cf-turnstile-response': 'turnstile-token',
         }) as any);
@@ -227,19 +330,18 @@ describe('/api/subscribe', () => {
             email: 'student@example.com',
             name: { display: 'not-a-string' },
             interest: ['general'],
+            adultConfirmed: true,
             consent: true,
             'cf-turnstile-response': 'turnstile-token',
         }) as any);
 
         expect(response.status).toBe(200);
-        expect(mocks.upsert).toHaveBeenCalledWith(expect.objectContaining({
+        expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({
             email: 'student@example.com',
             name: null,
             interest: null,
-        }), {
-            onConflict: 'email',
-        });
-        expect(mocks.adminSend).toHaveBeenCalledWith(expect.objectContaining({
+        }));
+        expect(mocks.deliverEmail).toHaveBeenCalledWith(expect.objectContaining({
             subject: 'Nuevo Lead: N/A (N/A)',
         }));
     });

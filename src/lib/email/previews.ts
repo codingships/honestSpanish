@@ -1,4 +1,3 @@
-import { getEmailFrom, getResend } from './client';
 import {
     classCancelledTemplate,
     classConfirmationTemplate,
@@ -11,6 +10,8 @@ import {
     supportTicketUpdatedTemplate,
     welcomeEmailTemplate,
 } from './templates';
+import { describeEmailSendError } from './errors';
+import { deliverEmail } from './delivery';
 
 export const emailPreviewTypes = [
     'welcome',
@@ -153,15 +154,18 @@ export function buildEmailPreview(type: EmailPreviewType): EmailPreview {
 
 export async function sendEmailPreview(type: EmailPreviewType, email: string): Promise<boolean> {
     const preview = buildEmailPreview(type);
-    const { error } = await getResend().emails.send({
-        from: getEmailFrom(),
+    const result = await deliverEmail({
         to: email,
         subject: preview.subject,
         html: preview.html,
+        source: 'email_preview',
     });
 
-    if (error) {
-        console.error('[EmailPreview] Resend rejected test email:', error);
+    if (!result.ok) {
+        console.error(
+            '[EmailPreview] Resend rejected test email:',
+            result.error ? describeEmailSendError(result.error) : result.reason,
+        );
         return false;
     }
 

@@ -30,6 +30,16 @@
           "type": "path",
           "value": "LEGAL_INPUTS_REQUIRED.md",
           "note": "Datos legales requeridos."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-legal-final-inputs/<timestamp>/legal-final-inputs-package.md",
+          "note": "Inventario actual de placeholders e inputs legales finales."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-legal-final-inputs/<timestamp>/legal-final-inputs-manifest.json",
+          "note": "Debe mostrar placeholderCount 0 despues de aplicar datos reales."
         }
       ]
     },
@@ -45,6 +55,11 @@
           "type": "path",
           "value": "LEGAL_INPUTS_REQUIRED.md",
           "note": "Subprocesadores y validacion pendiente."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-legal-final-inputs/<timestamp>/legal-final-inputs-package.md",
+          "note": "Checklist legal final generado y revisado sin documentos privados."
         }
       ]
     },
@@ -144,12 +159,77 @@
       "owner": "Alin",
       "verifiedAt": "2026-06-05T00:00:00.000Z",
       "environment": "staging and production",
-      "summary": "Falta verificar Stripe live, Google folders/templates, Resend, Turnstile dominios y fulfillment/reminder worker.",
+      "summary": "Falta verificar el modo de pagos elegido, Stripe webhook test-mode con pnpm launch:stripe-webhook-cutover-runner, Turnstile dominios con pnpm launch:turnstile-domain-closure-runner, Sentry issue triage con pnpm launch:sentry-issue-triage-runner, Cloudflare Pages-vs-Worker/domain ownership, pnpm launch:cloudflare-production-runtime-readonly, pnpm launch:cloudflare-production-runtime-cutover-preflight, cloudflare-production-worker-variable-matrix.md, production Worker secret-name posture, pnpm launch:cloudflare-production-runtime-cutover, pnpm launch:cloudflare-production-worker-phase1, pnpm launch:cloudflare-production-worker-secrets, pnpm launch:supabase-processed-at-cleanup-runner, Google folders/templates, Resend y fulfillment/reminder worker.",
       "evidence": [
         {
           "type": "manual_note",
           "value": "Registrar paneles, URLs y capturas sin secretos.",
           "note": "Integraciones externas."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/019f1a5e-2745-7c43-870d-544e6ba4e0b1/strict-qa-v2/cloudflare-domain-worker-preflight.md",
+          "note": "Preflight Cloudflare Pages-vs-Worker/domain sin secretos."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-cloudflare-production-runtime-readonly/<timestamp>/summary.md",
+          "note": "Snapshot read-only actual de cuenta Cloudflare, Pages project, dominios, Workers y secret names sin valores."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md",
+          "note": "Preflight no-write de build local, Wrangler production dry-run, CHECKOUT_ENABLED=false, no custom-domain attachment y limpieza de dist."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/cloudflare-production-worker-variable-matrix.md",
+          "note": "Matriz de nombres/vars/secrets sin valores antes de cargar Cloudflare Worker secrets."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/cloudflare-production-runtime-cutover-manifest.json",
+          "note": "Manifest local-only de cutover Cloudflare, secret names, aprobaciones separadas y rollback."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-cloudflare-production-worker-phase1/<timestamp>/summary.md",
+          "note": "Runner gated de Worker phase 1; en modo plan debe mostrar externalWritePerformed=false."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-cloudflare-production-worker-secrets/<timestamp>/summary.md",
+          "note": "Runner gated de Worker secret names y direct Worker probes; en modo plan debe mostrar externalWritePerformed=false."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-stripe-webhook-cutover-runner/<timestamp>/summary.md",
+          "note": "Runner gated de Stripe webhook test-mode; en modo plan debe mostrar externalWritePerformed=false."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-turnstile-domain-closure-runner/<timestamp>/summary.md",
+          "note": "Runner gated de Turnstile domains; en modo plan debe mostrar externalWritePerformed=false."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-sentry-issue-triage-runner/<timestamp>/summary.md",
+          "note": "Runner gated de Sentry issue status; en modo plan debe mostrar externalWritePerformed=false."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-supabase-processed-at-cleanup-runner/<timestamp>/summary.md",
+          "note": "Runner gated de Supabase processed_at cleanup; en modo plan debe mostrar externalWritePerformed=false."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-integration-final-package/<timestamp>/integration-final-manifest.json",
+          "note": "Manifest local-only con estado de cierre, evidencias faltantes/warning y frontera no-write."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-integration-final-package/<timestamp>/service-evidence-matrix.md",
+          "note": "Matriz unica para Cloudflare, Supabase, Stripe, Google, Resend, Turnstile, Sentry, SEO/domain y smoke final."
         }
       ]
     },
@@ -167,6 +247,16 @@
           "note": "Apoyo automatico; no sustituye Search Console/Core Web Vitals/revision final."
         },
         {
+          "type": "command_output",
+          "value": "../../outputs/launch-seo-llm-final-package/<timestamp>/seo-llm-final-manifest.json",
+          "note": "Manifest local-only; documenta dominio real, Search Console/CWV, llms.txt, exclusion privada y decision de tipografia rusa."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-seo-llm-final-package/<timestamp>/domain-parity-gap.md",
+          "note": "Debe estar resuelto o aceptado explicitamente antes de cerrar SEO/LLM final."
+        },
+        {
           "type": "manual_note",
           "value": "Registrar URLs revisadas, decision de indexacion legal y decision de tipografia rusa premium/fallback sin secretos, fuentes comerciales, facturas ni datos fiscales.",
           "note": "SEO/LLM final."
@@ -181,6 +271,41 @@
       "environment": "staging then production",
       "summary": "Falta smoke end-to-end: registro, checkout, webhook, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion y retry.",
       "evidence": [
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-final-smoke.md",
+          "note": "Aprobacion exacta revisada antes de ejecutar cualquier smoke con writes."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-staging-smoke.md",
+          "note": "Aprobacion exacta para staging rehearsal con Stripe test; no cierra final_smoke por si sola."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json",
+          "note": "Manifest local-only; documenta limites, confirmacion writes-ok:<host>, readyForStagingApproval/readyForApproval y que el paquete no ejecuto writes."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/staging-preflight-checklist.md",
+          "note": "Checklist de staging rehearsal para QA tecnica previa; no sustituye el smoke final live-domain."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md",
+          "note": "Runner gated de staging smoke; en modo plan debe mostrar externalWriteCommandStarted=false y no imprime valores secretos."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md",
+          "note": "Approval gate exacto para ejecutar el smoke rehearsal de staging con Stripe test."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/real-env-smoke/<timestamp>/summary.md",
+          "note": "Resumen redactado solo despues del smoke real aprobado."
+        },
         {
           "type": "manual_note",
           "value": "Registrar resultados finales antes de cambiar launchDecision.",

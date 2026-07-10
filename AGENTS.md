@@ -22,10 +22,10 @@ pnpm fulfillment:typecheck
 pnpm lint
 pnpm test:run
 pnpm test:coverage
-pnpm test:e2e -- --project=public
-pnpm test:e2e -- --project=student
-pnpm test:e2e -- --project=teacher
-pnpm test:e2e -- --project=admin
+pnpm test:e2e --project=public
+pnpm test:e2e --project=student
+pnpm test:e2e --project=teacher
+pnpm test:e2e --project=admin
 pnpm db:seed
 pnpm secrets:check
 pnpm launch:rc
@@ -34,9 +34,9 @@ pnpm launch:gate
 
 ## Architecture
 
-Espanol Honesto is an Astro 5 SSR app deployed to Cloudflare Pages with a separate Cloudflare Worker for Google Workspace and Resend jobs.
+Espanol Honesto is an Astro SSR app deployed to Cloudflare Workers with a separate Cloudflare Worker for Google Workspace and Resend jobs.
 
-Cloudflare Pages:
+Cloudflare Astro Worker:
 
 - Public web and blog.
 - Campus student/teacher/admin.
@@ -56,7 +56,7 @@ Runtime boundary:
 - `src/pages/api/**` must not import `src/lib/google/**`.
 - `src/pages/api/**` must not import `src/lib/fulfillment/jobs.ts`.
 - Cloudflare-safe queue helpers live in `src/lib/fulfillment/queue.ts`.
-- Cloudflare Pages-to-Worker client lives in `src/lib/internal-job-service.ts`.
+- Astro-Worker-to-Fulfillment-Worker client lives in `src/lib/internal-job-service.ts`.
 
 ## Database
 
@@ -100,6 +100,8 @@ Do not print or commit real secret values.
 - Vitest tests use dynamic imports after mocks.
 - Playwright auth state is stored in `tests/e2e/.auth/` and is git-ignored.
 - `.env.test` controls test users.
+- Do not run separate Playwright CLI processes in parallel against the same workspace; they share `test-results/artifacts` and can race on trace/artifact cleanup. Use one Playwright invocation with multiple projects, or run project commands sequentially.
+- Playwright uses one worker by default for deterministic local QA against the shared dev server/auth state. Set `PLAYWRIGHT_WORKERS=<n>` only for explicit parallelism diagnostics.
 - Set `E2E_DISABLE_EXTERNAL_INTEGRATIONS=true` for local booking E2E tests that should not call Google/Resend.
 
 ## Documentation

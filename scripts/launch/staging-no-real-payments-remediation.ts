@@ -79,10 +79,16 @@ const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-staging-no-real-payments-remediation', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
 
-const projectName = readArgValue('--project-name') ?? 'espanol-honesto-staging';
-const deployedUrl = normalizeBaseUrl(readArgValue('--deployed-url') ?? `https://${projectName}.pages.dev`);
+const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const projectName = readArgValue('--worker-name') ?? readArgValue('--project-name') ?? 'espanolhonesto-staging';
+const deployedUrl = normalizeBaseUrl(
+    readArgValue('--deployed-url')
+        ?? process.env.CLOUDFLARE_WORKERS_STAGING_URL
+        ?? process.env.CLOUDFLARE_STAGING_URL
+        ?? DEFAULT_WORKER_STAGING_URL,
+);
 const remediationPackPath = path.join(outputDir, 'staging-no-real-payments-remediation-pack.md');
-const buildPackageManifestPath = path.join(outputDir, 'pages-staging-build-manifest.json');
+const buildPackageManifestPath = path.join(outputDir, 'worker-staging-build-manifest.json');
 const approvalRequestPath = path.join(outputDir, 'approval-request.md');
 const manualEvidenceDryRunPath = path.join(outputDir, 'manual-evidence-dry-run.txt');
 const deployedCheckoutProbe = await checkDeployedCheckoutProbe(deployedUrl);
@@ -92,8 +98,8 @@ const checks: CheckResult[] = [
     checkLocalDeploymentGap(),
     checkLocalBuildPackageGuard(buildPackageManifestPath),
     deployedCheckoutProbe,
-    runWranglerPagesReadOnly('wrangler_pages_project_list', ['pnpm', 'exec', 'wrangler', 'pages', 'project', 'list'], [projectName]),
-    runWranglerPagesReadOnly('wrangler_pages_deployment_list', ['pnpm', 'exec', 'wrangler', 'pages', 'deployment', 'list', '--project-name', projectName], [projectName]),
+    runWranglerWorkerReadOnly('wrangler_worker_deployments_status', ['pnpm', 'exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], ['version_id', 'created_on']),
+    runWranglerWorkerReadOnly('wrangler_worker_deployments_list', ['pnpm', 'exec', 'wrangler', 'deployments', 'list', '--env', 'staging', '--json'], ['version_id', 'created_on']),
     markExternalWriteRequired(deployedCheckoutProbe.status === 'ok'),
 ];
 
@@ -138,7 +144,7 @@ function checkLocalPagesConfig(): CheckResult {
     if (!existsSync(configPath)) {
         return {
             status: 'failed',
-            name: 'local_pages_config',
+            name: 'local_worker_config',
             message: 'Root wrangler.toml is missing.',
             details: [`path=${configPath}`],
         };
@@ -146,16 +152,20 @@ function checkLocalPagesConfig(): CheckResult {
 
     const source = readFileSync(configPath, 'utf8');
     const missing = [
-        'pages_build_output_dir = "dist"',
+        'name = "espanolhonesto"',
+        'keep_vars = true',
+        '[env.staging]',
+        'name = "espanolhonesto-staging"',
+        '[env.production]',
         'CHECKOUT_ENABLED = "false"',
     ].filter((snippet) => !source.includes(snippet));
 
     return {
         status: missing.length === 0 ? 'ok' : 'failed',
-        name: 'local_pages_config',
+        name: 'local_worker_config',
         message: missing.length === 0
-            ? 'Local Pages config explicitly defaults checkout to disabled.'
-            : 'Local Pages config does not explicitly default checkout to disabled.',
+            ? 'Local Worker config defines staging/production and explicitly defaults checkout to disabled.'
+            : 'Local Worker config does not define the expected staging/production fail-closed deployment posture.',
         details: [
             `path=${configPath}`,
             ...(missing.length > 0 ? [`missing=${missing.join(', ')}`] : []),
@@ -207,7 +217,7 @@ function checkLocalDeploymentGap(): CheckResult {
         name: 'local_deployment_gap',
         message: hasGap
             ? 'The local no-real-payments safeguards are not fully represented in the current Git source; staging will not include working-tree-only fixes until they are committed and redeployed.'
-            : 'The current Git source includes the no-real-payments checkout guard and Pages default.',
+            : 'The current Git source includes the no-real-payments checkout guard and Worker default.',
         details: [
             `head=${head.stdout.trim()}`,
             `git_diff=git diff --name-only -- ${relevantFiles.join(' ')}`,
@@ -229,7 +239,7 @@ function checkLocalBuildPackageGuard(manifestPath: string): CheckResult {
         return {
             status: 'warning',
             name: 'local_build_package_guard',
-            message: 'No local Pages build output was found; build before using the staging deploy package.',
+            message: 'No local Worker build output was found; build before using the staging deploy package.',
             details: [
                 `manifest=${toPosix(path.relative(process.cwd(), manifestPath))}`,
                 `buildOutput=${manifest.pagesBuildOutputDir}`,
@@ -248,16 +258,16 @@ function checkLocalBuildPackageGuard(manifestPath: string): CheckResult {
         manifest.pagesPackage.assetsBinding !== 'ASSETS' ? 'ASSETS binding missing' : null,
         manifest.pagesPackage.checkoutEnabledDefault !== 'false' ? 'CHECKOUT_ENABLED default is not false in build config' : null,
         !manifest.pagesPackage.nodejsCompat ? 'nodejs_compat flag missing' : null,
-        !manifest.pagesPackage.withinPagesFileCountLimit ? 'Pages file count limit exceeded' : null,
-        !manifest.pagesPackage.withinPagesFileSizeLimit ? 'Pages file size limit exceeded' : null,
+        !manifest.pagesPackage.withinPagesFileCountLimit ? 'Static asset file count limit exceeded' : null,
+        !manifest.pagesPackage.withinPagesFileSizeLimit ? 'Static asset file size limit exceeded' : null,
     ].filter((failure): failure is string => Boolean(failure));
 
     return {
         status: missing.length === 0 && packageFailures.length === 0 ? 'ok' : 'failed',
         name: 'local_build_package_guard',
         message: missing.length === 0 && packageFailures.length === 0
-            ? 'Local Pages build output contains the checkout-disabled guard and deploy package basics needed for staging deploy.'
-            : 'Local Pages build output does not contain the checkout-disabled guard or deploy package basics needed for staging deploy.',
+            ? 'Local Worker build output contains the checkout-disabled guard and deploy package basics needed for staging deploy.'
+            : 'Local Worker build output does not contain the checkout-disabled guard or deploy package basics needed for staging deploy.',
         details: [
             `manifest=${toPosix(path.relative(process.cwd(), manifestPath))}`,
             `buildOutput=${manifest.pagesBuildOutputDir}`,
@@ -352,7 +362,7 @@ function buildLocalBuildPackageManifest(): BuildPackageManifest {
         nextSteps: readyForStagingDeployPackage
             ? [
                 'Review this manifest together with rc-staging-runtime-manifest.json and the remediation pack.',
-                'Get explicit approval before deploying to Cloudflare Pages staging.',
+                'Get explicit approval before deploying to the Cloudflare Astro Worker staging target.',
                 `After deploy/config fix, run corepack pnpm launch:no-real-payments -- --deployed-url ${deployedUrl}.`,
             ]
             : [
@@ -364,7 +374,7 @@ function buildLocalBuildPackageManifest(): BuildPackageManifest {
             'Do not paste built JavaScript contents, secret values, environment values or private data into evidence.',
         ],
         forbiddenScope: [
-            'Production Cloudflare Pages changes or deployments.',
+            'Production Cloudflare Worker changes or deployments.',
             'CHECKOUT_ENABLED=true, Stripe live mode, live Price IDs or real checkout enablement.',
             'Supabase writes, legal real data, final secrets, domain/Search Console changes or production smoke.',
         ],
@@ -529,7 +539,7 @@ async function checkDeployedCheckoutProbe(baseUrl: string): Promise<CheckResult>
     }
 }
 
-function runWranglerPagesReadOnly(name: string, args: string[], expectedSnippets: string[]): CheckResult {
+function runWranglerWorkerReadOnly(name: string, args: string[], expectedSnippets: string[]): CheckResult {
     const logPath = path.join(outputDir, `${name}.log`);
     const result = spawnSync(corepackCommand(), args, {
         cwd: process.cwd(),
@@ -552,8 +562,8 @@ function runWranglerPagesReadOnly(name: string, args: string[], expectedSnippets
         status: result.status === 0 && missing.length === 0 ? 'ok' : 'warning',
         name,
         message: result.status === 0 && missing.length === 0
-            ? 'Wrangler Pages read-only command returned expected project/deployment evidence.'
-            : 'Wrangler Pages read-only command did not return all expected evidence.',
+            ? 'Wrangler Worker read-only command returned expected deployment evidence.'
+            : 'Wrangler Worker read-only command did not return all expected evidence.',
         details: [
             `log=${toPosix(path.relative(process.cwd(), logPath))}`,
             `exitCode=${result.status ?? 'null'}`,
@@ -584,7 +594,7 @@ function markExternalWriteRequired(deployedCheckoutBlocked: boolean): CheckResul
             name: 'external_write_required',
             message: 'No additional Cloudflare write is required by this check; staging checkout is already blocked.',
             details: [
-                'Target resource checked: Cloudflare Pages project espanol-honesto-staging.',
+                'Target resource checked: Cloudflare Worker espanolhonesto-staging.',
                 `Post-fix proof: corepack pnpm launch:no-real-payments -- --deployed-url ${deployedUrl} returns OK.`,
             ],
         };
@@ -593,9 +603,9 @@ function markExternalWriteRequired(deployedCheckoutBlocked: boolean): CheckResul
     return {
         status: 'warning',
         name: 'external_write_required',
-        message: 'Closing staging no-real-payments requires an explicit Cloudflare Pages staging write or redeploy confirmation.',
+        message: 'Closing staging no-real-payments requires an explicit Cloudflare Worker staging write or redeploy confirmation.',
         details: [
-            'Target resource: Cloudflare Pages project espanol-honesto-staging.',
+            'Target resource: Cloudflare Worker espanolhonesto-staging.',
             'Preferred fix: if local_deployment_gap is warning, package/redeploy current code/config to staging first; then set or verify CHECKOUT_ENABLED=false.',
             `Post-fix proof: corepack pnpm launch:no-real-payments -- --deployed-url ${deployedUrl} returns OK.`,
         ],
@@ -619,7 +629,7 @@ function renderSummary(report: RemediationReport): string {
         '',
         '## Scope',
         '',
-        'This command is read-only for Cloudflare. It probes the staging checkout endpoint, reads local Pages config, lists Pages projects/deployments, and writes a remediation pack. It does not deploy, change variables, delete deployments, write secrets, call Stripe or update manual evidence.',
+        'This command is read-only for Cloudflare. It probes the staging checkout endpoint, reads local Worker config, lists Worker deployments, and writes a remediation pack. It does not deploy, change variables, delete deployments, write secrets, call Stripe or update manual evidence.',
         '',
         '## Checks',
         '',
@@ -639,7 +649,7 @@ function renderApprovalRequest(report: RemediationReport): string {
     const remediationPack = toPosix(path.relative(process.cwd(), report.remediationPackPath));
     const buildPackageManifest = toPosix(path.relative(process.cwd(), report.buildPackageManifestPath));
     const checksToRecord = [
-        'Cloudflare account and Pages project name.',
+        'Cloudflare account and Worker name.',
         'Target environment that serves the staging URL.',
         'CHECKOUT_ENABLED=false as a state claim, not a secret value.',
         'Deployment id/timestamp or dashboard confirmation after change.',
@@ -647,23 +657,23 @@ function renderApprovalRequest(report: RemediationReport): string {
     ];
 
     return `${[
-        '# Cloudflare Pages Staging No-Real-Payments Approval Request',
+        '# Cloudflare Worker Staging No-Real-Payments Approval Request',
         '',
-        'Use this text when asking for explicit permission to touch Cloudflare Pages staging. This file is not permission by itself.',
+        'Use this text when asking for explicit permission to touch Cloudflare Worker staging. This file is not permission by itself.',
         '',
         'Requested scope:',
         '',
-        `- Target: Cloudflare Pages project \`${report.projectName}\`.`,
+        `- Target: Cloudflare Worker \`${report.projectName}\`.`,
         `- Staging URL: \`${report.deployedUrl}\`.`,
         '- Environment: staging/preview deployment serving that URL only.',
-        '- Production Pages, custom production domain, Stripe live and real checkout enablement are excluded.',
+        '- Production Worker, custom production domain, Stripe live and real checkout enablement are excluded.',
         '',
         'Read-only preflight before any write:',
         '',
         `- Review \`${remediationPack}\`.`,
         `- Review \`${buildPackageManifest}\` and confirm \`readyForStagingDeployPackage=true\` before using a build output as deploy source.`,
-        '- Confirm the Cloudflare account and Pages project are correct.',
-        '- Confirm which Pages environment/deployment serves the staging URL.',
+        '- Confirm the Cloudflare account and Worker are correct.',
+        '- Confirm which Worker environment/deployment serves the staging URL.',
         '- Confirm the deployment contains the committed no-real-payments guard; working-tree-only changes are not present in Cloudflare.',
         '- If `local_deployment_gap` is warning, do not rely on a variable-only fix; first package, commit or otherwise deploy the exact guard/config changes that read `CHECKOUT_ENABLED`.',
         '- List variable names only; do not record secret values.',
@@ -672,8 +682,8 @@ function renderApprovalRequest(report: RemediationReport): string {
         'Allowed staging action after explicit approval:',
         '',
         '- Set or verify non-secret variable `CHECKOUT_ENABLED=false` only when the running deployment already contains the committed checkout guard that reads `CHECKOUT_ENABLED`.',
-        '- If the guard/config is working-tree-only or missing from the deployed source, package and redeploy current code/config to the staging Pages project before treating the variable as evidence.',
-        '- Do not set `CHECKOUT_ENABLED=true`, add live Price IDs, enable Stripe live or change production Pages as part of this approval.',
+        '- If the guard/config is working-tree-only or missing from the deployed source, package and redeploy current code/config to the staging Worker before treating the variable as evidence.',
+        '- Do not set `CHECKOUT_ENABLED=true`, add live Price IDs, enable Stripe live or change production Worker as part of this approval.',
         '',
         'Evidence to record after review:',
         '',
@@ -689,7 +699,7 @@ function renderApprovalRequest(report: RemediationReport): string {
         '',
         'Forbidden from this approval:',
         '',
-        '- Production Cloudflare Pages changes or deployments.',
+        '- Production Cloudflare Worker changes or deployments.',
         '- Stripe live mode, real checkout enablement or payment acceptance.',
         '- Secret reads/writes beyond variable-name review; never store secret values.',
         '- Supabase writes, legal real data, final secrets, domain/Search Console changes or production smoke.',
@@ -707,20 +717,20 @@ function renderManualEvidenceDryRun(report: RemediationReport): string {
         'corepack pnpm launch:manual-evidence:record --',
         '  --id payments_staging',
         '  --status pass',
-        '  --summary "No-real-payments staging mode verified for RC: Cloudflare Pages staging returns 403 Checkout is disabled before Supabase or Stripe, public CTAs remain application-first, and Stripe live/payment smoke remain final-only."',
-        '  --environment "Cloudflare Pages staging, no-real-payments mode"',
+        '  --summary "No-real-payments staging mode verified for RC: Cloudflare Worker staging returns 403 Checkout is disabled before Supabase or Stripe, public CTAs remain application-first, and Stripe live/payment smoke remain final-only."',
+        '  --environment "Cloudflare Worker staging, no-real-payments mode"',
         '  --owner Alin',
         `  --evidence "command_output=${summaryPath}::staging no-real-payments remediation pack reviewed"`,
-        `  --evidence "command_output=${remediationPack}::Cloudflare Pages staging remediation scope reviewed"`,
-        `  --evidence "command_output=${buildPackageManifest}::Pages staging build package manifest includes checkout-disabled guard"`,
-        `  --evidence "command_output=${approvalRequest}::approval scope limited to Cloudflare Pages staging checkout-disabled state"`,
-        `  --evidence "manual_note=Replace with concrete non-secret result after running: ${postFixCommand}. Expected: deployed checkout probe returns 403 Checkout is disabled; no Stripe session, Supabase write, production Pages change or CHECKOUT_ENABLED=true."`,
+        `  --evidence "command_output=${remediationPack}::Cloudflare Worker staging remediation scope reviewed"`,
+        `  --evidence "command_output=${buildPackageManifest}::Worker staging build package manifest includes checkout-disabled guard"`,
+        `  --evidence "command_output=${approvalRequest}::approval scope limited to Cloudflare Worker staging checkout-disabled state"`,
+        `  --evidence "manual_note=Replace with concrete non-secret result after running: ${postFixCommand}. Expected: deployed checkout probe returns 403 Checkout is disabled; no Stripe session, Supabase write, production Worker change or CHECKOUT_ENABLED=true."`,
     ];
 
     return `${[
         '# Manual Evidence Dry Run: Staging No-Real-Payments',
         '',
-        'Use this only after the Cloudflare Pages staging fix is complete and the post-fix deployed probe passes. The command is intentionally a dry run until `--write` is added.',
+        'Use this only after the Cloudflare Worker staging fix is complete and the post-fix deployed probe passes. The command is intentionally a dry run until `--write` is added.',
         '',
         commandLines.join(' \\\n'),
         '',
@@ -735,7 +745,7 @@ function renderRemediationPack(report: RemediationReport): string {
         '# Staging No-Real-Payments Remediation Pack',
         '',
         `- Generated: ${report.endedAt}`,
-        `- Cloudflare Pages project: ${report.projectName}`,
+        `- Cloudflare Worker: ${report.projectName}`,
         `- Staging URL: ${report.deployedUrl}`,
         `- Probe result: ${probe?.status ?? 'missing'} - ${probe?.message ?? 'missing'}`,
         `- Build package manifest: ${toPosix(path.relative(process.cwd(), report.buildPackageManifestPath))}`,
@@ -744,7 +754,7 @@ function renderRemediationPack(report: RemediationReport): string {
         '',
         'The current no-real-payments RC requires the deployed checkout endpoint to fail closed with `403` and `Checkout is disabled`. If the deployed endpoint returns `400 priceId is required`, it is processing checkout as enabled or is running older code/config.',
         '',
-        'If `local_deployment_gap` warns, the local working tree contains checkout/config changes that Cloudflare cannot serve until they are committed and redeployed to the staging Pages project.',
+        'If `local_deployment_gap` warns, the local working tree contains checkout/config changes that Cloudflare cannot serve until they are committed and redeployed to the staging Worker.',
         '',
         '## Read-Only Evidence',
         '',
@@ -762,9 +772,9 @@ function renderRemediationPack(report: RemediationReport): string {
         '## Remediation Options',
         '',
         '1. If `local_deployment_gap` reports working-tree-only checkout/config changes, commit or otherwise package those exact changes before redeploying staging.',
-        '2. Redeploy current code/config to `espanol-honesto-staging`; root `wrangler.toml` now explicitly defaults `CHECKOUT_ENABLED = "false"` for Pages config.',
-        '3. In Cloudflare dashboard, set or verify non-secret variable `CHECKOUT_ENABLED=false` for the Pages project/environment that serves staging. This is sufficient evidence only after the deployed code contains the checkout guard that reads it.',
-        '4. If deploying a local build output, review `pages-staging-build-manifest.json` first and require `readyForStagingDeployPackage=true`.',
+        '2. Redeploy current code/config to `espanolhonesto-staging`; root `wrangler.toml` now explicitly defaults `CHECKOUT_ENABLED = "false"` for Worker config.',
+        '3. In Cloudflare dashboard, set or verify non-secret variable `CHECKOUT_ENABLED=false` for the Worker/environment that serves staging. This is sufficient evidence only after the deployed code contains the checkout guard that reads it.',
+        '4. If deploying a local build output, review `worker-staging-build-manifest.json` first and require `readyForStagingDeployPackage=true`.',
         '5. Do not enable Stripe live or add live Price IDs while this check fails.',
         '',
         '## Post-Fix Verification',
@@ -784,7 +794,7 @@ function renderRemediationPack(report: RemediationReport): string {
         '',
         '## External Write Gate',
         '',
-        'Before making the Cloudflare change, state the exact target and action: Cloudflare Pages project `espanol-honesto-staging`, redeploy packaged current code/config to staging and/or set/update non-secret variable `CHECKOUT_ENABLED=false`. If the deployed source lacks the checkout guard, a variable-only change is not enough. Do not touch production Pages or Stripe live as part of this fix.',
+        'Before making the Cloudflare change, state the exact target and action: Cloudflare Worker `espanolhonesto-staging`, redeploy packaged current code/config to staging and/or set/update non-secret variable `CHECKOUT_ENABLED=false`. If the deployed source lacks the checkout guard, a variable-only change is not enough. Do not touch production Worker or Stripe live as part of this fix.',
         '',
     );
 

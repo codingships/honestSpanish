@@ -6,6 +6,23 @@ export interface Slot {
     slot_end: string;
 }
 
+type SlotsResponse = {
+    error?: string;
+    slots?: Slot[];
+};
+
+type SessionCreateResponse = {
+    error?: string;
+    session?: unknown;
+};
+
+type RecurringSessionsResponse = {
+    error?: string;
+    created?: number;
+    errors?: string[];
+    sessions?: unknown[];
+};
+
 interface UseAdminScheduleProps {
     isOpen: boolean;
     onSessionCreated: (session: unknown) => void;
@@ -62,46 +79,71 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
         }
     }, [isOpen]);
 
+    useEffect(() => {
+        setSelectedSlot(null);
+    }, [selectedDate, selectedTeacher, useCustomTime, duration]);
+
     // Fetch Slots
     useEffect(() => {
-        const fetchAvailableSlots = async () => {
-            if (!selectedDate || !selectedTeacher || useCustomTime) return;
+        if (!selectedDate || !selectedTeacher || useCustomTime) {
+            setAvailableSlots([]);
+            return;
+        }
 
+        const controller = new AbortController();
+
+        const fetchAvailableSlots = async () => {
             setIsLoading(true);
             setError(null);
 
             try {
-                const response = await fetch(
-                    `/api/calendar/available-slots?teacherId=${selectedTeacher}&date=${selectedDate}&duration=${duration}`
-                );
+                const params = new URLSearchParams({
+                    teacherId: selectedTeacher,
+                    date: selectedDate,
+                    duration: String(duration),
+                });
+
+                const response = await fetch(`/api/calendar/available-slots?${params.toString()}`, {
+                    signal: controller.signal,
+                });
 
                 if (!response.ok) throw new Error('Failed to fetch slots');
 
-                const data = await response.json();
+                const data = await response.json() as SlotsResponse;
+                if (controller.signal.aborted) return;
                 setAvailableSlots(data.slots || []);
-            } catch {
+            } catch (err) {
+                if (err instanceof Error && err.name === 'AbortError') return;
                 setError('Error al cargar horarios disponibles');
             } finally {
-                setIsLoading(false);
+                if (!controller.signal.aborted) {
+                    setIsLoading(false);
+                }
             }
         };
 
         fetchAvailableSlots();
+
+        return () => {
+            controller.abort();
+        };
     }, [selectedDate, selectedTeacher, useCustomTime, duration]);
 
     // Submit Logic
     const handleSubmit = async () => {
-        if (!selectedStudent || !selectedTeacher) return;
+        if (!selectedStudent || !selectedTeacher || !selectedDate) return;
 
         let scheduledAt: string;
 
         if (useCustomTime) {
+            if (!customTime) return;
             scheduledAt = `${selectedDate}T${customTime}:00`;
         } else if (selectedSlot) {
             scheduledAt = selectedSlot.slot_start;
         } else {
             return;
         }
+        const normalizedMeetLink = meetLink.trim();
 
         setIsLoading(true);
         setError(null);
@@ -125,19 +167,19 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
                         startDate: selectedDate,
                         endDate: recurringEndDate || undefined,
                         autoCreateMeeting,
-                        meetLink: meetLink || null,
+                        meetLink: normalizedMeetLink || null,
                     })
                 });
 
                 if (!response.ok) {
-                    const data = await response.json();
+                    const data = await response.json() as RecurringSessionsResponse;
                     throw new Error(data.error || 'Failed to create recurring sessions');
                 }
 
-                const data = await response.json();
-                setRecurringResult({ created: data.created, errors: data.errors });
+                const data = await response.json() as RecurringSessionsResponse;
+                setRecurringResult({ created: data.created ?? 0, errors: data.errors });
 
-                if (data.created > 0) {
+                if ((data.created ?? 0) > 0) {
                     onSessionCreated(data.sessions?.[0] || null);
                     // Don't close immediately — show result summary
                 }
@@ -151,17 +193,17 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
                         teacherId: selectedTeacher,
                         scheduledAt,
                         durationMinutes: duration,
-                        meetLink: meetLink || null,
+                        meetLink: normalizedMeetLink || null,
                         autoCreateMeeting,
                     })
                 });
 
                 if (!response.ok) {
-                    const data = await response.json();
+                    const data = await response.json() as SessionCreateResponse;
                     throw new Error(data.error || 'Failed to create session');
                 }
 
-                const data = await response.json();
+                const data = await response.json() as SessionCreateResponse;
                 onSessionCreated(data.session);
                 onClose();
             }

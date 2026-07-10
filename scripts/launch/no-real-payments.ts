@@ -69,6 +69,7 @@ function reviewStaticNoRealPaymentsMode(): CheckResult {
     const files = new Map([
         ['.env.example', readIfExists('.env.example')],
         ['src/pages/api/create-checkout.ts', readIfExists('src/pages/api/create-checkout.ts')],
+        ['src/lib/checkout-enabled.ts', readIfExists('src/lib/checkout-enabled.ts')],
         ['src/components/LandingPage.astro', readIfExists('src/components/LandingPage.astro')],
         ['src/components/landing/SegmentLandingPage.astro', readIfExists('src/components/landing/SegmentLandingPage.astro')],
         ['src/components/PricingSection.tsx', readIfExists('src/components/PricingSection.tsx')],
@@ -79,11 +80,13 @@ function reviewStaticNoRealPaymentsMode(): CheckResult {
 
     const required: Array<[string, string]> = [
         ['.env.example', 'CHECKOUT_ENABLED=false'],
-        ['src/pages/api/create-checkout.ts', "readRuntimeEnv('CHECKOUT_ENABLED'"],
+        ['src/pages/api/create-checkout.ts', 'isCheckoutEnabled(context)'],
         ['src/pages/api/create-checkout.ts', 'Checkout is disabled'],
         ['src/pages/api/create-checkout.ts', 'status: 403'],
-        ['src/components/LandingPage.astro', 'checkoutMode="application"'],
-        ['src/components/landing/SegmentLandingPage.astro', 'checkoutMode="application"'],
+        ['src/lib/checkout-enabled.ts', "readRuntimeEnv('CHECKOUT_ENABLED_OVERRIDE'"],
+        ['src/lib/checkout-enabled.ts', "readRuntimeEnv('CHECKOUT_ENABLED'"],
+        ['src/components/LandingPage.astro', 'checkoutMode={checkoutMode}'],
+        ['src/components/landing/SegmentLandingPage.astro', 'checkoutMode={checkoutMode}'],
         ['src/components/PricingSection.tsx', "checkoutMode = 'application'"],
         ['src/components/PricingSection.tsx', "checkoutMode === 'application'"],
         ['docs/launch/PRODUCTS.md', 'Mantener `CHECKOUT_ENABLED=false` para operar sin cobros reales'],
@@ -222,7 +225,7 @@ async function checkDeployedEnvironmentIfRequested(baseUrl: string | null): Prom
         name: 'deployed_environment_confirmation',
         message: 'The intended deployed environment still needs a human/non-secret confirmation that CHECKOUT_ENABLED is false or checkout is otherwise blocked.',
         details: [
-            'This local command proves code, tests and docs, not Cloudflare Pages deployed variables.',
+            'This local command proves code, tests and docs, not deployed Cloudflare Worker variables.',
             'Run with --deployed-url <base-url> to POST an empty safe probe to /api/create-checkout and require the early 403 disabled response.',
             'Do not record secret values; record only environment, timestamp and checkout posture.',
         ],

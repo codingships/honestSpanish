@@ -1,7 +1,6 @@
 import type { APIContext, APIRoute } from 'astro';
 import { z } from 'zod';
 import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
-import { sendSupportTicketUpdatedEmail } from '../../../lib/email';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import type { Json } from '../../../types/database.types';
@@ -184,6 +183,7 @@ export const POST: APIRoute = async (context) => {
         } else {
             const supportUrl = supportUrlForLocale(normalizeLocale(profile.preferred_language), context.request.url);
             try {
+                const { sendSupportTicketUpdatedEmail } = await import('../../../lib/email');
                 userEmailSent = await sendSupportTicketUpdatedEmail(profile.email, {
                     recipientName: profile.full_name ?? undefined,
                     issueTitle: ticket.issue_title,

@@ -90,6 +90,33 @@ describe('POST /api/calendar/bulk-sessions', () => {
         expect(response.status).toBe(403);
     });
 
+    it('returns 400 before bulk scheduling when manual meetLink is unsafe', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'teacher_1' } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn(() => ({
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
+        } as any));
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/bulk-sessions');
+        const response = await POST(makeContext({
+            studentId: 'student_1',
+            sessions: ['2026-10-10T10:00:00.000Z'],
+            meetLink: 'https://evil.example/class',
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toContain('HTTPS Google Meet URL');
+    });
+
     it('returns 400 when missing required payload fields', async () => {
         const mockSupabase = createMockSupabaseClient({
             auth: {
@@ -111,8 +138,69 @@ describe('POST /api/calendar/bulk-sessions', () => {
         const response = await POST(makeContext({ studentId: '123' }) as any);
         expect(response.status).toBe(400);
 
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.error).toContain('dates are required');
+    });
+
+    it('returns 400 when sessions are not strict ISO date-times with a timezone', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'teacher_1' } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn(() => ({
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
+        } as any));
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/bulk-sessions');
+        const dateOnlyResponse = await POST(makeContext({
+            studentId: 'student_1',
+            sessions: ['2026-10-10'],
+        }) as any);
+        const impossibleDateResponse = await POST(makeContext({
+            studentId: 'student_1',
+            sessions: ['2026-02-30T10:00:00.000Z'],
+        }) as any);
+
+        expect(dateOnlyResponse.status).toBe(400);
+        await expect(dateOnlyResponse.json()).resolves.toEqual({
+            error: 'sessions must contain valid ISO date strings',
+        });
+        expect(impossibleDateResponse.status).toBe(400);
+        await expect(impossibleDateResponse.json()).resolves.toEqual({
+            error: 'sessions must contain valid ISO date strings',
+        });
+    });
+
+    it('returns 400 when the bulk request exceeds the server-side session limit', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'teacher_1' } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn(() => ({
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
+        } as any));
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/bulk-sessions');
+        const response = await POST(makeContext({
+            studentId: 'student_1',
+            sessions: Array.from({ length: 51 }, (_, index) => `2026-10-${String(index + 1).padStart(2, '0')}T10:00:00.000Z`),
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toBe('Maximum 50 sessions per request');
     });
 
     it('returns 409 Conflict if ONE of the dates is busy (Atomicity Check)', async () => {
@@ -139,7 +227,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
             } else if (table === 'student_teachers') {
                 chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
-                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10 } });
+                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10, ends_at: '2099-12-31' } });
             } else if (table === 'sessions') {
                 // Mockeamos la respuesta de conflictos: Simulamos que devuelve [1] conflicto
                 chain.single.mockResolvedValue({ data: [{ id: 'existing_class' }] });
@@ -170,8 +258,59 @@ describe('POST /api/calendar/bulk-sessions', () => {
 
         // La API deberia abortar devolviendo HTTP 409 Conflict antes de insertar
         expect(response.status).toBe(409);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.error).toContain('Conflicto detectado en Campus');
+    });
+
+    it('rejects a bulk request when any session falls after the subscription end date', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'teacher_1' } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                gte: vi.fn().mockReturnThis(),
+                order: vi.fn().mockReturnThis(),
+                limit: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+                maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'student' }, error: null }),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
+            } else if (table === 'subscriptions') {
+                chain.single.mockResolvedValue({
+                    data: {
+                        id: 'sub-1',
+                        sessions_used: 0,
+                        sessions_total: 10,
+                        ends_at: '2026-10-10',
+                    },
+                    error: null,
+                });
+            }
+            return chain;
+        });
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/bulk-sessions');
+        const response = await POST(makeContext({
+            studentId: 'student-1',
+            sessions: [
+                '2026-10-10T10:00:00.000Z',
+                '2026-10-11T10:00:00.000Z',
+            ],
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toBe('Sessions cannot be scheduled after the subscription end date');
     });
 
     it('returns 400 for invalid JSON after role authorization', async () => {
@@ -200,7 +339,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
         } as any);
 
         expect(response.status).toBe(400);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.error).toBe('Invalid JSON body');
     });
 
@@ -224,7 +363,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
             studentId: 'student_1',
             sessions: ['2026-10-10T10:00:00Z'],
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toContain('teacherId');
@@ -262,7 +401,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
             teacherId: 'not_a_teacher',
             sessions: ['2026-10-10T10:00:00Z'],
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toContain('teacherId must belong to a teacher profile');
@@ -325,7 +464,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
             } else if (table === 'student_teachers') {
                 chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
-                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10 }, error: null });
+                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10, ends_at: '2099-12-31' }, error: null });
             } else if (table === 'sessions') {
                 sessionsQueryCount += 1;
                 if (sessionsQueryCount <= 2) {
@@ -347,15 +486,21 @@ describe('POST /api/calendar/bulk-sessions', () => {
                 error: null,
             }),
             from: vi.fn((table: string) => {
-                if (table !== 'subscriptions') {
-                    throw new Error(`Unexpected admin table ${table}`);
+                if (table === 'sessions') {
+                    return {
+                        insert: vi.fn().mockReturnThis(),
+                        select: vi.fn().mockResolvedValue({ data: createdSessions, error: null }),
+                    };
                 }
-                return {
-                    update: vi.fn().mockReturnThis(),
-                    eq: vi.fn().mockReturnThis(),
-                    select: vi.fn().mockReturnThis(),
-                    single: vi.fn().mockResolvedValue({ data: { id: 'sub_1' }, error: null }),
-                };
+                if (table === 'subscriptions') {
+                    return {
+                        update: vi.fn().mockReturnThis(),
+                        eq: vi.fn().mockReturnThis(),
+                        select: vi.fn().mockReturnThis(),
+                        single: vi.fn().mockResolvedValue({ data: { id: 'sub_1' }, error: null }),
+                    };
+                }
+                throw new Error(`Unexpected admin table ${table}`);
             }),
         };
 
@@ -412,7 +557,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
             } else if (table === 'student_teachers') {
                 chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
-                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10 } });
+                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10, ends_at: '2099-12-31' } });
             } else if (table === 'sessions') {
                 chain.lt.mockResolvedValue({ data: [], error: null });
             }
@@ -434,7 +579,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
             studentId: 'student_1',
             sessions: [scheduledAt],
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(409);
         expect(body.error).toContain('outside teacher availability');
@@ -472,7 +617,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
             } else if (table === 'student_teachers') {
                 chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
             } else if (table === 'subscriptions') {
-                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10 } });
+                chain.single.mockResolvedValue({ data: { id: 'sub_1', sessions_used: 0, sessions_total: 10, ends_at: '2099-12-31' } });
             } else if (table === 'sessions') {
                 chain.lt.mockResolvedValue({ data: [], error: null });
             }
@@ -497,7 +642,7 @@ describe('POST /api/calendar/bulk-sessions', () => {
                 '2026-10-10T10:30:00.000Z',
             ],
         }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(409);
         expect(body.error).toContain('overlapping class times');

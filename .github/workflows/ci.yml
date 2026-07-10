@@ -81,6 +81,7 @@ jobs:
 
       - name: Run E2E tests (public only)
         env:
+          E2E_CI_PUBLIC_PLACEHOLDER: "true"
           PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
           PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
           SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
@@ -112,6 +113,7 @@ jobs:
 
       - name: Build
         env:
+          CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
           PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
           PUBLIC_APP_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
           PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
@@ -130,27 +132,31 @@ jobs:
           CHECKOUT_ENABLED: "false"
         run: pnpm run build
 
-      - name: Select Cloudflare project
-        id: project
-        shell: bash
-        run: |
-          if [ "${GITHUB_REF_NAME}" = "main" ]; then
-            echo "name=${{ vars.CLOUDFLARE_PAGES_PROJECT_PRODUCTION }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "name=${{ vars.CLOUDFLARE_PAGES_PROJECT_STAGING }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Deploy Cloudflare Pages
+      - name: Validate Cloudflare Worker deploy package
         env:
+          CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler pages deploy dist --project-name "${{ steps.project.outputs.name }}" --branch "${{ github.ref_name }}"
+        run: pnpm exec wrangler deploy --dry-run --env "$CLOUDFLARE_ENV"
+
+      - name: Deploy Cloudflare Worker
+        env:
+          CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --keep-vars --env "$CLOUDFLARE_ENV"
 
       - name: Verify staging checkout is disabled
         if: github.ref_name == 'staging'
         env:
-          STAGING_PAGES_URL: ${{ vars.CLOUDFLARE_PAGES_STAGING_URL || 'https://bb19b410.espanol-honesto-staging.pages.dev' }}
-        run: pnpm run launch:no-real-payments -- --deployed-url "$STAGING_PAGES_URL"
+          STAGING_WORKER_URL: ${{ vars.CLOUDFLARE_STAGING_URL || vars.CLOUDFLARE_WORKERS_STAGING_URL }}
+        shell: bash
+        run: |
+          if [ -z "$STAGING_WORKER_URL" ]; then
+            echo "Missing CLOUDFLARE_STAGING_URL or CLOUDFLARE_WORKERS_STAGING_URL for staging checkout verification."
+            exit 1
+          fi
+          pnpm run launch:no-real-payments -- --deployed-url "$STAGING_WORKER_URL"
 
       - name: Deploy Cloudflare Fulfillment Worker
         env:

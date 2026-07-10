@@ -20,7 +20,7 @@ export function getGoogleConfig(): GoogleConfig {
         serviceAccountPrivateKey: (readRuntimeEnv('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY') || '').replace(/\\n/g, '\n'),
 
         // Admin email to impersonate (owner of all resources)
-        adminEmail: readRuntimeEnv('GOOGLE_ADMIN_EMAIL') || 'alejandro@espanolhonesto.com',
+        adminEmail: readRuntimeEnv('GOOGLE_ADMIN_EMAIL') || '',
 
         // Drive configuration
         driveRootFolderId: readRuntimeEnv('GOOGLE_DRIVE_ROOT_FOLDER_ID') || '',
@@ -50,6 +50,8 @@ export function validateGoogleConfig(config = getGoogleConfig()): { valid: boole
         { key: 'serviceAccountEmail', env: 'GOOGLE_SERVICE_ACCOUNT_EMAIL' },
         { key: 'serviceAccountPrivateKey', env: 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY' },
         { key: 'adminEmail', env: 'GOOGLE_ADMIN_EMAIL' },
+        { key: 'driveRootFolderId', env: 'GOOGLE_DRIVE_ROOT_FOLDER_ID' },
+        { key: 'templateDocId', env: 'GOOGLE_TEMPLATE_DOC_ID' },
     ];
 
     const missing: string[] = [];

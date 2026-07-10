@@ -102,5 +102,6 @@ test.describe('Lead Magnet Form — public', () => {
         // Success message should NOT appear
         const successMessage = page.locator('text="Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad."');
         await expect(successMessage).not.toBeVisible();
+        await expect(page.getByRole('alert')).toContainText('Debes aceptar');
     });
 });

@@ -130,11 +130,11 @@ export function useAdminCalendar(initialSessions: Session[]) {
 
     // Handlers de actualización
     const handleSessionUpdate = (updatedSession: Session) => {
-        setSessions(sessions.map(s => s.id === updatedSession.id ? updatedSession : s));
+        setSessions(currentSessions => currentSessions.map(s => s.id === updatedSession.id ? updatedSession : s));
     };
 
     const handleNewSession = (newSession: Session) => {
-        setSessions([...sessions, newSession]);
+        setSessions(currentSessions => [...currentSessions, newSession]);
     };
 
     return {

@@ -1,9 +1,17 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
     plugins: [react()],
+    resolve: {
+        // Astro provides this virtual module through its adapter. Vitest does
+        // not load the Astro adapter, so tests use a process-env backed shim.
+        alias: {
+            'astro:env/server': fileURLToPath(new URL('./tests/mocks/astro-env-server.ts', import.meta.url)),
+        },
+    },
     test: {
         globals: true,
         environment: 'jsdom',

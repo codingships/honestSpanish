@@ -18,6 +18,12 @@ function extractDocIdFromUrl(url: string): string | null {
     return match ? match[1] : null;
 }
 
+type AppendHomeworkRequest = {
+    docUrl?: unknown;
+    text?: unknown;
+    classDate?: unknown;
+};
+
 export const POST: APIRoute = async (context) => {
     try {
         const supabase = createSupabaseServerClient(context);
@@ -37,8 +43,10 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
         }
 
-        const body = await context.request.json();
-        const { docUrl, text, classDate } = body;
+        const body = await context.request.json() as AppendHomeworkRequest;
+        const docUrl = typeof body.docUrl === 'string' ? body.docUrl : '';
+        const text = typeof body.text === 'string' ? body.text : '';
+        const classDate = typeof body.classDate === 'string' ? body.classDate : null;
 
         if (!docUrl || !text) {
             return new Response(JSON.stringify({ error: 'Missing docUrl or text' }), { status: 400 });

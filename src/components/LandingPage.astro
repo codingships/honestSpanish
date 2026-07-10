@@ -1,15 +1,18 @@
 ---
+import { Image } from 'astro:assets';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import type { LandingPackage } from '../lib/landing-data';
 import PricingSection from './PricingSection';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
 import avatarAlejandro from '../assets/avatar_alejandro.png';
 import avatarAlin from '../assets/avatar_alin.png';
+import avatarIrene from '../assets/avatar_irene.jpg';
 import HeroSection from './landing/HeroSection.astro';
 import ProblemsSection from './landing/ProblemsSection.astro';
 import MethodSection from './landing/MethodSection.astro';
 import LevelsSection from './landing/LevelsSection.astro';
 import LeadCaptureForm from './LeadCaptureForm.tsx';
+import { isCheckoutEnabled } from '../lib/checkout-enabled';
 
 interface Props {
   lang: 'es' | 'en' | 'ru';
@@ -19,6 +22,7 @@ interface Props {
 
 const { lang, packages, isLoggedIn } = Astro.props;
 const t = useTranslations(lang);
+const checkoutMode = isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application';
 
 // Data structure helper for complex arrays 
 const problemsStatements = t('problems.statements') as unknown as string[];
@@ -104,19 +108,19 @@ const pricingTranslations = {
 
 const ireneMemberByLang = {
     es: {
-        name: 'Irene',
+        name: 'IRENE',
         role: 'Profesora',
         languages: ['ES', 'EN', 'CS', 'FR', 'LSE'],
         bio: 'Profesora de español con perfil internacional y comunicación accesible en español, inglés, checo, francés y lengua de signos española.',
     },
     en: {
-        name: 'Irene',
+        name: 'IRENE',
         role: 'Teacher',
         languages: ['ES', 'EN', 'CS', 'FR', 'LSE'],
         bio: 'Spanish teacher with an international profile and accessible communication in Spanish, English, Czech, French and Spanish Sign Language.',
     },
     ru: {
-        name: 'Irene',
+        name: 'IRENE',
         role: 'Преподаватель',
         languages: ['ES', 'EN', 'CS', 'FR', 'LSE'],
         bio: 'Преподаватель испанского с международным профилем: испанский, английский, чешский, французский и испанский жестовый язык.',
@@ -124,7 +128,7 @@ const ireneMemberByLang = {
 }[lang];
 
 const teamMembersWithIrene = [...teamMembers, ireneMemberByLang];
-const teamImages = [avatarAlejandro, avatarAlin, null];
+const teamImages = [avatarAlejandro, avatarAlin, avatarIrene];
 
 const courseDetails = {
     es: {
@@ -319,7 +323,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 <div class={`min-h-screen ${s.bg} ${s.text} transition-colors duration-300 font-sans selection:bg-black selection:text-white`}>
     
     {/* Navbar */}
-    <nav class={`h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 ${s.bg}`}>
+    <nav class={`h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky top-0 z-[70] ${s.bg}`}>
         <div class="font-display text-lg md:text-xl tracking-tighter mr-2 w-full md:w-auto whitespace-nowrap overflow-visible leading-tight py-1">{t('nav.brand')}</div>
 
         {/* Desktop Navigation Links (Hidden on Mobile) */}
@@ -352,7 +356,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
         </div>
 
         {/* Hamburger Icon (Mobile Only) */}
-        <button id="mobile-menu-btn" aria-label="Menu" class="md:hidden flex flex-col justify-center items-center w-10 h-10 border-2 border-[#006064] bg-[#E0F7FA] active:bg-[#006064] active:text-[#E0F7FA] transition-colors focus:outline-none z-50 relative group">
+        <button id="mobile-menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mobile-overlay" class="md:hidden flex flex-col justify-center items-center w-10 h-10 border-2 border-[#006064] bg-[#E0F7FA] active:bg-[#006064] active:text-[#E0F7FA] transition-colors focus:outline-none z-[80] relative group">
             <span class="block w-5 h-0.5 bg-current mb-1 transition-transform origin-center group-[.is-open]:rotate-45 group-[.is-open]:translate-y-[6px]"></span>
             <span class="block w-5 h-0.5 bg-current mb-1 transition-opacity group-[.is-open]:opacity-0"></span>
             <span class="block w-5 h-0.5 bg-current transition-transform origin-center group-[.is-open]:-rotate-45 group-[.is-open]:-translate-y-[6px]"></span>
@@ -360,7 +364,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     </nav>
 
     {/* Mobile Overlay Menu */}
-    <div id="mobile-overlay" class="fixed inset-0 bg-[#006064] z-40 transform translate-x-full transition-transform duration-300 ease-in-out md:hidden flex flex-col">
+    <div id="mobile-overlay" class="fixed inset-0 bg-[#006064] z-[60] transform translate-x-full transition-transform duration-300 ease-in-out md:hidden flex flex-col" aria-hidden="true" hidden inert>
         {/* Menu Content */}
         <div class="flex flex-col flex-1 p-8 mt-16 overflow-y-auto">
             <div class="flex flex-col gap-6 text-2xl font-display text-white mb-12">
@@ -528,7 +532,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
         packages={packages}
         lang={lang}
         isLoggedIn={isLoggedIn}
-        checkoutMode="application"
+        checkoutMode={checkoutMode}
         translations={pricingTranslations}
     />
 
@@ -555,9 +559,11 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                     <div class="flex flex-col">
                         <div class="aspect-square bg-gray-200 rounded-lg mb-4 w-full overflow-hidden border-2 border-[#006064]">
                             {memberImage ? (
-                                <img
-                                    src={memberImage.src}
+                                <Image
+                                    src={memberImage}
                                     alt={member.name}
+                                    widths={[320, 480, 640]}
+                                    sizes="(min-width: 768px) 33vw, 100vw"
                                     class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
                                     loading="lazy"
                                     decoding="async"
@@ -601,18 +607,25 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 {faqItems.map((item, index) => (
                     <div class="border-b border-[#006064]/20">
                         <button
+                            id={`faq-button-${index}`}
+                            type="button"
                             data-faq-button={index}
                             class="w-full flex justify-between items-center py-6 text-left focus:outline-none group"
                             aria-expanded="false"
+                            aria-controls={`faq-content-${index}`}
                         >
                             <span class="font-sans font-semibold text-lg text-[#006064] pr-8">{item.question}</span>
-                            <span class="faq-icon text-[#006064] text-2xl font-bold transition-transform duration-300">
+                            <span class="faq-icon text-[#006064] text-2xl font-bold transition-transform duration-300" aria-hidden="true">
                                 +
                             </span>
                         </button>
                         <div
                             id={`faq-content-${index}`}
                             class="faq-content overflow-hidden transition-all duration-300 max-h-0 opacity-0"
+                            role="region"
+                            aria-labelledby={`faq-button-${index}`}
+                            aria-hidden="true"
+                            hidden
                         >
                             <p class="font-sans text-base text-[#006064] leading-relaxed pb-6">
                                 {item.answer}
@@ -643,7 +656,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             </div>
             <div>
                 <LeadCaptureForm
-                client:visible
+                client:load
                 lang={lang}
                 translations={leadCaptureTranslations}
             />
@@ -674,47 +687,49 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 </div>
 
 <script>
-    document.querySelectorAll('[data-faq-button]').forEach(button => {
-        button.addEventListener('click', () => {
-            const index = button.getAttribute('data-faq-button');
-            const content = document.getElementById(`faq-content-${index}`);
-            const icon = button.querySelector('.faq-icon');
-            
-            const isExpanded = button.getAttribute('aria-expanded') === 'true';
-            
-            // Toggle current
-            if (isExpanded) {
-                button.setAttribute('aria-expanded', 'false');
-                content.style.maxHeight = '0';
-                content.style.opacity = '0';
-                icon.style.transform = 'rotate(0deg)';
-                icon.innerText = '+';
-            } else {
-                // Close others if desired (optional, replicating accordion behavior usually implies one open or multiple)
-                // Current React implementation allowed closing, didn't strictly force one open but usually typically does. 
-                // Let's implement standard toggle behavior matching the React code: setOpenFaq(openFaq === index ? null : index);
-                // This means only one can be open at a time.
-                
-                document.querySelectorAll('[data-faq-button]').forEach(otherBtn => {
-                    if (otherBtn !== button) {
-                        const otherIndex = otherBtn.getAttribute('data-faq-button');
-                        const otherContent = document.getElementById(`faq-content-${otherIndex}`);
-                        const otherIcon = otherBtn.querySelector('.faq-icon');
-                        
-                        otherBtn.setAttribute('aria-expanded', 'false');
-                        otherContent.style.maxHeight = '0';
-                        otherContent.style.opacity = '0';
-                        otherIcon.style.transform = 'rotate(0deg)';
-                        otherIcon.innerText = '+';
-                    }
-                });
+    const faqCloseDelayMs = 300;
+    const faqButtons = document.querySelectorAll('[data-faq-button]');
 
-                button.setAttribute('aria-expanded', 'true');
-                content.style.maxHeight = '24rem'; // Arbitrary large height or scrollHeight
+    const setFaqOpen = (button, isOpen) => {
+        const index = button.getAttribute('data-faq-button');
+        const content = document.getElementById(`faq-content-${index}`);
+        const icon = button.querySelector('.faq-icon');
+
+        if (!content) return;
+
+        button.setAttribute('aria-expanded', String(isOpen));
+        content.setAttribute('aria-hidden', String(!isOpen));
+
+        if (isOpen) {
+            content.hidden = false;
+            requestAnimationFrame(() => {
+                content.style.maxHeight = `${content.scrollHeight}px`;
                 content.style.opacity = '1';
-                icon.style.transform = 'rotate(45deg)';
-                // icon.innerText is '+' rotated 45deg looks like X, no need to change text technically if using rotation
+            });
+            if (icon) icon.style.transform = 'rotate(45deg)';
+            return;
+        }
+
+        content.style.maxHeight = '0';
+        content.style.opacity = '0';
+        if (icon) icon.style.transform = 'rotate(0deg)';
+
+        window.setTimeout(() => {
+            if (button.getAttribute('aria-expanded') !== 'true') {
+                content.hidden = true;
             }
+        }, faqCloseDelayMs);
+    };
+
+    faqButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const isExpanded = button.getAttribute('aria-expanded') === 'true';
+
+            faqButtons.forEach(otherButton => {
+                if (otherButton !== button) setFaqOpen(otherButton, false);
+            });
+
+            setFaqOpen(button, !isExpanded);
         });
     });
 
@@ -722,30 +737,58 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     const menuBtn = document.getElementById('mobile-menu-btn');
     const overlay = document.getElementById('mobile-overlay');
     const mobileLinks = document.querySelectorAll('.mobile-link');
+    const menuCloseDelayMs = 300;
+    let menuCloseTimer = 0;
     let isMenuOpen = false;
 
-    const toggleMenu = () => {
-        isMenuOpen = !isMenuOpen;
+    const setMenuOpen = (nextOpen) => {
+        isMenuOpen = nextOpen;
+        menuBtn?.setAttribute('aria-expanded', String(isMenuOpen));
+
         if (isMenuOpen) {
-            overlay?.classList.remove('translate-x-full');
-            overlay?.classList.add('translate-x-0');
+            window.clearTimeout(menuCloseTimer);
+            if (overlay) {
+                overlay.hidden = false;
+                overlay.removeAttribute('inert');
+                overlay.setAttribute('aria-hidden', 'false');
+                requestAnimationFrame(() => {
+                    overlay.classList.remove('translate-x-full');
+                    overlay.classList.add('translate-x-0');
+                });
+            }
             menuBtn?.classList.add('is-open', 'bg-transparent', 'text-white', 'border-transparent');
             menuBtn?.classList.remove('bg-[#E0F7FA]', 'text-[#006064]', 'border-[#006064]');
             document.body.style.overflow = 'hidden';
         } else {
-            overlay?.classList.add('translate-x-full');
-            overlay?.classList.remove('translate-x-0');
+            if (overlay) {
+                overlay.classList.add('translate-x-full');
+                overlay.classList.remove('translate-x-0');
+                overlay.setAttribute('aria-hidden', 'true');
+                overlay.setAttribute('inert', '');
+                menuCloseTimer = window.setTimeout(() => {
+                    if (!isMenuOpen) overlay.hidden = true;
+                }, menuCloseDelayMs);
+            }
             menuBtn?.classList.remove('is-open', 'bg-transparent', 'text-white', 'border-transparent');
             menuBtn?.classList.add('bg-[#E0F7FA]', 'text-[#006064]', 'border-[#006064]');
             document.body.style.overflow = '';
         }
     };
 
+    const toggleMenu = () => setMenuOpen(!isMenuOpen);
+
     menuBtn?.addEventListener('click', toggleMenu);
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && isMenuOpen) {
+            setMenuOpen(false);
+            menuBtn?.focus();
+        }
+    });
 
     mobileLinks.forEach(link => {
         link.addEventListener('click', () => {
-            if (isMenuOpen) toggleMenu();
+            if (isMenuOpen) setMenuOpen(false);
         });
     });
 </script>

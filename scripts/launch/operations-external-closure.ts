@@ -289,7 +289,7 @@ function checkLatestAdminJobsRuntime(summaryPath: string | null, jsonPath: strin
             name: 'admin_jobs_staging_runtime',
             message: 'No Admin Jobs staging UI/runtime read-only evidence was found.',
             details: [
-                'Run corepack pnpm launch:admin-jobs-staging-runtime -- --base-url https://espanol-honesto-staging.pages.dev if staging admin credentials are available.',
+                'Run corepack pnpm launch:admin-jobs-staging-runtime if staging admin credentials are available; it defaults to the direct Worker staging URL unless a base URL is provided explicitly.',
                 'The script does not click process, retry or cancel buttons and stores only aggregate route/control evidence.',
             ],
         };
@@ -506,7 +506,7 @@ function renderClosurePack(report: ClosureReport): string {
         '1. Run `corepack pnpm launch:operations`.',
         '2. Run `corepack pnpm launch:staging-operations -- --include-wrangler`.',
         '3. Run `corepack pnpm launch:resend-readonly -- --env-file <staging-env-file>` or record equivalent Resend dashboard visibility.',
-        '4. Run `corepack pnpm launch:admin-jobs-staging-runtime -- --base-url https://espanol-honesto-staging.pages.dev` if staging admin credentials are available, or record why the local source/UI/API/tests are the explicitly accepted RC substitute.',
+        '4. Run `corepack pnpm launch:admin-jobs-staging-runtime` if staging admin credentials are available, or record why the local source/UI/API/tests are the explicitly accepted RC substitute. Pass `--base-url https://staging.espanolhonesto.com` only when closing custom-domain staging evidence deliberately.',
         '5. Review Cloudflare dashboard for Workers Logs/observability visibility on fulfillment Worker staging; cron config, staging deployment and secret-name evidence are already covered by the staging preflight.',
         '6. Review Resend staging delivery/suppression visibility if API read-only evidence is not OK.',
         '7. After `database_readiness` is closed, review Admin Jobs recovery in staging UI/runtime; if staging DB is still unavailable or credentials are unavailable, record why local recovery evidence is the explicitly accepted RC substitute.',

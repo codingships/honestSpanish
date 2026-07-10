@@ -132,7 +132,7 @@ describe('/api/admin/fulfillment-jobs', () => {
 
         const { POST } = await import('../../src/pages/api/admin/fulfillment-jobs');
         const response = await POST(postContextInvalidJson() as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toBe('Invalid JSON body');
@@ -150,7 +150,7 @@ describe('/api/admin/fulfillment-jobs', () => {
 
         const { POST } = await import('../../src/pages/api/admin/fulfillment-jobs');
         const response = await POST(postContext({ action: 'process_due', limit: 2 }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(200);
         expect(body.result).toEqual({ processed: 2, succeeded: 1, failed: 1 });
@@ -175,7 +175,7 @@ describe('/api/admin/fulfillment-jobs', () => {
 
         const { POST } = await import('../../src/pages/api/admin/fulfillment-jobs');
         const response = await POST(postContext({ action: 'retry', jobId }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(200);
         expect(body.job).toEqual(updated);
@@ -211,7 +211,7 @@ describe('/api/admin/fulfillment-jobs', () => {
 
         const { POST } = await import('../../src/pages/api/admin/fulfillment-jobs');
         const response = await POST(postContext({ action: 'cancel', jobId }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(200);
         expect(body.job).toEqual(updated);

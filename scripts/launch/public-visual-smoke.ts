@@ -203,12 +203,19 @@ function startDevServer(port: number, logPath: string): ChildProcessWithoutNullS
 async function waitForServer(url: string): Promise<void> {
     const timeoutAt = Date.now() + 120_000;
     let lastError = '';
+    const readinessUrl = new URL('/es', url).toString();
 
     while (Date.now() < timeoutAt) {
         try {
-            const response = await fetch(url, { redirect: 'manual' });
-            if (response.status >= 200 && response.status < 500) return;
-            lastError = `HTTP ${response.status}`;
+            const response = await fetch(readinessUrl, { redirect: 'follow' });
+            const body = await response.text();
+            if (
+                response.status >= 200
+                && response.status < 400
+                && body.includes('<body')
+                && body.includes('Español Honesto')
+            ) return;
+            lastError = `HTTP ${response.status}, body=${body.length} bytes`;
         } catch (error) {
             lastError = error instanceof Error ? error.message : String(error);
         }
@@ -223,11 +230,17 @@ async function auditVisualPage(page: Page, target: PublicTarget, viewport: Viewp
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
         const result = await auditVisualPageOnce(page, target, viewport);
-        if (!result.errors.some((error) => error.includes('Vite error overlay'))) return result;
+        const transientBlankRender = result.httpStatus >= 200
+            && result.httpStatus < 400
+            && result.details.missingExpectedTexts.length === target.expectedTexts.length
+            && result.details.ctaCount === 0;
+        const viteOverlay = result.errors.some((error) => error.includes('Vite error overlay'));
+        if (!viteOverlay && !transientBlankRender) return result;
 
         lastResult = result;
         if (attempt < 3) {
             await sleep(2_500);
+            await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 }).catch(() => undefined);
         }
     }
 
@@ -235,7 +248,7 @@ async function auditVisualPage(page: Page, target: PublicTarget, viewport: Viewp
         ...lastResult!,
         errors: [
             ...lastResult!.errors,
-            'Vite error overlay persisted after 3 public visual retries.',
+            'Transient blank render or Vite error overlay persisted after 3 public visual retries.',
         ],
     };
 }

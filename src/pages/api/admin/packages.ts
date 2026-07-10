@@ -1,9 +1,10 @@
 import type { APIContext, APIRoute } from 'astro';
 import { z } from 'zod';
-import { stripe } from '../../../lib/stripe';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import type { Database, Json } from '../../../types/database.types';
+
+type StripeClient = typeof import('../../../lib/stripe')['stripe'];
 
 export const config = {
     runtime: 'nodejs',
@@ -99,6 +100,11 @@ function centsFromEuro(value: number): number {
     return Math.round(value * 100);
 }
 
+async function getStripeClient(): Promise<StripeClient> {
+    const { stripe } = await import('../../../lib/stripe');
+    return stripe;
+}
+
 function parseDisplayName(value: Json): Record<'es' | 'en' | 'ru', string> {
     if (typeof value === 'string') {
         try {
@@ -163,6 +169,7 @@ async function logAudit(
 }
 
 async function ensureStripeProduct(pkg: Database['public']['Tables']['packages']['Row']) {
+    const stripe = await getStripeClient();
     const displayName = parseDisplayName(pkg.display_name);
 
     if (pkg.stripe_product_id) {
@@ -209,6 +216,8 @@ async function ensureStripePrice(input: {
     amount: number;
     months: 1 | 3 | 6;
 }) {
+    const stripe = await getStripeClient();
+
     if (input.existingPriceId) {
         try {
             const existingPrice = await stripe.prices.retrieve(input.existingPriceId);
@@ -336,12 +345,12 @@ export const POST: APIRoute = async (context) => {
     const rawBody = await readJsonBody(context);
     if (rawBody.error) return rawBody.error;
     const body = rawBody.data;
-    const supabaseAdmin = createSupabaseAdminClient();
 
     if (body && typeof body === 'object' && 'action' in body && body.action === 'create_package') {
         const parsed = parsePayload(createPackageSchema, body);
         if (parsed.error) return parsed.error;
         const payload = parsed.data;
+        const supabaseAdmin = createSupabaseAdminClient();
         const { data: created, error } = await supabaseAdmin
             .from('packages')
             .insert({
@@ -374,6 +383,7 @@ export const POST: APIRoute = async (context) => {
     const parsed = parsePayload(syncStripeSchema, body);
     if (parsed.error) return parsed.error;
     const payload = parsed.data;
+    const supabaseAdmin = createSupabaseAdminClient();
     const { data: pkg, error: packageError } = await supabaseAdmin
         .from('packages')
         .select('*')

@@ -39,6 +39,7 @@ Estos puntos ya deben quedar protegidos por automatizacion antes del cierre fina
 4. Ejecutar:
 
 ```bash
+pnpm launch:live-domain-readonly -- --base-url https://espanolhonesto.com --host-variant https://www.espanolhonesto.com
 pnpm launch:seo
 pnpm launch:verify
 pnpm launch:status
@@ -69,6 +70,7 @@ El check automatico `marketing plan parity` protege que el SEO/LLM final no se s
 | Check | Que comprobar | Evidencia aceptable |
 | --- | --- | --- |
 | Dominio canonico | `https://espanolhonesto.com` responde y las variantes no deseadas redirigen de forma consistente. | Nota con URLs probadas y codigos de estado. |
+| Dominio real automatizado | Ejecutar `pnpm launch:live-domain-readonly -- --base-url https://espanolhonesto.com --host-variant https://www.espanolhonesto.com` para comprobar host canonico, robots, sitemap, `llms.txt`, rutas publicas minimas, metadatos y mojibake. | `outputs/launch-live-domain-readonly-evidence/<timestamp>/summary.md`; no sustituye Search Console/CWV. |
 | Robots | `/robots.txt` permite publico y bloquea API/campus/login/demo. | URL o captura redactada. |
 | Sitemap | `/sitemap-index.xml` y `/sitemap-public.xml` existen y no contienen campus, demo, API ni rutas privadas. | URL o nota con rutas revisadas. |
 | Landings | `/es`, `/en`, `/ru` tienen title, description, canonical, hreflang, OG/Twitter y copy final. | Nota con rutas revisadas. |
@@ -181,6 +183,7 @@ Usar `pnpm launch:manual-evidence:record --write` si se quiere evitar editar JSO
 `seo_llm_final` se puede cerrar cuando:
 
 - `pnpm launch:seo` pasa despues del deploy/copy/legal finales.
+- `pnpm launch:live-domain-readonly` pasa o sus warnings quedan aceptados con evidencia concreta.
 - `pnpm launch:status` no muestra pendientes SEO/LLM salvo otros final-only no relacionados.
 - La evidencia manual cubre dominio real, Search Console o riesgo aceptado, Core Web Vitals o riesgo aceptado, tipografia rusa premium/fallback, `llms.txt`, snippets, legal index policy y exclusion privada.
 - La evidencia manual deja preparado el primer ciclo de aprendizaje de cliente por familias de busqueda y solicitudes de plaza agregadas, sin telemetria rica.

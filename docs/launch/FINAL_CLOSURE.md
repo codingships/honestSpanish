@@ -44,7 +44,7 @@ La ventana final debe tratarse como una checklist con responsables, orden y hora
 
 | Momento | Responsable | Accion | Bloquea |
 | --- | --- | --- | --- |
-| T-48h | Alin | Congelar copy publico, paquetes, `docs/launch/LAUNCH_MARKETING_PLAN.md`, modo de pagos y decision de lanzar con o sin pagos reales. | Legal, SEO/LLM, Stripe y smoke final. |
+| T-48h | Alin | Congelar copy publico, paquetes, `docs/launch/LAUNCH_MARKETING_PLAN.md` y la decision ya tomada de pagos reales desde el primer dia. | Legal, SEO/LLM, Stripe y smoke final. |
 | T-48h | Alin | Confirmar que no entran reviews, Telegram, telemetria ni prueba de nivel definitiva salvo decision nueva documentada. | Checklist y evidencia manual. |
 | T-48h | Alin | Confirmar fuente rusa premium: comprar/licenciar la familia oficial con cirilico o aceptar mantener fallback actual. | `seo_llm_final`, `final_smoke`. |
 | T-24h | Alin | Completar datos legales reales y revision humana legal. | `legal_owner_controller`, `legal_human_review`. |
@@ -59,12 +59,14 @@ La ventana final debe tratarse como una checklist con responsables, orden y hora
 
 ### 1. Congelar Decision De Pagos
 
-Elegir una de dos rutas:
+La ruta de lanzamiento esta fijada; el modo sin pagos queda como rollback:
 
 | Ruta | Condicion | Evidencia |
 | --- | --- | --- |
-| Pagos reales activos | Stripe live, Price IDs live, webhook live, portal y reconciliacion verificados. | `payments_staging` e `integration_readiness` pasan con evidencia Stripe no secreta. |
-| Lanzamiento sin pagos reales | Checkout desactivado, oculto o bloqueado por configuracion/datos; la web no promete compra real inmediata. | `payments_staging` registra decision sin pagos y prueba de bloqueo. |
+| Pagos reales activos | Stripe live, Price IDs live, webhook live, portal, aviso de renovacion, confirmacion contractual y reembolso/reconciliacion verificados. | `payments_staging` e `integration_readiness` pasan con evidencia Stripe no secreta. |
+| Rollback sin nuevos cobros | `CHECKOUT_ENABLED_OVERRIDE=false` oculta checkout y bloquea la API; webhook y fulfillment siguen procesando operaciones ya cobradas. | Probe 403, nota de incidente y plan de recuperacion. |
+
+En rollback, Checkout desactivado, oculto o bloqueado significa que no se crean nuevas sesiones, pero no se eliminan Prices ni se interrumpe la reconciliacion de pagos existentes.
 
 No mezclar Stripe test con promesa de pago real.
 
@@ -186,12 +188,13 @@ Si se compra la fuente, instalarla solo con archivos/licencia permitidos, prefer
 Ejecutar:
 
 ```bash
+pnpm launch:live-domain-readonly -- --base-url https://espanolhonesto.com --host-variant https://www.espanolhonesto.com
 pnpm launch:seo
 pnpm launch:verify
 pnpm launch:status
 ```
 
-Revisar dominio final, robots, sitemap, canonical/hreflang, snippets, JSON-LD, `llms.txt`, Search Console o riesgo aceptado, Core Web Vitals o riesgo aceptado, exclusiones de campus/API/demo/private y la fila `marketing plan parity` de la worksheet SEO/LLM.
+Revisar el summary de `launch:live-domain-readonly`, dominio final, robots, sitemap, canonical/hreflang, snippets, JSON-LD, `llms.txt`, Search Console o riesgo aceptado, Core Web Vitals o riesgo aceptado, exclusiones de campus/API/demo/private y la fila `marketing plan parity` de la worksheet SEO/LLM.
 
 Evidencia manual:
 

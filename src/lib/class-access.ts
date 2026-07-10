@@ -1,5 +1,6 @@
 import { normalizeClassDurationMinutes } from './class-duration';
 
+export const CLASS_JOIN_BEFORE_START_MINUTES = 15;
 export const CLASS_JOIN_AFTER_END_BUFFER_MINUTES = 120;
 
 export function isClassJoinWindowOpen(
@@ -13,5 +14,6 @@ export function isClassJoinWindowOpen(
     const duration = normalizeClassDurationMinutes(durationMinutes);
     const elapsedMinutes = (now.getTime() - scheduledTime) / (1000 * 60);
 
-    return elapsedMinutes <= duration + CLASS_JOIN_AFTER_END_BUFFER_MINUTES;
+    return elapsedMinutes >= -CLASS_JOIN_BEFORE_START_MINUTES
+        && elapsedMinutes <= duration + CLASS_JOIN_AFTER_END_BUFFER_MINUTES;
 }

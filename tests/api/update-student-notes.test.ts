@@ -72,7 +72,7 @@ describe('POST /api/update-student-notes', () => {
 
         const { POST } = await import('../../src/pages/api/update-student-notes');
         const response = await POST(makeInvalidJsonContext() as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toBe('Invalid JSON body');
@@ -88,7 +88,7 @@ describe('POST /api/update-student-notes', () => {
 
         const { POST } = await import('../../src/pages/api/update-student-notes');
         const response = await POST(makeContext({ studentId: 'student-1', notes: { text: 'bad' } }) as any);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
 
         expect(response.status).toBe(400);
         expect(body.error).toBe('notes must be a string');

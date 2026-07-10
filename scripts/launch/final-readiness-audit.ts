@@ -90,11 +90,12 @@ function reviewIntegrationEnvironmentCoverage(): Finding {
         ]),
         ...missingSnippets(path.join('docs', 'launch', 'ENVIRONMENT.md'), environmentDoc, [
             'Staging: test mode.',
-            'Production: live mode.',
+            'Production: live mode',
+            '`CHECKOUT_ENABLED_OVERRIDE=true` es el interruptor final',
             'Webhook secret diferente por entorno.',
             'pnpm google:setup-staging',
             'Staging y production deben tener carpetas y templates diferenciados.',
-            'debe ser igual en Cloudflare Pages y Cloudflare Fulfillment Worker',
+            'debe ser igual en Cloudflare Astro Worker y Cloudflare Fulfillment Worker',
             'DEMO_GUIDE_ENABLED=false',
         ]),
         ...missingSnippets(path.join('docs', 'launch', 'PRODUCTS.md'), productsDoc, [
@@ -108,7 +109,7 @@ function reviewIntegrationEnvironmentCoverage(): Finding {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'integration environment coverage',
         message: details.length === 0
-            ? 'Environment and product docs cover final integration variables, test/live Stripe separation, Google setup and final Stripe live evidence.'
+            ? 'Environment and product docs cover final integration variables, test/live Stripe separation, Google setup and final payment-posture evidence.'
             : 'Final integration environment documentation is incomplete.',
         details,
     };
@@ -123,6 +124,7 @@ function reviewIntegrationRuntimeHooks(): Finding {
             'checkout.session.completed',
             'invoice.paid',
             'invoice.payment_failed',
+            'charge.refunded',
             'customer.subscription.deleted',
         ]),
         ...missingSnippets(path.join('src', 'pages', 'api', 'create-checkout.ts'), readIfExists(path.join('src', 'pages', 'api', 'create-checkout.ts')), [
@@ -140,16 +142,20 @@ function reviewIntegrationRuntimeHooks(): Finding {
             'PUBLIC_TURNSTILE_SITE_KEY',
             "'cf-turnstile-response'",
         ]),
+        ...missingSnippets(path.join('src', 'pages', 'api', 'cron', 'send-reminders.ts'), readIfExists(path.join('src', 'pages', 'api', 'cron', 'send-reminders.ts')), [
+            'CRON_SECRET',
+            'Authorization',
+            'Bearer',
+            'sendDueReminders',
+        ]),
         ...missingSnippets(path.join('src', 'lib', 'internal-job-service.ts'), readIfExists(path.join('src', 'lib', 'internal-job-service.ts')), [
             'FULFILLMENT_WORKER_URL',
             'INTERNAL_JOB_SECRET',
-            'CRON_SECRET',
             'sendDueReminders',
             '/internal/reminders/send',
         ]),
         ...missingSnippets(path.join('workers', 'fulfillment', 'src', 'index.ts'), readIfExists(path.join('workers', 'fulfillment', 'src', 'index.ts')), [
             'INTERNAL_JOB_SECRET',
-            'CRON_SECRET',
             'isAuthorized',
             '/internal/reminders/send',
             'sendClassReminder',
@@ -202,6 +208,19 @@ function reviewFinalSmokeHooks(): Finding {
             'reminderMarkedSent',
             'calendarEventExistsBeforeCancel',
             'completedReportStored',
+            'writeSmokeEvidence',
+            "path.join(process.cwd(), 'outputs', 'real-env-smoke'",
+            'summary.json',
+            'summary.md',
+            'runAdminJobsRecoverySmoke',
+            '/es/campus/admin/jobs',
+            '/api/admin/fulfillment-jobs?status=failed&limit=100',
+            "body: { action: 'retry', jobId: insertedJob.id }",
+            "body: { action: 'cancel', jobId: insertedJob.id }",
+            'waitForAdminJobAudit',
+            'fulfillment_job.retry',
+            'fulfillment_job.cancel',
+            'adminJobs.ok',
         ]),
         ...missingSnippets(path.join('scripts', 'smoke-checkout.ts'), checkoutSmoke, [
             'createSmokeUser',
@@ -240,9 +259,9 @@ function reviewLaunchSequenceAndRunbook(): Finding {
     const checklist = readIfExists(path.join('docs', 'launch', 'CHECKLIST.md'));
     const details = [
         ...missingSnippets(path.join('docs', 'launch', 'LAUNCH_SEQUENCE.md'), sequence, [
-            'Stripe live si aplica',
-            'Verificar Cloudflare Worker, Supabase, Google, Resend, Turnstile, Sentry, Cloudflare Pages y cron',
-            'Ejecutar smoke final: registro, checkout si aplica, webhook, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion y retry de job.',
+            'Stripe live:',
+            'Verificar Cloudflare Astro Worker, Cloudflare Fulfillment Worker, Supabase, Google, Resend, Turnstile, Sentry y cron',
+            'Ejecutar smoke final: registro 18+, checkout con aceptaciones, webhook, confirmacion contractual, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion, reembolso/reconciliacion y retry de job.',
             '`integration_readiness`',
             '`final_smoke`',
         ]),
@@ -260,7 +279,8 @@ function reviewLaunchSequenceAndRunbook(): Finding {
             'Final smoke',
             'integration_readiness',
             'final_smoke',
-            'Stripe live produccion',
+            'Stripe live production en la ventana final',
+            'pagos reales desde el primer dia',
             'Cloudflare Fulfillment Worker con `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`',
         ]),
     ];
@@ -283,13 +303,13 @@ function reviewManualEvidenceRunbookCoverage(): Finding {
         ...missingSnippets(path.join('docs', 'launch', 'MANUAL_EVIDENCE.md'), manualEvidence, [
             '`integration_readiness`',
             '`final_smoke`',
-            'Stripe live, Google, Resend, dominios Turnstile y fulfillment/reminder worker revisados/configurados.',
+            'Stripe test ensayado y Stripe live preparado para pagos reales desde el primer dia',
             'Registro, checkout, webhook, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion y retry end-to-end.',
         ]),
         ...missingSnippets(path.join('docs', 'launch', 'MANUAL_EVIDENCE_RUNBOOK.md'), manualRunbook, [
             '## integration_readiness',
             '## final_smoke',
-            'Revisar Stripe live y webhooks',
+            'Revisar la ruta ya decidida',
             'Revisar Google Drive root folder, template doc y admin account.',
             'Revisar Resend sender/domain.',
             'Revisar Turnstile domains.',
@@ -300,7 +320,7 @@ function reviewManualEvidenceRunbookCoverage(): Finding {
         ]),
         ...missingSnippets(path.join('scripts', 'launch', 'manual-evidence-audit.ts'), manualAudit, [
             'integration_readiness',
-            'Stripe live, Google, Resend, Turnstile domains and fulfillment/reminder worker configuration are verified.',
+            'Stripe test rehearsal and Stripe live readiness for real payments from day one',
             'final_smoke',
             'Registration, checkout, webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation and retry are verified end-to-end.',
         ]),
@@ -367,11 +387,12 @@ function renderIntegrationReadinessWorksheet(report: FinalReadinessReport): stri
     lines.push('');
     lines.push('| Check | How To Verify | Evidence To Record |');
     lines.push('| --- | --- | --- |');
-    lines.push('| Stripe live | If accepting real payments, confirm live mode, live Price IDs, webhook endpoint, webhook secret, Customer Portal, fraud/risk settings and tax/VAT decision. If not accepting payments, confirm checkout remains blocked/disabled by config or package data. | `dashboard` or `manual_note`; no keys, payloads or full customer/payment data. |');
+    lines.push('| Payment posture | Confirm the selected posture: no-checkout blocked/disabled by config or package data, Stripe test mode for final rehearsal, or Stripe live mode with live Price IDs, webhook endpoint, webhook secret, Customer Portal, fraud/risk settings and tax/VAT decision before accepting real payments. | `dashboard` or `manual_note`; no keys, payloads or full customer/payment data. |');
+    lines.push('| Cloudflare production domain/runtime | Review `outputs/019f1a5e-2745-7c43-870d-544e6ba4e0b1/strict-qa-v2/cloudflare-domain-worker-preflight.md`; run `pnpm launch:cloudflare-production-runtime-readonly`; confirm Pages project `espanolhonesto` no longer serves the final custom domains unless that is the deliberate final runtime, production Worker `espanolhonesto` exists if using Workers, required Worker secret names are present, the direct Worker URL passes non-destructive probes, and `espanolhonesto.com` / `www.espanolhonesto.com` are moved only after separate explicit approval. | `command_output`, `dashboard`, `manual_note` or redacted `screenshot`; no secret values. |');
     lines.push('| Google Drive | Confirm production root folder, template doc, service account, delegated admin and permissions are correct. | `dashboard` or `manual_note` with IDs shortened/redacted. |');
     lines.push('| Google Calendar/Meet | Confirm calendar access, Meet creation, teacher/admin impersonation and cancellation permissions. | `dashboard` or `manual_note`. |');
     lines.push('| Resend | Confirm sender/domain, DNS records, delivery visibility, bounce/suppression handling and support reply route. | `dashboard`, redacted `screenshot` or `manual_note`. |');
-    lines.push('| Turnstile | Confirm production and staging domains, site key/secret per environment and lead form enforcement. | `dashboard` or `manual_note`; no secret values. |');
+    lines.push('| Turnstile | Confirm production and staging domains, site key/secret per environment and lead form enforcement. Use `pnpm launch:turnstile-readonly -- --env-file <env-file>` only as runtime support; widget/domain closure still needs Cloudflare dashboard/API evidence. | `dashboard`, redacted `screenshot`, `manual_note` or `command_output`; no secret values. |');
     lines.push('| fulfillment/reminder worker | Confirm `/api/cron/send-reminders`, Cloudflare Worker `/internal/reminders/send`, `CRON_SECRET`, `INTERNAL_JOB_SECRET`, `FULFILLMENT_WORKER_URL` and `PUBLIC_SITE_URL` align by environment. | `dashboard`, `path` or `manual_note`. |');
     lines.push('| Cloudflare legacy Workers | Confirm no legacy Worker with cron can interfere with `workers/fulfillment`. Preflight found `espanol-honesto-reminders`; decide to disable/delete it in a controlled window or document why it is non-interfering. | `dashboard` or `manual_note` with resource name, decision and rollback path. |');
     lines.push('| Stripe evidence source | If the Codex Stripe connector cannot list products/prices, use Stripe dashboard, checkout test/live evidence, webhook delivery and Supabase reconciliation instead of MCP output. | `dashboard`, `url` to Stripe event, or `manual_note`; no keys or payloads. |');
@@ -379,7 +400,7 @@ function renderIntegrationReadinessWorksheet(report: FinalReadinessReport): stri
     lines.push('');
     lines.push('## Completion');
     lines.push('');
-    lines.push('Mark `integration_readiness` as `pass` only when real dashboards and environment configuration have been checked directly. `pnpm launch:final-readiness` proves the project has a review path; it does not prove external services are ready.');
+    lines.push('Mark `integration_readiness` as `pass` only when real dashboards and environment configuration have been checked directly. For Cloudflare, that means the final custom-domain owner, production Worker existence, Worker secret-name posture and direct Worker/domain probes are all verified or explicitly risk-accepted. `pnpm launch:final-readiness` proves the project has a review path; it does not prove external services are ready.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;
@@ -401,7 +422,8 @@ function renderFinalSmokeWorksheet(report: FinalReadinessReport): string {
         '',
         '- `pnpm launch:gate`: required before READY.',
         '- `pnpm launch:status`: consolidated blocker dashboard.',
-        '- `pnpm exec tsx scripts/smoke/real-env-smoke.ts`: optional destructive/side-effect smoke for a configured real environment; use only with explicit staging/production intent.',
+        '- `pnpm launch:final-smoke-execution-pack`: local-only approval, preflight, rollback and evidence package for the write-capable smoke; this does not run final smoke.',
+        '- `pnpm exec tsx scripts/smoke/real-env-smoke.ts`: optional destructive/side-effect smoke for a configured real environment; use only with explicit staging/production intent. When it runs, it writes redacted `outputs/real-env-smoke/<timestamp>/summary.json` and `summary.md` evidence.',
         '- `pnpm exec tsx scripts/smoke-checkout.ts`: narrower checkout smoke, also environment-dependent.',
         '',
         '## Manual Checks',
@@ -424,7 +446,7 @@ function renderFinalSmokeWorksheet(report: FinalReadinessReport): string {
     lines.push('');
     lines.push('## Completion');
     lines.push('');
-    lines.push('Mark `final_smoke` as `pass` only when registration, checkout policy, webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation and retry are verified in the intended launch environment. Keep it `pending` until launch day if production smoke has not run.');
+    lines.push('Mark `final_smoke` as `pass` only when registration, checkout policy, webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation and retry are verified in the intended launch environment and the redacted smoke output path is attached as evidence. Keep it `pending` until launch day if production smoke has not run.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;

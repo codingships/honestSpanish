@@ -7,16 +7,43 @@ const preferredPackageMigration = readFileSync('supabase/migrations/019_capture_
 const crmMigration = readFileSync('supabase/migrations/20260624163423_add_crm_core.sql', 'utf8').replace(/\r\n/g, '\n');
 const leadLanguagesMigration = readFileSync('supabase/migrations/20260625213116_capture_lead_languages.sql', 'utf8').replace(/\r\n/g, '\n');
 const levelCheckMigration = readFileSync('supabase/migrations/20260625215008_add_lightweight_level_check_to_leads.sql', 'utf8').replace(/\r\n/g, '\n');
+const sessionWriteHardeningMigration = readFileSync('supabase/migrations/021_harden_session_write_policies.sql', 'utf8').replace(/\r\n/g, '\n');
+const webhookProcessingMigration = readFileSync('supabase/migrations/022_track_stripe_webhook_processing_state.sql', 'utf8').replace(/\r\n/g, '\n');
+const webhookProcessedAtDefaultMigration = readFileSync('supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql', 'utf8').replace(/\r\n/g, '\n');
+const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
+const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
+const rlsSecurityPatch = readFileSync('db/rls_security_patch.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
 
 describe('database schema security invariants', () => {
     it('protects profile role and email from direct authenticated profile updates', () => {
-        expect(schema).toContain('CREATE OR REPLACE FUNCTION protect_profile_role()');
+        expect(schema).toContain('CREATE OR REPLACE FUNCTION private.protect_profile_role()');
         expect(schema).toContain('CREATE TRIGGER protect_profile_role_trigger');
         expect(schema).toContain('NEW.role IS DISTINCT FROM OLD.role');
         expect(schema).toContain('NEW.email IS DISTINCT FROM OLD.email');
         expect(schema).toContain('Cannot modify role');
         expect(schema).toContain('Cannot modify profile email');
+        expect(schema).toContain('FOR EACH ROW EXECUTE FUNCTION private.protect_profile_role()');
+        expect(schema).toContain('REVOKE ALL ON FUNCTION private.protect_profile_role() FROM public');
+        expect(schema).not.toContain('CREATE OR REPLACE FUNCTION public.protect_profile_role()');
+
+        for (const snippet of [
+            'CREATE SCHEMA IF NOT EXISTS private',
+            'DROP TRIGGER IF EXISTS protect_profile_role_trigger ON public.profiles',
+            'DROP FUNCTION IF EXISTS public.protect_profile_role()',
+            'CREATE OR REPLACE FUNCTION private.protect_profile_role()',
+            "IF (select private.is_admin()) THEN",
+            'NEW.role IS DISTINCT FROM OLD.role',
+            'NEW.email IS DISTINCT FROM OLD.email',
+            "RAISE EXCEPTION 'Cannot modify profile email'",
+            'REVOKE ALL ON FUNCTION private.protect_profile_role() FROM public',
+            'REVOKE ALL ON FUNCTION private.protect_profile_role() FROM anon',
+            'REVOKE ALL ON FUNCTION private.protect_profile_role() FROM authenticated',
+            'CREATE TRIGGER protect_profile_role_trigger',
+            'FOR EACH ROW EXECUTE FUNCTION private.protect_profile_role()',
+        ]) {
+            expect(profileRoleTriggerMigration).toContain(snippet);
+        }
     });
 
     it('keeps get_available_slots in the canonical schema and callable only by service_role', () => {
@@ -28,14 +55,91 @@ describe('database schema security invariants', () => {
         expect(schema).toContain('GRANT EXECUTE ON FUNCTION get_available_slots(UUID, DATE, INTEGER) TO service_role');
     });
 
-    it('does not grant teachers a FOR ALL sessions policy that includes delete', () => {
+    it('keeps student and teacher sessions writes behind server-side workflows', () => {
         expect(schema).not.toContain('ON sessions FOR ALL \n    USING (teacher_id = auth.uid())');
+        expect(schema).not.toContain('CREATE POLICY "Students can cancel own sessions"');
+        expect(schema).not.toContain('CREATE POLICY "Teachers can create assigned sessions"');
+        expect(schema).not.toContain('CREATE POLICY "Teachers can update assigned sessions"');
         expect(schema).toContain('CREATE POLICY "Teachers can view assigned sessions"');
+        expect(schema).toContain('CREATE POLICY "Students can view own sessions"');
         expect(schema).toContain('ON sessions FOR SELECT');
-        expect(schema).toContain('CREATE POLICY "Teachers can create assigned sessions"');
-        expect(schema).toContain('ON sessions FOR INSERT');
-        expect(schema).toContain('CREATE POLICY "Teachers can update assigned sessions"');
-        expect(schema).toContain('ON sessions FOR UPDATE');
+
+        for (const snippet of [
+            'DROP POLICY IF EXISTS "Students can cancel own sessions" ON sessions',
+            'DROP POLICY IF EXISTS "Teachers can create assigned sessions" ON sessions',
+            'DROP POLICY IF EXISTS "Teachers can update assigned sessions" ON sessions',
+            'DROP POLICY IF EXISTS "Teachers can view and update assigned sessions" ON sessions',
+            'CREATE POLICY "Teachers can view assigned sessions"',
+            'ON sessions FOR SELECT',
+        ]) {
+            expect(sessionWriteHardeningMigration).toContain(snippet);
+        }
+
+        expect(rlsSecurityPatch).not.toContain('ON public.sessions FOR ALL');
+        expect(rlsSecurityPatch).not.toContain('ON sessions FOR ALL');
+        expect(rlsSecurityPatch).not.toContain('WITH CHECK');
+        expect(rlsSecurityPatch).not.toMatch(/CREATE POLICY "Teachers can view and update assigned sessions"/);
+
+        for (const snippet of [
+            'DROP POLICY IF EXISTS "Students can cancel own sessions" ON public.sessions',
+            'DROP POLICY IF EXISTS "Teachers can create assigned sessions" ON public.sessions',
+            'DROP POLICY IF EXISTS "Teachers can update assigned sessions" ON public.sessions',
+            'DROP POLICY IF EXISTS "Teachers can view and update assigned sessions" ON public.sessions',
+            'CREATE POLICY "Teachers can view assigned sessions"',
+            'ON public.sessions FOR SELECT',
+        ]) {
+            expect(rlsSecurityPatch).toContain(snippet);
+        }
+    });
+
+    it('tracks Stripe webhook processing state across known live schema drift', () => {
+        expect(schema).toContain('processed_at TIMESTAMPTZ,');
+        expect(schema).not.toContain('processed_at TIMESTAMPTZ DEFAULT');
+
+        for (const snippet of [
+            'processing_status TEXT NOT NULL DEFAULT',
+            'processing_error TEXT',
+            'processed_at TIMESTAMPTZ',
+        ]) {
+            expect(schema).toContain(snippet);
+        }
+
+        for (const snippet of [
+            'ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW()',
+            'ADD COLUMN IF NOT EXISTS processing_status TEXT',
+            'ADD COLUMN IF NOT EXISTS processing_error TEXT',
+            'ADD COLUMN IF NOT EXISTS processed_at TIMESTAMPTZ',
+            "processing_status = COALESCE(processing_status, 'succeeded')",
+            'created_at = COALESCE(created_at, processed_at, NOW())',
+            'processed_at = COALESCE(processed_at, created_at, NOW())',
+            "CHECK (processing_status IN ('processing', 'succeeded', 'failed'))",
+        ]) {
+            expect(webhookProcessingMigration).toContain(snippet);
+        }
+
+        for (const snippet of [
+            'processed_at: string | null',
+            'processing_error: string | null',
+            'processing_status: string',
+        ]) {
+            expect(databaseTypes).toContain(snippet);
+        }
+
+        expect(webhookProcessedAtDefaultMigration).toContain('ALTER TABLE public.processed_webhook_events');
+        expect(webhookProcessedAtDefaultMigration).toContain('ALTER COLUMN processed_at DROP DEFAULT');
+    });
+
+    it('keeps Stripe webhook processing claims unprocessed until success', () => {
+        for (const snippet of [
+            "processing_status: 'processing'",
+            'processing_error: null',
+            'processed_at: null',
+            'markWebhookEventSucceeded',
+            'processed_at: new Date().toISOString()',
+            'markWebhookEventFailed',
+        ]) {
+            expect(stripeWebhookRoute).toContain(snippet);
+        }
     });
 
     it('enforces student and teacher profile roles at the database boundary', () => {

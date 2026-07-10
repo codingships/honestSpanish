@@ -30,7 +30,7 @@ vi.mock('../../src/lib/site-url', () => ({
 }));
 
 const runtimeEnvMock = vi.hoisted(() => ({
-    readRuntimeEnv: vi.fn((key: string) => key === 'CHECKOUT_ENABLED' ? 'true' : undefined),
+    readRuntimeEnv: vi.fn((key: string): string | undefined => key === 'CHECKOUT_ENABLED' ? 'true' : undefined),
 }));
 
 vi.mock('../../src/lib/runtime-env', () => runtimeEnvMock);
@@ -47,6 +47,12 @@ const makeContext = (body: Record<string, unknown> = {}) => ({
     },
     cookies: { set: vi.fn(), get: vi.fn() },
 });
+
+const acceptedPolicies = {
+    adultConfirmed: true,
+    termsAccepted: true,
+    serviceStartRequested: true,
+};
 
 const makeThenableQuery = <T,>(result: T) => ({
     select: vi.fn().mockReturnThis(),
@@ -126,12 +132,28 @@ describe('POST /api/create-checkout', () => {
         expect(stripeMock.customers.create).not.toHaveBeenCalled();
     });
 
+    it('lets the final-window override disable checkout even when the configured default is true', async () => {
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
+            if (key === 'CHECKOUT_ENABLED_OVERRIDE') return 'false';
+            if (key === 'CHECKOUT_ENABLED') return 'true';
+            return undefined;
+        });
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+
+        const { POST } = await import('../../src/pages/api/create-checkout');
+        const response = await POST(makeContext({ ...acceptedPolicies, priceId: 'price_valid_1m' }) as any);
+
+        expect(response.status).toBe(403);
+        expect(createSupabaseServerClient).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
     it('rejects missing priceId before touching Stripe', async () => {
         const { supabase } = makeSupabase();
         await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/create-checkout');
-        const response = await POST(makeContext({}) as any);
+        const response = await POST(makeContext(acceptedPolicies) as any);
 
         expect(response.status).toBe(400);
         expect(stripeMock.prices.retrieve).not.toHaveBeenCalled();
@@ -142,7 +164,7 @@ describe('POST /api/create-checkout', () => {
         await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/create-checkout');
-        const response = await POST(makeContext({ priceId: 'price_valid_1m,packages.eq.true' }) as any);
+        const response = await POST(makeContext({ ...acceptedPolicies, priceId: 'price_valid_1m,packages.eq.true' }) as any);
 
         expect(response.status).toBe(400);
         expect(supabase.from).not.toHaveBeenCalled();
@@ -154,7 +176,7 @@ describe('POST /api/create-checkout', () => {
         await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/create-checkout');
-        const response = await POST(makeContext({ priceId: 'price_unknown' }) as any);
+        const response = await POST(makeContext({ ...acceptedPolicies, priceId: 'price_unknown' }) as any);
 
         expect(response.status).toBe(400);
         expect(packageQuery).not.toHaveProperty('or');
@@ -166,7 +188,7 @@ describe('POST /api/create-checkout', () => {
         await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/create-checkout');
-        const response = await POST(makeContext({ priceId: 'price_valid_3m', lang: '../admin' }) as any);
+        const response = await POST(makeContext({ ...acceptedPolicies, priceId: 'price_valid_3m', lang: '../admin' }) as any);
 
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({ url: 'https://checkout.stripe.test/session' });
@@ -174,13 +196,36 @@ describe('POST /api/create-checkout', () => {
         expect(stripeMock.prices.retrieve).toHaveBeenCalledWith('price_valid_3m');
         expect(stripeMock.checkout.sessions.create).toHaveBeenCalledWith(expect.objectContaining({
             mode: 'subscription',
+            payment_method_types: ['card'],
+            allow_promotion_codes: false,
             customer: 'cus_existing_123',
             success_url: 'https://example.test/es/campus?payment=success',
             cancel_url: 'https://example.test/es/#pricing',
             metadata: expect.objectContaining({
                 priceId: 'price_valid_3m',
                 lang: 'es',
+                adultConfirmed: 'true',
+                termsAccepted: 'true',
+                serviceStartRequested: 'true',
+                legalPolicyVersion: '2026-07-10',
             }),
         }));
+    });
+
+    it('rejects checkout unless all adult and legal confirmations are explicit booleans', async () => {
+        const { supabase } = makeSupabase();
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/create-checkout');
+        const response = await POST(makeContext({
+            priceId: 'price_valid_1m',
+            adultConfirmed: true,
+            termsAccepted: true,
+            serviceStartRequested: 'true',
+        }) as any);
+
+        expect(response.status).toBe(400);
+        expect(supabase.from).not.toHaveBeenCalled();
+        expect(stripeMock.prices.retrieve).not.toHaveBeenCalled();
     });
 });

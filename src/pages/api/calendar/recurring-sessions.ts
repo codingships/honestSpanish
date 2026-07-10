@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
 import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
 import { checkTeacherAvailabilitySlots } from '../../../lib/calendar/availability';
+import { normalizeManualMeetingLink } from '../../../lib/calendar/meeting-link';
 import {
     addDaysToDateKey,
     compareDateKeys,
@@ -81,9 +82,13 @@ export const POST: APIRoute = async (context) => {
         autoCreateMeeting = true,
     } = body;
     const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
-    const safeMeetLink = typeof meetLink === 'string' && meetLink.trim() ? meetLink.trim() : null;
+    const safeMeetLink = normalizeManualMeetingLink(meetLink);
     const shouldAutoCreateMeeting = typeof autoCreateMeeting === 'boolean' ? autoCreateMeeting : true;
     const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
+
+    if (!safeMeetLink.ok) {
+        return new Response(JSON.stringify({ error: safeMeetLink.error }), { status: 400 });
+    }
 
     // Validate required fields
     if (typeof studentId !== 'string' || !studentId.trim() || dayOfWeek === undefined || !time || !startDate) {
@@ -171,12 +176,23 @@ export const POST: APIRoute = async (context) => {
     }
 
     const startDateKey = normalizeDateInputToDateKey(startDate);
+    const subscriptionEndDateKey = normalizeDateInputToDateKey(subscription.ends_at);
     const endDateKey = typeof endDate === 'string' && endDate.trim()
         ? normalizeDateInputToDateKey(endDate)
-        : normalizeDateInputToDateKey(subscription.ends_at);
+        : subscriptionEndDateKey;
+
+    if (!subscriptionEndDateKey) {
+        return new Response(JSON.stringify({ error: 'Subscription end date is invalid' }), { status: 500 });
+    }
 
     if (!startDateKey || !endDateKey) {
         return new Response(JSON.stringify({ error: 'startDate and endDate must be valid dates' }), { status: 400 });
+    }
+
+    if (compareDateKeys(endDateKey, subscriptionEndDateKey) > 0) {
+        return new Response(JSON.stringify({
+            error: 'Recurring sessions cannot be scheduled after the subscription end date',
+        }), { status: 400 });
     }
 
     // Generate all ISO date strings for the given Madrid calendar day/time.
@@ -285,11 +301,11 @@ export const POST: APIRoute = async (context) => {
         teacher_id: finalTeacherId,
         scheduled_at: dateStr,
         duration_minutes: durationMinutes,
-        meet_link: safeMeetLink,
+        meet_link: safeMeetLink.value,
         status: 'scheduled' as const,
     }));
 
-    const { data: createdSessions, error: insertError } = await supabase
+    const { data: createdSessions, error: insertError } = await supabaseAdmin
         .from('sessions')
         .insert(sessionsToInsert)
         .select(`
@@ -320,7 +336,7 @@ export const POST: APIRoute = async (context) => {
         }
         // Concurrency abort — cancel all created sessions
         const createdIds = createdSessions.map(s => s.id);
-        await supabase.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
+        await supabaseAdmin.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
         return new Response(JSON.stringify({ error: 'Concurrency error: quota changed' }), { status: 409 });
     }
 

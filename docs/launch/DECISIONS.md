@@ -4,21 +4,24 @@ Estado: activo. Este documento sustituye a auditorias antiguas.
 
 ## Arquitectura
 
-Decision: Cloudflare Pages para web/API y Cloudflare Fulfillment Worker para jobs Google/Resend.
+Decision: Cloudflare Astro Worker para web/API y un Cloudflare Fulfillment Worker separado para jobs Google/Resend. El proyecto Pages `espanolhonesto` es legado y conserva temporalmente los dominios finales hasta que el Worker production se pruebe por URL directa y se apruebe el cutover.
 
 Pros:
-- Mantiene Cloudflare para la web rapida.
+- Mantiene Cloudflare para la web SSR y la API transaccional.
 - Evita anadir un proveedor extra.
 - Mantiene jobs, health checks y logs dentro de Cloudflare.
-- Conserva el limite entre API transaccional de Pages y Google/Resend.
+- Conserva el limite entre el Astro Worker transaccional y Google/Resend.
 
 Contras:
 - Requiere `nodejs_compat` y validar las librerias Google/Resend en Workers.
-- Requiere secreto interno y despliegue separado de Pages.
+- Requiere secreto interno y dos despliegues Worker separados.
+- Requiere un cutover final controlado desde el Pages legado, sin borrar Pages antes de verificar el Worker production y su rollback.
 
 ## Entornos
 
 Decision: mantener tres entornos: dev local, staging online y production online.
+
+Decision operativa desde 2026-07-10: `pnpm dev` arranca en modo staging. El acceso local deliberado a datos production queda en `pnpm dev:production-data` y no se usa para QA normal.
 
 Pros:
 - Permite probar flujos reales sin tocar alumnos, pagos, Drive ni emails reales.
@@ -126,6 +129,8 @@ Contras:
 
 Decision: mantener service account con domain-wide delegation.
 
+Decision: no se crea un calendario separado de staging para este lanzamiento. Calendar crea eventos en `primary` de `GOOGLE_ADMIN_EMAIL` y la disponibilidad del profesor depende de `profiles.email`; ese acoplamiento se acepta y se verifica en el smoke. Drive y la plantilla si se separan por entorno. Staging usa exactamente `STAGING - Espanol Honesto` y `STAGING - Plantilla de clase`.
+
 Pros:
 - Encaja con la operativa actual.
 - No exige OAuth por profesor/alumno.
@@ -134,6 +139,12 @@ Pros:
 Contras:
 - Acceso privilegiado amplio.
 - Requiere rotacion y control de scopes.
+
+Riesgo aceptado para la fase actual:
+
+- Alin acepta mantener este modelo de service account con domain-wide delegation para el lanzamiento actual porque no se puede cambiar a otro modelo de autenticacion antes de cerrar la version.
+- Controles compensatorios: la clave privada no se guarda en repo, docs, outputs, capturas ni logs; los secretos viven solo en KeePassXC y secret managers; el acceso Google SDK sigue aislado en el Cloudflare Fulfillment Worker; el Astro Worker/API no importa Google SDK; staging y production usan carpetas/templates separados; la rotacion final de clave se ejecuta antes del Go/No-Go publico; los scopes delegados se revisan en esa rotacion; y queda una revision post-launch para migrar a scopes/OAuth mas estrechos cuando sea viable.
+- Contencion si se sospecha compromiso: pausar checkout/jobs si hace falta, generar clave nueva, revocar la antigua, actualizar y redeplegar el Worker, validar Drive/Calendar/Docs/Meet y reintentar jobs desde Admin > Jobs.
 
 ## Drive
 
@@ -165,6 +176,8 @@ Contras:
 
 Decision: cuenta antes de pagar.
 
+Decision: Español Honesto no acepta alumnos menores de 18 años. Solicitud, diagnóstico, registro y checkout exigen declaración expresa de mayoría de edad; leads y checkout conservan versión y fecha de la declaración. No se recoge fecha de nacimiento.
+
 Pros:
 - Webhooks simples.
 - Pago queda vinculado a usuario Supabase.
@@ -173,16 +186,24 @@ Pros:
 Contras:
 - Mas friccion comercial.
 
-Decision: para el lanzamiento actual, Stripe queda en modo test/staging hasta cierre final; no se aceptan pagos reales hasta que Alin decida activar live.
+Decision: el lanzamiento aceptará pagos reales desde el primer día. Stripe permanece en test durante staging y cambia a live únicamente en la ventana final, después del smoke test, los datos legales reales y el Go/No-Go.
+
+Decisión de alcance inicial del checkout: tarjeta mediante Stripe Checkout y sin códigos promocionales. Se podrán añadir otros métodos o promociones cuando su confirmación, reembolso, renovación, fiscalidad y copy contractual tengan pruebas específicas.
 
 Pros:
-- Reduce riesgo financiero, legal y operativo durante el release candidate.
-- Permite validar checkout, webhook, portal y reconciliacion sin exponer pagos reales cuando toque activar pagos.
-- Mantiene pagos reales fuera del RC; `payments_staging` queda como cierre final antes de activar checkout/pagos.
+- Permite validar checkout, webhook, portal, reembolsos y reconciliación en test antes de aceptar dinero real.
+- Mantiene el cambio a live como una operación pequeña, reversible y auditable mediante `CHECKOUT_ENABLED_OVERRIDE` mientras el default permanece cerrado.
+- Evita mezclar Price IDs, webhook secrets o clientes test con live.
 
 Contras:
-- No hay venta directa con Stripe live hasta completar el cierre final.
-- Requiere una decision explicita posterior para activar pagos reales.
+- El lanzamiento no puede abrir tráfico de compra hasta que Stripe live, legal real, webhook, portal y smoke estén probados.
+- Cualquier deploy posterior conserva el override; el runbook debe incluir rollback inmediato a `false`.
+
+Decision comercial: las opciones de 1, 3 y 6 meses son suscripciones recurrentes por ese mismo periodo. El total se cobra al inicio; la renovación repite periodo e importe hasta cancelación. La cuota no usada caduca al final y no se acumula, sin perjuicio de derechos legales o excepciones aprobadas.
+
+Decision de clases: cancelación del alumno con al menos 24 horas restaura la sesión; con menos antelación consume la sesión salvo excepción justificada. Un no-show solo puede marcarse desde 15 minutos después del inicio y consume la sesión. Ninguna reserva puede quedar después de `subscriptions.ends_at`.
+
+Decision legal operativa: el consumidor dispone del desistimiento legal aplicable; si solicita inicio durante ese plazo, solo se descuenta la parte proporcional ya prestada cuando corresponda. Checkout recoge por separado mayoría de edad, términos/privacidad y solicitud de inicio. La confirmación de bienvenida incluye resumen contractual y enlaces permanentes.
 
 ## Launch Gate Y Riesgos
 

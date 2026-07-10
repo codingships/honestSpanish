@@ -29,7 +29,14 @@ const t = copy[lang as keyof typeof copy] || copy.es;
 ---
 
 {showBanner && (
-    <div class="sticky top-0 z-[100] border-b-2 border-[#7A2E00] bg-[#FFF3D6] px-4 py-2 text-[#7A2E00]">
+    <div
+        class="sticky top-0 z-[100] border-b-2 border-[#7A2E00] bg-[#FFF3D6] px-4 py-2 text-[#7A2E00]"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        aria-label={t.label}
+        data-testid="environment-banner"
+    >
         <div class="mx-auto flex max-w-7xl flex-col gap-1 text-xs font-bold uppercase tracking-wide sm:flex-row sm:items-center sm:justify-between">
             <span>{t.label}</span>
             <span class="font-mono normal-case tracking-normal">{t.text}</span>

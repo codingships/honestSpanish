@@ -36,7 +36,7 @@ const findings: Finding[] = [
     checkPostLaunchBacklog(),
     checkFinalClosureRunbook(),
     checkManualEvidenceMapping(),
-    checkSoftLaunchWithoutPayments(),
+    checkPaymentModeAndRollback(),
     checkCrossReferences(),
 ];
 
@@ -108,7 +108,7 @@ function checkFinalOnlyBlockers(): Finding {
         'La demo queda en segundo plano',
         'docs/launch/FINAL_CLOSURE.md',
         'Antes de declarar `READY`, deben pasar `pnpm launch:gate`',
-        'Congelar copy publico, paquetes, dominio, modo de pagos',
+        'Congelar copy publico, paquetes, dominio y la activacion ya decidida de pagos reales desde el primer dia',
         'Rotar claves solo despues de congelar copy, legal, pagos y dominio definitivos',
         'No hace falta cerrar ahora:',
         'Datos reales del titular/controlador legal',
@@ -249,13 +249,16 @@ function checkManualEvidenceMapping(): Finding {
     };
 }
 
-function checkSoftLaunchWithoutPayments(): Finding {
+function checkPaymentModeAndRollback(): Finding {
     const productsDoc = readIfExists(path.join('docs', 'launch', 'PRODUCTS.md'));
     const runbookDoc = readIfExists(path.join('docs', 'launch', 'RUNBOOK.md'));
     const details: string[] = [];
 
+    if (!sequenceDoc.includes('pagos reales desde el primer dia')) {
+        details.push(`${sequencePath} must record the current decision to accept real payments from day one.`);
+    }
     if (!sequenceDoc.includes('checkout debe quedar desactivado, oculto o bloqueado')) {
-        details.push(`${sequencePath} must state checkout is disabled/hidden/blocked for public launch without real payments.`);
+        details.push(`${sequencePath} must preserve disabled/hidden/blocked checkout as the fail-closed rollback posture.`);
     }
     if (!productsDoc.includes('Mientras Stripe siga en modo prueba, no aceptar pagos reales')) {
         details.push('docs/launch/PRODUCTS.md must state Stripe test mode cannot accept real payments.');
@@ -266,10 +269,10 @@ function checkSoftLaunchWithoutPayments(): Finding {
 
     return {
         status: details.length === 0 ? 'ok' : 'failed',
-        area: 'soft launch without payments',
+        area: 'payment mode and fail-closed rollback',
         message: details.length === 0
-            ? 'Soft launch without real payments is documented as a deliberate, evidenced configuration decision.'
-            : 'Soft launch without real payments is under-documented.',
+            ? 'Real payments from day one are explicit, while test-mode and disabled-checkout rollback remain documented and fail closed.'
+            : 'Payment launch mode or its fail-closed rollback is under-documented.',
         details,
     };
 }

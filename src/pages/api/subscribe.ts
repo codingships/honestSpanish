@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { getEmailFrom, getResend, sendLeadWelcomeEmail } from '../../lib/email';
+import { deliverEmail, sendLeadWelcomeEmail } from '../../lib/email';
 import {
     loadLeadCaptureForCrm,
     recordLeadEmailOutInCrmSafe,
@@ -8,6 +8,8 @@ import {
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { readRuntimeEnv } from '../../lib/runtime-env';
 import type { Database } from '../../types/database.types';
+import { describeEmailSendError } from '../../lib/email/errors';
+import { hasAcceptedAdultPolicy, LEGAL_POLICY_VERSION } from '../../lib/legal-policy';
 
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 
@@ -78,16 +80,25 @@ const isMissingOptionalLeadColumn = (error: unknown): boolean => {
         && (code === 'PGRST204' || code === '42703' || code === '');
 };
 
+const isDuplicateLeadEmail = (error: unknown): boolean => {
+    const code = typeof (error as { code?: unknown })?.code === 'string' ? (error as { code: string }).code : '';
+    const message = typeof (error as { message?: unknown })?.message === 'string'
+        ? (error as { message: string }).message
+        : '';
+
+    return code === '23505' && message.toLowerCase().includes('email');
+};
+
 export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }) => {
     const supabaseAdmin = createSupabaseAdminClient();
     try {
-        const payload = await request.json();
+        const payload = await request.json() as Record<string, unknown>;
         const { email, name, interest, lang, consent } = payload;
-        const turnstileToken = payload['cf-turnstile-response'];
+        const turnstileToken = typeof payload['cf-turnstile-response'] === 'string' ? payload['cf-turnstile-response'] : '';
         const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
         const normalizedName = textOrNull(name, 120);
         const normalizedInterest = textOrNull(interest, 80);
-        const normalizedLang = ['es', 'en', 'ru'].includes(lang) ? lang : 'es';
+        const normalizedLang = typeof lang === 'string' && ['es', 'en', 'ru'].includes(lang) ? lang : 'es';
         const currentLevel = normalizeLevel(payload.currentLevel);
         const learningGoal = textOrNull(payload.learningGoal, 700);
         const availability = textOrNull(payload.availability, 400);
@@ -98,6 +109,10 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
 
         if (!normalizedEmail || !/^\S+@\S+\.\S+$/.test(normalizedEmail)) {
             return new Response(JSON.stringify({ error: 'Email inválido' }), { status: 400 });
+        }
+
+        if (!hasAcceptedAdultPolicy(payload.adultConfirmed)) {
+            return new Response(JSON.stringify({ error: 'Debes confirmar que tienes al menos 18 años' }), { status: 400 });
         }
 
         if (!consent) {
@@ -123,13 +138,14 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: turnstileBody,
         });
-        const turnstileData = await turnstileRes.json();
+        const turnstileData = await turnstileRes.json() as { success?: boolean };
 
         if (!turnstileData.success) {
             return new Response(JSON.stringify({ error: 'Validación anti-bot fallida.' }), { status: 403 });
         }
 
         // 1. Guardar en Base de Datos (CRM & GDPR)
+        const adultConfirmedAt = new Date().toISOString();
         const leadUpsert: LeadInsert = {
             email: normalizedEmail,
             name: normalizedName,
@@ -142,6 +158,9 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             lang: normalizedLang,
             spoken_languages: spokenLanguages,
             is_russian_speaker: isRussianSpeaker,
+            adult_confirmed: true,
+            adult_confirmed_at: adultConfirmedAt,
+            age_policy_version: LEGAL_POLICY_VERSION,
             consent_given: Boolean(consent),
             ip_address: clientAddress,
             status: 'new',
@@ -150,9 +169,7 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
 
         let { error: dbError } = await supabaseAdmin
             .from('leads')
-            .upsert(leadUpsert, {
-                onConflict: 'email',
-            });
+            .insert(leadUpsert);
 
         if (dbError && isMissingOptionalLeadColumn(dbError)) {
             const fallbackLeadUpsert: LeadInsert = { ...leadUpsert };
@@ -161,10 +178,31 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             delete fallbackLeadUpsert.is_russian_speaker;
             const retry = await supabaseAdmin
                 .from('leads')
-                .upsert(fallbackLeadUpsert, {
-                    onConflict: 'email',
-                });
+                .insert(fallbackLeadUpsert);
             dbError = retry.error;
+        }
+
+        if (dbError && isDuplicateLeadEmail(dbError)) {
+            const { error: attestationError } = await supabaseAdmin
+                .from('leads')
+                .update({
+                    adult_confirmed: true,
+                    adult_confirmed_at: adultConfirmedAt,
+                    age_policy_version: LEGAL_POLICY_VERSION,
+                    consent_given: true,
+                    updated_at: adultConfirmedAt,
+                })
+                .eq('email', normalizedEmail);
+
+            if (attestationError) {
+                console.error('Supabase error updating adult attestation:', attestationError);
+                return new Response(JSON.stringify({ error: 'Error al registrar contacto' }), { status: 500 });
+            }
+
+            return new Response(
+                JSON.stringify({ message: 'Success' }),
+                { status: 200 }
+            );
         }
 
         if (dbError) {
@@ -181,9 +219,8 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             ? await syncLeadCaptureToCrmSafe(supabaseAdmin, savedLead)
             : null;
 
-        // 2. Send Admin Notification (Non-blocking)
-        getResend().emails.send({
-            from: getEmailFrom(),
+        // 2. Send Admin Notification through the shared quota/safety gate.
+        const adminNotification = await deliverEmail({
             to: [readRuntimeEnv('ADMIN_EMAIL') || 'alejandro@espanolhonesto.com'],
             subject: `Nuevo Lead: ${escapeHtml(normalizedName || 'N/A')} (${escapeHtml(normalizedInterest || 'N/A')})`,
             html: `
@@ -205,7 +242,16 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             <p style="font-size: 12px; color: #888;">Este lead proviene del formulario de solicitud de plaza.</p>
         </div>
       `,
-        }).catch(err => console.error('Error notifying admin:', err));
+            source: 'lead_admin_notification',
+        });
+        if (!adminNotification.ok) {
+            console.error(
+                'Error notifying admin:',
+                adminNotification.error
+                    ? describeEmailSendError(adminNotification.error)
+                    : adminNotification.reason
+            );
+        }
 
         // 3. Send Welcome Email to User
         const leadWelcomeSent = await sendLeadWelcomeEmail(normalizedEmail, {
@@ -227,7 +273,7 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             { status: 200 }
         );
     } catch (error) {
-        console.error('Resend error:', error);
+        console.error('[Subscribe] Lead/email flow error:', describeEmailSendError(error));
         return new Response(
             JSON.stringify({ error: 'Error al enviar email' }),
             { status: 500 }

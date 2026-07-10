@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import FulfillmentJobsManager from '../../src/components/admin/FulfillmentJobsManager';
 
 const failedJob = {
@@ -15,9 +15,9 @@ const failedJob = {
     session: { scheduled_at: '2026-06-27T10:00:00.000Z', status: 'scheduled' },
 };
 
-function jsonResponse(payload: unknown) {
+function jsonResponse(payload: unknown, ok = true) {
     return {
-        ok: true,
+        ok,
         json: vi.fn().mockResolvedValue(payload),
     };
 }
@@ -51,7 +51,10 @@ describe('FulfillmentJobsManager', () => {
         expect(await screen.findByText('welcome_fulfillment')).toBeInTheDocument();
         expect(screen.getByText('Test Student')).toBeInTheDocument();
         expect(screen.getByText('Resend timeout')).toBeInTheDocument();
-        expect(fetch).toHaveBeenCalledWith('/api/admin/fulfillment-jobs?status=pending&limit=100');
+        expect(fetch).toHaveBeenCalledWith(
+            '/api/admin/fulfillment-jobs?status=pending&limit=100',
+            expect.objectContaining({ signal: expect.any(Object) }),
+        );
         expect(postCalls()).toHaveLength(0);
     });
 
@@ -71,7 +74,7 @@ describe('FulfillmentJobsManager', () => {
             action: 'process_due',
             limit: 20,
         });
-        expect(await screen.findByText('Procesados: 2, correctos: 1, fallidos: 1')).toBeInTheDocument();
+        expect(await screen.findByRole('status')).toHaveTextContent('Procesados: 2, correctos: 1, fallidos: 1');
     });
 
     it('posts retry and cancel with the selected job id', async () => {
@@ -86,6 +89,7 @@ describe('FulfillmentJobsManager', () => {
             action: 'retry',
             jobId: failedJob.id,
         });
+        expect(await screen.findByRole('status')).toHaveTextContent('Job reprogramado');
 
         fireEvent.click(screen.getByText('Cancelar'));
 
@@ -95,5 +99,69 @@ describe('FulfillmentJobsManager', () => {
             action: 'cancel',
             jobId: failedJob.id,
         });
+        expect(await screen.findByRole('status')).toHaveTextContent('Job cancelado');
+    });
+
+    it('disables queue controls while a job mutation is pending', async () => {
+        vi.stubGlobal('fetch', vi.fn((_input, init) => {
+            if (init && typeof init === 'object' && init.method === 'POST') {
+                return new Promise(() => undefined);
+            }
+
+            return Promise.resolve(jsonResponse({ jobs: [failedJob] }));
+        }));
+        render(<FulfillmentJobsManager />);
+
+        await screen.findByText('welcome_fulfillment');
+        fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+
+        expect(screen.getByRole('button', { name: 'Reintentar' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Reintentar' })).toHaveAttribute('aria-busy', 'true');
+        expect(screen.getByRole('button', { name: 'Cancelar' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Procesar pendientes' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'pending' })).toBeDisabled();
+    });
+
+    it('announces mutation failures as alerts and re-enables controls', async () => {
+        vi.stubGlobal('fetch', vi.fn((_input, init) => {
+            if (init && typeof init === 'object' && init.method === 'POST') {
+                return Promise.resolve(jsonResponse({ error: 'Could not process queue' }, false));
+            }
+
+            return Promise.resolve(jsonResponse({ jobs: [failedJob] }));
+        }));
+        render(<FulfillmentJobsManager />);
+
+        await screen.findByText('welcome_fulfillment');
+        fireEvent.click(screen.getByRole('button', { name: 'Procesar pendientes' }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent('Could not process queue');
+        expect(screen.getByRole('button', { name: 'Procesar pendientes' })).not.toBeDisabled();
+    });
+
+    it('keeps loading visible when an aborted status request is replaced by a pending request', async () => {
+        let rejectPendingRequest: ((error: Error) => void) | null = null;
+        vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
+            if (String(input).includes('status=pending')) {
+                init?.signal?.addEventListener('abort', () => {
+                    const error = new Error('Aborted');
+                    error.name = 'AbortError';
+                    rejectPendingRequest?.(error);
+                });
+                return new Promise((_, reject) => {
+                    rejectPendingRequest = reject;
+                });
+            }
+
+            return new Promise(() => undefined);
+        }));
+        render(<FulfillmentJobsManager />);
+
+        fireEvent.click(screen.getByRole('button', { name: 'failed' }));
+        await act(async () => {});
+
+        expect(fetch).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('Cargando...')).toBeInTheDocument();
+        expect(screen.queryByText('No hay jobs para este filtro')).not.toBeInTheDocument();
     });
 });

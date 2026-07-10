@@ -27,7 +27,8 @@ describe('no-real-payments launch mode', () => {
         for (const snippet of [
             'CHECKOUT_ENABLED=false',
             'Checkout is disabled',
-            'checkoutMode="application"',
+            'checkoutMode={checkoutMode}',
+            'CHECKOUT_ENABLED_OVERRIDE',
             'tests/api/create-checkout.test.ts',
             'tests/e2e/checkout.public.spec.ts',
             'launch:payments',
@@ -44,7 +45,7 @@ describe('no-real-payments launch mode', () => {
 
         for (const snippet of [
             'corepack pnpm launch:no-real-payments',
-            '--deployed-url https://espanol-honesto-staging.pages.dev',
+            '--deployed-url https://espanolhonesto-staging.alindev95.workers.dev',
             'corepack pnpm launch:staging-no-real-payments-remediation',
             'CHECKOUT_ENABLED=false',
             'CHECKOUT_ENABLED = "false"',
@@ -64,7 +65,10 @@ describe('no-real-payments launch mode', () => {
             'Usar `manual-evidence-dry-run.txt` solo despues de que el post-fix probe desplegado pase',
             'no registrar `payments_staging` como cerrado',
             'CI ejecuta `pnpm run launch:no-real-payments`',
-            'CLOUDFLARE_PAGES_STAGING_URL',
+            'CLOUDFLARE_STAGING_URL',
+            'CLOUDFLARE_WORKERS_STAGING_URL',
+            'no debe ser el fallback silencioso de no-real-payments',
+            'https://staging.espanolhonesto.com',
             'deploy de staging no debe considerarse apto para RC',
         ]) {
             expect(guide).toContain(snippet);
@@ -74,16 +78,20 @@ describe('no-real-payments launch mode', () => {
             'pnpm run launch:no-real-payments',
             'CHECKOUT_ENABLED: "false"',
             'Verify staging checkout is disabled',
-            '--deployed-url "$STAGING_PAGES_URL"',
+            '--deployed-url "$STAGING_WORKER_URL"',
         ]) {
             expect(ci).toContain(snippet);
         }
 
         expect(launchSequence).toContain('pnpm launch:no-real-payments');
         expect(launchSequence).toContain('Stripe Checkout sin decision explicita');
-        expect(releaseCandidate).toContain('CLOUDFLARE_PAGES_STAGING_URL');
-        expect(releaseCandidate).toContain("runStep('launch:no-real-payments', ['--', '--deployed-url', stagingPagesUrl])");
-        expect(releaseCandidate).toContain("runStep('launch:staging-no-real-payments-remediation', ['--', '--deployed-url', stagingPagesUrl])");
+        expect(releaseCandidate).toContain('CLOUDFLARE_STAGING_URL');
+        expect(releaseCandidate).toContain('CLOUDFLARE_WORKERS_STAGING_URL');
+        expect(releaseCandidate).toContain('DEFAULT_WORKER_STAGING_URL');
+        expect(releaseCandidate).toContain('https://espanolhonesto-staging.alindev95.workers.dev');
+        expect(releaseCandidate).toContain('stagingUrl');
+        expect(releaseCandidate).toContain("runStep('launch:no-real-payments', ['--', '--deployed-url', stagingUrl])");
+        expect(releaseCandidate).toContain("runStep('launch:staging-no-real-payments-remediation', ['--', '--deployed-url', stagingUrl])");
         expect(releaseCandidate).toContain("runStep('launch:rc-external-closure')");
         expect(checklist).toContain('launch:no-real-payments');
         expect(statusScript).toContain('launch-staging-no-real-payments-remediation');
@@ -95,10 +103,13 @@ describe('no-real-payments launch mode', () => {
         expect(statusScript).toContain('Staging No-Real-Payments Build Manifest');
 
         for (const snippet of [
-            'espanol-honesto-staging',
-            'wrangler_pages_project_list',
-            'wrangler_pages_deployment_list',
-            'pages-staging-build-manifest.json',
+            'espanolhonesto-staging',
+            'DEFAULT_WORKER_STAGING_URL',
+            'https://espanolhonesto-staging.alindev95.workers.dev',
+            'CLOUDFLARE_WORKERS_STAGING_URL',
+            'wrangler_worker_deployments_status',
+            'wrangler_worker_deployments_list',
+            'worker-staging-build-manifest.json',
             'buildPackageManifestPath',
             'BuildPackageManifest',
             'readyForStagingDeployPackage',
@@ -107,31 +118,31 @@ describe('no-real-payments launch mode', () => {
             'withinPagesFileSizeLimit',
             'checkoutEnabledDefault',
             'nodejsCompat',
-            'Local Pages build output contains the checkout-disabled guard and deploy package basics needed for staging deploy.',
+            'Local Worker build output contains the checkout-disabled guard and deploy package basics needed for staging deploy.',
             'local_build_package_guard',
             'corepack pnpm build',
-            'Pages staging build package manifest includes checkout-disabled guard',
+            'Worker staging build package manifest includes checkout-disabled guard',
             'local_deployment_gap',
             'git diff',
             'working-tree-only fixes',
             'committed and redeployed',
             'CHECKOUT_ENABLED=false',
-            'Pages project/environment that serves staging',
+            'Worker/environment that serves staging',
             'do not rely on a variable-only fix',
             'package and redeploy current code/config',
             'variable-only change is not enough',
             'package/redeploy current code/config to staging first',
             'readyForStagingDeployPackage=true',
-            'Cloudflare Pages Staging No-Real-Payments Approval Request',
+            'Cloudflare Worker Staging No-Real-Payments Approval Request',
             'approval-request.md',
             'Manual Evidence Dry Run: Staging No-Real-Payments',
             'manualEvidenceDryRunPath',
             'manual-evidence-dry-run.txt',
-            'Use this only after the Cloudflare Pages staging fix is complete',
+            'Use this only after the Cloudflare Worker staging fix is complete',
             '--id payments_staging',
             'relativeToLaunchDocs',
             'Expected: deployed checkout probe returns 403 Checkout is disabled',
-            'Production Pages, custom production domain, Stripe live and real checkout enablement are excluded.',
+            'Production Worker, custom production domain, Stripe live and real checkout enablement are excluded.',
             'It does not deploy, change variables, delete deployments, write secrets, call Stripe',
             'corepack pnpm launch:no-real-payments -- --deployed-url',
             'if (failed.length > 0) process.exit(1)',
