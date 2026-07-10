@@ -9,6 +9,7 @@ import {
     supportTicketReceivedTemplate,
     supportTicketUpdatedTemplate,
     welcomeEmailTemplate,
+    welcomeEmailSubject,
 } from './templates';
 import { describeEmailSendError } from './errors';
 import { deliverEmail } from './delivery';
@@ -39,17 +40,20 @@ export function isEmailPreviewType(value: string): value is EmailPreviewType {
 
 export function buildEmailPreview(type: EmailPreviewType): EmailPreview {
     switch (type) {
-        case 'welcome':
+        case 'welcome': {
+            const welcomeLocale = 'en' as const;
             return {
                 type,
-                subject: 'Welcome to Español Honesto',
+                subject: welcomeEmailSubject(welcomeLocale),
                 html: welcomeEmailTemplate({
+                    locale: welcomeLocale,
                     studentName: 'Test User',
                     packageName: 'Hybrid Plan',
-                    loginUrl: 'https://staging.espanolhonesto.com/es/login',
+                    loginUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/es/login',
                     driveFolderUrl: 'https://drive.google.com/example',
                 }),
             };
+        }
         case 'confirmation':
             return {
                 type,
@@ -104,7 +108,7 @@ export function buildEmailPreview(type: EmailPreviewType): EmailPreview {
                 subject: 'A few level questions - Espanol Honesto',
                 html: levelCheckInviteTemplate({
                     recipientName: 'Test User',
-                    diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=test%40example.com',
+                    diagnosticUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/diagnostico?email=test%40example.com',
                 }),
             };
         case 'missing-info':
@@ -113,7 +117,7 @@ export function buildEmailPreview(type: EmailPreviewType): EmailPreview {
                 subject: 'A little more context - Espanol Honesto',
                 html: missingInfoEmailTemplate({
                     recipientName: 'Test User',
-                    diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=test%40example.com',
+                    diagnosticUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/diagnostico?email=test%40example.com',
                 }),
             };
         case 'proposal-next-step':
@@ -133,7 +137,7 @@ export function buildEmailPreview(type: EmailPreviewType): EmailPreview {
                     recipientName: 'Test User',
                     issueTitle: 'Missing Meet link',
                     ticketId: 'ticket-preview',
-                    supportUrl: 'https://staging.espanolhonesto.com/en/campus/support',
+                    supportUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/campus/support',
                 }),
             };
         case 'support-updated':
@@ -146,7 +150,7 @@ export function buildEmailPreview(type: EmailPreviewType): EmailPreview {
                     ticketId: 'ticket-preview',
                     status: 'closed',
                     adminNote: 'We checked the class and restored the Meet link in your campus.',
-                    supportUrl: 'https://staging.espanolhonesto.com/en/campus/support',
+                    supportUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/campus/support',
                 }),
             };
     }

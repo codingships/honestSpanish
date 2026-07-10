@@ -79,63 +79,37 @@ export const POST: APIRoute = async (context) => {
     const supabaseAdmin = createSupabaseAdminClient();
 
     if (action === 'cancel') {
-        const cancelledAt = new Date().toISOString();
         const cancelledBy = isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student');
-        const hoursUntilClass = session.scheduled_at
-            ? (new Date(session.scheduled_at).getTime() - Date.now()) / (1000 * 60 * 60)
-            : null;
-        const lateStudentCancellation = cancelledBy === 'student'
-            && hoursUntilClass !== null
-            && hoursUntilClass < 24;
-        const { data: cancelResult, error: updateError } = await supabaseAdmin
-            .from('sessions')
-            .update({
-                status: 'cancelled',
-                cancellation_reason: cancellationReason,
-                cancelled_at: cancelledAt,
-                cancelled_by: user.id,
-            })
-            .eq('id', sessionId)
-            .eq('status', 'scheduled')
-            .select('id');
+        const { data: cancelRows, error: updateError } = await supabaseAdmin.rpc('cancel_scheduled_session', {
+            p_session_id: sessionId,
+            p_cancelled_by: user.id,
+            p_cancelled_by_role: cancelledBy,
+            p_cancellation_reason: cancellationReason,
+        });
 
         if (updateError) {
+            console.error('[SessionAction] Atomic session cancellation failed:', updateError);
             return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
         }
 
-        if (!cancelResult || cancelResult.length === 0) {
+        const cancelResult = cancelRows?.[0];
+        if (!cancelResult) {
             return new Response(JSON.stringify({ error: 'Session is already cancelled or completed' }), { status: 409 });
         }
 
         const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
-        let quotaRestoreAttempted = false;
-        let quotaRestored = false;
-        let previousSessionsUsed: number | null = null;
-        let nextSessionsUsed: number | null = null;
-
-        if (subscription && !lateStudentCancellation) {
-            const currentUsed = subscription.sessions_used ?? 0;
-            previousSessionsUsed = currentUsed;
-            if (currentUsed > 0) {
-                quotaRestoreAttempted = true;
-                nextSessionsUsed = currentUsed - 1;
-                const { data: quotaRows, error: quotaError } = await supabaseAdmin
-                    .from('subscriptions')
-                    .update({ sessions_used: currentUsed - 1 })
-                    .eq('id', subscription.id)
-                    .eq('sessions_used', currentUsed)
-                    .select('id');
-
-                if (quotaError) {
-                    console.error('[SessionAction] Could not restore subscription quota after cancellation:', quotaError);
-                }
-                quotaRestored = Array.isArray(quotaRows) ? quotaRows.length > 0 : Boolean(quotaRows);
-            }
-        }
+        const cancelledAt = cancelResult.cancelled_at;
+        const lateStudentCancellation = cancelResult.late_student_cancellation;
+        const quotaRestoreAttempted = cancelResult.quota_restore_attempted;
+        const quotaRestored = cancelResult.quota_restored;
+        const previousSessionsUsed = cancelResult.previous_sessions_used;
+        const nextSessionsUsed = cancelResult.next_sessions_used;
+        const hoursUntilClass = cancelResult.hours_until_class;
+        const subscriptionId = cancelResult.subscription_id ?? subscription?.id ?? null;
 
         const fulfillmentQueued = await enqueueSessionCancellation(supabaseAdmin, {
             sessionId,
-            subscriptionId: subscription?.id ?? null,
+            subscriptionId,
             studentId: session.student_id,
             cancelledBy,
             reason: cancellationReason,
@@ -176,7 +150,7 @@ export const POST: APIRoute = async (context) => {
             profileId: session.student_id,
             email: session.student?.email ?? null,
             fullName: session.student?.full_name ?? null,
-            subscriptionId: session.subscription_id ?? subscription?.id ?? null,
+            subscriptionId: session.subscription_id ?? subscriptionId,
             sessionId,
             teacherId: session.teacher_id,
             scheduledAt: session.scheduled_at,

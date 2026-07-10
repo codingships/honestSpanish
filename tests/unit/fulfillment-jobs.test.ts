@@ -264,7 +264,7 @@ describe('fulfillment jobs', () => {
             data: {
                 id: 'package-1',
                 name: 'hybrid',
-                display_name: { es: 'Plan Hybrid' },
+                display_name: { es: 'Plan Híbrido', en: 'Hybrid Plan', ru: 'Гибридный план' },
             },
             error: null,
         });
@@ -312,8 +312,9 @@ describe('fulfillment jobs', () => {
             teacherName: 'Teacher One',
         });
         expect(email.sendWelcomeEmail).toHaveBeenCalledWith('student@example.com', expect.objectContaining({
+            locale: 'en',
             studentName: 'Student One',
-            packageName: 'Plan Hybrid',
+            packageName: 'Hybrid Plan',
             loginUrl: 'https://example.com/en/login',
             driveFolderUrl: 'https://drive.google.com/folder-1',
         }));
@@ -323,7 +324,7 @@ describe('fulfillment jobs', () => {
             fullName: 'Student One',
             subscriptionId: 'subscription-1',
             packageId: 'package-1',
-            packageName: 'Plan Hybrid',
+            packageName: 'Hybrid Plan',
             driveFolderUrl: 'https://drive.google.com/folder-1',
         });
     });
@@ -402,8 +403,9 @@ describe('fulfillment jobs', () => {
 
         expect(google.createStudentFolderStructure).not.toHaveBeenCalled();
         expect(email.sendWelcomeEmail).toHaveBeenCalledWith('student2@example.com', expect.objectContaining({
+            locale: 'en',
             studentName: 'Student Two',
-            packageName: 'Plan Individual',
+            packageName: 'individual',
             loginUrl: 'https://example.com/en/login',
             driveFolderUrl: 'https://drive.google.com/existing-folder',
         }));

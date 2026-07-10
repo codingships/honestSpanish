@@ -92,6 +92,7 @@ describe('lead application email', () => {
     it('keeps paid student welcome emails encoding-safe', () => {
         const preview = buildEmailPreview('welcome');
         const html = welcomeEmailTemplate({
+            locale: 'en',
             studentName: 'Alina',
             packageName: 'Hybrid Plan',
             loginUrl: 'https://example.com/es/campus',
@@ -108,19 +109,53 @@ describe('lead application email', () => {
             supportUrl: 'https://example.com/es/campus/support',
         });
 
-        expect(preview.subject).toBe('Welcome to Español Honesto');
+        expect(preview.subject).toBe('Your subscription confirmation - Español Honesto');
         expect(html).toContain('Welcome, Alina');
-        expect(html).toContain('Your <strong>Hybrid Plan</strong> plan is active.');
+        expect(html).toContain('Your plan is active: <strong>Hybrid Plan</strong>.');
         expect(html).toContain('check that you can access your dashboard and materials');
         expect(html).toContain('Reply with any schedule limits before your first class');
         expect(html).toContain('coordinate your first class manually');
         expect(html).toContain('Your materials folder');
-        expect(html).toContain('Your contract summary');
-        expect(html).toContain('Subscription period: 3 month(s), 2026-07-10 to 2026-10-10');
-        expect(html).toContain('Class allowance for this period: 12');
+        expect(html).toContain('Contract confirmation');
+        expect(html).toContain('Subscription period: 3 month(s), from 2026-07-10 to 2026-10-10');
+        expect(html).toContain('Classes available in this period: 12');
         expect(html).toContain('Automatic renewal');
         expect(html).toContain('Terms version: 2026-07-10');
+        expect(html).toContain('Terms preserved in this email');
+        expect(html).toContain('Model withdrawal notice');
+        expect(html).toContain('14 calendar days');
+        expect(html).toContain('lost only after full performance');
         expect(html).toContain('/es/legal/terminos');
+        expect(html).not.toMatch(mojibakePattern);
+    });
+
+    it.each([
+        ['es', 'Confirmación contractual', 'Modelo de desistimiento', '14 días naturales', 'Plan Híbrido'],
+        ['en', 'Contract confirmation', 'Model withdrawal notice', '14 calendar days', 'Hybrid Plan'],
+        ['ru', 'Подтверждение договора', 'Образец заявления об отказе', '14 календарных дней', 'Гибридный план'],
+    ] as const)('preserves the accepted contract and withdrawal model in %s', (locale, summary, model, withdrawal, packageName) => {
+        const html = welcomeEmailTemplate({
+            locale,
+            studentName: 'Alina',
+            packageName,
+            loginUrl: `https://example.com/${locale}/campus`,
+            durationMonths: 3,
+            startsAt: '2026-07-10',
+            endsAt: '2026-10-10',
+            sessionsTotal: 12,
+            amountTotal: 64800,
+            currency: 'eur',
+            legalPolicyVersion: '2026-07-10',
+            policyAcceptedAt: '2026-07-10T10:00:00.000Z',
+            termsUrl: `https://example.com/${locale}/legal/terminos`,
+            supportUrl: `https://example.com/${locale}/campus/support`,
+        });
+
+        expect(html).toContain(summary);
+        expect(html).toContain(model);
+        expect(html).toContain(withdrawal);
+        expect(html).toContain(`<strong>${packageName}</strong>`);
+        expect(html).toContain('2026-07-10T10:00:00.000Z');
         expect(html).not.toMatch(mojibakePattern);
     });
 
@@ -144,6 +179,7 @@ describe('lead application email', () => {
 
     it('escapes dynamic fields across transactional student emails', () => {
         const welcomeHtml = welcomeEmailTemplate({
+            locale: 'en',
             studentName: 'Alina <script>alert(1)</script>',
             packageName: 'Hybrid <img src=x>',
             loginUrl: 'javascript:alert(1)',

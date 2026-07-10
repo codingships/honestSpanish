@@ -9,8 +9,10 @@ export function hasAcceptedCheckoutPolicies(input: {
     adultConfirmed?: unknown;
     termsAccepted?: unknown;
     serviceStartRequested?: unknown;
+    withdrawalLossAcknowledged?: unknown;
 }): boolean {
     return input.adultConfirmed === true
         && input.termsAccepted === true
-        && input.serviceStartRequested === true;
+        && input.serviceStartRequested === true
+        && input.withdrawalLossAcknowledged === true;
 }

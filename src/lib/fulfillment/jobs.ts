@@ -36,6 +36,21 @@ export {
     type FulfillmentJobType,
 };
 
+export type ExactFulfillmentJobErrorCode =
+    | 'EXACT_JOB_EXECUTION_FAILED'
+    | 'EXACT_JOB_IDENTITY_MISMATCH'
+    | 'EXACT_JOB_LEASE_INVALID'
+    | 'EXACT_JOB_LOCK_FAILED'
+    | 'EXACT_JOB_NOT_FOUND'
+    | 'EXACT_JOB_NOT_PROCESSABLE';
+
+export class ExactFulfillmentJobError extends Error {
+    constructor(public readonly code: ExactFulfillmentJobErrorCode) {
+        super(code);
+        this.name = 'ExactFulfillmentJobError';
+    }
+}
+
 const supportedWelcomeLocales = new Set(['es', 'en', 'ru']);
 
 function nextRunAt(attempts: number): string {
@@ -177,14 +192,12 @@ async function processWelcomeFulfillment(
         driveFolderUrl = result.rootFolderLink;
     }
 
-    const displayName = pkg.display_name;
-    const packageName = typeof displayName === 'object' && displayName && !Array.isArray(displayName)
-        ? String((displayName as { es?: string }).es || pkg.name)
-        : pkg.name;
-    const welcomeLocale = normalizeWelcomeLocale(student.preferred_language);
+    const welcomeLocale = normalizeWelcomeLocale(student.preferred_language) as 'es' | 'en' | 'ru';
+    const packageName = localizedPackageName(pkg.display_name, pkg.name, welcomeLocale);
 
     const emailSent = await sendWelcomeEmail(student.email, {
-        studentName: student.full_name || 'Estudiante',
+        locale: welcomeLocale,
+        studentName: student.full_name || { es: 'Estudiante', en: 'Student', ru: 'Ученик' }[welcomeLocale],
         packageName,
         loginUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/login`,
         driveFolderUrl: driveFolderUrl ?? undefined,
@@ -442,5 +455,117 @@ export async function processDueFulfillmentJobs(options: {
         processed: succeeded + failed,
         succeeded,
         failed,
+    };
+}
+
+export async function processExactFulfillmentJob(options: {
+    dedupeKey: string;
+    jobId: string;
+    leaseGeneration: number;
+    leaseName: string;
+    ownerToken: string;
+    runId: string;
+    smokeMarker: string;
+    studentId: string;
+    workerId?: string;
+    supabaseAdmin?: SupabaseClient<Database>;
+}) {
+    const supabaseAdmin = options.supabaseAdmin ?? createSupabaseAdminClient();
+    const workerId = options.workerId ?? `smoke:${options.runId}:${options.leaseGeneration}`;
+    const { data: claimRows, error: claimError } = await supabaseAdmin.rpc(
+        'claim_staging_integration_smoke_job',
+        {
+            p_dedupe_key: options.dedupeKey,
+            p_generation: options.leaseGeneration,
+            p_job_id: options.jobId,
+            p_lease_name: options.leaseName,
+            p_owner_token: options.ownerToken,
+            p_run_id: options.runId,
+            p_smoke_marker: options.smokeMarker,
+            p_student_id: options.studentId,
+            p_worker_id: workerId,
+        },
+    );
+    if (claimError) {
+        const message = claimError.message ?? '';
+        if (message.includes('exact_job_lease_invalid')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_LEASE_INVALID');
+        }
+        if (message.includes('exact_job_not_found')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_NOT_FOUND');
+        }
+        if (message.includes('exact_job_not_processable')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_NOT_PROCESSABLE');
+        }
+        if (message.includes('exact_job_claim_conflict')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+        }
+        throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
+    }
+    const claim = claimRows?.[0];
+    if (!claim) throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+    if (!claim.claimed && claim.job_status === 'succeeded') {
+        return {
+            dedupeKey: options.dedupeKey,
+            jobId: options.jobId,
+            runId: options.runId,
+            smokeMarker: options.smokeMarker,
+            status: 'succeeded' as const,
+        };
+    }
+    if (!claim.claimed || claim.job_status !== 'processing') {
+        throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+    }
+    const claimedAttempts = claim.attempts;
+
+    const { data: job, error: jobError } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .select('*')
+        .eq('id', options.jobId)
+        .eq('dedupe_key', options.dedupeKey)
+        .eq('student_id', options.studentId)
+        .eq('status', 'processing')
+        .eq('locked_by', workerId)
+        .maybeSingle();
+    if (jobError || !job) throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+
+    try {
+        await processJob(supabaseAdmin, job);
+    } catch {
+        await supabaseAdmin.rpc('finalize_staging_integration_smoke_job', {
+            p_attempts: claimedAttempts,
+            p_generation: options.leaseGeneration,
+            p_job_id: job.id,
+            p_lease_name: options.leaseName,
+            p_owner_token: options.ownerToken,
+            p_run_id: options.runId,
+            p_succeeded: false,
+            p_worker_id: workerId,
+        });
+        throw new ExactFulfillmentJobError('EXACT_JOB_EXECUTION_FAILED');
+    }
+    const { data: finalized, error: finalizeError } = await supabaseAdmin.rpc(
+        'finalize_staging_integration_smoke_job',
+        {
+            p_attempts: claimedAttempts,
+            p_generation: options.leaseGeneration,
+            p_job_id: job.id,
+            p_lease_name: options.leaseName,
+            p_owner_token: options.ownerToken,
+            p_run_id: options.runId,
+            p_succeeded: true,
+            p_worker_id: workerId,
+        },
+    );
+    if (finalizeError || finalized !== true) {
+        throw new ExactFulfillmentJobError('EXACT_JOB_LEASE_INVALID');
+    }
+
+    return {
+        dedupeKey: job.dedupe_key,
+        jobId: job.id,
+        runId: options.runId,
+        smokeMarker: options.smokeMarker,
+        status: 'succeeded' as const,
     };
 }

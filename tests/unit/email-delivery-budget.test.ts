@@ -21,6 +21,7 @@ vi.mock('../../src/lib/email/client', () => ({
 
 import {
     deliverEmail,
+    deliverPreReservedStagingSmokeEmail,
     getEmailDeliveryPolicy,
     PRODUCTION_EMAIL_DAILY_RECIPIENT_LIMIT,
     PRODUCTION_EMAIL_MONTHLY_RECIPIENT_LIMIT,
@@ -177,5 +178,54 @@ describe('persistent email recipient budget gate', () => {
         });
         expect(mocks.rpc).toHaveBeenCalledTimes(1);
         expect(mocks.send).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps pre-reserved smoke delivery inside the same fail-closed provider gateway', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'staging',
+            EMAIL_DELIVERY_MODE: 'allowlist',
+            EMAIL_RECIPIENT_ALLOWLIST: 'allowed@example.com',
+            EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+            EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
+            EMAIL_FROM: 'Academia <hello@example.com>',
+            RESEND_API_KEY: 're_test',
+        });
+        const input = {
+            from: 'Academia <hello@example.com>',
+            html: '<p>Smoke</p>',
+            idempotencyKey: 'staging-integration-smoke/email/11111111-1111-4111-8111-111111111111',
+            subject: 'Smoke',
+            to: 'ALLOWED@example.com',
+        };
+
+        await expect(deliverPreReservedStagingSmokeEmail(input)).resolves.toEqual({
+            ok: true,
+            providerId: 'email-1',
+        });
+        expect(mocks.rpc).not.toHaveBeenCalled();
+        expect(mocks.send).toHaveBeenCalledWith({
+            from: input.from,
+            html: input.html,
+            subject: input.subject,
+            to: 'allowed@example.com',
+        }, { idempotencyKey: input.idempotencyKey });
+    });
+
+    it('rejects a pre-reserved send when any staging invariant is missing', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'staging',
+            EMAIL_DELIVERY_MODE: 'allowlist',
+            EMAIL_RECIPIENT_ALLOWLIST: 'allowed@example.com',
+            EMAIL_FROM: 'Academia <hello@example.com>',
+            RESEND_API_KEY: 're_test',
+        });
+        await expect(deliverPreReservedStagingSmokeEmail({
+            from: 'Academia <hello@example.com>',
+            html: '<p>Smoke</p>',
+            idempotencyKey: 'caller-controlled-key',
+            subject: 'Smoke',
+            to: 'allowed@example.com',
+        })).resolves.toEqual({ ok: false, reason: 'policy_invalid' });
+        expect(mocks.send).not.toHaveBeenCalled();
     });
 });

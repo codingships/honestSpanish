@@ -7,6 +7,7 @@ vi.mock('../../src/lib/supabase-server', () => ({
 
 vi.mock('../../src/lib/supabase-admin', () => ({
     createSupabaseAdminClient: vi.fn(() => ({
+        rpc: vi.fn(),
         from: vi.fn().mockReturnValue({
             insert: vi.fn().mockResolvedValue({ error: null }),
             update: vi.fn().mockReturnThis(),
@@ -59,7 +60,38 @@ const makeInvalidJsonContext = () => ({
     cookies: { set: vi.fn(), get: vi.fn() },
 });
 
-const makeSessionActionAdminClient = (onSessionUpdate: (data: unknown) => void = () => {}) => ({
+type CancellationRpcRow = {
+    session_id: string;
+    subscription_id: string | null;
+    cancelled_at: string;
+    late_student_cancellation: boolean;
+    quota_restore_attempted: boolean;
+    quota_restored: boolean;
+    previous_sessions_used: number | null;
+    next_sessions_used: number | null;
+    hours_until_class: number | null;
+};
+
+const restoredCancellationRow: CancellationRpcRow = {
+    session_id: 'session-1',
+    subscription_id: 'sub-1',
+    cancelled_at: '2026-02-18T12:00:00.000Z',
+    late_student_cancellation: false,
+    quota_restore_attempted: true,
+    quota_restored: true,
+    previous_sessions_used: 2,
+    next_sessions_used: 1,
+    hours_until_class: 48,
+};
+
+const makeSessionActionAdminClient = (
+    onSessionUpdate: (data: unknown) => void = () => {},
+    cancellationRpcResponse: { data: CancellationRpcRow[]; error: unknown } = {
+        data: [restoredCancellationRow],
+        error: null,
+    },
+) => ({
+    rpc: vi.fn().mockResolvedValue(cancellationRpcResponse),
     from: vi.fn((table: string) => {
         if (table === 'sessions') {
             const chain: any = {
@@ -270,7 +302,18 @@ describe('POST /api/calendar/session-action', () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-        const supabaseAdmin = makeSessionActionAdminClient(sessionsUpdateMock);
+        const supabaseAdmin = makeSessionActionAdminClient(sessionsUpdateMock, {
+            data: [{
+                ...restoredCancellationRow,
+                late_student_cancellation: true,
+                quota_restore_attempted: false,
+                quota_restored: false,
+                previous_sessions_used: null,
+                next_sessions_used: null,
+                hours_until_class: 23,
+            }],
+            error: null,
+        });
         vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
@@ -281,8 +324,13 @@ describe('POST /api/calendar/session-action', () => {
         expect(body.success).toBe(true);
         expect(body.quotaRestored).toBe(false);
         expect(body.quotaConsumed).toBe(true);
-        expect(sessionsUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
-        expect(supabaseAdmin.from).not.toHaveBeenCalledWith('subscriptions');
+        expect(supabaseAdmin.rpc).toHaveBeenCalledWith('cancel_scheduled_session', {
+            p_session_id: 'session-1',
+            p_cancelled_by: 'student-id',
+            p_cancelled_by_role: 'student',
+            p_cancellation_reason: null,
+        });
+        expect(sessionsUpdateMock).not.toHaveBeenCalled();
         expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(
             supabaseAdmin,
             expect.objectContaining({
@@ -434,7 +482,7 @@ describe('POST /api/calendar/session-action', () => {
         }));
     });
 
-    it('calls update with status cancelled on the sessions table', async () => {
+    it('delegates cancellation and quota restoration to the atomic database RPC', async () => {
         const mockUser = { id: 'student-id', email: 'student@test.com' };
         const mockSession = {
             id: 'session-1',
@@ -477,14 +525,19 @@ describe('POST /api/calendar/session-action', () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-        vi.mocked(createSupabaseAdminClient).mockReturnValue(makeSessionActionAdminClient(sessionsUpdateMock) as any);
+        const supabaseAdmin = makeSessionActionAdminClient(sessionsUpdateMock);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
         await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
 
-        expect(sessionsUpdateMock).toHaveBeenCalledWith(
-            expect.objectContaining({ status: 'cancelled' })
-        );
+        expect(supabaseAdmin.rpc).toHaveBeenCalledWith('cancel_scheduled_session', {
+            p_session_id: 'session-1',
+            p_cancelled_by: 'student-id',
+            p_cancelled_by_role: 'student',
+            p_cancellation_reason: null,
+        });
+        expect(sessionsUpdateMock).not.toHaveBeenCalled();
     });
 
     it('marks a past session completed and records first-class onboarding activation', async () => {

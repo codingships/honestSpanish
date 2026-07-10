@@ -460,7 +460,8 @@ export const ui = {
                 and: "y la",
                 privacyLink: "Política de Privacidad",
                 serviceStartRequest: "Solicito que el servicio pueda comenzar durante los 14 días de desistimiento. Entiendo que, si desisto después de que haya empezado, podrá descontarse la parte proporcional ya prestada.",
-                policyError: "Debes confirmar la mayoría de edad y aceptar las tres condiciones antes de continuar.",
+                withdrawalLossAcknowledgement: "Reconozco expresamente que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.",
+                policyError: "Debes confirmar la mayoría de edad y aceptar las cuatro condiciones antes de continuar.",
             },
         },
         footer: {
@@ -1138,7 +1139,8 @@ export const ui = {
                 and: "and the",
                 privacyLink: "Privacy Policy",
                 serviceStartRequest: "I request that the service may begin during the 14-day withdrawal period. I understand that, if I withdraw after it begins, the proportion already supplied may be deducted.",
-                policyError: "Confirm that you are an adult and accept all three conditions before continuing.",
+                withdrawalLossAcknowledgement: "I expressly acknowledge that, once the service has been fully performed, I will lose my right of withdrawal.",
+                policyError: "Confirm that you are an adult and accept all four conditions before continuing.",
             },
         },
         footer: {
@@ -1711,7 +1713,8 @@ export const ui = {
                 and: "и",
                 privacyLink: "Политику конфиденциальности",
                 serviceStartRequest: "Прошу разрешить начать оказание услуг в течение 14-дневного срока отказа. Я понимаю, что при отказе после начала может быть удержана пропорциональная стоимость уже оказанной части.",
-                policyError: "Подтвердите совершеннолетие и примите все три условия перед продолжением.",
+                withdrawalLossAcknowledgement: "Я прямо подтверждаю, что после полного исполнения услуги утрачу право на отказ от договора.",
+                policyError: "Подтвердите совершеннолетие и примите все четыре условия перед продолжением.",
             },
         },
         footer: {

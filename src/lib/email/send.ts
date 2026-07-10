@@ -6,6 +6,7 @@ import { deliverEmail } from './delivery';
 import { describeEmailSendError, redactEmailForLog } from './errors';
 import {
     welcomeEmailTemplate,
+    welcomeEmailSubject,
     renewalNoticeEmailTemplate,
     renewalNoticeSubject,
     classConfirmationTemplate,
@@ -68,7 +69,7 @@ async function sendTransactionalEmail(input: TransactionalEmailInput): Promise<b
 export async function sendWelcomeEmail(email: string, data: WelcomeEmailData): Promise<boolean> {
     return sendTransactionalEmail({
         email,
-        subject: 'Welcome to Español Honesto',
+        subject: welcomeEmailSubject(data.locale),
         html: welcomeEmailTemplate(data),
         source: 'welcome',
         failureLabel: '[Email] Failed to send welcome email:',

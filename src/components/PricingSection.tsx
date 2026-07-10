@@ -55,6 +55,7 @@ interface PricingSectionProps {
             and?: string;
             privacyLink?: string;
             serviceStartRequest?: string;
+            withdrawalLossAcknowledgement?: string;
             policyError?: string;
         };
     };
@@ -125,6 +126,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             and: t.modal?.and || 'y la',
             privacyLink: t.modal?.privacyLink || 'Política de Privacidad',
             serviceStartRequest: t.modal?.serviceStartRequest || 'Solicito que el servicio pueda comenzar durante el periodo legal de desistimiento.',
+            withdrawalLossAcknowledgement: t.modal?.withdrawalLossAcknowledgement || 'Reconozco que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.',
             policyError: t.modal?.policyError || 'Debes confirmar y aceptar las condiciones antes de continuar.',
         },
     };

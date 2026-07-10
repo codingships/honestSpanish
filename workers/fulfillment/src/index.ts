@@ -1,6 +1,10 @@
 /// <reference types="@cloudflare/workers-types" />
 
-import { processDueFulfillmentJobs } from '../../../src/lib/fulfillment/jobs';
+import {
+    ExactFulfillmentJobError,
+    processDueFulfillmentJobs,
+    processExactFulfillmentJob,
+} from '../../../src/lib/fulfillment/jobs';
 import { sendClassReminder } from '../../../src/lib/email';
 import { recordClassEmailOutInCrmSafe } from '../../../src/lib/crm/class-email';
 import { checkTeacherAvailability, getCalendarClient } from '../../../src/lib/google/calendar';
@@ -8,23 +12,37 @@ import { appendToDocument, ensureUserPermission, getFolderLink } from '../../../
 import { createStudentFolderStructure } from '../../../src/lib/google/student-folder';
 import { getPrivateProfile, upsertPrivateProfile } from '../../../src/lib/profiles-private';
 import { createSupabaseAdminClient } from '../../../src/lib/supabase-admin';
+import {
+    createRuntimeAttestation,
+    isValidAttestationNonce,
+    timingSafeTextEqual,
+} from '../../../src/lib/runtime-attestation';
 
 type JsonObject = Record<string, unknown>;
-type Env = Record<string, string | undefined>;
+type VersionMetadata = { id?: unknown; tag?: unknown; timestamp?: unknown };
+type Env = Record<string, string | VersionMetadata | undefined> & {
+    CF_VERSION_METADATA?: VersionMetadata;
+};
 type AvailableSlot = { slot_start: string; slot_end: string };
-type Handler = (body: JsonObject) => Promise<JsonObject>;
+type Handler = (body: JsonObject, env: Env) => Promise<unknown>;
 
 const SCHEDULED_FULFILLMENT_JOB_LIMIT = 5;
 const FULFILLMENT_WORKER_ID = 'cloudflare-fulfillment-worker';
 
 function internalSecret(env: Env): string | null {
-    return env.INTERNAL_JOB_SECRET || null;
+    return envString(env, 'INTERNAL_JOB_SECRET') || null;
 }
 
-function json(status: number, body: JsonObject): Response {
+function envString(env: Env, key: string): string | undefined {
+    const candidate = env[key];
+    return typeof candidate === 'string' ? candidate : undefined;
+}
+
+function json(status: number, body: unknown): Response {
     return new Response(JSON.stringify(body), {
         status,
         headers: {
+            'Cache-Control': 'no-store',
             'Content-Type': 'application/json; charset=utf-8',
             'X-Content-Type-Options': 'nosniff',
         },
@@ -33,13 +51,20 @@ function json(status: number, body: JsonObject): Response {
 
 function isAuthorized(request: Request, env: Env): boolean {
     const secret = internalSecret(env);
-    return Boolean(secret && request.headers.get('Authorization') === `Bearer ${secret}`);
+    const bearer = request.headers.get('Authorization')?.replace(/^Bearer\s+/i, '') ?? '';
+    return Boolean(secret && timingSafeTextEqual(bearer, secret));
 }
 
 async function readJson(request: Request): Promise<JsonObject> {
     if (request.method === 'GET') return {};
 
+    const declaredLength = Number(request.headers.get('Content-Length') ?? '0');
+    if (Number.isFinite(declaredLength) && declaredLength > 16_384) {
+        throw new Error('REQUEST_TOO_LARGE');
+    }
+
     const text = await request.text();
+    if (text.length > 16_384) throw new Error('REQUEST_TOO_LARGE');
     if (!text.trim()) return {};
 
     return JSON.parse(text) as JsonObject;
@@ -51,6 +76,61 @@ async function handleProcessJobs(body: JsonObject): Promise<JsonObject> {
         limit,
         workerId: FULFILLMENT_WORKER_ID,
     });
+}
+
+function requiredSmokeString(body: JsonObject, key: string, pattern: RegExp): string {
+    const candidate = body[key];
+    if (typeof candidate !== 'string' || !pattern.test(candidate)) {
+        throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
+    }
+    return candidate;
+}
+
+function requiredPositiveInteger(body: JsonObject, key: string): number {
+    const candidate = body[key];
+    if (!Number.isSafeInteger(candidate) || Number(candidate) < 1) {
+        throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
+    }
+    return Number(candidate);
+}
+
+async function handleProcessExactJob(body: JsonObject, env: Env): Promise<JsonObject> {
+    if (envString(env, 'PUBLIC_APP_ENV') !== 'staging'
+        || envString(env, 'WORKER_IDENTITY') !== 'espanol-honesto-fulfillment-staging') {
+        throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
+    }
+    const runId = requiredSmokeString(body, 'runId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i);
+    const workerIdentity = envString(env, 'WORKER_IDENTITY') || FULFILLMENT_WORKER_ID;
+    return processExactFulfillmentJob({
+        dedupeKey: requiredSmokeString(body, 'dedupeKey', /^staging-integration(?:-cleanup)?:[A-Za-z0-9-]{20,160}$/),
+        jobId: requiredSmokeString(body, 'jobId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        leaseGeneration: requiredPositiveInteger(body, 'leaseGeneration'),
+        leaseName: requiredSmokeString(body, 'leaseName', /^google-resend-write-smoke$/),
+        ownerToken: requiredSmokeString(body, 'ownerToken', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        runId,
+        smokeMarker: requiredSmokeString(body, 'smokeMarker', /^SMOKE-INTEGRATION-[A-Za-z0-9-]{20,160}$/),
+        studentId: requiredSmokeString(body, 'studentId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        workerId: `${workerIdentity}:${runId}:${requiredPositiveInteger(body, 'leaseGeneration')}`,
+    });
+}
+
+async function handleRuntimeAttestation(body: JsonObject, env: Env) {
+    if (envString(env, 'PUBLIC_APP_ENV') !== 'staging'
+        || envString(env, 'WORKER_IDENTITY') !== 'espanol-honesto-fulfillment-staging') {
+        return { errorCode: 'ATTESTATION_RUNTIME_INVALID' };
+    }
+    if (!isValidAttestationNonce(body.nonce)) {
+        return { errorCode: 'ATTESTATION_INVALID_REQUEST' };
+    }
+    const workerVersionId = env.CF_VERSION_METADATA?.id;
+    if (typeof workerVersionId !== 'string' || !workerVersionId) {
+        return { errorCode: 'ATTESTATION_RUNTIME_INVALID' };
+    }
+    const attestedEnv = Object.fromEntries(
+        Object.entries(env).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+    );
+    attestedEnv.WORKER_VERSION_ID = workerVersionId;
+    return createRuntimeAttestation('fulfillment', attestedEnv, body.nonce);
 }
 
 async function handleAvailability(body: JsonObject): Promise<JsonObject> {
@@ -349,6 +429,8 @@ async function handleScheduled(): Promise<void> {
 
 const routes: Record<string, Handler> = {
     '/internal/jobs/process': handleProcessJobs,
+    '/internal/jobs/process-exact': handleProcessExactJob,
+    '/internal/runtime-attestation': handleRuntimeAttestation,
     '/internal/google/availability': handleAvailability,
     '/internal/google/filter-available-slots': handleFilterSlots,
     '/internal/drive/append-homework': handleAppendHomework,
@@ -378,15 +460,24 @@ export default {
         if (!route) {
             return json(404, { error: 'Not found' });
         }
+        if (request.method !== 'POST') {
+            return json(405, { errorCode: 'METHOD_NOT_ALLOWED' });
+        }
 
         try {
-            const result = await route(await readJson(request));
-            return json(typeof result.error === 'string' ? 400 : 200, result);
+            const result = await route(await readJson(request), env);
+            const errorCode = result && typeof result === 'object' && 'errorCode' in result
+                ? (result as { errorCode?: unknown }).errorCode
+                : null;
+            return json(typeof errorCode === 'string' ? 400 : 200, result);
         } catch (error) {
-            console.error(`[FulfillmentWorker] ${url.pathname} failed:`, error);
-            return json(500, {
-                error: error instanceof Error ? error.message : 'Internal server error',
-            });
+            const errorCode = error instanceof ExactFulfillmentJobError
+                ? error.code
+                : error instanceof Error && error.message === 'REQUEST_TOO_LARGE'
+                    ? 'REQUEST_TOO_LARGE'
+                    : 'INTERNAL_OPERATION_FAILED';
+            console.error(JSON.stringify({ event: 'fulfillment_request_failed', errorCode, path: url.pathname }));
+            return json(errorCode === 'REQUEST_TOO_LARGE' ? 413 : 500, { errorCode });
         }
     },
 

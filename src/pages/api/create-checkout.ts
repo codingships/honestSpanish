@@ -24,6 +24,7 @@ type CheckoutRequest = {
     adultConfirmed?: unknown;
     termsAccepted?: unknown;
     serviceStartRequested?: unknown;
+    withdrawalLossAcknowledged?: unknown;
 };
 
 export const POST: APIRoute = async (context) => {
@@ -171,6 +172,8 @@ export const POST: APIRoute = async (context) => {
             termsAcceptedAt: policyAcceptedAt,
             serviceStartRequested: 'true',
             serviceStartRequestedAt: policyAcceptedAt,
+            withdrawalLossAcknowledged: 'true',
+            withdrawalLossAcknowledgedAt: policyAcceptedAt,
             legalPolicyVersion: LEGAL_POLICY_VERSION,
         };
 

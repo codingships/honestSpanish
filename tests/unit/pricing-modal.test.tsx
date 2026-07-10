@@ -24,6 +24,7 @@ const translations = {
     and: 'y la',
     privacyLink: 'Política de Privacidad',
     serviceStartRequest: 'Solicito que el servicio pueda comenzar durante los 14 días de desistimiento.',
+    withdrawalLossAcknowledgement: 'Reconozco que perderé el derecho de desistimiento tras la ejecución íntegra.',
     policyError: 'Debes confirmar las condiciones.',
 };
 
@@ -65,6 +66,7 @@ const acceptCheckoutPolicies = () => {
     fireEvent.click(screen.getByRole('checkbox', { name: translations.adultConfirmation }));
     fireEvent.click(screen.getByRole('checkbox', { name: /He leído y acepto los/i }));
     fireEvent.click(screen.getByRole('checkbox', { name: translations.serviceStartRequest }));
+    fireEvent.click(screen.getByRole('checkbox', { name: translations.withdrawalLossAcknowledgement }));
 };
 
 describe('PricingModal', () => {
@@ -141,6 +143,7 @@ describe('PricingModal', () => {
             adultConfirmed: true,
             termsAccepted: true,
             serviceStartRequested: true,
+            withdrawalLossAcknowledged: true,
         });
         expect(screen.getByRole('dialog')).toHaveAttribute('aria-busy', 'true');
         expect(screen.getByRole('button', { name: translations.loading })).toHaveAttribute('aria-busy', 'true');
@@ -167,6 +170,18 @@ describe('PricingModal', () => {
     it('does not call checkout until all policy confirmations are accepted', () => {
         renderModal();
 
+        fireEvent.click(screen.getByRole('button', { name: translations.continue }));
+
+        expect(fetch).not.toHaveBeenCalled();
+        expect(screen.getByRole('alert')).toHaveTextContent(translations.policyError);
+    });
+
+    it('requires the separate acknowledgement of withdrawal loss after full performance', () => {
+        renderModal();
+
+        fireEvent.click(screen.getByRole('checkbox', { name: translations.adultConfirmation }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /He leído y acepto los/i }));
+        fireEvent.click(screen.getByRole('checkbox', { name: translations.serviceStartRequest }));
         fireEvent.click(screen.getByRole('button', { name: translations.continue }));
 
         expect(fetch).not.toHaveBeenCalled();

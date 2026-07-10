@@ -169,7 +169,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Cloudflare Pages project production legado creado (`espanolhonesto`) y conserva temporalmente los dominios finales.
 - [x] Cloudflare staging KV `SESSION` configurado.
 - [x] Secrets basicos del Pages staging legado configurados; esto no demuestra la configuracion del Astro Worker staging.
-- [x] Cloudflare custom domain `staging.espanolhonesto.com` creado; pendiente de validacion DNS/SSL si aparece como `initializing`.
+- [ ] Dominio custom opcional `staging.espanolhonesto.com` no configurado; no bloquea el uso de `https://espanolhonesto-staging.alindev95.workers.dev` como staging estable.
 - [ ] GitHub secret `CLOUDFLARE_API_TOKEN` configurado.
 - [ ] GitHub secret `FULFILLMENT_WORKER_URL` configurado por entorno.
 - [ ] `INTERNAL_JOB_SECRET` configurado igual en Cloudflare Astro Worker y Cloudflare Fulfillment Worker por entorno. Staging debe verificarse de nuevo en los Workers vigentes; falta production.

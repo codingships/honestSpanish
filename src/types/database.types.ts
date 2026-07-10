@@ -779,6 +779,9 @@ export type Database = {
       }
       profiles: {
         Row: {
+          adult_confirmed: boolean
+          adult_confirmed_at: string | null
+          age_policy_version: string | null
           created_at: string | null
           email: string
           full_name: string | null
@@ -790,6 +793,9 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          adult_confirmed?: boolean
+          adult_confirmed_at?: string | null
+          age_policy_version?: string | null
           created_at?: string | null
           email: string
           full_name?: string | null
@@ -801,6 +807,9 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          adult_confirmed?: boolean
+          adult_confirmed_at?: string | null
+          age_policy_version?: string | null
           created_at?: string | null
           email?: string
           full_name?: string | null
@@ -963,6 +972,179 @@ export type Database = {
           },
           {
             foreignKeyName: "sessions_teacher_id_fkey"
+            columns: ["teacher_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      staging_integration_smoke_leases: {
+        Row: {
+          expires_at: string
+          generation: number
+          lease_name: string
+          owner_token: string
+          run_id: string
+          updated_at: string
+        }
+        Insert: {
+          expires_at: string
+          generation?: number
+          lease_name: string
+          owner_token: string
+          run_id: string
+          updated_at?: string
+        }
+        Update: {
+          expires_at?: string
+          generation?: number
+          lease_name?: string
+          owner_token?: string
+          run_id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      staging_integration_smoke_runs: {
+        Row: {
+          base_host: string
+          calendar_event_ids: string[]
+          cancellation_job_id: string | null
+          created_at: string
+          drive_root_ids: string[]
+          email_attempt_generation: number
+          email_budget_reserved: boolean
+          email_error_code: string | null
+          email_first_attempt_at: string | null
+          email_http_status: number | null
+          email_idempotency_key: string
+          email_last_attempt_at: string | null
+          email_locked_at: string | null
+          email_payload_sha256: string | null
+          email_provider_id: string | null
+          email_sent_at: string | null
+          email_status: string
+          fulfillment_job_id: string | null
+          lease_name: string
+          lease_generation: number
+          marker: string
+          original_full_name: string | null
+          original_private_profile: Json
+          phase: string
+          run_id: string
+          scheduled_at: string
+          session_id: string | null
+          status: string
+          student_id: string
+          subscription_id: string
+          teacher_id: string
+          updated_at: string
+        }
+        Insert: {
+          base_host: string
+          calendar_event_ids?: string[]
+          cancellation_job_id?: string | null
+          created_at?: string
+          drive_root_ids?: string[]
+          email_attempt_generation?: number
+          email_budget_reserved?: boolean
+          email_error_code?: string | null
+          email_first_attempt_at?: string | null
+          email_http_status?: number | null
+          email_last_attempt_at?: string | null
+          email_locked_at?: string | null
+          email_payload_sha256?: string | null
+          email_provider_id?: string | null
+          email_sent_at?: string | null
+          email_status?: string
+          fulfillment_job_id?: string | null
+          lease_name: string
+          lease_generation: number
+          marker: string
+          original_full_name?: string | null
+          original_private_profile: Json
+          phase: string
+          run_id: string
+          scheduled_at: string
+          session_id?: string | null
+          status: string
+          student_id: string
+          subscription_id: string
+          teacher_id: string
+          updated_at?: string
+        }
+        Update: {
+          base_host?: string
+          calendar_event_ids?: string[]
+          cancellation_job_id?: string | null
+          created_at?: string
+          drive_root_ids?: string[]
+          email_attempt_generation?: number
+          email_budget_reserved?: boolean
+          email_error_code?: string | null
+          email_first_attempt_at?: string | null
+          email_http_status?: number | null
+          email_last_attempt_at?: string | null
+          email_locked_at?: string | null
+          email_payload_sha256?: string | null
+          email_provider_id?: string | null
+          email_sent_at?: string | null
+          email_status?: string
+          fulfillment_job_id?: string | null
+          lease_name?: string
+          lease_generation?: number
+          marker?: string
+          original_full_name?: string | null
+          original_private_profile?: Json
+          phase?: string
+          run_id?: string
+          scheduled_at?: string
+          session_id?: string | null
+          status?: string
+          student_id?: string
+          subscription_id?: string
+          teacher_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staging_integration_smoke_runs_cancellation_job_id_fkey"
+            columns: ["cancellation_job_id"]
+            isOneToOne: false
+            referencedRelation: "fulfillment_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staging_integration_smoke_runs_fulfillment_job_id_fkey"
+            columns: ["fulfillment_job_id"]
+            isOneToOne: false
+            referencedRelation: "fulfillment_jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staging_integration_smoke_runs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staging_integration_smoke_runs_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staging_integration_smoke_runs_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "subscriptions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staging_integration_smoke_runs_teacher_id_fkey"
             columns: ["teacher_id"]
             isOneToOne: false
             referencedRelation: "profiles"
@@ -1171,6 +1353,103 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      acquire_staging_integration_smoke_lease: {
+        Args: {
+          p_lease_name: string
+          p_owner_token: string
+          p_run_id: string
+          p_ttl_seconds: number
+        }
+        Returns: {
+          acquired: boolean
+          expires_at: string
+          generation: number
+        }[]
+      }
+      claim_staging_integration_smoke_email: {
+        Args: {
+          p_base_host: string
+          p_daily_limit: number
+          p_generation: number
+          p_lease_name: string
+          p_monthly_limit: number
+          p_owner_token: string
+          p_payload_sha256: string
+          p_run_id: string
+          p_smoke_marker: string
+        }
+        Returns: {
+          attempt_generation: number
+          claimed: boolean
+          email_status: string
+          idempotency_key: string
+          provider_id: string | null
+        }[]
+      }
+      claim_staging_integration_smoke_job: {
+        Args: {
+          p_dedupe_key: string
+          p_generation: number
+          p_job_id: string
+          p_lease_name: string
+          p_owner_token: string
+          p_run_id: string
+          p_smoke_marker: string
+          p_student_id: string
+          p_worker_id: string
+        }
+        Returns: {
+          attempts: number
+          claimed: boolean
+          job_status: string
+        }[]
+      }
+      finalize_staging_integration_smoke_email: {
+        Args: {
+          p_attempt_generation: number
+          p_error_code: string | null
+          p_generation: number
+          p_http_status: number | null
+          p_lease_name: string
+          p_outcome: string
+          p_owner_token: string
+          p_provider_id: string | null
+          p_run_id: string
+        }
+        Returns: boolean
+      }
+      finalize_staging_integration_smoke_job: {
+        Args: {
+          p_attempts: number
+          p_generation: number
+          p_job_id: string
+          p_lease_name: string
+          p_owner_token: string
+          p_run_id: string
+          p_succeeded: boolean
+          p_worker_id: string
+        }
+        Returns: boolean
+      }
+      cancel_scheduled_session: {
+        Args: {
+          p_cancellation_reason?: string | null
+          p_cancelled_by: string
+          p_cancelled_by_role: string
+          p_session_id: string
+        }
+        Returns: {
+          cancelled_at: string
+          hours_until_class: number | null
+          late_student_cancellation: boolean
+          next_sessions_used: number | null
+          previous_sessions_used: number | null
+          quota_restore_attempted: boolean
+          quota_restored: boolean
+          session_id: string
+          subscription_id: string | null
+        }[]
+      }
       get_available_slots: {
         Args: {
           p_date: string
@@ -1194,6 +1473,28 @@ export type Database = {
         Returns: {
           daily_used: number
           monthly_used: number
+        }[]
+      }
+      release_staging_integration_smoke_lease: {
+        Args: {
+          p_generation: number
+          p_lease_name: string
+          p_owner_token: string
+          p_run_id: string
+        }
+        Returns: boolean
+      }
+      renew_staging_integration_smoke_lease: {
+        Args: {
+          p_generation: number
+          p_lease_name: string
+          p_owner_token: string
+          p_run_id: string
+          p_ttl_seconds: number
+        }
+        Returns: {
+          expires_at: string
+          renewed: boolean
         }[]
       }
     }

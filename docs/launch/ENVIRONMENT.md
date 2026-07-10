@@ -7,7 +7,7 @@ No commitear valores reales. Los archivos `.env*` reales estan ignorados por Git
 | Entorno | Uso | URL | Rama | Datos |
 | --- | --- | --- | --- | --- |
 | dev | Trabajo local | `http://localhost:4321` | ramas locales | Puede apuntar a staging o a servicios de prueba |
-| staging | Pruebas reales antes de publicar | `https://staging.espanolhonesto.com` | `staging` | Datos y servicios de prueba |
+| staging | Pruebas reales antes de publicar | `https://espanolhonesto-staging.alindev95.workers.dev` | `staging` | Datos y servicios de prueba |
 | production | Servicio real | `https://espanolhonesto.com` | `main` | Datos, pagos y alumnos reales |
 
 ## Mapa Operativo Actual (2026-07-10)
@@ -89,7 +89,8 @@ Crear dos Workers desde `wrangler.toml`:
 
 - `espanolhonesto-staging`
   - `CLOUDFLARE_ENV=staging`
-  - Custom domain: `staging.espanolhonesto.com`
+  - URL estable del Worker: `https://espanolhonesto-staging.alindev95.workers.dev`
+  - Custom domain futuro opcional: `staging.espanolhonesto.com` (no configurado)
 - `espanolhonesto`
   - `CLOUDFLARE_ENV=production`
   - Custom domain: `espanolhonesto.com`
@@ -215,7 +216,7 @@ Valores actuales:
 - Worker staging: `espanolhonesto-staging`
 - Worker production: `espanolhonesto`
 - URL staging preferida para probes RC/no-real-payments: `https://espanolhonesto-staging.alindev95.workers.dev`
-- Dominio custom staging: `https://staging.espanolhonesto.com` (evidencia de dominio/integracion cuando DNS/SSL/routing esten verificados).
+- Dominio custom staging opcional futuro: `https://staging.espanolhonesto.com`. No esta configurado y no debe usarse en probes ni comandos hasta verificar DNS, SSL y routing.
 
 ## Supabase
 

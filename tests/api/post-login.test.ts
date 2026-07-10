@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     getUser: vi.fn(),
+    signOut: vi.fn(),
     single: vi.fn(),
 }));
 
@@ -9,6 +10,7 @@ vi.mock('../../src/lib/supabase-server', () => ({
     createSupabaseServerClient: vi.fn(() => ({
         auth: {
             getUser: mocks.getUser,
+            signOut: mocks.signOut,
         },
         from: vi.fn(() => ({
             select: vi.fn().mockReturnThis(),
@@ -39,7 +41,16 @@ describe('/api/auth/post-login', () => {
             data: { user: { id: 'user-1', email: 'user@example.com' } },
             error: null,
         });
-        mocks.single.mockResolvedValue({ data: { role: 'student' }, error: null });
+        mocks.signOut.mockResolvedValue({ error: null });
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'student',
+                adult_confirmed: true,
+                adult_confirmed_at: '2026-07-10T10:00:00.000Z',
+                age_policy_version: '2026-07-10',
+            },
+            error: null,
+        });
     });
 
     it.each([
@@ -48,7 +59,15 @@ describe('/api/auth/post-login', () => {
         ['student', '/es/campus'],
         ['unexpected', '/es/campus'],
     ])('redirects %s profiles to the expected campus area', async (role, expectedPath) => {
-        mocks.single.mockResolvedValue({ data: { role }, error: null });
+        mocks.single.mockResolvedValue({
+            data: {
+                role,
+                adult_confirmed: true,
+                adult_confirmed_at: '2026-07-10T10:00:00.000Z',
+                age_policy_version: '2026-07-10',
+            },
+            error: null,
+        });
 
         const { GET } = await import('../../src/pages/api/auth/post-login');
         const context = contextFor('es');
@@ -59,7 +78,15 @@ describe('/api/auth/post-login', () => {
     });
 
     it('normalizes unsupported language values before redirecting', async () => {
-        mocks.single.mockResolvedValue({ data: { role: 'admin' }, error: null });
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'admin',
+                adult_confirmed: true,
+                adult_confirmed_at: '2026-07-10T10:00:00.000Z',
+                age_policy_version: '2026-07-10',
+            },
+            error: null,
+        });
 
         const { GET } = await import('../../src/pages/api/auth/post-login');
         const context = contextFor('https://evil.example/admin');
@@ -79,13 +106,55 @@ describe('/api/auth/post-login', () => {
         expect(mocks.single).not.toHaveBeenCalled();
     });
 
-    it('falls back to the student campus when the profile cannot be loaded', async () => {
+    it('blocks the campus and clears the local session when the profile cannot be loaded', async () => {
         mocks.single.mockResolvedValue({ data: null, error: { message: 'missing profile' } });
 
         const { GET } = await import('../../src/pages/api/auth/post-login');
         const context = contextFor('en');
         await GET(context as any);
 
-        expect(context.redirect).toHaveBeenCalledWith('/en/campus');
+        expect(mocks.signOut).toHaveBeenCalledWith({ scope: 'local' });
+        expect(context.redirect).toHaveBeenCalledWith('/en/login?error=adult-attestation-required');
+    });
+
+    it('blocks accounts whose persisted adult attestation is incomplete', async () => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'student',
+                adult_confirmed: true,
+                adult_confirmed_at: null,
+                age_policy_version: '2026-07-10',
+            },
+            error: null,
+        });
+
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('es');
+        await GET(context as any);
+
+        expect(mocks.signOut).not.toHaveBeenCalled();
+        expect(context.redirect).toHaveBeenCalledWith('/es/adult-confirmation');
+    });
+
+    it.each([
+        ['teacher', '/es/campus/teacher'],
+        ['admin', '/es/campus/admin'],
+    ])('keeps internal %s accounts operational without the student consumer attestation', async (role, expectedPath) => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role,
+                adult_confirmed: false,
+                adult_confirmed_at: null,
+                age_policy_version: null,
+            },
+            error: null,
+        });
+
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('es');
+        await GET(context as any);
+
+        expect(context.redirect).toHaveBeenCalledWith(expectedPath);
+        expect(mocks.signOut).not.toHaveBeenCalled();
     });
 });

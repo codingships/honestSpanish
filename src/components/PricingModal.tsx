@@ -34,6 +34,7 @@ interface PricingModalProps {
         and: string;
         privacyLink: string;
         serviceStartRequest: string;
+        withdrawalLossAcknowledgement: string;
         policyError: string;
     };
 }
@@ -56,6 +57,7 @@ export default function PricingModal({
     const [adultConfirmed, setAdultConfirmed] = useState(false);
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [serviceStartRequested, setServiceStartRequested] = useState(false);
+    const [withdrawalLossAcknowledged, setWithdrawalLossAcknowledged] = useState(false);
     const modalId = useId();
     const titleId = `${modalId}-title`;
     const descriptionId = `${modalId}-description`;
@@ -71,6 +73,7 @@ export default function PricingModal({
         setAdultConfirmed(false);
         setTermsAccepted(false);
         setServiceStartRequested(false);
+        setWithdrawalLossAcknowledged(false);
     }, [isOpen, plan]);
 
     useEffect(() => {
@@ -171,7 +174,7 @@ export default function PricingModal({
             return;
         }
 
-        if (!adultConfirmed || !termsAccepted || !serviceStartRequested) {
+        if (!adultConfirmed || !termsAccepted || !serviceStartRequested || !withdrawalLossAcknowledged) {
             setError(t.policyError);
             return;
         }
@@ -189,6 +192,7 @@ export default function PricingModal({
                     adultConfirmed,
                     termsAccepted,
                     serviceStartRequested,
+                    withdrawalLossAcknowledged,
                 }),
             });
 
@@ -346,6 +350,20 @@ export default function PricingModal({
                             className="mt-1 h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
                         />
                         <span>{t.serviceStartRequest}</span>
+                    </label>
+
+                    <label className="flex items-start gap-3">
+                        <input
+                            type="checkbox"
+                            checked={withdrawalLossAcknowledged}
+                            onChange={(event) => {
+                                setWithdrawalLossAcknowledged(event.currentTarget.checked);
+                                setError(null);
+                            }}
+                            aria-required="true"
+                            className="mt-1 h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
+                        />
+                        <span>{t.withdrawalLossAcknowledgement}</span>
                     </label>
                 </div>
 

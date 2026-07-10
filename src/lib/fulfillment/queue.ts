@@ -31,6 +31,8 @@ export type FulfillmentJobPayload = {
     stripeSubscriptionId?: string;
     renewalAt?: string;
     cancelBy?: string;
+    smokeMarker?: string;
+    smokeRunId?: string;
 };
 
 export type FulfillmentJobRow = Database['public']['Tables']['fulfillment_jobs']['Row'];

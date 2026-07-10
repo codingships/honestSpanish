@@ -52,6 +52,7 @@ const acceptedPolicies = {
     adultConfirmed: true,
     termsAccepted: true,
     serviceStartRequested: true,
+    withdrawalLossAcknowledged: true,
 };
 
 const makeThenableQuery = <T,>(result: T) => ({
@@ -207,21 +208,33 @@ describe('POST /api/create-checkout', () => {
                 adultConfirmed: 'true',
                 termsAccepted: 'true',
                 serviceStartRequested: 'true',
+                withdrawalLossAcknowledged: 'true',
+                withdrawalLossAcknowledgedAt: expect.any(String),
                 legalPolicyVersion: '2026-07-10',
             }),
+            subscription_data: {
+                metadata: expect.objectContaining({
+                    withdrawalLossAcknowledged: 'true',
+                    withdrawalLossAcknowledgedAt: expect.any(String),
+                }),
+            },
         }));
     });
 
-    it('rejects checkout unless all adult and legal confirmations are explicit booleans', async () => {
+    it.each([
+        ['adult confirmation', { adultConfirmed: 'true' }],
+        ['terms acceptance', { termsAccepted: 'true' }],
+        ['early service request', { serviceStartRequested: 'true' }],
+        ['withdrawal-loss acknowledgement', { withdrawalLossAcknowledged: 'true' }],
+    ])('rejects checkout unless %s is the explicit boolean true', async (_label, override) => {
         const { supabase } = makeSupabase();
         await setSupabase(supabase);
 
         const { POST } = await import('../../src/pages/api/create-checkout');
         const response = await POST(makeContext({
+            ...acceptedPolicies,
             priceId: 'price_valid_1m',
-            adultConfirmed: true,
-            termsAccepted: true,
-            serviceStartRequested: 'true',
+            ...override,
         }) as any);
 
         expect(response.status).toBe(400);

@@ -18,6 +18,14 @@ export type EmailDeliveryResult =
     | { ok: true }
     | { ok: false; reason: EmailDeliveryFailureReason; error?: unknown };
 
+export type PreReservedStagingSmokeEmailResult =
+    | { ok: true; providerId: string }
+    | {
+        ok: false;
+        reason: 'policy_invalid' | 'provider_error' | 'provider_unavailable';
+        error?: unknown;
+    };
+
 export type BudgetedEmail = {
     from?: string;
     to: string | string[];
@@ -186,6 +194,60 @@ export async function deliverEmail(input: BudgetedEmail): Promise<EmailDeliveryR
 
         if (error) return { ok: false, reason: 'provider_error', error };
         return { ok: true };
+    } catch (error) {
+        return { ok: false, reason: 'provider_error', error };
+    }
+}
+
+export async function deliverPreReservedStagingSmokeEmail(input: {
+    from: string;
+    html: string;
+    idempotencyKey: string;
+    subject: string;
+    to: string;
+}): Promise<PreReservedStagingSmokeEmailResult> {
+    const recipient = normalizeEmailAddress(input.to);
+    const policy = getEmailDeliveryPolicy();
+    const rawDailyLimit = Number(readRuntimeEnv('EMAIL_DAILY_RECIPIENT_LIMIT'));
+    const rawMonthlyLimit = Number(readRuntimeEnv('EMAIL_MONTHLY_RECIPIENT_LIMIT'));
+    const configuredSender = readRuntimeEnv('EMAIL_FROM') || readRuntimeEnv('RESEND_FROM_EMAIL');
+    const validIdempotencyKey = /^staging-integration-smoke\/email\/[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(
+        input.idempotencyKey,
+    );
+    if (
+        policy.appEnvironment !== 'staging'
+        || policy.mode !== 'allowlist'
+        || !recipient
+        || !policy.recipientAllowlist.has(recipient)
+        || !Number.isInteger(rawDailyLimit)
+        || rawDailyLimit !== policy.dailyLimit
+        || rawDailyLimit < 1
+        || rawDailyLimit > STAGING_EMAIL_DAILY_RECIPIENT_LIMIT
+        || !Number.isInteger(rawMonthlyLimit)
+        || rawMonthlyLimit !== policy.monthlyLimit
+        || rawMonthlyLimit < 1
+        || rawMonthlyLimit > STAGING_EMAIL_MONTHLY_RECIPIENT_LIMIT
+        || !configuredSender
+        || input.from !== getEmailFrom()
+        || !validIdempotencyKey
+    ) {
+        return { ok: false, reason: 'policy_invalid' };
+    }
+    if (!readRuntimeEnv('RESEND_API_KEY')) {
+        return { ok: false, reason: 'provider_unavailable' };
+    }
+
+    try {
+        const { data, error } = await getResend().emails.send({
+            from: input.from,
+            to: recipient,
+            subject: input.subject,
+            html: input.html,
+        }, { idempotencyKey: input.idempotencyKey });
+        if (error || !data?.id) {
+            return { ok: false, reason: 'provider_error', error: error ?? undefined };
+        }
+        return { ok: true, providerId: data.id };
     } catch (error) {
         return { ok: false, reason: 'provider_error', error };
     }

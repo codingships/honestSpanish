@@ -3,12 +3,19 @@
  * Branded HTML templates for transactional emails.
  */
 
+import { legalIdentity } from '../legal-identity';
+
 // ============================================
 // Base Template
 // ============================================
 
-export function baseTemplate(content: string): string {
+export function baseTemplate(content: string, locale: 'es' | 'en' | 'ru' = 'en'): string {
     const year = new Date().getFullYear();
+    const footer = {
+        es: { questions: '¿Tienes dudas? Responde a este correo.', location: 'Madrid, España' },
+        en: { questions: 'Questions? Reply to this email.', location: 'Madrid, Spain' },
+        ru: { questions: 'Есть вопросы? Ответьте на это письмо.', location: 'Мадрид, Испания' },
+    }[locale];
 
     return `
 <!DOCTYPE html>
@@ -38,10 +45,10 @@ export function baseTemplate(content: string): string {
                     <tr>
                         <td style="background-color: #E0F7FA; padding: 25px 30px; text-align: center; border-top: 3px solid #006064;">
                             <p style="margin: 0 0 10px 0; color: #006064; font-size: 14px;">
-                                Questions? Reply to this email.
+                                ${footer.questions}
                             </p>
                             <p style="margin: 0; color: #666666; font-size: 12px;">
-                                © ${year} Español Honesto · Madrid, Spain
+                                © ${year} Español Honesto · ${footer.location}
                             </p>
                         </td>
                     </tr>
@@ -58,7 +65,10 @@ export function baseTemplate(content: string): string {
 // Welcome Email
 // ============================================
 
+export type WelcomeEmailLocale = 'es' | 'en' | 'ru';
+
 export interface WelcomeEmailData {
+    locale: WelcomeEmailLocale;
     studentName: string;
     packageName: string;
     loginUrl: string;
@@ -75,7 +85,138 @@ export interface WelcomeEmailData {
     supportUrl?: string;
 }
 
+const welcomeEmailCopy = {
+    es: {
+        subject: 'Confirmación de tu suscripción - Español Honesto',
+        welcome: 'Bienvenido/a',
+        planActive: 'Tu plan está activo',
+        contractSummary: 'Confirmación contractual',
+        plan: 'Plan',
+        period: 'Periodo de suscripción',
+        months: 'mes(es)',
+        from: 'del',
+        to: 'al',
+        allowance: 'Sesiones disponibles en este periodo',
+        charged: 'Importe cobrado al inicio del periodo',
+        renewal: 'Renovación automática: se repetirán el mismo periodo y el mismo importe hasta que desactives la renovación antes del siguiente cobro.',
+        expiry: 'Las sesiones no utilizadas caducan al terminar el periodo y no se acumulan, salvo derecho legal o excepción aprobada.',
+        cancellation: 'Cancelar con al menos 24 horas devuelve la sesión al saldo; con menos antelación o por no-show se consume, salvo incidencia justificada aprobada.',
+        termsVersion: 'Versión de las condiciones',
+        accepted: 'aceptada',
+        durableTitle: 'Condiciones conservadas en este correo',
+        provider: 'Prestador',
+        adultOnly: 'Servicio exclusivo para personas de 18 años o más.',
+        service: 'Las clases duran 30, 40 o 50 minutos según el producto confirmado; la duración estándar es de 50 minutos. Google Meet no corta automáticamente la llamada.',
+        cancellationChannel: 'Puedes desactivar la renovación desde el portal de pagos o solicitarlo a soporte. Mantendrás el acceso hasta el final del periodo pagado, salvo reembolso o derecho legal distinto.',
+        withdrawal: 'Desistimiento: como consumidor dispones de 14 días naturales desde la celebración del contrato. Si pediste el inicio durante ese plazo, podrá descontarse la parte proporcional ya prestada cuando legalmente proceda.',
+        withdrawalLoss: 'El derecho de desistimiento solo se pierde tras la ejecución íntegra del servicio cuando solicitaste expresamente su inicio y reconociste esa consecuencia.',
+        refund: 'Todo reembolso debido se realizará por el mismo medio de pago y dentro del plazo legal. Cancelar la renovación no reembolsa por sí solo un periodo ya iniciado.',
+        modelTitle: 'Modelo de desistimiento',
+        model: 'Comunico que desisto de mi contrato. Indicaré el servicio, la fecha de contratación, mi nombre y domicilio y la fecha de esta comunicación. La firma solo es necesaria si se presenta en papel.',
+        webReference: 'La versión web de las condiciones también está disponible en',
+        support: 'Para cancelar la renovación, comunicar una incidencia o ejercer el desistimiento, usa soporte o responde a este correo.',
+        nextSteps: 'Siguientes pasos',
+        steps: [
+            'Abre el campus y comprueba que puedes acceder a tu panel y materiales.',
+            'Responde con cualquier limitación de horario antes de la primera clase.',
+            'Coordinaremos manualmente la primera clase respetando la disponibilidad real.',
+            'Tu carpeta de materiales debería estar lista antes de la primera clase.',
+        ],
+        openCampus: 'ABRIR CAMPUS',
+        materials: 'Tu carpeta de materiales',
+        signoff: 'Hasta pronto',
+        team: 'El equipo de Español Honesto',
+    },
+    en: {
+        subject: 'Your subscription confirmation - Español Honesto',
+        welcome: 'Welcome',
+        planActive: 'Your plan is active',
+        contractSummary: 'Contract confirmation',
+        plan: 'Plan',
+        period: 'Subscription period',
+        months: 'month(s)',
+        from: 'from',
+        to: 'to',
+        allowance: 'Classes available in this period',
+        charged: 'Amount charged at the start of the period',
+        renewal: 'Automatic renewal: the same period and amount recur until you disable renewal before the next charge.',
+        expiry: 'Unused classes expire at the end of the period and do not roll over, except where a statutory right or approved exception applies.',
+        cancellation: 'Cancelling at least 24 hours ahead restores the class credit; later cancellation or a no-show consumes it unless a justified incident is approved.',
+        termsVersion: 'Terms version',
+        accepted: 'accepted',
+        durableTitle: 'Terms preserved in this email',
+        provider: 'Provider',
+        adultOnly: 'The service is available only to people aged 18 or over.',
+        service: 'Classes last 30, 40 or 50 minutes according to the confirmed product; the standard duration is 50 minutes. Google Meet does not automatically end the call.',
+        cancellationChannel: 'You may disable renewal through the billing portal or ask support. Access remains until the end of the paid period unless a refund or another statutory right applies.',
+        withdrawal: 'Withdrawal: as a consumer you have 14 calendar days from conclusion of the contract. If you requested an early start, the proportion already supplied may be deducted where legally applicable.',
+        withdrawalLoss: 'The withdrawal right is lost only after full performance where you expressly requested commencement and acknowledged that consequence.',
+        refund: 'Any refund due will be made to the original payment method within the statutory period. Stopping renewal does not by itself refund a period already begun.',
+        modelTitle: 'Model withdrawal notice',
+        model: 'I hereby give notice that I withdraw from my contract. I will state the service, contract date, my name and address, and the date of this notice. A signature is needed only if submitted on paper.',
+        webReference: 'The web version of the terms is also available at',
+        support: 'To stop renewal, report an incident or exercise withdrawal, use support or reply to this email.',
+        nextSteps: 'Next steps',
+        steps: [
+            'Open the campus and check that you can access your dashboard and materials.',
+            'Reply with any schedule limits before your first class.',
+            'We will coordinate your first class manually, respecting real availability.',
+            'Your materials folder should be ready before the first class.',
+        ],
+        openCampus: 'OPEN CAMPUS',
+        materials: 'Your materials folder',
+        signoff: 'Speak soon',
+        team: 'The Español Honesto team',
+    },
+    ru: {
+        subject: 'Подтверждение вашей подписки - Español Honesto',
+        welcome: 'Добро пожаловать',
+        planActive: 'Ваш план активен',
+        contractSummary: 'Подтверждение договора',
+        plan: 'План',
+        period: 'Период подписки',
+        months: 'мес.',
+        from: 'с',
+        to: 'по',
+        allowance: 'Занятия на этот период',
+        charged: 'Сумма, списанная в начале периода',
+        renewal: 'Автопродление: тот же период и сумма повторяются, пока вы не отключите продление до следующего списания.',
+        expiry: 'Неиспользованные занятия сгорают в конце периода и не переносятся, кроме случаев, предусмотренных законом или одобренных как исключение.',
+        cancellation: 'При отмене не менее чем за 24 часа занятие возвращается на баланс; более поздняя отмена или неявка списывает его, если не одобрено обоснованное исключение.',
+        termsVersion: 'Версия условий',
+        accepted: 'принята',
+        durableTitle: 'Условия, сохранённые в этом письме',
+        provider: 'Исполнитель',
+        adultOnly: 'Услуга доступна только лицам от 18 лет.',
+        service: 'Занятия длятся 30, 40 или 50 минут в зависимости от продукта; стандартная длительность — 50 минут. Google Meet не завершает звонок автоматически.',
+        cancellationChannel: 'Отключить продление можно в платёжном портале или через поддержку. Доступ сохраняется до конца оплаченного периода, если иное не следует из возврата или закона.',
+        withdrawal: 'Отказ от договора: у потребителя есть 14 календарных дней с момента заключения договора. При запросе досрочного начала может быть удержана пропорциональная стоимость оказанной части, если это допускается законом.',
+        withdrawalLoss: 'Право на отказ утрачивается только после полного исполнения, если вы прямо попросили начать услугу и подтвердили понимание этого последствия.',
+        refund: 'Причитающийся возврат выполняется тем же способом оплаты в установленный законом срок. Отключение продления само по себе не возвращает оплату за начавшийся период.',
+        modelTitle: 'Образец заявления об отказе',
+        model: 'Сообщаю, что отказываюсь от договора. Укажу услугу, дату договора, мои имя и адрес, а также дату этого уведомления. Подпись нужна только при подаче на бумаге.',
+        webReference: 'Веб-версия условий также доступна по адресу',
+        support: 'Чтобы отключить продление, сообщить о проблеме или отказаться от договора, обратитесь в поддержку или ответьте на это письмо.',
+        nextSteps: 'Следующие шаги',
+        steps: [
+            'Откройте личный кабинет и проверьте доступ к панели и материалам.',
+            'Сообщите о любых ограничениях по расписанию до первого занятия.',
+            'Мы вручную согласуем первое занятие с учётом реальной доступности.',
+            'Папка с материалами должна быть готова до первого занятия.',
+        ],
+        openCampus: 'ОТКРЫТЬ КАБИНЕТ',
+        materials: 'Ваша папка с материалами',
+        signoff: 'До скорой встречи',
+        team: 'Команда Español Honesto',
+    },
+} as const;
+
+export function welcomeEmailSubject(locale: WelcomeEmailLocale): string {
+    return welcomeEmailCopy[locale].subject;
+}
+
 export function welcomeEmailTemplate(data: WelcomeEmailData): string {
+    const copy = welcomeEmailCopy[data.locale];
     const studentName = escapeEmailHtml(data.studentName);
     const packageName = escapeEmailHtml(data.packageName);
     const loginUrl = safeEmailUrl(data.loginUrl);
@@ -91,49 +232,62 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
     const currency = typeof data.currency === 'string' && /^[a-z]{3}$/i.test(data.currency)
         ? data.currency.toUpperCase()
         : 'EUR';
+    const intlLocale = { es: 'es-ES', en: 'en-IE', ru: 'ru-RU' }[data.locale];
     const amountPaid = Number.isInteger(data.amountTotal) && (data.amountTotal ?? 0) >= 0
-        ? new Intl.NumberFormat('en-IE', { style: 'currency', currency }).format((data.amountTotal ?? 0) / 100)
+        ? new Intl.NumberFormat(intlLocale, { style: 'currency', currency }).format((data.amountTotal ?? 0) / 100)
         : '';
     const hasContractDetails = Boolean(durationMonths && startsAt && endsAt && sessionsTotal && amountPaid);
+    const providerDetails = [
+        legalIdentity.ownerName,
+        legalIdentity.taxId,
+        legalIdentity.address,
+        legalIdentity.email,
+        legalIdentity.activity,
+    ].map(escapeEmailHtml).join(' · ');
     const content = `
-        <h2 style="color: #006064; margin: 0 0 20px 0;">Welcome, ${studentName}</h2>
+        <h2 style="color: #006064; margin: 0 0 20px 0;">${copy.welcome}, ${studentName}</h2>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            Your <strong>${packageName}</strong> plan is active.
-            We are glad to have you with us.
+            ${copy.planActive}: <strong>${packageName}</strong>.
         </p>
 
         ${hasContractDetails ? `
         <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
-            <p style="margin: 0 0 12px 0; color: #006064; font-weight: bold;">Your contract summary</p>
+            <p style="margin: 0 0 12px 0; color: #006064; font-weight: bold;">${copy.contractSummary}</p>
             <ul style="margin: 0; padding-left: 20px; color: #333333; line-height: 1.7;">
-                <li>Plan: ${packageName}</li>
-                <li>Subscription period: ${durationMonths} month(s), ${startsAt} to ${endsAt}</li>
-                <li>Class allowance for this period: ${sessionsTotal}</li>
-                <li>Amount charged at the start of the period: ${escapeEmailHtml(amountPaid)}</li>
-                <li>Automatic renewal: the same amount and period recur until renewal is disabled before the next charge.</li>
-                <li>Unused classes expire on ${endsAt} and do not roll over, subject to statutory rights and approved exceptions.</li>
-                <li>Class cancellation: at least 24 hours restores the credit; later cancellation or no-show consumes it, subject to a justified support exception.</li>
+                <li>${copy.plan}: ${packageName}</li>
+                <li>${copy.period}: ${durationMonths} ${copy.months}, ${copy.from} ${startsAt} ${copy.to} ${endsAt}</li>
+                <li>${copy.allowance}: ${sessionsTotal}</li>
+                <li>${copy.charged}: ${escapeEmailHtml(amountPaid)}</li>
+                <li>${copy.renewal}</li>
+                <li>${copy.expiry}</li>
+                <li>${copy.cancellation}</li>
             </ul>
-            ${legalPolicyVersion ? `<p style="margin: 12px 0 0 0; color: #666666; font-size: 12px;">Terms version: ${legalPolicyVersion}${policyAcceptedAt ? ` · accepted ${policyAcceptedAt}` : ''}</p>` : ''}
+            ${legalPolicyVersion ? `<p style="margin: 12px 0 0 0; color: #666666; font-size: 12px;">${copy.termsVersion}: ${legalPolicyVersion}${policyAcceptedAt ? ` · ${copy.accepted} ${policyAcceptedAt}` : ''}</p>` : ''}
         </div>
         ` : ''}
 
-        ${termsUrl ? `
-        <p style="color: #333333; font-size: 14px; line-height: 1.6;">
-            Your terms, 14-day withdrawal information and model form are available at
-            <a href="${termsUrl}" style="color: #006064;">${termsUrl}</a>.
-            ${supportUrl ? `To cancel renewal, report an incident or exercise withdrawal, use <a href="${supportUrl}" style="color: #006064;">support</a> or reply to this email.` : ''}
-        </p>
-        ` : ''}
+        <div style="background-color: #fff; padding: 20px; margin: 25px 0; border: 1px solid #006064;">
+            <p style="margin: 0 0 12px 0; color: #006064; font-weight: bold;">${copy.durableTitle}</p>
+            <p style="color: #333333; font-size: 13px; line-height: 1.6;"><strong>${copy.provider}:</strong> ${providerDetails}</p>
+            <ul style="margin: 0; padding-left: 20px; color: #333333; font-size: 13px; line-height: 1.7;">
+                <li>${copy.adultOnly}</li>
+                <li>${copy.service}</li>
+                <li>${copy.cancellationChannel}</li>
+                <li>${copy.withdrawal}</li>
+                <li>${copy.withdrawalLoss}</li>
+                <li>${copy.refund}</li>
+            </ul>
+            <p style="margin: 14px 0 5px; color: #006064; font-weight: bold;">${copy.modelTitle}</p>
+            <p style="margin: 0; color: #333333; font-size: 13px; line-height: 1.6;">${copy.model}</p>
+            ${termsUrl ? `<p style="color: #333333; font-size: 13px; line-height: 1.6;">${copy.webReference} <a href="${termsUrl}" style="color: #006064;">${termsUrl}</a>.</p>` : ''}
+            <p style="color: #333333; font-size: 13px; line-height: 1.6;">${copy.support}${supportUrl ? ` <a href="${supportUrl}" style="color: #006064;">${supportUrl}</a>` : ''}</p>
+        </div>
 
         <div style="background-color: #E0F7FA; padding: 20px; margin: 25px 0; border-left: 4px solid #006064;">
-            <p style="margin: 0 0 10px 0; color: #006064; font-weight: bold;">Next steps:</p>
+            <p style="margin: 0 0 10px 0; color: #006064; font-weight: bold;">${copy.nextSteps}:</p>
             <ol style="margin: 0; padding-left: 20px; color: #333333;">
-                <li style="margin-bottom: 8px;">Open your campus and check that you can access your dashboard and materials.</li>
-                <li style="margin-bottom: 8px;">Reply with any schedule limits before your first class if something has changed.</li>
-                <li style="margin-bottom: 8px;">We will coordinate your first class manually, respecting real availability.</li>
-                <li style="margin-bottom: 8px;">Your materials folder should be ready before the first class.</li>
+                ${copy.steps.map((step) => `<li style="margin-bottom: 8px;">${step}</li>`).join('')}
             </ol>
         </div>
 
@@ -142,7 +296,7 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
             <tr>
                 <td align="center">
                     <a href="${loginUrl}" style="display: inline-block; background-color: #006064; color: #ffffff; padding: 15px 40px; text-decoration: none; font-weight: bold; font-size: 16px;">
-                        OPEN CAMPUS
+                        ${copy.openCampus}
                     </a>
                 </td>
             </tr>
@@ -151,17 +305,17 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
 
         ${driveFolderUrl ? `
         <p style="color: #666666; font-size: 14px;">
-            Your materials folder: <a href="${driveFolderUrl}" style="color: #006064;">${driveFolderUrl}</a>
+            ${copy.materials}: <a href="${driveFolderUrl}" style="color: #006064;">${driveFolderUrl}</a>
         </p>
         ` : ''}
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            Speak soon,<br>
-            <strong>The Español Honesto team</strong>
+            ${copy.signoff},<br>
+            <strong>${copy.team}</strong>
         </p>
     `;
 
-    return baseTemplate(content);
+    return baseTemplate(content, data.locale);
 }
 
 // ============================================

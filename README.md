@@ -100,7 +100,7 @@ El Astro Worker y el Fulfillment Worker se comunican con `FULFILLMENT_WORKER_URL
 ## Entornos Y Deploy
 
 - `dev`: local, `http://localhost:4321`.
-- `staging`: rama `staging`, `https://staging.espanolhonesto.com`.
+- `staging`: rama `staging`, `https://espanolhonesto-staging.alindev95.workers.dev`. El dominio custom `staging.espanolhonesto.com` no esta configurado; queda como opcion futura.
 - `production`: rama `main`, `https://espanolhonesto.com`.
 
 CI valida typecheck, lint, tests, build, E2E publico y secrets-check. En `push` a `staging` o `main`, despliega el Cloudflare Astro Worker y el Cloudflare Fulfillment Worker solo si la validacion pasa. El environment `production` de GitHub debe requerir aprobacion manual.

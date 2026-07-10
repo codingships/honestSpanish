@@ -10,6 +10,8 @@ export default defineConfig({
         // not load the Astro adapter, so tests use a process-env backed shim.
         alias: {
             'astro:env/server': fileURLToPath(new URL('./tests/mocks/astro-env-server.ts', import.meta.url)),
+            'astro:middleware': fileURLToPath(new URL('./tests/mocks/astro-middleware.ts', import.meta.url)),
+            'cloudflare:workers': fileURLToPath(new URL('./tests/mocks/cloudflare-workers.ts', import.meta.url)),
         },
     },
     test: {

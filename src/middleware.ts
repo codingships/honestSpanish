@@ -1,5 +1,6 @@
 import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServerClient } from "./lib/supabase-server";
+import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from "./lib/adult-account";
 
 export const onRequest = defineMiddleware(async (context, next) => {
     const url = new URL(context.request.url);
@@ -30,16 +31,20 @@ export const onRequest = defineMiddleware(async (context, next) => {
 
     // Get user profile with role if logged in
     let userRole = 'student';
+    let adultAccountVerified = false;
+    let profileFound = false;
     if (user) {
         const { data: profile } = await supabase
             .from('profiles')
-            .select('role')
+            .select('role, adult_confirmed, adult_confirmed_at, age_policy_version')
             .eq('id', user.id)
             .single();
         if (!profile) {
-            console.error(`[Middleware] No profile found for authenticated user ${user.id} - defaulting to student role`);
+            console.error(`[Middleware] No profile found for authenticated user ${user.id}`);
         }
+        profileFound = Boolean(profile);
         userRole = profile?.role || 'student';
+        adultAccountVerified = userRole !== 'student' || hasVerifiedAdultAccount(profile);
     }
 
     // Helper to get redirect URL based on role
@@ -58,6 +63,15 @@ export const onRequest = defineMiddleware(async (context, next) => {
     if (isCampusRoute) {
         if (!user) {
             return context.redirect(`/${lang}/login`);
+        }
+
+        if (!profileFound) {
+            await supabase.auth.signOut({ scope: 'local' });
+            return context.redirect(`/${lang}/login?error=${ADULT_ATTESTATION_REQUIRED_QUERY}`);
+        }
+
+        if (!adultAccountVerified) {
+            return context.redirect(`/${lang}/adult-confirmation`);
         }
 
         // Role-based access control
@@ -81,6 +95,13 @@ export const onRequest = defineMiddleware(async (context, next) => {
     // Login route - redirect logged-in users to their area
     if (isLoginRoute) {
         if (user) {
+            if (!profileFound) {
+                await supabase.auth.signOut({ scope: 'local' });
+                return next();
+            }
+            if (!adultAccountVerified) {
+                return context.redirect(`/${lang}/adult-confirmation`);
+            }
             return context.redirect(getRoleBasedRedirect(userRole, lang));
         }
     }
