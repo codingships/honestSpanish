@@ -137,7 +137,11 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Banner staging/test creado.
 - [x] Script Google staging creado.
 - [x] CI preparado para `staging` y `main`. Evidencia: `.github/workflows/ci.yml`.
-- [x] Pipeline preparado para deploy del Cloudflare Astro Worker y del Fulfillment Worker tras CI. Evidencia: `.github/workflows/ci.yml`, `wrangler.toml`, `workers/fulfillment/wrangler.toml`.
+- [x] Pipeline staging preparado para deploy automático tras CI; `main` production solo hace build y dry-runs, nunca despliega automáticamente. La secuencia production exige gates manuales: fulfillment bootstrap inerte -> secrets fulfillment aún inertes -> web -> secrets web -> atestación dual fresca -> enable fulfillment. Evidencia: `.github/workflows/ci.yml`, `wrangler.toml`, `workers/fulfillment/wrangler.toml`, `docs/launch/CLOUDFLARE_PRODUCTION.md`.
+- [x] CI de fulfillment usa `--config workers/fulfillment/wrangler.toml`, un solo `--env`, dry-run previo y deploy posterior; ya no concatena `--env staging` con otro entorno.
+- [x] Los nombres base Wrangler son sinks seguros (`espanolhonesto-env-required` y `espanol-honesto-fulfillment-env-required`); Astro web selecciona production durante el build y despliega solo el `dist/server/wrangler.json` resuelto, mientras fulfillment selecciona `--env production` explícitamente.
+- [x] Build production separado y fail-closed: `pnpm build:production:release` exige `PUBLIC_APP_ENV=production`, ref Supabase production y `PUBLIC_SITE_URL=https://espanolhonesto.com`; el flujo normal `pnpm build` sigue siendo staging.
+- [x] El build production fija `CLOUDFLARE_INCLUDE_PROCESS_ENV=false` y rechaza/elimina cualquier `.dev.vars` generado dentro de `dist`; los secretos runtime quedan solo como bindings Cloudflare.
 - [x] Typecheck app pasa.
 - [x] Typecheck fulfillment Worker pasa.
 - [x] `pnpm lint` pasa. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-lint.log`; revalidado localmente el 2026-06-11.
@@ -161,7 +165,8 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [ ] Cloudflare Astro Worker staging `espanolhonesto-staging` configurado con secretos por nombre y smoke directo completo. El Worker existe, pero el preflight read-only de 2026-07-10 devuelve cero secretos para el Worker web.
 - [x] Deploy Cloudflare Fulfillment Worker staging verificado. Evidencia: `espanol-honesto-fulfillment-staging` responde `/health` con 200, rechaza rutas internas sin autenticacion con 401, acepta autenticacion interna y expone cron `0 * * * *`; ver tambien `docs/launch/MANUAL_EVIDENCE.local.json` (`operations_external`).
 - [ ] Deploy Cloudflare produccion verificado.
-- [ ] Deploy Cloudflare Fulfillment Worker produccion verificado.
+- [ ] Deploy Cloudflare Fulfillment Worker production verificado en dos estados: primero `production_bootstrap` con jobs/email/cron desactivados y bloqueo operativo 503; después `production` activo mediante aprobación final separada.
+- [ ] Ejecutar bajo aprobaciones separadas y en orden: `pnpm launch:cloudflare-production-fulfillment-bootstrap`, `pnpm launch:cloudflare-production-fulfillment-secrets`, `pnpm launch:cloudflare-production-worker-phase1`, `pnpm launch:cloudflare-production-worker-secrets`, `pnpm launch:cloudflare-production-fulfillment-enable`. Cada runner debe validar las fases previas; la atestación incluye identidad, versión, modo operativo y Supabase. Evidencia canónica: `docs/launch/CLOUDFLARE_PRODUCTION.md`.
 - [x] GitHub environment `staging` creado.
 - [x] GitHub environment production creado con aprobacion manual (`Production` en GitHub).
 - [ ] Branch `staging` creada desde el codigo valido actual.
@@ -178,8 +183,8 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 
 ## Database
 
-- [ ] `database_readiness` RC cerrado con hosted schema actual. El dry-run real de 2026-07-10 contra staging `mzjyvmlxfpzdfdjzxxyj` se nego a escribir porque 16 versiones remotas no existen localmente; `20260710120000` y `20260710123000` siguen solo en local. Reconciliar el historial sin `migration repair` automatico, volver a ejecutar dry-run y aplicar/verificar staging antes de tocar production.
-- [ ] Historial de migraciones staging reconciliado: documentar la equivalencia de las 16 versiones remotas sin archivo local y de las migraciones locales antiguas ausentes del historial remoto. No marcar versiones como applied/reverted sin revisar su SQL/esquema real.
+- [x] `database_readiness` staging reconciliado con el schema actual. Evidencia 2026-07-10: las migraciones billing `20260710205031`, `20260710215712`, `20260710221846` y `20260710223900` se validaron primero en transaccion con `ROLLBACK`, cada dry-run propuso solo la siguiente migracion, se aplicaron a `mzjyvmlxfpzdfdjzxxyj` y `supabase db lint --schema public --level error` termino sin hallazgos. Production no se ha tocado.
+- [x] Historial de migraciones staging reconciliado hasta `20260710223900`; no se uso `migration repair` ni se marcaron versiones manualmente.
 - [x] Supabase staging inicializado con `db/schema.sql`.
 - [x] Trigger `handle_new_user` corregido con `search_path = public`. Evidencia: `db/schema.sql`, `supabase/migrations/011_fix_auth_user_trigger_search_path.sql`.
 - [x] Usuarios de prueba staging creados.
@@ -195,7 +200,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 
 ## Producto
 
-- [x] Fuente runtime de productos: Supabase `packages`. Evidencia: `docs/launch/DECISIONS.md`, `src/components/LandingPage.astro`, `src/pages/api/create-checkout.ts`.
+- [x] Catalogo separado por responsabilidad: `packages` editable/publico, `package_prices` contractual e inmutable, Stripe ejecutor y punteros activos escritos por RPC; frontend lee Supabase y `llms.txt` ya no duplica importes. Evidencia: migraciones billing `20260710205031` a `20260710223900`, `ARCHITECTURE.md`, `docs/launch/PRODUCTS.md`, `public/llms.txt`.
 - [x] CRM de paquetes/precios/cuotas. Evidencia: `src/components/admin/ProductCatalogManager.tsx`, `src/pages/api/admin/packages.ts`, `src/pages/[lang]/campus/admin/packages.astro`.
 - [x] Onboarding minimo de alumno en dashboard. Evidencia: `src/pages/[lang]/campus/index.astro`, `outputs/launch-accessibility/2026-06-05T21-58-35-434Z/summary.md`.
 - [x] Soporte minimo dentro del campus. Evidencia: `src/pages/[lang]/campus/support.astro`, `outputs/launch-accessibility/2026-06-05T21-58-35-434Z/summary.md`.
@@ -206,12 +211,16 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Copia publica ES/EN/RU reconciliada para RC con paquetes reales. Evidencia: `docs/launch/MANUAL_EVIDENCE.local.json` (`content_review`) y `pnpm launch:status` 2026-06-11 indica Fase 1 clara. Relectura SEO/LLM queda abierta tras copy/legal finales.
 - [x] Blog publico sin articulos incompletos indexables: los borradores con notas de redactor quedan excluidos de listado, detalle, RSS, sitemap y OG. Evidencia: `src/content.config.ts`, `src/lib/blog-routes.ts`, `src/pages/[lang]/blog/[slug].astro`, `src/pages/[lang]/blog/index.astro`, `src/pages/[lang]/blog/rss.xml.ts`, `src/pages/sitemap-public.xml.ts`, `src/pages/og/[slug].png.ts`, `scripts/launch/content-audit.ts` y `tests/unit/seo-surface.test.ts`.
 - [x] Solicitud de plaza previa a compra directa enriquecida con plan de interes, nivel aproximado, objetivo, disponibilidad y pagina de origen; el endpoint actualiza por email en vez de fallar con duplicados, el CRM admin filtra por estado, muestra los datos de encaje y registra cambios en `admin_audit_log`, y el email automatico confirma revision de encaje antes de compra. Evidencia: `src/components/LeadCaptureForm.tsx`, `src/pages/api/subscribe.ts`, `src/pages/api/admin/leads.ts`, `src/components/admin/LeadManager.tsx`, `src/lib/email/templates.ts`, `supabase/migrations/018_enrich_leads_for_application.sql`, `supabase/migrations/019_capture_preferred_package_on_leads.sql`, `tests/api/subscribe.test.ts`, `tests/api/admin-leads.test.ts`, `tests/unit/email-templates.test.ts`, `tests/unit/lead-manager-source.test.ts`, `tests/e2e/lead-magnet.public.spec.ts`, `outputs/visual-checks/lead-application-2026-06-12T10-44-12-915Z/summary.json`, `outputs/visual-checks/admin-leads-2026-06-12T11-08-24-260Z/summary.json`.
-- [x] Checkout UI/API listo solo en paquetes activos con Stripe IDs completos. Evidencia: `outputs/launch-payments/2026-06-05T21-58-33-837Z/summary.md`.
+- [x] Checkout UI/API exige alumno, email confirmado, aprobacion CRM exacta, intent unico, catalogo contractual completo y cuenta/modo Stripe coincidentes; la home nunca compra directamente. Evidencia: `src/pages/api/create-checkout.ts`, `src/lib/checkout-approval.ts`, `src/components/account/ApprovedCheckoutCard.tsx` y pruebas dirigidas.
 - [x] Politica 18+ aplicada en solicitud, diagnostico, registro, perfil servidor, campus y checkout; checkout conserva version/fecha en Stripe, el perfil no puede falsificarse desde cliente y el alumno sin declaración queda bloqueado en `/[lang]/adult-confirmation`. Evidencia: `src/lib/legal-policy.ts`, `src/lib/adult-account.ts`, formularios/API, middleware y migraciones `20260710120000_enforce_adult_lead_attestation.sql` y `20260710144000_enforce_adult_account_attestation.sql`.
 - [x] Cancelacion/caducidad/no-show alineados con terminos: 24 h restaura, <24 h consume, no-show desde +15 min y ninguna reserva posterior a `ends_at`; la cancelación y la restitución de cuota son atómicas e idempotentes. Evidencia: APIs de calendario, `20260710143000_cancel_scheduled_session_atomically.sql` y pruebas unitarias/concurrentes.
 - [x] Confirmacion post-pago incluye resumen contractual, renovacion, cuota, fechas, politica de clases, version de terminos y enlaces de soporte/desistimiento; la solicitud de inicio durante desistimiento se acepta por separado en checkout. Evidencia: `src/lib/email/templates.ts`, payload de fulfillment, webhook y checkout.
-- [ ] Checkout listo en datos reales de staging/live: paquetes activos tienen Stripe IDs del modo correcto y compra test completada.
-- [x] Supabase staging reconciliado y verificado hasta `20260710150000_staging_integration_smoke_runs.sql`, incluidas mayoría de edad, refunds, cancelación atómica y arnés cercado de smoke. Replay limpio independiente 37/37, RLS/grants comprobados y `db push --dry-run` posterior sin pendientes el 2026-07-10. Production solo tras backup/preflight y aprobación exacta.
+- [x] Contrato 1/3/6 coherente con runtime: el total se cobra al inicio y concede un banco flexible de `sesiones/mes × meses`, sin tope mensual y con caducidad al final; checkout, términos y email muestran el total del periodo. Evidencia: `src/components/PricingModal.tsx`, `src/pages/[lang]/legal/terminos.astro`, `docs/launch/PRODUCTS.md` y pruebas dirigidas.
+- [x] `group` y `hybrid` quedan application-only: pueden solicitarse y sincronizarse como catálogo, pero Admin/API bloquean aprobación y checkout. `group` espera roster/agenda/cuota grupal; `hybrid` espera además un alta verificable con dos profesores. El lanzamiento cobrable inicial queda limitado a `standard` y `bootcamp`. Evidencia: `src/lib/package-pricing.ts`, `src/pages/api/admin/leads.ts`, `src/pages/api/create-checkout.ts`, UI Admin y pruebas.
+- [ ] Checkout listo en staging: la migracion billing ya esta aplicada; faltan crear/seleccionar el Sandbox dedicado, sincronizar sus 12 ofertas, fijar webhook/Portal y completar una compra test. Live se hace solo en la ventana final.
+- [x] Supabase staging reconciliado hasta `20260710223900_harden_checkout_customer_and_snapshot_immutability.sql`; RLS, grants, RPC de Customer exacto, evidencia legal inmutable, serializacion por alumno, recuperacion huérfana, conversion CRM exacta y columnas contractuales verificados por SQL, tipos locales alineados y `db lint` sin errores. Continuan cero `package_prices` activas hasta sincronizar el Sandbox correcto.
+- [ ] Resolver suscripciones Stripe heredadas antes del rollout billing production. Evidencia read-only 2026-07-10: staging tiene `0` suscripciones Stripe sin `package_price_id`; production, antes de tener esa columna, conserva `27` IDs Stripe del entorno test antiguo (`26` canceladas `essential` de 3 meses y `1` activa `standard` de 6 meses). Confirmar que son fixtures y limpiarlas con respaldo/evidencia, o reconstruir su contrato inmutable; no aplicar billing production ni habilitar webhook live mientras quede alguna sin vinculo.
+- [ ] Revisar advisors de seguridad/rendimiento de Supabase despues del cambio billing; el conector instalado no tiene permiso sobre `mzjyvmlxfpzdfdjzxxyj`, por lo que este control no se da por cerrado con el linter SQL.
 - [ ] Flujo registro antes de pago validado de extremo a extremo con alta nueva. Parcial: login real de admin/profesor y bloqueo 18+ del alumno validados en la URL estable de staging el 2026-07-10; falta completar un alta nueva deliberada.
 
 ## Operacion
@@ -226,8 +235,12 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 ## Integraciones
 
 - [ ] Stripe test staging con compra, webhook, confirmacion contractual, portal, cancelacion y reembolso/reconciliacion.
+- [x] Arnes integral limitado a staging: exige primero `--preflight-only`, usa solo las tres cuentas `TEST_*`/allowlist existentes, crea cero usuarios Auth, no depende del buzon del alumno y limpia CRM, sesiones/suscripcion local, Google artifacts y job/audits temporales conservando IDs reutilizables. Evidencia: `scripts/smoke/real-env-smoke.ts`, `scripts/launch/staging-smoke-rehearsal-runner.ts` y `tests/unit/real-env-smoke-safety.test.ts`.
+- [ ] Gate temporal de checkout staging: generar/revisar `approval-request-staging-checkout-gate.md` y dar al runner su aprobacion exacta separada. Antes del primer write, el runner debe atestiguar la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, Worker `espanolhonesto-staging`, Supabase staging y runtimes web/fulfillment cerrados; solo entonces cambia `CHECKOUT_ENABLED_OVERRIDE=true`, re-atestigua antes del smoke y, dentro de `finally`, restaura/verifica `false` incluso ante fallo. Un rollback ambiguo mantiene el lanzamiento bloqueado.
+- [ ] Smoke integral staging ejecutado con `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` real, confirmacion manual del ciclo, todas las precondiciones verificadas antes del primer write y cleanup `ok`.
+- [x] Smoke production separado: `scripts/smoke/real-env-smoke.ts` esta prohibido en production; el launch day usa `production-minimal-smoke-checklist.md` manual, sin usuarios sinteticos ni repetir la matriz Drive/Calendar/email. Evidencia: `scripts/launch/final-smoke-execution-pack.ts`, `scripts/launch/final-readiness-audit.ts` y `docs/launch/RUNBOOK.md`.
 - [x] Aviso de renovación implementado localmente: `invoice.upcoming` encola `renewal_notice` durable e idempotente y envía fecha, importe, periodo, plazo/canales y consecuencia en ES/EN/RU mediante la pasarela de email.
-- [ ] Gate externo: configurar `invoice.upcoming` a 15 días en los webhooks Stripe test/live y verificar una entrega real en staging antes de habilitar cobros.
+- [ ] Gate externo: configurar el webhook con los ocho eventos requeridos por `src/lib/stripe-webhook-events.ts`, incluido `checkout.session.expired`; fijar `invoice.upcoming` a 15 días y verificar entregas reales en staging antes de habilitar cobros.
 - [ ] Stripe live production en la ventana final: el lanzamiento aceptara pagos reales desde el primer dia; mantener default y override `false` hasta Go/No-Go.
 - [x] Google folders/templates staging. Root, plantilla, Docs, Calendar y Meet quedaron verificados en el smoke cercado del 2026-07-10 después de compartir el calendario externo de `TEST_TEACHER_EMAIL` con `GOOGLE_ADMIN_EMAIL` usando “ver solo libre/ocupado”. El ensayo creó y verificó carpeta, documento, evento y Meet, añadió deberes, envió exactamente un email allowlisted y terminó con `cleanup=ok` y `result=ok`; la cuenta del alumno no compartió calendario ni concedió permisos.
 - [ ] Guardar IDs Google staging en KeePassXC.
@@ -243,6 +256,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [ ] Privacidad revisada. ES/EN/RU ya comparten estructura, politica 18+ y subprocesadores; falta validacion legal humana del texto completo y transferencias/retencion.
 - [ ] Cookies revisada.
 - [ ] Terminos revisados. Ya reflejan 18+, recurrencia 1/3/6, caducidad, 24 h, no-show +15 min, desistimiento, devoluciones y modelo; falta asesoria y validacion externa de aviso de renovacion/portal/reembolso.
+- [ ] Fiscalidad/facturación confirmada antes de live: un asesor debe validar si los importes públicos son precios finales con impuestos incluidos o si el servicio está exento/usa otro tratamiento, y qué datos debe recoger la factura. El checkout actual falla cerrado a importe EUR exacto y no añade impuestos automáticamente; no crear Prices live ni abrir cobros hasta documentar esta decisión.
 - [ ] Subprocesadores revisados: Supabase, Stripe, Google, Resend, Sentry, Cloudflare.
 
 ## Marketing/SEO
@@ -268,7 +282,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [ ] Webhook.
 - [ ] Confirmacion contractual por email.
 - [ ] Cancelacion de renovacion en Stripe Portal.
-- [ ] Reembolso test y reconciliacion en `payments`.
+- [ ] Reembolso parcial y total en Stripe test, reconciliacion en `payments` y ejecución del procedimiento manual de cancelación/acceso/cuota/reservas sin repetir el reembolso.
 - [ ] Drive bienvenida.
 - [ ] Email bienvenida.
 - [ ] Reserva clase.

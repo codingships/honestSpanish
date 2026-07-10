@@ -345,6 +345,7 @@ describe('/api/admin/crm/contact-actions', () => {
         expect(opportunityLookup.eq).toHaveBeenCalledWith('id', opportunityBefore.id);
         expect(opportunityUpdate.update).toHaveBeenCalledWith({
             stage: 'contacted',
+            checkout_approved_at: null,
             updated_at: expect.any(String),
         });
         expect(opportunityUpdate.eq).toHaveBeenCalledWith('id', opportunityBefore.id);
@@ -764,6 +765,7 @@ describe('/api/admin/crm/contact-actions', () => {
         expect(updateQuery.update).toHaveBeenCalledWith({
             stage: 'qualified',
             closed_at: null,
+            checkout_approved_at: null,
             updated_at: expect.any(String),
         });
         expect(contactUpdate.update).toHaveBeenCalledWith({

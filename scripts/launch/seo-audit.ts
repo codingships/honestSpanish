@@ -348,6 +348,10 @@ function reviewLlmSurface(): Finding {
             'Mensual Estándar',
             'Híbrido Mensual',
             'Intensivo Bootcamp',
+            'For current prices, duration totals and availability',
+            'Do not quote a price from this file',
+            'only Mensual Estándar and Intensivo Bootcamp may proceed to an approved checkout',
+            'Grupal Externo and Híbrido Mensual accept applications but do not offer checkout',
             '## How To Apply',
             'The primary public action is to apply for a place, not to buy immediately.',
             'https://espanolhonesto.com/es#contacto',
@@ -381,6 +385,10 @@ function reviewLlmSurface(): Finding {
             'Grupal Externo: 4 private classes per month',
             'buy immediately without review',
             'guaranteed human level test',
+            '50 EUR/month',
+            '145 EUR/month',
+            '150 EUR/month',
+            '345 EUR/month',
         ]),
     ];
 

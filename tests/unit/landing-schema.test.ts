@@ -86,6 +86,7 @@ describe('buildLandingSchema', () => {
             offers: {
                 price: '150',
                 priceCurrency: 'EUR',
+                availability: 'https://schema.org/PreOrder',
                 url: 'https://espanolhonesto.com/es#contacto',
             },
             potentialAction: {
@@ -152,5 +153,21 @@ describe('buildLandingSchema', () => {
             description: '4 sesiones grupales de conversacion al mes si hay grupo compatible, grupo segun compatibilidad de nivel e intereses',
         });
         expect(courses[0].description).not.toContain('clases privadas');
+        expect((courses[0] as { offers: { availability: string } }).offers.availability).toBe('https://schema.org/PreOrder');
+    });
+
+    it('marks only launch-sellable packages as in stock', () => {
+        const standard = { ...basePackage, name: 'standard' };
+        const bootcamp = { ...basePackage, name: 'bootcamp' };
+        const courses = courseNodes(buildLandingSchema('es', translate, [standard, bootcamp, basePackage, groupPackage]));
+
+        expect(courses.map((course) => (
+            course as { offers: { availability: string } }
+        ).offers.availability)).toEqual([
+            'https://schema.org/InStock',
+            'https://schema.org/InStock',
+            'https://schema.org/PreOrder',
+            'https://schema.org/PreOrder',
+        ]);
     });
 });

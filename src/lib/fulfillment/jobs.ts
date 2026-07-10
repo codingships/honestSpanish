@@ -99,13 +99,19 @@ async function processRenewalNotice(
         throw studentError ?? new Error('Student email not found for renewal notice');
     }
 
-    const { data: pkg, error: packageError } = await supabaseAdmin
-        .from('packages')
-        .select('name, display_name')
-        .eq('id', payload.packageId)
-        .single();
-    if (packageError || !pkg) {
-        throw packageError ?? new Error('Package not found for renewal notice');
+    let packageKey = payload.packageKey;
+    let packageDisplayName = payload.packageDisplayName;
+    if (!packageKey || !packageDisplayName) {
+        const { data: pkg, error: packageError } = await supabaseAdmin
+            .from('packages')
+            .select('name, display_name')
+            .eq('id', payload.packageId)
+            .single();
+        if (packageError || !pkg) {
+            throw packageError ?? new Error('Package not found for renewal notice');
+        }
+        packageKey = pkg.name;
+        packageDisplayName = pkg.display_name;
     }
 
     const locale = normalizeWelcomeLocale(student.preferred_language) as 'es' | 'en' | 'ru';
@@ -113,7 +119,7 @@ async function processRenewalNotice(
     const emailSent = await sendRenewalNoticeEmail(student.email, {
         locale,
         studentName: student.full_name || 'Estudiante',
-        packageName: localizedPackageName(pkg.display_name, pkg.name, locale),
+        packageName: localizedPackageName(packageDisplayName, packageKey, locale),
         renewalAt: payload.renewalAt,
         cancelBy: payload.cancelBy,
         durationMonths: payload.durationMonths as number,
@@ -156,14 +162,22 @@ async function processWelcomeFulfillment(
         throw studentError ?? new Error('Student not found for welcome fulfillment');
     }
 
-    const { data: pkg, error: packageError } = await supabaseAdmin
-        .from('packages')
-        .select('name, display_name')
-        .eq('id', payload.packageId)
-        .single();
+    let packageKey = payload.packageKey;
+    let packageDisplayName = payload.packageDisplayName;
+    if (!packageKey || !packageDisplayName) {
+        // Compatibility for jobs queued before contractual package snapshots
+        // were embedded in the durable payload.
+        const { data: pkg, error: packageError } = await supabaseAdmin
+            .from('packages')
+            .select('name, display_name')
+            .eq('id', payload.packageId)
+            .single();
 
-    if (packageError || !pkg) {
-        throw packageError ?? new Error('Package not found for welcome fulfillment');
+        if (packageError || !pkg) {
+            throw packageError ?? new Error('Package not found for welcome fulfillment');
+        }
+        packageKey = pkg.name;
+        packageDisplayName = pkg.display_name;
     }
 
     const studentPrivate = await getPrivateProfile(payload.userId, supabaseAdmin);
@@ -193,7 +207,7 @@ async function processWelcomeFulfillment(
     }
 
     const welcomeLocale = normalizeWelcomeLocale(student.preferred_language) as 'es' | 'en' | 'ru';
-    const packageName = localizedPackageName(pkg.display_name, pkg.name, welcomeLocale);
+    const packageName = localizedPackageName(packageDisplayName, packageKey, welcomeLocale);
 
     const emailSent = await sendWelcomeEmail(student.email, {
         locale: welcomeLocale,

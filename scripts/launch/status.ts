@@ -391,6 +391,7 @@ const cloudflareProductionRuntimeCutoverPreflight = readLatestJson<CheckBackedSu
 const cloudflareProductionRuntimeCutover = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-runtime-cutover', 'summary.json');
 const cloudflareProductionWorkerPhaseOne = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-worker-phase1', 'summary.json');
 const cloudflareProductionWorkerSecrets = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-worker-secrets', 'summary.json');
+const cloudflareProductionFulfillmentSecrets = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-fulfillment-secrets', 'summary.json');
 const supabaseProcessedAtCleanupRunner = readLatestJson<CheckBackedSummary>('launch-supabase-processed-at-cleanup-runner', 'summary.json');
 const supabaseProcessedAtReadonlyPreflight = latestGeneratedPath('supabase-processed-at-readonly-preflight', 'summary.md');
 const strictQaTracker = readLatestStrictQaResults();
@@ -686,6 +687,11 @@ const sources: SourceRef[] = [
         label: 'cloudflare production Worker secrets runner',
         status: cloudflareProductionWorkerSecrets?.data.status ?? 'missing',
         path: cloudflareProductionWorkerSecrets?.file ?? null,
+    },
+    {
+        label: 'cloudflare production Fulfillment secrets runner',
+        status: cloudflareProductionFulfillmentSecrets?.data.status ?? 'missing',
+        path: cloudflareProductionFulfillmentSecrets?.file ?? null,
     },
     {
         label: 'supabase processed_at read-only preflight',
@@ -1421,7 +1427,7 @@ function buildCurrentEvidence(sourceRefs: SourceRef[]): CurrentEvidence[] {
         {
             sourceLabel: 'cloudflare production runtime cutover',
             label: 'Cloudflare Production Runtime Cutover',
-            role: 'Local approval and rollback package for production Worker creation, secret-name phase and later espanolhonesto.com/www domain move.',
+            role: 'Local approval and rollback package that keeps production Worker existence, Worker secret setup, direct Worker verification and the later espanolhonesto.com/www domain move as separate phases.',
         },
         {
             sourceLabel: 'cloudflare production Worker phase 1 runner',
@@ -1431,7 +1437,12 @@ function buildCurrentEvidence(sourceRefs: SourceRef[]): CurrentEvidence[] {
         {
             sourceLabel: 'cloudflare production Worker secrets runner',
             label: 'Cloudflare Production Worker Secrets Runner',
-            role: 'Plan-only and exact-gated runner for future Worker secret-name loading plus optional direct Worker URL probes; plan mode does not call Cloudflare and approved mode stores no secret values in outputs.',
+            role: 'Plan-only and exact-gated web Worker secret-name runner; approved mode requires account/ref/live-mode/site/env/direct-URL validation plus identity/version/Supabase attestation.',
+        },
+        {
+            sourceLabel: 'cloudflare production Fulfillment secrets runner',
+            label: 'Cloudflare Production Fulfillment Secrets Runner',
+            role: 'Separate plan-only route for Fulfillment production Supabase/Google/Resend/email config and secret names; approved mode attests identity/version/Supabase without sending email or processing jobs.',
         },
         {
             sourceLabel: 'supabase processed_at read-only preflight',
@@ -1996,6 +2007,9 @@ interface ClosureWorksheetPaths {
     cloudflareProductionWorkerSecretsPlan: string;
     cloudflareProductionWorkerSecretsApprovalGate: string;
     cloudflareProductionWorkerSecretsRollback: string;
+    cloudflareProductionFulfillmentSecretsRunner: string;
+    cloudflareProductionFulfillmentSecretsPlan: string;
+    cloudflareProductionFulfillmentSecretsApprovalGate: string;
     legalWorksheet: string;
     legalFinalInputsPackage: string;
     legalFinalInputsManifest: string;
@@ -2093,6 +2107,9 @@ function renderFinalClosurePack(statusReport: StatusReport): string {
         cloudflareProductionWorkerSecretsPlan: toRelative(latestGeneratedPath('launch-cloudflare-production-worker-secrets', 'cloudflare-worker-secrets-execution-plan.md')) || 'outputs/launch-cloudflare-production-worker-secrets/<timestamp>/cloudflare-worker-secrets-execution-plan.md',
         cloudflareProductionWorkerSecretsApprovalGate: toRelative(latestGeneratedPath('launch-cloudflare-production-worker-secrets', 'approval-gate.md')) || 'outputs/launch-cloudflare-production-worker-secrets/<timestamp>/approval-gate.md',
         cloudflareProductionWorkerSecretsRollback: toRelative(latestGeneratedPath('launch-cloudflare-production-worker-secrets', 'rollback-after-worker-secrets.md')) || 'outputs/launch-cloudflare-production-worker-secrets/<timestamp>/rollback-after-worker-secrets.md',
+        cloudflareProductionFulfillmentSecretsRunner: toRelative(latestGeneratedPath('launch-cloudflare-production-fulfillment-secrets', 'summary.md')) || 'outputs/launch-cloudflare-production-fulfillment-secrets/<timestamp>/summary.md',
+        cloudflareProductionFulfillmentSecretsPlan: toRelative(latestGeneratedPath('launch-cloudflare-production-fulfillment-secrets', 'execution-plan.md')) || 'outputs/launch-cloudflare-production-fulfillment-secrets/<timestamp>/execution-plan.md',
+        cloudflareProductionFulfillmentSecretsApprovalGate: toRelative(latestGeneratedPath('launch-cloudflare-production-fulfillment-secrets', 'approval-gate.md')) || 'outputs/launch-cloudflare-production-fulfillment-secrets/<timestamp>/approval-gate.md',
         legalWorksheet: toRelative(latestGeneratedPath('launch-legal', 'legal-closure-worksheet.md')) || 'missing',
         legalFinalInputsPackage: toRelative(latestGeneratedPath('launch-legal-final-inputs', 'legal-final-inputs-package.md')) || 'outputs/launch-legal-final-inputs/<timestamp>/legal-final-inputs-package.md',
         legalFinalInputsManifest: toRelative(latestGeneratedPath('launch-legal-final-inputs', 'legal-final-inputs-manifest.json')) || 'outputs/launch-legal-final-inputs/<timestamp>/legal-final-inputs-manifest.json',
@@ -2287,7 +2304,7 @@ function renderFinalClosurePack(statusReport: StatusReport): string {
         '| T-24h | Alin/Codex | Run Supabase backup/export outside the repo or confirm Pro upgrade/accepted risk. | `database_readiness`, Go/No-Go. |',
         '| T-12h | Alin/Codex | Rotate final keys and validate secrets in Cloudflare, Supabase, Stripe, Google, Resend, Turnstile and Sentry. | `security_external`, `integration_readiness`. |',
         '| T-6h | Codex | Run local final-support audits: security, operations, payments, SEO, final readiness and status. | Final manual evidence. |',
-        '| T-3h | Alin/Codex | Run final smoke in staging/production according to payment and integration decisions. | `final_smoke`. |',
+        '| T-3h | Alin/Codex | Finish the gated full lifecycle rehearsal in staging, then run only the minimal manual production checklist. | `final_smoke`. |',
         '| T-1h | Alin | Review manual evidence, accept non-critical risks if any, and decide Go/No-Go. | `launchDecision`. |',
         '| T-0 | Codex | Run `pnpm launch:gate`, `pnpm launch:secondary-review` and `pnpm launch:status`. | `READY` or `NO-GO`. |',
         '',
@@ -2301,11 +2318,11 @@ function renderFinalClosurePack(statusReport: StatusReport): string {
         '6. Run Supabase backup/export outside the repo, confirm Pro upgrade, or record accepted risk using docs/launch/SUPABASE_BACKUP_RUNBOOK.md before key rotation or production/destructive changes.',
         '7. Resolve standalone strict-QA tracker blockers listed above, including any approved Supabase cleanup migration or explicit accepted-risk decision, then regenerate the tracker.',
         '8. Rotate keys only in the final deployment window, after copy, legal, payments and domain are final.',
-        `9. Resolve Cloudflare production runtime posture using ${paths.cloudflareDomainWorkerPreflight}, ${paths.cloudflareProductionRuntimeReadonly}, ${paths.cloudflareProductionRuntimeCutoverPreflight}, ${paths.cloudflareProductionWorkerVariableMatrix}, ${paths.cloudflareProductionRuntimeCutover}, the Worker-create runner ${paths.cloudflareProductionWorkerPhaseOneRunner} and the Worker secret-name/direct-probe runner ${paths.cloudflareProductionWorkerSecretsRunner}: production Worker \`espanolhonesto\` must exist, required Worker secret names must be present, the direct Worker URL must pass non-destructive probes, and \`espanolhonesto.com\`/\`www.espanolhonesto.com\` must move off old Pages only after separate explicit approval. Use ${paths.cloudflareProductionRuntimePhaseOneApproval}, ${paths.cloudflareProductionWorkerPhaseOneApprovalGate} and ${paths.cloudflareProductionWorkerSecretsApprovalGate} for their own phases only; they are not domain approval.`,
+        `9. Resolve Cloudflare production runtime posture using ${paths.cloudflareDomainWorkerPreflight}, ${paths.cloudflareProductionRuntimeReadonly}, ${paths.cloudflareProductionRuntimeCutoverPreflight}, ${paths.cloudflareProductionWorkerVariableMatrix}, ${paths.cloudflareProductionRuntimeCutover}, the Worker-create runner ${paths.cloudflareProductionWorkerPhaseOneRunner}, the web secrets/attestation runner ${paths.cloudflareProductionWorkerSecretsRunner} and the separate fulfillment config/secrets/email runner ${paths.cloudflareProductionFulfillmentSecretsRunner}: both production Workers must exist and attest exact identity/version/Supabase before a separately approved domain move. Use ${paths.cloudflareProductionRuntimePhaseOneApproval}, ${paths.cloudflareProductionWorkerPhaseOneApprovalGate}, ${paths.cloudflareProductionWorkerSecretsApprovalGate} and ${paths.cloudflareProductionFulfillmentSecretsApprovalGate} for their own phases only; they are not domain approval.`,
         '10. Rotate keys only after the production runtime/domain/payment/legal posture is settled, and never store key values in evidence.',
         `11. Verify production integrations using ${paths.integrationWorksheet} and ${paths.integrationFinalPackage}: Cloudflare Pages-vs-Worker domain ownership, production Worker secrets/direct probe, Supabase, Google, Resend, Turnstile, Sentry and logs. Use ${paths.stripeWebhookCutoverPack} plus ${paths.stripeWebhookCutoverRunner}, ${paths.turnstileDomainClosurePack} plus ${paths.turnstileDomainClosureRunner}, ${paths.sentryTriagePack} plus ${paths.sentryIssueTriageRunner}, and the staging rehearsal runner ${paths.stagingSmokeRehearsalRunner} for the current Stripe webhook, Turnstile dashboard, Sentry issue and pre-final staging lifecycle decisions. Include the legacy Worker espanol-honesto-reminders decision, Supabase Advisor findings and staging migration-history decision.`,
         `12. Close SEO/LLM after final copy/legal/domain settle using ${paths.seoWorksheet} and ${paths.seoLlmFinalPackage}; run the live-domain read-only probe, verify that the live custom domains serve the modern Worker build rather than the old Pages project, then verify marketing plan parity and the Cyrillic typography decision against docs/launch/LAUNCH_MARKETING_PLAN.md and docs/launch/SEO_LLM_FINAL.md.`,
-        '13. Run or review the staging rehearsal using ' + paths.stagingSmokeRehearsalRunner + ' first when exact staging approval is available; then run final user smoke using ' + paths.finalSmokeWorksheet + ' and ' + paths.finalSmokeExecutionPack + '; review ' + paths.finalSmokeExecutionApproval + ' before any write-capable production smoke and include a rendered `/ru` visual check if font assets changed.',
+        '13. Run or review the full staging-only rehearsal using ' + paths.stagingSmokeRehearsalRunner + ' after the separate checkout-gate approval and read-only preflight; then complete only the minimal manual production checklist from ' + paths.finalSmokeExecutionPack + ' and ' + paths.finalSmokeWorksheet + '. Never run `real-env-smoke.ts` against production; review ' + paths.finalSmokeExecutionApproval + ' and include a rendered `/ru` spot check if font assets changed.',
         '14. Run the final commands below and make the Go/No-Go decision from fresh evidence.',
         '',
         '## Final Commands',
@@ -2316,6 +2333,7 @@ function renderFinalClosurePack(statusReport: StatusReport): string {
         'pnpm launch:final-readiness',
         'pnpm launch:cloudflare-production-runtime-readonly',
         'pnpm launch:cloudflare-production-worker-secrets',
+        'pnpm launch:cloudflare-production-fulfillment-secrets',
         'pnpm launch:integration-final-package',
         'pnpm launch:staging-smoke-rehearsal-runner',
         'pnpm launch:sentry-issue-triage-runner',
@@ -2359,6 +2377,9 @@ function renderFinalClosurePack(statusReport: StatusReport): string {
         `| Cloudflare Worker Secrets Runner Plan | ${escapeCell(paths.cloudflareProductionWorkerSecretsPlan)} |`,
         `| Cloudflare Worker Secrets Approval Gate | ${escapeCell(paths.cloudflareProductionWorkerSecretsApprovalGate)} |`,
         `| Cloudflare Worker Secrets Runner Rollback | ${escapeCell(paths.cloudflareProductionWorkerSecretsRollback)} |`,
+        `| Cloudflare Fulfillment Secrets Runner Summary | ${escapeCell(paths.cloudflareProductionFulfillmentSecretsRunner)} |`,
+        `| Cloudflare Fulfillment Secrets Runner Plan | ${escapeCell(paths.cloudflareProductionFulfillmentSecretsPlan)} |`,
+        `| Cloudflare Fulfillment Secrets Approval Gate | ${escapeCell(paths.cloudflareProductionFulfillmentSecretsApprovalGate)} |`,
         '| Launch Marketing Plan | docs/launch/LAUNCH_MARKETING_PLAN.md |',
         `| Legal Worksheet | ${escapeCell(paths.legalWorksheet)} |`,
         `| Legal Final Inputs Package | ${escapeCell(paths.legalFinalInputsPackage)} |`,
@@ -2559,11 +2580,11 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
         case 'integration_readiness':
             return {
                 what: 'Production-facing external services must be named, reachable, monitored and rollback-safe.',
-                closeWith: `${paths.integrationWorksheet}; ${paths.integrationFinalPackage}; ${paths.integrationFinalManifest}; ${paths.integrationServiceMatrix}; ${paths.stripeWebhookCutoverPack}; ${paths.stripeWebhookCutoverRunner}; ${paths.turnstileDomainClosurePack}; ${paths.turnstileDomainClosureRunner}; ${paths.sentryTriagePack}; ${paths.sentryIssueTriageRunner}; ${paths.cloudflareDomainWorkerPreflight}; ${paths.cloudflareProductionRuntimeReadonly}; ${paths.cloudflareProductionRuntimeCutoverPreflight}; ${paths.cloudflareProductionWorkerVariableMatrix}; ${paths.cloudflareProductionRuntimeCutover}; ${paths.cloudflareProductionWorkerPhaseOneRunner}; ${paths.cloudflareProductionWorkerSecretsRunner}; ${paths.stagingSmokeRehearsalRunner}; ${paths.finalRunbook}`,
-                evidenceMinimum: 'Generated integration final package and service evidence matrix reviewed; Cloudflare Pages-vs-Worker domain ownership, current Wrangler read-only runtime snapshot, production Worker existence, required Worker secret names, direct Worker URL probes, generated Cloudflare production runtime cutover manifest, Supabase, Google, Resend, Turnstile, Sentry/log checks, staging smoke rehearsal plan or approved run, and rollback baseline recorded without secrets. Include Stripe test/live day-one payment posture and checkout rollback, legacy Worker, Supabase Advisor, staging migration-history, Supabase processed_at drift and Stripe evidence-source decisions.',
+                closeWith: `${paths.integrationWorksheet}; ${paths.integrationFinalPackage}; ${paths.integrationFinalManifest}; ${paths.integrationServiceMatrix}; ${paths.stripeWebhookCutoverPack}; ${paths.stripeWebhookCutoverRunner}; ${paths.turnstileDomainClosurePack}; ${paths.turnstileDomainClosureRunner}; ${paths.sentryTriagePack}; ${paths.sentryIssueTriageRunner}; ${paths.cloudflareDomainWorkerPreflight}; ${paths.cloudflareProductionRuntimeReadonly}; ${paths.cloudflareProductionRuntimeCutoverPreflight}; ${paths.cloudflareProductionWorkerVariableMatrix}; ${paths.cloudflareProductionRuntimeCutover}; ${paths.cloudflareProductionWorkerPhaseOneRunner}; ${paths.cloudflareProductionWorkerSecretsRunner}; ${paths.cloudflareProductionFulfillmentSecretsRunner}; ${paths.stagingSmokeRehearsalRunner}; ${paths.finalRunbook}`,
+                evidenceMinimum: 'Generated integration final package and service evidence matrix reviewed; Cloudflare Pages-vs-Worker domain ownership, current Wrangler read-only snapshot, both production Workers, separate web/fulfillment secret-name posture, direct identity/version/Supabase attestations, cutover manifest, Supabase, Google, Resend, Turnstile, Sentry/log checks, staging smoke rehearsal and rollback baseline recorded without secrets.',
                 preflightDecisions: [
                     'Run pnpm launch:integration-final-package after final-readiness and provider read-only evidence refreshes.',
-                    'Use cloudflare-domain-worker-preflight.md, pnpm launch:cloudflare-production-runtime-readonly, pnpm launch:cloudflare-production-runtime-cutover-preflight, pnpm launch:cloudflare-production-runtime-cutover, pnpm launch:cloudflare-production-worker-phase1 and pnpm launch:cloudflare-production-worker-secrets before any Cloudflare domain write: production Worker creation, Worker secret setup, direct Worker verification and domain move are separate approval phases.',
+                    'Use cloudflare-domain-worker-preflight.md, pnpm launch:cloudflare-production-runtime-readonly, pnpm launch:cloudflare-production-runtime-cutover-preflight, pnpm launch:cloudflare-production-runtime-cutover, pnpm launch:cloudflare-production-worker-phase1, pnpm launch:cloudflare-production-worker-secrets and pnpm launch:cloudflare-production-fulfillment-secrets before any domain write: web deploy, web secrets, fulfillment config/secrets/email, direct attestations and domain move are separate approval phases.',
                     'Run pnpm launch:staging-smoke-rehearsal-runner in plan mode before any staging lifecycle smoke; execute it only with exact STAGING_SMOKE_REHEARSAL_APPROVAL and --execute-approved.',
                     'Do not mark integration_readiness pass while espanolhonesto.com/www are still attached to the old Pages project or production Worker espanolhonesto is absent.',
                     'Decide whether Cloudflare legacy Worker espanol-honesto-reminders is disabled/deleted or documented as non-interfering.',
@@ -2584,6 +2605,7 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
                     `command_output=${paths.cloudflareProductionRuntimeCutover}::Cloudflare production runtime cutover manifest reviewed and phased evidence completed`,
                     `command_output=${paths.cloudflareProductionWorkerPhaseOneRunner}::Cloudflare phase-1 runner summary reviewed; external write performed only under exact approval`,
                     `command_output=${paths.cloudflareProductionWorkerSecretsRunner}::Cloudflare secret-name/direct-probe runner summary reviewed; external write performed only under exact approval`,
+                    `command_output=${paths.cloudflareProductionFulfillmentSecretsRunner}::Cloudflare fulfillment config/secrets/email runner summary reviewed; no email or job writes in this phase`,
                     `command_output=${paths.stagingSmokeRehearsalRunner}::staging smoke rehearsal runner reviewed; external write performed only under exact approval`,
                     'dashboard=External dashboards checked with secrets redacted',
                     'manual_note=Final integration config, Cloudflare custom-domain Worker posture, Stripe live day-one payment posture, observability and rollback reviewed, including espanol-honesto-reminders, Supabase Advisor and Stripe evidence-source decisions',

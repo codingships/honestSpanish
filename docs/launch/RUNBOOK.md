@@ -2,16 +2,17 @@
 
 ## Flujo Critico
 
-1. Usuario se registra.
-2. Usuario compra con Stripe Checkout.
-3. Webhook crea `subscriptions` y `payments`.
-4. Webhook encola `welcome_fulfillment`.
-5. Cloudflare Fulfillment Worker procesa jobs y crea Drive/email.
-6. Admin/teacher reserva clase.
-7. Cloudflare encola `session_fulfillment`.
-8. Cloudflare Fulfillment Worker crea Doc, Calendar, Meet y emails.
-9. El cron horario del Fulfillment Worker procesa como maximo 5 jobs pendientes/reintentos y despues envia recordatorios.
-10. Los endpoints internos/manuales permiten procesar o recuperar jobs sin esperar al siguiente cron.
+1. Usuario adulto se registra y confirma su email.
+2. Admin revisa la solicitud y aprueba una oportunidad CRM para un paquete contractual sincronizado.
+3. Campus reclama un `checkout_intent` unico y abre Stripe Checkout para esa oferta inmutable.
+4. Webhook real completa el intent, crea/reconcilia `subscriptions` y `payments` y convierte la oportunidad exacta.
+5. Webhook encola `welcome_fulfillment` con el snapshot contractual.
+6. Cloudflare Fulfillment Worker procesa jobs y crea Drive/email.
+7. Admin/teacher reserva clase.
+8. Cloudflare encola `session_fulfillment`.
+9. Cloudflare Fulfillment Worker crea Doc, Calendar, Meet y emails.
+10. El cron horario del Fulfillment Worker procesa como maximo 5 jobs pendientes/reintentos y despues envia recordatorios.
+11. Los endpoints internos/manuales permiten procesar o recuperar jobs sin esperar al siguiente cron.
 
 ## Incidentes
 
@@ -26,9 +27,11 @@ Revisar:
 
 Recuperacion:
 
-- Confirmar pago en Stripe.
-- Crear/reconciliar suscripcion manualmente solo si no existe.
-- Encolar fulfillment si falta.
+- Confirmar en Stripe la Session, factura, suscripcion, Price, importe, cuenta y modo exactos.
+- Confirmar en Supabase el `checkout_intent`, `package_price`, oportunidad CRM y estado de `processed_webhook_events`.
+- Reenviar/reintentar el mismo evento real desde Stripe; el lease y las escrituras idempotentes deben recuperar el flujo.
+- No insertar manualmente una suscripcion, pago o conversion CRM: eso saltaria el contrato inmutable y puede duplicar cobros/cuota. Si el evento real sigue fallando, bloquear nuevos checkouts y preparar una reconciliacion transaccional especifica con revision y evidencia.
+- Encolar fulfillment solo despues de verificar que la suscripcion y el pago locales corresponden exactamente a la factura.
 
 ### Suscripcion sin Drive/email
 
@@ -84,14 +87,16 @@ Recuperacion:
 Revisar:
 
 - `/es/campus/admin/packages`.
-- `stripe_price_1m`, `stripe_price_3m`, `stripe_price_6m`.
-- Modo Stripe correcto.
+- Tres punteros `stripe_price_1m/3m/6m` y tres filas `package_prices` activas de la version actual.
+- `stripe_account_id`, `stripe_livemode`, Product, importe EUR, intervalo y cuota coincidentes.
 
 Recuperacion:
 
 - Guardar paquete.
 - Sincronizar Stripe desde CRM.
-- Confirmar que vuelve a estar checkout-ready.
+- Confirmar que la activacion RPC termina antes de archivar Prices retirados y que vuelve a estar checkout-ready.
+
+No usar scripts que escriban directamente `packages.stripe_*`; la unica ruta soportada es Admin > Paquetes, que verifica la cuenta y llama `activate_package_price`.
 
 ### Desistimiento o reembolso
 
@@ -130,21 +135,25 @@ Objetivo: aceptar pagos reales desde el primer dia sin depender de editar `wrang
 Precondiciones obligatorias:
 
 1. `LEGAL_IDENTITY_MODE='verified'`, revision humana registrada y build production desbloqueada.
-2. Migraciones aplicadas en staging y production, incluida la atestacion 18+.
-3. Compra Stripe test staging completa: checkout, webhook idempotente, suscripcion/cuota, email contractual, Drive, portal, cancelacion y reembolso reconciliado.
+2. Migraciones aplicadas en staging y production, incluidas las cuatro migraciones billing desde `20260710205031_harden_billing_catalog_and_checkout_approval.sql` hasta `20260710223900_harden_checkout_customer_and_snapshot_immutability.sql`; `SUPABASE_EXPECTED_PROJECT_REF` coincide en ambos Workers. En production solo se aplican después de resolver las 27 suscripciones test heredadas y hacer backup lógico/manual.
+3. Compra Stripe test staging completa mediante aprobacion CRM e intent real: checkout, webhook idempotente, suscripcion/cuota, email contractual, Drive, portal, cancelacion y reembolso reconciliado.
 4. Confirmar en esa compra que el alcance inicial sigue siendo tarjeta, sin códigos promocionales, y que el importe de la renovación coincide con el resumen contractual.
-5. Worker web `espanolhonesto` y Fulfillment Worker `espanol-honesto-fulfillment-production` creados, conectados mediante `FULFILLMENT_SERVICE` y probados por URL directa sin mover aun el dominio.
-6. Keys, Price IDs y webhook secret live pertenecen todos al mismo modo/cuenta; webhook live apunta al Worker production.
-7. Stripe Portal permite cancelar al final del periodo; aviso de renovacion y canal de desistimiento estan operativos.
+5. Fulfillment Worker `espanol-honesto-fulfillment-production` creado primero en bootstrap inerte; sus secrets se cargan y reatestiguan mientras sigue inerte; después se despliega el Worker web `espanolhonesto` conectado mediante `FULFILLMENT_SERVICE`, se cargan sus secrets y se realiza una atestación dual fresca; la habilitación final de fulfillment se aprueba por separado y ambos se prueban por URL directa sin mover aún el dominio.
+6. Keys, Customers, Products, Prices y webhook secret live pertenecen a la cuenta exacta `STRIPE_EXPECTED_ACCOUNT_ID`; la cuenta es espanola y tiene details/charges/payouts habilitados.
+7. `STRIPE_PORTAL_CONFIGURATION_ID` es live, permite actualizar pago/ver facturas/cancelar al final del periodo y no permite cambiar de plan; aviso de renovacion y desistimiento estan operativos.
+8. Fiscalidad y facturación validadas: los importes públicos tienen tratamiento documentado como precio final, el asesor ha confirmado impuestos/exención y datos de factura, y Stripe no puede añadir un total inesperado que el webhook rechazaría.
 
 Secuencia:
 
-1. Ejecutar preflight read-only y declarar la cuenta Cloudflare, Worker `espanolhonesto`, cuenta/mode Stripe live y proyecto Supabase production que se van a tocar.
-2. Mantener `CHECKOUT_ENABLED=false` en config y `CHECKOUT_ENABLED_OVERRIDE=false` mientras se cargan/verifican secrets.
-3. Sincronizar paquetes production con Prices live y verificar que ningun ID empieza en test/mode incorrecto.
-4. Probar por URL directa production con checkout cerrado, luego fijar el secret runtime `CHECKOUT_ENABLED_OVERRIDE=true` solo en el Worker `espanolhonesto` con aprobacion exacta.
-5. Confirmar que la landing muestra checkout, que falta de aceptaciones devuelve 400 y que una compra real controlada recorre webhook, confirmacion y fulfillment.
-6. Registrar evidencia no secreta y abrir trafico. No imprimir keys, Checkout URLs privadas, emails, IDs de Google ni payloads completos.
+1. Ejecutar preflight read-only y declarar la cuenta Cloudflare, ambos Workers, cuenta/mode Stripe live y proyecto Supabase production que se van a tocar.
+2. Crear primero fulfillment inerte con `pnpm launch:cloudflare-production-fulfillment-bootstrap -- --execute-approved`; verificar `operationMode=bootstrap`, `crons=[]` y `503 FULFILLMENT_DISABLED`.
+3. Cargar/verificar primero los secrets de fulfillment con `pnpm launch:cloudflare-production-fulfillment-secrets -- --execute-approved`; usa `production_bootstrap` y debe seguir atestiguando email/jobs/cron inertes.
+4. Desplegar después el Worker web con `pnpm launch:cloudflare-production-worker-phase1 -- --execute-approved`, que revalida inmediatamente el bootstrap completo, manteniendo `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false`; luego cargar/verificar los secrets web con su runner separado.
+5. Habilitar fulfillment solo con `pnpm launch:cloudflare-production-fulfillment-enable -- --execute-approved`, que exige bootstrap, web, secret names y atestación antes de activar runtime/email live/cron.
+6. Sincronizar desde Admin los paquetes production con Prices live; verificar las 12 ofertas `package_prices` (4 x 3), account/mode y snapshots de Customer separados de staging.
+7. Probar por URL directa production con checkout cerrado, luego fijar el secret runtime `CHECKOUT_ENABLED_OVERRIDE=true` solo en el Worker `espanolhonesto` con aprobacion exacta.
+8. Confirmar que la landing sigue en `solicitar plaza`; aprobar un alumno/plan controlado y comprobar que solo Campus abre checkout, que falta de aceptaciones devuelve 400 y que la compra recorre intent, webhook, confirmacion y fulfillment.
+9. Registrar evidencia no secreta y abrir trafico. No imprimir keys, Checkout URLs privadas, emails, IDs de Google ni payloads completos.
 
 Rollback financiero inmediato:
 
@@ -152,6 +161,18 @@ Rollback financiero inmediato:
 2. Mantener webhook y fulfillment activos para terminar/reconciliar compras ya cobradas.
 3. No borrar Prices, clientes ni eventos; investigar y reembolsar desde Stripe cuando corresponda.
 4. Si el problema es fulfillment, pausar nuevas compras, recuperar jobs desde Admin &gt; Jobs y mantener trazabilidad de pagos.
+
+### Smoke Integral Staging Y Smoke Minimo Production
+
+El arnes `scripts/smoke/real-env-smoke.ts` es exclusivo de staging. Reutiliza las tres cuentas existentes `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` y `TEST_STUDENT_EMAIL`; `EMAIL_RECIPIENT_ALLOWLIST` debe contener exactamente esas tres direcciones. No crea usuarios Auth, no resetea contrasenas, no usa destinatarios `example.com` y no requiere abrir el buzon del alumno.
+
+Antes del primer write, `pnpm launch:staging-smoke-rehearsal-runner -- --execute-approved` ejecuta un subprocess `--preflight-only` que comprueba Supabase staging, Stripe test, catalogo contractual, roles/allowlist, un `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` real, `SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION=reviewed-real-events:<same-session>` y el gate desplegado. Si falla algo, el comando de writes no comienza.
+
+Checkout staging esta cerrado por defecto. Generar `approval-request-staging-checkout-gate.md` y obtener la aprobacion exacta separada para el runner. El runner primero atestigua en read-only la cuenta/Worker y los runtimes web/fulfillment con override `false`; solo entonces cambia `CHECKOUT_ENABLED_OVERRIDE=true`, vuelve a atestiguar antes de cualquier write de smoke y, dentro de `finally`, devuelve la misma variable a `false`. El cierre exige atestacion firmada y `403 Checkout is disabled`; si no puede verificarse tras los reintentos acotados, el estado es ambiguo y requiere cierre manual inmediato.
+
+El cleanup del harness debe eliminar su oportunidad/intento CRM, suscripcion/sesiones locales, Docs/eventos y job/audits temporales; restaurar notas, enlace Google y asignaciones; y conservar el usuario/folder reutilizable. Cualquier fallo de cleanup deja el smoke fallido. Esto evita acumular usuarios y filas en Supabase Free.
+
+En production no ejecutar este arnes. Usar `production-minimal-smoke-checklist.md`: paginas publicas/legales, login con cuentas existentes, salud de proveedores, estado intencional del checkout y, solo con aprobacion Stripe live separada, una unica compra deliberadamente propia.
 
 ## Deploy
 
@@ -162,12 +183,14 @@ Rollback financiero inmediato:
 3. CI debe pasar: typecheck, lint, tests, build, E2E publico y secrets-check.
 4. Merge a `staging`.
 5. GitHub Actions despliega primero el Cloudflare Fulfillment Worker staging y después el Astro Worker staging con `FULFILLMENT_SERVICE` apuntando al target ya existente.
-6. Validar smoke staging.
+6. Validar el smoke integral staging con el runner gated, preflight read-only, aprobacion Cloudflare del gate separada y cleanup completo.
 7. Abrir PR de `staging` hacia `main`.
 8. CI debe pasar.
 9. Merge a `main`.
 10. Aprobar el environment `production` en GitHub Actions.
-11. GitHub Actions despliega primero el Cloudflare Fulfillment Worker production y después el Astro Worker production con su binding. Los dominios se mueven desde Pages legado solo despues del probe directo y la aprobacion de cutover.
+11. GitHub Actions en `main` solo construye y ejecuta dry-runs production; no hace writes. Ejecutar manualmente los gates en orden: fulfillment bootstrap inerte, secrets fulfillment aún inertes, web, secrets web, atestación dual fresca y enable fulfillment. Los dominios se mueven desde Pages legado solo después del probe directo y la aprobación de cutover.
+
+La secuencia Cloudflare completa, sus nombres base seguros y los gates separados de web/fulfillment estan en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Astro 6 fija el entorno web durante el build: un deploy web que no use el `dist/server/wrangler.json` generado y validado no es un comando válido. Fulfillment sigue exigiendo su config y `--env` explícitos; los nombres base `espanolhonesto-env-required` y `espanol-honesto-fulfillment-env-required` mantienen los comandos ambiguos en fallo cerrado.
 
 ### Deploy Manual Local
 
@@ -176,7 +199,6 @@ pnpm typecheck
 pnpm fulfillment:typecheck
 pnpm lint
 pnpm test:run
-pnpm build
 pnpm secrets:check
 ```
 
@@ -184,17 +206,29 @@ Cloudflare local:
 
 ```bash
 # Staging es el destino seguro por defecto.
+pnpm build
 pnpm deploy
 
-# Solo en la ventana production aprobada.
-pnpm deploy:production
+# Solo en la ventana production aprobada. No sustituir por `pnpm build`.
+pnpm build:production:release
+pnpm exec wrangler deploy --config dist/server/wrangler.json --dry-run
+pnpm deploy:production # alias de dry-run; nunca escribe production
 ```
 
 Cloudflare Fulfillment Worker local:
 
 ```bash
 pnpm fulfillment:dev
+
+# Producción: plan primero; cada write exige su aprobación exacta separada.
+pnpm launch:cloudflare-production-fulfillment-bootstrap
+pnpm launch:cloudflare-production-fulfillment-secrets
+pnpm launch:cloudflare-production-worker-phase1
+pnpm launch:cloudflare-production-worker-secrets
+pnpm launch:cloudflare-production-fulfillment-enable
 ```
+
+La secuencia completa está en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Bootstrap, secrets fulfillment, web, secrets web y enable fulfillment son aprobaciones distintas. El runner de web se niega a desplegar sin un bootstrap ejecutado, con secrets completos y verificado de nuevo contra su versión remota actual. El runner de secrets fulfillment mantiene `production_bootstrap`; no envía emails ni procesa jobs. El runner enable es el único que despliega `--env production` y activa runtime/email/cron; si el resultado es fallido o ambiguo, restaura y verifica el bootstrap inerte. Las fases deben terminar con atestación autenticada de identidad, versión Cloudflare, modo operativo y ref Supabase exactos.
 
 ## Rotacion Final De Claves
 
@@ -225,7 +259,7 @@ pnpm launch:final-readiness
 pnpm launch:status
 ```
 
-7. Ejecutar smoke production antes de aceptar trafico publico.
+7. Ejecutar solo el smoke minimo/manual production antes de aceptar trafico publico; no repetir el arnes staging ni crear datos sinteticos masivos.
 8. Revocar claves antiguas y registrar evidencia no secreta en `docs/launch/MANUAL_EVIDENCE.local.json`.
 
 Notas por proveedor:

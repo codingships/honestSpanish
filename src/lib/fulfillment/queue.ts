@@ -13,6 +13,8 @@ export type FulfillmentJobPayload = {
     sessionIds?: string[];
     userId?: string;
     packageId?: string;
+    packageKey?: string;
+    packageDisplayName?: Json;
     subscriptionId?: string | null;
     durationMonths?: number;
     startsAt?: string;
@@ -93,6 +95,8 @@ export async function enqueueRenewalNotice(
         stripeSubscriptionId: string;
         userId: string;
         packageId: string;
+        packageKey?: string;
+        packageDisplayName?: Json;
         subscriptionId: string;
         renewalAt: string;
         cancelBy: string;
@@ -152,6 +156,8 @@ export async function enqueueWelcomeFulfillment(
     input: {
         userId: string;
         packageId: string;
+        packageKey?: string;
+        packageDisplayName?: Json;
         subscriptionId?: string | null;
         durationMonths?: number;
         startsAt?: string;

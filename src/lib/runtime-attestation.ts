@@ -1,4 +1,4 @@
-export const RUNTIME_ATTESTATION_SCHEMA = 1;
+export const RUNTIME_ATTESTATION_SCHEMA = 2;
 
 export type RuntimeAttestationRole = 'web' | 'fulfillment';
 
@@ -6,6 +6,7 @@ export type RuntimeAttestationConfig = {
     appEnvironment: string;
     checkoutEnabled: string;
     checkoutOverride: string;
+    fulfillmentRuntimeMode: string;
     fulfillmentUrlFingerprint: string;
     googleAdminFingerprint: string;
     googleBoundary: 'absent' | 'configured';
@@ -20,7 +21,14 @@ export type RuntimeAttestationConfig = {
     resendMode: string;
     resendMonthlyLimit: string;
     resendSenderFingerprint: string;
+    stripeBoundary: 'absent' | 'configured';
+    stripeExpectedAccountId: string;
+    stripePortalConfigurationId: string;
+    stripePublishableKeyFingerprint: string;
+    stripeSecretKeyFingerprint: string;
+    stripeWebhookSecretFingerprint: string;
     supabaseAnonFingerprint: string;
+    supabaseExpectedProjectRef: string;
     supabaseServiceRoleFingerprint: string;
     supabaseUrlFingerprint: string;
     workerIdentity: string;
@@ -73,10 +81,12 @@ export async function buildRuntimeAttestationConfig(
     env: Record<string, string | undefined>,
 ): Promise<RuntimeAttestationConfig> {
     const googleConfigured = role === 'fulfillment';
+    const stripeConfigured = role === 'web';
     return {
         appEnvironment: value(env, 'PUBLIC_APP_ENV'),
         checkoutEnabled: value(env, 'CHECKOUT_ENABLED'),
         checkoutOverride: value(env, 'CHECKOUT_ENABLED_OVERRIDE'),
+        fulfillmentRuntimeMode: role === 'fulfillment' ? value(env, 'FULFILLMENT_RUNTIME_MODE') : 'absent',
         fulfillmentUrlFingerprint: await runtimeFingerprint(role === 'web' ? value(env, 'FULFILLMENT_WORKER_URL') : ''),
         googleAdminFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_ADMIN_EMAIL') : ''),
         googleBoundary: googleConfigured ? 'configured' : 'absent',
@@ -91,7 +101,14 @@ export async function buildRuntimeAttestationConfig(
         resendMode: value(env, 'EMAIL_DELIVERY_MODE'),
         resendMonthlyLimit: value(env, 'EMAIL_MONTHLY_RECIPIENT_LIMIT'),
         resendSenderFingerprint: await runtimeFingerprint(sender(env)),
+        stripeBoundary: stripeConfigured ? 'configured' : 'absent',
+        stripeExpectedAccountId: stripeConfigured ? value(env, 'STRIPE_EXPECTED_ACCOUNT_ID') : '',
+        stripePortalConfigurationId: stripeConfigured ? value(env, 'STRIPE_PORTAL_CONFIGURATION_ID') : '',
+        stripePublishableKeyFingerprint: await runtimeFingerprint(stripeConfigured ? value(env, 'PUBLIC_STRIPE_PUBLISHABLE_KEY') : ''),
+        stripeSecretKeyFingerprint: await runtimeFingerprint(stripeConfigured ? value(env, 'STRIPE_SECRET_KEY') : ''),
+        stripeWebhookSecretFingerprint: await runtimeFingerprint(stripeConfigured ? value(env, 'STRIPE_WEBHOOK_SECRET') : ''),
         supabaseAnonFingerprint: await runtimeFingerprint(role === 'web' ? value(env, 'PUBLIC_SUPABASE_ANON_KEY') : ''),
+        supabaseExpectedProjectRef: value(env, 'SUPABASE_EXPECTED_PROJECT_REF'),
         supabaseServiceRoleFingerprint: await runtimeFingerprint(value(env, 'SUPABASE_SERVICE_ROLE_KEY')),
         supabaseUrlFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_SUPABASE_URL')),
         workerIdentity: value(env, 'WORKER_IDENTITY'),

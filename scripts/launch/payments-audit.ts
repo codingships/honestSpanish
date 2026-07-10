@@ -76,16 +76,20 @@ function reviewCheckoutEndpoint(): Finding {
             ".from('profiles')",
             ".from('subscriptions')",
             ".eq('student_id', user.id)",
-            ".eq('status', 'active')",
+            ".in('status', ['active', 'pending', 'paused'])",
+            ".from('package_prices')",
+            ".eq('stripe_price_id', priceId)",
             ".from('packages')",
             'isStripePriceId',
             'normalizeCheckoutLang',
-            ".select('id, stripe_price_1m, stripe_price_3m, stripe_price_6m')",
-            'activePackages?.find',
             ".eq('is_active', true)",
             'stripe.prices.retrieve(priceId)',
             '!stripePrice.active',
-            '!stripePrice.recurring',
+            "stripePrice.recurring?.interval !== 'month'",
+            'assertStripeRuntimeAccount',
+            "rpc('claim_checkout_intent'",
+            'createdSessionMatchesCheckout',
+            'release_expired_checkout_intent',
             'getPrivateProfile',
             'upsertPrivateProfile',
             'stripe.customers.create',
@@ -169,18 +173,20 @@ function reviewStripeWebhookLifecycle(): Finding {
             'event.id',
             'markWebhookEventProcessed',
             "error.code === '23505'",
-            "markProcessed === 'failed'",
+            "markProcessed.status === 'failed'",
             'checkout.session.completed',
             'invoice.paid',
             'invoice.payment_failed',
             'invoice.upcoming',
             'charge.refunded',
+            'checkout.session.expired',
             'customer.subscription.deleted',
             'customer.subscription.updated',
             'handleCheckoutCompleted',
             'handleInvoicePaid',
             'handleInvoicePaymentFailed',
             'handleInvoiceUpcoming',
+            'handleCheckoutExpired',
             'handleSubscriptionDeleted',
             'handleSubscriptionUpdated',
             ".from('packages')",
@@ -208,6 +214,7 @@ function reviewStripeWebhookLifecycle(): Finding {
     const requiredEventsFile = path.join('src', 'lib', 'stripe-webhook-events.ts');
     details.push(...missingSnippets(requiredEventsFile, readIfExists(requiredEventsFile), [
         'REQUIRED_STRIPE_WEBHOOK_EVENTS',
+        'checkout.session.expired',
         'invoice.upcoming',
         'customer.subscription.updated',
         'customer.subscription.deleted',
@@ -236,7 +243,7 @@ function reviewPackageCatalogAdmin(): Finding {
             'stripe.products.create',
             'stripe.prices.create',
             'stripe.prices.update',
-            'priceChanged',
+            'catalogChanged',
             'updateData.stripe_price_1m = null',
             'updateData.stripe_price_3m = null',
             'updateData.stripe_price_6m = null',
@@ -246,13 +253,16 @@ function reviewPackageCatalogAdmin(): Finding {
             "action: 'package.stripe_sync'",
             'syncStripeSchema',
             'durations',
-            '0.9',
-            '0.8',
+            'calculatePackageTotalCents',
+            "rpc('activate_package_price'",
+            'assertStripeRuntimeAccount',
+            'retrieveValidatedPrice',
+            'package_key',
         ]),
     ];
 
-    if (!/priceUpdates\[key\]\s*=\s*await\s+ensureStripePrice/.test(source)) {
-        details.push(`${file}: sync_stripe does not write recurring Stripe Price IDs back to packages.`);
+    if (!/await\s+supabaseAdmin\.rpc\(['"]activate_package_price['"]/.test(source)) {
+        details.push(`${file}: sync_stripe does not atomically activate recurring Stripe offers.`);
     }
 
     return {
@@ -355,7 +365,7 @@ function reviewNoRealPaymentsLaunchMode(): Finding {
         ...missingSnippets(checkoutFile, checkout, [
             'isCheckoutEnabled(context)',
             'Checkout is disabled',
-            'status: 403',
+            "jsonResponse({ error: 'Checkout is disabled' }, 403)",
         ]),
         ...missingSnippets(checkoutGateFile, checkoutGate, [
             "readRuntimeEnv('CHECKOUT_ENABLED_OVERRIDE'",
@@ -364,11 +374,11 @@ function reviewNoRealPaymentsLaunchMode(): Finding {
         ]),
         ...missingSnippets(landingFile, landing, [
             'checkoutMode={checkoutMode}',
-            "isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application'",
+            "const checkoutMode = 'application' as const",
         ]),
         ...missingSnippets(segmentLandingFile, segmentLanding, [
             'checkoutMode={checkoutMode}',
-            "isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application'",
+            "const checkoutMode = 'application' as const",
         ]),
         ...missingSnippets(pricingFile, pricing, [
             "checkoutMode?: 'application' | 'checkout'",
@@ -378,8 +388,7 @@ function reviewNoRealPaymentsLaunchMode(): Finding {
             "checkoutMode === 'checkout' && checkoutReady",
         ]),
         ...missingSnippets(checkoutTestFile, checkoutTest, [
-            'fails closed before touching Supabase or Stripe when checkout is not explicitly enabled',
-            'Checkout is disabled',
+            'fails closed before touching Supabase or Stripe when checkout is not enabled',
             'expect(response.status).toBe(403)',
             'expect(createSupabaseServerClient).not.toHaveBeenCalled()',
             'expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled()',
@@ -419,6 +428,8 @@ function reviewPaymentSchema(): Finding {
     const details = [
         ...missingSnippets(file, schema, [
             'CREATE TABLE packages',
+            'CREATE TABLE package_prices',
+            'CREATE TABLE checkout_intents',
             'stripe_product_id TEXT',
             'stripe_price_1m TEXT',
             'stripe_price_3m TEXT',
@@ -435,6 +446,10 @@ function reviewPaymentSchema(): Finding {
             'stripe_event_id TEXT PRIMARY KEY',
             'profiles_private_stripe_customer_unique',
             'subscriptions_one_active_per_student',
+            'package_prices_one_active_duration_idx',
+            'checkout_intents_one_open_per_student_idx',
+            'CREATE OR REPLACE FUNCTION public.claim_checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.activate_package_price',
             'ALTER TABLE packages ENABLE ROW LEVEL SECURITY',
             'ALTER TABLE subscriptions ENABLE ROW LEVEL SECURITY',
             'ALTER TABLE processed_webhook_events ENABLE ROW LEVEL SECURITY',
@@ -479,11 +494,22 @@ function reviewPaymentTestsAndSmokes(): Finding {
             '[data-testid^="select-plan-"]',
         ]),
         ...missingSnippets(path.join('scripts', 'smoke-checkout.ts'), checkoutSmoke, [
-            'createSmokeUser',
-            'signInAndCreateCheckout',
+            'getExistingSmokeUser',
+            'signInForCheckout',
+            'createCheckout',
             '/api/create-checkout',
             'https://checkout.stripe.com/',
-            'deleteSmokeUser',
+            "requireEnv('SMOKE_EXTERNAL_WRITES_CONFIRMATION')",
+            ".from('packages')",
+            'package_prices (',
+            'getCheckoutReadyPackageOffers',
+            'isPackageKeyCheckoutEligible',
+            ".from('checkout_intents')",
+            'withdrawalLossAcknowledged: true',
+            'closeSmokeCheckout',
+            'probeCheckoutGateEnabledReadOnly',
+            "requireEnv('SMOKE_STUDENT_EMAIL')",
+            "requireEnv('EMAIL_RECIPIENT_ALLOWLIST')",
         ]),
         ...missingSnippets(path.join('scripts', 'smoke', 'real-env-smoke.ts'), realEnvSmoke, [
             'checkout',
@@ -491,6 +517,14 @@ function reviewPaymentTestsAndSmokes(): Finding {
             'subscriptionsCreated',
             'paymentsCreated',
             '/api/create-checkout',
+            'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
+            'verifyCompletedCheckoutEvidence',
+            'synthetic webhook payloads are forbidden',
+            'runReadOnlyPreflight',
+            '--preflight-only',
+            'assertExactSmokeEmailAllowlist',
+            'deleteSmokeCheckoutArtifacts',
+            'cleanupSchedulingSmokeArtifacts',
         ]),
     ];
 
@@ -511,10 +545,11 @@ function reviewPaymentDocumentation(): Finding {
     const envDoc = readIfExists(path.join('docs', 'launch', 'ENVIRONMENT.md'));
     const details = [
         ...missingSnippets(path.join('docs', 'launch', 'PRODUCTS.md'), productDoc, [
-            'Fuente runtime: Supabase `packages`',
+            'Supabase `packages`: catalogo comercial editable y datos publicos',
+            'Supabase `package_prices`: version contractual inmutable',
             'Stripe Price IDs son inmutables',
-            'Si cambia el precio mensual, el CRM borra los Price IDs guardados',
-            'Un paquete activo sin `stripe_price_1m`, `stripe_price_3m` y `stripe_price_6m` no esta listo para checkout',
+            'Si cambia precio, cuota, nombre o prestaciones contractuales, la version sube',
+            'checkout-ready exige tres `package_prices` activas',
             'CHECKOUT_ENABLED=false',
             'El plan `group` no incluye clases privadas',
             'Solo si hay compatibilidad de nivel, intereses y ritmo',
@@ -528,15 +563,16 @@ function reviewPaymentDocumentation(): Finding {
             'Compra test completa crea Drive/email',
         ]),
         ...missingSnippets(path.join('docs', 'launch', 'DECISIONS.md'), decisions, [
-            'Supabase `packages` es la fuente runtime',
-            'Stripe Price IDs historicos se mantienen trazables',
+            'Supabase `packages` es el catalogo comercial editable',
+            '`package_prices` es la fuente contractual inmutable',
         ]),
         ...missingSnippets(path.join('docs', 'launch', 'ENVIRONMENT.md'), envDoc, [
             'STRIPE_SECRET_KEY',
             'STRIPE_WEBHOOK_SECRET',
             'PUBLIC_STRIPE_PUBLISHABLE_KEY',
             'CHECKOUT_ENABLED',
-            'Los Price IDs viven en Supabase `packages`',
+            '`packages` guarda punteros activos',
+            '`package_prices` conserva el contrato y el historico',
         ]),
     ];
 

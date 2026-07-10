@@ -159,7 +159,7 @@ async function ensureProfile(user: TestUser, id: string) {
 }
 
 async function choosePackage(): Promise<PackageRow> {
-    const preferred = ['standard', 'hybrid', 'group', 'bootcamp'];
+    const preferred = ['standard', 'bootcamp'];
 
     for (const name of preferred) {
         const { data, error } = await supabase
@@ -172,17 +172,7 @@ async function choosePackage(): Promise<PackageRow> {
         if (data) return data;
     }
 
-    const { data, error } = await supabase
-        .from('packages')
-        .select('*')
-        .eq('is_active', true)
-        .order('price_monthly', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-    if (error) throw error;
-    if (!data) throw new Error('No active package found for E2E subscription');
-    return data;
+    throw new Error('No checkout-eligible Standard or Bootcamp package exists for the E2E subscription');
 }
 
 async function ensureAssignment(studentId: string, teacherId: string) {

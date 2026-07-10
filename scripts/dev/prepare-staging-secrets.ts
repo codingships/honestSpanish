@@ -23,11 +23,18 @@ if (!staging.PUBLIC_SUPABASE_URL?.includes(stagingRef) || !staging.SUPABASE_SERV
     throw new Error(`[env:staging:prepare] Refusing non-staging Supabase configuration; expected ${stagingRef}.`);
 }
 
-const stripeSecret = fromAllowedSources('STRIPE_SECRET_KEY');
-const stripePublishable = fromAllowedSources('PUBLIC_STRIPE_PUBLISHABLE_KEY');
-const stripeWebhook = fromAllowedSources('STRIPE_WEBHOOK_SECRET');
+// Stripe staging must be explicit. Never inherit account-bound values from the
+// base/production env when preparing the dedicated test environment.
+const stripeSecret = staging.STRIPE_SECRET_KEY;
+const stripePublishable = staging.PUBLIC_STRIPE_PUBLISHABLE_KEY;
+const stripeWebhook = staging.STRIPE_WEBHOOK_SECRET;
+const stripeExpectedAccount = staging.STRIPE_EXPECTED_ACCOUNT_ID;
+const stripePortalConfiguration = staging.STRIPE_PORTAL_CONFIGURATION_ID;
 if (!stripeSecret?.startsWith('sk_test_') || !stripePublishable?.startsWith('pk_test_') || !stripeWebhook?.startsWith('whsec_')) {
     throw new Error('[env:staging:prepare] Complete Stripe test credentials are required; live keys are refused.');
+}
+if (!stripeExpectedAccount?.startsWith('acct_') || !stripePortalConfiguration?.startsWith('bpc_')) {
+    throw new Error('[env:staging:prepare] Stripe expected account and Portal configuration are required.');
 }
 
 const testEmails = ['TEST_STUDENT_EMAIL', 'TEST_TEACHER_EMAIL', 'TEST_ADMIN_EMAIL']
@@ -60,12 +67,15 @@ Object.assign(staging, {
     INTERNAL_JOB_SECRET: staging.INTERNAL_JOB_SECRET || randomSecret(),
     LEVEL_CHECK_TOKEN_SECRET: staging.LEVEL_CHECK_TOKEN_SECRET || randomSecret(),
     PUBLIC_APP_ENV: 'staging',
+    SUPABASE_EXPECTED_PROJECT_REF: stagingRef,
     PUBLIC_SENTRY_DSN: sentryDsn,
     PUBLIC_SITE_URL: webUrl,
     PUBLIC_STRIPE_PUBLISHABLE_KEY: stripePublishable,
     PUBLIC_TURNSTILE_SITE_KEY: '1x00000000000000000000AA',
     SENTRY_ENVIRONMENT: 'staging',
     STRIPE_SECRET_KEY: stripeSecret,
+    STRIPE_EXPECTED_ACCOUNT_ID: stripeExpectedAccount,
+    STRIPE_PORTAL_CONFIGURATION_ID: stripePortalConfiguration,
     STRIPE_WEBHOOK_SECRET: stripeWebhook,
     SUPPORT_ALERT_EMAIL: staging.TEST_ADMIN_EMAIL,
     TURNSTILE_SECRET_KEY: '1x0000000000000000000000000000000AA',

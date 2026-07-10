@@ -2,20 +2,26 @@
  * Test Users for E2E Tests
  * These users must exist in the test database
  */
+function requiredCredential(name: string): string {
+    const value = process.env[name]?.trim();
+    if (!value) throw new Error(`[e2e-users] Missing required ${name}; hardcoded credential fallbacks are forbidden.`);
+    return value;
+}
+
 export const TEST_USERS = {
     student: {
-        email: process.env.TEST_STUDENT_EMAIL || 'alindev95@gmail.com',
-        password: process.env.TEST_STUDENT_PASSWORD || 'test123',
+        email: requiredCredential('TEST_STUDENT_EMAIL'),
+        password: requiredCredential('TEST_STUDENT_PASSWORD'),
         name: 'Test Student',
     },
     teacher: {
-        email: process.env.TEST_TEACHER_EMAIL || 'alinandrei74@gmail.com',
-        password: process.env.TEST_TEACHER_PASSWORD || 'test123',
+        email: requiredCredential('TEST_TEACHER_EMAIL'),
+        password: requiredCredential('TEST_TEACHER_PASSWORD'),
         name: 'Test Teacher',
     },
     admin: {
-        email: process.env.TEST_ADMIN_EMAIL || 'alejandro@espanolhonesto.com',
-        password: process.env.TEST_ADMIN_PASSWORD || 'test123',
+        email: requiredCredential('TEST_ADMIN_EMAIL'),
+        password: requiredCredential('TEST_ADMIN_PASSWORD'),
         name: 'Test Admin',
     },
 };

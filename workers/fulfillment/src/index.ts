@@ -38,6 +38,10 @@ function envString(env: Env, key: string): string | undefined {
     return typeof candidate === 'string' ? candidate : undefined;
 }
 
+function fulfillmentRuntimeMode(env: Env): 'active' | 'bootstrap' {
+    return envString(env, 'FULFILLMENT_RUNTIME_MODE') === 'active' ? 'active' : 'bootstrap';
+}
+
 function json(status: number, body: unknown): Response {
     return new Response(JSON.stringify(body), {
         status,
@@ -115,8 +119,13 @@ async function handleProcessExactJob(body: JsonObject, env: Env): Promise<JsonOb
 }
 
 async function handleRuntimeAttestation(body: JsonObject, env: Env) {
-    if (envString(env, 'PUBLIC_APP_ENV') !== 'staging'
-        || envString(env, 'WORKER_IDENTITY') !== 'espanol-honesto-fulfillment-staging') {
+    const appEnvironment = envString(env, 'PUBLIC_APP_ENV');
+    const expectedIdentity = appEnvironment === 'staging'
+        ? 'espanol-honesto-fulfillment-staging'
+        : appEnvironment === 'production'
+            ? 'espanol-honesto-fulfillment-production'
+            : null;
+    if (!expectedIdentity || envString(env, 'WORKER_IDENTITY') !== expectedIdentity) {
         return { errorCode: 'ATTESTATION_RUNTIME_INVALID' };
     }
     if (!isValidAttestationNonce(body.nonce)) {
@@ -288,7 +297,14 @@ async function handleCreateStudentFolder(body: JsonObject): Promise<JsonObject> 
 }
 
 async function sendDueReminders(
-    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+    exactScope?: {
+        sessionId: string;
+        studentId: string;
+        teacherId: string;
+        subscriptionId: string;
+        smokeMarker: string;
+    },
 ): Promise<JsonObject> {
     const result = {
         success: true,
@@ -303,7 +319,7 @@ async function sendDueReminders(
     const windowStart = new Date(now.getTime() + 23 * 60 * 60 * 1000);
     const windowEnd = new Date(now.getTime() + 25 * 60 * 60 * 1000);
 
-    const { data: sessions, error } = await supabaseAdmin
+    let sessionsQuery = supabaseAdmin
         .from('sessions')
         .select(`
             id,
@@ -318,7 +334,18 @@ async function sendDueReminders(
             teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
         `)
         .eq('status', 'scheduled')
-        .eq('reminder_sent', false)
+        .eq('reminder_sent', false);
+
+    if (exactScope) {
+        sessionsQuery = sessionsQuery
+            .eq('id', exactScope.sessionId)
+            .eq('student_id', exactScope.studentId)
+            .eq('teacher_id', exactScope.teacherId)
+            .eq('subscription_id', exactScope.subscriptionId)
+            .eq('teacher_notes', exactScope.smokeMarker);
+    }
+
+    const { data: sessions, error } = await sessionsQuery
         .gte('scheduled_at', windowStart.toISOString())
         .lte('scheduled_at', windowEnd.toISOString());
 
@@ -421,6 +448,27 @@ async function handleSendReminders(): Promise<JsonObject> {
     return { ...reminders, fulfillment };
 }
 
+async function handleSendExactReminder(body: JsonObject, env: Env): Promise<JsonObject> {
+    if (envString(env, 'PUBLIC_APP_ENV') !== 'staging'
+        || envString(env, 'WORKER_IDENTITY') !== 'espanol-honesto-fulfillment-staging') {
+        throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
+    }
+
+    const supabaseAdmin = createSupabaseAdminClient();
+    const result = await sendDueReminders(supabaseAdmin, {
+        sessionId: requiredSmokeString(body, 'sessionId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        studentId: requiredSmokeString(body, 'studentId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        teacherId: requiredSmokeString(body, 'teacherId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        subscriptionId: requiredSmokeString(body, 'subscriptionId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        smokeMarker: requiredSmokeString(body, 'smokeMarker', /^SMOKE-REMINDER-[A-Za-z0-9-]{14,80}$/),
+    });
+
+    if (result.processed !== 1 || result.sent !== 2 || result.failed !== 0) {
+        throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
+    }
+    return result;
+}
+
 async function handleScheduled(): Promise<void> {
     const supabaseAdmin = createSupabaseAdminClient();
 
@@ -442,6 +490,7 @@ const routes: Record<string, Handler> = {
     '/internal/account/link-google-drive': handleLinkGoogleDrive,
     '/internal/google/create-student-folder': handleCreateStudentFolder,
     '/internal/reminders/send': handleSendReminders,
+    '/internal/reminders/send-exact': handleSendExactReminder,
 };
 
 export default {
@@ -452,9 +501,15 @@ export default {
             return json(200, {
                 ok: true,
                 service: 'fulfillment-worker',
+                operationMode: fulfillmentRuntimeMode(env),
+                workerIdentity: envString(env, 'WORKER_IDENTITY') ?? 'unconfigured',
                 runtime: 'cloudflare-workers',
                 timestamp: new Date().toISOString(),
             });
+        }
+
+        if (url.pathname !== '/internal/runtime-attestation' && fulfillmentRuntimeMode(env) !== 'active') {
+            return json(503, { errorCode: 'FULFILLMENT_DISABLED' });
         }
 
         if (!isAuthorized(request, env)) {
@@ -488,9 +543,13 @@ export default {
 
     async scheduled(
         _controller: ScheduledController,
-        _env: Env,
+        env: Env,
         ctx: ExecutionContext
     ): Promise<void> {
+        if (fulfillmentRuntimeMode(env) !== 'active') {
+            console.log(JSON.stringify({ event: 'fulfillment_scheduled_skipped', reason: 'runtime_disabled' }));
+            return;
+        }
         ctx.waitUntil(handleScheduled());
     },
 };

@@ -19,7 +19,7 @@ describe('Stripe read-only launch evidence', () => {
         expect(packageJson).toContain('--environment staging');
     });
 
-    it('warns when enabled webhook endpoint hosts are outside launch expectations', () => {
+    it('fails when enabled webhook endpoint hosts or events are outside launch expectations', () => {
         for (const snippet of [
             'STRIPE_EXPECTED_WEBHOOK_HOSTS',
             'expectedStripeWebhookHosts',
@@ -27,20 +27,26 @@ describe('Stripe read-only launch evidence', () => {
             'expected_webhook_hosts=',
             'matching_enabled_webhook_hosts=',
             'unexpected_enabled_webhook_hosts=',
+            'matching_enabled_webhook_urls=',
+            'unexpected_enabled_webhook_urls=',
+            'isExpectedWebhookUrl',
+            "url.pathname === '/api/stripe-webhook'",
             'host or required-event configuration needs launch review',
-            'At least one enabled Stripe webhook endpoint is visible on an expected launch host',
+            'Exactly one enabled Stripe webhook endpoint has the exact launch host and event set',
             'requiredWebhookEvents',
             'REQUIRED_STRIPE_WEBHOOK_EVENTS',
             'missing_required_events=',
             'single_endpoint_has_required_events=',
-            "enabled.length > 0 && !hostReviewProblems && !eventReviewProblems ? 'ok' : 'warning'",
+            'single_endpoint_has_exact_events=',
+            'exactly_one_enabled_endpoint=',
+            "!endpointCountProblem && !hostReviewProblems && !eventReviewProblems ? 'ok' : 'failed'",
         ]) {
             expect(source).toContain(snippet);
         }
 
         expect(source).toContain('espanolhonesto.com');
-        expect(source).toContain('www.espanolhonesto.com');
-        expect(source).toContain('staging.espanolhonesto.com');
+        expect(source).not.toContain("['espanolhonesto.com', 'www.espanolhonesto.com']");
+        expect(source).toContain('espanolhonesto-staging.alindev95.workers.dev');
         expect(source).toContain("../../src/lib/stripe-webhook-events");
         expect(webhookEvents).toContain("'invoice.upcoming'");
         expect(source).not.toContain('espanol-honesto-staging.pages.dev');
@@ -52,12 +58,34 @@ describe('Stripe read-only launch evidence', () => {
         expect(source).toContain('merchant activation for real charges/payouts is incomplete');
         expect(source).toContain('details_submitted=');
         expect(source).toContain('capability_count=');
+        expect(source).toContain('spain_country_match=');
+        expect(source).toContain('eur_default_currency_match=');
+    });
+
+    it('requires the pinned Portal lifecycle configuration', () => {
+        expect(source).toContain('configuration.features.invoice_history.enabled');
+        expect(source).toContain('invoice_history=');
+        expect(source).toContain("configuration.features.subscription_cancel.mode === 'at_period_end'");
+        expect(source).toContain('!configuration.features.subscription_update.enabled');
+    });
+
+    it('requires the exact launch catalog and no unlinked legacy Stripe subscriptions', () => {
+        expect(source).toContain("const expectedPackageKeys = ['group', 'standard', 'hybrid', 'bootcamp']");
+        expect(source).toContain('catalog keys mismatch');
+        expect(source).toContain('expected exactly ${expectedPackageKeys.length * 3} active immutable offers');
+        expect(source).toContain('active immutable offer belongs to a package outside the launch catalog');
+        expect(source).toContain('isPackageCheckoutReady');
+        expect(source).toContain('stripe_subscriptions_without_package_price=');
+        expect(source).toContain(".not('stripe_subscription_id', 'is', null)");
+        expect(source).toContain(".is('package_price_id', null)");
     });
 
     it('documents the optional expected webhook host list without storing secrets', () => {
-        expect(envExample).toContain('STRIPE_EXPECTED_WEBHOOK_HOSTS=espanolhonesto.com,www.espanolhonesto.com,staging.espanolhonesto.com');
+        expect(envExample).toContain('STRIPE_EXPECTED_WEBHOOK_HOSTS=espanolhonesto.com');
+        expect(environmentDoc).toContain('espanolhonesto-staging.alindev95.workers.dev');
         expect(environmentDoc).toContain('STRIPE_EXPECTED_WEBHOOK_HOSTS');
-        expect(environmentDoc).toContain('un host antiguo, eventos incompletos o una cuenta sin cobros/payouts debe quedar como warning');
+        expect(environmentDoc).toContain('un host antiguo o eventos incompletos dejan el auditor en `FAILED`');
+        expect(environmentDoc).toContain('Una cuenta test sin cobros/payouts puede quedar en `WARNING`, pero en production tambien deja el auditor en `FAILED`');
     });
 
     it('keeps webhook host cutover behind a local-only approval and rollback pack', () => {

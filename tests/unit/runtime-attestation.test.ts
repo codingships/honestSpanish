@@ -19,9 +19,15 @@ function runtimeEnv() {
         FULFILLMENT_WORKER_URL: 'https://fulfillment.example.com',
         INTERNAL_JOB_SECRET: 'attestation-secret',
         PUBLIC_APP_ENV: 'staging',
+        PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_attested',
         PUBLIC_SUPABASE_ANON_KEY: 'anon',
         PUBLIC_SUPABASE_URL: 'https://staging.supabase.co',
         RESEND_API_KEY: 'resend',
+        STRIPE_EXPECTED_ACCOUNT_ID: 'acct_attested',
+        STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_attested',
+        STRIPE_SECRET_KEY: 'sk_test_attested',
+        STRIPE_WEBHOOK_SECRET: 'whsec_attested',
+        SUPABASE_EXPECTED_PROJECT_REF: 'staging',
         SUPABASE_SERVICE_ROLE_KEY: 'service',
         WORKER_IDENTITY: 'espanolhonesto-staging',
         WORKER_VERSION_ID: '11111111-1111-4111-8111-111111111111',
@@ -44,6 +50,17 @@ describe('runtime attestation', () => {
             schema: RUNTIME_ATTESTATION_SCHEMA,
         }, env.INTERNAL_JOB_SECRET)).resolves.toBe(true);
 
+        const wrongStripeConfig = await buildRuntimeAttestationConfig('web', {
+            ...env,
+            STRIPE_EXPECTED_ACCOUNT_ID: 'acct_wrong',
+        });
+        await expect(verifyRuntimeAttestation(envelope, {
+            config: wrongStripeConfig,
+            nonce,
+            role: 'web',
+            schema: RUNTIME_ATTESTATION_SCHEMA,
+        }, env.INTERNAL_JOB_SECRET)).resolves.toBe(false);
+
         const wrongConfig = await buildRuntimeAttestationConfig('web', {
             ...env,
             WORKER_VERSION_ID: '22222222-2222-4222-8222-222222222222',
@@ -54,6 +71,19 @@ describe('runtime attestation', () => {
             role: 'web',
             schema: RUNTIME_ATTESTATION_SCHEMA,
         }, env.INTERNAL_JOB_SECRET)).resolves.toBe(false);
+    });
+
+    it('attests Stripe only at the web boundary', async () => {
+        const env = runtimeEnv();
+        const web = await buildRuntimeAttestationConfig('web', env);
+        const fulfillment = await buildRuntimeAttestationConfig('fulfillment', env);
+
+        expect(web.stripeBoundary).toBe('configured');
+        expect(web.stripeExpectedAccountId).toBe(env.STRIPE_EXPECTED_ACCOUNT_ID);
+        expect(web.stripeSecretKeyFingerprint).toMatch(/^sha256:/u);
+        expect(fulfillment.stripeBoundary).toBe('absent');
+        expect(fulfillment.stripeExpectedAccountId).toBe('');
+        expect(fulfillment.stripeSecretKeyFingerprint).toBe('absent');
     });
 
     it('rejects malformed nonces and a tampered proof', async () => {

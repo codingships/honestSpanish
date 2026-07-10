@@ -45,7 +45,7 @@ describe('fulfillment worker internal auth', () => {
                 headers: { Authorization: 'Bearer cron-secret' },
                 body: JSON.stringify({ limit: 1 }),
             }),
-            { CRON_SECRET: 'cron-secret' }
+            { CRON_SECRET: 'cron-secret', FULFILLMENT_RUNTIME_MODE: 'active' }
         );
 
         await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
@@ -60,7 +60,7 @@ describe('fulfillment worker internal auth', () => {
                 headers: { Authorization: 'Bearer internal-secret' },
                 body: JSON.stringify({ limit: 1 }),
             }),
-            { INTERNAL_JOB_SECRET: 'internal-secret', CRON_SECRET: 'cron-secret' }
+            { INTERNAL_JOB_SECRET: 'internal-secret', CRON_SECRET: 'cron-secret', FULFILLMENT_RUNTIME_MODE: 'active' }
         );
 
         await expect(response.json()).resolves.toEqual({ processed: 0 });

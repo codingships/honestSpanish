@@ -20,6 +20,8 @@ const optionalWebKeys = [
     'PUBLIC_STRIPE_PUBLISHABLE_KEY',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
 ] as const;
 const inheritedProviderKeys = [
     'ADMIN_EMAIL',
@@ -48,6 +50,8 @@ const inheritedProviderKeys = [
     'SENTRY_PROJECT',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
     'SUPPORT_ALERT_EMAIL',
     'TURNSTILE_SECRET_KEY',
 ] as const;
@@ -83,6 +87,7 @@ if (useLocalStaging) {
 
     output = {
         PUBLIC_APP_ENV: 'staging',
+        SUPABASE_EXPECTED_PROJECT_REF: stagingRef,
         PUBLIC_SITE_URL: 'http://localhost:4321',
         CHECKOUT_ENABLED: 'false',
         CHECKOUT_ENABLED_OVERRIDE: 'false',

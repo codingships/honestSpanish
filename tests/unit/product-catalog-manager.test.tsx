@@ -99,6 +99,32 @@ describe('ProductCatalogManager', () => {
         expect(screen.getByText('1 paquete(s) activos no tienen precios Stripe completos')).toHaveAttribute('role', 'status');
     });
 
+    it('distinguishes a synchronized group catalog from an operationally sellable checkout', async () => {
+        vi.unstubAllGlobals();
+        mockFetchResponses(jsonResponse({
+            packages: [
+                ...packageRows,
+                {
+                    ...packageRows[0],
+                    id: '10000000-0000-4000-8000-000000000003',
+                    name: 'group',
+                    display_name: { es: 'Grupal', en: 'Group', ru: 'Group' },
+                    has_group_session: true,
+                },
+            ],
+        }));
+
+        render(<ProductCatalogManager />);
+
+        const groupRow = rowFor(await screen.findByText('group').then((node) => node.textContent || 'group'));
+        expect(within(groupRow).getByText('Stripe listo · venta bloqueada')).toBeInTheDocument();
+        expect(within(groupRow).getByText('Solo solicitud: falta el modelo de sesiones grupales.')).toBeInTheDocument();
+        expect(within(groupRow).queryByText('Checkout listo')).not.toBeInTheDocument();
+
+        const hybridRow = rowFor('hybrid');
+        expect(within(hybridRow).getByText('Solo solicitud: faltan grupo y alta garantizada con dos profesores.')).toBeInTheDocument();
+    });
+
     it('shows a strict empty state when the catalog has no packages', async () => {
         vi.unstubAllGlobals();
         mockFetchResponses(jsonResponse({ packages: [] }));

@@ -160,7 +160,7 @@ Contras:
 
 ## Productos Y Precios
 
-Decision: Supabase `packages` es la fuente runtime; CRM admin sincroniza Stripe.
+Decision: Supabase `packages` es el catalogo comercial editable; `package_prices` es la fuente contractual inmutable de ofertas y Stripe ejecuta el cobro verificado. Los punteros Stripe de `packages` son una proyeccion escrita solo por RPC; CRM admin sincroniza el conjunto.
 
 Decision: cambios de precio/cuota afectan solo nuevas compras.
 
@@ -176,6 +176,8 @@ Contras:
 
 Decision: cuenta antes de pagar.
 
+Decision: no existe compra publica directa. El admin aprueba un paquete concreto; Supabase emite un unico `checkout_intent` por alumno/aprobacion y Stripe Checkout es idempotente. El webhook no provisiona sin intent, Price real y snapshot coincidentes.
+
 Decision: Español Honesto no acepta alumnos menores de 18 años. Solicitud, diagnóstico, registro y checkout exigen declaración expresa de mayoría de edad; leads, perfiles de alumno y checkout conservan versión y fecha de la declaración. El campus bloquea a alumnos sin declaración persistida y les ofrece un flujo de confirmación dedicado; administradores y profesores quedan fuera de ese bloqueo por rol. No se recoge fecha de nacimiento.
 
 Pros:
@@ -188,7 +190,11 @@ Contras:
 
 Decision: el lanzamiento aceptará pagos reales desde el primer día. Stripe permanece en test durante staging y cambia a live únicamente en la ventana final, después del smoke test, los datos legales reales y el Go/No-Go.
 
+Decision de aislamiento Stripe staging: usar un Sandbox general dedicado llamado `espanolhonesto-staging`, creado desde cero y configurado como España/EUR. El test mode clásico de la cuenta `acct_1SnNnoFhBCkSD61w`, configurada históricamente como Estados Unidos/USD, queda solo como referencia y no se enlaza a Supabase staging: contiene objetos antiguos/smoke y metadatos de paquetes con UUID que no corresponden al proyecto staging actual. La cuenta live receptora también debe verificarse como España/EUR antes de introducir claves live o activar cobros.
+
 Decisión de alcance inicial del checkout: tarjeta mediante Stripe Checkout y sin códigos promocionales. Se podrán añadir otros métodos o promociones cuando su confirmación, reembolso, renovación, fiscalidad y copy contractual tengan pruebas específicas.
+
+Decision fiscal provisional: staging trata los importes EUR publicados como el total exacto que Stripe debe cobrar y mantiene `automatic_tax` y Adaptive Pricing desactivados para evitar importes o monedas no reconciliables. Esta decisión técnica no determina por sí sola IVA/exención ni obligaciones de factura. Un asesor debe confirmar el tratamiento fiscal y los datos de facturación antes de crear Prices live o habilitar cobros reales.
 
 Pros:
 - Permite validar checkout, webhook, portal, reembolsos y reconciliación en test antes de aceptar dinero real.
@@ -199,7 +205,9 @@ Contras:
 - El lanzamiento no puede abrir tráfico de compra hasta que Stripe live, legal real, webhook, portal y smoke estén probados.
 - Cualquier deploy posterior conserva el override; el runbook debe incluir rollback inmediato a `false`.
 
-Decision comercial: las opciones de 1, 3 y 6 meses son suscripciones recurrentes por ese mismo periodo. El total se cobra al inicio; la renovación repite periodo e importe hasta cancelación. La cuota no usada caduca al final y no se acumula, sin perjuicio de derechos legales o excepciones aprobadas.
+Decision comercial: las opciones de 1, 3 y 6 meses son suscripciones recurrentes por ese mismo periodo. El total se cobra al inicio; la renovación repite periodo e importe hasta cancelación. Cada compra concede un banco total de `sesiones_por_mes × meses` utilizable durante todo el periodo, sin tope mensual; la cifra mensual de la landing es una referencia comercial. La cuota no usada caduca al final y no pasa al periodo siguiente, sin perjuicio de derechos legales o excepciones aprobadas.
+
+Decision operativa de grupos: `group` y `hybrid` se mantienen como opciones de solicitud, pero no pueden aprobarse ni comprarse en el lanzamiento. `group` requiere que el campus modele asistentes, agenda y consumo de cuota para una sesión grupal; `hybrid` requiere además un alta postpago que garantice y verifique dos profesores. El lanzamiento cobrable inicial se limita a `standard` y `bootcamp`; cada bloqueo se retira de forma independiente con una nueva versión contractual y pruebas del flujo prometido.
 
 Decision de clases: cancelación del alumno con al menos 24 horas restaura la sesión; con menos antelación consume la sesión salvo excepción justificada. Un no-show solo puede marcarse desde 15 minutos después del inicio y consume la sesión. Ninguna reserva puede quedar después de `subscriptions.ends_at`.
 

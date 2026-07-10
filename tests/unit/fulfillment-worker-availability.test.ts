@@ -45,7 +45,7 @@ async function filterSlots(): Promise<Response> {
             headers: { Authorization: 'Bearer internal-secret' },
             body: JSON.stringify({ teacherEmail, slots }),
         }),
-        { INTERNAL_JOB_SECRET: 'internal-secret' },
+        { INTERNAL_JOB_SECRET: 'internal-secret', FULFILLMENT_RUNTIME_MODE: 'active' },
     );
 }
 

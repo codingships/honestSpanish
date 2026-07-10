@@ -247,7 +247,7 @@ Pasos:
 1. Ejecutar `pnpm launch:final-readiness` y abrir `outputs/launch-final-readiness/<timestamp>/integration-readiness-worksheet.md`.
 2. Revisar la ruta ya decidida: Stripe test completo en staging y Stripe live/webhooks para aceptar pagos reales desde el primer dia; comprobar `CHECKOUT_ENABLED_OVERRIDE=false` antes del Go/No-Go y como rollback.
 3. Ejecutar `pnpm launch:cloudflare-production-runtime-readonly` y abrir `outputs/launch-cloudflare-production-runtime-readonly/<timestamp>/summary.md`: confirmar cuenta, Pages project, dominios, Worker staging, production Worker y secret names sin valores. Este comando solo lista/lee con Wrangler; parar si una herramienta intenta crear, desplegar, borrar, mover dominios o escribir secrets.
-4. Ejecutar `pnpm launch:cloudflare-production-runtime-cutover-preflight` y abrir `outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md` y `cloudflare-production-worker-variable-matrix.md`: confirmar build local, `wrangler deploy --env production --dry-run`, `CHECKOUT_ENABLED=false`, sin adjuntar dominios, limpieza de `dist` y matriz de nombres sin valores.
+4. Ejecutar `pnpm launch:cloudflare-production-runtime-cutover-preflight` y abrir `outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md` y `cloudflare-production-worker-variable-matrix.md`: confirmar build local production, `wrangler deploy --config dist/server/wrangler.json --dry-run`, `CHECKOUT_ENABLED=false`, sin adjuntar dominios, limpieza de `dist` y matriz de nombres sin valores.
 5. Ejecutar `pnpm launch:cloudflare-production-runtime-cutover` y abrir `outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/cloudflare-production-runtime-cutover-manifest.json`, `approval-request-phase-1-worker.md`, `approval-request-worker-secrets.md`, `approval-request-domain-move.md`, `verification-checklist.md` y `rollback-plan.md`.
 6. Ejecutar `pnpm launch:cloudflare-production-worker-phase1` en modo plan y abrir `outputs/launch-cloudflare-production-worker-phase1/<timestamp>/summary.md`, `phase1-command-manifest.json`, `phase1-execution-plan.md`, `approval-gate.md` y `rollback-after-phase1.md`: confirmar `externalWritePerformed=false`, `PLAN_ONLY_READY`, `CLOUDFLARE_PHASE1_APPROVAL`, `--execute-approved`, `CHECKOUT_ENABLED=false`, sin mover dominios, sin DNS, sin Pages delete, sin secrets y sin pagos reales.
 7. Ejecutar `pnpm launch:cloudflare-production-worker-secrets` en modo plan y abrir `outputs/launch-cloudflare-production-worker-secrets/<timestamp>/summary.md`, `cloudflare-worker-secrets-command-manifest.json`, `cloudflare-worker-secrets-execution-plan.md`, `approval-gate.md` y `rollback-after-worker-secrets.md`: confirmar `externalWritePerformed=false`, `PLAN_ONLY_READY`, `CLOUDFLARE_WORKER_SECRETS_APPROVAL`, `--execute-approved`, `CLOUDFLARE_WORKER_DIRECT_URL` opcional, nombres sin valores, sin mover dominios, sin DNS, sin Pages delete y sin pagos reales.
@@ -325,21 +325,23 @@ Objetivo: cerrar el circuito real justo antes de aceptar trafico publico.
 Pasos:
 
 1. Ejecutar `pnpm launch:final-readiness` y abrir `outputs/launch-final-readiness/<timestamp>/final-smoke-worksheet.md`.
-2. Ejecutar `pnpm launch:final-smoke-execution-pack` y abrir `outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json`, `approval-request-final-smoke.md`, `approval-request-staging-smoke.md`, `preflight-checklist.md`, `staging-preflight-checklist.md` y `rollback-and-cleanup-plan.md`; este paquete no ejecuta writes ni sustituye la aprobacion exacta. `approval-request-staging-smoke.md` permite un staging rehearsal con Stripe test y proveedores reales de prueba aunque legal final, SEO live-domain y dominio de produccion sigan pendientes; ese rehearsal no cierra `final_smoke`.
-3. Ejecutar `pnpm launch:staging-smoke-rehearsal-runner` en modo plan y abrir `outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md`, `staging-smoke-command-manifest.json`, `staging-smoke-execution-plan.md`, `approval-gate.md` y `rollback-after-staging-smoke.md`; confirmar `PLAN_ONLY_READY`, `externalWriteCommandStarted=false`, `STAGING_SMOKE_REHEARSAL_APPROVAL`, `--execute-approved`, Stripe test mode y que no imprime valores secretos. Solo despues de la frase exacta y en la ventana aprobada, ejecutar el mismo runner con `--execute-approved`.
-4. Confirmar que `scripts/smoke/real-env-smoke.ts` usa `SMOKE_BASE_URL`, `SMOKE_EXTERNAL_WRITES_CONFIRMATION`, `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD`, `SMOKE_TEACHER_EMAIL` y `SMOKE_TEACHER_PASSWORD`; `SMOKE_EXTERNAL_WRITES_CONFIRMATION` debe ser `writes-ok:<host>` para el host exacto de `SMOKE_BASE_URL`, y el script no debe resetear contrasenas de admin/profesor ni usar credenciales hardcodeadas.
-5. Registro/login.
-6. Checkout.
-7. Webhook.
-8. Drive folder.
-9. Email.
-10. Reserva.
-11. Documento.
-12. Calendar/Meet.
-13. Recordatorio.
-14. Cancelacion.
-15. Retry de job fallido.
-16. Production smoke minimo en launch day antes de aceptar trafico publico.
+2. Ejecutar `pnpm launch:final-smoke-execution-pack` y abrir `outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json`, `approval-request-final-smoke.md`, `production-minimal-smoke-checklist.md`, `approval-request-staging-smoke.md`, `approval-request-staging-checkout-gate.md`, `preflight-checklist.md`, `staging-preflight-checklist.md` y `rollback-and-cleanup-plan.md`. El ciclo integral automatizado es exclusivo de staging; production usa el checklist minimo/manual.
+3. Revisar `approval-request-staging-checkout-gate.md` y cargar la frase exacta en `STAGING_CHECKOUT_GATE_APPROVAL`. El cambio temporal requiere esa aprobacion Cloudflare separada y nombra solo Worker `espanolhonesto-staging`. El runner atestigua primero el runtime cerrado, ejecuta `true` solo durante la ventana, re-atestigua antes del smoke y restaura/verifica `false` en `finally`; no se debe fijar manualmente `STAGING_CHECKOUT_GATE_CONFIRMATION` ni aceptar un rollback ambiguo.
+4. Ejecutar `pnpm launch:staging-smoke-rehearsal-runner` en modo plan y abrir `outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md`, `outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/staging-smoke-command-manifest.json`, `outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/staging-smoke-execution-plan.md`, `outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md`, `outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/cloudflare-checkout-gate-approval.md` y `outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/rollback-after-staging-smoke.md`. En modo aprobado, el runner lanza primero `real-env-smoke.ts --preflight-only`; si cualquier precondicion falla, `externalWriteCommandStarted` sigue `false`.
+5. Confirmar que el harness recibe `SMOKE_ADMIN_*`, `SMOKE_TEACHER_*` y `SMOKE_STUDENT_*` desde las tres cuentas `TEST_*` existentes, y que `EMAIL_RECIPIENT_ALLOWLIST` contiene exactamente esos tres emails, ninguno `example.com`. No crea usuarios, no resetea contrasenas y no necesita acceso al buzon del alumno.
+6. Registro/login con las cuentas existentes.
+7. Checkout real en Stripe test tras aprobacion CRM y las cuatro aceptaciones; el smoke estrecho solo abre/verifica/caduca una sesion y no demuestra pago.
+8. Antes de cualquier write del harness, completar un Checkout test, esperar su conciliacion y pasar su ID mediante `SMOKE_COMPLETED_CHECKOUT_SESSION_ID`. No fabricar ni firmar eventos sinteticos. Revisar renovacion/fallo/recuperacion/cancelacion reales o con test clock antes de fijar `SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION=reviewed-real-events:<same-session>`; el subprocess `--preflight-only` valida ambos y el gate desplegado.
+9. Verificar Drive folder y modelo de acceso.
+10. Verificar email allowlisted sin depender de abrir el buzon del alumno.
+11. Verificar reserva y conflicto.
+12. Verificar documento.
+13. Verificar Calendar/Meet.
+14. Verificar recordatorio.
+15. Verificar cancelacion, completion y no-show.
+16. Verificar retry/cancel de job fallido.
+17. Confirmar cleanup: oportunidad/intento temporal, suscripcion/sesiones locales, Docs/eventos y job/audits eliminados; notas, enlace Google y asignaciones restaurados; usuario/folder reutilizables conservados. Devolver el gate Cloudflare a `false` bajo su aprobacion separada y verificar `403 Checkout is disabled`.
+18. En production no ejecutar `real-env-smoke.ts`. Completar `production-minimal-smoke-checklist.md` manualmente: paginas publicas/legales, login con cuentas existentes, salud de proveedores, estado intencional del checkout y, solo con aprobacion Stripe live separada, una compra propia como maximo.
 
 Evidencia aceptable:
 
@@ -347,9 +349,10 @@ Evidencia aceptable:
 - `command_output`: resumen local de smoke si existe.
 - `command_output`: `../../outputs/launch-final-readiness/<timestamp>/summary.md` como apoyo automatico.
 - `command_output`: `../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-final-smoke.md`, `../../outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json`, `../../outputs/launch-final-smoke-execution-pack/<timestamp>/preflight-checklist.md` y `../../outputs/launch-final-smoke-execution-pack/<timestamp>/rollback-and-cleanup-plan.md` como apoyo de aprobacion, limites y rollback.
-- `command_output`: `../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-staging-smoke.md` y `../../outputs/launch-final-smoke-execution-pack/<timestamp>/staging-preflight-checklist.md` como apoyo de staging rehearsal previo; usarlo para QA tecnica, no para marcar `final_smoke` como pass.
-- `command_output`: `../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md`, `../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/staging-smoke-command-manifest.json`, `../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md` y `../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/rollback-after-staging-smoke.md` como runner gated de staging; en modo plan debe mostrar `externalWriteCommandStarted=false`.
+- `command_output`: `../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-staging-smoke.md`, `approval-request-staging-checkout-gate.md` y `staging-preflight-checklist.md` como aprobaciones separadas y preflight del staging rehearsal.
+- `command_output`: `../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md`, `staging-smoke-command-manifest.json`, `approval-gate.md`, `cloudflare-checkout-gate-approval.md` y `rollback-after-staging-smoke.md` como runner gated; debe mostrar el resultado del preflight read-only antes de cualquier write.
 - `command_output`: `../../outputs/real-env-smoke/<timestamp>/summary.md` solo despues de ejecutar el harness real con aprobacion exacta y evidencia redactada.
+- `command_output`: `../../outputs/launch-final-smoke-execution-pack/<timestamp>/production-minimal-smoke-checklist.md` como evidencia manual de production, separada del harness staging.
 - `screenshot`: capturas sin datos sensibles.
 
 ## Cierre

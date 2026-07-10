@@ -35,8 +35,10 @@ interface FinalSmokeExecutionReport {
     manifestPath: string;
     approvalRequestPath: string;
     stagingApprovalRequestPath: string;
+    stagingCheckoutGateApprovalPath: string;
     preflightChecklistPath: string;
     stagingPreflightChecklistPath: string;
+    productionMinimalChecklistPath: string;
     rollbackPlanPath: string;
     manualEvidenceDryRunPath: string;
     summaryPath: string;
@@ -46,8 +48,10 @@ interface RenderedArtifacts {
     manifest: string;
     approvalRequest: string;
     stagingApprovalRequest: string;
+    stagingCheckoutGateApproval: string;
     preflightChecklist: string;
     stagingPreflightChecklist: string;
+    productionMinimalChecklist: string;
     rollbackPlan: string;
     manualEvidenceDryRun: string;
     summary: string;
@@ -61,6 +65,8 @@ const manualEvidencePath = path.join('docs', 'launch', 'MANUAL_EVIDENCE.md');
 const manualRunbookPath = path.join('docs', 'launch', 'MANUAL_EVIDENCE_RUNBOOK.md');
 const manualExamplePath = path.join('docs', 'launch', 'MANUAL_EVIDENCE.example.json');
 const operationsRunbookTestPath = path.join('tests', 'unit', 'operations-runbook.test.ts');
+const exactStagingSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode y evidencia de Checkout/webhooks reales ya prevalidada read-only, permitiendo unicamente writes de smoke necesarios en Supabase staging, Stripe test, Google, Resend y Admin Jobs, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de CRM, jobs, sesiones y artefactos temporales. El cambio temporal del gate requiere ademas su aprobacion Cloudflare separada y exacta; el runner aprobado sera responsable de restaurarlo y verificarlo en `false` dentro de `finally`. No autorizo ningun otro cambio externo.';
+const exactStagingCheckoutGateApprovalSentence = 'Apruebo que el runner cambie temporalmente solo `CHECKOUT_ENABLED_OVERRIDE` del Cloudflare Worker staging `espanolhonesto-staging` de `false` a `true` para completar y verificar el Checkout Stripe test aprobado y que, dentro de `finally`, lo devuelva a `false` y verifique el rollback incluso si el smoke o la activacion fallan; antes del primer write debe atestiguar el runtime cerrado, la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` y el Worker exactos. No autorizo deploy de codigo, cambios de rutas, dominios, DNS, otros secrets/vars, Workers production, Stripe live, Supabase, Google, Resend ni ningun otro write externo.';
 
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-final-smoke-execution-pack', stamp(startedAt));
@@ -97,8 +103,10 @@ rendered = renderArtifacts(report);
 writeFileSync(report.manifestPath, rendered.manifest, 'utf8');
 writeFileSync(report.approvalRequestPath, rendered.approvalRequest, 'utf8');
 writeFileSync(report.stagingApprovalRequestPath, rendered.stagingApprovalRequest, 'utf8');
+writeFileSync(report.stagingCheckoutGateApprovalPath, rendered.stagingCheckoutGateApproval, 'utf8');
 writeFileSync(report.preflightChecklistPath, rendered.preflightChecklist, 'utf8');
 writeFileSync(report.stagingPreflightChecklistPath, rendered.stagingPreflightChecklist, 'utf8');
+writeFileSync(report.productionMinimalChecklistPath, rendered.productionMinimalChecklist, 'utf8');
 writeFileSync(report.rollbackPlanPath, rendered.rollbackPlan, 'utf8');
 writeFileSync(report.manualEvidenceDryRunPath, rendered.manualEvidenceDryRun, 'utf8');
 writeFileSync(path.join(outputDir, 'summary.json'), JSON.stringify(report, null, 2), 'utf8');
@@ -145,8 +153,10 @@ function createReport(reportChecks: SmokePackCheck[]): FinalSmokeExecutionReport
         manifestPath: path.join(outputDir, 'final-smoke-execution-manifest.json'),
         approvalRequestPath: path.join(outputDir, 'approval-request-final-smoke.md'),
         stagingApprovalRequestPath: path.join(outputDir, 'approval-request-staging-smoke.md'),
+        stagingCheckoutGateApprovalPath: path.join(outputDir, 'approval-request-staging-checkout-gate.md'),
         preflightChecklistPath: path.join(outputDir, 'preflight-checklist.md'),
         stagingPreflightChecklistPath: path.join(outputDir, 'staging-preflight-checklist.md'),
+        productionMinimalChecklistPath: path.join(outputDir, 'production-minimal-smoke-checklist.md'),
         rollbackPlanPath: path.join(outputDir, 'rollback-and-cleanup-plan.md'),
         manualEvidenceDryRunPath: path.join(outputDir, 'manual-evidence-dry-run.txt'),
         summaryPath: path.join(outputDir, 'summary.md'),
@@ -202,20 +212,45 @@ function validateSmokeHarnessSafety(): SmokePackCheck {
         "requireEnv('SMOKE_ADMIN_PASSWORD')",
         "requireEnv('SMOKE_TEACHER_EMAIL')",
         "requireEnv('SMOKE_TEACHER_PASSWORD')",
+        "requireEnv('SMOKE_STUDENT_EMAIL')",
+        "requireEnv('SMOKE_STUDENT_PASSWORD')",
+        "requireEnv('EMAIL_RECIPIENT_ALLOWLIST')",
+        "requireEnv('STAGING_CHECKOUT_GATE_CONFIRMATION')",
         'writes-ok:${parsedUrl.host}',
         'SMOKE_BASE_URL must be an origin only',
-        'This smoke creates or updates test users and calls Supabase, Stripe, Google and Resend.',
+        'This staging-only smoke reuses the three existing allowlisted role accounts',
+        'runReadOnlyPreflight',
+        '--preflight-only',
+        'externalWritesStarted: false',
+        'authUsersCreated: 0',
         'result.failedSections = getSmokeFailureSections(result);',
-        'result.ok = result.failedSections.length === 0;',
+        'result.ok = result.failedSections.length === 0 && runError === null;',
         'function writeSmokeEvidence',
         'redactSmokeResult(result)',
         'redactErrorForSmokeEvidence(error)',
+        'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
+        'verifyCompletedCheckoutEvidence',
+        'SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION',
+        'synthetic webhook payloads are forbidden',
+        ".from('package_prices')",
+        ".from('checkout_intents')",
+        'withdrawalLossAcknowledged: true',
+        'deleteSmokeCheckoutArtifacts',
+        'cleanupSchedulingSmokeArtifacts',
+        'deleteSmokeFulfillmentJobArtifacts',
     ];
     const forbidden = [
         "process.env.SMOKE_BASE_URL || 'https://espanolhonesto.com'",
         'process.env.SMOKE_BASE_URL || "https://espanolhonesto.com"',
         'console.log(JSON.stringify(result, null, 2));',
         'console.error(error);',
+        'generateTestHeaderString',
+        'postSignedWebhook',
+        'sendStripeEvent',
+        'stripe.subscriptions.create',
+        "source: 'tok_visa'",
+        'supabaseAdmin.auth.admin.createUser',
+        'supabaseAdmin.auth.admin.updateUserById',
     ];
     const missing = required.filter((snippet) => !source.includes(snippet));
     const presentForbidden = forbidden.filter((snippet) => source.includes(snippet));
@@ -224,7 +259,7 @@ function validateSmokeHarnessSafety(): SmokePackCheck {
         status: missing.length === 0 && presentForbidden.length === 0 ? 'ok' : 'failed',
         name: 'real_env_smoke_safety_gate',
         message: missing.length === 0 && presentForbidden.length === 0
-            ? 'Real environment smoke requires exact host write confirmation, explicit credentials and redacted evidence.'
+            ? 'Real environment smoke requires exact host write confirmation, real Stripe test evidence, explicit credentials and redacted evidence.'
             : 'Real environment smoke is missing safety gates or contains unsafe fallback/output behavior.',
         details: [
             ...missing.map((snippet) => `missing=${snippet}`),
@@ -237,7 +272,9 @@ function validateSmokeCoverage(): SmokePackCheck {
     const source = readIfExists(smokeScriptPath);
     const required = [
         '/api/create-checkout',
-        'checkout.session.completed',
+        'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
+        'verifyCompletedCheckoutEvidence',
+        'SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION',
         '/api/account/link-google-drive',
         'getDriveClient',
         '/api/calendar/sessions',
@@ -256,7 +293,7 @@ function validateSmokeCoverage(): SmokePackCheck {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'real_env_smoke_flow_coverage',
         message: missing.length === 0
-            ? 'Smoke harness covers checkout, webhook, Drive, booking, Calendar/Meet, reminders, cancellation and Admin Jobs retry/recovery.'
+            ? 'Smoke harness covers approved checkout, real webhook reconciliation evidence, Drive, booking, Calendar/Meet, reminders, cancellation and Admin Jobs retry/recovery.'
             : 'Smoke harness is missing expected final smoke flow coverage.',
         details: missing.length === 0 ? [smokeScriptPath] : missing.map((snippet) => `missing=${snippet}`),
     };
@@ -279,6 +316,10 @@ function validateSmokeSafetyTest(): SmokePackCheck {
         'redacts final smoke command output',
         'writes redacted final smoke evidence files',
         'covers Admin Jobs retry and cleanup',
+        'uses real completed Checkout evidence and never fabricates Stripe events or subscriptions',
+        'prepares the approved package_price checkout boundary and refuses live Stripe writes',
+        'validates every precondition read-only before starting any write',
+        'reuses only the existing allowlisted role accounts and performs bounded cleanup',
     ];
     const missing = required.filter((snippet) => !testSource.includes(snippet));
 
@@ -296,10 +337,11 @@ function validateFinalReadinessWorksheet(): SmokePackCheck {
     const finalReadinessSource = readIfExists(finalReadinessScriptPath);
     const required = [
         'final-smoke-worksheet.md',
-        'Run the smoke in staging first and production only at the final launch decision',
+        'staging-only technical lifecycle harness',
+        'Production uses a separate minimal manual smoke',
         'pnpm launch:final-smoke-execution-pack',
         'real-env-smoke.ts',
-        'registration, checkout policy, webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation and retry',
+        'registration, checkout policy, webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation and retry are proven in staging',
     ];
     const missing = required.filter((snippet) => !finalReadinessSource.includes(snippet));
 
@@ -351,6 +393,8 @@ function validateDocsAndStatusWiring(): SmokePackCheck {
         [manualEvidencePath, 'outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json'],
         [manualRunbookPath, 'pnpm launch:final-smoke-execution-pack'],
         [manualRunbookPath, 'approval-request-final-smoke.md'],
+        [manualRunbookPath, 'approval-request-staging-checkout-gate.md'],
+        [manualRunbookPath, 'production-minimal-smoke-checklist.md'],
         [manualExamplePath, 'outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-final-smoke.md'],
         [operationsRunbookTestPath, 'launch:final-smoke-execution-pack'],
     ];
@@ -390,6 +434,8 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
         'writes-ok:<host>',
         'staging rehearsal',
+        'Separate Cloudflare Staging Checkout Gate Approval',
+        'minimal manual production smoke',
         'redacted',
         'rollback',
     ];
@@ -411,16 +457,20 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
 function renderArtifacts(reportToRender: FinalSmokeExecutionReport): RenderedArtifacts {
     const approvalRequest = renderApprovalRequest(reportToRender);
     const stagingApprovalRequest = renderStagingApprovalRequest(reportToRender);
+    const stagingCheckoutGateApproval = renderStagingCheckoutGateApproval(reportToRender);
     const preflightChecklist = renderPreflightChecklist(reportToRender);
     const stagingPreflightChecklist = renderStagingPreflightChecklist(reportToRender);
+    const productionMinimalChecklist = renderProductionMinimalChecklist(reportToRender);
     const rollbackPlan = renderRollbackPlan(reportToRender);
     const manualEvidenceDryRun = renderManualEvidenceDryRun(reportToRender);
     const summary = renderSummary(reportToRender);
     const manifest = renderManifest(reportToRender, {
         approvalRequest,
         stagingApprovalRequest,
+        stagingCheckoutGateApproval,
         preflightChecklist,
         stagingPreflightChecklist,
+        productionMinimalChecklist,
         rollbackPlan,
         manualEvidenceDryRun,
         summary,
@@ -430,8 +480,10 @@ function renderArtifacts(reportToRender: FinalSmokeExecutionReport): RenderedArt
         manifest,
         approvalRequest,
         stagingApprovalRequest,
+        stagingCheckoutGateApproval,
         preflightChecklist,
         stagingPreflightChecklist,
+        productionMinimalChecklist,
         rollbackPlan,
         manualEvidenceDryRun,
         summary,
@@ -466,13 +518,16 @@ function renderManifest(
             hostRule: 'The <host> must exactly match SMOKE_BASE_URL host.',
             stagingFirst: true,
             productionOnlyInFinalWindow: true,
+            stagingHarnessIsNeverProductionSmoke: true,
+            productionSmokeIsMinimalAndManual: true,
+            checkoutGateUsesSeparateCloudflareApproval: true,
             exactApprovalRequired: true,
             stagingRehearsalMayRunBeforeLegalFinal: true,
             stagingRehearsalDoesNotCloseFinalSmoke: true,
         },
         sideEffectsIfApproved: [
-            'Supabase auth/profile/package/session/payment/fulfillment smoke data writes',
-            'Stripe test rehearsal followed by approved Stripe live API calls and webhook verification',
+            'Staging-only Supabase profile/session/fulfillment smoke data writes using one reusable existing student',
+            'Stripe test rehearsal and read-only verification of a real completed Checkout/webhook lifecycle',
             'Google Drive folder/Doc and Calendar/Meet mutations',
             'Resend email sends or suppression checks',
             'Admin Jobs retry/cancel/audit mutations',
@@ -482,13 +537,17 @@ function renderManifest(
             'No secret values in repo files, outputs, screenshots or logs.',
             'No unplanned real payments or public checkout enabling.',
             'No password reset for owner/admin/teacher accounts.',
+            'No Auth user creation and no example.com recipient.',
+            'No execution of the staging harness against production.',
             'No broad service cleanup outside smoke-created resources.',
         ],
         files: {
             approvalRequest: fileMeta(reportToRender.approvalRequestPath, renderedFiles.approvalRequest),
             stagingApprovalRequest: fileMeta(reportToRender.stagingApprovalRequestPath, renderedFiles.stagingApprovalRequest),
+            stagingCheckoutGateApproval: fileMeta(reportToRender.stagingCheckoutGateApprovalPath, renderedFiles.stagingCheckoutGateApproval),
             preflightChecklist: fileMeta(reportToRender.preflightChecklistPath, renderedFiles.preflightChecklist),
             stagingPreflightChecklist: fileMeta(reportToRender.stagingPreflightChecklistPath, renderedFiles.stagingPreflightChecklist),
+            productionMinimalChecklist: fileMeta(reportToRender.productionMinimalChecklistPath, renderedFiles.productionMinimalChecklist),
             rollbackPlan: fileMeta(reportToRender.rollbackPlanPath, renderedFiles.rollbackPlan),
             manualEvidenceDryRun: fileMeta(reportToRender.manualEvidenceDryRunPath, renderedFiles.manualEvidenceDryRun),
             summary: fileMeta(reportToRender.summaryPath, renderedFiles.summary),
@@ -499,20 +558,19 @@ function renderManifest(
 
 function renderApprovalRequest(reportToRender: FinalSmokeExecutionReport): string {
     return `${[
-        '# Final Smoke Execution Approval Request',
+        '# Production Minimal Manual Smoke Approval Request',
         '',
-        'This local file is not permission. It prepares the exact approval boundary for the final end-to-end smoke.',
+        'This local file is not permission. It prepares the exact approval boundary for the launch-day production smoke.',
         '',
-        'This package does not run final smoke, does not write external services, does not open checkout, does not send email and does not change Supabase, Stripe, Google, Resend or Cloudflare state. It is an approval checklist only.',
+        'This package does not run final smoke and does not write external services. The automated `scripts/smoke/real-env-smoke.ts` harness is staging-only and must never be pointed at production.',
         '',
-        '## Required Decisions Before Approval',
+        '## Production Boundary',
         '',
         '- Final prerequisites: `legal_owner_controller`, `legal_human_review`, `integration_readiness`, `seo_llm_final` and strict-QA blockers must be closed or explicitly accepted before production final smoke.',
-        '- Environment: staging first, then production only in the final launch window.',
-        '- Exact `SMOKE_BASE_URL`: origin only, for example `https://staging.espanolhonesto.com` or `https://espanolhonesto.com`.',
-        '- Exact `SMOKE_EXTERNAL_WRITES_CONFIRMATION`: `writes-ok:<host>`, where `<host>` matches `SMOKE_BASE_URL` exactly.',
-        '- Payment posture: Stripe test rehearsal first; Stripe live is required because public real payments are accepted from day one. No-checkout remains rollback only.',
-        '- Accounts: use approved smoke/admin/teacher credentials from the secure environment source; never paste secret values into evidence.',
+        '- Environment: production only, in the final launch window, after the full staging lifecycle rehearsal passed.',
+        '- Use `production-minimal-smoke-checklist.md`; do not rerun the destructive staging matrix in production.',
+        '- Payment posture: one deliberately owned live checkout at most, only if the separate Stripe live/payment approval names that action. No-checkout remains rollback only.',
+        '- Accounts: existing admin/teacher and the explicitly owned launch transaction only; no Auth user creation, no password reset and no need to access a customer inbox.',
         '',
         '## Required Read-Only Preflight',
         '',
@@ -521,30 +579,20 @@ function renderApprovalRequest(reportToRender: FinalSmokeExecutionReport): strin
         '- Confirm this package says `READY_FOR_FINAL_SMOKE_APPROVAL`, not `WAITING_ON_FINAL_PREREQUISITES`.',
         '- Run `pnpm secrets:check` before the smoke window.',
         '- Confirm the domain/runtime/payment posture is final enough for this smoke; do not use final smoke to discover which runtime should receive production traffic.',
-        '- Confirm Google, Resend and Stripe quotas/posture are acceptable for the chosen environment.',
-        '',
-        '## Command Shape After Exact Approval',
-        '',
-        'Set the required environment variables from the secure source, then run only the smoke command:',
-        '',
-        '```bash',
-        'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts',
-        '```',
-        '',
-        'The harness itself requires `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:<host>` before any write path runs and writes redacted `outputs/real-env-smoke/<timestamp>/summary.json` plus `summary.md`.',
+        '- Confirm production provider health and quotas read-only. Reuse staging evidence for the exhaustive Drive/Calendar/reminder/cancellation matrix.',
         '',
         '## Exact Approval Sentence',
         '',
-        'Apruebo ejecutar el smoke final con writes externos en `<staging|production>` contra `SMOKE_BASE_URL=<origin exacto>`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:<host exacto>`, usando solo credenciales de smoke/admin/profesor del origen seguro aprobado, con la postura de pagos `<no-checkout|Stripe test|Stripe live aprobado>`, permitiendo unicamente writes de smoke necesarios en Supabase, Stripe, Google, Resend y Admin Jobs, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas de admin/profesor, sin activar pagos reales salvo aprobacion Stripe live separada y con rollback/cleanup segun `rollback-and-cleanup-plan.md`.',
+        'Apruebo realizar el smoke minimo manual de production en `https://espanolhonesto.com` durante la ventana final, limitado a comprobar paginas publicas/legales, login y superficies esenciales con cuentas existentes, salud de proveedores mediante evidencia read-only y, solo si existe aprobacion Stripe live separada, una unica compra deliberadamente propia con reconciliacion y rollback documentados; no autorizo ejecutar `scripts/smoke/real-env-smoke.ts` contra production, crear usuarios, enviar campañas, fabricar webhooks, hacer pruebas destructivas masivas ni cambiar Cloudflare/DNS/configuracion.',
         '',
         '## Forbidden Scope',
         '',
         '- No secret value printing, screenshots, commits or output files.',
         '- No password reset for owner/admin/teacher accounts.',
-        '- No `CHECKOUT_ENABLED=true`, Stripe live mode or real charge unless separately approved in the final payment decision.',
+        '- No Stripe live charge unless separately approved in the final payment decision.',
         '- No Cloudflare deploy/domain/DNS writes.',
         '- No Supabase schema migration, destructive cleanup or broad data deletion.',
-        '- No Google Drive/Calendar cleanup outside smoke-created artifacts.',
+        '- No automated staging harness, bulk Google/Calendar mutations or synthetic lifecycle data in production.',
         '',
         '## Current Local Package State',
         '',
@@ -575,10 +623,12 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         '## Required Decisions Before Approval',
         '',
         '- Environment: staging only.',
-        '- Exact `SMOKE_BASE_URL`: normally `https://staging.espanolhonesto.com`; it must be an origin only.',
+        '- Exact `SMOKE_BASE_URL`: normally `https://espanolhonesto-staging.alindev95.workers.dev`; it must be an origin only.',
         '- Exact `SMOKE_EXTERNAL_WRITES_CONFIRMATION`: `writes-ok:<host>`, where `<host>` matches `SMOKE_BASE_URL` exactly.',
         '- Payment posture: Stripe test mode rehearsal only; no Stripe live mode and no real public checkout.',
-        '- Accounts: use approved smoke/admin/teacher credentials from the secure environment source; never paste secret values into evidence.',
+        '- Accounts: reuse exactly `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` and `TEST_STUDENT_EMAIL` from the secure source; all three must equal the Resend allowlist, no `example.com` address is allowed, and the smoke never needs inbox access for the student.',
+        '- Completed Checkout/manual lifecycle: provide a real `cs_test_...` session and the matching `reviewed-real-events:<session>` confirmation before any write.',
+        '- Checkout gate: obtain the separate `approval-request-staging-checkout-gate.md` approval; this smoke approval alone does not authorize the runner-owned Cloudflare gate window.',
         '',
         '## Required Read-Only Preflight',
         '',
@@ -589,25 +639,25 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         '',
         '## Command Shape After Exact Approval',
         '',
-        'Set the required environment variables from the secure source, then run only the smoke command:',
+        'Set the required environment variables from the secure source, then use only the gated runner:',
         '',
         '```bash',
-        'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts',
+        'corepack pnpm --config.verify-deps-before-run=false launch:staging-smoke-rehearsal-runner -- --execute-approved',
         '```',
         '',
-        'The harness itself requires `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:<host>` before any write path runs and writes redacted `outputs/real-env-smoke/<timestamp>/summary.json` plus `summary.md`.',
+        'The runner first invokes the harness with `--preflight-only --expect-checkout-override false`. Supabase/runtime/Stripe/Google/Resend, catalog, role allowlist, completed Checkout and manual lifecycle must pass read-only before the gate write; it then re-attests override `true` before smoke writes and restores/verifies `false` in `finally`.',
         '',
         '## Exact Approval Sentence',
         '',
-        'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://staging.espanolhonesto.com`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com`, usando solo credenciales de smoke/admin/profesor del origen seguro aprobado, con Stripe test mode, permitiendo unicamente writes de smoke necesarios en Supabase staging, Stripe test, Google, Resend y Admin Jobs, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas de admin/profesor, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con rollback/cleanup segun `rollback-and-cleanup-plan.md`. No autorizo ningun otro cambio externo.',
+        exactStagingSmokeApprovalSentence,
         '',
         '## Forbidden Scope',
         '',
         '- No production smoke and no live-domain claim from this rehearsal.',
         '- No secret value printing, screenshots, commits or output files.',
-        '- No password reset for owner/admin/teacher accounts.',
-        '- No `CHECKOUT_ENABLED=true`, Stripe live mode or real charge.',
-        '- No Cloudflare deploy/domain/DNS writes.',
+        '- No Auth user creation, password reset or email outside the three-account allowlist.',
+        '- No Stripe live mode or real charge.',
+        '- No Cloudflare deploy/domain/DNS writes under this approval; the temporary staging checkout gate has a separate exact approval and mandatory `false` rollback.',
         '- No Supabase schema migration, destructive cleanup or broad data deletion.',
         '- No Google Drive/Calendar cleanup outside smoke-created artifacts.',
         '',
@@ -622,11 +672,38 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
     ].join('\n')}\n`;
 }
 
+function renderStagingCheckoutGateApproval(reportToRender: FinalSmokeExecutionReport): string {
+    return `${[
+        '# Separate Cloudflare Staging Checkout Gate Approval Request',
+        '',
+        'This package does not perform the Cloudflare write. It prepares the exact separate approval under which the approved staging runner owns the temporary gate and its `finally` rollback.',
+        '',
+        '## Exact Resource And Sequence',
+        '',
+        '- The runner read-only preflights Cloudflare account `d1a22bcf6477ff2ff31d2bfb83084e44`, Worker `espanolhonesto-staging` and signed closed runtimes before any write.',
+        '- The runner changes only `CHECKOUT_ENABLED_OVERRIDE=true` on that staging Worker.',
+        '- The runner re-attests the deployed web/fulfillment configuration and requires the no-session probe to return `401` before smoke writes.',
+        '- The runner runs the separately approved staging smoke.',
+        '- Inside `finally`, the runner returns only that same variable to `false` and requires signed attestation plus `403 Checkout is disabled`, retrying at most three times.',
+        '- An unverifiable rollback is reported as ambiguous and fails the run for immediate manual closure.',
+        '',
+        '## Exact Separate Approval Sentence',
+        '',
+        exactStagingCheckoutGateApprovalSentence,
+        '',
+        '## Current Package State',
+        '',
+        `- Package status: ${reportToRender.status}`,
+        `- Staging closure status: ${reportToRender.stagingSmokeClosureStatus}`,
+        '',
+    ].join('\n')}\n`;
+}
+
 function renderPreflightChecklist(reportToRender: FinalSmokeExecutionReport): string {
     return `${[
-        '# Final Smoke Preflight Checklist',
+        '# Production Minimal Manual Smoke Preflight Checklist',
         '',
-        'Use this before the approved smoke run. Record only non-secret, redacted evidence.',
+        'Use this before the launch-day production check. Record only non-secret, redacted evidence; never run the staging lifecycle harness against production.',
         '',
         '## Local Readiness',
         '',
@@ -635,31 +712,29 @@ function renderPreflightChecklist(reportToRender: FinalSmokeExecutionReport): st
         '- `pnpm launch:final-smoke-execution-pack` reports `READY_FOR_FINAL_SMOKE_APPROVAL`, not `WAITING_ON_FINAL_PREREQUISITES`.',
         '- Non-smoke final prerequisites are clear or explicitly risk-accepted: legal, integration, SEO/LLM and strict-QA blockers.',
         '- `pnpm secrets:check` passes.',
-        '- `tests/unit/real-env-smoke-safety.test.ts` passes.',
+        '- The full staging lifecycle rehearsal has passed with cleanup and its redacted evidence is attached.',
         '- `launch:status` still points to the latest final smoke execution pack.',
         '',
-        '## Environment And Writes',
+        '## Production Scope',
         '',
-        '- `SMOKE_BASE_URL` is an origin only and matches the intended environment.',
-        '- `SMOKE_EXTERNAL_WRITES_CONFIRMATION` is exactly `writes-ok:<host>` for that origin.',
-        '- `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD`, `SMOKE_TEACHER_EMAIL` and `SMOKE_TEACHER_PASSWORD` come from the secure env source.',
-        '- `SMOKE_STUDENT_PASSWORD`, if set, is not reused as a real user password.',
-        '- `SMOKE_AUTH_USER_SCAN_MAX_PAGES`, if set, remains a positive integer.',
+        '- Exact origin is `https://espanolhonesto.com` (and canonical redirect behavior for `www` is checked read-only).',
+        '- Use only existing owner/admin/teacher accounts and the explicitly owned launch transaction; create no test Auth users.',
+        '- Do not send bulk/test emails or recreate the Drive/Calendar lifecycle matrix in production.',
+        '- A live purchase is attempted only under its separate payment approval and is limited to one deliberately owned transaction.',
+        '- `scripts/smoke/real-env-smoke.ts` is staging-only and forbidden here.',
         '',
-        '## Flow Coverage',
+        '## Minimum Manual Coverage',
         '',
-        '- Registration/auth/session cookie path.',
-        '- Checkout policy and webhook side effects according to payment posture.',
-        '- Drive folder/Doc access model.',
-        '- Booking, Calendar/Meet creation, conflict, cancellation, completion and no-show paths.',
-        '- Reminder cron authorization and delivery/state update.',
-        '- Admin Jobs failed-list, retry, pending-list, cancel and audit log.',
-        '- `/ru` visual/Cyrillic check if final typography changed.',
+        '- Public home, pricing/application, legal pages, cookie controls and support load on the final domain.',
+        '- Existing admin and teacher can sign in and reach their essential surfaces.',
+        '- Checkout is either deliberately open with the approved live posture or deliberately closed with a verified 403 rollback.',
+        '- Provider dashboards/logs show no new critical error; reuse staging evidence for exhaustive webhooks, Drive, Calendar, reminders and Admin Jobs.',
+        '- `/ru` visual/Cyrillic spot check only if final typography changed.',
         '',
         '## Evidence Rules',
         '',
-        '- Attach redacted `outputs/real-env-smoke/<timestamp>/summary.md` when the smoke runs.',
-        '- Attach this package manifest and approval request to `final_smoke` manual evidence.',
+        '- Attach `production-minimal-smoke-checklist.md`, this package manifest and the approval request to `final_smoke` manual evidence.',
+        '- Attach the prior staging harness summary as supporting integration evidence, not as production execution evidence.',
         '- Use manual notes for dashboard confirmations; do not paste payloads, customer records, private Drive URLs or card details.',
         '',
         '## Current Local Evidence',
@@ -688,20 +763,26 @@ function renderStagingPreflightChecklist(reportToRender: FinalSmokeExecutionRepo
         '',
         '## Environment And Writes',
         '',
-        '- `SMOKE_BASE_URL=https://staging.espanolhonesto.com` unless a different staging origin is explicitly approved.',
-        '- `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com` for the default staging origin.',
-        '- `SMOKE_ADMIN_EMAIL`, `SMOKE_ADMIN_PASSWORD`, `SMOKE_TEACHER_EMAIL` and `SMOKE_TEACHER_PASSWORD` come from the secure env source.',
+        '- `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev` unless a different staging origin is explicitly approved.',
+        '- `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev` for the default staging origin.',
+        '- `SMOKE_ADMIN_*`, `SMOKE_TEACHER_*` and `SMOKE_STUDENT_*` map only to the three existing `TEST_*` accounts; `EMAIL_RECIPIENT_ALLOWLIST` contains exactly those three and no `example.com` recipient.',
+        '- The student inbox is not part of the acceptance procedure; API/provider delivery state is used.',
         '- Stripe keys are test-mode keys, not live-mode keys.',
         '- Google, Resend and Stripe quotas are acceptable for one staging rehearsal.',
+        '- `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` identifies a real completed Stripe test Checkout; no webhook payload is fabricated.',
+        '- `SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION=reviewed-real-events:<same-session>` is supplied only after real event/test-clock evidence has been reviewed.',
+        '- `approval-request-staging-checkout-gate.md` has a separate exact approval in `STAGING_CHECKOUT_GATE_APPROVAL`; only the runner may change Worker `espanolhonesto-staging` during that window.',
+        '- The runner executes the closed-runtime preflight before the gate write, the enabled-runtime preflight before smoke writes and the closed-runtime verification from `finally`.',
         '',
         '## Flow Coverage',
         '',
-        '- Registration/auth/session cookie path.',
-        '- Checkout policy and Stripe test webhook side effects.',
+        '- Existing auth/session cookie paths for admin, teacher and student; zero Auth users created.',
+        '- Checkout policy and read-only verification of real Stripe test Checkout/webhook side effects; no synthetic events.',
         '- Drive folder/Doc access model.',
         '- Booking, Calendar/Meet creation, conflict, cancellation, completion and no-show paths.',
         '- Reminder cron authorization and delivery/state update.',
         '- Admin Jobs failed-list, retry, pending-list, cancel and audit log.',
+        '- Cleanup deletes the temporary CRM opportunity/intent, local scheduling subscription/sessions, Google class artifacts and job/audit rows; it restores profile/assignment state and preserves the reusable student/folder IDs.',
         '- UX/logistics notes for any awkward states found during the rehearsal.',
         '',
         '## Evidence Rules',
@@ -709,6 +790,7 @@ function renderStagingPreflightChecklist(reportToRender: FinalSmokeExecutionRepo
         '- Attach redacted `outputs/real-env-smoke/<timestamp>/summary.md` when the smoke runs.',
         '- Attach this staging approval request and checklist to the QA tracker as staging rehearsal evidence.',
         '- Do not use this rehearsal alone to mark `final_smoke` pass.',
+        '- After success or failure, require the runner report to show `checkoutGateRollbackVerified=true`; ambiguous state requires immediate manual `false` closure and a fresh signed/403 probe.',
         '',
         '## Current Local Evidence',
         '',
@@ -716,6 +798,41 @@ function renderStagingPreflightChecklist(reportToRender: FinalSmokeExecutionRepo
         `- Latest final smoke worksheet: ${reportToRender.latestFinalSmokeWorksheetPath ?? 'missing'}`,
         `- Latest launch status summary: ${reportToRender.latestLaunchStatusSummaryPath ?? 'missing'}`,
         `- Final-only blockers that do not block staging rehearsal: ${reportToRender.finalPrerequisiteBlockers.join(', ') || 'none'}`,
+        '',
+    ].join('\n')}\n`;
+}
+
+function renderProductionMinimalChecklist(reportToRender: FinalSmokeExecutionReport): string {
+    return `${[
+        '# Production Minimal Manual Smoke Checklist',
+        '',
+        'This is the only production smoke shape prepared by this package. The exhaustive automated lifecycle harness is staging-only.',
+        '',
+        '## Before Traffic',
+        '',
+        '- [ ] Final domain and direct Worker probes are healthy; canonical redirects are correct.',
+        '- [ ] Legal identity/review, integration readiness, SEO/LLM final and strict-QA blockers are closed or explicitly accepted.',
+        '- [ ] Stripe live account/mode, Supabase production ref, webhook endpoint/events and Portal configuration are verified read-only.',
+        '- [ ] A rollback owner can set `CHECKOUT_ENABLED_OVERRIDE=false` without disabling webhook reconciliation.',
+        '',
+        '## Manual Checks',
+        '',
+        '- [ ] Home, pricing/application, privacy, cookies, terms, cancellation/refund/desistimiento and support pages load on production.',
+        '- [ ] Existing admin and teacher accounts sign in; no password is reset and no Auth user is created.',
+        '- [ ] Campus/admin essential pages load without a new critical Sentry/provider error.',
+        '- [ ] Checkout is intentionally open or intentionally closed. If open, one owned live transaction at most is run only under its separate payment approval.',
+        '- [ ] The owned transaction, if any, is reconciled in Stripe/Supabase/webhook evidence without exposing card/customer data.',
+        '- [ ] No bulk email, synthetic webhook, test-clock sequence, Drive folder creation or Calendar lifecycle matrix is run in production.',
+        '',
+        '## Evidence And Rollback',
+        '',
+        '- [ ] Record timestamp, owner, exact origin, each result and redacted provider evidence.',
+        '- [ ] Attach the successful staging lifecycle summary as supporting evidence.',
+        '- [ ] If any critical check fails, set `CHECKOUT_ENABLED_OVERRIDE=false`, keep webhook/fulfillment running, stop new traffic and keep `final_smoke` pending.',
+        '',
+        `- Package status: ${reportToRender.status}`,
+        `- Closure status: ${reportToRender.finalSmokeClosureStatus}`,
+        `- Final prerequisite blockers: ${reportToRender.finalPrerequisiteBlockers.join(', ') || 'none'}`,
         '',
     ].join('\n')}\n`;
 }
@@ -734,14 +851,14 @@ function renderRollbackPlan(reportToRender: FinalSmokeExecutionReport): string {
         '## If Smoke Creates Data Then Fails',
         '',
         '- Preserve the redacted `outputs/real-env-smoke/<timestamp>/summary.md` and `summary.json` for diagnosis.',
-        '- Identify only smoke-created users/resources by the smoke timestamp and `smoke-*` aliases.',
-        '- Cancel smoke-managed Stripe subscriptions identified by the harness; do not touch non-smoke subscriptions.',
-        '- Cancel or clean smoke-created Calendar events and Drive artifacts only after confirming ownership and scope.',
-        '- Leave real customer/student data untouched unless a separate exact cleanup approval names the resource.',
+        '- The staging harness creates zero Auth users; it reuses exactly one existing allowlisted student and preserves that user/folder ID.',
+        '- Its bounded cleanup must delete the temporary CRM opportunity/intent, local scheduling subscription/sessions, Google class artifacts and job/audit rows, then restore notes, Google-link value and teacher assignments.',
+        '- A cleanup failure is a failed smoke. Use only the redacted IDs/evidence from that run for a separately reviewed cleanup; never delete completed payment evidence or non-smoke data.',
+        '- The runner returns Worker `espanolhonesto-staging` to `CHECKOUT_ENABLED_OVERRIDE=false` in `finally`; require signed runtime attestation and the 403 rollback. Treat any ambiguous result as an immediate manual blocker.',
         '',
         '## If Checkout Or Payment Posture Is Wrong',
         '',
-        '- Disable or hide checkout entry points, or keep `CHECKOUT_ENABLED=false`.',
+        '- Set `CHECKOUT_ENABLED_OVERRIDE=false` while leaving webhook and fulfillment reconciliation operational.',
         '- Reconcile Stripe dashboard, Supabase `payments`/`subscriptions` and webhook event rows using redacted references.',
         '- Rerun `pnpm launch:payments`, `pnpm launch:final-readiness`, this package and `pnpm launch:status`.',
         '',
@@ -778,6 +895,7 @@ function renderManualEvidenceDryRun(reportToRender: FinalSmokeExecutionReport): 
     const approvalPath = `../../${toPosix(path.relative(process.cwd(), reportToRender.approvalRequestPath))}`;
     const preflightPath = `../../${toPosix(path.relative(process.cwd(), reportToRender.preflightChecklistPath))}`;
     const rollbackPath = `../../${toPosix(path.relative(process.cwd(), reportToRender.rollbackPlanPath))}`;
+    const productionChecklistPath = `../../${toPosix(path.relative(process.cwd(), reportToRender.productionMinimalChecklistPath))}`;
     const finalSmokeWorksheet = reportToRender.latestFinalSmokeWorksheetPath
         ? `../../${reportToRender.latestFinalSmokeWorksheetPath}`
         : '../../outputs/launch-final-readiness/<timestamp>/final-smoke-worksheet.md';
@@ -786,16 +904,17 @@ function renderManualEvidenceDryRun(reportToRender: FinalSmokeExecutionReport): 
         'corepack pnpm launch:manual-evidence:record --',
         '  --id final_smoke',
         '  --status pass',
-        '  --summary "Final smoke completed for public, auth, campus, support, admin, fulfillment, payment/no-payment and Russian rendering flows."',
+        '  --summary "Production minimal manual smoke completed; exhaustive lifecycle remained staging-only."',
         '  --environment production',
         '  --owner Alin',
         `  --evidence "command_output=${manifestPath}::final smoke execution manifest reviewed before writes"`,
         `  --evidence "command_output=${approvalPath}::exact final smoke approval reviewed"`,
         `  --evidence "command_output=${preflightPath}::final smoke preflight checklist completed"`,
         `  --evidence "command_output=${rollbackPath}::rollback and cleanup plan reviewed"`,
+        `  --evidence "command_output=${productionChecklistPath}::production minimal manual smoke checklist completed"`,
         `  --evidence "command_output=${finalSmokeWorksheet}::final smoke worksheet completed"`,
-        '  --evidence "command_output=../../outputs/real-env-smoke/<timestamp>/summary.md::redacted real environment smoke summary attached after approved run"',
-        '  --evidence "manual_note=Replace with concrete non-secret result: launch-day smoke passed across registration, checkout policy, webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation, retry and /ru visual check if typography changed."',
+        '  --evidence "command_output=../../outputs/real-env-smoke/<staging-timestamp>/summary.md::successful staging-only lifecycle rehearsal attached as supporting integration evidence"',
+        '  --evidence "manual_note=Replace with concrete non-secret production result: public/legal pages, existing-role login, provider health, checkout intended state and optional separately approved owned transaction passed."',
         '',
         '# Add --write only after replacing the placeholder note with real non-secret evidence and after the approved smoke actually runs.',
         '',
@@ -815,12 +934,14 @@ function renderSummary(reportToRender: FinalSmokeExecutionReport): string {
         `- Manifest: ${toPosix(path.relative(process.cwd(), reportToRender.manifestPath))}`,
         `- Approval request: ${toPosix(path.relative(process.cwd(), reportToRender.approvalRequestPath))}`,
         `- Staging approval request: ${toPosix(path.relative(process.cwd(), reportToRender.stagingApprovalRequestPath))}`,
+        `- Separate staging checkout gate approval: ${toPosix(path.relative(process.cwd(), reportToRender.stagingCheckoutGateApprovalPath))}`,
         `- Preflight checklist: ${toPosix(path.relative(process.cwd(), reportToRender.preflightChecklistPath))}`,
         `- Staging preflight checklist: ${toPosix(path.relative(process.cwd(), reportToRender.stagingPreflightChecklistPath))}`,
+        `- Production minimal checklist: ${toPosix(path.relative(process.cwd(), reportToRender.productionMinimalChecklistPath))}`,
         `- Rollback plan: ${toPosix(path.relative(process.cwd(), reportToRender.rollbackPlanPath))}`,
         `- Manual evidence dry run: ${toPosix(path.relative(process.cwd(), reportToRender.manualEvidenceDryRunPath))}`,
         '',
-        'This package does not run final smoke, does not run staging rehearsal and does not write external services. It prepares exact approval, preflight, rollback and evidence shape for both staging rehearsal and `final_smoke`.',
+        'This package does not run final smoke, does not run staging rehearsal and does not write external services. It prepares a fully gated staging-only lifecycle rehearsal, its separate Cloudflare checkout-gate approval, and a distinct minimal manual production smoke.',
         '',
         '| Status | Check | Message | Details |',
         '| --- | --- | --- | --- |',

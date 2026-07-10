@@ -3,18 +3,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
     createSupabaseAdminClient: vi.fn(),
     processDueFulfillmentJobs: vi.fn(),
+    sendClassReminder: vi.fn(),
+    recordClassEmailOutInCrmSafe: vi.fn(),
 }));
 
 vi.mock('../../src/lib/fulfillment/jobs', () => ({
+    ExactFulfillmentJobError: class ExactFulfillmentJobError extends Error {
+        code: string;
+        constructor(code: string) {
+            super(code);
+            this.code = code;
+        }
+    },
     processDueFulfillmentJobs: mocks.processDueFulfillmentJobs,
+    processExactFulfillmentJob: vi.fn(),
 }));
 
 vi.mock('../../src/lib/email', () => ({
-    sendClassReminder: vi.fn(),
+    sendClassReminder: mocks.sendClassReminder,
 }));
 
 vi.mock('../../src/lib/crm/class-email', () => ({
-    recordClassEmailOutInCrmSafe: vi.fn(),
+    recordClassEmailOutInCrmSafe: mocks.recordClassEmailOutInCrmSafe,
 }));
 
 vi.mock('../../src/lib/google/calendar', () => ({
@@ -41,12 +51,14 @@ vi.mock('../../src/lib/supabase-admin', () => ({
     createSupabaseAdminClient: mocks.createSupabaseAdminClient,
 }));
 
-function createSupabaseAdmin() {
+function createSupabaseAdmin(sessions: unknown[] = []) {
     const sessionsQuery: Record<string, ReturnType<typeof vi.fn>> = {};
     sessionsQuery.select = vi.fn(() => sessionsQuery);
+    sessionsQuery.update = vi.fn(() => sessionsQuery);
     sessionsQuery.eq = vi.fn(() => sessionsQuery);
     sessionsQuery.gte = vi.fn(() => sessionsQuery);
-    sessionsQuery.lte = vi.fn().mockResolvedValue({ data: [], error: null });
+    sessionsQuery.lte = vi.fn().mockResolvedValue({ data: sessions, error: null });
+    Object.assign(sessionsQuery, { error: null });
 
     return {
         admin: {
@@ -64,6 +76,8 @@ describe('fulfillment worker scheduled handler', () => {
             succeeded: 0,
             failed: 0,
         });
+        mocks.sendClassReminder.mockResolvedValue(true);
+        mocks.recordClassEmailOutInCrmSafe.mockResolvedValue(undefined);
     });
 
     it('tracks one scheduled run that processes a small job batch and then reminders', async () => {
@@ -77,7 +91,7 @@ describe('fulfillment worker scheduled handler', () => {
 
         await worker.default.scheduled(
             {} as ScheduledController,
-            { INTERNAL_JOB_SECRET: 'internal-secret' },
+            { INTERNAL_JOB_SECRET: 'internal-secret', FULFILLMENT_RUNTIME_MODE: 'active' },
             { waitUntil } as unknown as ExecutionContext
         );
 
@@ -93,6 +107,21 @@ describe('fulfillment worker scheduled handler', () => {
         expect(admin.from).toHaveBeenCalledWith('sessions');
     });
 
+    it('does not schedule jobs or reminders while the production bootstrap is inert', async () => {
+        const worker = await import('../../workers/fulfillment/src/index');
+        const waitUntil = vi.fn();
+
+        await worker.default.scheduled(
+            {} as ScheduledController,
+            { FULFILLMENT_RUNTIME_MODE: 'bootstrap' },
+            { waitUntil } as unknown as ExecutionContext,
+        );
+
+        expect(waitUntil).not.toHaveBeenCalled();
+        expect(mocks.createSupabaseAdminClient).not.toHaveBeenCalled();
+        expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
+    });
+
     it('preserves fulfillment processing on the manual reminders endpoint', async () => {
         const { admin } = createSupabaseAdmin();
         mocks.createSupabaseAdminClient.mockReturnValue(admin);
@@ -104,7 +133,7 @@ describe('fulfillment worker scheduled handler', () => {
                 headers: { Authorization: 'Bearer internal-secret' },
                 body: '{}',
             }),
-            { INTERNAL_JOB_SECRET: 'internal-secret' }
+            { INTERNAL_JOB_SECRET: 'internal-secret', FULFILLMENT_RUNTIME_MODE: 'active' }
         );
 
         expect(response.status).toBe(200);
@@ -120,5 +149,76 @@ describe('fulfillment worker scheduled handler', () => {
             supabaseAdmin: admin,
         });
         expect(admin.from).toHaveBeenCalledWith('sessions');
+    });
+
+    it('sends only the exact smoke reminder without processing arbitrary jobs', async () => {
+        const sessionId = '10000000-0000-4000-8000-000000000001';
+        const studentId = '20000000-0000-4000-8000-000000000001';
+        const teacherId = '30000000-0000-4000-8000-000000000001';
+        const subscriptionId = '40000000-0000-4000-8000-000000000001';
+        const smokeMarker = 'SMOKE-REMINDER-20260710225433';
+        const { admin, sessionsQuery } = createSupabaseAdmin([{
+            id: sessionId,
+            student_id: studentId,
+            teacher_id: teacherId,
+            subscription_id: subscriptionId,
+            scheduled_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+            duration_minutes: 50,
+            meet_link: null,
+            drive_doc_url: null,
+            student: { id: studentId, full_name: 'Student', email: 'student@example.test' },
+            teacher: { id: teacherId, full_name: 'Teacher', email: 'teacher@example.test' },
+        }]);
+        mocks.createSupabaseAdminClient.mockReturnValue(admin);
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        const response = await worker.default.fetch(
+            new Request('https://worker.example.com/internal/reminders/send-exact', {
+                method: 'POST',
+                headers: {
+                    Authorization: 'Bearer internal-secret',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ sessionId, studentId, teacherId, subscriptionId, smokeMarker }),
+            }),
+            {
+                INTERNAL_JOB_SECRET: 'internal-secret',
+                FULFILLMENT_RUNTIME_MODE: 'active',
+                PUBLIC_APP_ENV: 'staging',
+                WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
+            },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual(expect.objectContaining({
+            processed: 1,
+            sent: 2,
+            failed: 0,
+        }));
+        expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
+        expect(sessionsQuery.eq).toHaveBeenCalledWith('id', sessionId);
+        expect(sessionsQuery.eq).toHaveBeenCalledWith('teacher_notes', smokeMarker);
+        expect(mocks.sendClassReminder).toHaveBeenCalledTimes(2);
+    });
+
+    it('rejects every operational endpoint before auth while bootstrap mode is active', async () => {
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        const response = await worker.default.fetch(
+            new Request('https://worker.example.com/internal/jobs/process', {
+                method: 'POST',
+                body: '{}',
+            }),
+            {
+                FULFILLMENT_RUNTIME_MODE: 'bootstrap',
+                PUBLIC_APP_ENV: 'production',
+                WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
+            },
+        );
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toEqual({ errorCode: 'FULFILLMENT_DISABLED' });
+        expect(mocks.createSupabaseAdminClient).not.toHaveBeenCalled();
+        expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
     });
 });

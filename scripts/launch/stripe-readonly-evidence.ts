@@ -3,6 +3,11 @@ import * as dotenv from 'dotenv';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Stripe from 'stripe';
+import {
+    calculatePackageTotalCents,
+    isPackageCheckoutReady,
+    type PackageCatalogSnapshot,
+} from '../../src/lib/package-pricing';
 import { REQUIRED_STRIPE_WEBHOOK_EVENTS } from '../../src/lib/stripe-webhook-events';
 import type { Database } from '../../src/types/database.types';
 
@@ -29,7 +34,7 @@ interface Report {
 
 type PackageRow = Pick<
     Database['public']['Tables']['packages']['Row'],
-    'name' | 'price_monthly' | 'stripe_product_id' | 'stripe_price_1m' | 'stripe_price_3m' | 'stripe_price_6m'
+    'id' | 'catalog_version' | 'name' | 'price_monthly' | 'sessions_per_month' | 'has_group_session' | 'has_dual_teacher' | 'is_active' | 'stripe_product_id' | 'stripe_price_1m' | 'stripe_price_3m' | 'stripe_price_6m'
 >;
 
 type DurationMonths = 1 | 3 | 6;
@@ -47,11 +52,15 @@ mkdirSync(outputDir, { recursive: true });
 const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
 const stripePublishableKey = process.env.PUBLIC_STRIPE_PUBLISHABLE_KEY;
 const stripeWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const stripeExpectedAccountId = process.env.STRIPE_EXPECTED_ACCOUNT_ID;
+const stripePortalConfigurationId = process.env.STRIPE_PORTAL_CONFIGURATION_ID;
 const supabaseUrl = process.env.PUBLIC_SUPABASE_URL;
 const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const supabaseProjectRef = projectRefFromSupabaseUrl(supabaseUrl);
+const expectedSupabaseProjectRef = process.env.SUPABASE_EXPECTED_PROJECT_REF;
 const expectedWebhookHosts = expectedStripeWebhookHosts();
 const requiredWebhookEvents = REQUIRED_STRIPE_WEBHOOK_EVENTS;
+const expectedPackageKeys = ['group', 'standard', 'hybrid', 'bootcamp'] as const;
 
 const checks: Check[] = [];
 const stripeMode = modeFromKey(stripeSecretKey);
@@ -67,6 +76,7 @@ if (stripeSecretKey && supabaseUrl && supabaseServiceRoleKey) {
     });
 
     checks.push(await checkStripeAccount(stripe));
+    checks.push(await checkStripePortalConfiguration(stripe));
     checks.push(await checkStripeWebhookEndpoints(stripe));
     checks.push(await checkSupabasePackageStripeLinks(stripe, supabase));
 }
@@ -105,8 +115,11 @@ function checkEnvironment(): Check {
         ['STRIPE_SECRET_KEY', stripeSecretKey],
         ['PUBLIC_STRIPE_PUBLISHABLE_KEY', stripePublishableKey],
         ['STRIPE_WEBHOOK_SECRET', stripeWebhookSecret],
+        ['STRIPE_EXPECTED_ACCOUNT_ID', stripeExpectedAccountId],
+        ['STRIPE_PORTAL_CONFIGURATION_ID', stripePortalConfigurationId],
         ['PUBLIC_SUPABASE_URL', supabaseUrl],
         ['SUPABASE_SERVICE_ROLE_KEY', supabaseServiceRoleKey],
+        ['SUPABASE_EXPECTED_PROJECT_REF', expectedSupabaseProjectRef],
     ].filter(([, value]) => !value).map(([key]) => key);
 
     const publishableMode = modeFromKey(stripePublishableKey);
@@ -118,11 +131,18 @@ function checkEnvironment(): Check {
         ? 'mzjyvmlxfpzdfdjzxxyj'
         : 'vkkahxsybhbutszerawz';
     const projectMismatch = supabaseProjectRef !== expectedSupabaseRef;
+    const expectedRefMismatch = expectedSupabaseProjectRef !== expectedSupabaseRef;
+    const expectedMode = targetEnvironment === 'production' ? 'live' : 'test';
+    const targetModeMismatch = stripeMode !== expectedMode || publishableMode !== expectedMode;
 
     return {
-        status: missing.length > 0 || modeMismatch || projectMismatch ? 'failed' : 'ok',
+        status: missing.length > 0 || modeMismatch || projectMismatch || expectedRefMismatch || targetModeMismatch ? 'failed' : 'ok',
         name: 'environment_shape',
-        message: missing.length === 0 && !modeMismatch && !projectMismatch
+        message: missing.length === 0
+            && !modeMismatch
+            && !projectMismatch
+            && !expectedRefMismatch
+            && !targetModeMismatch
             ? 'Stripe and Supabase environment variables are present with matching test/live key modes and a webhook-secret-shaped value.'
             : 'Stripe/Supabase environment shape is incomplete or inconsistent.',
         details: [
@@ -133,8 +153,12 @@ function checkEnvironment(): Check {
             `target_environment=${targetEnvironment}`,
             `supabase_project_ref=${supabaseProjectRef}`,
             `expected_supabase_project_ref=${expectedSupabaseRef}`,
+            `configured_expected_project_ref=${expectedSupabaseProjectRef ?? 'missing'}`,
+            `expected_stripe_mode=${expectedMode}`,
             ...(modeMismatch ? ['mode_mismatch=secret key and publishable key differ'] : []),
             ...(projectMismatch ? ['project_mismatch=Supabase target does not match requested environment'] : []),
+            ...(expectedRefMismatch ? ['expected_ref_mismatch=SUPABASE_EXPECTED_PROJECT_REF is wrong'] : []),
+            ...(targetModeMismatch ? ['target_mode_mismatch=Stripe keys do not match requested environment'] : []),
         ],
     };
 }
@@ -143,14 +167,24 @@ async function checkStripeAccount(stripe: Stripe): Promise<Check> {
     try {
         const account = await stripe.accounts.retrieve();
         const liveActivationIncomplete = !account.charges_enabled || !account.payouts_enabled || !account.details_submitted;
+        const accountMismatch = account.id !== stripeExpectedAccountId;
+        const countryMismatch = account.country?.toUpperCase() !== 'ES';
+        const currencyMismatch = account.default_currency?.toLowerCase() !== 'eur';
+        const productionNotReady = targetEnvironment === 'production' && liveActivationIncomplete;
         return {
-            status: liveActivationIncomplete ? 'warning' : 'ok',
+            status: accountMismatch || countryMismatch || currencyMismatch || productionNotReady
+                ? 'failed'
+                : liveActivationIncomplete
+                    ? 'warning'
+                    : 'ok',
             name: 'stripe_account_readonly',
             message: liveActivationIncomplete
                 ? 'Stripe account is reachable, but merchant activation for real charges/payouts is incomplete.'
                 : 'Stripe account is reachable and reports charges, payouts and submitted business details enabled.',
             details: [
                 `account=${compactId(account.id)}`,
+                `expected_account=${compactId(stripeExpectedAccountId)}`,
+                `account_match=${!accountMismatch}`,
                 `charges_enabled=${Boolean(account.charges_enabled)}`,
                 `payouts_enabled=${Boolean(account.payouts_enabled)}`,
                 `country=${account.country ?? 'unknown'}`,
@@ -158,6 +192,8 @@ async function checkStripeAccount(stripe: Stripe): Promise<Check> {
                 `details_submitted=${Boolean(account.details_submitted)}`,
                 `business_type=${account.business_type ?? 'unknown'}`,
                 `capability_count=${Object.keys(account.capabilities ?? {}).length}`,
+                `spain_country_match=${!countryMismatch}`,
+                `eur_default_currency_match=${!currencyMismatch}`,
             ],
         };
     } catch (error) {
@@ -177,13 +213,22 @@ async function checkStripeWebhookEndpoints(stripe: Stripe): Promise<Check> {
         const endpointHosts = enabled.map((endpoint) => safeEndpointHost(endpoint.url));
         const unexpectedHosts = [...new Set(endpointHosts.filter((host) => !isExpectedWebhookHost(host)))].sort();
         const matchingHosts = [...new Set(endpointHosts.filter((host) => isExpectedWebhookHost(host)))].sort();
-        const hostReviewProblems = enabled.length > 0 && (matchingHosts.length === 0 || unexpectedHosts.length > 0);
+        const matchingEndpointUrls = enabled.filter((endpoint) => isExpectedWebhookUrl(endpoint.url));
+        const unexpectedEndpointUrls = enabled.filter((endpoint) => !isExpectedWebhookUrl(endpoint.url));
+        const hostReviewProblems = enabled.length > 0
+            && (matchingEndpointUrls.length !== 1 || unexpectedEndpointUrls.length > 0);
         const endpointWithRequiredEvents = enabled.find((endpoint) => (
             requiredWebhookEvents.every((event) => endpoint.enabled_events.includes(event))
         ));
+        const endpointWithExactEvents = enabled.find((endpoint) => (
+            isExpectedWebhookUrl(endpoint.url)
+            && endpoint.enabled_events.length === requiredWebhookEvents.length
+            && requiredWebhookEvents.every((event) => endpoint.enabled_events.includes(event))
+        ));
         const enabledEventUnion = new Set(enabled.flatMap((endpoint) => endpoint.enabled_events));
         const missingRequiredEvents = requiredWebhookEvents.filter((event) => !enabledEventUnion.has(event));
-        const eventReviewProblems = !endpointWithRequiredEvents;
+        const eventReviewProblems = !endpointWithExactEvents;
+        const endpointCountProblem = enabled.length !== 1;
         const details = [
             `total=${endpoints.data.length}`,
             `enabled=${enabled.length}`,
@@ -191,9 +236,13 @@ async function checkStripeWebhookEndpoints(stripe: Stripe): Promise<Check> {
             `expected_webhook_hosts=${expectedWebhookHosts.join('|') || 'none'}`,
             `matching_enabled_webhook_hosts=${matchingHosts.join('|') || 'none'}`,
             `unexpected_enabled_webhook_hosts=${unexpectedHosts.join('|') || 'none'}`,
+            `matching_enabled_webhook_urls=${matchingEndpointUrls.map((endpoint) => safeEndpointUrl(endpoint.url)).join('|') || 'none'}`,
+            `unexpected_enabled_webhook_urls=${unexpectedEndpointUrls.map((endpoint) => safeEndpointUrl(endpoint.url)).join('|') || 'none'}`,
             `required_events=${requiredWebhookEvents.join('|')}`,
             `missing_required_events=${missingRequiredEvents.join('|') || 'none'}`,
             `single_endpoint_has_required_events=${Boolean(endpointWithRequiredEvents)}`,
+            `single_endpoint_has_exact_events=${Boolean(endpointWithExactEvents)}`,
+            `exactly_one_enabled_endpoint=${!endpointCountProblem}`,
             ...enabled.slice(0, 10).map((endpoint, index) => [
                 `enabled_${index + 1}_id=${compactId(endpoint.id)}`,
                 `enabled_${index + 1}_url=${safeEndpointUrl(endpoint.url)}`,
@@ -203,13 +252,13 @@ async function checkStripeWebhookEndpoints(stripe: Stripe): Promise<Check> {
         ];
 
         return {
-            status: enabled.length > 0 && !hostReviewProblems && !eventReviewProblems ? 'ok' : 'warning',
+            status: !endpointCountProblem && !hostReviewProblems && !eventReviewProblems ? 'ok' : 'failed',
             name: 'stripe_webhook_endpoints_readonly',
             message: enabled.length === 0
                 ? 'No enabled Stripe webhook endpoints were visible in the configured mode.'
-                : hostReviewProblems || eventReviewProblems
+                : endpointCountProblem || hostReviewProblems || eventReviewProblems
                     ? 'Enabled Stripe webhook endpoints are visible, but host or required-event configuration needs launch review.'
-                    : 'At least one enabled Stripe webhook endpoint is visible on an expected launch host in the configured mode.',
+                    : 'Exactly one enabled Stripe webhook endpoint has the exact launch host and event set in the configured mode.',
             details,
         };
     } catch (error) {
@@ -222,13 +271,70 @@ async function checkStripeWebhookEndpoints(stripe: Stripe): Promise<Check> {
     }
 }
 
+async function checkStripePortalConfiguration(stripe: Stripe): Promise<Check> {
+    if (!stripePortalConfigurationId) {
+        return {
+            status: 'failed',
+            name: 'stripe_portal_configuration_readonly',
+            message: 'STRIPE_PORTAL_CONFIGURATION_ID is missing.',
+        };
+    }
+
+    try {
+        const configuration = await stripe.billingPortal.configurations.retrieve(stripePortalConfigurationId);
+        const safe = configuration.active
+            && configuration.features.payment_method_update.enabled
+            && configuration.features.invoice_history.enabled
+            && configuration.features.subscription_cancel.enabled
+            && configuration.features.subscription_cancel.mode === 'at_period_end'
+            && !configuration.features.subscription_update.enabled;
+        return {
+            status: safe ? 'ok' : 'failed',
+            name: 'stripe_portal_configuration_readonly',
+            message: safe
+                ? 'Pinned Customer Portal configuration is active and launch-safe.'
+                : 'Pinned Customer Portal configuration permits an unsafe or incomplete lifecycle action.',
+            details: [
+                `configuration=${compactId(configuration.id)}`,
+                `active=${configuration.active}`,
+                `payment_method_update=${configuration.features.payment_method_update.enabled}`,
+                `invoice_history=${configuration.features.invoice_history.enabled}`,
+                `subscription_cancel=${configuration.features.subscription_cancel.enabled}`,
+                `cancel_mode=${configuration.features.subscription_cancel.mode}`,
+                `subscription_update=${configuration.features.subscription_update.enabled}`,
+            ],
+        };
+    } catch (error) {
+        return {
+            status: 'failed',
+            name: 'stripe_portal_configuration_readonly',
+            message: 'Pinned Stripe Customer Portal configuration could not be read.',
+            details: [errorMessage(error)],
+        };
+    }
+}
+
 async function checkSupabasePackageStripeLinks(
     stripe: Stripe,
     supabase: ReturnType<typeof createClient<Database>>,
 ): Promise<Check> {
+    const { count: legacyStripeSubscriptionCount, error: legacySubscriptionError } = await supabase
+        .from('subscriptions')
+        .select('id', { count: 'exact', head: true })
+        .not('stripe_subscription_id', 'is', null)
+        .is('package_price_id', null);
+    if (legacySubscriptionError) {
+        return {
+            status: 'failed',
+            name: 'package_price_links_readonly',
+            message: 'Could not verify legacy Stripe subscription linkage in Supabase.',
+            details: [legacySubscriptionError.message],
+        };
+    }
+
     const { data, error } = await supabase
         .from('packages')
-        .select('name, price_monthly, stripe_product_id, stripe_price_1m, stripe_price_3m, stripe_price_6m')
+        .select('id, catalog_version, name, price_monthly, sessions_per_month, has_group_session, has_dual_teacher, is_active, stripe_product_id, stripe_price_1m, stripe_price_3m, stripe_price_6m')
         .eq('is_active', true)
         .order('price_monthly', { ascending: true });
 
@@ -241,9 +347,47 @@ async function checkSupabasePackageStripeLinks(
         };
     }
 
+    const { data: packagePrices, error: packagePricesError } = await supabase
+        .from('package_prices')
+        .select('package_id, catalog_version, package_key, duration_months, amount_cents, currency, sessions_per_month, sessions_per_period, has_group_session, has_dual_teacher, status, stripe_account_id, stripe_livemode, stripe_product_id, stripe_price_id')
+        .eq('status', 'active');
+    if (packagePricesError) {
+        return {
+            status: 'failed',
+            name: 'package_price_links_readonly',
+            message: 'Could not read immutable package prices from Supabase.',
+            details: [packagePricesError.message],
+        };
+    }
+
     const packages = (data ?? []) as PackageRow[];
-    const details: string[] = [`active_packages=${packages.length}`];
+    const details: string[] = [
+        `active_packages=${packages.length}`,
+        `active_package_prices=${packagePrices?.length ?? 0}`,
+        `stripe_subscriptions_without_package_price=${legacyStripeSubscriptionCount ?? 'unknown'}`,
+    ];
     const problems: string[] = [];
+    if ((legacyStripeSubscriptionCount ?? 0) > 0) {
+        problems.push(`${legacyStripeSubscriptionCount} Stripe subscription(s) have no immutable package_price_id`);
+    }
+    if ((packagePrices?.length ?? 0) !== expectedPackageKeys.length * 3) {
+        problems.push(`expected exactly ${expectedPackageKeys.length * 3} active immutable offers`);
+    }
+    const actualPackageKeys = packages.map((pkg) => pkg.name);
+    const activePackageIds = new Set(packages.map((pkg) => pkg.id));
+    if ((packagePrices ?? []).some((offer) => !activePackageIds.has(offer.package_id))) {
+        problems.push('active immutable offer belongs to a package outside the launch catalog');
+    }
+    const missingPackageKeys = expectedPackageKeys.filter((key) => !actualPackageKeys.includes(key));
+    const unexpectedPackageKeys = actualPackageKeys.filter((key) => !expectedPackageKeys.includes(key as typeof expectedPackageKeys[number]));
+    if (
+        packages.length !== expectedPackageKeys.length
+        || new Set(actualPackageKeys).size !== expectedPackageKeys.length
+        || missingPackageKeys.length > 0
+        || unexpectedPackageKeys.length > 0
+    ) {
+        problems.push(`catalog keys mismatch (missing=${missingPackageKeys.join('|') || 'none'}, unexpected=${unexpectedPackageKeys.join('|') || 'none'})`);
+    }
     const durations: Array<{ months: DurationMonths; key: keyof PackageRow; discount: number }> = [
         { months: 1, key: 'stripe_price_1m', discount: 1 },
         { months: 3, key: 'stripe_price_3m', discount: 0.9 },
@@ -252,13 +396,30 @@ async function checkSupabasePackageStripeLinks(
 
     for (const pkg of packages) {
         details.push(`package=${pkg.name}`);
+        const packageContractRows = (packagePrices ?? []).filter((offer) => offer.package_id === pkg.id);
+        if (!isPackageCheckoutReady({
+            ...pkg,
+            package_prices: packageContractRows,
+        } as PackageCatalogSnapshot)) {
+            problems.push(`${pkg.name}: immutable offer set is not exactly checkout-ready`);
+        }
 
         if (pkg.stripe_product_id) {
             try {
                 const product = await stripe.products.retrieve(pkg.stripe_product_id);
-                details.push(`package_${pkg.name}_product=${compactId(product.id)} active=${!product.deleted && product.active}`);
-                if (product.deleted || !product.active) {
-                    problems.push(`${pkg.name}: product is deleted or inactive`);
+                const productMatches = !product.deleted
+                    && product.active
+                    && product.metadata.package_id === pkg.id
+                    && product.metadata.package_key === pkg.name
+                    && product.metadata.catalog_version === String(pkg.catalog_version)
+                    && product.metadata.app_environment === targetEnvironment;
+                details.push([
+                    `package_${pkg.name}_product=${compactId(product.id)}`,
+                    `active=${!product.deleted && product.active}`,
+                    `metadata_ok=${productMatches}`,
+                ].join(' '));
+                if (!productMatches) {
+                    problems.push(`${pkg.name}: product state or ownership metadata mismatch`);
                 }
             } catch (error) {
                 problems.push(`${pkg.name}: product ${compactId(pkg.stripe_product_id)} not retrievable (${errorMessage(error)})`);
@@ -269,25 +430,52 @@ async function checkSupabasePackageStripeLinks(
 
         for (const duration of durations) {
             const priceId = pkg[duration.key];
-            const expectedAmount = Math.round(pkg.price_monthly * duration.months * duration.discount);
+            const expectedAmount = calculatePackageTotalCents(pkg.price_monthly, duration.months);
+            const contractOffer = (packagePrices ?? []).find((offer) => (
+                offer.package_id === pkg.id
+                && offer.catalog_version === pkg.catalog_version
+                && offer.duration_months === duration.months
+                && offer.status === 'active'
+            ));
             if (!priceId) {
                 problems.push(`${pkg.name}/${duration.months}m: missing price id`);
+                continue;
+            }
+            if (
+                !contractOffer
+                || contractOffer.stripe_price_id !== priceId
+                || contractOffer.stripe_product_id !== pkg.stripe_product_id
+                || contractOffer.stripe_account_id !== stripeExpectedAccountId
+                || contractOffer.stripe_livemode !== (stripeMode === 'live')
+                || contractOffer.amount_cents !== expectedAmount
+                || contractOffer.currency !== 'eur'
+            ) {
+                problems.push(`${pkg.name}/${duration.months}m: immutable package price mismatch`);
                 continue;
             }
 
             try {
                 const price = await stripe.prices.retrieve(String(priceId));
+                const actualProductId = typeof price.product === 'string' ? price.product : price.product.id;
                 const matches = price.active
+                    && actualProductId === pkg.stripe_product_id
                     && price.currency === 'eur'
                     && price.unit_amount === expectedAmount
                     && price.recurring?.interval === 'month'
                     && price.recurring.interval_count === duration.months
-                    && modeFromLivemode(price.livemode) === stripeMode;
+                    && modeFromLivemode(price.livemode) === stripeMode
+                    && price.metadata.package_id === pkg.id
+                    && price.metadata.package_key === pkg.name
+                    && price.metadata.catalog_version === String(pkg.catalog_version)
+                    && price.metadata.duration_months === String(duration.months)
+                    && price.metadata.app_environment === targetEnvironment;
                 details.push([
                     `package_${pkg.name}_${duration.months}m=${compactId(price.id)}`,
                     `active=${price.active}`,
                     `currency=${price.currency}`,
                     `amount_ok=${price.unit_amount === expectedAmount}`,
+                    `product_ok=${actualProductId === pkg.stripe_product_id}`,
+                    `metadata_ok=${matches}`,
                     `recurring=${price.recurring?.interval ?? 'none'}:${price.recurring?.interval_count ?? 'none'}`,
                     `mode=${modeFromLivemode(price.livemode)}`,
                 ].join(' '));
@@ -301,7 +489,7 @@ async function checkSupabasePackageStripeLinks(
     }
 
     return {
-        status: packages.length === 0 || problems.length > 0 ? 'warning' : 'ok',
+        status: packages.length === 0 || problems.length > 0 ? 'failed' : 'ok',
         name: 'package_price_links_readonly',
         message: problems.length === 0 && packages.length > 0
             ? 'Active Supabase packages have retrievable Stripe product and recurring EUR price links in the configured mode.'
@@ -372,11 +560,9 @@ function expectedStripeWebhookHosts(): string[] {
     const explicit = process.env.STRIPE_EXPECTED_WEBHOOK_HOSTS;
     const raw = explicit
         ? explicit.split(',')
-        : [
-            'espanolhonesto.com',
-            'www.espanolhonesto.com',
-            'staging.espanolhonesto.com',
-        ];
+        : targetEnvironment === 'staging'
+            ? ['espanolhonesto-staging.alindev95.workers.dev']
+            : ['espanolhonesto.com'];
     return [...new Set(raw.map(normalizeHost).filter(Boolean))].sort();
 }
 
@@ -400,6 +586,23 @@ function isExpectedWebhookHost(host: string): boolean {
         }
         return false;
     });
+}
+
+function isExpectedWebhookUrl(value: string | null | undefined): boolean {
+    if (!value) return false;
+    try {
+        const url = new URL(value);
+        return url.protocol === 'https:'
+            && !url.port
+            && !url.username
+            && !url.password
+            && !url.search
+            && !url.hash
+            && url.pathname === '/api/stripe-webhook'
+            && isExpectedWebhookHost(url.hostname.toLowerCase());
+    } catch {
+        return false;
+    }
 }
 
 function errorMessage(error: unknown): string {

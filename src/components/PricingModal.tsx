@@ -1,4 +1,9 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
+import {
+    calculatePackageTotalCents,
+    formatPackagePrice,
+    type PackageDuration,
+} from '../lib/package-pricing';
 
 interface PricingModalProps {
     isOpen: boolean;
@@ -6,7 +11,9 @@ interface PricingModalProps {
     plan: {
         name: string;
         displayName: string;
-        priceMonthly: number;
+        priceMonthlyCents: number;
+        sessionsPerMonth: number;
+        priceTotalsCents?: Partial<Record<PackageDuration, number>>;
         stripe_price_1m: string | null;
         stripe_price_3m: string | null;
         stripe_price_6m: string | null;
@@ -35,13 +42,11 @@ interface PricingModalProps {
         privacyLink: string;
         serviceStartRequest: string;
         withdrawalLossAcknowledgement: string;
+        renewalDisclosure: string;
+        sessionBankDisclosure: string;
         policyError: string;
     };
 }
-
-type Duration = 1 | 3 | 6;
-
-const EURO = '\u20ac';
 
 export default function PricingModal({
     isOpen,
@@ -51,7 +56,7 @@ export default function PricingModal({
     isLoggedIn,
     translations: t
 }: PricingModalProps) {
-    const [selectedDuration, setSelectedDuration] = useState<Duration>(1);
+    const [selectedDuration, setSelectedDuration] = useState<PackageDuration>(1);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [adultConfirmed, setAdultConfirmed] = useState(false);
@@ -134,33 +139,18 @@ export default function PricingModal({
 
     if (!isOpen || !plan) return null;
 
-    const discounts: Record<Duration, number> = {
-        1: 1,
-        3: 0.9,
-        6: 0.8,
-    };
-
-    const calculateTotal = (duration: Duration) => {
-        return Math.round(plan.priceMonthly * duration * discounts[duration]);
-    };
-
-    const calculateSavings = (duration: Duration) => {
-        const fullPrice = plan.priceMonthly * duration;
-        const discountedPrice = calculateTotal(duration);
-        return fullPrice - discountedPrice;
-    };
-
-    const calculateMonthlyEquivalent = (duration: Duration) => {
-        return Math.round(calculateTotal(duration) / duration);
-    };
-
-    const getPriceId = (duration: Duration): string | null => {
+    const getPriceId = (duration: PackageDuration): string | null => {
         switch (duration) {
             case 1: return plan.stripe_price_1m;
             case 3: return plan.stripe_price_3m;
             case 6: return plan.stripe_price_6m;
         }
     };
+
+    const getTotalCents = (duration: PackageDuration): number => (
+        plan.priceTotalsCents?.[duration]
+        ?? calculatePackageTotalCents(plan.priceMonthlyCents, duration)
+    );
 
     const handleContinue = async () => {
         if (!isLoggedIn) {
@@ -215,7 +205,7 @@ export default function PricingModal({
         }
     };
 
-    const durations: { value: Duration; label: string }[] = [
+    const durations: { value: PackageDuration; label: string }[] = [
         { value: 1, label: t.duration1 },
         { value: 3, label: t.duration3 },
         { value: 6, label: t.duration6 },
@@ -238,7 +228,7 @@ export default function PricingModal({
                 aria-busy={isLoading}
                 tabIndex={-1}
                 data-testid="pricing-modal"
-                className="relative bg-white max-w-md w-full p-8 border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] z-10"
+                className="relative bg-white max-w-md w-full max-h-[calc(100dvh-6rem)] overflow-y-auto p-8 border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064] z-10"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Close button */}
@@ -262,7 +252,8 @@ export default function PricingModal({
                 {/* Duration Options */}
                 <div className="space-y-3 mb-6" role="group" aria-label={t.title}>
                     {durations.map(({ value, label }) => {
-                        const savings = calculateSavings(value);
+                        const totalCents = getTotalCents(value);
+                        const savingsCents = (plan.priceMonthlyCents * value) - totalCents;
                         return (
                             <button
                                 type="button"
@@ -281,12 +272,12 @@ export default function PricingModal({
                                 <div className="flex justify-between items-center">
                                     <span className="font-bold text-[#006064]">{label}</span>
                                     <span className="font-mono text-[#006064]">
-                                        {calculateMonthlyEquivalent(value)}{EURO}/{t.perMonth}
+                                        {formatPackagePrice(Math.round(totalCents / value), lang)}/{t.perMonth}
                                     </span>
                                 </div>
-                                {savings > 0 && (
+                                {savingsCents > 0 && (
                                     <p className="text-xs text-green-600 mt-1">
-                                        {t.save} {savings}{EURO}
+                                        {t.save} {formatPackagePrice(savingsCents, lang)}
                                     </p>
                                 )}
                             </button>
@@ -299,9 +290,17 @@ export default function PricingModal({
                     <div className="flex justify-between items-center">
                         <span className="font-bold text-[#006064]">{t.total}</span>
                         <span className="font-display text-2xl text-[#006064]">
-                            {calculateTotal(selectedDuration)}{EURO}
+                            {formatPackagePrice(getTotalCents(selectedDuration), lang)}
                         </span>
                     </div>
+                    <p className="mt-3 text-xs leading-5 text-[#006064]/80">
+                        {t.renewalDisclosure}
+                    </p>
+                    <p className="mt-2 text-xs font-bold leading-5 text-[#006064]">
+                        {t.sessionBankDisclosure
+                            .replace('{sessions}', String(plan.sessionsPerMonth * selectedDuration))
+                            .replace('{months}', String(selectedDuration))}
+                    </p>
                 </div>
 
                 <div className="mb-6 space-y-3 text-xs leading-5 text-[#006064]/80">

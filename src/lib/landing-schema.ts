@@ -1,4 +1,5 @@
 import type { LandingPackage } from './landing-data';
+import { isPackageKeyCheckoutEligible } from './package-pricing';
 
 const brandName = `Espa${String.fromCodePoint(0x00F1)}ol Honesto`;
 const siteUrl = 'https://espanolhonesto.com';
@@ -57,7 +58,9 @@ function courseNodes(lang: 'es' | 'en' | 'ru', packages: LandingPackage[]) {
             '@type': 'Offer',
             price: String(pkg.price_monthly / 100),
             priceCurrency: 'EUR',
-            availability: 'https://schema.org/InStock',
+            availability: isPackageKeyCheckoutEligible(pkg.name)
+                ? 'https://schema.org/InStock'
+                : 'https://schema.org/PreOrder',
             url: `${siteUrl}/${lang}#contacto`,
         },
         potentialAction: {

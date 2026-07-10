@@ -55,6 +55,95 @@ export type Database = {
           },
         ]
       }
+      checkout_intents: {
+        Row: {
+          completed_at: string | null
+          contact_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          lang: string
+          legal_policy_version: string
+          opportunity_id: string
+          package_price_id: string
+          policy_accepted_at: string
+          site_url: string
+          status: string
+          stripe_checkout_session_id: string | null
+          stripe_customer_id: string | null
+          stripe_session_expires_at: string
+          student_id: string
+          updated_at: string
+        }
+        Insert: {
+          completed_at?: string | null
+          contact_id: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          lang: string
+          legal_policy_version: string
+          opportunity_id: string
+          package_price_id: string
+          policy_accepted_at: string
+          site_url: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_customer_id?: string | null
+          stripe_session_expires_at: string
+          student_id: string
+          updated_at?: string
+        }
+        Update: {
+          completed_at?: string | null
+          contact_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          lang?: string
+          legal_policy_version?: string
+          opportunity_id?: string
+          package_price_id?: string
+          policy_accepted_at?: string
+          site_url?: string
+          status?: string
+          stripe_checkout_session_id?: string | null
+          stripe_customer_id?: string | null
+          stripe_session_expires_at?: string
+          student_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkout_intents_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "crm_contacts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_intents_opportunity_id_fkey"
+            columns: ["opportunity_id"]
+            isOneToOne: false
+            referencedRelation: "crm_opportunities"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_intents_package_price_id_fkey"
+            columns: ["package_price_id"]
+            isOneToOne: false
+            referencedRelation: "package_prices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "checkout_intents_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       crm_activities: {
         Row: {
           activity_type: string
@@ -251,6 +340,7 @@ export type Database = {
         Row: {
           assigned_to: string | null
           availability: string | null
+          checkout_approved_at: string | null
           closed_at: string | null
           contact_id: string
           converted_subscription_id: string | null
@@ -271,6 +361,7 @@ export type Database = {
         Insert: {
           assigned_to?: string | null
           availability?: string | null
+          checkout_approved_at?: string | null
           closed_at?: string | null
           contact_id: string
           converted_subscription_id?: string | null
@@ -291,6 +382,7 @@ export type Database = {
         Update: {
           assigned_to?: string | null
           availability?: string | null
+          checkout_approved_at?: string | null
           closed_at?: string | null
           contact_id?: string
           converted_subscription_id?: string | null
@@ -531,8 +623,96 @@ export type Database = {
           },
         ]
       }
+      package_prices: {
+        Row: {
+          activated_at: string
+          amount_cents: number
+          catalog_version: number
+          created_at: string
+          created_by: string | null
+          currency: string
+          display_name: Json
+          duration_months: number
+          has_dual_teacher: boolean
+          has_group_session: boolean
+          id: string
+          package_id: string
+          package_key: string
+          retired_at: string | null
+          sessions_per_month: number
+          sessions_per_period: number
+          status: string
+          stripe_account_id: string | null
+          stripe_livemode: boolean
+          stripe_price_id: string
+          stripe_product_id: string
+        }
+        Insert: {
+          activated_at?: string
+          amount_cents: number
+          catalog_version: number
+          created_at?: string
+          created_by?: string | null
+          currency: string
+          display_name: Json
+          duration_months: number
+          has_dual_teacher?: boolean
+          has_group_session?: boolean
+          id?: string
+          package_id: string
+          package_key: string
+          retired_at?: string | null
+          sessions_per_month: number
+          sessions_per_period: number
+          status: string
+          stripe_account_id?: string | null
+          stripe_livemode: boolean
+          stripe_price_id: string
+          stripe_product_id: string
+        }
+        Update: {
+          activated_at?: string
+          amount_cents?: number
+          catalog_version?: number
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          display_name?: Json
+          duration_months?: number
+          has_dual_teacher?: boolean
+          has_group_session?: boolean
+          id?: string
+          package_id?: string
+          package_key?: string
+          retired_at?: string | null
+          sessions_per_month?: number
+          sessions_per_period?: number
+          status?: string
+          stripe_account_id?: string | null
+          stripe_livemode?: boolean
+          stripe_price_id?: string
+          stripe_product_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "package_prices_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "package_prices_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       packages: {
         Row: {
+          catalog_version: number
           created_at: string | null
           display_name: Json
           has_dual_teacher: boolean | null
@@ -549,6 +729,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          catalog_version?: number
           created_at?: string | null
           display_name: Json
           has_dual_teacher?: boolean | null
@@ -565,6 +746,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          catalog_version?: number
           created_at?: string | null
           display_name?: Json
           has_dual_teacher?: boolean | null
@@ -846,7 +1028,9 @@ export type Database = {
           google_account_email: string | null
           notes: string | null
           profile_id: string
+          stripe_customer_account_id: string | null
           stripe_customer_id: string | null
+          stripe_customer_livemode: boolean | null
           updated_at: string | null
         }
         Insert: {
@@ -857,7 +1041,9 @@ export type Database = {
           google_account_email?: string | null
           notes?: string | null
           profile_id: string
+          stripe_customer_account_id?: string | null
           stripe_customer_id?: string | null
+          stripe_customer_livemode?: boolean | null
           updated_at?: string | null
         }
         Update: {
@@ -868,7 +1054,9 @@ export type Database = {
           google_account_email?: string | null
           notes?: string | null
           profile_id?: string
+          stripe_customer_account_id?: string | null
           stripe_customer_id?: string | null
+          stripe_customer_livemode?: boolean | null
           updated_at?: string | null
         }
         Relationships: [
@@ -1246,11 +1434,13 @@ export type Database = {
       }
       subscriptions: {
         Row: {
+          contracted_sessions_per_period: number
           created_at: string | null
           duration_months: number
           ends_at: string
           id: string
           package_id: string
+          package_price_id: string | null
           sessions_total: number
           sessions_used: number | null
           starts_at: string
@@ -1261,11 +1451,13 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          contracted_sessions_per_period: number
           created_at?: string | null
           duration_months: number
           ends_at: string
           id?: string
           package_id: string
+          package_price_id?: string | null
           sessions_total: number
           sessions_used?: number | null
           starts_at: string
@@ -1276,11 +1468,13 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          contracted_sessions_per_period?: number
           created_at?: string | null
           duration_months?: number
           ends_at?: string
           id?: string
           package_id?: string
+          package_price_id?: string | null
           sessions_total?: number
           sessions_used?: number | null
           starts_at?: string
@@ -1291,6 +1485,13 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "subscriptions_package_price_id_fkey"
+            columns: ["package_price_id"]
+            isOneToOne: false
+            referencedRelation: "package_prices"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "subscriptions_package_id_fkey"
             columns: ["package_id"]
@@ -1353,6 +1554,83 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_subscription_renewal: {
+        Args: {
+          p_new_ends_at: string
+          p_stripe_invoice_id: string
+          p_stripe_subscription_id: string
+          p_subscription_id: string
+        }
+        Returns: boolean
+      }
+      activate_package_price: {
+        Args: {
+          p_activated_by?: string | null
+          p_amount_cents: number
+          p_catalog_version: number
+          p_currency: string
+          p_duration_months: number
+          p_package_id: string
+          p_stripe_account_id: string
+          p_stripe_livemode: boolean
+          p_stripe_price_id: string
+          p_stripe_product_id: string
+        }
+        Returns: Database["public"]["Tables"]["package_prices"]["Row"]
+      }
+      claim_checkout_intent: {
+        Args: {
+          p_contact_id: string
+          p_lang: string
+          p_legal_policy_version: string
+          p_opportunity_id: string
+          p_package_price_id: string
+          p_site_url: string
+          p_student_id: string
+        }
+        Returns: Database["public"]["Tables"]["checkout_intents"]["Row"]
+      }
+      complete_checkout_intent: {
+        Args: {
+          p_intent_id: string
+          p_opportunity_id: string
+          p_package_price_id: string
+          p_stripe_checkout_session_id: string
+          p_stripe_customer_id: string
+          p_student_id: string
+        }
+        Returns: Database["public"]["Tables"]["checkout_intents"]["Row"]
+      }
+      reconcile_stripe_refund: {
+        Args: {
+          p_amount_refunded: number
+          p_payment_id: string
+          p_refunded_at: string
+          p_stripe_refund_id: string
+        }
+        Returns: Database["public"]["Tables"]["payments"]["Row"]
+      }
+      release_expired_checkout_intent: {
+        Args: {
+          p_intent_id: string
+          p_stripe_checkout_session_id: string
+        }
+        Returns: Database["public"]["Tables"]["checkout_intents"]["Row"]
+      }
+      release_abandoned_checkout_intent: {
+        Args: {
+          p_intent_id: string
+          p_stripe_customer_id: string
+        }
+        Returns: Database["public"]["Tables"]["checkout_intents"]["Row"]
+      }
+      snapshot_checkout_intent_customer: {
+        Args: {
+          p_intent_id: string
+          p_stripe_customer_id: string
+        }
+        Returns: Database["public"]["Tables"]["checkout_intents"]["Row"]
+      }
       acquire_staging_integration_smoke_lease: {
         Args: {
           p_lease_name: string

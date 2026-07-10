@@ -104,7 +104,7 @@
         {
           "type": "path",
           "value": "../../scripts/smoke-checkout.ts",
-          "note": "Smoke disponible para checkout autenticado."
+          "note": "Smoke estrecho disponible para checkout autenticado aprobado; abre/verifica/caduca una sesion Stripe test, pero no sustituye un pago ni webhook reales."
         }
       ]
     },
@@ -268,8 +268,8 @@
       "status": "pending",
       "owner": "Alin",
       "verifiedAt": "2026-06-05T00:00:00.000Z",
-      "environment": "staging then production",
-      "summary": "Falta smoke end-to-end: registro, checkout, webhook, Drive, email, reserva, Doc, Calendar/Meet, recordatorio, cancelacion y retry.",
+      "environment": "staging lifecycle then production minimal manual",
+      "summary": "Falta el ciclo integral staging con cleanup y el smoke minimo/manual production separado.",
       "evidence": [
         {
           "type": "command_output",
@@ -280,6 +280,16 @@
           "type": "command_output",
           "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-staging-smoke.md",
           "note": "Aprobacion exacta para staging rehearsal con Stripe test; no cierra final_smoke por si sola."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-staging-checkout-gate.md",
+          "note": "Aprobacion Cloudflare separada para el gate temporal del Worker staging y su rollback a false; el runner no ejecuta el write."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/production-minimal-smoke-checklist.md",
+          "note": "Checklist manual de production; el harness integral es staging-only."
         },
         {
           "type": "command_output",
@@ -300,6 +310,11 @@
           "type": "command_output",
           "value": "../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md",
           "note": "Approval gate exacto para ejecutar el smoke rehearsal de staging con Stripe test."
+        },
+        {
+          "type": "command_output",
+          "value": "../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/cloudflare-checkout-gate-approval.md",
+          "note": "Copia del limite de aprobacion separado del gate; no es un write Cloudflare."
         },
         {
           "type": "command_output",

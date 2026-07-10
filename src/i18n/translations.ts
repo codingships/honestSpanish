@@ -245,7 +245,7 @@ export const ui = {
                     thisMonth: "Este mes",
                     last3Months: "Últimos 3 meses",
                     allTime: "Todo",
-                    totalMonth: "Total este mes",
+                    totalMonth: "Neto cobrado este mes",
                     transactions: "Transacciones",
                     avgTicket: "Ticket medio",
                     viewInStripe: "Ver en Stripe",
@@ -253,6 +253,10 @@ export const ui = {
                     succeeded: "Exitoso",
                     failed: "Fallido",
                     refunded: "Reembolsado",
+                    partiallyRefunded: "Reembolso parcial",
+                    grossAmount: "Bruto",
+                    refundedAmount: "Devuelto",
+                    netAmount: "Neto",
                 },
                 assignTeacher: {
                     title: "Asignar profesor",
@@ -295,6 +299,8 @@ export const ui = {
                 changePassword: "Cambiar contraseña",
                 subscription: "Tu suscripción",
                 manageStripe: "Gestionar pagos",
+                active: "Activo",
+                expires: "Expira",
                 danger: "Zona de peligro",
                 logoutAll: "Cerrar todas las sesiones",
                 deleteAccount: "Eliminar mi cuenta",
@@ -399,7 +405,7 @@ export const ui = {
                 { question: "¿Qué nivel necesito para empezar?", answer: "Recomendamos un nivel A2 mínimo. Si estás en cero absoluto, hay opciones mejores que nosotros para los primeros pasos. Nuestro fuerte es sacarte del atasco del B1-B2." },
                 { question: "¿Cómo son las clases online?", answer: "Por videollamada, con duraciones de 30, 40 o 50 minutos. Tú ya has trabajado parte del material antes. La sesión se dedica a conversación, corrección y práctica de situaciones reales." },
                 { question: "¿Qué pasa si tengo que cancelar una clase?", answer: "Avisa con 24 horas de antelación y la reprogramamos sin problema. Menos de 24 horas, la clase se pierde. Somos flexibles, pero el compromiso es mutuo." },
-                { question: "¿Puedo cambiar de plan?", answer: "Sí. Puedes subir o bajar de plan en cualquier momento. El cambio se aplica en el siguiente ciclo de facturación." },
+                { question: "¿Puedo cambiar de plan?", answer: "Sí. Pídenos el cambio antes de la renovación; lo revisamos contigo y, si procede, se aplica al siguiente periodo. No cambiamos ni prorrateamos el periodo ya pagado." },
                 { question: "¿Ofrecéis clases para empresas?", answer: "Sí, pero es un servicio diferente. Escríbenos y hablamos de las necesidades específicas de tu equipo." },
                 { question: "¿Puedo aprender español en 3 meses?", answer: "Puedes mejorar en tres meses, pero no prometemos milagros. Si quieres hablar con más criterio y confianza, necesitas continuidad, materiales buenos y conversaciones exigentes." }
             ]
@@ -461,6 +467,8 @@ export const ui = {
                 privacyLink: "Política de Privacidad",
                 serviceStartRequest: "Solicito que el servicio pueda comenzar durante los 14 días de desistimiento. Entiendo que, si desisto después de que haya empezado, podrá descontarse la parte proporcional ya prestada.",
                 withdrawalLossAcknowledgement: "Reconozco expresamente que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.",
+                renewalDisclosure: "El total se cobra al comenzar y la suscripción se renueva automáticamente por el mismo periodo (1, 3 o 6 meses) hasta que la canceles antes del siguiente cobro.",
+                sessionBankDisclosure: "Este periodo incluye {sessions} sesiones para usar durante {months} mes(es), sin tope mensual. Las no usadas caducan al terminar.",
                 policyError: "Debes confirmar la mayoría de edad y aceptar las cuatro condiciones antes de continuar.",
             },
         },
@@ -822,7 +830,7 @@ export const ui = {
                     thisMonth: "This month",
                     last3Months: "Last 3 months",
                     allTime: "All time",
-                    totalMonth: "Total this month",
+                    totalMonth: "Net collected this month",
                     transactions: "Transactions",
                     avgTicket: "Average ticket",
                     viewInStripe: "View in Stripe",
@@ -830,6 +838,10 @@ export const ui = {
                     succeeded: "Succeeded",
                     failed: "Failed",
                     refunded: "Refunded",
+                    partiallyRefunded: "Partially refunded",
+                    grossAmount: "Gross",
+                    refundedAmount: "Refunded",
+                    netAmount: "Net",
                 },
                 assignTeacher: {
                     title: "Assign teacher",
@@ -872,6 +884,8 @@ export const ui = {
                 changePassword: "Change password",
                 subscription: "Your subscription",
                 manageStripe: "Manage payments",
+                active: "Active",
+                expires: "Expires",
                 danger: "Danger zone",
                 logoutAll: "Log out all devices",
                 deleteAccount: "Delete my account",
@@ -1076,11 +1090,11 @@ export const ui = {
             headline: "FREQUENTLY ASKED QUESTIONS",
             items: [
                 { question: "What level do I need to start?", answer: "We recommend a minimum A2 level. If you are starting from absolute zero, there are better options for the first steps. Our strength is getting you unstuck from B1-B2." },
-                { question: "How are the online classes?", answer: "Video call, one hour. You have already worked on the material before (flipped classroom). The session is 100% conversation, correction, and practice of real situations." },
+                { question: "How are the online classes?", answer: "By video call, with 30, 40 or 50-minute options. You have already worked through part of the material beforehand. The session focuses on conversation, correction and practice for real situations." },
                 { question: "What happens if I have to cancel a class?", answer: "Notify us 24 hours in advance and we reschedule without problem. Less than 24 hours, the class is lost. We are flexible, but the commitment is mutual." },
-                { question: "Can I change plans?", answer: "Yes. You can upgrade or downgrade at any time. The change applies in the next billing cycle." },
+                { question: "Can I change plans?", answer: "Yes. Ask us before renewal; we will review the change with you and, when appropriate, apply it to the next period. We do not change or prorate a period that has already been paid." },
                 { question: "Do you offer classes for companies?", answer: "Yes, but it is a different service. Write to us and we can talk about the specific needs of your team." },
-                { question: "Can I learn Spanish in 3 months?", answer: "Technically, you will learn something. Practically, not enough. Honestly, no. That's why we say 8-10 months." }
+                { question: "Can I learn Spanish in 3 months?", answer: "You can improve in three months, but we do not promise miracles. Speaking with more judgment and confidence takes continuity, strong materials and demanding conversations." }
             ]
         },
         pricing: {
@@ -1140,6 +1154,8 @@ export const ui = {
                 privacyLink: "Privacy Policy",
                 serviceStartRequest: "I request that the service may begin during the 14-day withdrawal period. I understand that, if I withdraw after it begins, the proportion already supplied may be deducted.",
                 withdrawalLossAcknowledgement: "I expressly acknowledge that, once the service has been fully performed, I will lose my right of withdrawal.",
+                renewalDisclosure: "The total is charged at the start and the subscription renews automatically for the same period (1, 3 or 6 months) until you cancel before the next charge.",
+                sessionBankDisclosure: "This period includes {sessions} sessions to use across {months} month(s), with no monthly cap. Unused sessions expire when the period ends.",
                 policyError: "Confirm that you are an adult and accept all four conditions before continuing.",
             },
         },
@@ -1396,7 +1412,7 @@ export const ui = {
                     thisMonth: "Этот месяц",
                     last3Months: "Последние 3 месяца",
                     allTime: "За всё время",
-                    totalMonth: "Итого за месяц",
+                    totalMonth: "Чистая сумма за месяц",
                     transactions: "Транзакции",
                     avgTicket: "Средний чек",
                     viewInStripe: "Посмотреть в Stripe",
@@ -1404,6 +1420,10 @@ export const ui = {
                     succeeded: "Успешно",
                     failed: "Ошибка",
                     refunded: "Возврат",
+                    partiallyRefunded: "Частичный возврат",
+                    grossAmount: "Брутто",
+                    refundedAmount: "Возвращено",
+                    netAmount: "Нетто",
                 },
                 assignTeacher: {
                     title: "Назначить преподавателя",
@@ -1446,6 +1466,8 @@ export const ui = {
                 changePassword: "Изменить пароль",
                 subscription: "Твоя подписка",
                 manageStripe: "Управление платежами",
+                active: "Активна",
+                expires: "Истекает",
                 danger: "Опасная зона",
                 logoutAll: "Выйти на всех устройствах",
                 deleteAccount: "Удалить аккаунт",
@@ -1650,11 +1672,11 @@ export const ui = {
             headline: "ЧАСТО ЗАДАВАЕМЫЕ ВОПРОСЫ",
             items: [
                 { question: "Какой уровень мне нужен для начала?", answer: "Мы рекомендуем минимум уровень A2. Если вы начинаете с нуля, есть лучшие варианты для первых шагов. Наша сила — вытащить вас из застоя B1-B2." },
-                { question: "Как проходят онлайн-уроки?", answer: "Видеозвонок, один час. Вы уже проработали материал заранее (перевернутый класс). Сессия — это 100% разговор, исправления и практика реальных ситуаций." },
+                { question: "Как проходят онлайн-уроки?", answer: "По видеосвязи, продолжительностью 30, 40 или 50 минут. Часть материала вы заранее прорабатываете самостоятельно. На занятии мы сосредотачиваемся на разговоре, исправлениях и практике реальных ситуаций." },
                 { question: "Что произойдет, если мне нужно отменить урок?", answer: "Сообщите нам за 24 часа, и мы перенесем урок без проблем. Менее чем за 24 часа урок сгорает. Мы гибки, но обязательства взаимны." },
-                { question: "Могу ли я сменить план?", answer: "Да. Вы можете повысить или понизить план в любое время. Изменения вступают в силу в следующем расчетном цикле." },
+                { question: "Могу ли я сменить план?", answer: "Да. Сообщите нам об этом до продления: мы обсудим изменение с вами и, если оно подходит, применим его к следующему периоду. Уже оплаченный период не меняется и не пересчитывается." },
                 { question: "Предлагаете ли вы уроки для компаний?", answer: "Да, но это отдельная услуга. Напишите нам, и мы обсудим конкретные потребности вашей команды." },
-                { question: "Могу ли я выучить испанский за 3 месяца?", answer: "Технически, вы чему-то научитесь. Практически, недостаточно. Честно говоря, нет. Поэтому мы говорим 8-10 месяцев." }
+                { question: "Могу ли я выучить испанский за 3 месяца?", answer: "За три месяца можно заметно продвинуться, но мы не обещаем чудес. Для уверенной и осмысленной речи нужны регулярность, хорошие материалы и содержательные разговоры." }
             ]
         },
         pricing: {
@@ -1714,6 +1736,8 @@ export const ui = {
                 privacyLink: "Политику конфиденциальности",
                 serviceStartRequest: "Прошу разрешить начать оказание услуг в течение 14-дневного срока отказа. Я понимаю, что при отказе после начала может быть удержана пропорциональная стоимость уже оказанной части.",
                 withdrawalLossAcknowledgement: "Я прямо подтверждаю, что после полного исполнения услуги утрачу право на отказ от договора.",
+                renewalDisclosure: "Полная сумма списывается в начале, затем подписка автоматически продлевается на тот же срок (1, 3 или 6 месяцев), пока вы не отмените её до следующего списания.",
+                sessionBankDisclosure: "На этот период доступно {sessions} занятий в течение {months} мес., без месячного лимита. Неиспользованные занятия сгорают в конце периода.",
                 policyError: "Подтвердите совершеннолетие и примите все четыре условия перед продолжением.",
             },
         },

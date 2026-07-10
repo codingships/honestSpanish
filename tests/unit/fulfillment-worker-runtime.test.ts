@@ -29,7 +29,7 @@ describe('fulfillment Worker runtime boundary', () => {
         expect(config).toContain('EMAIL_DAILY_RECIPIENT_LIMIT = "10"');
         expect(config).toContain('EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"');
         expect(packageJson).toContain('"deploy": "wrangler deploy --env staging"');
-        expect(packageJson).toContain('"deploy:production": "wrangler deploy --env production"');
+        expect(packageJson).toContain('"deploy:production": "wrangler deploy --env production --dry-run"');
         expect(worker).not.toContain('applyRuntimeEnv');
     });
 });

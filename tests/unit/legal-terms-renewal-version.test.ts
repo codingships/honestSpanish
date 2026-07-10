@@ -11,4 +11,10 @@ describe('legal terms version on automatic renewal', () => {
         expect(terms).toContain('obtain fresh acceptance where legally required');
         expect(terms).toContain('получим новое согласие');
     });
+
+    it('states that multi-month purchases are a flexible period bank rather than a hidden monthly cap', () => {
+        expect(terms).toContain('banco total de sesiones del periodo');
+        expect(terms).toContain('with no monthly cap');
+        expect(terms).toContain('без месячного лимита');
+    });
 });

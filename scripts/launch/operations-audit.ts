@@ -87,17 +87,19 @@ function reviewCloudflareFulfillmentWorker(): Finding {
     const packageFile = path.join('workers', 'fulfillment', 'package.json');
     const wranglerFile = path.join('workers', 'fulfillment', 'wrangler.toml');
     const workerFile = path.join('workers', 'fulfillment', 'src', 'index.ts');
+    const productionSecretsRunnerFile = path.join('scripts', 'launch', 'cloudflare-production-fulfillment-secrets.ts');
     const packageJson = readIfExists(packageFile);
     const wrangler = readIfExists(wranglerFile);
     const worker = readIfExists(workerFile);
+    const productionSecretsRunner = readIfExists(productionSecretsRunnerFile);
     const details: string[] = [];
 
     details.push(...missingSnippets(packageFile, packageJson, [
         '"name": "@espanol-honesto/fulfillment-worker"',
         '"packageManager": "pnpm@10.33.0"',
-        '"dev": "wrangler dev --local --port 8788"',
+        '"dev": "wrangler dev --local --port 8788 --env staging"',
         '"deploy": "wrangler deploy --env staging"',
-        '"deploy:production": "wrangler deploy --env production"',
+        '"deploy:production": "wrangler deploy --env production --dry-run"',
         '"typecheck": "tsc --noEmit"',
         '@googleapis/calendar',
         '@googleapis/drive',
@@ -105,13 +107,20 @@ function reviewCloudflareFulfillmentWorker(): Finding {
     ]));
 
     details.push(...missingSnippets(wranglerFile, wrangler, [
-        'name = "espanol-honesto-fulfillment"',
+        'name = "espanol-honesto-fulfillment-env-required"',
         'main = "src/index.ts"',
         'compatibility_flags = ["nodejs_compat"]',
         '[env.staging]',
         'name = "espanol-honesto-fulfillment-staging"',
         '[env.production]',
         'name = "espanol-honesto-fulfillment-production"',
+        'PUBLIC_APP_ENV = "production"',
+        'SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"',
+        'WORKER_IDENTITY = "espanol-honesto-fulfillment-production"',
+        'PUBLIC_SITE_URL = "https://espanolhonesto.com"',
+        'EMAIL_DELIVERY_MODE = "live"',
+        'EMAIL_DAILY_RECIPIENT_LIMIT = "80"',
+        'EMAIL_MONTHLY_RECIPIENT_LIMIT = "2400"',
         '[triggers]',
         'crons = ["0 * * * *"]',
         'observability',
@@ -134,11 +143,26 @@ function reviewCloudflareFulfillmentWorker(): Finding {
         'cloudflare-fulfillment-worker',
     ]));
 
+    details.push(...missingSnippets(productionSecretsRunnerFile, productionSecretsRunner, [
+        'CLOUDFLARE_FULFILLMENT_SECRETS_APPROVAL',
+        'CLOUDFLARE_FULFILLMENT_DIRECT_URL',
+        '--execute-approved',
+        'remote_target_pre_write_gate',
+        'direct_fulfillment_runtime_attestation',
+        'supabaseExpectedProjectRef',
+        'FULFILLMENT_RUNTIME_MODE=bootstrap',
+        'EMAIL_DELIVERY_MODE = "disabled"',
+        'bootstrap_operational_block_pre_write',
+        'No email send',
+        "config: 'workers/fulfillment/wrangler.toml'",
+        "'--env', 'production_bootstrap'",
+    ]));
+
     return {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'Cloudflare fulfillment Worker',
         message: details.length === 0
-            ? 'Cloudflare Worker defines staging and production fulfillment runtimes with health checks, internal endpoints and node compatibility.'
+            ? 'Cloudflare Worker defines isolated staging/production runtimes plus a separately gated production config/secrets/email route with direct attestation.'
             : 'Cloudflare fulfillment Worker is missing launch-critical runtime or environment configuration.',
         details,
     };
@@ -164,27 +188,42 @@ function reviewCiDeployPipeline(): Finding {
         "environment: ${{ github.ref_name == 'main' && 'Production' || 'staging' }}",
         'CLOUDFLARE_ENV',
         'CLOUDFLARE_API_TOKEN',
-        'pnpm exec wrangler deploy --dry-run',
-        'pnpm exec wrangler deploy --keep-vars',
+        'pnpm run build:production:release',
+        'deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run',
+        'run: pnpm deploy',
         'Verify staging checkout is disabled',
         'CLOUDFLARE_STAGING_URL',
         '--deployed-url "$STAGING_WORKER_URL"',
         'FULFILLMENT_WORKER_URL',
-        'Deploy Cloudflare Fulfillment Worker',
-        '@espanol-honesto/fulfillment-worker',
-        'run deploy -- --env',
+        'Validate inert production Fulfillment bootstrap package',
+        'Validate final active production Fulfillment package',
+        'Deploy staging Cloudflare Fulfillment Worker',
+        'pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run',
+        'pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run',
+        'pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars',
+        'Production CI completed build and dry-runs only.',
     ]);
-    const fulfillmentDeployIndex = content.indexOf('name: Deploy Cloudflare Fulfillment Worker');
-    const webDeployIndex = content.indexOf('name: Deploy Cloudflare Worker');
+    if (content.includes('run deploy -- --env')) {
+        details.push(`${file}: fulfillment deploy must not append a second --env to a package script that already selects staging.`);
+    }
+    if (content.includes('wrangler deploy --config workers/fulfillment/wrangler.toml --env production --keep-vars')) {
+        details.push(`${file}: main CI must never auto-deploy active fulfillment production.`);
+    }
+    const fulfillmentDryRunIndex = content.indexOf('name: Validate staging Cloudflare Fulfillment Worker deploy package');
+    const fulfillmentDeployIndex = content.indexOf('name: Deploy staging Cloudflare Fulfillment Worker');
+    const webDeployIndex = content.indexOf('name: Deploy staging Cloudflare Worker');
     if (fulfillmentDeployIndex < 0 || webDeployIndex < 0 || fulfillmentDeployIndex >= webDeployIndex) {
         details.push(`${file}: fulfillment Worker must deploy before the bound Astro Worker.`);
+    }
+    if (fulfillmentDryRunIndex < 0 || fulfillmentDeployIndex < 0 || fulfillmentDryRunIndex >= fulfillmentDeployIndex) {
+        details.push(`${file}: fulfillment Worker dry-run must pass before its deploy.`);
     }
 
     return {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'GitHub CI and deploy pipeline',
         message: details.length === 0
-            ? 'CI covers build/test/security basics plus Cloudflare Worker deploy, staging checkout verification and fulfillment Worker deploy.'
+            ? 'CI deploys staging in dependency order and keeps production to explicit bootstrap/active dry-runs with no automatic write.'
             : 'CI/deploy pipeline is missing launch-critical steps.',
         details,
     };
@@ -201,7 +240,7 @@ function reviewFulfillmentWorkerRuntime(): Finding {
         ...missingSnippets(path.join('workers', 'fulfillment', 'package.json'), packageJson, [
             '"packageManager": "pnpm@10.33.0"',
             '"deploy": "wrangler deploy --env staging"',
-            '"deploy:production": "wrangler deploy --env production"',
+            '"deploy:production": "wrangler deploy --env production --dry-run"',
             '"typecheck": "tsc --noEmit"',
             '@googleapis/calendar',
             '@googleapis/drive',

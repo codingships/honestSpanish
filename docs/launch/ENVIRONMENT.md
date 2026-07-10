@@ -74,8 +74,8 @@ Inventario de rotacion por entorno:
 
 | Proveedor | Secretos/valores | Donde se consumen | Nota |
 | --- | --- | --- | --- |
-| Supabase | `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_DB_URL` operativo | Cloudflare Astro Worker, Fulfillment Worker, GitHub, migraciones locales | Rotar JWT/keys con ventana de mantenimiento si invalida sesiones. |
-| Stripe | `STRIPE_SECRET_KEY`, `PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `CHECKOUT_ENABLED`, `CHECKOUT_ENABLED_OVERRIDE`, `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para auditoria read-only | Cloudflare Astro Worker, GitHub | Test y live separados; Price IDs no son secretos. Defaults `false`; el override final abre/cierra UI y API sin editar `wrangler.toml`. |
+| Supabase | `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_EXPECTED_PROJECT_REF`, `SUPABASE_DB_URL` operativo | Cloudflare Astro Worker, Fulfillment Worker, GitHub, migraciones locales | El guard compara build, runtime y ref esperada; cualquier mezcla falla cerrada. |
+| Stripe | `STRIPE_SECRET_KEY`, `PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_EXPECTED_ACCOUNT_ID`, `STRIPE_PORTAL_CONFIGURATION_ID`, `CHECKOUT_ENABLED`, `CHECKOUT_ENABLED_OVERRIDE`, `STRIPE_EXPECTED_WEBHOOK_HOSTS` | Cloudflare Astro Worker, GitHub | Test y live separados; live solo en production. Portal fijado por ID, sin cambios de plan y cancelacion al final del periodo. |
 | Cloudflare internals | binding `FULFILLMENT_SERVICE`, `FULFILLMENT_WORKER_URL`, `INTERNAL_JOB_SECRET`, `CRON_SECRET` | Astro Worker, Fulfillment Worker, GitHub | El binding no es secreto y debe apuntar al Worker del mismo entorno. `INTERNAL_JOB_SECRET`/`CRON_SECRET` deben ser distintos por entorno. |
 | Google | `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_ADMIN_EMAIL`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`, `GOOGLE_TEMPLATE_DOC_ID` | Fulfillment Worker | Crear clave nueva, validar, borrar antigua. |
 | Resend | `RESEND_API_KEY`, `EMAIL_FROM`, `RESEND_FROM_EMAIL`, `EMAIL_DELIVERY_MODE`, `EMAIL_RECIPIENT_ALLOWLIST`, limites de destinatarios | Astro Worker y Fulfillment Worker | Validar envio antes de revocar. Cada destinatario consume una unidad; staging y production comparten el margen del plan si usan la misma cuenta Resend. |
@@ -86,6 +86,8 @@ Inventario de rotacion por entorno:
 ## Cloudflare Astro Worker
 
 Crear dos Workers desde `wrangler.toml`:
+
+El nombre base es deliberadamente `espanolhonesto-env-required`; nunca es production. Todo comando remoto debe seleccionar `--env staging` o `--env production`, de modo que un deploy accidental sin entorno no pueda sobrescribir `espanolhonesto`.
 
 - `espanolhonesto-staging`
   - `CLOUDFLARE_ENV=staging`
@@ -102,16 +104,19 @@ Variables por entorno:
 - `PUBLIC_SUPABASE_URL`
 - `PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `SUPABASE_EXPECTED_PROJECT_REF` (`mzjyvmlxfpzdfdjzxxyj` staging; `vkkahxsybhbutszerawz` production)
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `PUBLIC_STRIPE_PUBLISHABLE_KEY`
-- `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para que `pnpm launch:stripe-readonly` alerte si un webhook habilitado apunta a un host no esperado.
+- `STRIPE_EXPECTED_ACCOUNT_ID`
+- `STRIPE_PORTAL_CONFIGURATION_ID`
+- `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para sobrescribir el host esperado. Sin override, el auditor exige `espanolhonesto-staging.alindev95.workers.dev` en staging y el canonico `espanolhonesto.com` en production; no se configura un webhook duplicado en `www`.
 - `CHECKOUT_ENABLED=false` hasta decidir pagos reales o checkout test deliberado.
 - `CHECKOUT_ENABLED_OVERRIDE=false` o ausente hasta la activacion exacta; `true` solo despues del Go/No-Go y `false` como rollback inmediato.
 - `PUBLIC_TURNSTILE_SITE_KEY`
 - `TURNSTILE_SECRET_KEY`
 - `PUBLIC_SENTRY_DSN`
-- `SENTRY_AUTH_TOKEN`
+- `SENTRY_AUTH_TOKEN` solo en CI/build/herramientas; no cargarlo como secret del Worker web de request runtime.
 - `SENTRY_ORG` y `SENTRY_PROJECT` opcionales para `pnpm launch:sentry-readonly`, recomendados para CI/deploy y sourcemaps.
 - `SENTRY_CAPTURE_LOCAL=false` por defecto; poner `true` solo para depurar captura local deliberada sin mezclarla con production.
 - `SENTRY_ENVIRONMENT` opcional; si falta, captura local opt-in usa `local-<NODE_ENV>` y entornos desplegados usan `PUBLIC_APP_ENV`.
@@ -126,28 +131,42 @@ Variables por entorno:
 - `EMAIL_DELIVERY_MODE`: ausente/`disabled` falla cerrado; staging solo puede usar `allowlist`; `live` solo funciona con `PUBLIC_APP_ENV=production`.
 - `EMAIL_RECIPIENT_ALLOWLIST`: destinatarios separados por coma o punto y coma para staging; no guardar esta lista en el repo si contiene direcciones reales.
 - La allowlist de staging queda limitada a las tres cuentas propias de prueba ya definidas como `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` y `TEST_STUDENT_EMAIL`. Sus valores se copian al secreto `EMAIL_RECIPIENT_ALLOWLIST` de ambos Workers staging, nunca al repositorio.
+- El smoke integral mapea esas mismas cuentas a `SMOKE_ADMIN_*`, `SMOKE_TEACHER_*` y `SMOKE_STUDENT_*`; no acepta aliases/destinatarios `example.com`, no crea usuarios y no necesita acceso al buzon del alumno. La comprobacion de email usa respuesta/estado del proveedor.
 - `EMAIL_DAILY_RECIPIENT_LIMIT` y `EMAIL_MONTHLY_RECIPIENT_LIMIT`: staging tiene techo 10/100 y production 80/2.400, aunque se configuren cifras superiores.
 
 Cloudflare Astro Worker no necesita claves Google si ninguna ruta API importa Google SDK. En Cloudflare debe usar `FULFILLMENT_SERVICE.fetch(...)`; el fallback por URL queda reservado a local y los entornos desplegados fallan cerrados si falta el binding.
 
 ## Cloudflare Fulfillment Worker
 
+- `FULFILLMENT_RUNTIME_MODE`: cualquier valor distinto de `active` bloquea rutas operativas y eventos scheduled. `production_bootstrap` usa `bootstrap`; staging y la habilitación final production usan `active` explícitamente.
+
 Crear dos Workers desde `workers/fulfillment/wrangler.toml`:
+
+El nombre base es `espanol-honesto-fulfillment-env-required`; nunca es production. El config y el `--env` deben ser explicitos en todo dry-run/deploy/secret command.
 
 - `espanol-honesto-fulfillment-staging`
   - Health check: `/health`
 - `espanol-honesto-fulfillment-production`
   - Health check: `/health`
 
-El Fulfillment Worker declara un cron horario (`0 * * * *`) para procesar jobs pendientes y recordatorios. Las rutas internas siguen disponibles para disparos manuales o desde la app Astro Worker. Para cada entorno, desplegar primero este Worker y después el Astro Worker que declara `FULFILLMENT_SERVICE`; no usar `fetch()` público entre Workers de la misma cuenta.
+El Fulfillment Worker activo declara un cron horario (`0 * * * *`) para procesar jobs pendientes y recordatorios. Staging se despliega activo antes del Astro Worker. Production se crea primero con el entorno `production_bootstrap`: `FULFILLMENT_RUNTIME_MODE=bootstrap`, email desactivado, cuotas cero, `crons=[]` y rutas operativas bloqueadas con 503. Después se despliega el Astro Worker que declara `FULFILLMENT_SERVICE`, se cargan secrets mientras fulfillment sigue inerte y solo un gate final separado despliega `--env production`. No usar `fetch()` público entre Workers de la misma cuenta.
 
 Despliegue:
 
 ```bash
 pnpm fulfillment:typecheck
-pnpm --filter @espanol-honesto/fulfillment-worker run deploy -- --env staging
-pnpm --filter @espanol-honesto/fulfillment-worker run deploy -- --env production
+pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --dry-run
+pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars
+pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run
+pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run
+pnpm launch:cloudflare-production-fulfillment-bootstrap
+pnpm launch:cloudflare-production-fulfillment-secrets
+pnpm launch:cloudflare-production-fulfillment-enable
 ```
+
+No usar `pnpm --filter ... run deploy -- --env ...`: el script del paquete ya selecciona staging y produciria dos `--env`. CI ejecuta primero dry-run y después un único deploy inequívoco solo para staging. En production no hay deploy automático ni comando raw documentado: se usan los tres gates anteriores.
+
+Para production, el bootstrap inerte se despliega antes del web Worker. `pnpm launch:cloudflare-production-fulfillment-secrets` carga nombres contra `production_bootstrap` y exige salud/bootstrap/bloqueo 503 antes del primer write; después reatestigua el mismo estado inerte. `pnpm launch:cloudflare-production-fulfillment-enable` es la aprobación distinta que, tras probar web + secrets + atestación, activa runtime, email live 80/día y 2.400/mes y cron horario. Ver `docs/launch/CLOUDFLARE_PRODUCTION.md`.
 
 Variables:
 
@@ -244,13 +263,16 @@ La pasarela de email requiere aplicar `supabase/migrations/20260710083915_enforc
 
 ## Stripe
 
-- Staging: test mode.
+- Staging: Sandbox general dedicado `espanolhonesto-staging`, creado desde cero y configurado como España/EUR, siempre con `sk_test_` y `STRIPE_EXPECTED_ACCOUNT_ID` exacto. La activacion comercial de la cuenta no se exige para pruebas. No reutilizar el test mode clasico `acct_1SnNnoFhBCkSD61w` (Estados Unidos/USD) ni sus objetos antiguos/smoke.
 - Production: live mode, activado solo en la ventana final porque se aceptaran pagos reales desde el primer dia.
 - `CHECKOUT_ENABLED=false` sigue siendo el default versionado. `CHECKOUT_ENABLED_OVERRIDE=true` es el interruptor final; devolverlo a `false` bloquea tanto la UI como `/api/create-checkout` antes de Supabase o Stripe.
-- Antes de activar: datos legales verificados, Price IDs live en Supabase production, webhook live al Worker production, portal de cliente con cancelacion al final del periodo, avisos de renovacion, compra y reembolso de prueba, y confirmacion contractual por email.
+- Para el smoke staging, el override no se presupone: requiere la aprobacion exacta separada `STAGING_CHECKOUT_GATE_APPROVAL`, que nombra solo Worker `espanolhonesto-staging`. `launch:final-smoke-execution-pack` no escribe Cloudflare; `launch:staging-smoke-rehearsal-runner` primero atestigua el runtime cerrado, posee exclusivamente el intervalo `CHECKOUT_ENABLED_OVERRIDE=false → true → false`, re-atestigua antes del smoke y restaura/verifica `false` dentro de `finally`. `STAGING_CHECKOUT_GATE_CONFIRMATION` es un valor interno generado por el runner, no evidencia manual. Un rollback ambiguo bloquea el cierre.
+- Variables manuales del rehearsal: `SMOKE_COMPLETED_CHECKOUT_SESSION_ID=cs_test_...` y `SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION=reviewed-real-events:<same-session>`. El subprocess `real-env-smoke.ts --preflight-only` valida estas dos, catalogo, cuenta/modo, roles/allowlist y gate antes de cualquier write.
+- `scripts/smoke/real-env-smoke.ts` es staging-only (Supabase `mzjyvmlxfpzdfdjzxxyj`, Stripe `sk_test_`, host Worker exacto). Production usa un smoke minimo/manual y nunca este arnes.
+- Antes de activar: cuenta live española con datos, cobros y payouts habilitados; tres ofertas live por paquete en `package_prices`; Customers vinculados a cuenta/modo; webhook live; Portal live fijado por `STRIPE_PORTAL_CONFIGURATION_ID`; avisos, compra y reembolso probados.
 - Webhook secret diferente por entorno.
-- `pnpm launch:stripe-readonly` audita production y `pnpm launch:stripe-readonly:staging` combina Stripe test con Supabase staging de forma explicita. Ambos verifican el project ref, activacion de cuenta, hosts y el conjunto minimo de eventos webhook contra `STRIPE_EXPECTED_WEBHOOK_HOSTS`; un host antiguo, eventos incompletos o una cuenta sin cobros/payouts debe quedar como warning hasta revisarlo en dashboard.
-- Los Price IDs viven en Supabase `packages`.
+- `pnpm launch:stripe-readonly` audita production y `pnpm launch:stripe-readonly:staging` combina Stripe test con Supabase staging de forma explicita. Ambos exigen cuenta España/EUR, project ref exacto, Portal fijado con historial de facturas/actualizacion de pago/cancelacion al final del periodo y exactamente un webhook habilitado en el host esperado con exactamente los ocho eventos de `src/lib/stripe-webhook-events.ts`; un host antiguo o eventos incompletos dejan el auditor en `FAILED`, igual que un duplicado, un evento extra o uno ausente. Una cuenta test sin cobros/payouts puede quedar en `WARNING`, pero en production tambien deja el auditor en `FAILED`.
+- `packages` guarda punteros activos; `package_prices` conserva el contrato y el historico. No reutilizar Customers, Products, Prices, webhooks ni configuraciones Portal entre test/live.
 
 ## Google
 

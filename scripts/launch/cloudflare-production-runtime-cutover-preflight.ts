@@ -137,8 +137,8 @@ captures.push(runCapture({
 }));
 captures.push(runCapture({
     id: 'pnpm-build',
-    label: 'Local production build',
-    args: pnpmArgs('build'),
+    label: 'Explicit local production release build',
+    args: pnpmArgs('run', 'build:production:release'),
     timeoutMs: 240_000,
 }));
 
@@ -146,7 +146,7 @@ const buildCapture = captureById('pnpm-build');
 captures.push(runCapture({
     id: 'wrangler-deploy-production-dry-run-after-build',
     label: 'Wrangler production deploy dry-run after build',
-    args: pnpmArgs('exec', 'wrangler', 'deploy', '--env', 'production', '--dry-run'),
+    args: pnpmArgs('exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--dry-run'),
     timeoutMs: 180_000,
     skip: buildCapture?.exitCode !== 0,
     skipReason: 'Skipped because the local build did not complete successfully.',
@@ -157,6 +157,7 @@ captures.push(cleanupCapture);
 
 const wrangler = readIfExists('wrangler.toml');
 const checkoutEnabledFalseInConfig = checkoutFalseCount(wrangler) >= 3;
+const safeBaseWorkerNameConfigured = /^name\s*=\s*"espanolhonesto-env-required"/mu.test(wrangler);
 const dryRunCapture = captureById('wrangler-deploy-production-dry-run-after-build');
 const dryRunOutput = dryRunCapture ? captureText(dryRunCapture) : '';
 const dryRunAfterBuildLooksSuccessful = Boolean(
@@ -403,8 +404,11 @@ function buildChecks(matrix: MatrixEntry[]): Check[] {
         'CHECKOUT_ENABLED',
         'PUBLIC_SITE_URL',
         'SUPABASE_SERVICE_ROLE_KEY',
+        'SUPABASE_EXPECTED_PROJECT_REF',
         'STRIPE_SECRET_KEY',
         'STRIPE_WEBHOOK_SECRET',
+        'STRIPE_EXPECTED_ACCOUNT_ID',
+        'STRIPE_PORTAL_CONFIGURATION_ID',
         'PUBLIC_STRIPE_PUBLISHABLE_KEY',
         'TURNSTILE_SECRET_KEY',
         'LEVEL_CHECK_TOKEN_SECRET',
@@ -447,9 +451,17 @@ function buildChecks(matrix: MatrixEntry[]): Check[] {
             details: [`checkoutFalseCount=${checkoutFalseCount(wrangler)}`, 'required=base,staging,production'],
         },
         {
+            status: safeBaseWorkerNameConfigured ? 'ok' : 'failed',
+            name: 'safe_base_worker_name',
+            message: safeBaseWorkerNameConfigured
+                ? 'A deploy without --env targets the non-production env-required Worker name, never production.'
+                : 'Top-level Wrangler name is not the safe non-production env-required name.',
+            details: ['requiredBaseName=espanolhonesto-env-required', 'productionName=espanolhonesto'],
+        },
+        {
             status: buildCapture?.exitCode === 0 ? 'ok' : 'failed',
             name: 'local_build_passed',
-            message: buildCapture?.exitCode === 0 ? 'Local production build completed before dry-run.' : 'Local production build failed or was not executed.',
+            message: buildCapture?.exitCode === 0 ? 'Explicit production release build completed before dry-run.' : 'Explicit production release build failed or was not executed.',
             details: [`capture=${toRelative(buildCapture?.outputPath ?? '')}`, `exitCode=${buildCapture?.exitCode ?? 'unknown'}`],
         },
         {
@@ -461,7 +473,7 @@ function buildChecks(matrix: MatrixEntry[]): Check[] {
             details: [
                 `capture=${toRelative(dryRunCapture?.outputPath ?? '')}`,
                 `exitCode=${dryRunCapture?.exitCode ?? 'unknown'}`,
-                'requiredCommand=corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
+                'requiredCommand=corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
             ],
         },
         {
@@ -541,10 +553,13 @@ function buildVariableMatrix(productionWorkerShape: string): MatrixEntry[] {
         ['PUBLIC_SITE_URL', 'Astro Worker', 'yes', 'plain var', 'phase 2 worker vars', 'Canonical site URL, redirects, support links and SEO/runtime URL generation', 'non-secret', 'https://espanolhonesto.com after domain/cutover decision'],
         ['PUBLIC_APP_ENV', 'Astro Worker', 'yes', 'plain var', 'phase 2 worker vars', 'Environment banner/Sentry environment separation', 'non-secret', 'production'],
         ['PUBLIC_SUPABASE_URL', 'Astro Worker', 'yes', 'plain var', 'phase 2 worker vars', 'Supabase client/server URL', 'non-secret endpoint', 'production project vkkahxsybhbutszerawz'],
+        ['SUPABASE_EXPECTED_PROJECT_REF', 'Astro Worker and Fulfillment Worker', 'yes', 'plain var', 'phase 1 deploy config', 'Fail-closed Supabase project isolation', 'non-secret project ref', 'vkkahxsybhbutszerawz'],
         ['PUBLIC_SUPABASE_ANON_KEY', 'Astro Worker', 'yes', 'plain var/public key', 'phase 2 worker vars', 'Supabase browser/server anon client', 'public but environment-specific', 'production anon key'],
         ['SUPABASE_SERVICE_ROLE_KEY', 'Astro Worker', 'yes', 'secret', 'phase 2 worker secrets', 'Admin API routes, CRM/server writes and privileged server actions', 'secret', 'production service-role key'],
         ['STRIPE_SECRET_KEY', 'Astro Worker', 'yes if checkout/webhook tested', 'secret', 'phase 2 worker secrets', 'Stripe checkout/session/portal/server actions', 'secret', 'Stripe test mode until final decision'],
         ['STRIPE_WEBHOOK_SECRET', 'Astro Worker', 'yes for webhook smoke', 'secret', 'phase 2 worker secrets', 'Verify Stripe webhook signatures', 'secret', 'matching Stripe test webhook endpoint'],
+        ['STRIPE_EXPECTED_ACCOUNT_ID', 'Astro Worker', 'yes for Stripe operations', 'plain var', 'phase 2 worker vars', 'Fail-closed Stripe account isolation', 'non-secret account id', 'exact production acct_ id'],
+        ['STRIPE_PORTAL_CONFIGURATION_ID', 'Astro Worker', 'yes for customer portal', 'plain var', 'phase 2 worker vars', 'Pinned launch-safe Customer Portal configuration', 'non-secret config id', 'production bpc_ id with plan changes disabled and cancel-at-period-end'],
         ['PUBLIC_STRIPE_PUBLISHABLE_KEY', 'Astro Worker', 'yes if checkout tested', 'plain var/public key', 'phase 2 worker vars', 'Client Stripe initialization/public config', 'public but mode-specific', 'Stripe test publishable key until final decision'],
         ['STRIPE_EXPECTED_WEBHOOK_HOSTS', 'Audit/local/CI, optional Worker', 'recommended', 'plain var', 'phase 2 worker vars or CI', 'Read-only Stripe audit host guard', 'non-secret', 'espanolhonesto.com,www.espanolhonesto.com plus staging if needed'],
         ['PUBLIC_TURNSTILE_SITE_KEY', 'Astro Worker', 'yes', 'plain var/public key', 'phase 2 worker vars', 'Public forms Turnstile widgets', 'public', 'production widget site key'],
@@ -639,7 +654,7 @@ function renderSummary(report: Report): string {
         `- Variable matrix: ${toRelative(report.variableMatrixPath)}`,
         `- Manifest: ${toRelative(report.manifestPath)}`,
         '',
-        'This preflight does not write to Cloudflare, does not deploy, does not upload, does not move domains, does not change DNS and does not write secrets. It runs `wrangler deploy --env production --dry-run` only after a local build and keeps `CHECKOUT_ENABLED=false` as the required state claim.',
+        'This preflight does not write to Cloudflare, does not deploy, does not upload, does not move domains, does not change DNS and does not write secrets. Astro 6 selects production during the build; the preflight then runs `wrangler deploy --config dist/server/wrangler.json --dry-run` against that resolved package and keeps `CHECKOUT_ENABLED=false` as the required state claim.',
         '',
         '## Checks',
         '',

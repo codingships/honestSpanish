@@ -116,6 +116,8 @@ jobs:
           CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
           PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
           PUBLIC_APP_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
+          SUPABASE_EXPECTED_PROJECT_REF: ${{ github.ref_name == 'main' && 'vkkahxsybhbutszerawz' || 'mzjyvmlxfpzdfdjzxxyj' }}
+          WORKER_IDENTITY: ${{ github.ref_name == 'main' && 'espanolhonesto' || 'espanolhonesto-staging' }}
           PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
           PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -130,27 +132,61 @@ jobs:
           FULFILLMENT_WORKER_URL: ${{ secrets.FULFILLMENT_WORKER_URL }}
           INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
           CHECKOUT_ENABLED: "false"
-        run: pnpm run build
+        shell: bash
+        run: |
+          if [ "$CLOUDFLARE_ENV" = "production" ]; then
+            pnpm run build:production:release
+          else
+            pnpm run build
+          fi
 
-      - name: Deploy Cloudflare Fulfillment Worker
+      - name: Validate inert production Fulfillment bootstrap package
+        if: github.ref_name == 'main'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm --filter @espanol-honesto/fulfillment-worker run deploy -- --env "${{ github.ref_name == 'main' && 'production' || 'staging' }}"
+        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run
+
+      - name: Validate final active production Fulfillment package
+        if: github.ref_name == 'main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run
+
+      - name: Validate staging Cloudflare Fulfillment Worker deploy package
+        if: github.ref_name == 'staging'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --dry-run
+
+      - name: Deploy staging Cloudflare Fulfillment Worker
+        if: github.ref_name == 'staging'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars
 
       - name: Validate Cloudflare Worker deploy package
         env:
           CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --dry-run --env "$CLOUDFLARE_ENV"
+        run: pnpm exec tsx scripts/dev/deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run
 
-      - name: Deploy Cloudflare Worker
+      - name: Deploy staging Cloudflare Worker
+        if: github.ref_name == 'staging'
         env:
-          CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --keep-vars --env "$CLOUDFLARE_ENV"
+        run: pnpm deploy
+
+      - name: Production deploy remains on explicit lifecycle gates
+        if: github.ref_name == 'main'
+        run: |
+          echo "Production CI completed build and dry-runs only."
+          echo "Required manual order: fulfillment bootstrap -> fulfillment secrets (still inert) -> web -> web secrets -> fresh dual attestation -> fulfillment enable."
 
       - name: Verify staging checkout is disabled
         if: github.ref_name == 'staging'

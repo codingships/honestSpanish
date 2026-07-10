@@ -124,6 +124,19 @@ describe('landing public launch content', () => {
         expect(landingSource).toContain('Для кого это');
     });
 
+    it('keeps class duration and plan-change copy aligned with the actual operation in every language', () => {
+        expect(translationsSource).toContain('con duraciones de 30, 40 o 50 minutos');
+        expect(translationsSource).toContain('with 30, 40 or 50-minute options');
+        expect(translationsSource).toContain('продолжительностью 30, 40 или 50 минут');
+        expect(translationsSource).not.toContain('Video call, one hour');
+        expect(translationsSource).not.toContain('Видеозвонок, один час');
+
+        expect(translationsSource).toContain('Pídenos el cambio antes de la renovación');
+        expect(translationsSource).toContain('Ask us before renewal');
+        expect(translationsSource).toContain('Сообщите нам об этом до продления');
+        expect(translationsSource).not.toContain('You can upgrade or downgrade at any time');
+    });
+
     it('uses the approved Irene portrait in the public team section', () => {
         expect(landingSource).toContain('const ireneMemberByLang');
         expect(landingSource).toContain("name: 'IRENE'");
@@ -147,8 +160,10 @@ describe('landing public launch content', () => {
         expect(pricingSource).toContain('id="plans-heading"');
     });
 
-    it('keeps public plan CTAs application-first by default and exposes checkout only through the runtime gate', () => {
-        expect(landingSource).toContain("isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application'");
+    it('keeps public plan CTAs application-only and leaves approved checkout inside campus', () => {
+        expect(landingSource).toContain("const checkoutMode = 'application' as const");
+        expect(readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8')).toContain("const checkoutMode = 'application' as const");
+        expect(landingSource).not.toContain('isCheckoutEnabled');
         expect(landingSource).toContain('checkoutMode={checkoutMode}');
         expect(readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8')).toContain('checkoutMode={checkoutMode}');
         expect(pricingSource).toContain("checkoutMode?: 'application' | 'checkout'");

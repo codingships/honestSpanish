@@ -1,5 +1,6 @@
 export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
     'checkout.session.completed',
+    'checkout.session.expired',
     'invoice.paid',
     'invoice.payment_failed',
     'invoice.upcoming',

@@ -1,7 +1,16 @@
 import * as dotenv from 'dotenv';
+import Stripe from 'stripe';
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    buildRuntimeAttestationConfig,
+    RUNTIME_ATTESTATION_SCHEMA,
+    verifyRuntimeAttestation,
+    type RuntimeAttestationEnvelope,
+} from '../../src/lib/runtime-attestation';
+import { inspectStripeLiveReadiness } from './stripe-live-readiness';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -66,9 +75,11 @@ interface RunnerReport {
     approvalEnvVar: string;
     executeRequested: boolean;
     approvalMatched: boolean;
+    externalWriteAttempted: boolean;
     externalWritePerformed: boolean;
     requiredSecretNames: string[];
     directWorkerUrlEnvVar: string;
+    envFileEnvVar: string;
     latestRuntimeReadonlyPath: string | null;
     latestPreflightSummaryPath: string | null;
     latestVariableMatrixPath: string | null;
@@ -105,8 +116,13 @@ const target: CloudflareTarget = {
 
 const approvalEnvVar = 'CLOUDFLARE_WORKER_SECRETS_APPROVAL';
 const directWorkerUrlEnvVar = 'CLOUDFLARE_WORKER_DIRECT_URL';
-const exactApprovalSentence = 'Apruebo configurar/verificar solo por nombre los secrets/vars necesarios del Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, y los del Fulfillment Worker production solo si forman parte de la misma ventana final, usando valores desde el origen seguro aprobado, sin imprimir valores, sin guardar valores en outputs, con `CHECKOUT_ENABLED=false`, sin mover dominios, sin borrar Pages, sin cambiar DNS y sin activar pagos reales.';
+const envFileEnvVar = 'CLOUDFLARE_WORKER_ENV_FILE';
+const exactApprovalSentence = 'Apruebo configurar/verificar solo los secrets/vars necesarios del Cloudflare Worker web production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, despues de validar cuenta, Worker, Supabase production `vkkahxsybhbutszerawz`, Stripe live, `PUBLIC_SITE_URL=https://espanolhonesto.com`, `PUBLIC_APP_ENV=production` y URL directa exacta, usando valores desde el origen seguro aprobado, sin imprimir valores, sin guardar valores en outputs, con `CHECKOUT_ENABLED=false`, sin tocar el Fulfillment Worker, sin mover dominios, sin borrar Pages y sin cambiar DNS.';
 const executeRequested = process.argv.includes('--execute-approved');
+const productionSupabaseRef = 'vkkahxsybhbutszerawz';
+const productionSite = 'https://espanolhonesto.com';
+const productionWorkerIdentity = 'espanolhonesto';
+const productionDirectWorkerHost = 'espanolhonesto.alindev95.workers.dev';
 
 const requiredSecretNames = [
     'PUBLIC_SUPABASE_URL',
@@ -115,18 +131,19 @@ const requiredSecretNames = [
     'PUBLIC_STRIPE_PUBLISHABLE_KEY',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
     'PUBLIC_TURNSTILE_SITE_KEY',
     'TURNSTILE_SECRET_KEY',
     'PUBLIC_SENTRY_DSN',
-    'SENTRY_AUTH_TOKEN',
-    'PUBLIC_SITE_URL',
-    'PUBLIC_APP_ENV',
     'FULFILLMENT_WORKER_URL',
     'INTERNAL_JOB_SECRET',
     'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
     'RESEND_API_KEY',
     'EMAIL_FROM',
     'RESEND_FROM_EMAIL',
+    'ADMIN_EMAIL',
     'SUPPORT_ALERT_EMAIL',
 ];
 
@@ -166,12 +183,21 @@ const checks: Check[] = [
 ];
 
 let approvalMatched = false;
+let externalWriteAttempted = false;
 
 await main();
 
 async function main(): Promise<void> {
-    if (executeRequested) {
-        dotenv.config({ path: '.env', quiet: true });
+    if (executeRequested && checks.some((check) => check.status === 'failed')) {
+        checks.push({
+            status: 'failed',
+            name: 'initial_validation_gate',
+            message: 'Initial local validation failed, so no Cloudflare command can run.',
+            details: ['externalWriteAttempted=false'],
+        });
+    } else if (executeRequested) {
+        const envFile = process.env[envFileEnvVar]?.trim() || '.env.production';
+        dotenv.config({ path: envFile, override: false, quiet: true });
         const env = validateExecutionEnv();
         checks.push(env.check);
 
@@ -216,6 +242,7 @@ async function main(): Promise<void> {
     console.log(`[launch:cloudflare-production-worker-secrets] Failed: ${failed.length}`);
     console.log(`[launch:cloudflare-production-worker-secrets] Warnings: ${warnings.length}`);
     console.log(`[launch:cloudflare-production-worker-secrets] External write performed: ${report.externalWritePerformed}`);
+    console.log(`[launch:cloudflare-production-worker-secrets] External write attempted: ${report.externalWriteAttempted}`);
     console.log(`[launch:cloudflare-production-worker-secrets] Summary: ${report.summaryPath}`);
     console.log(`[launch:cloudflare-production-worker-secrets] Execution plan: ${report.executionPlanPath}`);
     console.log(`[launch:cloudflare-production-worker-secrets] Approval gate: ${report.approvalGatePath}`);
@@ -243,9 +270,11 @@ function createReport(reportChecks: Check[], reportCaptures: CommandCapture[], r
         approvalEnvVar,
         executeRequested,
         approvalMatched,
+        externalWriteAttempted,
         externalWritePerformed,
         requiredSecretNames,
         directWorkerUrlEnvVar,
+        envFileEnvVar,
         latestRuntimeReadonlyPath,
         latestPreflightSummaryPath,
         latestVariableMatrixPath,
@@ -332,7 +361,7 @@ function validateLatestNoWritePreflight(): Check {
         'CHECKOUT_ENABLED=false in config: True',
         'Dry-run avoids custom domains: True',
         'Variable matrix:',
-        'wrangler deploy --env production --dry-run',
+        'wrangler deploy --config dist/server/wrangler.json --dry-run',
     ];
     const missing = required.filter((snippet) => !preflight.includes(snippet));
     const matrixMissing = !latestVariableMatrixPath || !existsSync(latestVariableMatrixPath);
@@ -364,11 +393,11 @@ function validateLatestCutoverPack(): Check {
 
     const approval = readFileSync(latestSecretsApprovalPath, 'utf8');
     const required = [
-        '# Cloudflare Worker Secrets Approval Request',
+        '# Cloudflare Web Worker Secrets Approval Request',
         exactApprovalSentence,
         'secret names only',
         'Values must come from the approved secure source',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --env production',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
         'No printing, logging, screenshotting or committing secret values.',
         'No domain move',
     ];
@@ -428,10 +457,16 @@ function validateWranglerConfig(): Check {
 
     const wrangler = readFileSync(wranglerPath, 'utf8');
     const required = [
+        'name = "espanolhonesto-env-required"',
         'keep_vars = true',
         '[env.production]',
         'name = "espanolhonesto"',
+        'PUBLIC_APP_ENV = "production"',
+        'SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"',
+        'WORKER_IDENTITY = "espanolhonesto"',
+        'PUBLIC_SITE_URL = "https://espanolhonesto.com"',
         'CHECKOUT_ENABLED = "false"',
+        'CHECKOUT_ENABLED_OVERRIDE = "false"',
     ];
     const missing = required.filter((snippet) => !wrangler.includes(snippet));
 
@@ -439,7 +474,7 @@ function validateWranglerConfig(): Check {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'wrangler_secret_phase_config',
         message: missing.length === 0
-            ? 'Wrangler production env exists and keeps checkout fail-closed while secrets are loaded by name.'
+            ? 'Wrangler uses a safe non-production base name and the explicit production env keeps identity, site, Supabase and checkout fail-closed.'
             : 'Wrangler config is missing required production/fail-closed posture.',
         details: missing.length === 0 ? [wranglerPath] : missing.map((snippet) => `missing=${snippet}`),
     };
@@ -460,12 +495,13 @@ function validateApprovalGateSource(): Check {
     const required = [
         approvalEnvVar,
         directWorkerUrlEnvVar,
+        envFileEnvVar,
         '--execute-approved',
         'const exactApprovalSentence =',
         'executeRequested',
         'externalWritePerformed=false',
         'wrangler secret put',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production --format json',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
         'secretValues',
         'sanitizeOutput',
@@ -522,18 +558,39 @@ function validateExecutionEnv(): { check: Check; value: ExecutionEnv | null } {
     const approvalSentence = process.env[approvalEnvVar]?.trim() ?? '';
     const missingNames = requiredSecretNames.filter((name) => !secretValueFor(name));
     const placeholderNames = requiredSecretNames.filter((name) => isPlaceholderValue(secretValueFor(name) ?? ''));
+    const directWorkerUrl = normalizeDirectWorkerUrl(process.env[directWorkerUrlEnvVar]);
+    const dailyLimit = Number(secretValueFor('EMAIL_DAILY_RECIPIENT_LIMIT'));
+    const monthlyLimit = Number(secretValueFor('EMAIL_MONTHLY_RECIPIENT_LIMIT'));
+    const targetMismatches = [
+        process.env.CLOUDFLARE_ACCOUNT_ID?.trim() === target.accountId ? null : 'CLOUDFLARE_ACCOUNT_ID',
+        secretValueFor('SUPABASE_EXPECTED_PROJECT_REF') === productionSupabaseRef ? null : 'SUPABASE_EXPECTED_PROJECT_REF',
+        supabaseProjectRef(secretValueFor('PUBLIC_SUPABASE_URL')) === productionSupabaseRef ? null : 'PUBLIC_SUPABASE_URL',
+        secretValueFor('PUBLIC_APP_ENV') === 'production' ? null : 'PUBLIC_APP_ENV',
+        secretValueFor('WORKER_IDENTITY') === productionWorkerIdentity ? null : 'WORKER_IDENTITY',
+        normalizeOrigin(secretValueFor('PUBLIC_SITE_URL')) === productionSite ? null : 'PUBLIC_SITE_URL',
+        secretValueFor('CHECKOUT_ENABLED') === 'false' ? null : 'CHECKOUT_ENABLED',
+        secretValueFor('CHECKOUT_ENABLED_OVERRIDE') === 'false' ? null : 'CHECKOUT_ENABLED_OVERRIDE',
+        secretValueFor('STRIPE_SECRET_KEY')?.startsWith('sk_live_') ? null : 'STRIPE_SECRET_KEY mode',
+        secretValueFor('PUBLIC_STRIPE_PUBLISHABLE_KEY')?.startsWith('pk_live_') ? null : 'PUBLIC_STRIPE_PUBLISHABLE_KEY mode',
+        /^acct_[A-Za-z0-9]{8,}$/u.test(secretValueFor('STRIPE_EXPECTED_ACCOUNT_ID') ?? '') ? null : 'STRIPE_EXPECTED_ACCOUNT_ID',
+        secretValueFor('EMAIL_DELIVERY_MODE') === 'live' ? null : 'EMAIL_DELIVERY_MODE',
+        Number.isSafeInteger(dailyLimit) && dailyLimit > 0 && dailyLimit <= 80 ? null : 'EMAIL_DAILY_RECIPIENT_LIMIT',
+        Number.isSafeInteger(monthlyLimit) && monthlyLimit > 0 && monthlyLimit <= 2400 ? null : 'EMAIL_MONTHLY_RECIPIENT_LIMIT',
+        directWorkerUrl ? null : directWorkerUrlEnvVar,
+    ].filter((value): value is string => Boolean(value));
     approvalMatched = approvalSentence === exactApprovalSentence;
 
-    if (!approvalMatched || missingNames.length > 0 || placeholderNames.length > 0) {
+    if (!approvalMatched || missingNames.length > 0 || placeholderNames.length > 0 || targetMismatches.length > 0) {
         return {
             check: {
                 status: 'failed',
                 name: 'execution_environment_gate',
-                message: 'Execution was requested but approval or required secret-name source values are missing, so no Cloudflare write can run.',
+                message: 'Execution was requested but approval, target identity or required source values are invalid, so no Cloudflare write can run.',
                 details: [
                     `approvalMatched=${String(approvalMatched)}`,
                     `missingNames=${missingNames.join(', ') || 'none'}`,
                     `placeholderNames=${placeholderNames.join(', ') || 'none'}`,
+                    `targetMismatches=${targetMismatches.join(', ') || 'none'}`,
                     'externalWritePerformed=false',
                 ],
             },
@@ -549,13 +606,18 @@ function validateExecutionEnv(): { check: Check; value: ExecutionEnv | null } {
             details: [
                 `approvalEnv=${approvalEnvVar}`,
                 `secretNameCount=${requiredSecretNames.length}`,
-                `directWorkerUrl=${process.env[directWorkerUrlEnvVar] ? 'provided' : 'not_provided'}`,
+                `targetAccount=${target.accountId}`,
+                `supabaseProjectRef=${productionSupabaseRef}`,
+                'stripeMode=live',
+                `site=${productionSite}`,
+                'appEnvironment=production',
+                'directWorkerUrl=validated_exact_workers_dev_host',
             ],
         },
         value: {
             approvalSentence,
             secretValues: Object.fromEntries(requiredSecretNames.map((name) => [name, secretValueFor(name) ?? ''])),
-            directWorkerUrl: normalizeDirectWorkerUrl(process.env[directWorkerUrlEnvVar]),
+            directWorkerUrl,
         },
     };
 }
@@ -570,7 +632,7 @@ async function runApprovedExecution(
     executionChecks.push({
         status: 'ok',
         name: 'exact_approval_gate',
-        message: 'Exact approval sentence matched; running only Worker secret-name commands and optional read-only direct probes.',
+        message: 'Exact approval sentence matched; running only web Worker secret-name commands followed by required read-only direct attestation.',
         details: [
             `env=${approvalEnvVar}`,
             `targetAccount=${target.accountId}`,
@@ -580,12 +642,23 @@ async function runApprovedExecution(
     });
 
     const staticCommands = buildStaticCommands();
-    for (const command of [staticCommands.deploymentsList, staticCommands.secretListBefore]) {
+    for (const command of [staticCommands.whoami, staticCommands.deploymentsList, staticCommands.secretListBefore]) {
         const capture = runCommand(command);
         reportCaptures.push(capture);
         executionChecks.push(checkForCapture(capture));
         if (capture.status === 'failed') return executionChecks;
     }
+
+    const remoteTargetCheck = validateRemotePreWriteTarget(
+        reportCaptures.find((capture) => capture.id === staticCommands.whoami.id),
+        reportCaptures.find((capture) => capture.id === staticCommands.deploymentsList.id),
+    );
+    executionChecks.push(remoteTargetCheck);
+    if (remoteTargetCheck.status === 'failed') return executionChecks;
+
+    const stripeReadiness = await validateFreshStripeLiveReadiness(env);
+    executionChecks.push(stripeReadiness);
+    if (stripeReadiness.status === 'failed') return executionChecks;
 
     for (const name of requiredSecretNames) {
         const command = buildSecretPutCommand(name);
@@ -614,25 +687,74 @@ async function runApprovedExecution(
     });
     if (missingAfter.length > 0) return executionChecks;
 
-    if (!env.directWorkerUrl) {
+    const deploymentsAfterCapture = runCommand(staticCommands.deploymentsListAfter);
+    reportCaptures.push(deploymentsAfterCapture);
+    executionChecks.push(checkForCapture(deploymentsAfterCapture));
+    if (deploymentsAfterCapture.status === 'failed') return executionChecks;
+
+    const versionId = deploymentVersionId(
+        reportCaptures.find((capture) => capture.id === staticCommands.deploymentsListAfter.id),
+    );
+    if (!env.directWorkerUrl || !versionId) {
         executionChecks.push({
-            status: 'warning',
-            name: 'direct_worker_probe_deferred',
-            message: 'Secrets were loaded by name, but direct Worker URL probe was deferred because CLOUDFLARE_WORKER_DIRECT_URL was not provided.',
-            details: [
-                `env=${directWorkerUrlEnvVar}`,
-                'requiredLater=probe direct Worker URL before domain move or final smoke',
-            ],
+            status: 'failed',
+            name: 'direct_worker_attestation_prerequisites',
+            message: 'Secret writes completed but exact direct URL/version attestation prerequisites are missing; stop before domain work.',
+            details: [`directWorkerUrl=${env.directWorkerUrl ? 'validated' : 'missing'}`, `versionId=${versionId ? 'validated' : 'missing'}`],
         });
         return executionChecks;
     }
 
-    const probeChecks = await runDirectWorkerProbes(env.directWorkerUrl, reportProbes);
+    const probeChecks = await runDirectWorkerProbes(env.directWorkerUrl, versionId, env, reportProbes);
     executionChecks.push(...probeChecks);
     return executionChecks;
 }
 
-async function runDirectWorkerProbes(baseUrl: string, reportProbes: ProbeCapture[]): Promise<Check[]> {
+async function validateFreshStripeLiveReadiness(env: ExecutionEnv): Promise<Check> {
+    try {
+        const stripe = new Stripe(env.secretValues.STRIPE_SECRET_KEY, {
+            maxNetworkRetries: 0,
+            timeout: 20_000,
+        });
+        const readiness = await inspectStripeLiveReadiness(
+            stripe,
+            env.secretValues.STRIPE_EXPECTED_ACCOUNT_ID,
+            env.secretValues.STRIPE_PORTAL_CONFIGURATION_ID,
+        );
+        return {
+            status: readiness.ok ? 'ok' : 'failed',
+            name: 'fresh_stripe_live_readiness_pre_write_gate',
+            message: readiness.ok
+                ? 'Fresh read-only Stripe proof matches the exact live account, ES/EUR readiness, Portal and single webhook.'
+                : 'Fresh Stripe live readiness did not match; no Cloudflare secret write may start.',
+            details: readiness.ok
+                ? [
+                    `accountMatched=${String(readiness.facts.accountMatched)}`,
+                    `accountReady=${String(readiness.facts.accountReady)}`,
+                    `country=${readiness.facts.country}`,
+                    `currency=${readiness.facts.currency}`,
+                    `portalMatched=${String(readiness.facts.portalMatched)}`,
+                    `webhookMatched=${String(readiness.facts.webhookMatched)}`,
+                    `enabledWebhookCount=${readiness.facts.enabledWebhookCount}`,
+                ]
+                : readiness.failures.map((failure) => `failure=${failure}`),
+        };
+    } catch {
+        return {
+            status: 'failed',
+            name: 'fresh_stripe_live_readiness_pre_write_gate',
+            message: 'Fresh Stripe live readiness could not be proven; no Cloudflare secret write may start.',
+            details: ['failure=stripe_readonly_probe_unavailable'],
+        };
+    }
+}
+
+async function runDirectWorkerProbes(
+    baseUrl: string,
+    expectedVersionId: string,
+    env: ExecutionEnv,
+    reportProbes: ProbeCapture[],
+): Promise<Check[]> {
     const probeChecks: Check[] = [];
 
     for (const route of modernProbeRoutes) {
@@ -700,10 +822,153 @@ async function runDirectWorkerProbes(baseUrl: string, reportProbes: ProbeCapture
         });
     }
 
+    probeChecks.push(await runWebRuntimeAttestation(baseUrl, expectedVersionId, env, reportProbes));
     return probeChecks;
 }
 
+function validateRemotePreWriteTarget(
+    whoamiCapture: CommandCapture | undefined,
+    deploymentsCapture: CommandCapture | undefined,
+): Check {
+    const whoami = whoamiCapture ? readIfExists(whoamiCapture.path) ?? '' : '';
+    const deployments = deploymentsCapture ? readIfExists(deploymentsCapture.path) ?? '' : '';
+    const versionId = deploymentVersionId(deploymentsCapture);
+    const accountMatched = whoami.includes(target.accountId);
+    const workerCommandMatched = deploymentsCapture?.display.includes(`--name ${target.productionWorker} --json`) === true;
+    const deploymentExists = Boolean(versionId);
+    const ok = accountMatched && workerCommandMatched && deploymentExists;
+
+    return {
+        status: ok ? 'ok' : 'failed',
+        name: 'remote_target_pre_write_gate',
+        message: ok
+            ? 'Read-only Wrangler preflight proves the exact Cloudflare account, production Worker and deployed version before any secret write.'
+            : 'Read-only Wrangler preflight did not prove the exact account, Worker and version; no secret write may start.',
+        details: [
+            `accountMatched=${String(accountMatched)}`,
+            `workerCommandMatched=${String(workerCommandMatched)}`,
+            `deploymentVersionPresent=${String(deploymentExists)}`,
+            `targetAccount=${target.accountId}`,
+            `targetWorker=${target.productionWorker}`,
+        ],
+    };
+}
+
+function deploymentVersionId(capture: CommandCapture | undefined): string | null {
+    if (!capture) return null;
+    const text = readIfExists(capture.path) ?? '';
+    return /"version_id"\s*:\s*"([0-9a-f]{8}-[0-9a-f-]{27})"/iu.exec(text)?.[1] ?? null;
+}
+
+async function runWebRuntimeAttestation(
+    baseUrl: string,
+    expectedVersionId: string,
+    env: ExecutionEnv,
+    reportProbes: ProbeCapture[],
+): Promise<Check> {
+    const url = new URL('/api/internal/runtime-attestation', baseUrl).toString();
+    const id = 'direct-worker-runtime-attestation';
+    const nonce = randomUUID();
+    const started = Date.now();
+    let httpStatus: number | null = null;
+    let bytes = 0;
+    let error = 'none';
+    let identity = 'missing';
+    let version = 'missing';
+    let verified = false;
+
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 20_000);
+        try {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    Authorization: `Bearer ${env.secretValues.INTERNAL_JOB_SECRET}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ nonce }),
+                redirect: 'error',
+                signal: controller.signal,
+            });
+            httpStatus = response.status;
+            const raw = await response.text();
+            bytes = Buffer.byteLength(raw, 'utf8');
+            const parsed = JSON.parse(raw) as Partial<RuntimeAttestationEnvelope>;
+            identity = typeof parsed.workerIdentity === 'string' ? parsed.workerIdentity : 'missing';
+            version = typeof parsed.workerVersionId === 'string' ? parsed.workerVersionId : 'missing';
+            if (
+                response.status === 200
+                && typeof parsed.nonce === 'string'
+                && typeof parsed.proof === 'string'
+                && parsed.role === 'web'
+                && parsed.schema === RUNTIME_ATTESTATION_SCHEMA
+                && identity === productionWorkerIdentity
+                && version === expectedVersionId
+            ) {
+                const config = await buildRuntimeAttestationConfig('web', {
+                    ...env.secretValues,
+                    PUBLIC_APP_ENV: 'production',
+                    SUPABASE_EXPECTED_PROJECT_REF: productionSupabaseRef,
+                    WORKER_IDENTITY: productionWorkerIdentity,
+                    WORKER_VERSION_ID: expectedVersionId,
+                    CHECKOUT_ENABLED: 'false',
+                    CHECKOUT_ENABLED_OVERRIDE: 'false',
+                    EMAIL_DELIVERY_MODE: 'live',
+                    EMAIL_DAILY_RECIPIENT_LIMIT: '80',
+                    EMAIL_MONTHLY_RECIPIENT_LIMIT: '2400',
+                });
+                verified = await verifyRuntimeAttestation(parsed as RuntimeAttestationEnvelope, {
+                    config,
+                    nonce,
+                    role: 'web',
+                    schema: RUNTIME_ATTESTATION_SCHEMA,
+                }, env.secretValues.INTERNAL_JOB_SECRET);
+            }
+        } finally {
+            clearTimeout(timeout);
+        }
+    } catch (caught) {
+        error = sanitizeError(caught instanceof Error ? caught : new Error(String(caught)));
+    }
+
+    const status: CheckStatus = verified ? 'ok' : 'failed';
+    const capturePath = path.join(outputDir, `${id}.txt`);
+    writeFileSync(capturePath, [
+        `url=${url}`,
+        `httpStatus=${httpStatus ?? 'none'}`,
+        `bytes=${bytes}`,
+        `durationMs=${Date.now() - started}`,
+        `status=${status}`,
+        `workerIdentity=${identity}`,
+        `workerVersionMatched=${String(version === expectedVersionId)}`,
+        `supabaseExpectedProjectRef=${productionSupabaseRef}`,
+        `proofVerified=${String(verified)}`,
+        `error=${error}`,
+        '',
+        'No secret value, attestation proof or response body is stored.',
+        '',
+    ].join('\n'), 'utf8');
+    reportProbes.push({ id, url, status, httpStatus, bytes, path: capturePath });
+
+    return {
+        status,
+        name: 'direct_worker_runtime_attestation',
+        message: verified
+            ? 'Authenticated direct probe attests the exact Worker identity, deployed version and production Supabase configuration.'
+            : 'Authenticated direct probe did not attest the exact Worker identity/version/Supabase configuration.',
+        details: [
+            `capture=${capturePath}`,
+            `workerIdentity=${identity}`,
+            `workerVersionMatched=${String(version === expectedVersionId)}`,
+            `supabaseExpectedProjectRef=${productionSupabaseRef}`,
+            `proofVerified=${String(verified)}`,
+        ],
+    };
+}
+
 function runCommand(command: CommandSpec, input?: string): CommandCapture {
+    if (command.writesCloudflare) externalWriteAttempted = true;
     const result = spawnSync(command.bin, command.args, {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -770,15 +1035,19 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         mode: report.executeRequested ? 'execute-approved' : 'plan',
         approvalEnvVar: report.approvalEnvVar,
         approvalMatched: report.approvalMatched,
+        externalWriteAttempted: report.externalWriteAttempted,
         externalWritePerformed: report.externalWritePerformed,
         exactApprovalSentence,
         requiredSecretNames: report.requiredSecretNames,
         directWorkerUrlEnvVar: report.directWorkerUrlEnvVar,
+        envFileEnvVar: report.envFileEnvVar,
         commandShapes: [
+            commands.whoami.display,
             commands.deploymentsList.display,
             commands.secretListBefore.display,
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --env production',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
             commands.secretListAfter.display,
+            commands.deploymentsListAfter.display,
         ],
         captures: report.captures.map((capture) => ({
             id: capture.id,
@@ -814,6 +1083,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         '',
         `- Execute requested: ${String(report.executeRequested)}.`,
         `- Approval matched: ${String(report.approvalMatched)}.`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}.`,
         `- External write performed: ${String(report.externalWritePerformed)}.`,
         '',
         '## Target',
@@ -840,10 +1110,12 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         '## Commands Encoded In This Runner',
         '',
         '```bash',
+        commands.whoami.display,
         commands.deploymentsList.display,
         commands.secretListBefore.display,
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --env production',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
         commands.secretListAfter.display,
+        commands.deploymentsListAfter.display,
         '```',
         '',
         '## How To Execute Later',
@@ -852,7 +1124,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         '',
         '```powershell',
         `$env:${approvalEnvVar}='${exactApprovalSentence.replace(/'/g, "''")}'`,
-        '# Optional, but required before domain move/final smoke:',
+        '# Required in the same approved execution so identity/version/Supabase attestation cannot be deferred:',
         `$env:${directWorkerUrlEnvVar}='https://<direct-worker-url>'`,
         'corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-secrets -- --execute-approved',
         '```',
@@ -874,10 +1146,12 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         '',
         `- Environment variable: \`${approvalEnvVar}\`.`,
         '- Required flag: `--execute-approved`.',
-        `- Optional direct probe env: \`${directWorkerUrlEnvVar}\`.`,
+        `- Required exact direct probe env: \`${directWorkerUrlEnvVar}\`.`,
+        `- Secure production env-file selector: \`${envFileEnvVar}\` (defaults to ignored \`.env.production\`).`,
         `- Execute requested in this run: ${String(report.executeRequested)}.`,
         `- Approval matched in this run: ${String(report.approvalMatched)}.`,
         `- External write performed in this run: ${String(report.externalWritePerformed)}.`,
+        `- External write attempted in this run: ${String(report.externalWriteAttempted)}.`,
         '',
         '## Exact Approval Sentence',
         '',
@@ -889,7 +1163,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         '- List existing Worker secret names read-only.',
         '- Load only the required Worker secret/var names from the approved secure environment source using Wrangler stdin.',
         '- List Worker secret names again and verify names only.',
-        '- Probe the direct Worker URL read-only if `CLOUDFLARE_WORKER_DIRECT_URL` is provided.',
+        '- Probe the exact workers.dev URL and verify the authenticated identity/version/Supabase attestation before the run can close.',
         '',
         '## Forbidden Scope',
         '',
@@ -931,7 +1205,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         'corepack pnpm launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
-        '  --summary "Cloudflare production Worker secret-name phase completed: required Worker secret/var names are present by name only and direct Worker probes have passed or are separately recorded before domain move."',
+        '  --summary "Cloudflare production web Worker secret-name phase completed: required names are present and the direct Worker identity/version/Supabase attestation passed before domain work."',
         `  --environment "Cloudflare account ${report.target.accountId}; Worker ${report.target.productionWorker}; secret names only; domains not moved"`,
         '  --owner Alin',
         `  --evidence "command_output=../../${toRelative(report.summaryPath)}::Worker secrets runner summary reviewed; replace placeholder after actual approved execution"`,
@@ -963,6 +1237,7 @@ function renderSummary(report: RunnerReport): string {
         `- Execute requested: ${String(report.executeRequested)}`,
         `- Approval matched: ${String(report.approvalMatched)}`,
         `- External write performed: ${String(report.externalWritePerformed)}`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}`,
         `- Command manifest: ${toRelative(report.commandManifestPath)}`,
         `- Execution plan: ${toRelative(report.executionPlanPath)}`,
         `- Approval gate: ${toRelative(report.approvalGatePath)}`,
@@ -1023,8 +1298,8 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'No DNS change',
         'No Pages deletion',
         'No secret value printing',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --env production',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production --format json',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
     ];
     const missing = required.filter((snippet) => !combined.includes(snippet));
     const unsafeSecretSnippets = [
@@ -1051,11 +1326,21 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
 }
 
 function buildStaticCommands(): Record<string, CommandSpec> & {
+    whoami: CommandSpec;
     deploymentsList: CommandSpec;
+    deploymentsListAfter: CommandSpec;
     secretListBefore: CommandSpec;
     secretListAfter: CommandSpec;
 } {
     return {
+        whoami: {
+            id: 'wrangler-whoami-production-secrets',
+            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler whoami --json',
+            bin: 'corepack',
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'whoami', '--json'],
+            timeoutMs: 120000,
+            writesCloudflare: false,
+        },
         deploymentsList: {
             id: 'wrangler-deployments-list-production',
             display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
@@ -1064,19 +1349,27 @@ function buildStaticCommands(): Record<string, CommandSpec> & {
             timeoutMs: 120000,
             writesCloudflare: false,
         },
+        deploymentsListAfter: {
+            id: 'wrangler-deployments-list-production-after-secrets',
+            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+            bin: 'corepack',
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
+            timeoutMs: 120000,
+            writesCloudflare: false,
+        },
         secretListBefore: {
             id: 'wrangler-secret-list-production-before',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production --format json',
+            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
             bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--env', 'production', '--format', 'json'],
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', 'wrangler.toml', '--env', 'production', '--format', 'json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         secretListAfter: {
             id: 'wrangler-secret-list-production-after',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production --format json',
+            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
             bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--env', 'production', '--format', 'json'],
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', 'wrangler.toml', '--env', 'production', '--format', 'json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
@@ -1086,9 +1379,9 @@ function buildStaticCommands(): Record<string, CommandSpec> & {
 function buildSecretPutCommand(name: string): CommandSpec {
     return {
         id: `wrangler-secret-put-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-        display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --env production`,
+        display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config wrangler.toml --env production`,
         bin: 'corepack',
-        args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--env', 'production'],
+        args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.toml', '--env', 'production'],
         timeoutMs: 120000,
         writesCloudflare: true,
     };
@@ -1153,11 +1446,37 @@ function normalizeDirectWorkerUrl(value: string | undefined): string | null {
     if (!trimmed) return null;
     try {
         const url = new URL(trimmed);
-        if (url.protocol !== 'https:') return null;
+        if (
+            url.protocol !== 'https:'
+            || url.hostname !== productionDirectWorkerHost
+            || url.username
+            || url.password
+            || url.port
+        ) return null;
         url.pathname = '/';
         url.search = '';
         url.hash = '';
         return url.toString();
+    } catch {
+        return null;
+    }
+}
+
+function normalizeOrigin(value: string | null): string | null {
+    if (!value) return null;
+    try {
+        const url = new URL(value);
+        if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null;
+        return url.origin;
+    } catch {
+        return null;
+    }
+}
+
+function supabaseProjectRef(value: string | null): string | null {
+    if (!value) return null;
+    try {
+        return /^([a-z0-9]+)\.supabase\.co$/iu.exec(new URL(value).hostname)?.[1] ?? null;
     } catch {
         return null;
     }
@@ -1226,7 +1545,7 @@ function sanitizeOutput(value: string): string {
         'g'
     );
 
-    return value
+    let sanitized = value
         .replace(privateKeyPattern, '[redacted-private-key]')
         .replace(/sk_(live|test)_[A-Za-z0-9]{20,}/g, 'sk_$1_[redacted]')
         .replace(/whsec_[A-Za-z0-9]{20,}/g, 'whsec_[redacted]')
@@ -1235,6 +1554,17 @@ function sanitizeOutput(value: string): string {
         .replace(/(?<![A-Za-z0-9_])re_[A-Za-z0-9_]{20,}/g, 're_[redacted]')
         .replace(/(postgres|postgresql):\/\/[^\s"']+:[^\s"']+@/giu, '$1://[redacted-user]:[redacted-password]@')
         .replace(/Bearer\s+[A-Za-z0-9._-]{20,}/gi, 'Bearer [redacted]');
+
+    const knownValues = new Set([
+        ...requiredSecretNames.map((name) => secretValueFor(name)),
+        process.env.CLOUDFLARE_API_TOKEN?.trim() || null,
+    ]);
+    for (const knownValue of knownValues) {
+        if (knownValue) {
+            sanitized = sanitized.replaceAll(knownValue, '[redacted-known-value]');
+        }
+    }
+    return sanitized;
 }
 
 function sanitizeError(error: Error): string {

@@ -36,6 +36,7 @@ const { data: paymentsRaw } = await supabase
         id,
         student_id,
         amount,
+        amount_refunded,
         currency,
         status,
         created_at,
@@ -46,6 +47,9 @@ const { data: paymentsRaw } = await supabase
         ),
         subscriptions (
             duration_months,
+            package_prices (
+                stripe_livemode
+            ),
             packages (
                 name,
                 display_name
@@ -58,6 +62,7 @@ const payments = (paymentsRaw || []).map((pay: any) => ({
     id: pay.id,
     student_id: pay.student_id,
     amount: pay.amount,
+    amount_refunded: pay.amount_refunded || 0,
     currency: pay.currency || 'eur',
     status: pay.status,
     created_at: pay.created_at,
@@ -67,6 +72,9 @@ const payments = (paymentsRaw || []).map((pay: any) => ({
     package_name: pay.subscriptions?.packages?.name,
     package_display_name: pay.subscriptions?.packages?.display_name,
     duration_months: pay.subscriptions?.duration_months,
+    stripe_livemode: Array.isArray(pay.subscriptions?.package_prices)
+        ? pay.subscriptions.package_prices[0]?.stripe_livemode
+        : pay.subscriptions?.package_prices?.stripe_livemode,
 }));
 
 // Calculate metrics for this month
@@ -77,7 +85,10 @@ startOfMonth.setHours(0, 0, 0, 0);
 const thisMonthPayments = payments.filter(p => 
     p.status === 'succeeded' && new Date(p.created_at) >= startOfMonth
 );
-const totalThisMonth = thisMonthPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+const totalThisMonth = thisMonthPayments.reduce(
+    (sum, p) => sum + Math.max(0, (p.amount || 0) - (p.amount_refunded || 0)),
+    0,
+);
 const transactionsThisMonth = thisMonthPayments.length;
 const avgTicket = transactionsThisMonth > 0 ? Math.round(totalThisMonth / transactionsThisMonth) : 0;
 
@@ -107,22 +118,36 @@ const getPackageDisplay = (pay: any) => {
     return name + duration;
 };
 
-const getStatusBadge = (status: string) => {
+const getStatusBadge = (payment: { status: string; amount: number; amount_refunded: number }) => {
+    if (
+        payment.status === 'succeeded'
+        && payment.amount_refunded > 0
+        && payment.amount_refunded < payment.amount
+    ) {
+        return {
+            text: t('campus.admin.payments.partiallyRefunded'),
+            class: 'bg-orange-100 text-orange-700',
+            filterStatus: 'partially_refunded',
+        };
+    }
+
+    const status = payment.status;
     switch (status) {
         case 'succeeded':
-            return { text: t('campus.admin.payments.succeeded'), class: 'bg-green-100 text-green-700' };
+            return { text: t('campus.admin.payments.succeeded'), class: 'bg-green-100 text-green-700', filterStatus: status };
         case 'failed':
-            return { text: t('campus.admin.payments.failed'), class: 'bg-red-100 text-red-700' };
+            return { text: t('campus.admin.payments.failed'), class: 'bg-red-100 text-red-700', filterStatus: status };
         case 'refunded':
-            return { text: t('campus.admin.payments.refunded'), class: 'bg-yellow-100 text-yellow-700' };
+            return { text: t('campus.admin.payments.refunded'), class: 'bg-yellow-100 text-yellow-700', filterStatus: status };
         default:
-            return { text: status, class: 'bg-gray-100 text-gray-700' };
+            return { text: status, class: 'bg-gray-100 text-gray-700', filterStatus: status };
     }
 };
 
-const getStripeUrl = (paymentIntentId: string | null) => {
-    if (!paymentIntentId) return null;
-    return `https://dashboard.stripe.com/test/payments/${paymentIntentId}`;
+const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null | undefined) => {
+    if (!paymentIntentId || typeof livemode !== 'boolean') return null;
+    const modePath = livemode ? '' : 'test/';
+    return `https://dashboard.stripe.com/${modePath}payments/${paymentIntentId}`;
 };
 ---
 
@@ -169,6 +194,7 @@ const getStripeUrl = (paymentIntentId: string | null) => {
             >
                 <option value="all">{t('campus.admin.students.filterStatus')}: {t('campus.admin.students.all')}</option>
                 <option value="succeeded">{t('campus.admin.payments.succeeded')}</option>
+                <option value="partially_refunded">{t('campus.admin.payments.partiallyRefunded')}</option>
                 <option value="failed">{t('campus.admin.payments.failed')}</option>
                 <option value="refunded">{t('campus.admin.payments.refunded')}</option>
             </select>
@@ -205,13 +231,14 @@ const getStripeUrl = (paymentIntentId: string | null) => {
                 </thead>
                 <tbody class="divide-y divide-[#006064]/20">
                     {payments.map((payment) => {
-                        const statusBadge = getStatusBadge(payment.status);
-                        const stripeUrl = getStripeUrl(payment.stripe_payment_intent_id);
+                        const statusBadge = getStatusBadge(payment);
+                        const stripeUrl = getStripeUrl(payment.stripe_payment_intent_id, payment.stripe_livemode);
+                        const netAmount = Math.max(0, payment.amount - payment.amount_refunded);
                         
                         return (
                             <tr 
                                 class="hover:bg-[#E0F7FA]/50 transition-colors payment-row"
-                                data-status={payment.status}
+                                data-status={statusBadge.filterStatus}
                                 data-date={payment.created_at}
                                 data-email={payment.student_email?.toLowerCase() || ''}
                             >
@@ -226,7 +253,13 @@ const getStripeUrl = (paymentIntentId: string | null) => {
                                     {getPackageDisplay(payment)}
                                 </td>
                                 <td class="px-4 py-3 text-right font-mono font-bold text-[#006064]">
-                                    {formatCurrency(payment.amount)}
+                                    <span>{formatCurrency(netAmount)}</span>
+                                    {payment.amount_refunded > 0 && (
+                                        <span class="mt-1 block text-[11px] font-normal text-[#006064]/60">
+                                            {t('campus.admin.payments.grossAmount')}: {formatCurrency(payment.amount)} ·{' '}
+                                            {t('campus.admin.payments.refundedAmount')}: {formatCurrency(payment.amount_refunded)}
+                                        </span>
+                                    )}
                                 </td>
                                 <td class="px-4 py-3 text-center">
                                     <span class={`px-2 py-1 text-xs font-bold rounded ${statusBadge.class}`}>

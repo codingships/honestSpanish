@@ -23,9 +23,17 @@ describe('operations runbook launch readiness', () => {
         expect(ci).toContain('CHECKOUT_ENABLED: "false"');
         expect(ci).toContain('Verify staging checkout is disabled');
         expect(ci).toContain('CLOUDFLARE_ENV');
-        expect(ci).toContain('pnpm exec wrangler deploy --dry-run');
-        expect(ci).toContain('pnpm exec wrangler deploy --keep-vars');
+        expect(ci).toContain('deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run');
+        expect(ci).toContain('run: pnpm deploy');
         expect(ci).not.toContain('pnpm run deploy -- --dry-run');
+        expect(ci).toContain('pnpm run build:production:release');
+        expect(ci).toContain('Validate inert production Fulfillment bootstrap package');
+        expect(ci).toContain('pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run');
+        expect(ci).toContain('pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run');
+        expect(ci).toContain('pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars');
+        expect(ci).not.toContain('pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --keep-vars');
+        expect(ci).toContain('Production CI completed build and dry-runs only.');
+        expect(ci).not.toContain('run deploy -- --env');
         expect(ci).toContain('CLOUDFLARE_STAGING_URL');
         expect(ci).toContain('--deployed-url "$STAGING_WORKER_URL"');
         expect(ci).not.toContain('wrangler pages deploy');
@@ -1476,7 +1484,7 @@ describe('operations runbook launch readiness', () => {
             'cloudflare_worker_secrets_runner',
             'Cloudflare production runtime cutover preflight',
             'cloudflare-production-worker-variable-matrix.md',
-            'Cloudflare production Worker secret-name/direct-probe gated runner',
+            'Cloudflare production web Worker secret-name/direct-attestation gated runner',
             'wrangler_production_dry_run_passed',
             'Stripe evidence source',
             'Google',
@@ -1789,8 +1797,8 @@ describe('operations runbook launch readiness', () => {
             'launch-cloudflare-production-runtime-cutover-preflight',
             'cloudflare-production-worker-variable-matrix.md',
             'command_scope_no_external_write',
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
-            'wrangler deploy --env production --dry-run',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+            'wrangler deploy --config dist/server/wrangler.json --dry-run',
             'wrangler\\s+secret\\s+put',
             'CHECKOUT_ENABLED=false in config: ${boolLabel(report.checkoutEnabledFalseInConfig)}',
             'Dry-run avoids custom domains',
@@ -1814,9 +1822,9 @@ describe('operations runbook launch readiness', () => {
             'approval-request-domain-move.md',
             'verification-checklist.md',
             'rollback-plan.md',
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --keep-vars',
-            'wrangler secret put SECRET_NAME --env production',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+            'wrangler secret put SECRET_NAME --config wrangler.toml --env production',
             'Google service account keys belong on the fulfillment Worker',
             'CHECKOUT_ENABLED=false',
             'BASE-1074/RETEST-285',
@@ -1844,8 +1852,8 @@ describe('operations runbook launch readiness', () => {
             '--execute-approved',
             'externalWritePerformed=false',
             'PLAN_ONLY_READY',
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --keep-vars',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
             'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
             'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --name espanolhonesto --format json',
             'executeRequested && !approvalMatched',
@@ -1871,8 +1879,8 @@ describe('operations runbook launch readiness', () => {
             'externalWritePerformed=false',
             'PLAN_ONLY_READY',
             'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production --format json',
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --env production',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
+            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
             'wrangler secret put',
             'requiredSecretNames',
             'PUBLIC_SUPABASE_URL',
@@ -1936,7 +1944,9 @@ describe('operations runbook launch readiness', () => {
             'WAITING_ON_FINAL_PREREQUISITES',
             'READY_FOR_STAGING_SMOKE_APPROVAL',
             'approval-request-staging-smoke.md',
+            'approval-request-staging-checkout-gate.md',
             'staging-preflight-checklist.md',
+            'production-minimal-smoke-checklist.md',
             'stagingRehearsalMayRunBeforeLegalFinal',
             'stagingRehearsalDoesNotCloseFinalSmoke',
             'finalPrerequisiteBlockers',
@@ -1945,6 +1955,12 @@ describe('operations runbook launch readiness', () => {
             'staging rehearsal',
             'does not run final smoke',
             'does not write external services',
+            'staging-only',
+            'minimal manual production smoke',
+            'must never be pointed at production',
+            'existing allowlisted role accounts',
+            'creates zero Auth users',
+            'separate Cloudflare',
             'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
             'writes-ok:<host>',
             'real-env-smoke.ts',
@@ -1962,19 +1978,29 @@ describe('operations runbook launch readiness', () => {
             '--execute-approved',
             'externalWriteCommandStarted',
             'SMOKE_BASE_URL',
-            'https://staging.espanolhonesto.com',
+            'https://espanolhonesto-staging.alindev95.workers.dev',
             'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
-            'writes-ok:staging.espanolhonesto.com',
+            'writes-ok:espanolhonesto-staging.alindev95.workers.dev',
             'STRIPE_SECRET_KEY',
             'sk_live_',
             'Stripe live',
             'staging-smoke-command-manifest.json',
             'staging-smoke-execution-plan.md',
             'approval-gate.md',
+            'cloudflare-checkout-gate-approval.md',
             'rollback-after-staging-smoke.md',
             'manual-evidence-after-staging-smoke.txt',
             'No Cloudflare deploy/domain/DNS writes',
             'No Supabase schema migration',
+            '--preflight-only',
+            'runSmokePreflightCommand',
+            'all_preconditions_before_writes',
+            'STAGING_CHECKOUT_GATE_CONFIRMATION',
+            'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
+            'SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION',
+            'SMOKE_STUDENT_EMAIL',
+            'EMAIL_RECIPIENT_ALLOWLIST',
+            'exactCheckoutGateApprovalSentence',
             'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts',
         ]) {
             expect(stagingSmokeRunner).toContain(snippet);
@@ -1985,7 +2011,7 @@ describe('operations runbook launch readiness', () => {
             'launch-staging-smoke-rehearsal-runner',
             'staging-smoke-command-manifest.json',
             'rollback-after-staging-smoke.md',
-            'SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com',
+            'SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev',
         ]) {
             expect(finalApprovalQueue).toContain(snippet);
         }
@@ -2015,10 +2041,13 @@ describe('operations runbook launch readiness', () => {
         for (const snippet of [
             'pnpm launch:final-smoke-execution-pack',
             'outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-final-smoke.md',
+            'production-minimal-smoke-checklist.md',
+            'approval-request-staging-checkout-gate.md',
             'outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json',
             'outputs/launch-final-smoke-execution-pack/<timestamp>/rollback-and-cleanup-plan.md',
             'outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md',
             'outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md',
+            'cloudflare-checkout-gate-approval.md',
         ]) {
             expect(manualEvidenceDoc).toContain(snippet);
             expect(manualRunbook).toContain(snippet);

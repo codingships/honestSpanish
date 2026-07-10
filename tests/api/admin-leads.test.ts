@@ -93,7 +93,8 @@ function createAdminClientForList(
     leads: unknown[] = [],
     opportunities: unknown[] | null = null,
     summaryLeads: unknown[] = leads,
-    summaryOpportunities: unknown[] | null = opportunities
+    summaryOpportunities: unknown[] | null = opportunities,
+    checkoutPackages: unknown[] = [],
 ) {
     const leadsQuery = createAwaitableQuery({ data: leads, error: null });
     const summaryLeadsQuery = createAwaitableQuery({ data: summaryLeads, error: null });
@@ -109,16 +110,18 @@ function createAdminClientForList(
             data: null,
             error: { code: '42P01', message: 'relation "crm_opportunities" does not exist' },
         });
+    const checkoutPackagesQuery = createAwaitableQuery({ data: checkoutPackages, error: null });
     const leadQueries = [leadsQuery, summaryLeadsQuery];
     const opportunityQueries = [opportunitiesQuery, summaryOpportunitiesQuery];
     const client = {
         from: vi.fn((table: string) => {
             if (table === 'leads') return leadQueries.shift();
             if (table === 'crm_opportunities') return opportunityQueries.shift();
+            if (table === 'packages') return checkoutPackagesQuery;
             throw new Error(`Unexpected table ${table}`);
         }),
     };
-    return { client, leadsQuery, opportunitiesQuery, summaryLeadsQuery, summaryOpportunitiesQuery };
+    return { client, leadsQuery, opportunitiesQuery, summaryLeadsQuery, summaryOpportunitiesQuery, checkoutPackagesQuery };
 }
 
 function createAdminClientForUpdate(before: Record<string, unknown>, after: Record<string, unknown>) {
@@ -175,6 +178,41 @@ function expectedDiagnosticUrl(leadId: string) {
     return `https://staging.espanolhonesto.com/en/diagnostico?email=student%40example.com&leadId=${leadId}&token=signed-level-token`;
 }
 
+function checkoutReadyPackage(id: string, name = 'standard') {
+    const productId = `prod_${name}`;
+    return {
+        id,
+        name,
+        display_name: { es: 'Estandar' },
+        catalog_version: 1,
+        price_monthly: 10000,
+        sessions_per_month: 4,
+        has_group_session: false,
+        has_dual_teacher: false,
+        is_active: true,
+        stripe_product_id: productId,
+        stripe_price_1m: `price_${name}_1m`,
+        stripe_price_3m: `price_${name}_3m`,
+        stripe_price_6m: `price_${name}_6m`,
+        package_prices: ([1, 3, 6] as const).map((duration) => ({
+            catalog_version: 1,
+            package_key: name,
+            duration_months: duration,
+            amount_cents: duration === 1 ? 10000 : duration === 3 ? 27000 : 48000,
+            currency: 'eur',
+            sessions_per_month: 4,
+            sessions_per_period: 4 * duration,
+            has_group_session: false,
+            has_dual_teacher: false,
+            status: 'active',
+            stripe_account_id: 'acct_staging',
+            stripe_livemode: false,
+            stripe_price_id: `price_${name}_${duration}m`,
+            stripe_product_id: productId,
+        })),
+    };
+}
+
 describe('/api/admin/leads', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -226,7 +264,14 @@ describe('/api/admin/leads', () => {
 
     it('lets admins list lead applications with status filter and limit cap', async () => {
         const lead = { id: 'lead-1', status: 'new', email: 'student@example.com' };
-        const { client, leadsQuery } = createAdminClientForList([lead]);
+        const checkoutPackage = checkoutReadyPackage('70000000-0000-4000-8000-000000000010');
+        const { client, leadsQuery, checkoutPackagesQuery } = createAdminClientForList(
+            [lead],
+            null,
+            [lead],
+            null,
+            [checkoutPackage],
+        );
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
@@ -238,8 +283,31 @@ describe('/api/admin/leads', () => {
 
         expect(response.status).toBe(200);
         expect(body.leads).toEqual([{ ...lead, crm_opportunity: null }]);
+        expect(body.checkoutPackages).toEqual([{
+            id: checkoutPackage.id,
+            name: checkoutPackage.name,
+            display_name: checkoutPackage.display_name,
+        }]);
         expect(leadsQuery.eq).toHaveBeenCalledWith('status', 'new');
         expect(leadsQuery.limit).toHaveBeenCalledWith(100);
+        expect(checkoutPackagesQuery.eq).toHaveBeenCalledWith('is_active', true);
+    });
+
+    it('does not offer checkout approval for a package split across Stripe accounts', async () => {
+        const mixedAccountPackage = checkoutReadyPackage('70000000-0000-4000-8000-000000000011');
+        mixedAccountPackage.package_prices[2].stripe_account_id = 'acct_other';
+        const { client } = createAdminClientForList([], null, [], null, [mixedAccountPackage]);
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { GET } = await import('../../src/pages/api/admin/leads');
+        const response = await GET(getContext('/api/admin/leads') as any);
+        const body = await readJson(response);
+
+        expect(response.status).toBe(200);
+        expect(body.checkoutPackages).toEqual([]);
     });
 
     it('enriches listed leads with CRM opportunity pipeline data when available', async () => {
@@ -390,12 +458,14 @@ describe('/api/admin/leads', () => {
             data: null,
             error: { code: '42P01', message: 'relation "crm_opportunities" does not exist' },
         });
+        const checkoutPackagesQuery = createAwaitableQuery({ data: [], error: null });
         const leadQueries = [visibleLeadsQuery, missingOptionalSummaryColumnQuery, fallbackSummaryQuery];
         const opportunityQueries = [opportunitiesQuery, summaryOpportunitiesQuery];
         const client = {
             from: vi.fn((table: string) => {
                 if (table === 'leads') return leadQueries.shift();
                 if (table === 'crm_opportunities') return opportunityQueries.shift();
+                if (table === 'packages') return checkoutPackagesQuery;
                 throw new Error(`Unexpected table ${table}`);
             }),
         };
@@ -857,6 +927,7 @@ describe('/api/admin/leads', () => {
         expect(opportunityUpdate.update).toHaveBeenCalledWith({
             stage: 'contacted',
             closed_at: null,
+            checkout_approved_at: null,
             updated_at: expect.any(String),
         });
         expect(taskLookup.eq).toHaveBeenCalledWith('related_entity_type', 'lead_sales_follow_up');
@@ -997,6 +1068,7 @@ describe('/api/admin/leads', () => {
         expect(opportunityUpdate.update).toHaveBeenCalledWith({
             stage: 'contacted',
             closed_at: null,
+            checkout_approved_at: null,
             updated_at: expect.any(String),
         });
         expect(opportunityUpdate.eq).toHaveBeenCalledWith('id', before.crm_opportunity_id);
@@ -1097,6 +1169,7 @@ describe('/api/admin/leads', () => {
         expect(updateQuery.update).toHaveBeenCalledWith({
             stage: 'proposal',
             closed_at: null,
+            checkout_approved_at: null,
             updated_at: expect.any(String),
         });
         expect(contactUpdate.update).toHaveBeenCalledWith({
@@ -1140,6 +1213,178 @@ describe('/api/admin/leads', () => {
             before: opportunityBefore,
             after: opportunityAfter,
         }));
+    });
+
+    it('explicitly approves checkout for one active package and audits the decision', async () => {
+        const packageId = '70000000-0000-4000-8000-000000000001';
+        const opportunityBefore = {
+            id: '20000000-0000-4000-8000-000000000051',
+            contact_id: '10000000-0000-4000-8000-000000000051',
+            legacy_lead_id: '00000000-0000-4000-8000-000000000051',
+            stage: 'qualified',
+            preferred_package_id: null,
+            checkout_approved_at: null,
+            converted_subscription_id: null,
+            updated_at: '2026-06-24T10:00:00.000Z',
+        };
+        const opportunityAfter = {
+            ...opportunityBefore,
+            stage: 'proposal',
+            preferred_package_id: packageId,
+            checkout_approved_at: '2026-06-26T10:00:00.000Z',
+            opened_at: '2026-06-24T10:00:00.000Z',
+            closed_at: null,
+            current_level: 'b1',
+            learning_goal: 'Work meetings',
+            availability: 'Mornings',
+            packages: { name: 'standard', display_name: { es: 'Estandar' } },
+            crm_contacts: null,
+        };
+        const beforeQuery = createSingleQuery({ data: opportunityBefore, error: null });
+        const updateQuery = createSingleQuery({ data: opportunityAfter, error: null });
+        const opportunityQueries = [beforeQuery, updateQuery];
+        const packageQuery = createMaybeSingleQuery({ data: checkoutReadyPackage(packageId), error: null });
+        const auditInsert = vi.fn().mockResolvedValue({ error: null });
+        const client = {
+            from: vi.fn((table: string) => {
+                if (table === 'crm_opportunities') return opportunityQueries.shift();
+                if (table === 'packages') return packageQuery;
+                if (table === 'admin_audit_log') return { insert: auditInsert };
+                throw new Error(`Unexpected table ${table}`);
+            }),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { PUT } = await import('../../src/pages/api/admin/leads');
+        const response = await PUT(postContext({
+            action: 'checkout_approval',
+            opportunityId: opportunityBefore.id,
+            packageId,
+            approved: true,
+        }) as any);
+        const body = await readJson(response);
+
+        expect(response.status).toBe(200);
+        expect(body.opportunity).toEqual(opportunityAfter);
+        expect(packageQuery.eq).toHaveBeenCalledWith('id', packageId);
+        expect(packageQuery.eq).toHaveBeenCalledWith('is_active', true);
+        expect(updateQuery.update).toHaveBeenCalledWith({
+            preferred_package_id: packageId,
+            checkout_approved_at: expect.any(String),
+            stage: 'proposal',
+            closed_at: null,
+            updated_at: expect.any(String),
+        });
+        expect(auditInsert).toHaveBeenCalledWith(expect.objectContaining({
+            admin_id: 'admin-1',
+            action: 'crm_opportunity.checkout.approve',
+            entity_type: 'crm_opportunity',
+            entity_id: opportunityBefore.id,
+            before: opportunityBefore,
+            after: opportunityAfter,
+        }));
+    });
+
+    it('does not allow checkout approval for the group-only package until group sessions exist', async () => {
+        const packageId = '70000000-0000-4000-8000-000000000099';
+        const opportunityBefore = {
+            id: '20000000-0000-4000-8000-000000000099',
+            contact_id: '10000000-0000-4000-8000-000000000099',
+            legacy_lead_id: '00000000-0000-4000-8000-000000000099',
+            stage: 'qualified',
+            preferred_package_id: null,
+            checkout_approved_at: null,
+            converted_subscription_id: null,
+            updated_at: '2026-07-10T10:00:00.000Z',
+        };
+        const beforeQuery = createSingleQuery({ data: opportunityBefore, error: null });
+        const packageQuery = createMaybeSingleQuery({ data: checkoutReadyPackage(packageId, 'group'), error: null });
+        const client = {
+            from: vi.fn((table: string) => {
+                if (table === 'crm_opportunities') return beforeQuery;
+                if (table === 'packages') return packageQuery;
+                throw new Error(`Unexpected table ${table}`);
+            }),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { PUT } = await import('../../src/pages/api/admin/leads');
+        const response = await PUT(postContext({
+            action: 'checkout_approval',
+            opportunityId: opportunityBefore.id,
+            packageId,
+            approved: true,
+        }) as any);
+
+        expect(response.status).toBe(409);
+        expect(await readJson(response)).toEqual({ error: 'Package is not operationally available for checkout' });
+        expect(client.from).not.toHaveBeenCalledWith('admin_audit_log');
+    });
+
+    it('revokes checkout approval without using the CRM stage as the permission', async () => {
+        const packageId = '70000000-0000-4000-8000-000000000002';
+        const opportunityBefore = {
+            id: '20000000-0000-4000-8000-000000000052',
+            contact_id: '10000000-0000-4000-8000-000000000052',
+            legacy_lead_id: '00000000-0000-4000-8000-000000000052',
+            stage: 'proposal',
+            preferred_package_id: packageId,
+            checkout_approved_at: '2026-06-26T10:00:00.000Z',
+            converted_subscription_id: null,
+            updated_at: '2026-06-26T10:00:00.000Z',
+        };
+        const opportunityAfter = {
+            ...opportunityBefore,
+            checkout_approved_at: null,
+            opened_at: '2026-06-24T10:00:00.000Z',
+            closed_at: null,
+            current_level: 'b1',
+            learning_goal: null,
+            availability: null,
+            packages: { name: 'hybrid', display_name: { es: 'Hibrido' } },
+            crm_contacts: null,
+        };
+        const beforeQuery = createSingleQuery({ data: opportunityBefore, error: null });
+        const updateQuery = createSingleQuery({ data: opportunityAfter, error: null });
+        const opportunityQueries = [beforeQuery, updateQuery];
+        const auditInsert = vi.fn().mockResolvedValue({ error: null });
+        const client = {
+            from: vi.fn((table: string) => {
+                if (table === 'crm_opportunities') return opportunityQueries.shift();
+                if (table === 'admin_audit_log') return { insert: auditInsert };
+                throw new Error(`Unexpected table ${table}`);
+            }),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { PUT } = await import('../../src/pages/api/admin/leads');
+        const response = await PUT(postContext({
+            action: 'checkout_approval',
+            opportunityId: opportunityBefore.id,
+            packageId,
+            approved: false,
+        }) as any);
+
+        expect(response.status).toBe(200);
+        expect(updateQuery.update).toHaveBeenCalledWith({
+            checkout_approved_at: null,
+            updated_at: expect.any(String),
+        });
+        expect(auditInsert).toHaveBeenCalledWith(expect.objectContaining({
+            action: 'crm_opportunity.checkout.revoke',
+            before: opportunityBefore,
+            after: opportunityAfter,
+        }));
+        expect(client.from).not.toHaveBeenCalledWith('packages');
     });
 
     it('marks lost opportunities as discarded leads and closes terminal lead work', async () => {

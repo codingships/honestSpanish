@@ -2,14 +2,11 @@ import { createServerClient, parseCookieHeader } from '@supabase/ssr';
 import type { APIContext } from 'astro';
 // 👇 1. Importamos la definición de la Base de Datos
 import type { Database } from '../types/database.types';
+import { getSupabaseAnonKey, getSupabaseRuntimeConfig } from './supabase-runtime-guard';
 
 export const createSupabaseServerClient = (context: APIContext) => {
-    const supabaseUrl = import.meta.env.PUBLIC_SUPABASE_URL;
-    const supabaseKey = import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
-
-    if (!supabaseUrl || !supabaseKey) {
-        throw new Error('Missing Supabase environment variables');
-    }
+    const { url: supabaseUrl } = getSupabaseRuntimeConfig(context);
+    const supabaseKey = getSupabaseAnonKey(context);
 
     // 👇 2. Inyectamos el tipo <Database> aquí
     return createServerClient<Database>(supabaseUrl, supabaseKey, {

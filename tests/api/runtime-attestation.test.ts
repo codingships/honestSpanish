@@ -79,6 +79,7 @@ describe('web runtime attestation API', () => {
             INTERNAL_JOB_SECRET: 'internal-secret',
             PUBLIC_SUPABASE_URL: 'https://staging.supabase.co',
             PUBLIC_SUPABASE_ANON_KEY: 'anon',
+            SUPABASE_EXPECTED_PROJECT_REF: 'staging',
             SUPABASE_SERVICE_ROLE_KEY: 'service',
             FULFILLMENT_WORKER_URL: 'https://fulfillment.example.com',
             EMAIL_DELIVERY_MODE: 'allowlist',
@@ -110,5 +111,25 @@ describe('web runtime attestation API', () => {
             role: 'web',
             schema: RUNTIME_ATTESTATION_SCHEMA,
         }, 'internal-secret')).resolves.toBe(true);
+    });
+
+    it('allows only the exact production identity in production', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'production',
+            WORKER_IDENTITY: 'espanolhonesto',
+            INTERNAL_JOB_SECRET: 'internal-secret',
+            SUPABASE_EXPECTED_PROJECT_REF: 'production-ref',
+        });
+        versionMetadata.CF_VERSION_METADATA = { id: '22222222-2222-4222-8222-222222222222' };
+        const allowed = await POST(context('{"nonce":"valid_nonce_123456789"}', {
+            authorization: 'Bearer internal-secret',
+        }));
+        expect(allowed.status).toBe(200);
+
+        mocks.env.WORKER_IDENTITY = 'espanolhonesto-staging';
+        const hidden = await POST(context('{"nonce":"valid_nonce_123456789"}', {
+            authorization: 'Bearer internal-secret',
+        }));
+        expect(hidden.status).toBe(404);
     });
 });

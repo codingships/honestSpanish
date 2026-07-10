@@ -1,6 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import * as dotenv from 'dotenv';
+import {
+    buildRuntimeAttestationConfig,
+    RUNTIME_ATTESTATION_SCHEMA,
+    verifyRuntimeAttestation,
+    type RuntimeAttestationEnvelope,
+} from '../../src/lib/runtime-attestation';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -50,7 +58,9 @@ interface PhaseOneReport {
     approvalEnvVar: string;
     executeRequested: boolean;
     approvalMatched: boolean;
+    externalWriteAttempted: boolean;
     externalWritePerformed: boolean;
+    latestFulfillmentBootstrapSummaryPath: string | null;
     latestPreflightSummaryPath: string | null;
     latestVariableMatrixPath: string | null;
     latestCutoverManifestPath: string | null;
@@ -83,7 +93,7 @@ const target: CloudflareTarget = {
 };
 
 const approvalEnvVar = 'CLOUDFLARE_PHASE1_APPROVAL';
-const exactApprovalSentence = 'Apruebo crear/desplegar el Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el build actual de `C:\\Users\\Alin\\Desktop\\Academia\\pruebas`, con `CHECKOUT_ENABLED=false`, sin adjuntar ni mover `espanolhonesto.com` ni `www.espanolhonesto.com`, sin activar pagos reales, sin borrar Pages y sin cambiar DNS. Despues, lista solo nombres de variables/secrets faltantes para cargarlos en una fase separada.';
+const exactApprovalSentence = 'Apruebo crear/desplegar el Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el build actual de `C:\\Users\\Alin\\Desktop\\Academia\\pruebas`, despues de cargar los secrets de fulfillment manteniendolo inerte y verificar inmediatamente su version remota, HMAC, modo bootstrap, bloqueo 503 y cron vacio, con `CHECKOUT_ENABLED=false`, sin adjuntar ni mover `espanolhonesto.com` ni `www.espanolhonesto.com`, sin activar pagos reales, sin borrar Pages y sin cambiar DNS.';
 const executeRequested = process.argv.includes('--execute-approved');
 const approvalMatched = process.env[approvalEnvVar] === exactApprovalSentence;
 
@@ -95,11 +105,23 @@ const latestPreflightSummaryPath = latestGeneratedPath('launch-cloudflare-produc
 const latestVariableMatrixPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'cloudflare-production-worker-variable-matrix.md');
 const latestCutoverManifestPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover', 'cloudflare-production-runtime-cutover-manifest.json');
 const latestPhaseOneApprovalPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover', 'approval-request-phase-1-worker.md');
+const latestFulfillmentBootstrapSummaryPath = latestGeneratedPath('launch-cloudflare-production-fulfillment-bootstrap', 'summary.md');
+const latestFulfillmentSecretsSummaryPath = latestGeneratedPath('launch-cloudflare-production-fulfillment-secrets', 'summary.md');
+const fulfillmentWorker = 'espanol-honesto-fulfillment-production';
+const fulfillmentDirectUrl = 'https://espanol-honesto-fulfillment-production.alindev95.workers.dev/';
+const fulfillmentSecretNames = [
+    'PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'INTERNAL_JOB_SECRET',
+    'GOOGLE_SERVICE_ACCOUNT_EMAIL', 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', 'GOOGLE_ADMIN_EMAIL',
+    'GOOGLE_DRIVE_ROOT_FOLDER_ID', 'GOOGLE_TEMPLATE_DOC_ID', 'RESEND_API_KEY', 'EMAIL_FROM', 'RESEND_FROM_EMAIL',
+] as const;
 
 const commands = buildCommands();
 const captures: CommandCapture[] = [];
+let externalWriteAttempted = false;
 const checks: PhaseOneCheck[] = [
     validatePackageScript(),
+    validateFulfillmentBootstrapEvidence(),
+    validateFulfillmentSecretsEvidence(),
     validateLatestNoWritePreflight(),
     validateLatestCutoverPack(),
     validateWranglerConfig(),
@@ -107,7 +129,14 @@ const checks: PhaseOneCheck[] = [
     validateForbiddenScopeSource(),
 ];
 
-if (executeRequested && !approvalMatched) {
+if (executeRequested && checks.some((check) => check.status === 'failed')) {
+    checks.push({
+        status: 'failed',
+        name: 'initial_validation_gate',
+        message: 'Initial local validation failed, so no Cloudflare command can run.',
+        details: ['externalWriteAttempted=false'],
+    });
+} else if (executeRequested && !approvalMatched) {
     checks.push({
         status: 'failed',
         name: 'exact_approval_gate',
@@ -119,7 +148,8 @@ if (executeRequested && !approvalMatched) {
         ],
     });
 } else if (executeRequested && approvalMatched) {
-    checks.push(...runApprovedExecution(captures));
+    dotenv.config({ path: process.env.CLOUDFLARE_FULFILLMENT_ENV_FILE?.trim() || '.env.production', override: false, quiet: true });
+    checks.push(...await runApprovedExecution(captures));
 } else {
     checks.push({
         status: 'ok',
@@ -156,6 +186,7 @@ console.log(`[launch:cloudflare-production-worker-phase1] Closure: ${report.phas
 console.log(`[launch:cloudflare-production-worker-phase1] Failed: ${failed.length}`);
 console.log(`[launch:cloudflare-production-worker-phase1] Warnings: ${warnings.length}`);
 console.log(`[launch:cloudflare-production-worker-phase1] External write performed: ${report.externalWritePerformed}`);
+console.log(`[launch:cloudflare-production-worker-phase1] External write attempted: ${report.externalWriteAttempted}`);
 console.log(`[launch:cloudflare-production-worker-phase1] Summary: ${report.summaryPath}`);
 console.log(`[launch:cloudflare-production-worker-phase1] Execution plan: ${report.executionPlanPath}`);
 console.log(`[launch:cloudflare-production-worker-phase1] Approval gate: ${report.approvalGatePath}`);
@@ -182,7 +213,9 @@ function createReport(reportChecks: PhaseOneCheck[], reportCaptures: CommandCapt
         approvalEnvVar,
         executeRequested,
         approvalMatched,
+        externalWriteAttempted,
         externalWritePerformed,
+        latestFulfillmentBootstrapSummaryPath,
         latestPreflightSummaryPath,
         latestVariableMatrixPath,
         latestCutoverManifestPath,
@@ -195,6 +228,63 @@ function createReport(reportChecks: PhaseOneCheck[], reportCaptures: CommandCapt
         rollbackAfterPhaseOnePath: path.join(outputDir, 'rollback-after-phase1.md'),
         manualEvidenceAfterPhaseOnePath: path.join(outputDir, 'manual-evidence-after-phase1.txt'),
         summaryPath: path.join(outputDir, 'summary.md'),
+    };
+}
+
+function validateFulfillmentBootstrapEvidence(): PhaseOneCheck {
+    if (!latestFulfillmentBootstrapSummaryPath || !existsSync(latestFulfillmentBootstrapSummaryPath)) {
+        return {
+            status: 'failed',
+            name: 'fulfillment_bootstrap_before_web',
+            message: 'The inert production fulfillment bootstrap must be executed and verified before the web Worker.',
+            details: ['run=pnpm launch:cloudflare-production-fulfillment-bootstrap -- --execute-approved'],
+        };
+    }
+
+    const summary = readFileSync(latestFulfillmentBootstrapSummaryPath, 'utf8');
+    const required = [
+        '- Status: OK',
+        '- Execute requested: true',
+        '- External write attempted: true',
+        '- External write performed: true',
+        '| ok | health_bootstrap |',
+        '| ok | bootstrap_operational_block |',
+    ];
+    const missing = required.filter((snippet) => !summary.includes(snippet));
+    return {
+        status: missing.length === 0 ? 'ok' : 'failed',
+        name: 'fulfillment_bootstrap_before_web',
+        message: missing.length === 0
+            ? 'Latest evidence proves the exact production fulfillment Worker exists in inert bootstrap mode before web deploy.'
+            : 'Fulfillment bootstrap evidence is incomplete; web deploy remains blocked.',
+        details: missing.length === 0
+            ? [`summary=${latestFulfillmentBootstrapSummaryPath}`]
+            : missing.map((snippet) => `missing=${snippet}`),
+    };
+}
+
+function validateFulfillmentSecretsEvidence(): PhaseOneCheck {
+    if (!latestFulfillmentSecretsSummaryPath || !existsSync(latestFulfillmentSecretsSummaryPath)) {
+        return {
+            status: 'failed',
+            name: 'fulfillment_secrets_before_web',
+            message: 'Fulfillment secrets must be loaded and re-attested while bootstrap remains inert before web deploy.',
+            details: ['run=pnpm launch:cloudflare-production-fulfillment-secrets -- --execute-approved'],
+        };
+    }
+    const summary = readFileSync(latestFulfillmentSecretsSummaryPath, 'utf8');
+    const required = [
+        '- Status: OK', '- Execute requested: true', '- External write performed: true',
+        '| ok | bootstrap_operational_block_pre_write |', '| ok | direct_fulfillment_runtime_attestation |',
+    ];
+    const missing = required.filter((snippet) => !summary.includes(snippet));
+    return {
+        status: missing.length === 0 ? 'ok' : 'failed',
+        name: 'fulfillment_secrets_before_web',
+        message: missing.length === 0
+            ? 'Latest local evidence records fulfillment secret loading and bootstrap re-attestation.'
+            : 'Fulfillment secret/bootstrap evidence is incomplete; web deploy is blocked.',
+        details: missing.length === 0 ? [`summary=${latestFulfillmentSecretsSummaryPath}`] : missing.map((snippet) => `missing=${snippet}`),
     };
 }
 
@@ -251,7 +341,7 @@ function validateLatestNoWritePreflight(): PhaseOneCheck {
         'Dry-run avoids custom domains: True',
         'Production secret-list shape: worker_missing',
         'dist removed after dry-run: True',
-        'wrangler deploy --env production --dry-run',
+        'wrangler deploy --config dist/server/wrangler.json --dry-run',
     ];
     const missing = required.filter((snippet) => !preflight.includes(snippet));
     const matrixMissing = !latestVariableMatrixPath || !existsSync(latestVariableMatrixPath);
@@ -287,7 +377,7 @@ function validateLatestCutoverPack(): PhaseOneCheck {
         exactApprovalSentence,
         'No domain move, DNS change, Pages deletion, route change, zone change or custom-domain attachment.',
         'No secret value printing or storage in outputs.',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --keep-vars',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
     ];
     const missing = required.filter((snippet) => !approval.includes(snippet));
 
@@ -317,6 +407,7 @@ function validateWranglerConfig(): PhaseOneCheck {
     const wrangler = readFileSync(wranglerPath, 'utf8');
     const checkoutFalseCount = [...wrangler.matchAll(/CHECKOUT_ENABLED\s*=\s*"false"/g)].length;
     const required = [
+        'name = "espanolhonesto-env-required"',
         'keep_vars = true',
         '[env.production]',
         'name = "espanolhonesto"',
@@ -330,7 +421,7 @@ function validateWranglerConfig(): PhaseOneCheck {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'wrangler_phase1_config',
         message: missing.length === 0
-            ? 'Wrangler config keeps production Worker name, staging separation, keep_vars and checkout-off posture.'
+            ? 'Wrangler config uses a safe base name and keeps explicit production/staging names, keep_vars and checkout-off posture.'
             : 'Wrangler config is missing the required phase-1 safety posture.',
         details: missing.length === 0 ? [`checkoutFalseCount=${checkoutFalseCount}`] : missing.map((snippet) => `missing=${snippet}`),
     };
@@ -354,8 +445,8 @@ function validateApprovalGateSource(): PhaseOneCheck {
         'const exactApprovalSentence =',
         'executeRequested && !approvalMatched',
         'externalWritePerformed=false',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --keep-vars',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --name espanolhonesto --format json',
     ];
@@ -409,7 +500,7 @@ function validateForbiddenScopeSource(): PhaseOneCheck {
     };
 }
 
-function runApprovedExecution(reportCaptures: CommandCapture[]): PhaseOneCheck[] {
+async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<PhaseOneCheck[]> {
     const executionChecks: PhaseOneCheck[] = [];
 
     executionChecks.push({
@@ -459,6 +550,24 @@ function runApprovedExecution(reportCaptures: CommandCapture[]): PhaseOneCheck[]
 
     if (!dryRunIsSafe) return executionChecks;
 
+    const fulfillmentVersionCapture = runCommand(commands.fulfillmentDeploymentsList);
+    reportCaptures.push(fulfillmentVersionCapture);
+    executionChecks.push(checkForCapture(fulfillmentVersionCapture));
+    if (fulfillmentVersionCapture.status === 'failed') return executionChecks;
+    const fulfillmentVersionId = deploymentVersionId(fulfillmentVersionCapture);
+    if (!fulfillmentVersionId) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'fresh_fulfillment_bootstrap_version_before_web',
+            message: 'Fresh fulfillment bootstrap version could not be read immediately before web deploy.',
+            details: ['externalWriteAttempted=false'],
+        });
+        return executionChecks;
+    }
+    const freshBootstrapChecks = await verifyFreshFulfillmentBootstrap(fulfillmentVersionId);
+    executionChecks.push(...freshBootstrapChecks);
+    if (freshBootstrapChecks.some((check) => check.status === 'failed')) return executionChecks;
+
     for (const command of [commands.deployKeepVars, commands.deploymentsList, commands.secretList]) {
         const capture = runCommand(command);
         reportCaptures.push(capture);
@@ -470,6 +579,7 @@ function runApprovedExecution(reportCaptures: CommandCapture[]): PhaseOneCheck[]
 }
 
 function runCommand(command: CommandSpec): CommandCapture {
+    if (command.writesCloudflare) externalWriteAttempted = true;
     const result = spawnSync(command.bin, command.args, {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -526,6 +636,103 @@ function checkForCapture(capture: CommandCapture): PhaseOneCheck {
     };
 }
 
+function deploymentVersionId(capture: CommandCapture): string | null {
+    const text = existsSync(capture.path) ? readFileSync(capture.path, 'utf8') : '';
+    return /"version_id"\s*:\s*"([0-9a-f]{8}-[0-9a-f-]{27})"/iu.exec(text)?.[1] ?? null;
+}
+
+async function verifyFreshFulfillmentBootstrap(expectedVersionId: string): Promise<PhaseOneCheck[]> {
+    const missing = [
+        ...fulfillmentSecretNames.filter((name) => !process.env[name]?.trim()),
+        ...(!process.env.CLOUDFLARE_API_TOKEN?.trim() ? ['CLOUDFLARE_API_TOKEN'] : []),
+    ];
+    if (missing.length > 0) {
+        return [{
+            status: 'failed',
+            name: 'fresh_fulfillment_bootstrap_inputs_before_web',
+            message: 'Fresh bootstrap proof lacks local secure inputs; web deploy is blocked.',
+            details: missing.map((name) => `missing=${name}`),
+        }];
+    }
+
+    const proofChecks: PhaseOneCheck[] = [];
+    try {
+        const healthResponse = await fetch(new URL('/health', fulfillmentDirectUrl), {
+            redirect: 'error', signal: AbortSignal.timeout(20_000),
+        });
+        const health = await healthResponse.json() as { operationMode?: unknown; workerIdentity?: unknown };
+        proofChecks.push({
+            status: healthResponse.status === 200
+                && health.operationMode === 'bootstrap'
+                && health.workerIdentity === fulfillmentWorker ? 'ok' : 'failed',
+            name: 'fresh_fulfillment_bootstrap_health_before_web',
+            message: 'Fresh direct health must prove the exact fulfillment bootstrap identity before web deploy.',
+            details: [`httpStatus=${healthResponse.status}`, `operationMode=${String(health.operationMode ?? 'missing')}`],
+        });
+
+        const blockedResponse = await fetch(new URL('/internal/jobs/process', fulfillmentDirectUrl), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+            redirect: 'error', signal: AbortSignal.timeout(20_000),
+        });
+        const blockedBody = await blockedResponse.json() as { errorCode?: unknown };
+        proofChecks.push({
+            status: blockedResponse.status === 503 && blockedBody.errorCode === 'FULFILLMENT_DISABLED' ? 'ok' : 'failed',
+            name: 'fresh_fulfillment_bootstrap_503_before_web',
+            message: 'Fresh operational probe must prove fulfillment is disabled before web deploy.',
+            details: [`httpStatus=${blockedResponse.status}`],
+        });
+
+        const nonce = randomUUID();
+        const attestationResponse = await fetch(new URL('/internal/runtime-attestation', fulfillmentDirectUrl), {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${process.env.INTERNAL_JOB_SECRET}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nonce }), redirect: 'error', signal: AbortSignal.timeout(20_000),
+        });
+        const envelope = await attestationResponse.json() as RuntimeAttestationEnvelope;
+        const config = await buildRuntimeAttestationConfig('fulfillment', {
+            ...Object.fromEntries(fulfillmentSecretNames.map((name) => [name, process.env[name]?.trim() ?? ''])),
+            PUBLIC_APP_ENV: 'production', SUPABASE_EXPECTED_PROJECT_REF: 'vkkahxsybhbutszerawz',
+            WORKER_IDENTITY: fulfillmentWorker, WORKER_VERSION_ID: expectedVersionId,
+            PUBLIC_SITE_URL: 'https://espanolhonesto.com', FULFILLMENT_RUNTIME_MODE: 'bootstrap',
+            EMAIL_DELIVERY_MODE: 'disabled', EMAIL_DAILY_RECIPIENT_LIMIT: '0', EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+            CHECKOUT_ENABLED: 'false', CHECKOUT_ENABLED_OVERRIDE: 'false',
+        });
+        const attested = attestationResponse.status === 200
+            && envelope.workerVersionId === expectedVersionId
+            && envelope.workerIdentity === fulfillmentWorker
+            && await verifyRuntimeAttestation(envelope, {
+                config, nonce, role: 'fulfillment', schema: RUNTIME_ATTESTATION_SCHEMA,
+            }, process.env.INTERNAL_JOB_SECRET ?? '');
+        proofChecks.push({
+            status: attested ? 'ok' : 'failed',
+            name: 'fresh_fulfillment_bootstrap_hmac_before_web',
+            message: 'Fresh HMAC attestation must bind bootstrap config to the just-listed fulfillment version.',
+            details: [`workerVersionMatched=${String(envelope.workerVersionId === expectedVersionId)}`, `proofVerified=${String(attested)}`],
+        });
+
+        const schedulesResponse = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(fulfillmentWorker)}/schedules`,
+            { headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` }, redirect: 'error', signal: AbortSignal.timeout(20_000) },
+        );
+        const schedules = await schedulesResponse.json() as { success?: unknown; result?: unknown[] };
+        const noCron = schedulesResponse.status === 200 && schedules.success === true && Array.isArray(schedules.result) && schedules.result.length === 0;
+        proofChecks.push({
+            status: noCron ? 'ok' : 'failed',
+            name: 'fresh_fulfillment_bootstrap_no_cron_before_web',
+            message: 'Cloudflare schedules API must prove zero Cron Triggers immediately before web deploy.',
+            details: [`httpStatus=${schedulesResponse.status}`, `scheduleCount=${Array.isArray(schedules.result) ? schedules.result.length : 'unknown'}`],
+        });
+    } catch {
+        proofChecks.push({
+            status: 'failed',
+            name: 'fresh_fulfillment_bootstrap_remote_proof_before_web',
+            message: 'Fresh remote bootstrap proof failed; web deploy is blocked.',
+            details: ['probeFailed=true'],
+        });
+    }
+    return proofChecks;
+}
+
 function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
     const commandManifest = `${JSON.stringify({
         schemaVersion: 1,
@@ -534,6 +741,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         mode: report.executeRequested ? 'execute-approved' : 'plan',
         approvalEnvVar: report.approvalEnvVar,
         approvalMatched: report.approvalMatched,
+        externalWriteAttempted: report.externalWriteAttempted,
         externalWritePerformed: report.externalWritePerformed,
         exactApprovalSentence,
         commands: Object.values(commands).map((command) => ({
@@ -553,6 +761,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
             variableMatrix: toRelativeOrNull(report.latestVariableMatrixPath),
             cutoverManifest: toRelativeOrNull(report.latestCutoverManifestPath),
             phaseOneApproval: toRelativeOrNull(report.latestPhaseOneApprovalPath),
+            fulfillmentBootstrap: toRelativeOrNull(report.latestFulfillmentBootstrapSummaryPath),
         },
         forbiddenScope: forbiddenScopeLines(),
     }, null, 2)}\n`;
@@ -566,6 +775,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         '',
         `- Execute requested: ${String(report.executeRequested)}.`,
         `- Approval matched: ${String(report.approvalMatched)}.`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}.`,
         `- External write performed: ${String(report.externalWritePerformed)}.`,
         '',
         '## Target',
@@ -582,6 +792,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         `- Variable matrix: ${toRelativeOrFallback(report.latestVariableMatrixPath, 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/cloudflare-production-worker-variable-matrix.md')}`,
         `- Cutover manifest: ${toRelativeOrFallback(report.latestCutoverManifestPath, 'outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/cloudflare-production-runtime-cutover-manifest.json')}`,
         `- Phase-1 approval request: ${toRelativeOrFallback(report.latestPhaseOneApprovalPath, 'outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/approval-request-phase-1-worker.md')}`,
+        `- Fulfillment bootstrap proof: ${toRelativeOrFallback(report.latestFulfillmentBootstrapSummaryPath, 'outputs/launch-cloudflare-production-fulfillment-bootstrap/<timestamp>/summary.md')}`,
         '',
         '## Commands Encoded In This Runner',
         '',
@@ -617,6 +828,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         '- Required flag: `--execute-approved`.',
         `- Execute requested in this run: ${String(report.executeRequested)}.`,
         `- Approval matched in this run: ${String(report.approvalMatched)}.`,
+        `- External write attempted in this run: ${String(report.externalWriteAttempted)}.`,
         `- External write performed in this run: ${String(report.externalWritePerformed)}.`,
         '',
         '## Exact Approval Sentence',
@@ -702,6 +914,7 @@ function renderSummary(report: PhaseOneReport): string {
         `- Generated: ${report.endedAt}`,
         `- Execute requested: ${String(report.executeRequested)}`,
         `- Approval matched: ${String(report.approvalMatched)}`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}`,
         `- External write performed: ${String(report.externalWritePerformed)}`,
         `- Command manifest: ${toRelative(report.commandManifestPath)}`,
         `- Execution plan: ${toRelative(report.executionPlanPath)}`,
@@ -749,8 +962,8 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'No DNS change',
         'No Pages deletion',
         'No secret value printing',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --keep-vars',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
     ];
     const missing = required.filter((snippet) => !combined.includes(snippet));
     const unsafeSecretSnippets = [
@@ -806,27 +1019,35 @@ function buildCommands(): Record<string, CommandSpec> & {
         },
         build: {
             id: 'pnpm-build',
-            display: 'corepack pnpm --config.verify-deps-before-run=false build',
+            display: 'corepack pnpm --config.verify-deps-before-run=false run build:production:release',
             bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'build'],
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:release'],
             timeoutMs: 240000,
             writesCloudflare: false,
         },
         deployDryRun: {
             id: 'wrangler-deploy-production-dry-run',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
+            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
             bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--env', 'production', '--dry-run'],
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--dry-run'],
             timeoutMs: 180000,
             writesCloudflare: false,
         },
         deployKeepVars: {
             id: 'wrangler-deploy-production-keep-vars',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --keep-vars',
+            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
             bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--env', 'production', '--keep-vars'],
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
             timeoutMs: 240000,
             writesCloudflare: true,
+        },
+        fulfillmentDeploymentsList: {
+            id: 'wrangler-fulfillment-deployments-list-before-web',
+            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanol-honesto-fulfillment-production --json',
+            bin: 'corepack',
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanol-honesto-fulfillment-production', '--json'],
+            timeoutMs: 120000,
+            writesCloudflare: false,
         },
         deploymentsList: {
             id: 'wrangler-deployments-list-production',

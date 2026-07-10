@@ -5,7 +5,6 @@ import ProblemsSection from './ProblemsSection.astro';
 import MethodSection from './MethodSection.astro';
 import PricingSection from '../PricingSection';
 import LeadCaptureForm from '../LeadCaptureForm.tsx';
-import { isCheckoutEnabled } from '../../lib/checkout-enabled';
 
 interface MethodColumn {
     number: string;
@@ -93,7 +92,9 @@ const {
     isLoggedIn,
     pricingTranslations,
 } = Astro.props;
-const checkoutMode = isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application';
+// Public pricing always starts with a reviewed application. Approved checkout
+// is exposed only inside the authenticated campus.
+const checkoutMode = 'application' as const;
 
 const leadTranslations = {
     title: lead.title,

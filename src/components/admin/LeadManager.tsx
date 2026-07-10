@@ -40,6 +40,12 @@ interface LeadManagerProps {
     lang?: 'es' | 'en' | 'ru';
 }
 
+interface CheckoutPackageOption {
+    id: string;
+    name: string;
+    display_name: Record<string, string> | null;
+}
+
 interface Lead {
     id: string;
     name: string | null;
@@ -75,6 +81,9 @@ interface Lead {
         current_level: string | null;
         learning_goal: string | null;
         availability: string | null;
+        preferred_package_id: string | null;
+        checkout_approved_at: string | null;
+        converted_subscription_id: string | null;
         packages: { name: string; display_name: Record<string, string> } | null;
         crm_contacts: {
             id: string;
@@ -89,6 +98,7 @@ type LeadListResponse = Lead[] | {
     error?: string;
     leads?: Lead[];
     summary?: LeadPipelineSummary;
+    checkoutPackages?: CheckoutPackageOption[];
 };
 
 type LeadMutationResponse = {
@@ -108,10 +118,13 @@ async function readApiErrorMessage(response: Response, fallback: string) {
 
 export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
     const [leads, setLeads] = useState<Lead[]>([]);
+    const [checkoutPackages, setCheckoutPackages] = useState<CheckoutPackageOption[]>([]);
+    const [checkoutPackageSelections, setCheckoutPackageSelections] = useState<Record<string, string>>({});
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [updatingId, setUpdatingId] = useState<string | null>(null);
     const [updatingStageId, setUpdatingStageId] = useState<string | null>(null);
+    const [updatingCheckoutApprovalId, setUpdatingCheckoutApprovalId] = useState<string | null>(null);
     const [sendingLevelCheckId, setSendingLevelCheckId] = useState<string | null>(null);
     const [reviewingLevelCheckId, setReviewingLevelCheckId] = useState<string | null>(null);
     const [sendingSalesEmailId, setSendingSalesEmailId] = useState<string | null>(null);
@@ -135,6 +148,17 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                 setSummary(buildVisibleLeadSummary(nextLeads));
             } else {
                 setSummary(data.summary ?? buildVisibleLeadSummary(nextLeads));
+                setCheckoutPackages(data.checkoutPackages ?? []);
+                setCheckoutPackageSelections((current) => {
+                    const next = { ...current };
+                    for (const lead of nextLeads) {
+                        const opportunity = lead.crm_opportunity;
+                        if (opportunity?.preferred_package_id && !next[opportunity.id]) {
+                            next[opportunity.id] = opportunity.preferred_package_id;
+                        }
+                    }
+                    return next;
+                });
             }
         } catch (err) {
             if ((err as Error).name !== 'AbortError') {
@@ -307,6 +331,56 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
         }
     };
 
+    const updateCheckoutApproval = async (
+        leadId: string,
+        opportunityId: string,
+        packageId: string,
+        approved: boolean,
+    ) => {
+        if (!packageId) {
+            setActionMessage({ type: 'error', text: 'Selecciona un paquete activo antes de aprobar el pago.' });
+            return;
+        }
+
+        try {
+            setUpdatingCheckoutApprovalId(opportunityId);
+            setActionMessage(null);
+            const res = await fetch('/api/admin/leads', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'checkout_approval',
+                    opportunityId,
+                    packageId,
+                    approved,
+                }),
+            });
+
+            if (!res.ok) throw new Error(await readApiErrorMessage(res, 'No se pudo actualizar la aprobacion de pago'));
+            const data = await res.json() as LeadMutationResponse;
+            const updatedOpportunity = data.opportunity;
+            if (!updatedOpportunity) throw new Error('La API no devolvio la oportunidad actualizada');
+
+            setLeads((current) => current.map((lead) => (
+                lead.id === leadId
+                    ? { ...lead, crm_opportunity: updatedOpportunity }
+                    : lead
+            )));
+            setCheckoutPackageSelections((current) => ({ ...current, [opportunityId]: packageId }));
+            setActionMessage({
+                type: 'success',
+                text: approved ? 'Pago aprobado para el paquete seleccionado.' : 'Aprobacion de pago revocada.',
+            });
+        } catch (err) {
+            setActionMessage({
+                type: 'error',
+                text: err instanceof Error ? err.message : 'Error actualizando la aprobacion de pago',
+            });
+        } finally {
+            setUpdatingCheckoutApprovalId(null);
+        }
+    };
+
     const levelLabels: Record<string, string> = {
         not_sure: 'No lo sabe',
         a1: 'A1',
@@ -412,7 +486,14 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
         const contactId = lead.crm_opportunity?.crm_contacts?.id || lead.crm_opportunity?.contact_id;
         return contactId ? `/${lang}/campus/admin/crm/contact/${contactId}` : null;
     };
-    const isAnyLeadAction = Boolean(updatingId || updatingStageId || sendingLevelCheckId || reviewingLevelCheckId || sendingSalesEmailId);
+    const isAnyLeadAction = Boolean(
+        updatingId
+        || updatingStageId
+        || updatingCheckoutApprovalId
+        || sendingLevelCheckId
+        || reviewingLevelCheckId
+        || sendingSalesEmailId
+    );
 
     if (loading) return <div className="text-gray-500 flex justify-center p-8"><span className="animate-pulse">Cargando leads...</span></div>;
     if (error) return <div role="alert" className="text-red-600 bg-red-50 p-4 rounded-xl border border-red-200">Error: {error}</div>;
@@ -516,6 +597,13 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                     && lead.level_check_status !== 'received'
                                     && lead.level_check_status !== 'reviewed';
                                 const canSendSalesEmail = lead.status !== 'discarded';
+                                const opportunity = lead.crm_opportunity;
+                                const selectedCheckoutPackageId = opportunity
+                                    ? checkoutPackageSelections[opportunity.id] ?? opportunity.preferred_package_id ?? ''
+                                    : '';
+                                const checkoutApproved = Boolean(opportunity?.checkout_approved_at);
+                                const checkoutConsumed = Boolean(opportunity?.converted_subscription_id);
+                                const selectedPackageInCatalog = checkoutPackages.some((pkg) => pkg.id === selectedCheckoutPackageId);
 
                                 return (
                                 <tr key={lead.id} className="hover:bg-gray-50 transition-colors">
@@ -658,6 +746,87 @@ export default function LeadManager({ lang = 'es' }: LeadManagerProps) {
                                                         ))}
                                                     </select>
                                                 </label>
+                                            )}
+
+                                            {opportunity && (
+                                                <div className="w-full border border-[#006064]/30 bg-[#E0F7FA]/50 p-3 text-left">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                                        <span className="text-[11px] font-bold uppercase text-[#006064]">
+                                                            Autorizacion de pago
+                                                        </span>
+                                                        <span className={`px-2 py-1 text-[10px] font-bold uppercase ${checkoutConsumed
+                                                            ? 'bg-gray-200 text-gray-700'
+                                                            : checkoutApproved
+                                                                ? 'bg-green-100 text-green-800'
+                                                                : 'bg-yellow-100 text-yellow-800'
+                                                            }`}>
+                                                            {checkoutConsumed ? 'Consumida' : checkoutApproved ? 'Aprobada' : 'No aprobada'}
+                                                        </span>
+                                                    </div>
+                                                    <label className="mt-2 block text-[11px] font-bold uppercase text-gray-500">
+                                                        Paquete autorizado
+                                                        <select
+                                                            aria-label={`Paquete autorizado para ${lead.email}`}
+                                                            value={selectedCheckoutPackageId}
+                                                            onChange={(event) => setCheckoutPackageSelections((current) => ({
+                                                                ...current,
+                                                                [opportunity.id]: event.target.value,
+                                                            }))}
+                                                            disabled={isAnyLeadAction || checkoutApproved || checkoutConsumed}
+                                                            className="mt-1 w-full border border-gray-300 bg-white px-2 py-2 text-xs normal-case text-gray-800 focus:outline-none focus:ring-2 focus:ring-[#006064]/20 disabled:opacity-60"
+                                                        >
+                                                            <option value="">Selecciona un paquete</option>
+                                                            {!selectedPackageInCatalog && selectedCheckoutPackageId && (
+                                                                <option value={selectedCheckoutPackageId}>
+                                                                    {opportunity.packages?.display_name?.[lang] || opportunity.packages?.name || 'Paquete actual'}
+                                                                </option>
+                                                            )}
+                                                            {checkoutPackages.map((pkg) => (
+                                                                <option key={pkg.id} value={pkg.id}>
+                                                                    {pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name}
+                                                                </option>
+                                                            ))}
+                                                        </select>
+                                                    </label>
+                                                    <div className="mt-2 flex justify-end gap-2">
+                                                        {checkoutApproved ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => updateCheckoutApproval(
+                                                                    lead.id,
+                                                                    opportunity.id,
+                                                                    selectedCheckoutPackageId,
+                                                                    false,
+                                                                )}
+                                                                disabled={isAnyLeadAction || checkoutConsumed || !selectedCheckoutPackageId}
+                                                                aria-busy={updatingCheckoutApprovalId === opportunity.id}
+                                                                className="border border-red-300 bg-white px-3 py-1.5 text-xs font-bold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                                                            >
+                                                                Revocar pago
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => updateCheckoutApproval(
+                                                                    lead.id,
+                                                                    opportunity.id,
+                                                                    selectedCheckoutPackageId,
+                                                                    true,
+                                                                )}
+                                                                disabled={isAnyLeadAction || checkoutConsumed || !selectedCheckoutPackageId}
+                                                                aria-busy={updatingCheckoutApprovalId === opportunity.id}
+                                                                className="bg-[#006064] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#004d40] disabled:opacity-50"
+                                                            >
+                                                                Aprobar pago
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {checkoutApproved && opportunity.packages && (
+                                                        <p className="mt-2 text-[11px] text-[#006064]">
+                                                            Aprobado para {opportunity.packages.display_name?.[lang] || opportunity.packages.name}.
+                                                        </p>
+                                                    )}
+                                                </div>
                                             )}
 
                                             {canSendLevelCheck && (

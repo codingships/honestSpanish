@@ -511,6 +511,7 @@ async function updateOpportunityStage(
         .update({
             stage: input.newStage,
             closed_at: input.newStage === 'won' || input.newStage === 'lost' ? now : null,
+            checkout_approved_at: null,
             updated_at: now,
         })
         .eq('id', input.opportunityId)
@@ -1315,6 +1316,7 @@ async function createCommunication(
             .from('crm_opportunities')
             .update({
                 stage: 'contacted',
+                checkout_approved_at: null,
                 updated_at: now,
             })
             .eq('id', opportunityBefore.id);

@@ -20,11 +20,17 @@ const ATTESTED_KEYS = [
     'FULFILLMENT_WORKER_URL',
     'INTERNAL_JOB_SECRET',
     'PUBLIC_APP_ENV',
+    'PUBLIC_STRIPE_PUBLISHABLE_KEY',
     'PUBLIC_SUPABASE_ANON_KEY',
     'PUBLIC_SUPABASE_URL',
     'RESEND_API_KEY',
     'RESEND_FROM_EMAIL',
+    'SUPABASE_EXPECTED_PROJECT_REF',
     'SUPABASE_SERVICE_ROLE_KEY',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
     'WORKER_IDENTITY',
 ] as const;
 
@@ -48,8 +54,13 @@ function response(status: number, body: Record<string, unknown>): Response {
 }
 
 export const POST: APIRoute = async (context) => {
-    if (readRuntimeEnv('PUBLIC_APP_ENV', context) !== 'staging'
-        || readRuntimeEnv('WORKER_IDENTITY', context) !== 'espanolhonesto-staging') {
+    const appEnvironment = readRuntimeEnv('PUBLIC_APP_ENV', context);
+    const expectedIdentity = appEnvironment === 'staging'
+        ? 'espanolhonesto-staging'
+        : appEnvironment === 'production'
+            ? 'espanolhonesto'
+            : null;
+    if (!expectedIdentity || readRuntimeEnv('WORKER_IDENTITY', context) !== expectedIdentity) {
         return response(404, { errorCode: 'ATTESTATION_RUNTIME_INVALID' });
     }
     const internalSecret = readRuntimeEnv('INTERNAL_JOB_SECRET', context) ?? '';

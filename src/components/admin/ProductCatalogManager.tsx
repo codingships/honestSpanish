@@ -296,8 +296,11 @@ export default function ProductCatalogManager() {
                             </tr>
                         ) : packages.map((pkg) => {
                             const missingDurations = missingCheckoutDurations(pkg);
+                            const operationalCheckoutBlocked = pkg.name === 'group' || pkg.name === 'hybrid';
                             const checkoutLabel = pkg.checkout_ready
-                                ? 'Checkout listo'
+                                ? operationalCheckoutBlocked
+                                    ? 'Stripe listo · venta bloqueada'
+                                    : 'Checkout listo'
                                 : pkg.is_active
                                     ? 'Activo sin checkout'
                                     : 'Sin checkout';
@@ -381,12 +384,24 @@ export default function ProductCatalogManager() {
                                         />
                                         <span>{pkg.is_active ? 'Activo' : 'Oculto'}</span>
                                     </label>
-                                    <span className={`inline-block px-2 py-1 text-xs font-bold ${pkg.checkout_ready ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-800'}`}>
+                                    <span className={`inline-block px-2 py-1 text-xs font-bold ${pkg.checkout_ready && !operationalCheckoutBlocked ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-800'}`}>
                                         {checkoutLabel}
                                     </span>
+                                    {operationalCheckoutBlocked && (
+                                        <div className="font-mono text-xs text-yellow-800">
+                                            {pkg.name === 'group'
+                                                ? 'Solo solicitud: falta el modelo de sesiones grupales.'
+                                                : 'Solo solicitud: faltan grupo y alta garantizada con dos profesores.'}
+                                        </div>
+                                    )}
                                     {!pkg.checkout_ready && missingDurations.length > 0 && (
                                         <div className="font-mono text-xs text-yellow-800">
                                             Faltan precios: {missingDurations.join(', ')}
+                                        </div>
+                                    )}
+                                    {!pkg.checkout_ready && missingDurations.length === 0 && pkg.is_active && (
+                                        <div className="font-mono text-xs text-yellow-800">
+                                            Los IDs existen, pero el contrato Stripe no coincide.
                                         </div>
                                     )}
                                 </td>

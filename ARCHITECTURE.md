@@ -41,7 +41,7 @@ Todas las rutas internas requieren `Authorization: Bearer INTERNAL_JOB_SECRET`.
 ## Dominios
 
 - Auth/RBAC: `src/middleware.ts`, Supabase SSR client y `profiles.role`.
-- Billing: Stripe checkout/webhook, `packages`, `subscriptions`, `payments`.
+- Billing: aprobacion CRM, `checkout_intents`, Stripe Checkout/webhooks, `packages`, `package_prices`, `subscriptions` y `payments`.
 - Scheduling: `sessions`, disponibilidad, quotas y acciones de clase.
 - Fulfillment: `fulfillment_jobs`, Google Workspace y Resend.
 - Notifications: emails transaccionales y recordatorios.
@@ -56,6 +56,8 @@ Tablas clave:
 
 - `profiles`
 - `packages`
+- `package_prices`
+- `checkout_intents`
 - `subscriptions`
 - `sessions`
 - `student_teachers`
@@ -72,10 +74,11 @@ Supabase RLS protege datos por rol. Las operaciones admin/worker usan service ro
 
 Flujo de pago:
 
-1. Usuario autenticado inicia checkout.
-2. Stripe webhook crea `subscription` y `payment`.
-3. Webhook encola `welcome_fulfillment`.
-4. Cloudflare Fulfillment Worker crea carpeta Drive y envia bienvenida.
+1. El admin aprueba un paquete concreto en CRM; la web publica siempre mantiene `solicitar plaza`.
+2. El alumno autenticado elige 1/3/6 meses y Supabase reclama un unico `checkout_intent` atomico.
+3. La app verifica proyecto Supabase, cuenta/modo Stripe y la oferta inmutable antes de crear una unica Checkout Session idempotente.
+4. El webhook exige el intent y el Price realmente cobrado, consume la aprobacion y crea `subscription`/`payment` con snapshot contractual.
+5. Webhook encola `welcome_fulfillment`; el Worker crea Drive y envia la confirmacion contractual.
 
 Flujo de clase:
 
@@ -93,13 +96,21 @@ Cancelacion:
 
 ## Productos Y Precios
 
-Supabase `packages` es la fuente runtime. El CRM admin sincroniza Stripe.
+El modelo tiene responsabilidades distintas, no cuatro copias editables:
+
+- `packages`: catalogo comercial editable y proyeccion publica.
+- `package_prices`: ofertas 1/3/6 inmutables, con importe, cuota, Product/Price, cuenta y modo; es la fuente contractual de checkout y renovacion.
+- Stripe: ejecuta el cobro; cada objeto se verifica contra `package_prices`.
+- `packages.stripe_price_*`: punteros denormalizados a las ofertas activas, escritos solo por `activate_package_price`.
+
+El CRM admin sincroniza Stripe en el orden crear/verificar -> activar atomicamente en Supabase -> archivar el Price anterior.
 
 Regla comercial actual:
 
 - Cambios de precio/cuota afectan solo a nuevas compras.
 - Stripe Price IDs son inmutables.
-- Al cambiar precio, se limpian Price IDs y el paquete deja de estar checkout-ready hasta sincronizar.
+- Al cambiar datos contractuales, las ofertas activas se retiran, se limpian punteros y el paquete deja de estar checkout-ready hasta sincronizar las tres duraciones.
+- Suscripciones guardan `package_price_id` y `contracted_sessions_per_period`; una edicion futura no cambia contratos existentes.
 
 ## Google Workspace
 

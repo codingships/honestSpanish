@@ -22,13 +22,19 @@ pnpm dev
 pnpm build
 pnpm preview
 pnpm deploy
-pnpm deploy:production
+pnpm deploy:production # dry-run solamente; production usa los gates siguientes
+pnpm launch:cloudflare-production-fulfillment-bootstrap
+pnpm launch:cloudflare-production-worker-phase1
+pnpm launch:cloudflare-production-worker-secrets
+pnpm launch:cloudflare-production-fulfillment-secrets
+pnpm launch:cloudflare-production-fulfillment-enable
 pnpm typecheck
 pnpm lint
 pnpm test:run
 pnpm test:e2e --project=public
 pnpm fulfillment:dev
 pnpm fulfillment:typecheck
+pnpm db:seed
 pnpm google:setup-staging
 pnpm dev:demo
 pnpm demo:local
@@ -53,6 +59,8 @@ pnpm launch:status
 pnpm launch:rc
 pnpm launch:gate
 ```
+
+`pnpm db:seed` usa el preparador E2E cercado: solo acepta Supabase staging `mzjyvmlxfpzdfdjzxxyj`, exige `E2E_STAGING_WRITE_CONFIRMATION=writes-ok:mzjyvmlxfpzdfdjzxxyj` y toma las tres cuentas desde las variables `TEST_*`. No existe un seed generico contra el `.env` activo ni se guardan o imprimen contraseñas por defecto.
 
 ## Demo Guiada
 
@@ -103,7 +111,7 @@ En Cloudflare, el Astro Worker llama al Fulfillment Worker mediante el service b
 - `staging`: rama `staging`, `https://espanolhonesto-staging.alindev95.workers.dev`. El dominio custom `staging.espanolhonesto.com` no esta configurado; queda como opcion futura.
 - `production`: rama `main`, `https://espanolhonesto.com`.
 
-CI valida typecheck, lint, tests, build, E2E publico y secrets-check. En `push` a `staging` o `main`, despliega el Cloudflare Astro Worker y el Cloudflare Fulfillment Worker solo si la validacion pasa. El environment `production` de GitHub debe requerir aprobacion manual.
+CI valida typecheck, lint, tests, build, E2E público y secrets-check. Un `push` a `staging` despliega primero fulfillment y después el Astro Worker. Un `push` a `main` solo construye y ejecuta dry-runs production: los writes production requieren los gates manuales y ordenados de `docs/launch/CLOUDFLARE_PRODUCTION.md`.
 
 Para E2E, ejecuta proyectos Playwright de forma secuencial o en una unica invocacion con varios `--project`. No lances dos procesos `playwright test` separados a la vez en el mismo workspace, porque comparten `test-results/artifacts`. Playwright usa un worker por defecto para que el dev server y el estado de autenticacion sean deterministas; usa `PLAYWRIGHT_WORKERS=<n>` solo para diagnosticos explicitos de paralelismo.
 
@@ -112,7 +120,7 @@ Para E2E, ejecuta proyectos Playwright de forma secuencial o en una unica invoca
 - Arquitectura: `ARCHITECTURE.md`
 - Base de datos: `db/schema.sql`
 - Migraciones aplicables: `supabase/migrations/`
-- Productos/precios: Supabase `packages`, gestionado desde `/es/campus/admin/packages`
+- Productos/precios: `packages` (catalogo editable) + `package_prices` (ofertas contractuales inmutables), gestionados desde `/es/campus/admin/packages`
 - Decisiones de lanzamiento: `docs/launch/DECISIONS.md`
 - Secuencia de launch: `docs/launch/LAUNCH_SEQUENCE.md`
 - Runbook: `docs/launch/RUNBOOK.md`

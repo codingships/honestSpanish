@@ -13,6 +13,10 @@ const sessionWriteHardeningMigration = readFileSync('supabase/migrations/021_har
 const webhookProcessingMigration = readFileSync('supabase/migrations/022_track_stripe_webhook_processing_state.sql', 'utf8').replace(/\r\n/g, '\n');
 const webhookProcessedAtDefaultMigration = readFileSync('supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql', 'utf8').replace(/\r\n/g, '\n');
 const runtimeDriftReconciliationMigration = readFileSync('supabase/migrations/20260710133000_reconcile_runtime_schema_drift.sql', 'utf8').replace(/\r\n/g, '\n');
+const billingCatalogMigration = readFileSync('supabase/migrations/20260710205031_harden_billing_catalog_and_checkout_approval.sql', 'utf8').replace(/\r\n/g, '\n');
+const billingReconciliationMigration = readFileSync('supabase/migrations/20260710215712_harden_billing_reconciliation.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutRecoveryMigration = readFileSync('supabase/migrations/20260710221846_harden_checkout_orphan_recovery.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutSnapshotMigration = readFileSync('supabase/migrations/20260710223900_harden_checkout_customer_and_snapshot_immutability.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const rlsSecurityPatch = readFileSync('db/rls_security_patch.sql', 'utf8').replace(/\r\n/g, '\n');
@@ -167,6 +171,190 @@ describe('database schema security invariants', () => {
         ]) {
             expect(stripeWebhookRoute).toContain(snippet);
         }
+    });
+
+    it('keeps billing offers, checkout authorization and renewals immutable and atomic', () => {
+        for (const snippet of [
+            'CREATE TABLE IF NOT EXISTS public.package_prices',
+            'CREATE TABLE IF NOT EXISTS public.checkout_intents',
+            'package_prices_one_active_duration_idx',
+            'checkout_intents_one_open_per_student_idx',
+            'subscriptions_stripe_subscription_unique_idx',
+            'payments_stripe_invoice_unique_idx',
+            'CREATE OR REPLACE FUNCTION public.claim_checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.complete_checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.release_expired_checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.activate_package_price',
+            'CREATE OR REPLACE FUNCTION public.apply_subscription_renewal',
+            'CREATE OR REPLACE FUNCTION public.reconcile_stripe_refund',
+            "status IN ('creating', 'open')",
+            "claim_time + INTERVAL '1 hour'",
+            "claim_time + INTERVAL '2 hours'",
+            'contracted_sessions_per_period',
+            'package_price_commercial_fields_are_immutable',
+            'open_checkout_intent_must_finish_or_expire_first',
+            'REVOKE ALL ON TABLE public.checkout_intents FROM PUBLIC, anon, authenticated',
+            'REVOKE ALL ON TABLE public.package_prices FROM PUBLIC, anon, authenticated',
+        ]) {
+            expect(billingCatalogMigration).toContain(snippet);
+        }
+
+        for (const snippet of [
+            'CREATE TABLE package_prices',
+            'CREATE TABLE checkout_intents',
+            'CREATE OR REPLACE FUNCTION public.claim_checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.complete_checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.release_expired_checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.apply_subscription_renewal',
+            'CREATE OR REPLACE FUNCTION public.reconcile_stripe_refund',
+        ]) {
+            expect(schema).toContain(snippet);
+        }
+    });
+
+    it('serializes checkout claims and preserves unambiguous billing lifecycle state', () => {
+        const canonicalClaimFunction = schema.slice(
+            schema.indexOf('CREATE OR REPLACE FUNCTION public.claim_checkout_intent'),
+            schema.indexOf('CREATE OR REPLACE FUNCTION public.complete_checkout_intent'),
+        );
+        const canonicalCompleteFunction = schema.slice(
+            schema.indexOf('CREATE OR REPLACE FUNCTION public.complete_checkout_intent'),
+            schema.indexOf('CREATE OR REPLACE FUNCTION public.release_expired_checkout_intent'),
+        );
+
+        for (const snippet of [
+            'FOREIGN KEY (created_by) REFERENCES public.profiles(id) ON DELETE RESTRICT',
+            "status = 'creating'",
+            'AND stripe_checkout_session_id IS NULL',
+            "status = 'open'",
+            'AND stripe_checkout_session_id IS NOT NULL',
+            "status = 'completed'",
+            'AND completed_at IS NOT NULL',
+            "status = 'expired'",
+            'PERFORM 1',
+            'FROM public.profiles',
+            "AND role = 'student'",
+            'checkout_student_is_not_available',
+            "intent_row.status = 'creating'",
+            "intent_row.status = 'open'",
+            'stripe_checkout_session_id = p_stripe_checkout_session_id',
+            "COALESCE(bool_or(status = 'completed'), FALSE)",
+            "NEW.stage = 'won'",
+            'NEW.converted_subscription_id IS NOT NULL',
+            'converted_subscription.package_price_id = completed_intent.package_price_id',
+            'p_subscription_id IS NULL',
+            'p_payment_id IS NULL',
+            'p_package_id IS NULL',
+            'p_intent_id IS NULL',
+        ]) {
+            expect(billingReconciliationMigration).toContain(snippet);
+        }
+
+        for (const signature of [
+            'public.claim_checkout_intent(UUID, UUID, UUID, UUID, TEXT, TEXT, TEXT)',
+            'public.complete_checkout_intent(UUID, UUID, UUID, UUID, TEXT)',
+            'public.release_expired_checkout_intent(UUID, TEXT)',
+            'public.apply_subscription_renewal(UUID, TEXT, TEXT, DATE)',
+            'public.reconcile_stripe_refund(UUID, INTEGER, TEXT, TIMESTAMPTZ)',
+            'public.activate_package_price(\n    UUID, BIGINT, SMALLINT, INTEGER, TEXT, TEXT, BOOLEAN, TEXT, TEXT, UUID\n)',
+        ]) {
+            expect(billingReconciliationMigration).toContain(`GRANT EXECUTE ON FUNCTION ${signature}`);
+        }
+
+        expect(billingReconciliationMigration).not.toContain('AND expires_at <= claim_time');
+        expect(billingReconciliationMigration.match(/SET search_path = ''/g)).toHaveLength(7);
+
+        expect(schema).toContain('created_by UUID REFERENCES profiles(id) ON DELETE RESTRICT');
+        expect(schema).not.toContain('created_by UUID REFERENCES profiles(id) ON DELETE SET NULL');
+        expect(schema).toContain("status = 'creating'\n            AND stripe_checkout_session_id IS NULL");
+        expect(schema).toContain("status = 'open'\n            AND stripe_checkout_session_id IS NOT NULL");
+        expect(schema).toContain("status = 'completed'\n            AND stripe_checkout_session_id IS NOT NULL\n            AND completed_at IS NOT NULL");
+        expect(schema).toContain("status = 'expired'\n            AND completed_at IS NULL");
+        expect(canonicalClaimFunction).toContain('FROM public.profiles');
+        expect(canonicalClaimFunction).toContain('FOR UPDATE');
+        expect(canonicalClaimFunction).not.toContain('expires_at <= claim_time');
+        expect(canonicalCompleteFunction).not.toContain('UPDATE public.crm_opportunities');
+    });
+
+    it('blocks unreconciled paid intents and gates orphan recovery on an exact Customer snapshot', () => {
+        for (const snippet of [
+            "checkout_intent.status = 'completed'",
+            'intent_opportunity.converted_subscription_id IS NULL',
+            "WHEN 'completed' THEN 0",
+            'FOR UPDATE OF checkout_intent',
+            'CREATE OR REPLACE FUNCTION public.snapshot_checkout_intent_customer',
+            'CREATE OR REPLACE FUNCTION public.release_abandoned_checkout_intent',
+            "intent_row.status <> 'creating'",
+            'intent_row.stripe_checkout_session_id IS NOT NULL',
+            'intent_row.stripe_customer_id IS DISTINCT FROM p_stripe_customer_id',
+            'intent_row.expires_at > clock_timestamp()',
+            'checkout_intent_cannot_be_abandoned',
+            'GRANT EXECUTE ON FUNCTION public.snapshot_checkout_intent_customer(UUID, TEXT)',
+            'GRANT EXECUTE ON FUNCTION public.release_abandoned_checkout_intent(UUID, TEXT)',
+        ]) {
+            expect(checkoutRecoveryMigration).toContain(snippet);
+        }
+
+        for (const snippet of [
+            'CREATE OR REPLACE FUNCTION public.snapshot_checkout_intent_customer',
+            'CREATE OR REPLACE FUNCTION public.release_abandoned_checkout_intent',
+            'snapshot_checkout_intent_customer: {',
+            'release_abandoned_checkout_intent: {',
+        ]) {
+            expect(`${schema}\n${databaseTypes}`).toContain(snippet);
+        }
+
+        const releaseFunction = checkoutRecoveryMigration.slice(
+            checkoutRecoveryMigration.indexOf('CREATE OR REPLACE FUNCTION public.release_abandoned_checkout_intent'),
+        );
+        expect(releaseFunction).not.toContain("status = 'completed'");
+        expect(releaseFunction).not.toContain('stripe_checkout_session_id = p_stripe_checkout_session_id');
+    });
+
+    it('freezes checkout evidence and requires the exact Stripe Customer at completion', () => {
+        for (const snippet of [
+            'CREATE OR REPLACE FUNCTION private.guard_checkout_intent_snapshots()',
+            'checkout_intent_snapshot_is_immutable',
+            'checkout_intent_customer_is_immutable',
+            'checkout_intent_session_is_immutable',
+            'checkout_intent_transition_is_not_allowed',
+            "OLD.status = 'creating'",
+            "NEW.status = 'open'",
+            "NEW.status = 'completed'",
+            "NEW.status = 'expired'",
+            "OLD.status = 'open'",
+            'CREATE TRIGGER guard_checkout_intent_snapshots_trigger',
+            'DROP FUNCTION public.complete_checkout_intent(UUID, UUID, UUID, UUID, TEXT)',
+            'p_stripe_customer_id TEXT',
+            'intent_row.stripe_customer_id IS DISTINCT FROM p_stripe_customer_id',
+            'GRANT EXECUTE ON FUNCTION public.complete_checkout_intent(UUID, UUID, UUID, UUID, TEXT, TEXT)',
+        ]) {
+            expect(checkoutSnapshotMigration).toContain(snippet);
+        }
+
+        for (const immutableColumn of [
+            'NEW.opportunity_id',
+            'NEW.contact_id',
+            'NEW.student_id',
+            'NEW.package_price_id',
+            'NEW.lang',
+            'NEW.legal_policy_version',
+            'NEW.policy_accepted_at',
+            'NEW.site_url',
+            'NEW.stripe_session_expires_at',
+            'NEW.expires_at',
+            'NEW.created_at',
+        ]) {
+            expect(checkoutSnapshotMigration).toContain(immutableColumn);
+        }
+
+        expect(schema).toContain('CREATE OR REPLACE FUNCTION private.guard_checkout_intent_snapshots()');
+        expect(schema).toContain('CREATE TRIGGER guard_checkout_intent_snapshots_trigger');
+        expect(schema).toContain('public.complete_checkout_intent(UUID, UUID, UUID, UUID, TEXT, TEXT)');
+        expect(databaseTypes).toContain('p_stripe_customer_id: string');
+        expect(stripeWebhookRoute).toContain('subscriptionCustomerId !== sessionCustomerId');
+        expect(stripeWebhookRoute).toContain('p_stripe_customer_id: sessionCustomerId');
+        expect(stripeWebhookRoute).toContain('completedIntent.stripe_customer_id !== sessionCustomerId');
     });
 
     it('enforces student and teacher profile roles at the database boundary', () => {

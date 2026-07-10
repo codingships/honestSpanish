@@ -35,10 +35,12 @@
 
 ## Current Public Course Packages
 
-- Grupal Externo: 4 guided group conversation sessions per month when a compatible group is available, 50 EUR/month. It does not include private classes and should not be described as a cheap private-class substitute.
-- Mensual Estándar: 4 private classes per month, 145 EUR/month.
-- Híbrido Mensual: 4 private classes per month, compatible group conversation when available and two-teacher follow-up, 150 EUR/month.
-- Intensivo Bootcamp: 20 private classes per month, 345 EUR/month.
+- Grupal Externo: application-only at launch; 4 guided group conversation sessions per month when a compatible group is available. It does not include private classes and should not be described as a cheap private-class substitute.
+- Mensual Estándar: 4 private classes per month.
+- Híbrido Mensual: application-only at launch; 4 private classes per month, compatible group conversation when available and two-teacher follow-up.
+- Intensivo Bootcamp: 20 private classes per month.
+- For current prices, duration totals and availability, use the live Plans section at https://espanolhonesto.com/es#planes. Do not quote a price from this file.
+- At launch, only Mensual Estándar and Intensivo Bootcamp may proceed to an approved checkout. Grupal Externo and Híbrido Mensual accept applications but do not offer checkout until their group and two-teacher operations are implemented and verified.
 
 ## How To Apply
 

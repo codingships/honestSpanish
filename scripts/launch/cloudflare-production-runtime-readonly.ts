@@ -71,18 +71,19 @@ const requiredProductionWorkerSecretNames = [
     'PUBLIC_STRIPE_PUBLISHABLE_KEY',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
     'PUBLIC_TURNSTILE_SITE_KEY',
     'TURNSTILE_SECRET_KEY',
     'PUBLIC_SENTRY_DSN',
-    'SENTRY_AUTH_TOKEN',
-    'PUBLIC_SITE_URL',
-    'PUBLIC_APP_ENV',
     'FULFILLMENT_WORKER_URL',
     'INTERNAL_JOB_SECRET',
     'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
     'RESEND_API_KEY',
     'EMAIL_FROM',
     'RESEND_FROM_EMAIL',
+    'ADMIN_EMAIL',
     'SUPPORT_ALERT_EMAIL',
 ];
 
@@ -412,7 +413,7 @@ function validateWranglerConfig(): Check {
     const wrangler = readFileSync(wranglerPath, 'utf8');
     const checkoutFalseCount = [...wrangler.matchAll(/CHECKOUT_ENABLED\s*=\s*"false"/g)].length;
     const required = [
-        'name = "espanolhonesto"',
+        'name = "espanolhonesto-env-required"',
         'keep_vars = true',
         '[env.staging]',
         'name = "espanolhonesto-staging"',
@@ -426,7 +427,7 @@ function validateWranglerConfig(): Check {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'local_wrangler_config_fail_closed',
         message: missing.length === 0
-            ? 'Local Wrangler config preserves separate staging/production Worker names and fail-closed checkout posture.'
+            ? 'Local Wrangler config uses a safe base name and preserves separate staging/production Worker names with fail-closed checkout posture.'
             : 'Local Wrangler config is missing required production/staging names or checkout-disabled posture.',
         details: missing.length === 0 ? [`checkoutFalseCount=${checkoutFalseCount}`, wranglerPath] : missing.map((snippet) => `missing=${snippet}`),
     };

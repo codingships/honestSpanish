@@ -6,6 +6,7 @@ import {
     syncLeadCaptureToCrmSafe,
 } from '../../../lib/crm/lead-capture';
 import { signLeadEmailToken } from '../../../lib/lead-email-token';
+import { isPackageCheckoutEligible, type PackageCatalogSnapshot } from '../../../lib/package-pricing';
 import { getSiteUrl } from '../../../lib/site-url';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
@@ -27,12 +28,24 @@ type Lead = Tables<'leads'>;
 type LeadSummaryRecord = Pick<Lead, 'id' | 'status' | 'interest' | 'current_level' | 'preferred_package' | 'source_path' | 'created_at'>;
 type LeadCrmOpportunity = Pick<
     Tables<'crm_opportunities'>,
-    'id' | 'legacy_lead_id' | 'stage' | 'contact_id' | 'opened_at' | 'closed_at' | 'current_level' | 'learning_goal' | 'availability'
+    | 'id'
+    | 'legacy_lead_id'
+    | 'stage'
+    | 'contact_id'
+    | 'opened_at'
+    | 'closed_at'
+    | 'current_level'
+    | 'learning_goal'
+    | 'availability'
+    | 'preferred_package_id'
+    | 'checkout_approved_at'
+    | 'converted_subscription_id'
 > & {
     packages: Pick<Tables<'packages'>, 'name' | 'display_name'> | null;
     crm_contacts: Pick<Tables<'crm_contacts'>, 'id' | 'lifecycle_stage' | 'next_follow_up_at' | 'last_contacted_at'> | null;
 };
 type LeadOpportunitySummaryRecord = Pick<Tables<'crm_opportunities'>, 'legacy_lead_id' | 'stage'>;
+type CheckoutPackageOption = Pick<Tables<'packages'>, 'id' | 'name' | 'display_name'>;
 
 interface SummaryItem {
     label: string;
@@ -75,6 +88,13 @@ const updateOpportunityStageSchema = z.object({
     action: z.literal('opportunity_stage'),
     opportunityId: z.string().uuid(),
     newStage: z.enum(crmOpportunityStages),
+});
+
+const updateCheckoutApprovalSchema = z.object({
+    action: z.literal('checkout_approval'),
+    opportunityId: z.string().uuid(),
+    packageId: z.string().uuid(),
+    approved: z.boolean(),
 });
 
 const sendLevelCheckSchema = z.object({
@@ -572,6 +592,7 @@ async function syncLeadStatusToCrm(
         .update({
             stage: statusMapping.opportunityStage,
             closed_at: statusMapping.opportunityStage === 'lost' ? now : null,
+            checkout_approved_at: null,
             updated_at: now,
         })
         .eq('id', opportunityId);
@@ -642,6 +663,9 @@ async function attachCrmOpportunityData(
             current_level,
             learning_goal,
             availability,
+            preferred_package_id,
+            checkout_approved_at,
+            converted_subscription_id,
             packages (
                 name,
                 display_name
@@ -728,13 +752,61 @@ async function loadLeadPipelineSummary(
     return buildLeadPipelineSummary(summaryLeads, (opportunities ?? []) as LeadOpportunitySummaryRecord[]);
 }
 
-async function updateOpportunityStage(
+async function loadActiveCheckoutPackages(
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>
+): Promise<CheckoutPackageOption[]> {
+    const { data, error } = await supabaseAdmin
+        .from('packages')
+        .select(`
+            id,
+            name,
+            display_name,
+            catalog_version,
+            price_monthly,
+            sessions_per_month,
+            has_group_session,
+            has_dual_teacher,
+            is_active,
+            stripe_product_id,
+            stripe_price_1m,
+            stripe_price_3m,
+            stripe_price_6m,
+            package_prices (
+                catalog_version,
+                package_key,
+                duration_months,
+                amount_cents,
+                currency,
+                sessions_per_month,
+                sessions_per_period,
+                has_group_session,
+                has_dual_teacher,
+                status,
+                stripe_account_id,
+                stripe_livemode,
+                stripe_price_id,
+                stripe_product_id
+            )
+        `)
+        .eq('is_active', true)
+        .order('price_monthly', { ascending: true });
+
+    if (error) {
+        throw error;
+    }
+
+    return ((data ?? []) as Array<PackageCatalogSnapshot & CheckoutPackageOption>)
+        .filter(isPackageCheckoutEligible)
+        .map(({ id, name, display_name }) => ({ id, name, display_name }));
+}
+
+async function updateCheckoutApproval(
     supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
-    input: { adminId: string; opportunityId: string; newStage: CrmOpportunityStage }
+    input: { adminId: string; opportunityId: string; packageId: string; approved: boolean }
 ) {
     const { data: before, error: beforeError } = await supabaseAdmin
         .from('crm_opportunities')
-        .select('id, contact_id, legacy_lead_id, stage')
+        .select('id, contact_id, legacy_lead_id, stage, preferred_package_id, checkout_approved_at, converted_subscription_id, updated_at')
         .eq('id', input.opportunityId)
         .single();
 
@@ -745,14 +817,77 @@ async function updateOpportunityStage(
         return { error: jsonResponse({ error: 'CRM opportunity not found' }, 404), opportunity: null };
     }
 
+    if (input.approved && before.converted_subscription_id) {
+        return {
+            error: jsonResponse({ error: 'Checkout approval has already been consumed by a subscription' }, 409),
+            opportunity: null,
+        };
+    }
+
+    if (input.approved) {
+        const { data: checkoutPackage, error: packageError } = await supabaseAdmin
+            .from('packages')
+            .select(`
+                id,
+                name,
+                display_name,
+                catalog_version,
+                price_monthly,
+                sessions_per_month,
+                has_group_session,
+                has_dual_teacher,
+                is_active,
+                stripe_product_id,
+                stripe_price_1m,
+                stripe_price_3m,
+                stripe_price_6m,
+                package_prices (
+                    catalog_version,
+                    package_key,
+                    duration_months,
+                    amount_cents,
+                    currency,
+                    sessions_per_month,
+                    sessions_per_period,
+                    has_group_session,
+                    has_dual_teacher,
+                    status,
+                    stripe_account_id,
+                    stripe_livemode,
+                    stripe_price_id,
+                    stripe_product_id
+                )
+            `)
+            .eq('id', input.packageId)
+            .eq('is_active', true)
+            .maybeSingle();
+
+        if (packageError) {
+            console.error('[AdminLeads] Could not validate checkout package:', packageError);
+            return { error: jsonResponse({ error: 'Could not validate checkout package' }, 500), opportunity: null };
+        }
+        if (!checkoutPackage || !isPackageCheckoutEligible(checkoutPackage as PackageCatalogSnapshot)) {
+            return { error: jsonResponse({ error: 'Package is not operationally available for checkout' }, 409), opportunity: null };
+        }
+    }
+
     const now = new Date().toISOString();
+    const updateData: TablesUpdate<'crm_opportunities'> = input.approved
+        ? {
+            preferred_package_id: input.packageId,
+            checkout_approved_at: now,
+            stage: 'proposal',
+            closed_at: null,
+            updated_at: now,
+        }
+        : {
+            checkout_approved_at: null,
+            updated_at: now,
+        };
+
     const { data: opportunity, error: updateError } = await supabaseAdmin
         .from('crm_opportunities')
-        .update({
-            stage: input.newStage,
-            closed_at: input.newStage === 'won' || input.newStage === 'lost' ? now : null,
-            updated_at: now,
-        })
+        .update(updateData)
         .eq('id', input.opportunityId)
         .select(`
             id,
@@ -764,6 +899,91 @@ async function updateOpportunityStage(
             current_level,
             learning_goal,
             availability,
+            preferred_package_id,
+            checkout_approved_at,
+            converted_subscription_id,
+            packages (
+                name,
+                display_name
+            ),
+            crm_contacts (
+                id,
+                lifecycle_stage,
+                next_follow_up_at,
+                last_contacted_at
+            )
+        `)
+        .single();
+
+    if (updateError || !opportunity) {
+        console.error('[AdminLeads] Could not update checkout approval:', updateError);
+        if (updateError?.code === '55006' || updateError?.message?.includes('open_checkout_intent')) {
+            return {
+                error: jsonResponse({ error: 'This checkout is already open; wait for it to finish or expire' }, 409),
+                opportunity: null,
+            };
+        }
+        return { error: jsonResponse({ error: 'Could not update checkout approval' }, 500), opportunity: null };
+    }
+
+    await logAudit(supabaseAdmin, {
+        adminId: input.adminId,
+        entityId: input.opportunityId,
+        before: before as Json,
+        after: opportunity as Json,
+        action: input.approved
+            ? 'crm_opportunity.checkout.approve'
+            : 'crm_opportunity.checkout.revoke',
+        entityType: 'crm_opportunity',
+    });
+
+    return { error: null, opportunity: opportunity as LeadCrmOpportunity };
+}
+
+async function updateOpportunityStage(
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+    input: { adminId: string; opportunityId: string; newStage: CrmOpportunityStage }
+) {
+    const { data: before, error: beforeError } = await supabaseAdmin
+        .from('crm_opportunities')
+        .select('id, contact_id, legacy_lead_id, stage, checkout_approved_at')
+        .eq('id', input.opportunityId)
+        .single();
+
+    if (beforeError || !before) {
+        if (isMissingCrmTable(beforeError)) {
+            return { error: jsonResponse({ error: 'CRM pipeline is not migrated yet' }, 409), opportunity: null };
+        }
+        return { error: jsonResponse({ error: 'CRM opportunity not found' }, 404), opportunity: null };
+    }
+
+    const now = new Date().toISOString();
+    const updateData: TablesUpdate<'crm_opportunities'> = {
+        stage: input.newStage,
+        closed_at: input.newStage === 'won' || input.newStage === 'lost' ? now : null,
+        updated_at: now,
+    };
+    if (input.newStage !== 'proposal' || before.stage !== 'proposal') {
+        updateData.checkout_approved_at = null;
+    }
+
+    const { data: opportunity, error: updateError } = await supabaseAdmin
+        .from('crm_opportunities')
+        .update(updateData)
+        .eq('id', input.opportunityId)
+        .select(`
+            id,
+            legacy_lead_id,
+            stage,
+            contact_id,
+            opened_at,
+            closed_at,
+            current_level,
+            learning_goal,
+            availability,
+            preferred_package_id,
+            checkout_approved_at,
+            converted_subscription_id,
             packages (
                 name,
                 display_name
@@ -1237,13 +1457,17 @@ async function sendSalesFollowUpEmail(
         }
 
         if (crmSync.opportunityId) {
+            const opportunityUpdateData: TablesUpdate<'crm_opportunities'> = {
+                stage: salesEmailOpportunityStage(input.template),
+                closed_at: null,
+                updated_at: now,
+            };
+            if (input.template === 'missing_info') {
+                opportunityUpdateData.checkout_approved_at = null;
+            }
             const opportunityUpdate = await supabaseAdmin
                 .from('crm_opportunities')
-                .update({
-                    stage: salesEmailOpportunityStage(input.template),
-                    closed_at: null,
-                    updated_at: now,
-                })
+                .update(opportunityUpdateData)
                 .eq('id', crmSync.opportunityId);
 
             if (opportunityUpdate.error && !isMissingCrmTable(opportunityUpdate.error)) {
@@ -1312,11 +1536,12 @@ export const GET: APIRoute = async (context) => {
     }
 
     try {
-        const [enrichedLeads, summary] = await Promise.all([
+        const [enrichedLeads, summary, checkoutPackages] = await Promise.all([
             attachCrmOpportunityData(supabaseAdmin, (leads ?? []) as Lead[]),
             loadLeadPipelineSummary(supabaseAdmin),
+            loadActiveCheckoutPackages(supabaseAdmin),
         ]);
-        return jsonResponse({ leads: enrichedLeads, summary });
+        return jsonResponse({ leads: enrichedLeads, summary, checkoutPackages });
     } catch (crmError) {
         console.error('[AdminLeads] Could not attach CRM opportunity data:', crmError);
         return jsonResponse({ error: 'Could not load CRM pipeline data' }, 500);
@@ -1387,6 +1612,20 @@ async function updateLeadStatus(context: APIContext) {
             adminId: auth.user.id,
             opportunityId: parsedOpportunityStage.data.opportunityId,
             newStage: parsedOpportunityStage.data.newStage,
+        });
+
+        if (result.error) return result.error;
+        return jsonResponse({ opportunity: result.opportunity });
+    }
+
+    const parsedCheckoutApproval = updateCheckoutApprovalSchema.safeParse(rawBody);
+    if (parsedCheckoutApproval.success) {
+        const supabaseAdmin = createSupabaseAdminClient();
+        const result = await updateCheckoutApproval(supabaseAdmin, {
+            adminId: auth.user.id,
+            opportunityId: parsedCheckoutApproval.data.opportunityId,
+            packageId: parsedCheckoutApproval.data.packageId,
+            approved: parsedCheckoutApproval.data.approved,
         });
 
         if (result.error) return result.error;

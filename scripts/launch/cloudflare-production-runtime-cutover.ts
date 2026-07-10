@@ -29,8 +29,11 @@ interface CutoverReport {
     target: CloudflareTarget;
     checks: CutoverCheck[];
     manifestPath: string;
+    fulfillmentBootstrapApprovalPath: string;
     phaseOneApprovalPath: string;
     secretsApprovalPath: string;
+    fulfillmentSecretsApprovalPath: string;
+    fulfillmentEnableApprovalPath: string;
     domainApprovalPath: string;
     verificationChecklistPath: string;
     rollbackPlanPath: string;
@@ -39,8 +42,11 @@ interface CutoverReport {
 
 interface RenderedArtifacts {
     manifest: string;
+    fulfillmentBootstrapApproval: string;
     phaseOneApproval: string;
     secretsApproval: string;
+    fulfillmentSecretsApproval: string;
+    fulfillmentEnableApproval: string;
     domainApproval: string;
     verificationChecklist: string;
     rollbackPlan: string;
@@ -89,34 +95,50 @@ const modernParityRoutes = [
 
 const webWorkerNames = [
     'PUBLIC_SUPABASE_URL',
+    'SUPABASE_EXPECTED_PROJECT_REF',
     'PUBLIC_SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'PUBLIC_STRIPE_PUBLISHABLE_KEY',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
     'PUBLIC_TURNSTILE_SITE_KEY',
     'TURNSTILE_SECRET_KEY',
     'PUBLIC_SENTRY_DSN',
-    'SENTRY_AUTH_TOKEN',
     'PUBLIC_SITE_URL',
     'PUBLIC_APP_ENV',
+    'WORKER_IDENTITY',
+    'CHECKOUT_ENABLED',
+    'CHECKOUT_ENABLED_OVERRIDE',
     'FULFILLMENT_WORKER_URL',
     'INTERNAL_JOB_SECRET',
     'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
     'RESEND_API_KEY',
     'EMAIL_FROM',
     'RESEND_FROM_EMAIL',
+    'ADMIN_EMAIL',
     'SUPPORT_ALERT_EMAIL',
+    'EMAIL_DELIVERY_MODE',
+    'EMAIL_DAILY_RECIPIENT_LIMIT',
+    'EMAIL_MONTHLY_RECIPIENT_LIMIT',
 ];
 
 const fulfillmentWorkerNames = [
     'PUBLIC_APP_ENV',
+    'WORKER_IDENTITY',
+    'PUBLIC_SITE_URL',
     'INTERNAL_JOB_SECRET',
     'SUPABASE_SERVICE_ROLE_KEY',
     'PUBLIC_SUPABASE_URL',
+    'SUPABASE_EXPECTED_PROJECT_REF',
     'RESEND_API_KEY',
     'EMAIL_FROM',
     'RESEND_FROM_EMAIL',
+    'EMAIL_DELIVERY_MODE',
+    'EMAIL_DAILY_RECIPIENT_LIMIT',
+    'EMAIL_MONTHLY_RECIPIENT_LIMIT',
     'GOOGLE_SERVICE_ACCOUNT_EMAIL',
     'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
     'GOOGLE_ADMIN_EMAIL',
@@ -145,8 +167,11 @@ report = createReport(checks);
 rendered = renderArtifacts(report);
 
 writeFileSync(report.manifestPath, rendered.manifest, 'utf8');
+writeFileSync(report.fulfillmentBootstrapApprovalPath, rendered.fulfillmentBootstrapApproval, 'utf8');
 writeFileSync(report.phaseOneApprovalPath, rendered.phaseOneApproval, 'utf8');
 writeFileSync(report.secretsApprovalPath, rendered.secretsApproval, 'utf8');
+writeFileSync(report.fulfillmentSecretsApprovalPath, rendered.fulfillmentSecretsApproval, 'utf8');
+writeFileSync(report.fulfillmentEnableApprovalPath, rendered.fulfillmentEnableApproval, 'utf8');
 writeFileSync(report.domainApprovalPath, rendered.domainApproval, 'utf8');
 writeFileSync(report.verificationChecklistPath, rendered.verificationChecklist, 'utf8');
 writeFileSync(report.rollbackPlanPath, rendered.rollbackPlan, 'utf8');
@@ -162,8 +187,11 @@ console.log(`[launch:cloudflare-production-runtime-cutover] Failed: ${failed.len
 console.log(`[launch:cloudflare-production-runtime-cutover] Warnings: ${warnings.length}`);
 console.log(`[launch:cloudflare-production-runtime-cutover] Summary: ${path.join(outputDir, 'summary.md')}`);
 console.log(`[launch:cloudflare-production-runtime-cutover] Manifest: ${report.manifestPath}`);
+console.log(`[launch:cloudflare-production-runtime-cutover] Fulfillment bootstrap approval: ${report.fulfillmentBootstrapApprovalPath}`);
 console.log(`[launch:cloudflare-production-runtime-cutover] Phase 1 approval: ${report.phaseOneApprovalPath}`);
 console.log(`[launch:cloudflare-production-runtime-cutover] Secrets approval: ${report.secretsApprovalPath}`);
+console.log(`[launch:cloudflare-production-runtime-cutover] Fulfillment secrets approval: ${report.fulfillmentSecretsApprovalPath}`);
+console.log(`[launch:cloudflare-production-runtime-cutover] Fulfillment enable approval: ${report.fulfillmentEnableApprovalPath}`);
 console.log(`[launch:cloudflare-production-runtime-cutover] Domain approval: ${report.domainApprovalPath}`);
 console.log(`[launch:cloudflare-production-runtime-cutover] Verification checklist: ${report.verificationChecklistPath}`);
 console.log(`[launch:cloudflare-production-runtime-cutover] Rollback plan: ${report.rollbackPlanPath}`);
@@ -182,8 +210,11 @@ function createReport(reportChecks: CutoverCheck[]): CutoverReport {
         target,
         checks: reportChecks,
         manifestPath: path.join(outputDir, 'cloudflare-production-runtime-cutover-manifest.json'),
+        fulfillmentBootstrapApprovalPath: path.join(outputDir, 'approval-request-fulfillment-bootstrap.md'),
         phaseOneApprovalPath: path.join(outputDir, 'approval-request-phase-1-worker.md'),
         secretsApprovalPath: path.join(outputDir, 'approval-request-worker-secrets.md'),
+        fulfillmentSecretsApprovalPath: path.join(outputDir, 'approval-request-fulfillment-worker-secrets.md'),
+        fulfillmentEnableApprovalPath: path.join(outputDir, 'approval-request-fulfillment-enable.md'),
         domainApprovalPath: path.join(outputDir, 'approval-request-domain-move.md'),
         verificationChecklistPath: path.join(outputDir, 'verification-checklist.md'),
         rollbackPlanPath: path.join(outputDir, 'rollback-plan.md'),
@@ -243,7 +274,7 @@ function validateLocalBuildParityEvidence(): CutoverCheck {
         'live-domain SEO blocker remains open by design',
         'BASE-1075',
         'Cloudflare Worker dry-run deploy proof',
-        'wrangler deploy --env production --dry-run',
+        'wrangler deploy --config dist/server/wrangler.json --dry-run',
         'env.CHECKOUT_ENABLED (false)',
         'RETEST-286',
         'no external write occurred',
@@ -348,19 +379,21 @@ function validateCloudflareRuntimeCutoverPreflightEvidence(): CutoverCheck {
 
 function validateWranglerConfig(): CutoverCheck {
     const wranglerPath = 'wrangler.toml';
-    if (!existsSync(wranglerPath)) {
+    const fulfillmentPath = 'workers/fulfillment/wrangler.toml';
+    if (!existsSync(wranglerPath) || !existsSync(fulfillmentPath)) {
         return {
             status: 'failed',
             name: 'wrangler_production_worker_config',
             message: 'Root Wrangler config is missing.',
-            details: [wranglerPath],
+            details: [wranglerPath, fulfillmentPath],
         };
     }
 
     const wrangler = readFileSync(wranglerPath, 'utf8');
+    const fulfillment = readFileSync(fulfillmentPath, 'utf8');
     const checkoutFalseCount = [...wrangler.matchAll(/CHECKOUT_ENABLED\s*=\s*"false"/g)].length;
     const required = [
-        'name = "espanolhonesto"',
+        'name = "espanolhonesto-env-required"',
         'keep_vars = true',
         '[env.staging]',
         'name = "espanolhonesto-staging"',
@@ -369,12 +402,26 @@ function validateWranglerConfig(): CutoverCheck {
     ];
     const missing = required.filter((snippet) => !wrangler.includes(snippet));
     if (checkoutFalseCount < 3) missing.push('CHECKOUT_ENABLED = "false" in base, staging and production vars');
+    for (const snippet of [
+        '[env.production_bootstrap]',
+        'name = "espanol-honesto-fulfillment-production"',
+        '[env.production_bootstrap.triggers]',
+        'FULFILLMENT_RUNTIME_MODE = "bootstrap"',
+        'EMAIL_DELIVERY_MODE = "disabled"',
+        'crons = []',
+        '[env.production.triggers]',
+        'FULFILLMENT_RUNTIME_MODE = "active"',
+        'EMAIL_DELIVERY_MODE = "live"',
+        'crons = ["0 * * * *"]',
+    ]) {
+        if (!fulfillment.includes(snippet)) missing.push(`fulfillment:${snippet}`);
+    }
 
     return {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'wrangler_production_worker_config',
         message: missing.length === 0
-            ? 'Wrangler config names production and staging Workers separately and keeps checkout disabled by default.'
+            ? 'Wrangler configs preserve safe names, checkout-off, inert fulfillment bootstrap and separate active production.'
             : 'Wrangler config does not preserve the required production/staging Worker names or fail-closed checkout posture.',
         details: missing.length === 0 ? [`checkoutFalseCount=${checkoutFalseCount}`] : missing.map((snippet) => `missing=${snippet}`),
     };
@@ -398,12 +445,17 @@ function validatePackageScripts(): CutoverCheck {
     const scripts = packageJson.scripts ?? {};
     const required: Array<[string, string]> = [
         ['build', 'tsx scripts/dev/staging.ts --build'],
-        ['deploy', 'wrangler deploy --env staging'],
-        ['deploy:production', 'wrangler deploy --env production'],
+        ['build:production:release', 'tsx scripts/dev/build-production-release.ts'],
+        ['deploy', 'tsx scripts/dev/deploy-built-worker.ts --environment staging --execute'],
+        ['deploy:production', 'tsx scripts/dev/deploy-built-worker.ts --environment production --dry-run'],
         ['launch:cloudflare-production-runtime-readonly', 'tsx scripts/launch/cloudflare-production-runtime-readonly.ts'],
         ['launch:cloudflare-production-runtime-cutover-preflight', 'tsx scripts/launch/cloudflare-production-runtime-cutover-preflight.ts'],
         ['launch:cloudflare-production-runtime-cutover', 'tsx scripts/launch/cloudflare-production-runtime-cutover.ts'],
+        ['launch:cloudflare-production-fulfillment-bootstrap', 'tsx scripts/launch/cloudflare-production-fulfillment-lifecycle.ts bootstrap'],
         ['launch:cloudflare-production-worker-phase1', 'tsx scripts/launch/cloudflare-production-worker-phase1.ts'],
+        ['launch:cloudflare-production-worker-secrets', 'tsx scripts/launch/cloudflare-production-worker-secrets.ts'],
+        ['launch:cloudflare-production-fulfillment-secrets', 'tsx scripts/launch/cloudflare-production-fulfillment-secrets.ts'],
+        ['launch:cloudflare-production-fulfillment-enable', 'tsx scripts/launch/cloudflare-production-fulfillment-lifecycle.ts enable'],
     ];
     const missing = required
         .filter(([name, value]) => scripts[name] !== value)
@@ -498,8 +550,11 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
 }
 
 function renderArtifacts(reportToRender: CutoverReport): RenderedArtifacts {
+    const fulfillmentBootstrapApproval = renderFulfillmentBootstrapApproval(reportToRender);
     const phaseOneApproval = renderPhaseOneApproval(reportToRender);
     const secretsApproval = renderSecretsApproval(reportToRender);
+    const fulfillmentSecretsApproval = renderFulfillmentSecretsApproval(reportToRender);
+    const fulfillmentEnableApproval = renderFulfillmentEnableApproval(reportToRender);
     const domainApproval = renderDomainApproval(reportToRender);
     const verificationChecklist = renderVerificationChecklist(reportToRender);
     const rollbackPlan = renderRollbackPlan(reportToRender);
@@ -507,8 +562,11 @@ function renderArtifacts(reportToRender: CutoverReport): RenderedArtifacts {
     const summary = renderSummary(reportToRender);
 
     const fileEntries = {
+        fulfillmentBootstrapApproval: fileMeta(reportToRender.fulfillmentBootstrapApprovalPath, fulfillmentBootstrapApproval),
         phaseOneApproval: fileMeta(reportToRender.phaseOneApprovalPath, phaseOneApproval),
         secretsApproval: fileMeta(reportToRender.secretsApprovalPath, secretsApproval),
+        fulfillmentSecretsApproval: fileMeta(reportToRender.fulfillmentSecretsApprovalPath, fulfillmentSecretsApproval),
+        fulfillmentEnableApproval: fileMeta(reportToRender.fulfillmentEnableApprovalPath, fulfillmentEnableApproval),
         domainApproval: fileMeta(reportToRender.domainApprovalPath, domainApproval),
         verificationChecklist: fileMeta(reportToRender.verificationChecklistPath, verificationChecklist),
         rollbackPlan: fileMeta(reportToRender.rollbackPlanPath, rollbackPlan),
@@ -544,28 +602,67 @@ function renderArtifacts(reportToRender: CutoverReport): RenderedArtifacts {
         ],
         phases: [
             {
-                id: 'phase_1_worker_create_deploy',
+                id: 'phase_1_fulfillment_inert_bootstrap',
+                writesCloudflare: true,
+                requiresSeparateApproval: true,
+                targetResource: 'Cloudflare Worker espanol-honesto-fulfillment-production via production_bootstrap',
+                requiredState: ['FULFILLMENT_RUNTIME_MODE=bootstrap', 'EMAIL_DELIVERY_MODE=disabled', 'crons=[]'],
+                forbidden: ['job processing', 'email sends', 'Google mutations', 'active cron', 'web Worker writes'],
+            },
+            {
+                id: 'phase_2_fulfillment_secrets_while_inert',
+                writesCloudflare: true,
+                requiresSeparateApproval: true,
+                targetResource: 'Cloudflare Worker espanol-honesto-fulfillment-production',
+                requiredState: ['FULFILLMENT_RUNTIME_MODE=bootstrap', 'EMAIL_DELIVERY_MODE=disabled', 'crons=[]'],
+                forbidden: ['web Worker writes', 'email sends', 'job processing', 'active cron', 'domain move'],
+            },
+            {
+                id: 'phase_3_fresh_bootstrap_attestation_before_web',
+                writesCloudflare: false,
+                requiresSeparateApproval: false,
+                targetResource: 'Fresh fulfillment version + HMAC + health + 503 + Cloudflare schedules API',
+                forbidden: ['cached/local-only evidence', 'web deploy on version mismatch'],
+            },
+            {
+                id: 'phase_4_web_worker_create_deploy',
                 writesCloudflare: true,
                 requiresSeparateApproval: true,
                 targetResource: `Cloudflare Worker ${target.productionWorker}`,
                 forbidden: ['custom domain move', 'DNS changes', 'Pages deletion', 'CHECKOUT_ENABLED=true', 'real payments'],
             },
             {
-                id: 'phase_2_worker_secret_names',
+                id: 'phase_5_web_worker_secret_names',
                 writesCloudflare: true,
                 requiresSeparateApproval: true,
-                targetResource: `Cloudflare Worker ${target.productionWorker} and fulfillment Worker production`,
+                targetResource: `Cloudflare web Worker ${target.productionWorker}`,
                 forbidden: ['printing secret values', 'domain move', 'key rotation outside final window'],
             },
             {
-                id: 'phase_3_direct_worker_probe',
+                id: 'phase_6_fresh_dual_worker_attestation',
                 writesCloudflare: false,
                 requiresSeparateApproval: false,
-                targetResource: `Direct workers.dev URL for ${target.productionWorker}`,
+                targetResource: 'Fresh version-bound HMAC attestations for web and fulfillment bootstrap',
+                forbidden: ['cached/local-only evidence', 'active write on version mismatch'],
+            },
+            {
+                id: 'phase_7_fulfillment_explicit_enable',
+                writesCloudflare: true,
+                requiresSeparateApproval: true,
+                targetResource: 'Cloudflare Worker espanol-honesto-fulfillment-production via production',
+                requiredState: ['web Worker deployed', 'all fulfillment secret names present', 'bootstrap attestation verified'],
+                activates: ['FULFILLMENT_RUNTIME_MODE=active', 'EMAIL_DELIVERY_MODE=live', 'cron 0 * * * *'],
+                forbidden: ['domain move', 'checkout enable', 'Stripe writes'],
+            },
+            {
+                id: 'phase_8_direct_worker_attestation',
+                writesCloudflare: false,
+                requiresSeparateApproval: false,
+                targetResource: `Direct workers.dev URLs for ${target.productionWorker} and espanol-honesto-fulfillment-production`,
                 forbidden: ['final smoke write paths', 'real payment session creation'],
             },
             {
-                id: 'phase_4_domain_move',
+                id: 'phase_9_domain_move',
                 writesCloudflare: true,
                 requiresSeparateApproval: true,
                 targetResource: `${target.customDomains.join(', ')} from Pages ${target.pagesProject} to Worker ${target.productionWorker}`,
@@ -583,8 +680,11 @@ function renderArtifacts(reportToRender: CutoverReport): RenderedArtifacts {
 
     return {
         manifest,
+        fulfillmentBootstrapApproval,
         phaseOneApproval,
         secretsApproval,
+        fulfillmentSecretsApproval,
+        fulfillmentEnableApproval,
         domainApproval,
         verificationChecklist,
         rollbackPlan,
@@ -593,11 +693,43 @@ function renderArtifacts(reportToRender: CutoverReport): RenderedArtifacts {
     };
 }
 
+function renderFulfillmentBootstrapApproval(reportToRender: CutoverReport): string {
+    return `${[
+        '# Cloudflare Fulfillment Production Inert Bootstrap Approval Request',
+        '',
+        'This local file is not permission. It prepares the first production Worker write so the later web service binding has a real, inert target.',
+        '',
+        '## Exact Target And State',
+        '',
+        `- Account: \`${reportToRender.target.accountId}\`.`,
+        '- Worker: `espanol-honesto-fulfillment-production`.',
+        '- Wrangler config/environment: `workers/fulfillment/wrangler.toml --env production_bootstrap`.',
+        '- Required runtime: `FULFILLMENT_RUNTIME_MODE=bootstrap`, `EMAIL_DELIVERY_MODE=disabled`, quotas `0`, `crons=[]`.',
+        '- The code-level guard must return `503 FULFILLMENT_DISABLED` before auth on operational endpoints.',
+        '',
+        '## Command After Approval',
+        '',
+        '```bash',
+        'pnpm launch:cloudflare-production-fulfillment-bootstrap -- --execute-approved',
+        '```',
+        '',
+        '## Exact Approval Sentence',
+        '',
+        'Apruebo crear o reemplazar solo el Cloudflare Fulfillment Worker production `espanol-honesto-fulfillment-production` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el entorno Wrangler `production_bootstrap`, con jobs, email y cron desactivados, antes de desplegar el Worker web, sin ejecutar jobs, sin enviar emails, sin tocar dominios, DNS, Pages, Supabase, Google, Resend ni Stripe.',
+        '',
+        '## Forbidden Scope',
+        '',
+        '- No web Worker, domain, DNS, Pages, Supabase, Google, Resend or Stripe write.',
+        '- No secrets, email, jobs or Cron Trigger.',
+        '',
+    ].join('\n')}\n`;
+}
+
 function renderPhaseOneApproval(reportToRender: CutoverReport): string {
     return `${[
         '# Cloudflare Production Worker Phase 1 Approval Request',
         '',
-        'This local file is not permission. It prepares the first Cloudflare external-write request for production runtime closure.',
+        'This local file is not permission. It prepares the web Worker write only after the inert fulfillment bootstrap is verified.',
         '',
         'This package does not write to Cloudflare, does not deploy, does not move domains and does not authorize secrets. It is an approval checklist only.',
         '',
@@ -616,6 +748,7 @@ function renderPhaseOneApproval(reportToRender: CutoverReport): string {
         `- Review \`${cloudflareRuntimeVariableMatrixPath ?? 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/cloudflare-production-worker-variable-matrix.md'}\` before loading any secret or var name.`,
         `- Review \`${strictQaPreflightPath}\` and confirm the account/project/Worker names match this request.`,
         '- Confirm the current shell is logged into the intended Cloudflare account before any write.',
+        '- Require an `OK` executed summary from `pnpm launch:cloudflare-production-fulfillment-bootstrap -- --execute-approved` proving bootstrap health and `503 FULFILLMENT_DISABLED`.',
         '- Stop if the production Worker already exists with unknown code or ownership.',
         '- Stop if Wrangler tries to attach `espanolhonesto.com` or `www.espanolhonesto.com` in this phase.',
         '- Confirm `BASE-1074/RETEST-285` and `BASE-1075/RETEST-286` in the strict-QA tracker, or rerun the guarded local build/SEO and Wrangler dry-run proof, before approving deployment.',
@@ -623,15 +756,15 @@ function renderPhaseOneApproval(reportToRender: CutoverReport): string {
         '## Commands After Approval',
         '',
         '```bash',
-        'corepack pnpm --config.verify-deps-before-run=false build',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --dry-run',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --env production --keep-vars',
+        'corepack pnpm --config.verify-deps-before-run=false run build:production:release',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production',
         '```',
         '',
         '## Exact Approval Sentence',
         '',
-        'Apruebo crear/desplegar el Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el build actual de `C:\\Users\\Alin\\Desktop\\Academia\\pruebas`, con `CHECKOUT_ENABLED=false`, sin adjuntar ni mover `espanolhonesto.com` ni `www.espanolhonesto.com`, sin activar pagos reales, sin borrar Pages y sin cambiar DNS. Despues, lista solo nombres de variables/secrets faltantes para cargarlos en una fase separada.',
+        'Apruebo crear/desplegar el Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el build actual de `C:\\Users\\Alin\\Desktop\\Academia\\pruebas`, despues de cargar los secrets de fulfillment manteniendolo inerte y verificar inmediatamente su version remota, HMAC, modo bootstrap, bloqueo 503 y cron vacio, con `CHECKOUT_ENABLED=false`, sin adjuntar ni mover `espanolhonesto.com` ni `www.espanolhonesto.com`, sin activar pagos reales, sin borrar Pages y sin cambiar DNS.',
         '',
         '## Forbidden Scope',
         '',
@@ -645,24 +778,19 @@ function renderPhaseOneApproval(reportToRender: CutoverReport): string {
 
 function renderSecretsApproval(reportToRender: CutoverReport): string {
     return `${[
-        '# Cloudflare Worker Secrets Approval Request',
+        '# Cloudflare Web Worker Secrets Approval Request',
         '',
         'This local file is not permission. It narrows the second Cloudflare write phase after the production Worker exists.',
         '',
         'This package does not write to Cloudflare, does not deploy and lists secret names only. Values must come from the approved secure source and must never be pasted into repo files, logs, screenshots or outputs.',
         '',
-        '## Target Resources',
+        '## Exact Target',
         '',
         `- Web Worker: \`${reportToRender.target.productionWorker}\` in account \`${reportToRender.target.accountId}\`.`,
-        '- Fulfillment Worker production: `espanol-honesto-fulfillment-production` if production fulfillment is in scope for the same final window.',
         '',
         '## Web Worker Secret/Var Names',
         '',
         ...webWorkerNames.map((name) => `- \`${name}\``),
-        '',
-        '## Fulfillment Worker Secret/Var Names',
-        '',
-        ...fulfillmentWorkerNames.map((name) => `- \`${name}\``),
         '',
         '## Boundary Notes',
         '',
@@ -674,20 +802,92 @@ function renderSecretsApproval(reportToRender: CutoverReport): string {
         '## Command Shape After Approval',
         '',
         '```bash',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --env production',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production',
         '```',
         '',
         '## Exact Approval Sentence',
         '',
-        'Apruebo configurar/verificar solo por nombre los secrets/vars necesarios del Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, y los del Fulfillment Worker production solo si forman parte de la misma ventana final, usando valores desde el origen seguro aprobado, sin imprimir valores, sin guardar valores en outputs, con `CHECKOUT_ENABLED=false`, sin mover dominios, sin borrar Pages, sin cambiar DNS y sin activar pagos reales.',
+        'Apruebo configurar/verificar solo los secrets/vars necesarios del Cloudflare Worker web production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, despues de validar cuenta, Worker, Supabase production `vkkahxsybhbutszerawz`, Stripe live, `PUBLIC_SITE_URL=https://espanolhonesto.com`, `PUBLIC_APP_ENV=production` y URL directa exacta, usando valores desde el origen seguro aprobado, sin imprimir valores, sin guardar valores en outputs, con `CHECKOUT_ENABLED=false`, sin tocar el Fulfillment Worker, sin mover dominios, sin borrar Pages y sin cambiar DNS.',
         '',
         '## Forbidden Scope',
         '',
         '- No domain move, DNS change, Pages deletion, Worker deletion or route change.',
         '- No key rotation unless it is the explicitly approved final rotation window.',
         '- No printing, logging, screenshotting or committing secret values.',
-        '- No Stripe live mode, real checkout session, Supabase write, Google mutation or Resend send test.',
+        '- No real checkout session, Supabase write, Google mutation or Resend send test.',
+        '',
+    ].join('\n')}\n`;
+}
+
+function renderFulfillmentSecretsApproval(reportToRender: CutoverReport): string {
+    return `${[
+        '# Cloudflare Fulfillment Worker Production Secrets Approval Request',
+        '',
+        'This local file is not permission. It is a separate write phase from web Worker secrets, web deploy and domain cutover.',
+        '',
+        'This package does not write to Cloudflare, does not deploy and lists names only. Google, Resend and Supabase values must come from the approved secure source and must never be written to repo files, logs, screenshots or outputs.',
+        '',
+        '## Exact Target',
+        '',
+        `- Account: \`${reportToRender.target.accountId}\`.`,
+        '- Fulfillment Worker: `espanol-honesto-fulfillment-production`.',
+        '- Config: `workers/fulfillment/wrangler.toml`, explicit `--env production_bootstrap` while the Worker remains inert.',
+        '',
+        '## Required Secret/Var Names',
+        '',
+        ...fulfillmentWorkerNames.map((name) => `- \`${name}\``),
+        '',
+        '## Command Shape After Approval',
+        '',
+        '```bash',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config workers/fulfillment/wrangler.toml --env production_bootstrap',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config workers/fulfillment/wrangler.toml --env production_bootstrap',
+        '```',
+        '',
+        '## Exact Approval Sentence',
+        '',
+        'Apruebo configurar/verificar solo los secrets del Cloudflare Fulfillment Worker production inerte `espanol-honesto-fulfillment-production` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, despues de validar el bootstrap, Supabase production `vkkahxsybhbutszerawz` y la URL directa exacta, usando Google/Resend/Supabase desde el origen seguro aprobado, sin imprimir ni guardar valores, manteniendo `FULFILLMENT_RUNTIME_MODE=bootstrap`, email desactivado y cron vacio, sin enviar emails, sin ejecutar jobs, sin tocar el Worker web, sin mover dominios y sin cambiar DNS.',
+        '',
+        '## Forbidden Scope',
+        '',
+        '- No deploy, domain/DNS/route/Pages change or web Worker secret change.',
+        '- No email send, Google mutation, job processing, Supabase write or Stripe operation.',
+        '- No printing, logging, screenshotting or committing secret values.',
+        '',
+    ].join('\n')}\n`;
+}
+
+function renderFulfillmentEnableApproval(reportToRender: CutoverReport): string {
+    return `${[
+        '# Cloudflare Fulfillment Production Final Enable Approval Request',
+        '',
+        'This local file is not permission. It is the only phase that may switch fulfillment from inert bootstrap to active production.',
+        '',
+        '## Preconditions',
+        '',
+        `- Account \`${reportToRender.target.accountId}\`, Worker \`espanol-honesto-fulfillment-production\`.`,
+        '- Bootstrap health and authenticated attestation say `FULFILLMENT_RUNTIME_MODE=bootstrap`.',
+        '- Operational probe returns `503 FULFILLMENT_DISABLED`.',
+        '- Web Worker `espanolhonesto` has a deployed version.',
+        '- Every required fulfillment secret name exists.',
+        '- Active deployment dry-run uses `--config workers/fulfillment/wrangler.toml --env production`.',
+        '',
+        '## Command After Approval',
+        '',
+        '```bash',
+        'pnpm launch:cloudflare-production-fulfillment-enable -- --execute-approved',
+        '```',
+        '',
+        '## Exact Approval Sentence',
+        '',
+        'Apruebo habilitar finalmente el Cloudflare Fulfillment Worker production `espanol-honesto-fulfillment-production` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el entorno Wrangler `production`, despues de verificar el bootstrap inerte, el Worker web production, todos los secrets requeridos y la atestacion autenticada; este deploy activa jobs, email live y el cron horario, sin tocar dominios, DNS, Pages ni Stripe.',
+        '',
+        '## Explicitly Activated',
+        '',
+        '- `FULFILLMENT_RUNTIME_MODE=active`.',
+        '- `EMAIL_DELIVERY_MODE=live` with limits 80/day and 2400/month.',
+        '- Cron Trigger `0 * * * *`.',
         '',
     ].join('\n')}\n`;
 }
@@ -732,27 +932,55 @@ function renderVerificationChecklist(reportToRender: CutoverReport): string {
         '',
         'Use this after each approved phase. Record only non-secret evidence.',
         '',
-        '## Phase 1: Worker Create/Deploy',
+        '## Phase 1: Inert Fulfillment Bootstrap',
+        '',
+        '- Run `pnpm launch:cloudflare-production-fulfillment-bootstrap` in plan mode and review its exact approval.',
+        '- After approved execution, require health `operationMode=bootstrap`, exact identity and `503 FULFILLMENT_DISABLED` for an operational route.',
+        '- Confirm Wrangler deployed `production_bootstrap` with `crons=[]`; do not continue if jobs/email/cron can run.',
+        '',
+        '## Phase 2: Fulfillment Secrets While Inert',
+        '',
+        '- Run `pnpm launch:cloudflare-production-fulfillment-secrets` under its separate approval.',
+        '- Require bootstrap health, 503 and authenticated version-bound fulfillment attestation after secret loading.',
+        '',
+        '## Phase 3: Fresh Bootstrap Proof Before Web',
+        '',
+        '- The web phase runner must freshly list the fulfillment `version_id`, verify its HMAC/config, bootstrap health, operational 503 and zero schedules through the Cloudflare API.',
+        '- Do not accept only generated summaries or a previously observed version.',
+        '',
+        '## Phase 4: Web Worker Create/Deploy',
         '',
         '- Review the Wrangler dry-run output path and confirm it reports no custom domain attachment.',
         '- Confirm Worker name is `espanolhonesto` and account ID is `d1a22bcf6477ff2ff31d2bfb83084e44`.',
         '- Confirm `CHECKOUT_ENABLED=false` remains visible as a state claim.',
         '- Run `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production` and record names only.',
         '',
-        '## Phase 2: Secret Names',
+        '## Phase 5: Web Secret Names',
         '',
         '- Confirm all required web Worker names are present or explicitly not needed with rationale.',
-        '- Confirm fulfillment Worker production names separately; Google keys stay there under the current architecture.',
+        '- Web Worker approval and commands must not touch the fulfillment Worker.',
         '- Confirm no secret values appear in terminal history, repo files, screenshots or output artifacts.',
         '',
-        '## Phase 3: Direct Worker URL',
+        '## Phase 6: Fresh Dual Worker Attestation',
+        '',
+        '- Immediately before enable, freshly list both remote version IDs and verify exact HMAC/config/version for web and fulfillment bootstrap in the same process.',
+        '- Reconfirm fulfillment health bootstrap, operational 503 and zero schedules; local summaries alone are insufficient.',
+        '',
+        '## Phase 7: Explicit Fulfillment Enable',
+        '',
+        '- Run `pnpm launch:cloudflare-production-fulfillment-enable` in plan mode and review its distinct approval gate.',
+        '- The approved runner must prove bootstrap + web + secret prerequisites before deploying `--env production`.',
+        '- Confirm post-deploy health/attestation and remote schedule say active. On timeout or any failed post-check, redeploy `production_bootstrap` and prove HMAC bootstrap + 503 + zero schedules; otherwise state is ambiguous and launch stops.',
+        '',
+        '## Phase 8: Direct Worker URL And Runtime Attestation',
         '',
         '- Probe public pages read-only from the direct Worker URL.',
         '- Probe these exact modern parity routes from the direct Worker URL:',
         ...modernParityRoutes.map((route) => `  - \`${route}\``),
         '- Do not create checkout sessions, emails, Google files/events or Supabase data during direct URL verification.',
+        '- Require authenticated attestation of exact Worker identity, Cloudflare version ID and Supabase production ref for both web and fulfillment Workers.',
         '',
-        '## Phase 4: Domain Move',
+        '## Phase 9: Domain Move',
         '',
         `- Confirm ${reportToRender.target.customDomains.join(' and ')} are no longer served by the old Pages project after the approved move.`,
         '- Confirm the same exact modern parity routes pass on `https://espanolhonesto.com` and, where applicable, `https://www.espanolhonesto.com`.',
@@ -839,8 +1067,11 @@ function renderSummary(reportToRender: CutoverReport): string {
         `- Started: ${reportToRender.startedAt}`,
         `- Ended: ${reportToRender.endedAt}`,
         `- Manifest: ${toPosix(path.relative(process.cwd(), reportToRender.manifestPath))}`,
+        `- Fulfillment bootstrap approval: ${toPosix(path.relative(process.cwd(), reportToRender.fulfillmentBootstrapApprovalPath))}`,
         `- Phase 1 approval: ${toPosix(path.relative(process.cwd(), reportToRender.phaseOneApprovalPath))}`,
-        `- Secrets approval: ${toPosix(path.relative(process.cwd(), reportToRender.secretsApprovalPath))}`,
+        `- Web secrets approval: ${toPosix(path.relative(process.cwd(), reportToRender.secretsApprovalPath))}`,
+        `- Fulfillment secrets approval: ${toPosix(path.relative(process.cwd(), reportToRender.fulfillmentSecretsApprovalPath))}`,
+        `- Fulfillment enable approval: ${toPosix(path.relative(process.cwd(), reportToRender.fulfillmentEnableApprovalPath))}`,
         `- Domain approval: ${toPosix(path.relative(process.cwd(), reportToRender.domainApprovalPath))}`,
         `- Verification checklist: ${toPosix(path.relative(process.cwd(), reportToRender.verificationChecklistPath))}`,
         `- Rollback plan: ${toPosix(path.relative(process.cwd(), reportToRender.rollbackPlanPath))}`,

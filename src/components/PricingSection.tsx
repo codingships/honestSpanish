@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PricingModal from './PricingModal';
 import { CLASS_DURATION_OPTIONS_MINUTES } from '../lib/class-duration';
+import { formatPackagePrice } from '../lib/package-pricing';
 
 interface Package {
     id: string;
@@ -56,6 +57,8 @@ interface PricingSectionProps {
             privacyLink?: string;
             serviceStartRequest?: string;
             withdrawalLossAcknowledgement?: string;
+            renewalDisclosure?: string;
+            sessionBankDisclosure?: string;
             policyError?: string;
         };
     };
@@ -81,7 +84,8 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
     const [selectedPlan, setSelectedPlan] = useState<{
         name: string;
         displayName: string;
-        priceMonthly: number;
+        priceMonthlyCents: number;
+        sessionsPerMonth: number;
         stripe_price_1m: string | null;
         stripe_price_3m: string | null;
         stripe_price_6m: string | null;
@@ -127,6 +131,8 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             privacyLink: t.modal?.privacyLink || 'Política de Privacidad',
             serviceStartRequest: t.modal?.serviceStartRequest || 'Solicito que el servicio pueda comenzar durante el periodo legal de desistimiento.',
             withdrawalLossAcknowledgement: t.modal?.withdrawalLossAcknowledgement || 'Reconozco que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.',
+            renewalDisclosure: t.modal?.renewalDisclosure || 'El total se cobra ahora y la suscripción se renueva automáticamente por el mismo periodo hasta que la canceles.',
+            sessionBankDisclosure: t.modal?.sessionBankDisclosure || 'Este periodo incluye {sessions} sesiones para usar durante {months} mes(es), sin tope mensual. Las no usadas caducan al terminar.',
             policyError: t.modal?.policyError || 'Debes confirmar y aceptar las condiciones antes de continuar.',
         },
     };
@@ -135,7 +141,8 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
         setSelectedPlan({
             name: pkg.name,
             displayName: pkg.display_name?.[lang] || pkg.display_name?.['es'] || pkg.name,
-            priceMonthly: pkg.price_monthly / 100, // Convert from cents to euros
+            priceMonthlyCents: pkg.price_monthly,
+            sessionsPerMonth: pkg.sessions_per_month,
             stripe_price_1m: pkg.stripe_price_1m,
             stripe_price_3m: pkg.stripe_price_3m,
             stripe_price_6m: pkg.stripe_price_6m,
@@ -146,7 +153,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
     // Get package data or use fallback
     const getPriceDisplay = (pkg: Package | undefined): { label: string; hasPrice: boolean } => {
         if (!pkg || !pkg.price_monthly) return { label: copy.modal.contact, hasPrice: false };
-        return { label: `${(pkg.price_monthly / 100).toFixed(0)}\u20ac`, hasPrice: true };
+        return { label: formatPackagePrice(pkg.price_monthly, lang), hasPrice: true };
     };
 
     const recommendedPlanName = packages.some(pkg => pkg.name === 'hybrid')
@@ -293,6 +300,9 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                                 description: '',
                                 features: [],
                             };
+                            const canonicalPlanName = pkg.display_name?.[lang]
+                                || pkg.display_name?.es
+                                || pkg.name;
                             const planFeatures = getPlanFeatures(pkg, planTranslations.features);
                             const priceDisplay = getPriceDisplay(pkg);
                             const preferredPackageLabel = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
@@ -328,7 +338,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                                     {/* Name & Description */}
                                     <div className="col-span-3">
                                         <h3 className={`font-display ${highlight ? 'text-4xl' : 'text-3xl'}`}>
-                                            {planTranslations.name}
+                                            {canonicalPlanName}
                                         </h3>
                                         <p className="text-sm mt-1">{planTranslations.description}</p>
                                     </div>

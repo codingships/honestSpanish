@@ -863,10 +863,13 @@ function checkSeoReadiness(): GateResult {
 function checkEnvironmentDocumentation(): GateResult {
     const requiredEnv = [
         'PUBLIC_SUPABASE_URL',
+        'SUPABASE_EXPECTED_PROJECT_REF',
         'PUBLIC_SUPABASE_ANON_KEY',
         'SUPABASE_SERVICE_ROLE_KEY',
         'STRIPE_SECRET_KEY',
         'STRIPE_WEBHOOK_SECRET',
+        'STRIPE_EXPECTED_ACCOUNT_ID',
+        'STRIPE_PORTAL_CONFIGURATION_ID',
         'PUBLIC_STRIPE_PUBLISHABLE_KEY',
         'FULFILLMENT_WORKER_URL',
         'INTERNAL_JOB_SECRET',

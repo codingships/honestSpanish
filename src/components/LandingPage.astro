@@ -12,7 +12,6 @@ import ProblemsSection from './landing/ProblemsSection.astro';
 import MethodSection from './landing/MethodSection.astro';
 import LevelsSection from './landing/LevelsSection.astro';
 import LeadCaptureForm from './LeadCaptureForm.tsx';
-import { isCheckoutEnabled } from '../lib/checkout-enabled';
 
 interface Props {
   lang: 'es' | 'en' | 'ru';
@@ -22,7 +21,9 @@ interface Props {
 
 const { lang, packages, isLoggedIn } = Astro.props;
 const t = useTranslations(lang);
-const checkoutMode = isCheckoutEnabled({ locals: Astro.locals }) ? 'checkout' : 'application';
+// Public pricing always starts with a reviewed application. Approved checkout
+// is exposed only inside the authenticated campus.
+const checkoutMode = 'application' as const;
 
 // Data structure helper for complex arrays 
 const problemsStatements = t('problems.statements') as unknown as string[];

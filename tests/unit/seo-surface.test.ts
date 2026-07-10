@@ -76,6 +76,11 @@ describe('SEO and LLM public surface', () => {
         expect(llms).toContain('Híbrido Mensual');
         expect(llms).toContain('compatible group conversation when available and two-teacher follow-up');
         expect(llms).toContain('Intensivo Bootcamp');
+        expect(llms).toContain('For current prices, duration totals and availability');
+        expect(llms).toContain('Do not quote a price from this file');
+        expect(llms).toContain('only Mensual Estándar and Intensivo Bootcamp may proceed to an approved checkout');
+        expect(llms).toContain('Grupal Externo and Híbrido Mensual accept applications but do not offer checkout');
+        expect(llms).not.toMatch(/\b(?:50|145|150|345) EUR\/month/);
         expect(llms).toContain('## How To Apply');
         expect(llms).toContain('The primary public action is to apply for a place, not to buy immediately.');
         expect(llms).toContain('https://espanolhonesto.com/es#contacto');

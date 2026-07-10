@@ -320,7 +320,7 @@ const requiredChecks: RequiredCheck[] = [
         phase: 'phase_3_final',
         requirement: 'Registration, checkout, webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation and retry are verified end-to-end.',
         maxAgeDays: 7,
-        readyWhen: 'End-to-end final smoke passes in staging and, at launch time, production smoke is documented.',
+        readyWhen: 'The full gated lifecycle smoke passes in staging with cleanup, and the separate minimal manual production smoke is documented at launch time.',
         nextActions: [
             'Run registration, checkout, webhook, Drive, email and booking end-to-end.',
             'Verify Doc, Calendar/Meet, reminder, cancellation and failed-job retry.',

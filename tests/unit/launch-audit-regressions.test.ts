@@ -17,13 +17,13 @@ describe('launch audit regression guards', () => {
         const audit = read('scripts/launch/operations-audit.ts');
         const workflow = read('.github/workflows/ci.yml');
         const stagingSnippet = '"deploy": "wrangler deploy --env staging"';
-        const productionSnippet = '"deploy:production": "wrangler deploy --env production"';
+        const productionSnippet = '"deploy:production": "wrangler deploy --env production --dry-run"';
 
         expect(audit.split(stagingSnippet)).toHaveLength(3);
         expect(audit.split(productionSnippet)).toHaveLength(3);
         expect(audit).not.toContain('"deploy": "wrangler deploy"');
-        expect(workflow.indexOf('name: Deploy Cloudflare Fulfillment Worker')).toBeLessThan(
-            workflow.indexOf('name: Deploy Cloudflare Worker'),
+        expect(workflow.indexOf('name: Deploy staging Cloudflare Fulfillment Worker')).toBeLessThan(
+            workflow.indexOf('name: Deploy staging Cloudflare Worker'),
         );
     });
 

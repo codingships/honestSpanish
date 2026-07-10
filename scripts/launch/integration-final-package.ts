@@ -142,11 +142,19 @@ const evidenceSources: EvidenceSource[] = [
     },
     {
         id: 'cloudflare_worker_secrets_runner',
-        label: 'Cloudflare production Worker secret-name/direct-probe gated runner',
+        label: 'Cloudflare production web Worker secret-name/direct-attestation gated runner',
         path: latestGeneratedPath('launch-cloudflare-production-worker-secrets', 'summary.md'),
         expectedStatus: 'OK',
         requiredForPass: true,
-        role: 'Plan-only runner that refuses Worker secret-name loading unless the exact approval env var and flag match; approved mode loads names from secure env source without printing values and optionally probes the direct Worker URL read-only.',
+        role: 'Plan-only runner that refuses web Worker secret-name loading unless exact account/ref/mode/site/env/direct-URL facts match; approved mode requires identity/version/Supabase attestation.',
+    },
+    {
+        id: 'cloudflare_fulfillment_secrets_runner',
+        label: 'Cloudflare production Fulfillment Worker config/secrets/email gated runner',
+        path: latestGeneratedPath('launch-cloudflare-production-fulfillment-secrets', 'summary.md'),
+        expectedStatus: 'OK',
+        requiredForPass: true,
+        role: 'Separate plan-only runner for production Supabase/Google/Resend/email names and config; approved mode requires exact target validation plus identity/version/Supabase attestation without sending email or processing jobs.',
     },
     {
         id: 'supabase_processed_at_cleanup',
@@ -916,11 +924,22 @@ function remediationPlanForSource(source: EvidenceSource): WarningRemediation[] 
     if (source.id === 'cloudflare_worker_secrets_runner') {
         return [{
             ...base,
-            allowedNextStep: 'Run corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-secrets in plan mode. Only later, after the production Worker exists and exact approval is present, use CLOUDFLARE_WORKER_SECRETS_APPROVAL plus --execute-approved to load/verify Worker secret names; provide CLOUDFLARE_WORKER_DIRECT_URL for direct read-only probes before any domain move.',
+            allowedNextStep: 'Run corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-secrets in plan mode. Only later, after the production Worker exists and exact approval is present, use CLOUDFLARE_WORKER_SECRETS_APPROVAL plus --execute-approved with the exact CLOUDFLARE_WORKER_DIRECT_URL.',
             readOnlyVerification: 'Open the generated summary and confirm status OK, closureStatus PLAN_ONLY_READY, externalWritePerformed=false, cloudflare-worker-secrets-command-manifest.json lists names only, and approval-gate.md forbids domain/DNS/Pages/payment changes.',
             evidenceToRecord: 'Record summary.md, cloudflare-worker-secrets-command-manifest.json, cloudflare-worker-secrets-execution-plan.md, approval-gate.md and rollback-after-worker-secrets.md paths without secret values. After approved execution, record only secret names present and direct Worker probe captures.',
             rollbackOrRisk: 'No rollback for plan mode. If an approved secret-name load later fails, keep domains on Pages, correct only the affected name under exact approval and rerun the direct Worker probes before domain approval.',
-            externalWriteGate: 'Requires exact CLOUDFLARE_WORKER_SECRETS_APPROVAL value and --execute-approved; no domain move, DNS change, Pages deletion, secret value output, CHECKOUT_ENABLED=true, Stripe live mode or other provider writes.',
+            externalWriteGate: 'Requires exact CLOUDFLARE_WORKER_SECRETS_APPROVAL plus account/ref/live-mode/site/env/direct-URL validation and --execute-approved; no domain move, DNS change, Pages deletion, secret value output or CHECKOUT_ENABLED=true.',
+        }];
+    }
+
+    if (source.id === 'cloudflare_fulfillment_secrets_runner') {
+        return [{
+            ...base,
+            allowedNextStep: 'Run corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-fulfillment-secrets in plan mode. Execute only after the exact Fulfillment Worker approval, secure production env source and exact direct URL are ready.',
+            readOnlyVerification: 'Confirm the plan summary is OK/externalWritePerformed=false, then after approved execution require health plus authenticated identity/version/Supabase attestation.',
+            evidenceToRecord: 'Record summary.md, command-manifest.json, execution-plan.md, approval-gate.md and non-secret attestation result only; never record Google/Resend/Supabase/internal secret values.',
+            rollbackOrRisk: 'No rollback for plan mode. If secret loading fails, do not send email/process jobs or move domains; correct only the named Cloudflare secret under a new exact approval.',
+            externalWriteGate: 'Requires exact CLOUDFLARE_FULFILLMENT_SECRETS_APPROVAL, --execute-approved, exact account/ref/site/env/email limits/direct URL and an existing production Fulfillment Worker; no web Worker/domain/provider mutation.',
         }];
     }
 
@@ -960,7 +979,7 @@ function remediationPlanForSource(source: EvidenceSource): WarningRemediation[] 
     if (source.id === 'staging_smoke_rehearsal_runner') {
         return [{
             ...base,
-            allowedNextStep: 'Run corepack pnpm --config.verify-deps-before-run=false launch:final-smoke-execution-pack and corepack pnpm --config.verify-deps-before-run=false launch:staging-smoke-rehearsal-runner in plan mode. Only later, after exact approval, use STAGING_SMOKE_REHEARSAL_APPROVAL plus --execute-approved for the staging rehearsal against https://staging.espanolhonesto.com.',
+            allowedNextStep: 'Run corepack pnpm --config.verify-deps-before-run=false launch:final-smoke-execution-pack and corepack pnpm --config.verify-deps-before-run=false launch:staging-smoke-rehearsal-runner in plan mode. Only later, after exact approval, use STAGING_SMOKE_REHEARSAL_APPROVAL plus --execute-approved for the staging rehearsal against https://espanolhonesto-staging.alindev95.workers.dev.',
             readOnlyVerification: 'Open the generated runner summary and confirm status OK, closureStatus PLAN_ONLY_READY or EXECUTED_AND_NEEDS_REVIEW, externalWriteCommandStarted matches the approval state, Stripe live keys were rejected, and approval-gate.md names the exact staging host and forbidden scope.',
             evidenceToRecord: 'Record summary.md, staging-smoke-command-manifest.json, staging-smoke-execution-plan.md, approval-gate.md and rollback-after-staging-smoke.md paths without passwords, tokens, private customer payloads or secret values. After approved execution, record only the redacted smoke summary and cleanup status.',
             rollbackOrRisk: 'No rollback for plan mode. If an approved staging rehearsal later fails or creates smoke data, use rollback-after-staging-smoke.md and the final-smoke rollback plan to clean only the smoke-scoped Supabase, Stripe test, Google, Resend and Admin Jobs artifacts.',

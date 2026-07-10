@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import LeadManager from '../../src/components/admin/LeadManager';
 
+const checkoutPackage = {
+    id: '70000000-0000-4000-8000-000000000001',
+    name: 'standard',
+    display_name: { es: 'Estandar', en: 'Standard', ru: 'Standard' },
+};
+
 const lead = {
     id: '40000000-0000-4000-8000-000000000001',
     name: 'Ana Alumna',
@@ -38,7 +44,10 @@ const lead = {
         current_level: null,
         learning_goal: null,
         availability: null,
-        packages: null,
+        preferred_package_id: checkoutPackage.id,
+        checkout_approved_at: null,
+        converted_subscription_id: null,
+        packages: checkoutPackage,
         crm_contacts: {
             id: '60000000-0000-4000-8000-000000000001',
             lifecycle_stage: 'lead',
@@ -72,7 +81,7 @@ describe('LeadManager', () => {
                 return Promise.resolve(jsonResponse({ lead: { ...lead, status: 'contacted' } }));
             }
 
-            return Promise.resolve(jsonResponse({ leads: [lead] }));
+            return Promise.resolve(jsonResponse({ leads: [lead], checkoutPackages: [checkoutPackage] }));
         }));
         vi.spyOn(window, 'alert').mockImplementation(() => undefined);
     });
@@ -154,6 +163,53 @@ describe('LeadManager', () => {
         expect(screen.getByRole('status')).toHaveTextContent('Etapa CRM actualizada.');
     });
 
+    it('approves and revokes checkout for the package selected by an admin', async () => {
+        vi.mocked(fetch).mockImplementation((input, init) => {
+            if (init && typeof init === 'object' && init.method === 'PUT') {
+                const body = JSON.parse(init.body as string);
+                if (body.action === 'checkout_approval') {
+                    return Promise.resolve(jsonResponse({
+                        opportunity: {
+                            ...lead.crm_opportunity,
+                            stage: 'proposal',
+                            preferred_package_id: body.packageId,
+                            checkout_approved_at: body.approved ? '2026-07-10T20:00:00.000Z' : null,
+                        },
+                    }));
+                }
+            }
+
+            return Promise.resolve(jsonResponse({ leads: [lead], checkoutPackages: [checkoutPackage] }));
+        });
+        render(<LeadManager lang="es" />);
+        await screen.findByText('ana@example.com');
+
+        expect(screen.getByLabelText('Paquete autorizado para ana@example.com')).toHaveValue(checkoutPackage.id);
+        fireEvent.click(screen.getByRole('button', { name: 'Aprobar pago' }));
+        await flushAction();
+
+        expect(requestBody()).toEqual({
+            action: 'checkout_approval',
+            opportunityId: lead.crm_opportunity.id,
+            packageId: checkoutPackage.id,
+            approved: true,
+        });
+        expect(screen.getByRole('status')).toHaveTextContent('Pago aprobado para el paquete seleccionado.');
+        expect(screen.getByText('Aprobada')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Revocar pago' }));
+        await flushAction();
+
+        expect(requestBody(2)).toEqual({
+            action: 'checkout_approval',
+            opportunityId: lead.crm_opportunity.id,
+            packageId: checkoutPackage.id,
+            approved: false,
+        });
+        expect(screen.getByRole('status')).toHaveTextContent('Aprobacion de pago revocada.');
+        expect(screen.getByText('No aprobada')).toBeInTheDocument();
+    });
+
     it('announces action failures as alerts without using window alert', async () => {
         vi.mocked(fetch).mockImplementation((input, init) => {
             if (init && typeof init === 'object' && init.method === 'PUT') {
@@ -191,7 +247,9 @@ describe('LeadManager', () => {
         expect(screen.getByRole('button', { name: 'Enviar diagnostico' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Pedir info' })).toBeDisabled();
         expect(screen.getByRole('button', { name: 'Enviar propuesta' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Aprobar pago' })).toBeDisabled();
         expect(screen.getByLabelText('Estado')).toBeDisabled();
         expect(screen.getByLabelText('Etapa CRM')).toBeDisabled();
+        expect(screen.getByLabelText('Paquete autorizado para ana@example.com')).toBeDisabled();
     });
 });
