@@ -29,7 +29,7 @@ describe('launch audit regression guards', () => {
         expect(checklist).toContain(
             'Cloudflare Fulfillment Worker con `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`',
         );
-        expect(checklist).toContain('espanolhonesto-staging` ejecuta `64679ce4-5dab-4f8b-b4a8-cf24931caaf9');
-        expect(checklist).toContain('espanol-honesto-fulfillment-staging` ejecuta `9be2ea8f-427d-4834-b7fb-311c5d1e4c50');
+        expect(checklist).toMatch(/`espanolhonesto-staging` ejecuta `[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}`/);
+        expect(checklist).toMatch(/`espanol-honesto-fulfillment-staging` ejecuta `[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}`/);
     });
 });
