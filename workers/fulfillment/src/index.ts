@@ -166,7 +166,12 @@ async function handleFilterSlots(body: JsonObject): Promise<JsonObject> {
         },
     });
 
-    const busySlots = response.data.calendars?.[teacherEmail]?.busy || [];
+    const calendarAvailability = response.data.calendars?.[teacherEmail];
+    if (!calendarAvailability || (calendarAvailability.errors?.length ?? 0) > 0) {
+        throw new Error('Cannot verify Google Calendar availability');
+    }
+
+    const busySlots = calendarAvailability.busy || [];
     if (busySlots.length === 0) {
         return { slots };
     }

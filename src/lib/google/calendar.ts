@@ -225,8 +225,12 @@ export async function checkTeacherAvailability(
             },
         });
 
-        const calendars = response.data.calendars;
-        const busySlots = calendars?.[teacherEmail]?.busy || [];
+        const calendarAvailability = response.data.calendars?.[teacherEmail];
+        if (!calendarAvailability || (calendarAvailability.errors?.length ?? 0) > 0) {
+            throw new Error('FreeBusy did not return a valid result for the requested calendar');
+        }
+
+        const busySlots = calendarAvailability.busy || [];
 
         // If there are busy slots, the teacher is not available
         return busySlots.length === 0;
