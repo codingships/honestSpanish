@@ -235,7 +235,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Resend staging/test. Evidencia: envio directo de smoke a `TEST_ADMIN_EMAIL` devolvio HTTP 200; no se usaron destinatarios de alumnos ni contenido privado.
 - [ ] Resend produccion.
 - [ ] Turnstile dominios reales.
-- [x] Cloudflare Fulfillment Worker con `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`: staging separado y atestiguado; `espanolhonesto-staging` ejecuta `64679ce4-5dab-4f8b-b4a8-cf24931caaf9` y `espanol-honesto-fulfillment-staging` ejecuta `9be2ea8f-427d-4834-b7fb-311c5d1e4c50`, ambos al 100 %, checkout cerrado e identidad de versión verificada el 2026-07-10. El trigger horario `0 * * * *` fue sincronizado explícitamente en fulfillment staging. Production Worker, secretos live y smoke final quedan fuera de este cierre de staging.
+- [x] Cloudflare Fulfillment Worker con `FULFILLMENT_WORKER_URL`, `PUBLIC_SITE_URL`, `INTERNAL_JOB_SECRET` y `CRON_SECRET`: staging separado y atestiguado; `espanolhonesto-staging` ejecuta `fe317736-e936-4c8f-8c08-d48d88657489` y `espanol-honesto-fulfillment-staging` ejecuta `9be2ea8f-427d-4834-b7fb-311c5d1e4c50`, ambos al 100 %, checkout cerrado e identidad de versión verificada el 2026-07-10. El trigger horario `0 * * * *` fue sincronizado explícitamente en fulfillment staging. Production Worker, secretos live y smoke final quedan fuera de este cierre de staging.
 
 ## Legal
 
