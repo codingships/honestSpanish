@@ -21,7 +21,7 @@ export const createMockStripe = (overrides: any = {}) => ({
         retrieve: vi.fn().mockResolvedValue({ id: 'cus_test_123', email: 'test@example.com' }),
     },
     webhooks: {
-        constructEvent: vi.fn().mockReturnValue({
+        constructEventAsync: vi.fn().mockResolvedValue({
             type: 'checkout.session.completed',
             data: { object: { id: 'cs_test_123', customer: 'cus_test_123' } },
         }),

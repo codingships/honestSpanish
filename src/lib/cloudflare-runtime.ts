@@ -1,14 +1,16 @@
 import type { APIContext } from 'astro';
 
 type WaitUntilFn = (promise: Promise<unknown>) => void;
-type RuntimeLocals = {
-    runtime?: { ctx?: { waitUntil?: WaitUntilFn } };
+type CloudflareLocals = {
+    cfContext?: { waitUntil?: WaitUntilFn };
 };
 
 function getWaitUntil(context: APIContext): WaitUntilFn | null {
-    const runtime = (context.locals as RuntimeLocals | undefined)?.runtime;
+    const cfContext = (context.locals as CloudflareLocals | undefined)?.cfContext;
 
-    return runtime?.ctx?.waitUntil ?? null;
+    return typeof cfContext?.waitUntil === 'function'
+        ? cfContext.waitUntil.bind(cfContext)
+        : null;
 }
 
 export function runAfterResponse(context: APIContext, work: Promise<unknown>): void {

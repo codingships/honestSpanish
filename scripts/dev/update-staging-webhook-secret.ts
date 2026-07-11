@@ -64,7 +64,16 @@ try {
 
     const descriptor = openSync(temporaryPath, 'r');
     try {
-        fsyncSync(descriptor);
+        try {
+            fsyncSync(descriptor);
+        } catch (error) {
+            // Windows can reject fsync on an otherwise valid, fully written
+            // regular file. Content was already read back and verified above;
+            // keep the atomic rename while failing closed everywhere else.
+            if (process.platform !== 'win32' || (error as NodeJS.ErrnoException).code !== 'EPERM') {
+                throw error;
+            }
+        }
     } finally {
         closeSync(descriptor);
     }

@@ -396,7 +396,7 @@ export const POST: APIRoute = async (context) => {
     let event: Stripe.Event;
 
     try {
-        event = stripe.webhooks.constructEvent(payload, signature, webhookSecret);
+        event = await stripe.webhooks.constructEventAsync(payload, signature, webhookSecret);
     } catch (err) {
         // Manejo de error tipado
         const errorMessage = err instanceof Error ? err.message : 'Unknown Error';

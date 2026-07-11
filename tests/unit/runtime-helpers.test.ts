@@ -28,12 +28,23 @@ describe('runAfterResponse', () => {
         vi.restoreAllMocks();
     });
 
-    it('uses Cloudflare waitUntil when Astro exposes the runtime context', async () => {
+    it('uses Cloudflare waitUntil from the Astro 6 cfContext without touching the removed runtime.ctx getter', async () => {
         const waitUntil = vi.fn();
         const work = Promise.resolve('done');
+        const removedRuntime = {};
+        Object.defineProperty(removedRuntime, 'ctx', {
+            get: () => {
+                throw new Error('Astro.locals.runtime.ctx has been removed in Astro v6');
+            },
+        });
 
         runAfterResponse(
-            { locals: { runtime: { ctx: { waitUntil } } } } as unknown as APIContext,
+            {
+                locals: {
+                    cfContext: { waitUntil },
+                    runtime: removedRuntime,
+                },
+            } as unknown as APIContext,
             work
         );
 

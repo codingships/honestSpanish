@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const stripeMocks = vi.hoisted(() => ({
     accountRetrieve: vi.fn(),
-    constructEvent: vi.fn(),
+    constructEventAsync: vi.fn(),
     subscriptionRetrieve: vi.fn(),
     invoicePaymentList: vi.fn(),
 }));
@@ -33,7 +33,7 @@ vi.mock('../../src/lib/stripe', () => ({
             retrieve: stripeMocks.accountRetrieve,
         },
         webhooks: {
-            constructEvent: stripeMocks.constructEvent,
+            constructEventAsync: stripeMocks.constructEventAsync,
         },
         subscriptions: {
             retrieve: stripeMocks.subscriptionRetrieve,
@@ -622,7 +622,7 @@ describe('POST /api/stripe-webhook', () => {
         vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_example');
         vi.stubEnv('PUBLIC_APP_ENV', 'test');
         stripeMocks.accountRetrieve.mockResolvedValue({ id: 'acct_test', country: 'US' });
-        stripeMocks.constructEvent.mockReturnValue(checkoutEvent());
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutEvent());
         stripeMocks.subscriptionRetrieve.mockResolvedValue({
             customer: 'cus_checkout_1',
             status: 'active',
@@ -680,15 +680,28 @@ describe('POST /api/stripe-webhook', () => {
     });
 
     it('returns 400 on webhook signature verification failure', async () => {
-        stripeMocks.constructEvent.mockImplementation(() => {
-            throw new Error('Firma Invalida');
-        });
+        stripeMocks.constructEventAsync.mockRejectedValue(new Error('Firma Invalida'));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
 
         expect(response.status).toBe(400);
         await expect(response.text()).resolves.toContain('Webhook Error');
+    });
+
+    it('verifies the raw payload with the async Web Crypto-compatible Stripe API', async () => {
+        const duplicate = makeDuplicateSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(duplicate.client);
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(stripeMocks.constructEventAsync).toHaveBeenCalledWith(
+            '{"id":"evt_1"}',
+            't=123,v1=test',
+            'test_secret_key_123',
+        );
     });
 
     it('acknowledges duplicate events without running payment handlers again', async () => {
@@ -713,7 +726,7 @@ describe('POST /api/stripe-webhook', () => {
     it('does not enqueue a second renewal notice for a duplicate upcoming-invoice event', async () => {
         const duplicate = makeDuplicateSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(duplicate.client);
-        stripeMocks.constructEvent.mockReturnValue({
+        stripeMocks.constructEventAsync.mockResolvedValue({
             id: 'evt_upcoming_duplicate',
             type: 'invoice.upcoming',
             data: { object: {} },
@@ -730,7 +743,7 @@ describe('POST /api/stripe-webhook', () => {
     it('releases the exact local checkout intent when its Stripe Session expires', async () => {
         const expired = makeExpiredCheckoutSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(expired.client);
-        stripeMocks.constructEvent.mockReturnValue(expiredCheckoutEvent());
+        stripeMocks.constructEventAsync.mockResolvedValue(expiredCheckoutEvent());
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -749,7 +762,7 @@ describe('POST /api/stripe-webhook', () => {
     it('ignores an expired foreign Checkout Session only after proving no local intent exists', async () => {
         const expired = makeExpiredCheckoutSupabase(null);
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(expired.client);
-        stripeMocks.constructEvent.mockReturnValue(expiredCheckoutEvent({ metadata: {} }));
+        stripeMocks.constructEventAsync.mockResolvedValue(expiredCheckoutEvent({ metadata: {} }));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -762,7 +775,7 @@ describe('POST /api/stripe-webhook', () => {
     it('fails for retry when an expired local Checkout Session is missing app metadata', async () => {
         const expired = makeExpiredCheckoutSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(expired.client);
-        stripeMocks.constructEvent.mockReturnValue(expiredCheckoutEvent({ metadata: {} }));
+        stripeMocks.constructEventAsync.mockResolvedValue(expiredCheckoutEvent({ metadata: {} }));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -778,7 +791,7 @@ describe('POST /api/stripe-webhook', () => {
     it('rejects an expired Checkout Session from the wrong Stripe mode', async () => {
         const expired = makeExpiredCheckoutSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(expired.client);
-        stripeMocks.constructEvent.mockReturnValue(expiredCheckoutEvent({ livemode: true }));
+        stripeMocks.constructEventAsync.mockResolvedValue(expiredCheckoutEvent({ livemode: true }));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -872,7 +885,7 @@ describe('POST /api/stripe-webhook', () => {
     it('does not activate quota for a checkout session that is not paid', async () => {
         const checkoutSupabase = makeCheckoutSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(checkoutSupabase.client);
-        stripeMocks.constructEvent.mockReturnValue(checkoutEvent({
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutEvent({
             payment_status: 'unpaid',
         }));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
@@ -895,7 +908,7 @@ describe('POST /api/stripe-webhook', () => {
     it('fails closed when checkout metadata contradicts the paid Stripe Price', async () => {
         const checkoutSupabase = makeCheckoutSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(checkoutSupabase.client);
-        stripeMocks.constructEvent.mockReturnValue(checkoutEvent({
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutEvent({
             metadata: {
                 userId: studentId,
                 priceId: 'not-a-price-id',
@@ -925,7 +938,7 @@ describe('POST /api/stripe-webhook', () => {
     ) => {
         const checkoutSupabase = makeCheckoutSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(checkoutSupabase.client);
-        stripeMocks.constructEvent.mockReturnValue(checkoutEvent(sessionOverrides));
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutEvent(sessionOverrides));
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce({
             customer: subscriptionCustomer,
             status: 'active',
@@ -1065,7 +1078,7 @@ describe('POST /api/stripe-webhook', () => {
             error: null,
         });
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(checkoutSupabase.client);
-        stripeMocks.constructEvent.mockReturnValue(checkoutEvent());
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutEvent());
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -1105,7 +1118,7 @@ describe('POST /api/stripe-webhook', () => {
         const renewalSupabase = makeRenewalSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(renewalSupabase.client);
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({ metadata: {} }));
-        stripeMocks.constructEvent.mockReturnValue({
+        stripeMocks.constructEventAsync.mockResolvedValue({
             id: 'evt_invoice_paid_1',
             type: 'invoice.paid',
             data: {
@@ -1173,7 +1186,7 @@ describe('POST /api/stripe-webhook', () => {
             status: 'past_due',
             metadata: {},
         }));
-        stripeMocks.constructEvent.mockReturnValue(invoiceEvent(
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent(
             'invoice.payment_failed',
             recurringInvoice({ amount_paid: 0 })
         ));
@@ -1207,7 +1220,7 @@ describe('POST /api/stripe-webhook', () => {
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({
             metadata: { userId: '90000000-0000-4000-8000-000000000009' },
         }));
-        stripeMocks.constructEvent.mockReturnValue(invoiceEvent('invoice.paid', recurringInvoice()));
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', recurringInvoice()));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -1223,7 +1236,7 @@ describe('POST /api/stripe-webhook', () => {
         renewalSupabase.subscriptionLookup.maybeSingle.mockResolvedValueOnce({ data: null, error: null });
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(renewalSupabase.client);
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({ metadata: {} }));
-        stripeMocks.constructEvent.mockReturnValue(invoiceEvent('invoice.paid', recurringInvoice()));
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', recurringInvoice()));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -1241,7 +1254,7 @@ describe('POST /api/stripe-webhook', () => {
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({
             metadata: { packagePriceId },
         }));
-        stripeMocks.constructEvent.mockReturnValue(invoiceEvent('invoice.upcoming', recurringInvoice()));
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.upcoming', recurringInvoice()));
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
@@ -1270,7 +1283,7 @@ describe('POST /api/stripe-webhook', () => {
         });
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(renewalSupabase.client);
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({ metadata: {} }));
-        stripeMocks.constructEvent.mockReturnValue(invoiceEvent('invoice.paid', recurringInvoice()));
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', recurringInvoice()));
         stripeMocks.invoicePaymentList.mockResolvedValueOnce({
             data: [{
                 status: 'paid',
@@ -1305,7 +1318,7 @@ describe('POST /api/stripe-webhook', () => {
         });
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(renewalSupabase.client);
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({ metadata: {} }));
-        stripeMocks.constructEvent.mockReturnValue(invoiceEvent('invoice.paid', recurringInvoice()));
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', recurringInvoice()));
         stripeMocks.invoicePaymentList.mockResolvedValueOnce({
             data: [{
                 status: 'paid',
@@ -1337,7 +1350,7 @@ describe('POST /api/stripe-webhook', () => {
         });
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(renewalSupabase.client);
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({ metadata: {} }));
-        stripeMocks.constructEvent.mockReturnValue(invoiceEvent('invoice.paid', recurringInvoice()));
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', recurringInvoice()));
         stripeMocks.invoicePaymentList.mockResolvedValueOnce({
             data: [{
                 status: 'paid',
@@ -1358,7 +1371,7 @@ describe('POST /api/stripe-webhook', () => {
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(renewalSupabase.client);
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription({ metadata: {} }));
         const invoicePeriodEnd = Math.floor(Date.parse('2099-08-10T00:00:00.000Z') / 1000);
-        stripeMocks.constructEvent.mockReturnValue({
+        stripeMocks.constructEventAsync.mockResolvedValue({
             id: 'evt_invoice_upcoming_1',
             type: 'invoice.upcoming',
             data: {
@@ -1415,7 +1428,7 @@ describe('POST /api/stripe-webhook', () => {
             metadata: { userId: studentId },
             items: { data: [] },
         });
-        stripeMocks.constructEvent.mockReturnValue({
+        stripeMocks.constructEventAsync.mockResolvedValue({
             id: 'evt_invoice_upcoming_cancelled',
             type: 'invoice.upcoming',
             data: {
@@ -1472,7 +1485,7 @@ describe('POST /api/stripe-webhook', () => {
         renewalSupabase.renewalRpc.mockResolvedValueOnce({ data: false, error: null });
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(renewalSupabase.client);
         stripeMocks.subscriptionRetrieve.mockResolvedValueOnce(renewalStripeSubscription());
-        stripeMocks.constructEvent.mockReturnValue({
+        stripeMocks.constructEventAsync.mockResolvedValue({
             id: 'evt_invoice_paid_retry',
             type: 'invoice.paid',
             data: {
@@ -1522,7 +1535,7 @@ describe('POST /api/stripe-webhook', () => {
     it('synchronizes partial Stripe refunds without marking the whole payment refunded', async () => {
         const refundSupabase = makeRefundSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
-        stripeMocks.constructEvent.mockReturnValue({
+        stripeMocks.constructEventAsync.mockResolvedValue({
             id: 'evt_refund_1',
             type: 'charge.refunded',
             data: {
@@ -1562,7 +1575,7 @@ describe('POST /api/stripe-webhook', () => {
     it('synchronizes a full refund through the InvoicePayment invoice fallback', async () => {
         const refundSupabase = makeRefundSupabase(false);
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
-        stripeMocks.constructEvent.mockReturnValue({
+        stripeMocks.constructEventAsync.mockResolvedValue({
             id: 'evt_refund_full_1',
             type: 'charge.refunded',
             data: {
