@@ -197,7 +197,7 @@ function reviewStripePaymentSecurity(): Finding {
             'processed_webhook_events',
             'markWebhookEventProcessed',
             "error.code === '23505'",
-            "markProcessed === 'failed'",
+            "markProcessed.status === 'failed'",
         ]],
         [path.join('src', 'pages', 'api', 'create-checkout.ts'), [
             'createSupabaseServerClient',
@@ -205,7 +205,7 @@ function reviewStripePaymentSecurity(): Finding {
             'is_active',
             'stripe.prices.retrieve',
             '!stripePrice.active',
-            '!stripePrice.recurring',
+            "stripePrice.recurring?.interval !== 'month'",
             'getPrivateProfile',
         ]],
         [path.join('src', 'pages', 'api', 'account', 'create-portal-session.ts'), [

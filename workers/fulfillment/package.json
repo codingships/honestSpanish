@@ -17,9 +17,9 @@
     },
     "scripts": {
         "preinstall": "node ../../scripts/enforce-pnpm.cjs",
-        "dev": "wrangler dev --local --port 8788 --env staging",
-        "deploy": "wrangler deploy --env staging",
-        "deploy:production": "wrangler deploy --env production --dry-run",
+        "dev": "wrangler dev --config wrangler.toml --local --port 8788 --env staging",
+        "deploy": "wrangler deploy --config wrangler.toml --env staging",
+        "deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {

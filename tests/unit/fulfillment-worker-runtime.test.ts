@@ -41,8 +41,8 @@ describe('fulfillment Worker runtime boundary', () => {
         expect(productionConfig).not.toContain('queues.producers');
         expect(productionConfig).not.toContain('queues.consumers');
         expect(productionConfig).not.toContain('FULFILLMENT_QUEUE');
-        expect(packageJson).toContain('"deploy": "wrangler deploy --env staging"');
-        expect(packageJson).toContain('"deploy:production": "wrangler deploy --env production --dry-run"');
+        expect(packageJson).toContain('"deploy": "wrangler deploy --config wrangler.toml --env staging"');
+        expect(packageJson).toContain('"deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run"');
         expect(worker).not.toContain('applyRuntimeEnv');
     });
 });

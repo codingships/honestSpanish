@@ -4,6 +4,17 @@ import { describe, expect, it } from 'vitest';
 const read = (file: string) => readFileSync(file, 'utf8');
 
 describe('launch audit regression guards', () => {
+    it('tracks the current Stripe webhook lease and recurring Price guards', () => {
+        const audit = read('scripts/launch/security-audit.ts');
+        const checkout = read('src/pages/api/create-checkout.ts');
+        const webhook = read('src/pages/api/stripe-webhook.ts');
+
+        expect(audit).toContain("markProcessed.status === 'failed'");
+        expect(audit).toContain("stripePrice.recurring?.interval !== 'month'");
+        expect(webhook).toContain("markProcessed.status === 'failed'");
+        expect(checkout).toContain("stripePrice.recurring?.interval !== 'month'");
+    });
+
     it('keeps opaque runtime attestation inside the explicit server-only service-role boundary', () => {
         const audit = read('scripts/launch/security-audit.ts');
 
@@ -16,8 +27,8 @@ describe('launch audit regression guards', () => {
     it('requires environment-explicit fulfillment deploy commands in both operations checks', () => {
         const audit = read('scripts/launch/operations-audit.ts');
         const workflow = read('.github/workflows/ci.yml');
-        const stagingSnippet = '"deploy": "wrangler deploy --env staging"';
-        const productionSnippet = '"deploy:production": "wrangler deploy --env production --dry-run"';
+        const stagingSnippet = '"deploy": "wrangler deploy --config wrangler.toml --env staging"';
+        const productionSnippet = '"deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run"';
 
         expect(audit.split(stagingSnippet)).toHaveLength(3);
         expect(audit.split(productionSnippet)).toHaveLength(3);
@@ -25,6 +36,20 @@ describe('launch audit regression guards', () => {
         expect(workflow.indexOf('name: Deploy staging Cloudflare Fulfillment Worker')).toBeLessThan(
             workflow.indexOf('name: Deploy staging Cloudflare Worker'),
         );
+    });
+
+    it('tracks ambiguous fulfillment effects without exhausting blind retries', () => {
+        const audit = read('scripts/launch/operations-audit.ts');
+        const jobs = read('src/lib/fulfillment/jobs.ts');
+
+        for (const snippet of [
+            'status: manualReview || exhausted ?',
+            'MANUAL_RECONCILIATION_RUN_AT',
+            'attempts: job.attempts',
+        ]) {
+            expect(audit).toContain(snippet);
+            expect(jobs).toContain(snippet);
+        }
     });
 
     it('preserves the fulfillment runtime evidence required by final readiness', () => {

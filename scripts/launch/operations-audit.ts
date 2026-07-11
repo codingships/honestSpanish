@@ -97,9 +97,9 @@ function reviewCloudflareFulfillmentWorker(): Finding {
     details.push(...missingSnippets(packageFile, packageJson, [
         '"name": "@espanol-honesto/fulfillment-worker"',
         '"packageManager": "pnpm@10.33.0"',
-        '"dev": "wrangler dev --local --port 8788 --env staging"',
-        '"deploy": "wrangler deploy --env staging"',
-        '"deploy:production": "wrangler deploy --env production --dry-run"',
+        '"dev": "wrangler dev --config wrangler.toml --local --port 8788 --env staging"',
+        '"deploy": "wrangler deploy --config wrangler.toml --env staging"',
+        '"deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run"',
         '"typecheck": "tsc --noEmit"',
         '@googleapis/calendar',
         '@googleapis/drive',
@@ -239,8 +239,8 @@ function reviewFulfillmentWorkerRuntime(): Finding {
     const details = [
         ...missingSnippets(path.join('workers', 'fulfillment', 'package.json'), packageJson, [
             '"packageManager": "pnpm@10.33.0"',
-            '"deploy": "wrangler deploy --env staging"',
-            '"deploy:production": "wrangler deploy --env production --dry-run"',
+            '"deploy": "wrangler deploy --config wrangler.toml --env staging"',
+            '"deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run"',
             '"typecheck": "tsc --noEmit"',
             '@googleapis/calendar',
             '@googleapis/drive',
@@ -324,7 +324,9 @@ function reviewFulfillmentJobRecovery(): Finding {
             'nextRunAt',
             'processDueFulfillmentJobs',
             'attempts >= job.max_attempts',
-            'status: exhausted ?',
+            'status: manualReview || exhausted ?',
+            'MANUAL_RECONCILIATION_RUN_AT',
+            'attempts: job.attempts',
             'last_error',
         ]),
         ...missingSnippets(path.join('src', 'lib', 'fulfillment', 'queue.ts'), queue, [
