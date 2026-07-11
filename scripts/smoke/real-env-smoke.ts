@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
@@ -18,6 +18,11 @@ import {
     verifyDeployedStagingRuntime,
     type ExpectedCheckoutOverride,
 } from './deployed-runtime-safety';
+import {
+    STAGING_SUPABASE_PROJECT_REF,
+    validateCanonicalLifecycleReport,
+    type CanonicalLifecycleReportSummary,
+} from '../launch/staging-billing-lifecycle-safety';
 
 // This harness is staging-only. Process env values supplied by the gated
 // runner win; local defaults come exclusively from the ignored staging file.
@@ -40,17 +45,16 @@ const EMAIL_RECIPIENT_ALLOWLIST = requireEnv('EMAIL_RECIPIENT_ALLOWLIST');
 const COMPLETED_CHECKOUT_SESSION_ID = RUNTIME_PREFLIGHT_ONLY
     ? process.env.SMOKE_COMPLETED_CHECKOUT_SESSION_ID?.trim() ?? ''
     : requireEnv('SMOKE_COMPLETED_CHECKOUT_SESSION_ID');
-const BILLING_LIFECYCLE_CONFIRMATION = RUNTIME_PREFLIGHT_ONLY
-    ? process.env.SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION?.trim() ?? ''
-    : requireEnv('SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION');
-const CHECKOUT_GATE_CONFIRMATION = requireEnv('STAGING_CHECKOUT_GATE_CONFIRMATION');
+const BILLING_LIFECYCLE_EVIDENCE_PATH = RUNTIME_PREFLIGHT_ONLY
+    ? process.env.SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH?.trim() ?? ''
+    : requireEnv('SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH');
 const FULFILLMENT_WORKER_URL = normalizeAndConfirmFulfillmentWorkerUrl(requireEnv('FULFILLMENT_WORKER_URL'));
 const INTERNAL_JOB_SECRET = requireEnv('INTERNAL_JOB_SECRET');
 const SMOKE_AUTH_USER_SCAN_MAX_PAGES = readPositiveIntegerEnv('SMOKE_AUTH_USER_SCAN_MAX_PAGES', 100);
 const EXPECTED_CHECKOUT_OVERRIDE = readExpectedCheckoutOverride(process.argv.slice(2));
 
-if (EXPECTED_CHECKOUT_OVERRIDE === 'false' && !PREFLIGHT_ONLY) {
-    throw new Error('--expect-checkout-override=false is valid only for a read-only preflight');
+if (EXPECTED_CHECKOUT_OVERRIDE !== 'false') {
+    throw new Error('Real environment smoke requires --expect-checkout-override=false and never opens the checkout gate.');
 }
 
 const supabaseUrl = process.env.PUBLIC_SUPABASE_URL;
@@ -156,8 +160,10 @@ type SmokeResult = {
     };
     checkout: {
         ok: boolean;
+        verificationMode: 'completed-checkout-readonly';
         status: number;
         body: Json | string;
+        completedCheckoutVerified: boolean;
         checkoutIntentRecorded: boolean;
         cleanupStatus: string | null;
     };
@@ -172,8 +178,12 @@ type SmokeResult = {
     };
     billingLifecycle: {
         ok: boolean;
-        verificationMode: 'real-checkout-readonly';
+        verificationMode: 'canonical-lifecycle-evidence';
         manualGate: string | null;
+        canonicalEvidenceVerified: boolean;
+        processedWebhookEventsSucceeded: boolean;
+        renewalPaymentFullyRefunded: boolean;
+        initialPaymentPreserved: boolean;
         stripeSubscriptionId: string | null;
         stripeSubscriptionStatus: string | null;
         packagePriceMatched: boolean;
@@ -259,7 +269,7 @@ type SmokeResult = {
     };
     cleanup: {
         ok: boolean;
-        crmOpportunityDeleted: boolean;
+        completedCheckoutEvidencePreserved: boolean;
         profileStateRestored: boolean;
         reusableStudentPreserved: boolean;
     };
@@ -319,8 +329,10 @@ async function main() {
         },
         checkout: {
             ok: false,
+            verificationMode: 'completed-checkout-readonly',
             status: 0,
             body: '',
+            completedCheckoutVerified: false,
             checkoutIntentRecorded: false,
             cleanupStatus: null,
         },
@@ -335,8 +347,12 @@ async function main() {
         },
         billingLifecycle: {
             ok: false,
-            verificationMode: 'real-checkout-readonly',
+            verificationMode: 'canonical-lifecycle-evidence',
             manualGate: null,
+            canonicalEvidenceVerified: false,
+            processedWebhookEventsSucceeded: false,
+            renewalPaymentFullyRefunded: false,
+            initialPaymentPreserved: false,
             stripeSubscriptionId: null,
             stripeSubscriptionStatus: null,
             packagePriceMatched: false,
@@ -422,7 +438,7 @@ async function main() {
         },
         cleanup: {
             ok: false,
-            crmOpportunityDeleted: false,
+            completedCheckoutEvidencePreserved: false,
             profileStateRestored: false,
             reusableStudentPreserved: false,
         },
@@ -434,6 +450,14 @@ async function main() {
     const preflight = await runReadOnlyPreflight();
     result.webhook = preflight.realPaymentEvidence.webhook;
     result.billingLifecycle = preflight.realPaymentEvidence.billingLifecycle;
+    result.checkout.status = preflight.checkoutGateStatus;
+    result.checkout.body = 'checkout-disabled-verified';
+    result.checkout.completedCheckoutVerified = preflight.realPaymentEvidence.webhook.ok;
+    result.checkout.checkoutIntentRecorded = preflight.realPaymentEvidence.webhook.checkoutIntentCompleted;
+    result.checkout.cleanupStatus = 'completed-checkout-evidence-preserved';
+    result.checkout.ok = preflight.checkoutGateStatus === 403
+        && result.checkout.completedCheckoutVerified
+        && result.checkout.checkoutIntentRecorded;
 
     if (PREFLIGHT_ONLY) {
         console.log(JSON.stringify({
@@ -441,7 +465,7 @@ async function main() {
             environment: 'staging',
             mode: 'read-only-preflight',
             completedCheckoutVerified: true,
-            billingLifecycleReviewed: true,
+            canonicalBillingLifecycleVerified: true,
             checkoutGateVerified: EXPECTED_CHECKOUT_OVERRIDE,
             runtimeAttestationsVerified: true,
             allowlistedRoleAccountsVerified: true,
@@ -452,8 +476,6 @@ async function main() {
 
     const { activePackage, oneMonthOffer, teacherProfile, student, stripePrices } = preflight;
     const initialPrivateState = await getReusableStudentPrivateState(student.id);
-    let checkoutApproval: { contactId: string; opportunityId: string } | null = null;
-    let openCheckout: OpenSmokeCheckout | null = null;
     let runError: unknown = null;
     let teacherDrivePermissionExisted = false;
 
@@ -516,39 +538,6 @@ async function main() {
             result.drive.publicLinkPermissionPreserved &&
             result.drive.explicitGooglePermissionGranted;
 
-        checkoutApproval = await ensureSmokeCheckoutApproval(student, activePackage.id);
-        openCheckout = {
-            ok: false,
-            sessionId: null,
-            intentId: null,
-            opportunityId: checkoutApproval.opportunityId,
-        };
-        try {
-            const checkoutResponse = await authedJsonFetch(studentSession, '/api/create-checkout', {
-                method: 'POST',
-                body: {
-                    priceId: oneMonthOffer.stripe_price_id,
-                    lang: 'es',
-                    adultConfirmed: true,
-                    termsAccepted: true,
-                    serviceStartRequested: true,
-                    withdrawalLossAcknowledged: true,
-                },
-            });
-            result.checkout.status = checkoutResponse.status;
-            result.checkout.body = checkoutResponse.body;
-            openCheckout = await verifyOpenCheckout({
-                response: checkoutResponse,
-                studentId: student.id,
-                opportunityId: checkoutApproval.opportunityId,
-                packagePrice: oneMonthOffer,
-            });
-            result.checkout.checkoutIntentRecorded = openCheckout.ok;
-            result.checkout.ok = checkoutResponse.status === 200 && openCheckout.ok;
-        } finally {
-            result.checkout.cleanupStatus = await expireOpenSmokeCheckout(openCheckout);
-        }
-
         result.schedulingLifecycle = await runSchedulingLifecycleSmoke({
             suffix,
             adminSession,
@@ -568,9 +557,7 @@ async function main() {
         runError = error;
     } finally {
         try {
-            result.cleanup.crmOpportunityDeleted = checkoutApproval
-                ? await deleteSmokeCheckoutArtifacts(checkoutApproval.opportunityId, openCheckout?.intentId ?? null)
-                : true;
+            result.cleanup.completedCheckoutEvidencePreserved = result.checkout.cleanupStatus === 'completed-checkout-evidence-preserved';
             const profileRestored = await restoreReusableStudentPrivateState(student.id, initialPrivateState);
             const drivePermissionRestored = await restoreDriveUserPermission(
                 result.drive.driveFolderId,
@@ -579,7 +566,7 @@ async function main() {
             );
             result.cleanup.profileStateRestored = profileRestored && drivePermissionRestored;
             result.cleanup.reusableStudentPreserved = Boolean(await getAuthUserByEmail(STUDENT_EMAIL));
-            result.cleanup.ok = result.cleanup.crmOpportunityDeleted
+            result.cleanup.ok = result.cleanup.completedCheckoutEvidencePreserved
                 && result.cleanup.profileStateRestored
                 && result.cleanup.reusableStudentPreserved;
         } catch {
@@ -611,12 +598,12 @@ type ReadOnlySmokePreflight = {
     student: SmokeStudent;
     stripePrices: Awaited<ReturnType<typeof stripe.prices.list>>;
     realPaymentEvidence: VerifiedRealPaymentEvidence;
+    checkoutGateStatus: number;
 };
 
 async function runReadOnlyPreflight(): Promise<ReadOnlySmokePreflight> {
-    await verifyDeployedRuntimeAndCheckoutGate();
+    const checkoutGateStatus = await verifyDeployedRuntimeAndCheckoutGate();
     assertExactSmokeEmailAllowlist();
-    if (EXPECTED_CHECKOUT_OVERRIDE === 'true') assertCheckoutGateConfirmation();
 
     const [activePackage, adminProfile, teacherProfile, studentProfile, adminAuthUser, teacherAuthUser, studentAuthUser, stripePrices] = await Promise.all([
         getActivePackage(),
@@ -653,7 +640,7 @@ async function runReadOnlyPreflight(): Promise<ReadOnlySmokePreflight> {
         || realPaymentEvidence.verifiedStudentId !== student.id
         || !realPaymentEvidence.verifiedSubscriptionId
     ) {
-        throw new Error('Completed Checkout and reviewed billing lifecycle evidence must match the existing allowlisted smoke student before any write.');
+        throw new Error('Completed Checkout and canonical billing lifecycle evidence must match the existing allowlisted smoke student before any write.');
     }
 
     const { data: blockingSubscription, error: blockingSubscriptionError } = await supabaseAdmin
@@ -665,7 +652,7 @@ async function runReadOnlyPreflight(): Promise<ReadOnlySmokePreflight> {
         .maybeSingle();
     if (blockingSubscriptionError) throw blockingSubscriptionError;
     if (blockingSubscription) {
-        throw new Error('The reusable smoke student still has an active, pending or paused subscription; complete the reviewed cancellation lifecycle before the write phase.');
+        throw new Error('The reusable smoke student still has an active, pending or paused subscription; complete and verify the canonical cancellation lifecycle before the write phase.');
     }
 
     return {
@@ -675,6 +662,7 @@ async function runReadOnlyPreflight(): Promise<ReadOnlySmokePreflight> {
         student,
         stripePrices,
         realPaymentEvidence,
+        checkoutGateStatus,
     };
 }
 
@@ -694,13 +682,6 @@ function assertExactSmokeEmailAllowlist() {
     }
 }
 
-function assertCheckoutGateConfirmation() {
-    const expected = `enabled-after-separate-cloudflare-approval:${new URL(BASE_URL).host}`;
-    if (CHECKOUT_GATE_CONFIRMATION !== expected) {
-        throw new Error(`STAGING_CHECKOUT_GATE_CONFIRMATION must acknowledge the separately approved staging gate change for ${new URL(BASE_URL).host}.`);
-    }
-}
-
 async function verifyDeployedRuntimeAndCheckoutGate() {
     await verifyDeployedStagingRuntime({
         baseOrigin: BASE_URL,
@@ -709,7 +690,7 @@ async function verifyDeployedRuntimeAndCheckoutGate() {
         fulfillmentOrigin: FULFILLMENT_WORKER_URL,
         roleEmails: [ADMIN_EMAIL, TEACHER_EMAIL, STUDENT_EMAIL],
     });
-    await probeCheckoutGateReadOnly(EXPECTED_CHECKOUT_OVERRIDE);
+    return probeCheckoutGateReadOnly(EXPECTED_CHECKOUT_OVERRIDE);
 }
 
 async function probeCheckoutGateReadOnly(expectedOverride: ExpectedCheckoutOverride) {
@@ -729,134 +710,7 @@ async function probeCheckoutGateReadOnly(expectedOverride: ExpectedCheckoutOverr
     if (response.status !== expectedStatus) {
         throw new Error(`Read-only checkout gate probe expected ${expectedStatus} for override=${expectedOverride} and received ${response.status}.`);
     }
-}
-
-type OpenSmokeCheckout = {
-    ok: boolean;
-    sessionId: string | null;
-    intentId: string | null;
-    opportunityId: string;
-};
-
-async function verifyOpenCheckout(options: {
-    response: { status: number; body: Json | string };
-    studentId: string;
-    opportunityId: string;
-    packagePrice: ActivePackagePrice;
-}): Promise<OpenSmokeCheckout> {
-    const fallback: OpenSmokeCheckout = {
-        ok: false,
-        sessionId: null,
-        intentId: null,
-        opportunityId: options.opportunityId,
-    };
-    const responseBody = options.response.body;
-    if (
-        options.response.status !== 200
-        || !responseBody
-        || typeof responseBody !== 'object'
-        || Array.isArray(responseBody)
-    ) {
-        return fallback;
-    }
-
-    const checkoutUrl = typeof responseBody.url === 'string'
-        ? responseBody.url
-        : null;
-    const sessionId = checkoutUrl?.match(/\bcs_(?:test|live)_[A-Za-z0-9_]+/)?.[0] ?? null;
-    if (!sessionId) return fallback;
-
-    const [sessionOutcome, intentOutcome] = await Promise.allSettled([
-        stripe.checkout.sessions.retrieve(sessionId),
-        supabaseAdmin
-            .from('checkout_intents')
-            .select('id, opportunity_id, student_id, package_price_id, stripe_checkout_session_id, status')
-            .eq('stripe_checkout_session_id', sessionId)
-            .maybeSingle(),
-    ]);
-    if (sessionOutcome.status === 'rejected' || intentOutcome.status === 'rejected') {
-        return { ...fallback, sessionId };
-    }
-    const session = sessionOutcome.value;
-    const intentResult = intentOutcome.value;
-    const intent = intentResult.data;
-    if (intentResult.error || !intent) {
-        return { ...fallback, sessionId };
-    }
-
-    return {
-        ok:
-            session.status === 'open'
-            && !session.livemode
-            && session.mode === 'subscription'
-            && session.metadata?.userId === options.studentId
-            && session.metadata?.packagePriceId === options.packagePrice.id
-            && session.metadata?.crmOpportunityId === options.opportunityId
-            && session.metadata?.checkoutIntentId === intent.id
-            && intent.status === 'open'
-            && intent.student_id === options.studentId
-            && intent.opportunity_id === options.opportunityId
-            && intent.package_price_id === options.packagePrice.id,
-        sessionId,
-        intentId: intent.id,
-        opportunityId: options.opportunityId,
-    };
-}
-
-async function expireOpenSmokeCheckout(checkout: OpenSmokeCheckout) {
-    if (checkout.sessionId) {
-        const session = await stripe.checkout.sessions.retrieve(checkout.sessionId);
-        if (session.status === 'complete') {
-            return 'preserved-complete-for-real-webhook-reconciliation';
-        }
-        if (session.status === 'open') {
-            await stripe.checkout.sessions.expire(session.id);
-        }
-    }
-
-    let intentId = checkout.intentId;
-    if (!intentId && checkout.sessionId) {
-        const { data: intent, error: intentReadError } = await supabaseAdmin
-            .from('checkout_intents')
-            .select('id')
-            .eq('stripe_checkout_session_id', checkout.sessionId)
-            .maybeSingle();
-        if (intentReadError) throw intentReadError;
-        intentId = intent?.id ?? null;
-    }
-    if (!intentId) {
-        const { data: intent, error: intentReadError } = await supabaseAdmin
-            .from('checkout_intents')
-            .select('id')
-            .eq('opportunity_id', checkout.opportunityId)
-            .in('status', ['creating', 'open'])
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-        if (intentReadError) throw intentReadError;
-        intentId = intent?.id ?? null;
-    }
-
-    const now = new Date().toISOString();
-    if (intentId) {
-        const { error: intentError } = await supabaseAdmin
-            .from('checkout_intents')
-            .update({ status: 'expired', updated_at: now })
-            .eq('id', intentId)
-            .in('status', ['creating', 'open']);
-        if (intentError) throw intentError;
-    }
-
-    const { error: approvalError } = await supabaseAdmin
-        .from('crm_opportunities')
-        .update({ checkout_approved_at: null, updated_at: now })
-        .eq('id', checkout.opportunityId)
-        .is('converted_subscription_id', null);
-    if (approvalError) throw approvalError;
-
-    return checkout.sessionId
-        ? 'expired-test-session-and-released-approval'
-        : 'released-approval-without-checkout-session';
+    return response.status;
 }
 
 function emptyRealPaymentEvidence(manualGate: string) {
@@ -872,8 +726,12 @@ function emptyRealPaymentEvidence(manualGate: string) {
         },
         billingLifecycle: {
             ok: false,
-            verificationMode: 'real-checkout-readonly' as const,
+            verificationMode: 'canonical-lifecycle-evidence' as const,
             manualGate,
+            canonicalEvidenceVerified: false,
+            processedWebhookEventsSucceeded: false,
+            renewalPaymentFullyRefunded: false,
+            initialPaymentPreserved: false,
             stripeSubscriptionId: null,
             stripeSubscriptionStatus: null,
             packagePriceMatched: false,
@@ -1027,11 +885,11 @@ async function verifyCompletedCheckoutEvidence(rawSessionId: string | undefined)
             && packagePriceMatched
             && crmOpportunityConverted;
 
-        const billingConfirmation = BILLING_LIFECYCLE_CONFIRMATION;
-        const expectedBillingConfirmation = 'reviewed-real-events:' + session.id;
-        const billingManualGate = billingConfirmation === expectedBillingConfirmation
-            ? null
-            : 'Manual gate: review real Stripe test-clock renewal/failure/resume/cancellation evidence, then set SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION=reviewed-real-events:<checkout-session-id>.';
+        const canonicalReport = readCanonicalLifecycleReport(
+            BILLING_LIFECYCLE_EVIDENCE_PATH,
+            session.id,
+        );
+        const canonicalState = await revalidateCanonicalLifecycleState(canonicalReport, metadata.userId);
 
         return {
             webhook: {
@@ -1044,24 +902,250 @@ async function verifyCompletedCheckoutEvidence(rawSessionId: string | undefined)
                 crmOpportunityConverted,
             },
             billingLifecycle: {
-                ok: realWebhookProvisioningOk && billingManualGate === null,
-                verificationMode: 'real-checkout-readonly',
-                manualGate: billingManualGate,
+                ok: realWebhookProvisioningOk && canonicalState.ok,
+                verificationMode: 'canonical-lifecycle-evidence',
+                manualGate: null,
+                canonicalEvidenceVerified: true,
+                processedWebhookEventsSucceeded: canonicalState.processedWebhookEventsSucceeded,
+                renewalPaymentFullyRefunded: canonicalState.renewalPaymentFullyRefunded,
+                initialPaymentPreserved: canonicalState.initialPaymentPreserved,
                 stripeSubscriptionId,
-                stripeSubscriptionStatus: subscription?.status ?? null,
+                stripeSubscriptionStatus: canonicalState.stripeSubscriptionStatus,
                 packagePriceMatched,
                 durationMonths: subscription?.duration_months ?? null,
                 sessionsTotal: subscription?.sessions_total ?? null,
-                paymentStatus: payment?.status ?? null,
+                paymentStatus: canonicalState.renewalPaymentStatus,
             },
             verifiedStudentId: metadata.userId,
             verifiedSubscriptionId: subscription?.id ?? null,
         };
     } catch {
         return emptyRealPaymentEvidence(
-            'Manual gate failed: the supplied real Checkout evidence could not be verified read-only in Stripe and Supabase.'
+            'Canonical gate failed: the explicit completed lifecycle report or its live Stripe/Supabase state could not be verified.'
         );
     }
+}
+
+type CanonicalLifecycleState = {
+    ok: true;
+    stripeSubscriptionStatus: 'canceled';
+    renewalPaymentStatus: 'refunded';
+    processedWebhookEventsSucceeded: true;
+    renewalPaymentFullyRefunded: true;
+    initialPaymentPreserved: true;
+};
+
+function readCanonicalLifecycleReport(
+    rawEvidencePath: string,
+    checkoutSessionId: string,
+): CanonicalLifecycleReportSummary {
+    const evidenceRoot = path.resolve(
+        process.cwd(),
+        'outputs',
+        'launch-staging-billing-lifecycle',
+    );
+    const evidencePath = path.resolve(process.cwd(), rawEvidencePath);
+    const relative = path.relative(evidenceRoot, evidencePath);
+    const pathParts = relative.split(path.sep);
+    if (
+        !relative
+        || relative.startsWith('..')
+        || path.isAbsolute(relative)
+        || pathParts.length !== 2
+        || pathParts[0] === 'checkpoints'
+        || pathParts[1] !== 'summary.json'
+        || !existsSync(evidencePath)
+    ) {
+        throw new Error('SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH must identify one explicit canonical lifecycle summary.json.');
+    }
+
+    const serialized = readFileSync(evidencePath, 'utf8');
+    if (Buffer.byteLength(serialized, 'utf8') > 1_000_000) {
+        throw new Error('Canonical lifecycle evidence exceeds the safe size limit.');
+    }
+    const report = validateCanonicalLifecycleReport(JSON.parse(serialized) as unknown, {
+        checkoutSessionId,
+        stripeAccountId: requireEnv('STRIPE_EXPECTED_ACCOUNT_ID'),
+    });
+    if (path.resolve(report.outputDir) !== path.dirname(evidencePath)) {
+        throw new Error('Canonical lifecycle report outputDir does not match its explicit evidence path.');
+    }
+    return report;
+}
+
+async function revalidateCanonicalLifecycleState(
+    report: CanonicalLifecycleReportSummary,
+    expectedStudentId: string,
+): Promise<CanonicalLifecycleState> {
+    const evidence = report.canonicalEvidence;
+    const eventEntries = [
+        [evidence.webhookEventIds.checkoutCompleted, 'checkout.session.completed'],
+        [evidence.webhookEventIds.initialInvoicePaid, 'invoice.paid'],
+        [evidence.webhookEventIds.upcoming, 'invoice.upcoming'],
+        [evidence.webhookEventIds.renewalFailed, 'invoice.payment_failed'],
+        [evidence.webhookEventIds.renewalPaid, 'invoice.paid'],
+        [evidence.webhookEventIds.cancellation, 'customer.subscription.deleted'],
+        [evidence.webhookEventIds.partialRefund, 'charge.refunded'],
+        [evidence.webhookEventIds.finalRefund, 'charge.refunded'],
+    ] as const;
+    const eventIds = eventEntries.map(([eventId]) => eventId);
+
+    const [
+        account,
+        checkoutSession,
+        stripeSubscription,
+        renewalInvoice,
+        initialPaymentIntent,
+        recoveredPaymentIntent,
+        partialRefund,
+        finalRefund,
+        localSubscriptionResult,
+        localPaymentsResult,
+        processedEventsResult,
+    ] = await Promise.all([
+        stripe.accounts.retrieve(),
+        stripe.checkout.sessions.retrieve(evidence.checkoutSessionId),
+        stripe.subscriptions.retrieve(evidence.subscriptionId),
+        stripe.invoices.retrieve(evidence.renewalInvoiceId),
+        stripe.paymentIntents.retrieve(evidence.initialPaymentIntentId),
+        stripe.paymentIntents.retrieve(evidence.recoveredPaymentIntentId),
+        stripe.refunds.retrieve(evidence.partialRefundId),
+        stripe.refunds.retrieve(evidence.finalRefundId),
+        supabaseAdmin
+            .from('subscriptions')
+            .select('id, student_id, status, stripe_subscription_id, stripe_invoice_id')
+            .eq('stripe_subscription_id', evidence.subscriptionId)
+            .single(),
+        supabaseAdmin
+            .from('payments')
+            .select('id, student_id, subscription_id, amount, currency, status, stripe_payment_intent_id, stripe_invoice_id, amount_refunded')
+            .in('stripe_invoice_id', [evidence.initialInvoiceId, evidence.renewalInvoiceId]),
+        supabaseAdmin
+            .from('processed_webhook_events')
+            .select('stripe_event_id, event_type, processing_status, processing_error, processed_at')
+            .in('stripe_event_id', eventIds),
+    ]);
+
+    const queryError = localSubscriptionResult.error
+        ?? localPaymentsResult.error
+        ?? processedEventsResult.error;
+    if (queryError) throw queryError;
+    const localSubscription = localSubscriptionResult.data;
+    if (!localSubscription) throw new Error('Canonical lifecycle local subscription is missing.');
+    const localPayments = localPaymentsResult.data ?? [];
+    if (localPayments.length !== 2) {
+        throw new Error('Canonical lifecycle requires exactly the initial and recovered local payments.');
+    }
+    const processedEvents = processedEventsResult.data ?? [];
+    const initialPayment = localPayments.find((payment) => payment.stripe_invoice_id === evidence.initialInvoiceId);
+    const renewalPayment = localPayments.find((payment) => payment.stripe_invoice_id === evidence.renewalInvoiceId);
+    const paidInvoicePayments = await stripe.invoicePayments.list({
+        invoice: evidence.renewalInvoiceId,
+        status: 'paid',
+        limit: 100,
+    });
+    const renewalInvoicePaymentIntents = paidInvoicePayments.data.filter((payment) => (
+        payment.payment.type === 'payment_intent'
+        && stripeObjectId(payment.payment.payment_intent) === evidence.recoveredPaymentIntentId
+    ));
+    const initialCharge = await retrieveCanonicalCharge(initialPaymentIntent, evidence.customerId);
+    const recoveredCharge = await retrieveCanonicalCharge(recoveredPaymentIntent, evidence.customerId);
+
+    const processedWebhookEventsSucceeded = processedEvents.length === eventEntries.length
+        && eventEntries.every(([eventId, eventType]) => processedEvents.some((event) => (
+            event.stripe_event_id === eventId
+            && event.event_type === eventType
+            && event.processing_status === 'succeeded'
+            && event.processing_error === null
+            && Boolean(event.processed_at)
+        )));
+    const renewalPaymentFullyRefunded = Boolean(
+        renewalPayment
+        && renewalPayment.status === 'refunded'
+        && renewalPayment.amount > 1
+        && renewalPayment.amount_refunded === renewalPayment.amount
+        && renewalPayment.amount === renewalInvoice.amount_paid
+        && renewalPayment.currency === renewalInvoice.currency
+        && renewalPayment.stripe_payment_intent_id === evidence.recoveredPaymentIntentId
+        && renewalPayment.subscription_id === localSubscription.id
+        && renewalPayment.student_id === expectedStudentId
+        && recoveredCharge.refunded
+        && recoveredCharge.amount_refunded === recoveredCharge.amount
+        && recoveredCharge.amount === renewalInvoice.amount_paid
+        && partialRefund.status === 'succeeded'
+        && finalRefund.status === 'succeeded'
+        && stripeObjectId(partialRefund.payment_intent) === evidence.recoveredPaymentIntentId
+        && stripeObjectId(finalRefund.payment_intent) === evidence.recoveredPaymentIntentId
+        && partialRefund.amount + finalRefund.amount === recoveredCharge.amount
+    );
+    const initialPaymentPreserved = Boolean(
+        initialPayment
+        && initialPayment.status === 'succeeded'
+        && initialPayment.amount_refunded === 0
+        && initialPayment.stripe_payment_intent_id === evidence.initialPaymentIntentId
+        && initialPayment.subscription_id === localSubscription.id
+        && initialPayment.student_id === expectedStudentId
+        && !initialCharge.refunded
+        && initialCharge.amount_refunded === 0
+    );
+    const exactFinalState = account.id === report.scope.stripeAccountId
+        && checkoutSession.id === evidence.checkoutSessionId
+        && stripeObjectId(checkoutSession.subscription) === evidence.subscriptionId
+        && stripeObjectId(checkoutSession.invoice) === evidence.initialInvoiceId
+        && stripeSubscription.status === 'canceled'
+        && stripeObjectId(stripeSubscription.customer) === evidence.customerId
+        && renewalInvoice.status === 'paid'
+        && renewalInvoice.amount_paid > 1
+        && canonicalInvoiceSubscriptionId(renewalInvoice) === evidence.subscriptionId
+        && stripeObjectId(renewalInvoice.customer) === evidence.customerId
+        && renewalInvoicePaymentIntents.length === 1
+        && recoveredPaymentIntent.status === 'succeeded'
+        && recoveredPaymentIntent.amount_received === renewalInvoice.amount_paid
+        && initialPaymentIntent.status === 'succeeded'
+        && localSubscription.student_id === expectedStudentId
+        && localSubscription.status === 'cancelled'
+        && localSubscription.stripe_invoice_id === evidence.renewalInvoiceId
+        && processedWebhookEventsSucceeded
+        && renewalPaymentFullyRefunded
+        && initialPaymentPreserved;
+    if (!exactFinalState) {
+        throw new Error('Canonical lifecycle evidence no longer matches terminal Stripe/Supabase state.');
+    }
+
+    return {
+        ok: true,
+        stripeSubscriptionStatus: 'canceled',
+        renewalPaymentStatus: 'refunded',
+        processedWebhookEventsSucceeded: true,
+        renewalPaymentFullyRefunded: true,
+        initialPaymentPreserved: true,
+    };
+}
+
+async function retrieveCanonicalCharge(
+    paymentIntent: Stripe.PaymentIntent,
+    expectedCustomerId: string,
+): Promise<Stripe.Charge> {
+    if (paymentIntent.livemode || stripeObjectId(paymentIntent.customer) !== expectedCustomerId) {
+        throw new Error('Canonical lifecycle PaymentIntent ownership or mode is invalid.');
+    }
+    const chargeId = stripeObjectId(paymentIntent.latest_charge);
+    if (!chargeId) throw new Error('Canonical lifecycle PaymentIntent has no charge.');
+    const charge = await stripe.charges.retrieve(chargeId);
+    if (
+        charge.livemode
+        || stripeObjectId(charge.customer) !== expectedCustomerId
+        || stripeObjectId(charge.payment_intent) !== paymentIntent.id
+    ) {
+        throw new Error('Canonical lifecycle charge ownership or mode is invalid.');
+    }
+    return charge;
+}
+
+function canonicalInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+    const current = invoice.parent?.subscription_details?.subscription;
+    if (current) return stripeObjectId(current);
+    return stripeObjectId((invoice as unknown as { subscription?: string | { id: string } | null }).subscription);
 }
 
 function stripeObjectId(value: string | { id: string } | null | undefined): string | null {
@@ -1526,39 +1610,6 @@ async function getProfileForAuthUserByEmail(email: string): Promise<RoleProfile>
     return profile;
 }
 
-async function ensureSmokeCheckoutApproval(student: SmokeStudent, packageId: string) {
-    const now = new Date().toISOString();
-    const { data: existingContact, error: contactReadError } = await supabaseAdmin
-        .from('crm_contacts')
-        .select('id')
-        .eq('profile_id', student.id)
-        .limit(1)
-        .maybeSingle();
-    if (contactReadError) throw contactReadError;
-
-    const contactId = existingContact?.id as string | undefined;
-    if (!contactId) {
-        throw new Error('The reusable smoke student must already have the CRM contact created by the completed Checkout lifecycle.');
-    }
-
-    const { data: opportunity, error: opportunityError } = await supabaseAdmin
-        .from('crm_opportunities')
-        .insert({
-            contact_id: contactId,
-            stage: 'proposal',
-            interest: 'real-env-checkout-smoke',
-            preferred_package_id: packageId,
-            checkout_approved_at: now,
-        })
-        .select('id')
-        .single();
-    if (opportunityError || !opportunity) {
-        throw opportunityError ?? new Error('Could not create the smoke checkout approval.');
-    }
-
-    return { contactId, opportunityId: opportunity.id as string };
-}
-
 async function getAuthUserByEmail(email: string) {
     let page = 1;
     while (page <= SMOKE_AUTH_USER_SCAN_MAX_PAGES) {
@@ -1652,43 +1703,6 @@ async function restoreReusableStudentPrivateState(studentId: string, state: Reus
         if (assignmentInsertError) return false;
     }
     return true;
-}
-
-async function deleteSmokeCheckoutArtifacts(opportunityId: string, intentId: string | null) {
-    const intentQuery = supabaseAdmin
-        .from('checkout_intents')
-        .select('id, status')
-        .eq('opportunity_id', opportunityId);
-    const { data: intents, error: intentReadError } = intentId
-        ? await intentQuery.eq('id', intentId)
-        : await intentQuery;
-    if (intentReadError) throw intentReadError;
-    if ((intents ?? []).some((intent) => intent.status === 'completed')) {
-        throw new Error('Refusing cleanup because the smoke opportunity contains a completed checkout intent.');
-    }
-
-    const { error: intentDeleteError } = await supabaseAdmin
-        .from('checkout_intents')
-        .delete()
-        .eq('opportunity_id', opportunityId)
-        .in('status', ['expired', 'failed']);
-    if (intentDeleteError) throw intentDeleteError;
-
-    const { error: opportunityDeleteError } = await supabaseAdmin
-        .from('crm_opportunities')
-        .delete()
-        .eq('id', opportunityId)
-        .eq('interest', 'real-env-checkout-smoke')
-        .is('converted_subscription_id', null);
-    if (opportunityDeleteError) throw opportunityDeleteError;
-
-    const { data: remaining, error: verifyError } = await supabaseAdmin
-        .from('crm_opportunities')
-        .select('id')
-        .eq('id', opportunityId)
-        .maybeSingle();
-    if (verifyError) throw verifyError;
-    return remaining === null;
 }
 
 async function createSmokeFailedFulfillmentJob(options: {
@@ -2406,7 +2420,7 @@ function renderSmokeSummary(result: SmokeResult) {
         '## Scope',
         '',
         'This staging-only smoke reuses the three existing allowlisted role accounts; it never creates Auth users and never needs access to the student inbox. It calls Supabase staging, Stripe test, Google and Resend only after a read-only preflight validates every gate. The JSON evidence is redacted before it is written.',
-        'Checkout creation is automated only during the runner-owned staging gate window under its separate exact Cloudflare approval; the runner restores and verifies `false` in `finally`. Webhook reconciliation requires `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` from a real completed Checkout; billing renewal/failure/resume/cancellation requires the explicit reviewed-evidence gate. Synthetic Stripe events are never generated.',
+        'Checkout stays disabled throughout and the unauthenticated probe must return `403 Checkout is disabled`. The smoke reuses `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` from a real completed Checkout and preserves that evidence; it never creates or expires another Checkout Session. Billing renewal/failure/resume/cancellation requires an explicit canonical lifecycle report plus live terminal revalidation. Synthetic Stripe events are never generated.',
         '',
         '## Sections',
         '',
@@ -2642,7 +2656,7 @@ function normalizeAndConfirmFulfillmentWorkerUrl(rawUrl: string): string {
 function readExpectedCheckoutOverride(argv: string[]): ExpectedCheckoutOverride {
     const option = '--expect-checkout-override';
     const index = argv.indexOf(option);
-    if (index === -1) return 'true';
+    if (index === -1) return 'false';
     const value = argv[index + 1];
     if (value !== 'true' && value !== 'false') {
         throw new Error(`${option} requires true or false`);

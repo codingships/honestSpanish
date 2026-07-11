@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const source = readFileSync(path.join(process.cwd(), 'scripts/smoke/real-env-smoke.ts'), 'utf8');
 const checkoutSource = readFileSync(path.join(process.cwd(), 'scripts/smoke-checkout.ts'), 'utf8');
+const checkoutBootstrapApprovalSource = readFileSync(path.join(process.cwd(), 'scripts/smoke/staging-checkout-bootstrap-approval.ts'), 'utf8');
 
 describe('real environment smoke safety', () => {
     it('requires explicit environment credentials instead of hardcoded launch accounts', () => {
@@ -54,21 +55,23 @@ describe('real environment smoke safety', () => {
         expect(source).toContain('externalWritesStarted: false');
         expect(source).toContain('verifyDeployedStagingRuntime');
         expect(source).toContain('probeCheckoutGateReadOnly');
-        expect(source).toContain("--expect-checkout-override=false is valid only for a read-only preflight");
+        expect(source).toContain("EXPECTED_CHECKOUT_OVERRIDE !== 'false'");
+        expect(source).toContain('never opens the checkout gate');
         expect(source).toContain('COMPLETED_CHECKOUT_SESSION_ID');
-        expect(source).toContain('BILLING_LIFECYCLE_CONFIRMATION');
-        expect(source).toContain('Completed Checkout and reviewed billing lifecycle evidence must match');
+        expect(source).toContain('BILLING_LIFECYCLE_EVIDENCE_PATH');
+        expect(source).toContain('Completed Checkout and canonical billing lifecycle evidence must match');
     });
 
     it('reuses only the existing allowlisted role accounts and performs bounded cleanup', () => {
         expect(source).toContain('assertExactSmokeEmailAllowlist');
         expect(source).toContain('EMAIL_RECIPIENT_ALLOWLIST must contain exactly');
         expect(source).toContain("email.endsWith('@example.com')");
-        expect(source).toContain('deleteSmokeCheckoutArtifacts');
         expect(source).toContain('cleanupSchedulingSmokeArtifacts');
         expect(source).toContain('deleteSmokeFulfillmentJobArtifacts');
         expect(source).toContain('restoreReusableStudentPrivateState');
         expect(source).toContain('reusableStudentPreserved');
+        expect(source).toContain('completedCheckoutEvidencePreserved');
+        expect(source).not.toContain('crmOpportunityDeleted');
         expect(source).not.toMatch(/smoke-(?:checkout|drive|scheduling)-\$\{suffix\}@example\.com/);
     });
 
@@ -96,7 +99,9 @@ describe('real environment smoke safety', () => {
         expect(source).toContain('SMOKE_COMPLETED_CHECKOUT_SESSION_ID');
         expect(source).toContain('verifyCompletedCheckoutEvidence');
         expect(source).toContain("verificationMode: 'real-checkout-readonly'");
-        expect(source).toContain('SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION');
+        expect(source).toContain('SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH');
+        expect(source).not.toContain('SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION');
+        expect(source).not.toContain('reviewed-real-events:');
         expect(source).toContain('synthetic webhook payloads are forbidden');
         expect(source).not.toContain('generateTestHeaderString');
         expect(source).not.toContain('postSignedWebhook');
@@ -105,14 +110,32 @@ describe('real environment smoke safety', () => {
         expect(source).not.toContain("smoke_managed: 'true'");
     });
 
-    it('prepares the approved package_price checkout boundary and refuses live Stripe writes', () => {
-        expect(source).toContain('ensureSmokeCheckoutApproval');
+    it('requires an explicit canonical completed lifecycle report and revalidates terminal Stripe/Supabase events', () => {
+        expect(source).toContain("requireEnv('SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH')");
+        expect(source).toContain('function readCanonicalLifecycleReport');
+        expect(source).toContain('validateCanonicalLifecycleReport');
+        expect(source).toContain("pathParts[1] !== 'summary.json'");
+        expect(source).toContain('function revalidateCanonicalLifecycleState');
+        expect(source).toContain("stripeSubscription.status === 'canceled'");
+        expect(source).toContain("renewalPayment.status === 'refunded'");
+        expect(source).toContain('renewalPayment.amount_refunded === renewalPayment.amount');
+        expect(source).toContain('initialPayment.amount_refunded === 0');
+        expect(source).toContain("from('processed_webhook_events')");
+        expect(source).toContain("event.processing_status === 'succeeded'");
+        expect(source).toContain('canonicalEvidenceVerified: true');
+    });
+
+    it('reuses the completed package_price checkout evidence and never creates or expires another Checkout', () => {
         expect(source).toContain(".from('package_prices')");
         expect(source).toContain(".from('checkout_intents')");
-        expect(source).toContain('withdrawalLossAcknowledged: true');
         expect(source).toContain('assertTestStripeOffer');
         expect(source).toContain('refuses live Stripe writes');
-        expect(source).toContain('stripe.checkout.sessions.expire');
+        expect(source).toContain("verificationMode: 'completed-checkout-readonly'");
+        expect(source).toContain("result.checkout.cleanupStatus = 'completed-checkout-evidence-preserved'");
+        expect(source).toContain('preflight.checkoutGateStatus === 403');
+        expect(source).not.toContain('ensureSmokeCheckoutApproval');
+        expect(source).not.toContain('stripe.checkout.sessions.expire');
+        expect(source).not.toContain("authedJsonFetch(studentSession, '/api/create-checkout'");
     });
 
     it('selects only a canonical checkout-eligible launch package', () => {
@@ -203,7 +226,10 @@ describe('narrow checkout smoke safety', () => {
         expect(checkoutSource).toContain("requireEnv('SMOKE_STUDENT_EMAIL')");
         expect(checkoutSource).toContain("requireEnv('SMOKE_STUDENT_PASSWORD')");
         expect(checkoutSource).toContain("requireEnv('EMAIL_RECIPIENT_ALLOWLIST')");
-        expect(checkoutSource).toContain("requireEnv('STAGING_CHECKOUT_GATE_CONFIRMATION')");
+        expect(checkoutSource).toContain('process.env.STAGING_CHECKOUT_GATE_CONFIRMATION');
+        expect(checkoutSource).toContain('manual-exception-owner-will-restore-checkout-false:${new URL(baseUrl).host}');
+        expect(checkoutSource).toContain("waitUntil: 'commit'");
+        expect(checkoutSource).toContain('timeout: 30_000');
         expect(checkoutSource).not.toContain("dotenv.config({ path: '.env.test', override: true");
         expect(checkoutSource).not.toContain("dotenv.config({ path: '.env', quiet: true");
     });
@@ -251,11 +277,18 @@ describe('narrow checkout smoke safety', () => {
         expect(checkoutSource).not.toContain('stripe.subscriptions.create');
     });
 
-    it('bootstraps one real open Checkout only under exact staging approval and a Test Clock', () => {
+    it('keeps bootstrap as an exceptional manual tool with explicit external gate ownership', () => {
         expect(checkoutSource).toContain("process.argv.includes('--bootstrap-preflight')");
         expect(checkoutSource).toContain("process.argv.includes('--bootstrap-preserve-open')");
         expect(checkoutSource).toContain("process.argv.includes('--bootstrap-cleanup')");
+        expect(checkoutSource).toContain("process.argv.includes('--manual-exception')");
+        expect(checkoutSource).toContain('Exceptional Checkout bootstrap requires --manual-exception');
+        expect(checkoutSource).toContain('manual-exception-owner-will-restore-checkout-false:${new URL(baseUrl).host}');
+        expect(checkoutSource).toContain('this script never changes or rolls back Cloudflare');
         expect(checkoutSource).toContain('EXACT_STAGING_CHECKOUT_BOOTSTRAP_APPROVAL');
+        expect(checkoutBootstrapApprovalSource).toContain('solo como excepcion manual fuera del flujo activo de smoke');
+        expect(checkoutBootstrapApprovalSource).toContain('Este script no abre, cambia ni restaura Cloudflare');
+        expect(checkoutBootstrapApprovalSource).not.toContain('runner debe restaurar');
         expect(checkoutSource).toContain("const stagingStripeAccountId = 'acct_1TruqOC22M3erP0j'");
         expect(checkoutSource).toContain('stripe.testHelpers.testClocks.create');
         expect(checkoutSource).toContain("test_clock: testClock.id");

@@ -8,6 +8,11 @@
  * does not fabricate a Stripe webhook or complete a payment. It never creates
  * an Auth user and deletes its temporary intent/opportunity during cleanup.
  *
+ * This is not the active launch-smoke path. Its bootstrap mode is retained only
+ * as an exceptional manual recovery tool. It never changes Cloudflare: an
+ * explicitly identified deployment owner must open the staging checkout gate
+ * before the write mode and restore/verify it as false immediately afterwards.
+ *
  * Required while the app is running:
  *   SMOKE_BASE_URL=http://localhost:4321
  *   SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:localhost:4321
@@ -39,6 +44,7 @@ dotenv.config({ path: '.env.staging', override: false, quiet: true });
 const BOOTSTRAP_PREFLIGHT = process.argv.includes('--bootstrap-preflight');
 const BOOTSTRAP_PRESERVE_OPEN = process.argv.includes('--bootstrap-preserve-open');
 const BOOTSTRAP_CLEANUP = process.argv.includes('--bootstrap-cleanup');
+const MANUAL_EXCEPTION_ACKNOWLEDGED = process.argv.includes('--manual-exception');
 if ([BOOTSTRAP_PREFLIGHT, BOOTSTRAP_PRESERVE_OPEN, BOOTSTRAP_CLEANUP].filter(Boolean).length > 1) {
     throw new Error('Checkout bootstrap preflight, preserve-open and cleanup modes are mutually exclusive.');
 }
@@ -65,7 +71,7 @@ if (BOOTSTRAP_MODE && new URL(baseUrl).host !== 'espanolhonesto-staging.alindev9
 const smokeEmail = requireEnv('SMOKE_STUDENT_EMAIL');
 const smokePassword = requireEnv('SMOKE_STUDENT_PASSWORD');
 const emailRecipientAllowlist = requireEnv('EMAIL_RECIPIENT_ALLOWLIST');
-const checkoutGateConfirmation = requireEnv('STAGING_CHECKOUT_GATE_CONFIRMATION');
+const checkoutGateConfirmation = process.env.STAGING_CHECKOUT_GATE_CONFIRMATION?.trim() ?? '';
 
 const supabaseAdmin = createClient<Database>(supabaseUrl, supabaseServiceKey, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -342,8 +348,13 @@ async function signInForCheckout(
 
         await page.fill('input[type="email"]', email);
         await page.fill('input[type="password"]', password);
-        await page.click('button[type="submit"]');
-        await page.waitForURL(/\/campus/, { timeout: 15_000 });
+        await Promise.all([
+            page.waitForURL(/\/campus(?:[/?#]|$)/u, {
+                timeout: 30_000,
+                waitUntil: 'commit',
+            }),
+            page.click('button[type="submit"]'),
+        ]);
         return { browser, page };
     } catch (error) {
         await browser.close();
@@ -855,7 +866,10 @@ function stripeObjectId(value: string | { id: string } | null | undefined): stri
 
 async function main() {
     assertExistingAllowlistedStudent();
-    assertCheckoutGateConfirmation();
+    if (BOOTSTRAP_PRESERVE_OPEN && !MANUAL_EXCEPTION_ACKNOWLEDGED) {
+        throw new Error('Exceptional Checkout bootstrap requires --manual-exception; it is not part of the active launch-smoke flow.');
+    }
+    if (!BOOTSTRAP_PREFLIGHT && !BOOTSTRAP_CLEANUP) assertCheckoutGateOwnership();
     if (BOOTSTRAP_PRESERVE_OPEN || BOOTSTRAP_CLEANUP) assertCheckoutBootstrapApproval();
 
     if (BOOTSTRAP_CLEANUP) {
@@ -909,7 +923,7 @@ async function main() {
         if (BOOTSTRAP_PRESERVE_OPEN) {
             copyCheckoutUrlToClipboard(created.url);
             preserveCheckout = true;
-            console.log('Checkout bootstrap passed: one verified Stripe test session is open and available only in the local clipboard.');
+            console.log('Checkout bootstrap passed: one verified Stripe test session is open and available only in the local clipboard. This script did not change Cloudflare; the external gate owner must now restore and verify CHECKOUT_ENABLED_OVERRIDE=false before the URL is used.');
         } else {
             console.log('Checkout smoke passed: approved package_price and checkout_intent verified in Stripe test mode.');
         }
@@ -938,10 +952,10 @@ function assertExistingAllowlistedStudent() {
     }
 }
 
-function assertCheckoutGateConfirmation() {
-    const expected = `enabled-after-separate-cloudflare-approval:${new URL(baseUrl).host}`;
+function assertCheckoutGateOwnership() {
+    const expected = `manual-exception-owner-will-restore-checkout-false:${new URL(baseUrl).host}`;
     if (checkoutGateConfirmation !== expected) {
-        throw new Error('STAGING_CHECKOUT_GATE_CONFIRMATION does not match the separately approved staging gate change.');
+        throw new Error('STAGING_CHECKOUT_GATE_CONFIRMATION must bind an external deployment owner to restore and verify checkout=false; this script never changes or rolls back Cloudflare.');
     }
 }
 
@@ -977,7 +991,7 @@ async function probeCheckoutGateEnabledReadOnly() {
     });
     if (response.status !== 401) {
         throw new Error(response.status === 403
-            ? 'Staging checkout is disabled; obtain the separate Cloudflare gate approval before the smoke.'
+            ? 'Staging checkout is disabled. This exceptional manual tool requires an external deployment owner to open the gate temporarily and then restore/verify checkout=false; the script never changes Cloudflare.'
             : `Read-only checkout gate probe expected 401 and received ${response.status}.`);
     }
 }

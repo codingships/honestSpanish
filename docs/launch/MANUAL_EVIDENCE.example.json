@@ -283,11 +283,6 @@
         },
         {
           "type": "command_output",
-          "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-staging-checkout-gate.md",
-          "note": "Aprobacion Cloudflare separada para el gate temporal del Worker staging y su rollback a false; el runner no ejecuta el write."
-        },
-        {
-          "type": "command_output",
           "value": "../../outputs/launch-final-smoke-execution-pack/<timestamp>/production-minimal-smoke-checklist.md",
           "note": "Checklist manual de production; el harness integral es staging-only."
         },
@@ -303,6 +298,11 @@
         },
         {
           "type": "command_output",
+          "value": "../../outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json",
+          "note": "Evidencia canonica del ciclo billing: Stripe Sandbox/Supabase/sesion exactos, gate de mutacion, checkpoint complete, estados terminales, revalidacion final y pago inicial preservado."
+        },
+        {
+          "type": "command_output",
           "value": "../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md",
           "note": "Runner gated de staging smoke; en modo plan debe mostrar externalWriteCommandStarted=false y no imprime valores secretos."
         },
@@ -310,11 +310,6 @@
           "type": "command_output",
           "value": "../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md",
           "note": "Approval gate exacto para ejecutar el smoke rehearsal de staging con Stripe test."
-        },
-        {
-          "type": "command_output",
-          "value": "../../outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/cloudflare-checkout-gate-approval.md",
-          "note": "Copia del limite de aprobacion separado del gate; no es un write Cloudflare."
         },
         {
           "type": "command_output",

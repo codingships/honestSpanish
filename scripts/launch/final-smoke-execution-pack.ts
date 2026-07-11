@@ -35,7 +35,6 @@ interface FinalSmokeExecutionReport {
     manifestPath: string;
     approvalRequestPath: string;
     stagingApprovalRequestPath: string;
-    stagingCheckoutGateApprovalPath: string;
     preflightChecklistPath: string;
     stagingPreflightChecklistPath: string;
     productionMinimalChecklistPath: string;
@@ -48,7 +47,6 @@ interface RenderedArtifacts {
     manifest: string;
     approvalRequest: string;
     stagingApprovalRequest: string;
-    stagingCheckoutGateApproval: string;
     preflightChecklist: string;
     stagingPreflightChecklist: string;
     productionMinimalChecklist: string;
@@ -65,8 +63,7 @@ const manualEvidencePath = path.join('docs', 'launch', 'MANUAL_EVIDENCE.md');
 const manualRunbookPath = path.join('docs', 'launch', 'MANUAL_EVIDENCE_RUNBOOK.md');
 const manualExamplePath = path.join('docs', 'launch', 'MANUAL_EVIDENCE.example.json');
 const operationsRunbookTestPath = path.join('tests', 'unit', 'operations-runbook.test.ts');
-const exactStagingSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode y evidencia de Checkout/webhooks reales ya prevalidada read-only, permitiendo unicamente writes de smoke necesarios en Supabase staging, Stripe test, Google, Resend y Admin Jobs, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de CRM, jobs, sesiones y artefactos temporales. El cambio temporal del gate requiere ademas su aprobacion Cloudflare separada y exacta; el runner aprobado sera responsable de restaurarlo y verificarlo en `false` dentro de `finally`. No autorizo ningun otro cambio externo.';
-const exactStagingCheckoutGateApprovalSentence = 'Apruebo que el runner cambie temporalmente solo `CHECKOUT_ENABLED_OVERRIDE` del Cloudflare Worker staging `espanolhonesto-staging` de `false` a `true` para completar y verificar el Checkout Stripe test aprobado y que, dentro de `finally`, lo devuelva a `false` y verifique el rollback incluso si el smoke o la activacion fallan; antes del primer write debe atestiguar el runtime cerrado, la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` y el Worker exactos. No autorizo deploy de codigo, cambios de rutas, dominios, DNS, otros secrets/vars, Workers production, Stripe live, Supabase, Google, Resend ni ningun otro write externo.';
+const exactStagingSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode, evidencia de Checkout/webhooks reales ya completada y evidencia canonica `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH` del mismo ciclo billing terminada y prevalidada read-only, manteniendo `CHECKOUT_ENABLED_OVERRIDE=false` durante toda la ejecucion, permitiendo unicamente writes de smoke necesarios en Supabase staging, Google, Resend y Admin Jobs, sin crear ni expirar nuevas Checkout Sessions, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de jobs, sesiones y artefactos temporales. No autorizo ningun otro cambio externo.';
 
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-final-smoke-execution-pack', stamp(startedAt));
@@ -103,7 +100,6 @@ rendered = renderArtifacts(report);
 writeFileSync(report.manifestPath, rendered.manifest, 'utf8');
 writeFileSync(report.approvalRequestPath, rendered.approvalRequest, 'utf8');
 writeFileSync(report.stagingApprovalRequestPath, rendered.stagingApprovalRequest, 'utf8');
-writeFileSync(report.stagingCheckoutGateApprovalPath, rendered.stagingCheckoutGateApproval, 'utf8');
 writeFileSync(report.preflightChecklistPath, rendered.preflightChecklist, 'utf8');
 writeFileSync(report.stagingPreflightChecklistPath, rendered.stagingPreflightChecklist, 'utf8');
 writeFileSync(report.productionMinimalChecklistPath, rendered.productionMinimalChecklist, 'utf8');
@@ -153,7 +149,6 @@ function createReport(reportChecks: SmokePackCheck[]): FinalSmokeExecutionReport
         manifestPath: path.join(outputDir, 'final-smoke-execution-manifest.json'),
         approvalRequestPath: path.join(outputDir, 'approval-request-final-smoke.md'),
         stagingApprovalRequestPath: path.join(outputDir, 'approval-request-staging-smoke.md'),
-        stagingCheckoutGateApprovalPath: path.join(outputDir, 'approval-request-staging-checkout-gate.md'),
         preflightChecklistPath: path.join(outputDir, 'preflight-checklist.md'),
         stagingPreflightChecklistPath: path.join(outputDir, 'staging-preflight-checklist.md'),
         productionMinimalChecklistPath: path.join(outputDir, 'production-minimal-smoke-checklist.md'),
@@ -182,6 +177,13 @@ function validatePackageScript(): SmokePackCheck {
     if (packageJson.packageManager !== 'pnpm@10.33.0') missing.push('packageManager=pnpm@10.33.0');
     if (packageJson.scripts?.['launch:final-smoke-execution-pack'] !== 'tsx scripts/launch/final-smoke-execution-pack.ts') {
         missing.push('launch:final-smoke-execution-pack=tsx scripts/launch/final-smoke-execution-pack.ts');
+    }
+    for (const [name, command] of Object.entries({
+        'launch:staging-billing-lifecycle': 'tsx scripts/launch/staging-billing-lifecycle-runner.ts',
+        'launch:staging-billing-lifecycle:preflight': 'tsx scripts/launch/staging-billing-lifecycle-runner.ts --preflight-only',
+        'launch:staging-billing-lifecycle:resume': 'tsx scripts/launch/staging-billing-lifecycle-runner.ts --resume',
+    })) {
+        if (packageJson.scripts?.[name] !== command) missing.push(`${name}=${command}`);
     }
 
     return {
@@ -215,7 +217,6 @@ function validateSmokeHarnessSafety(): SmokePackCheck {
         "requireEnv('SMOKE_STUDENT_EMAIL')",
         "requireEnv('SMOKE_STUDENT_PASSWORD')",
         "requireEnv('EMAIL_RECIPIENT_ALLOWLIST')",
-        "requireEnv('STAGING_CHECKOUT_GATE_CONFIRMATION')",
         'writes-ok:${parsedUrl.host}',
         'SMOKE_BASE_URL must be an origin only',
         'This staging-only smoke reuses the three existing allowlisted role accounts',
@@ -230,12 +231,14 @@ function validateSmokeHarnessSafety(): SmokePackCheck {
         'redactErrorForSmokeEvidence(error)',
         'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
         'verifyCompletedCheckoutEvidence',
-        'SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION',
+        'SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH',
+        'validateCanonicalLifecycleReport',
+        'revalidateCanonicalLifecycleState',
         'synthetic webhook payloads are forbidden',
         ".from('package_prices')",
         ".from('checkout_intents')",
-        'withdrawalLossAcknowledged: true',
-        'deleteSmokeCheckoutArtifacts',
+        "EXPECTED_CHECKOUT_OVERRIDE !== 'false'",
+        'completed-checkout-evidence-preserved',
         'cleanupSchedulingSmokeArtifacts',
         'deleteSmokeFulfillmentJobArtifacts',
     ];
@@ -251,6 +254,8 @@ function validateSmokeHarnessSafety(): SmokePackCheck {
         "source: 'tok_visa'",
         'supabaseAdmin.auth.admin.createUser',
         'supabaseAdmin.auth.admin.updateUserById',
+        'stripe.checkout.sessions.expire',
+        "authedJsonFetch(studentSession, '/api/create-checkout'",
     ];
     const missing = required.filter((snippet) => !source.includes(snippet));
     const presentForbidden = forbidden.filter((snippet) => source.includes(snippet));
@@ -271,10 +276,10 @@ function validateSmokeHarnessSafety(): SmokePackCheck {
 function validateSmokeCoverage(): SmokePackCheck {
     const source = readIfExists(smokeScriptPath);
     const required = [
-        '/api/create-checkout',
+        'probeCheckoutGateReadOnly',
         'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
         'verifyCompletedCheckoutEvidence',
-        'SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION',
+        'SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH',
         '/api/account/link-google-drive',
         'getDriveClient',
         '/api/calendar/sessions',
@@ -317,7 +322,8 @@ function validateSmokeSafetyTest(): SmokePackCheck {
         'writes redacted final smoke evidence files',
         'covers Admin Jobs retry and cleanup',
         'uses real completed Checkout evidence and never fabricates Stripe events or subscriptions',
-        'prepares the approved package_price checkout boundary and refuses live Stripe writes',
+        'requires an explicit canonical completed lifecycle report and revalidates terminal Stripe/Supabase events',
+        'reuses the completed package_price checkout evidence and never creates or expires another Checkout',
         'validates every precondition read-only before starting any write',
         'reuses only the existing allowlisted role accounts and performs bounded cleanup',
     ];
@@ -393,9 +399,12 @@ function validateDocsAndStatusWiring(): SmokePackCheck {
         [manualEvidencePath, 'outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json'],
         [manualRunbookPath, 'pnpm launch:final-smoke-execution-pack'],
         [manualRunbookPath, 'approval-request-final-smoke.md'],
-        [manualRunbookPath, 'approval-request-staging-checkout-gate.md'],
+        [manualRunbookPath, 'CHECKOUT_ENABLED_OVERRIDE=false'],
+        [manualRunbookPath, 'pnpm launch:staging-billing-lifecycle:preflight'],
+        [manualRunbookPath, 'SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH'],
         [manualRunbookPath, 'production-minimal-smoke-checklist.md'],
         [manualExamplePath, 'outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-final-smoke.md'],
+        [manualExamplePath, 'outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json'],
         [operationsRunbookTestPath, 'launch:final-smoke-execution-pack'],
     ];
     const missingFiles = [...new Set(required.map(([file]) => file))].filter((file) => !existsSync(file));
@@ -417,7 +426,7 @@ function validateDocsAndStatusWiring(): SmokePackCheck {
 function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts): SmokePackCheck {
     const combined = Object.values(renderedArtifacts).join('\n');
     const forbiddenSecretPatterns = [
-        new RegExp('-----BEGIN ' + 'PRIVATE KEY-----'),
+        /-----BEGIN [A-Z0-9][A-Z0-9 ._\/-]*-----/u,
         /sk_(live|test)_[A-Za-z0-9]{20,}/,
         /whsec_[A-Za-z0-9]{20,}/,
         /sb_secret_[A-Za-z0-9_-]{20,}/,
@@ -434,7 +443,10 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
         'writes-ok:<host>',
         'staging rehearsal',
-        'Separate Cloudflare Staging Checkout Gate Approval',
+        'CHECKOUT_ENABLED_OVERRIDE=false',
+        'completed Checkout evidence',
+        'SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH',
+        'no hard timeout',
         'minimal manual production smoke',
         'redacted',
         'rollback',
@@ -457,7 +469,6 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
 function renderArtifacts(reportToRender: FinalSmokeExecutionReport): RenderedArtifacts {
     const approvalRequest = renderApprovalRequest(reportToRender);
     const stagingApprovalRequest = renderStagingApprovalRequest(reportToRender);
-    const stagingCheckoutGateApproval = renderStagingCheckoutGateApproval(reportToRender);
     const preflightChecklist = renderPreflightChecklist(reportToRender);
     const stagingPreflightChecklist = renderStagingPreflightChecklist(reportToRender);
     const productionMinimalChecklist = renderProductionMinimalChecklist(reportToRender);
@@ -467,7 +478,6 @@ function renderArtifacts(reportToRender: FinalSmokeExecutionReport): RenderedArt
     const manifest = renderManifest(reportToRender, {
         approvalRequest,
         stagingApprovalRequest,
-        stagingCheckoutGateApproval,
         preflightChecklist,
         stagingPreflightChecklist,
         productionMinimalChecklist,
@@ -480,7 +490,6 @@ function renderArtifacts(reportToRender: FinalSmokeExecutionReport): RenderedArt
         manifest,
         approvalRequest,
         stagingApprovalRequest,
-        stagingCheckoutGateApproval,
         preflightChecklist,
         stagingPreflightChecklist,
         productionMinimalChecklist,
@@ -520,12 +529,19 @@ function renderManifest(
             productionOnlyInFinalWindow: true,
             stagingHarnessIsNeverProductionSmoke: true,
             productionSmokeIsMinimalAndManual: true,
-            checkoutGateUsesSeparateCloudflareApproval: true,
+            checkoutOverrideKeptFalseThroughout: true,
+            completedCheckoutEvidenceReused: true,
+            canonicalBillingLifecycleEvidenceRequired: true,
+            canonicalBillingLifecycleMutationGate: 'STAGING_BILLING_LIFECYCLE_CONFIRMATION=I_CONFIRM_STAGING_BILLING_LIFECYCLE:<session>',
+            writeCapableChildHardTimeout: false,
+            writeCapableChildOwnsCleanupBeforeExit: true,
+            writeCapableChildOutputBufferedByParent: false,
             exactApprovalRequired: true,
             stagingRehearsalMayRunBeforeLegalFinal: true,
             stagingRehearsalDoesNotCloseFinalSmoke: true,
         },
         sideEffectsIfApproved: [
+            'Separate gated Stripe test Test Clock lifecycle: renewal notice, failed/recovered renewal, period-end cancellation and recovered-renewal refunds only',
             'Staging-only Supabase profile/session/fulfillment smoke data writes using one reusable existing student',
             'Stripe test rehearsal and read-only verification of a real completed Checkout/webhook lifecycle',
             'Google Drive folder/Doc and Calendar/Meet mutations',
@@ -536,6 +552,7 @@ function renderManifest(
             'No running final smoke from this package command.',
             'No secret values in repo files, outputs, screenshots or logs.',
             'No unplanned real payments or public checkout enabling.',
+            'No Cloudflare write and no new or expired Checkout Session.',
             'No password reset for owner/admin/teacher accounts.',
             'No Auth user creation and no example.com recipient.',
             'No execution of the staging harness against production.',
@@ -544,7 +561,6 @@ function renderManifest(
         files: {
             approvalRequest: fileMeta(reportToRender.approvalRequestPath, renderedFiles.approvalRequest),
             stagingApprovalRequest: fileMeta(reportToRender.stagingApprovalRequestPath, renderedFiles.stagingApprovalRequest),
-            stagingCheckoutGateApproval: fileMeta(reportToRender.stagingCheckoutGateApprovalPath, renderedFiles.stagingCheckoutGateApproval),
             preflightChecklist: fileMeta(reportToRender.preflightChecklistPath, renderedFiles.preflightChecklist),
             stagingPreflightChecklist: fileMeta(reportToRender.stagingPreflightChecklistPath, renderedFiles.stagingPreflightChecklist),
             productionMinimalChecklist: fileMeta(reportToRender.productionMinimalChecklistPath, renderedFiles.productionMinimalChecklist),
@@ -627,8 +643,9 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         '- Exact `SMOKE_EXTERNAL_WRITES_CONFIRMATION`: `writes-ok:<host>`, where `<host>` matches `SMOKE_BASE_URL` exactly.',
         '- Payment posture: Stripe test mode rehearsal only; no Stripe live mode and no real public checkout.',
         '- Accounts: reuse exactly `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` and `TEST_STUDENT_EMAIL` from the secure source; all three must equal the Resend allowlist, no `example.com` address is allowed, and the smoke never needs inbox access for the student.',
-        '- Completed Checkout/manual lifecycle: provide a real `cs_test_...` session and the matching `reviewed-real-events:<session>` confirmation before any write.',
-        '- Checkout gate: obtain the separate `approval-request-staging-checkout-gate.md` approval; this smoke approval alone does not authorize the runner-owned Cloudflare gate window.',
+        '- Completed Checkout/canonical lifecycle: provide a real `cs_test_...` session and explicit `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH=outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json` for that same session before any write.',
+        '- Checkout gate: `CHECKOUT_ENABLED_OVERRIDE=false` is mandatory throughout; this runner performs no Cloudflare write.',
+        '- Process lifetime: the runner imposes no hard timeout or parent output buffer on the write-capable child, waits for the harness cleanup `finally`, and relies on the child redacted evidence; a forced operator interruption makes cleanup evidence incomplete.',
         '',
         '## Required Read-Only Preflight',
         '',
@@ -636,6 +653,7 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         '- Review latest `pnpm launch:stripe-readonly`, `pnpm launch:final-readiness` and `pnpm launch:status` evidence for known residual risks.',
         '- Run `pnpm secrets:check` before the smoke window.',
         '- Confirm Google, Resend and Stripe test quotas/posture are acceptable for one staging smoke run.',
+        '- Run `pnpm launch:staging-billing-lifecycle:preflight`; after its separate exact mutation confirmation, run `pnpm launch:staging-billing-lifecycle` and require checkpoint `complete`. Use `:resume` only with the exact existing checkpoint after an interruption.',
         '',
         '## Command Shape After Exact Approval',
         '',
@@ -645,7 +663,7 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         'corepack pnpm --config.verify-deps-before-run=false launch:staging-smoke-rehearsal-runner -- --execute-approved',
         '```',
         '',
-        'The runner first invokes the harness with `--preflight-only --expect-checkout-override false`. Supabase/runtime/Stripe/Google/Resend, catalog, role allowlist, completed Checkout and manual lifecycle must pass read-only before the gate write; it then re-attests override `true` before smoke writes and restores/verifies `false` in `finally`.',
+        'The runner first invokes the harness with `--preflight-only --expect-checkout-override false`. Supabase/runtime/Stripe/Google/Resend, catalog, role allowlist, completed Checkout, canonical lifecycle summary plus live terminal revalidation and manual confirmation must pass read-only; the 403 gate probe must pass before smoke writes.',
         '',
         '## Exact Approval Sentence',
         '',
@@ -657,7 +675,7 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         '- No secret value printing, screenshots, commits or output files.',
         '- No Auth user creation, password reset or email outside the three-account allowlist.',
         '- No Stripe live mode or real charge.',
-        '- No Cloudflare deploy/domain/DNS writes under this approval; the temporary staging checkout gate has a separate exact approval and mandatory `false` rollback.',
+        '- No Cloudflare write of any kind and no temporary checkout-gate change.',
         '- No Supabase schema migration, destructive cleanup or broad data deletion.',
         '- No Google Drive/Calendar cleanup outside smoke-created artifacts.',
         '',
@@ -668,33 +686,6 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         `- Final smoke closure status: ${reportToRender.finalSmokeClosureStatus}`,
         `- Final prerequisite blockers, not staging blockers: ${reportToRender.finalPrerequisiteBlockers.join(', ') || 'none'}`,
         `- Latest launch status summary: ${reportToRender.latestLaunchStatusSummaryPath ?? 'missing'}`,
-        '',
-    ].join('\n')}\n`;
-}
-
-function renderStagingCheckoutGateApproval(reportToRender: FinalSmokeExecutionReport): string {
-    return `${[
-        '# Separate Cloudflare Staging Checkout Gate Approval Request',
-        '',
-        'This package does not perform the Cloudflare write. It prepares the exact separate approval under which the approved staging runner owns the temporary gate and its `finally` rollback.',
-        '',
-        '## Exact Resource And Sequence',
-        '',
-        '- The runner read-only preflights Cloudflare account `d1a22bcf6477ff2ff31d2bfb83084e44`, Worker `espanolhonesto-staging` and signed closed runtimes before any write.',
-        '- The runner changes only `CHECKOUT_ENABLED_OVERRIDE=true` on that staging Worker.',
-        '- The runner re-attests the deployed web/fulfillment configuration and requires the no-session probe to return `401` before smoke writes.',
-        '- The runner runs the separately approved staging smoke.',
-        '- Inside `finally`, the runner returns only that same variable to `false` and requires signed attestation plus `403 Checkout is disabled`, retrying at most three times.',
-        '- An unverifiable rollback is reported as ambiguous and fails the run for immediate manual closure.',
-        '',
-        '## Exact Separate Approval Sentence',
-        '',
-        exactStagingCheckoutGateApprovalSentence,
-        '',
-        '## Current Package State',
-        '',
-        `- Package status: ${reportToRender.status}`,
-        `- Staging closure status: ${reportToRender.stagingSmokeClosureStatus}`,
         '',
     ].join('\n')}\n`;
 }
@@ -712,7 +703,7 @@ function renderPreflightChecklist(reportToRender: FinalSmokeExecutionReport): st
         '- `pnpm launch:final-smoke-execution-pack` reports `READY_FOR_FINAL_SMOKE_APPROVAL`, not `WAITING_ON_FINAL_PREREQUISITES`.',
         '- Non-smoke final prerequisites are clear or explicitly risk-accepted: legal, integration, SEO/LLM and strict-QA blockers.',
         '- `pnpm secrets:check` passes.',
-        '- The full staging lifecycle rehearsal has passed with cleanup and its redacted evidence is attached.',
+        '- The canonical billing lifecycle summary and the full staging smoke summary have passed; both redacted evidence artifacts are attached.',
         '- `launch:status` still points to the latest final smoke execution pack.',
         '',
         '## Production Scope',
@@ -770,9 +761,10 @@ function renderStagingPreflightChecklist(reportToRender: FinalSmokeExecutionRepo
         '- Stripe keys are test-mode keys, not live-mode keys.',
         '- Google, Resend and Stripe quotas are acceptable for one staging rehearsal.',
         '- `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` identifies a real completed Stripe test Checkout; no webhook payload is fabricated.',
-        '- `SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION=reviewed-real-events:<same-session>` is supplied only after real event/test-clock evidence has been reviewed.',
-        '- `approval-request-staging-checkout-gate.md` has a separate exact approval in `STAGING_CHECKOUT_GATE_APPROVAL`; only the runner may change Worker `espanolhonesto-staging` during that window.',
-        '- The runner executes the closed-runtime preflight before the gate write, the enabled-runtime preflight before smoke writes and the closed-runtime verification from `finally`.',
+        '- `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH` points explicitly to `outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json` for the same session; it reports `OK`, authorized mutation, checkpoint `complete`, terminal states and final revalidation.',
+        '- `CHECKOUT_ENABLED_OVERRIDE=false` is present locally and verified on the deployed staging runtime; the unauthenticated checkout probe returns 403.',
+        '- The runner performs no Cloudflare write and reuses only the completed Checkout evidence.',
+        '- The write-capable child has no runner-imposed hard timeout; let it return after its cleanup `finally` unless an emergency requires interruption and manual reconciliation.',
         '',
         '## Flow Coverage',
         '',
@@ -782,15 +774,15 @@ function renderStagingPreflightChecklist(reportToRender: FinalSmokeExecutionRepo
         '- Booking, Calendar/Meet creation, conflict, cancellation, completion and no-show paths.',
         '- Reminder cron authorization and delivery/state update.',
         '- Admin Jobs failed-list, retry, pending-list, cancel and audit log.',
-        '- Cleanup deletes the temporary CRM opportunity/intent, local scheduling subscription/sessions, Google class artifacts and job/audit rows; it restores profile/assignment state and preserves the reusable student/folder IDs.',
+        '- Cleanup deletes local scheduling subscription/sessions, Google class artifacts and job/audit rows; it restores profile/assignment state and preserves the reusable student/folder IDs and completed payment evidence.',
         '- UX/logistics notes for any awkward states found during the rehearsal.',
         '',
         '## Evidence Rules',
         '',
-        '- Attach redacted `outputs/real-env-smoke/<timestamp>/summary.md` when the smoke runs.',
+        '- Attach canonical `outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json` and redacted `outputs/real-env-smoke/<timestamp>/summary.md` when the smoke runs.',
         '- Attach this staging approval request and checklist to the QA tracker as staging rehearsal evidence.',
         '- Do not use this rehearsal alone to mark `final_smoke` pass.',
-        '- After success or failure, require the runner report to show `checkoutGateRollbackVerified=true`; ambiguous state requires immediate manual `false` closure and a fresh signed/403 probe.',
+        '- Require the runner report and runtime preflight to prove checkout remained closed; there is no runner-owned rollback because there is no Cloudflare write.',
         '',
         '## Current Local Evidence',
         '',
@@ -827,7 +819,7 @@ function renderProductionMinimalChecklist(reportToRender: FinalSmokeExecutionRep
         '## Evidence And Rollback',
         '',
         '- [ ] Record timestamp, owner, exact origin, each result and redacted provider evidence.',
-        '- [ ] Attach the successful staging lifecycle summary as supporting evidence.',
+        '- [ ] Attach both the successful canonical billing `summary.json` and the staging smoke `summary.md` as supporting evidence.',
         '- [ ] If any critical check fails, set `CHECKOUT_ENABLED_OVERRIDE=false`, keep webhook/fulfillment running, stop new traffic and keep `final_smoke` pending.',
         '',
         `- Package status: ${reportToRender.status}`,
@@ -852,9 +844,10 @@ function renderRollbackPlan(reportToRender: FinalSmokeExecutionReport): string {
         '',
         '- Preserve the redacted `outputs/real-env-smoke/<timestamp>/summary.md` and `summary.json` for diagnosis.',
         '- The staging harness creates zero Auth users; it reuses exactly one existing allowlisted student and preserves that user/folder ID.',
-        '- Its bounded cleanup must delete the temporary CRM opportunity/intent, local scheduling subscription/sessions, Google class artifacts and job/audit rows, then restore notes, Google-link value and teacher assignments.',
+        '- Its bounded cleanup must delete local scheduling subscription/sessions, Google class artifacts and job/audit rows, then restore notes, Google-link value and teacher assignments.',
         '- A cleanup failure is a failed smoke. Use only the redacted IDs/evidence from that run for a separately reviewed cleanup; never delete completed payment evidence or non-smoke data.',
-        '- The runner returns Worker `espanolhonesto-staging` to `CHECKOUT_ENABLED_OVERRIDE=false` in `finally`; require signed runtime attestation and the 403 rollback. Treat any ambiguous result as an immediate manual blocker.',
+        '- The runner waits for the write-capable harness without a hard timeout so its `finally` can finish. A forced operator termination can strand artifacts and must be treated as failed/ambiguous cleanup.',
+        '- The runner never changes Worker configuration; require signed runtime attestation and the 403 probe before smoke writes.',
         '',
         '## If Checkout Or Payment Posture Is Wrong',
         '',
@@ -913,6 +906,7 @@ function renderManualEvidenceDryRun(reportToRender: FinalSmokeExecutionReport): 
         `  --evidence "command_output=${rollbackPath}::rollback and cleanup plan reviewed"`,
         `  --evidence "command_output=${productionChecklistPath}::production minimal manual smoke checklist completed"`,
         `  --evidence "command_output=${finalSmokeWorksheet}::final smoke worksheet completed"`,
+        '  --evidence "command_output=../../outputs/launch-staging-billing-lifecycle/<staging-timestamp>/summary.json::canonical gated billing lifecycle completed and live-revalidated"',
         '  --evidence "command_output=../../outputs/real-env-smoke/<staging-timestamp>/summary.md::successful staging-only lifecycle rehearsal attached as supporting integration evidence"',
         '  --evidence "manual_note=Replace with concrete non-secret production result: public/legal pages, existing-role login, provider health, checkout intended state and optional separately approved owned transaction passed."',
         '',
@@ -934,14 +928,13 @@ function renderSummary(reportToRender: FinalSmokeExecutionReport): string {
         `- Manifest: ${toPosix(path.relative(process.cwd(), reportToRender.manifestPath))}`,
         `- Approval request: ${toPosix(path.relative(process.cwd(), reportToRender.approvalRequestPath))}`,
         `- Staging approval request: ${toPosix(path.relative(process.cwd(), reportToRender.stagingApprovalRequestPath))}`,
-        `- Separate staging checkout gate approval: ${toPosix(path.relative(process.cwd(), reportToRender.stagingCheckoutGateApprovalPath))}`,
         `- Preflight checklist: ${toPosix(path.relative(process.cwd(), reportToRender.preflightChecklistPath))}`,
         `- Staging preflight checklist: ${toPosix(path.relative(process.cwd(), reportToRender.stagingPreflightChecklistPath))}`,
         `- Production minimal checklist: ${toPosix(path.relative(process.cwd(), reportToRender.productionMinimalChecklistPath))}`,
         `- Rollback plan: ${toPosix(path.relative(process.cwd(), reportToRender.rollbackPlanPath))}`,
         `- Manual evidence dry run: ${toPosix(path.relative(process.cwd(), reportToRender.manualEvidenceDryRunPath))}`,
         '',
-        'This package does not run final smoke, does not run staging rehearsal and does not write external services. It prepares a fully gated staging-only lifecycle rehearsal, its separate Cloudflare checkout-gate approval, and a distinct minimal manual production smoke.',
+        'This package does not run final smoke, does not run staging rehearsal and does not write external services. It prepares a checkout-closed staging lifecycle rehearsal that reuses completed payment evidence, plus a distinct minimal manual production smoke.',
         '',
         '| Status | Check | Message | Details |',
         '| --- | --- | --- | --- |',

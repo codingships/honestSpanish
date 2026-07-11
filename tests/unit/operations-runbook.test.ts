@@ -1927,12 +1927,17 @@ describe('operations runbook launch readiness', () => {
         const manualEvidenceDoc = read('docs/launch/MANUAL_EVIDENCE.md');
         const manualRunbook = read('docs/launch/MANUAL_EVIDENCE_RUNBOOK.md');
         const manualExample = read('docs/launch/MANUAL_EVIDENCE.example.json');
+        const launchRunbook = read('docs/launch/RUNBOOK.md');
+        const environmentDoc = read('docs/launch/ENVIRONMENT.md');
+        const launchChecklist = read('docs/launch/CHECKLIST.md');
         const smokeSafetyTest = read('tests/unit/real-env-smoke-safety.test.ts');
 
         expect(packageJson).toContain('launch:final-smoke-execution-pack');
         expect(packageJson).toContain('scripts/launch/final-smoke-execution-pack.ts');
         expect(packageJson).toContain('launch:staging-smoke-rehearsal-runner');
         expect(packageJson).toContain('scripts/launch/staging-smoke-rehearsal-runner.ts');
+        expect(packageJson).toContain('launch:staging-billing-lifecycle:preflight');
+        expect(packageJson).toContain('launch:staging-billing-lifecycle:resume');
 
         for (const snippet of [
             'launch-final-smoke-execution-pack',
@@ -1944,7 +1949,6 @@ describe('operations runbook launch readiness', () => {
             'WAITING_ON_FINAL_PREREQUISITES',
             'READY_FOR_STAGING_SMOKE_APPROVAL',
             'approval-request-staging-smoke.md',
-            'approval-request-staging-checkout-gate.md',
             'staging-preflight-checklist.md',
             'production-minimal-smoke-checklist.md',
             'stagingRehearsalMayRunBeforeLegalFinal',
@@ -1960,7 +1964,10 @@ describe('operations runbook launch readiness', () => {
             'must never be pointed at production',
             'existing allowlisted role accounts',
             'creates zero Auth users',
-            'separate Cloudflare',
+            'CHECKOUT_ENABLED_OVERRIDE=false',
+            'completed Checkout evidence',
+            'SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH',
+            'launch:staging-billing-lifecycle:preflight',
             'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
             'writes-ok:<host>',
             'real-env-smoke.ts',
@@ -1989,22 +1996,22 @@ describe('operations runbook launch readiness', () => {
             'staging-smoke-command-manifest.json',
             'staging-smoke-execution-plan.md',
             'approval-gate.md',
-            'cloudflare-checkout-gate-approval.md',
             'rollback-after-staging-smoke.md',
             'manual-evidence-after-staging-smoke.txt',
-            'No Cloudflare deploy/domain/DNS writes',
+            'No Cloudflare write, code, route, domain or DNS change.',
             'No Supabase schema migration',
             '--preflight-only',
             'runSmokePreflightCommand',
             'all_preconditions_before_writes',
-            'STAGING_CHECKOUT_GATE_CONFIRMATION',
             'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
-            'SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION',
+            'SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH',
             'SMOKE_STUDENT_EMAIL',
             'EMAIL_RECIPIENT_ALLOWLIST',
-            'exactCheckoutGateApprovalSentence',
-            '--bootstrap-checkout-approved',
-            'STAGING_CHECKOUT_BOOTSTRAP_APPROVAL_ENV',
+            "'--expect-checkout-override',",
+            "'false'",
+            'completedCheckoutEvidenceReused=true',
+            'cloudflareWritesStarted=false',
+            'runDirectNodeCommand',
             'node --import tsx --import ./scripts/smoke/astro-env-node-register.mjs scripts/smoke/real-env-smoke.ts',
         ]) {
             expect(stagingSmokeRunner).toContain(snippet);
@@ -2016,6 +2023,8 @@ describe('operations runbook launch readiness', () => {
             'staging-smoke-command-manifest.json',
             'rollback-after-staging-smoke.md',
             'SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev',
+            'launch-staging-billing-lifecycle',
+            'CHECKOUT_ENABLED_OVERRIDE remains false throughout',
         ]) {
             expect(finalApprovalQueue).toContain(snippet);
         }
@@ -2046,12 +2055,12 @@ describe('operations runbook launch readiness', () => {
             'pnpm launch:final-smoke-execution-pack',
             'outputs/launch-final-smoke-execution-pack/<timestamp>/approval-request-final-smoke.md',
             'production-minimal-smoke-checklist.md',
-            'approval-request-staging-checkout-gate.md',
             'outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json',
             'outputs/launch-final-smoke-execution-pack/<timestamp>/rollback-and-cleanup-plan.md',
             'outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md',
             'outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md',
-            'cloudflare-checkout-gate-approval.md',
+            'outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json',
+            'pnpm launch:staging-billing-lifecycle:preflight',
         ]) {
             expect(manualEvidenceDoc).toContain(snippet);
             expect(manualRunbook).toContain(snippet);
@@ -2061,6 +2070,14 @@ describe('operations runbook launch readiness', () => {
         expect(manualExample).toContain('outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json');
         expect(manualExample).toContain('outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md');
         expect(manualExample).toContain('outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md');
+        expect(manualExample).toContain('outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json');
+        for (const document of [launchRunbook, environmentDoc, launchChecklist, manualEvidenceDoc, manualRunbook]) {
+            expect(document).toContain('SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH');
+            expect(document).toContain('launch:staging-billing-lifecycle:preflight');
+        }
+        expect(launchRunbook).not.toContain('aprobacion Cloudflare del gate separada');
+        expect(manualRunbook).not.toContain('Devolver el gate Cloudflare');
+        expect(finalApprovalQueue).not.toContain('checkout gate uses the separate approval item');
         expect(smokeSafetyTest).toContain('requires an explicit external-write confirmation');
         expect(smokeSafetyTest).toContain('writes redacted final smoke evidence files');
     });

@@ -317,27 +317,6 @@ function buildQueueItems(): QueueItem[] {
             status: 'missing_artifacts',
         },
         {
-            id: 'staging_checkout_gate_toggle',
-            title: 'Separate temporary Cloudflare staging checkout gate',
-            kind: 'external_write_approval',
-            target: 'Cloudflare Worker `espanolhonesto-staging`, variable `CHECKOUT_ENABLED_OVERRIDE` only: true for the smoke window, then false',
-            approvalPath: latestGeneratedPath('launch-final-smoke-execution-pack', 'approval-request-staging-checkout-gate.md'),
-            supportPaths: existingOrExpected([
-                latestGeneratedPath('launch-final-smoke-execution-pack', 'staging-preflight-checklist.md'),
-                latestGeneratedPath('launch-staging-smoke-rehearsal-runner', 'cloudflare-checkout-gate-approval.md'),
-                latestGeneratedPath('launch-staging-smoke-rehearsal-runner', 'summary.md'),
-            ]),
-            rollbackPath: latestGeneratedPath('launch-staging-smoke-rehearsal-runner', 'rollback-after-staging-smoke.md'),
-            allowedScope: 'After a fresh read-only Cloudflare preflight, set only the staging checkout override true, verify the gate, then restore false after success or failure. The smoke runner performs neither write.',
-            forbiddenScope: [
-                'No deploy, code, route, domain or DNS change',
-                'No production Worker or other secret/variable change',
-                'No Stripe live or other provider write',
-            ],
-            finalBlockers: ['integration_readiness'],
-            status: 'missing_artifacts',
-        },
-        {
             id: 'staging_write_capable_smoke_rehearsal',
             title: 'Staging write-capable lifecycle smoke rehearsal',
             kind: 'external_write_approval',
@@ -352,17 +331,19 @@ function buildQueueItems(): QueueItem[] {
                 latestGeneratedPath('launch-staging-smoke-rehearsal-runner', 'staging-smoke-command-manifest.json'),
                 latestGeneratedPath('launch-staging-smoke-rehearsal-runner', 'staging-smoke-execution-plan.md'),
                 latestGeneratedPath('launch-staging-smoke-rehearsal-runner', 'approval-gate.md'),
+                latestGeneratedPath('launch-staging-billing-lifecycle', 'summary.json')
+                    ?? path.join('outputs', 'launch-staging-billing-lifecycle', '<timestamp>', 'summary.json'),
             ]),
             rollbackPath: latestGeneratedPath('launch-staging-smoke-rehearsal-runner', 'rollback-after-staging-smoke.md') ?? latestGeneratedPath('launch-final-smoke-execution-pack', 'rollback-and-cleanup-plan.md'),
-            allowedScope: 'After every read-only harness precondition passes, run staging rehearsal with Stripe test and exactly the three existing allowlisted role accounts; this creates zero Auth users, performs bounded cleanup and does not close final_smoke.',
+            allowedScope: 'After the separately gated canonical Stripe test lifecycle reports OK/complete and every read-only harness precondition revalidates it live, run staging rehearsal with exactly the three existing allowlisted role accounts; this creates zero Auth users, performs bounded cleanup and does not close final_smoke.',
             forbiddenScope: [
                 'No production smoke or live-domain launch sign-off',
                 'No secret/private payload evidence',
-                'No Cloudflare write; the checkout gate uses the separate approval item',
+                'No Cloudflare write or checkout-gate change; CHECKOUT_ENABLED_OVERRIDE remains false throughout',
                 'No Stripe live mode or real charge',
             ],
             finalBlockers: ['integration_readiness'],
-            prerequisiteItemIds: ['staging_checkout_gate_toggle'],
+            prerequisiteItemIds: [],
             status: 'missing_artifacts',
         },
         {
@@ -702,9 +683,10 @@ function buildCriticalPath(queueItems: QueueItem[]): CriticalPathStep[] {
             prerequisites: [
                 'Exact staging writes-ok approval exists for espanolhonesto-staging.alindev95.workers.dev',
                 'Stripe test mode and smoke credential source are confirmed',
+                'Canonical outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json is OK/complete for the exact Checkout and its terminal state passes live revalidation',
             ],
             blocks: ['integration_readiness'],
-            closeWhen: 'Registration, Stripe test checkout/webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation, retry and UX/logistics notes are recorded redacted for staging.',
+            closeWhen: 'Canonical billing lifecycle plus Checkout/webhook, Drive, email, booking, Doc, Calendar/Meet, reminder, cancellation, retry and UX/logistics evidence are recorded redacted for staging.',
             stopIf: [
                 'SMOKE_BASE_URL is not staging or does not exactly match writes-ok approval',
                 'The smoke would use Stripe live mode, activate real payments or change Cloudflare/DNS/domains',

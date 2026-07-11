@@ -1,73 +1,163 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+    parseWranglerWhoamiSummary,
+    runCleanupOwnedNodeCommand,
+    runDirectNodeCommand,
+    sanitizeStagingSmokeCapture,
+    wranglerCliArgs,
+} from '../../scripts/launch/staging-smoke-runner-safety';
 
-const source = readFileSync(
-    path.join(process.cwd(), 'scripts/launch/staging-smoke-rehearsal-runner.ts'),
-    'utf8',
-);
+const source = readText('scripts/launch/staging-smoke-rehearsal-runner.ts');
+const safetySource = readText('scripts/launch/staging-smoke-runner-safety.ts');
+const temporaryDirectories: string[] = [];
 
-describe('staging smoke checkout gate ownership', () => {
-    it('requires two exact approvals and the exact Cloudflare account/Worker', () => {
-        expect(source).toContain("const checkoutGateApprovalEnvVar = 'STAGING_CHECKOUT_GATE_APPROVAL'");
-        expect(source).toContain('checkoutGateApprovalMatched');
-        expect(source).toContain("const cloudflareAccountId = 'd1a22bcf6477ff2ff31d2bfb83084e44'");
-        expect(source).toContain("const stagingWorkerName = 'espanolhonesto-staging'");
-        expect(source).toContain("'wrangler', 'whoami', '--json'");
-        expect(source).toContain("'deployments', 'status', '--config', 'wrangler.toml', '--env', 'staging', '--json'");
-    });
+afterEach(() => {
+    for (const directory of temporaryDirectories.splice(0)) {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
 
-    it('attests the closed runtime before enabling and the enabled runtime before smoke writes', () => {
+describe('staging smoke checkout-closed runner', () => {
+    it('keeps checkout false throughout and reuses completed evidence before smoke writes', () => {
         const start = source.indexOf('function runApprovedExecution');
-        const end = source.indexOf('function runCheckoutBootstrapPreflightCommand');
-        const fullSmokeSource = source.slice(start, end);
-        const closedPreflight = fullSmokeSource.indexOf("runSmokePreflightCommand(merged, 'false', 'before-gate-write')");
-        const enable = fullSmokeSource.indexOf("runCheckoutGateWrite('true', 'enable')");
-        const enabledPreflight = fullSmokeSource.indexOf("runSmokePreflightCommand(merged, 'true', 'after-gate-write')");
-        const smoke = fullSmokeSource.indexOf('const capture = runSmokeCommand(merged)');
-        expect(closedPreflight).toBeGreaterThan(0);
-        expect(enable).toBeGreaterThan(closedPreflight);
-        expect(enabledPreflight).toBeGreaterThan(enable);
-        expect(smoke).toBeGreaterThan(enabledPreflight);
+        const end = source.indexOf('function runSmokePreflightCommand');
+        const executionSource = source.slice(start, end);
+        const sourceGuard = executionSource.indexOf("merged.CHECKOUT_ENABLED_OVERRIDE !== 'false'");
+        const preflight = executionSource.indexOf('const preflightCapture = runSmokePreflightCommand(merged)');
+        const smoke = executionSource.indexOf('const capture = runSmokeCommand(merged)');
+
+        expect(sourceGuard).toBeGreaterThan(0);
+        expect(preflight).toBeGreaterThan(sourceGuard);
+        expect(smoke).toBeGreaterThan(preflight);
+        expect(executionSource).toContain('completedCheckoutEvidenceReused=true');
+        expect(executionSource).toContain('cloudflareWritesStarted=false');
+        expect(source).toContain("'--expect-checkout-override',\n        'false'");
+        expect(source).not.toContain("runCheckoutGateWrite('true'");
+        expect(source).not.toContain('runApprovedCheckoutBootstrap');
+        expect(source).not.toContain('stripe.checkout.sessions.expire');
     });
 
-    it('has a separate bootstrap approval and closes the gate after preserving one open Checkout', () => {
-        const start = source.indexOf('function runApprovedCheckoutBootstrap');
-        const end = source.indexOf('function runApprovedExecution');
-        const bootstrapSource = source.slice(start, end);
-        const closedRuntime = bootstrapSource.indexOf("runRuntimePreflightCommand(merged, 'false', 0)");
-        const bootstrapPreflight = bootstrapSource.indexOf('runCheckoutBootstrapPreflightCommand(merged)');
-        const enable = bootstrapSource.indexOf("runCheckoutGateWrite('true', 'enable')");
-        const enabledRuntime = bootstrapSource.indexOf("runRuntimePreflightCommand(merged, 'true', 0)");
-        const bootstrap = bootstrapSource.indexOf('runCheckoutBootstrapCommand(merged)');
-        const rollback = bootstrapSource.indexOf('runCheckoutGateRollback(merged, reportCaptures)');
-        const failureCleanup = bootstrapSource.indexOf('runCheckoutBootstrapCleanupCommand(merged)');
-        expect(source).toContain("process.argv.includes('--bootstrap-checkout-approved')");
-        expect(source).toContain('STAGING_CHECKOUT_BOOTSTRAP_APPROVAL_ENV');
-        expect(source).toContain('initial_read_only_guards');
-        expect(source).toContain('runCheckoutBootstrapCleanupCommand(merged)');
-        expect(source).toContain('bootstrapFailureNeedsCleanup && gateRollbackVerified');
-        expect(source).toContain('cleanup was intentionally skipped because the Cloudflare checkout rollback is ambiguous');
-        expect(closedRuntime).toBeGreaterThan(0);
-        expect(bootstrapPreflight).toBeGreaterThan(closedRuntime);
-        expect(enable).toBeGreaterThan(bootstrapPreflight);
-        expect(enabledRuntime).toBeGreaterThan(enable);
-        expect(bootstrap).toBeGreaterThan(enabledRuntime);
-        expect(rollback).toBeGreaterThan(bootstrap);
-        expect(failureCleanup).toBeGreaterThan(rollback);
+    it('uses direct Node entrypoints with accurate displays and no cmd/pnpm wrapper', () => {
+        expect(source).toContain('runDirectNodeCommand(wranglerCliArgs');
+        expect(source).toContain("display: 'node node_modules/wrangler/bin/wrangler.js deployments status");
+        expect(source).toContain("const display = 'node --import tsx");
+        expect(wranglerCliArgs(['whoami', '--json'])[0]).toMatch(/node_modules[\\/]wrangler[\\/]bin[\\/]wrangler\.js$/u);
+        expect(source).not.toContain('process.env.ComSpec');
+        expect(source).not.toContain("'/c', 'pnpm'");
+        expect(source).not.toContain('spawnSync');
+        expect(source).not.toContain('reportCaptures.push(enabledPreflight)');
     });
 
-    it('owns a bounded false rollback from finally and verifies the deployed result', () => {
-        expect(source).toContain('} finally {');
-        expect(source).toContain('approvedChecks.push(runCheckoutGateRollback(merged, reportCaptures));');
-        expect(source).toContain('for (let attempt = 1; attempt <= 3; attempt += 1)');
-        expect(source).toContain("runCheckoutGateWrite('false', `rollback-${attempt}`)");
-        expect(source).toContain("runRuntimePreflightCommand(env, 'false', attempt)");
-        expect(source).toContain('rollbackState=verified-false');
-        expect(source).toContain('rollbackState=ambiguous');
-        expect(source).toContain("'secret',");
-        expect(source).toContain("'CHECKOUT_ENABLED_OVERRIDE'");
-        expect(source).toContain("'--env',");
-        expect(source).toContain("'staging',");
+    it('does not impose a hard timeout on the write-capable smoke child', () => {
+        const smokeStart = source.indexOf('function runSmokeCommand');
+        const smokeEnd = source.indexOf('function buildSmokeEnv', smokeStart);
+        const smokeSource = source.slice(smokeStart, smokeEnd);
+
+        expect(smokeSource).toContain('runCleanupOwnedNodeCommand([');
+        expect(smokeSource).not.toContain('timeoutMs');
+        expect(smokeSource).not.toContain('runDirectNodeCommand([');
+        expect(smokeSource).not.toContain('result.stdout');
+        expect(smokeSource).not.toContain('result.stderr');
+        const helperStart = safetySource.indexOf('export function runCleanupOwnedNodeCommand');
+        const helperEnd = safetySource.indexOf('function spawnNodeCommand', helperStart);
+        const helperSource = safetySource.slice(helperStart, helperEnd);
+        expect(helperSource).toContain("stdio: 'ignore'");
+        expect(helperSource).not.toContain('timeout:');
+        expect(helperSource).not.toContain('maxBuffer:');
+    });
+
+    it('terminates a timed-out direct Node process before it can write later', async () => {
+        const directory = mkdtempSync(path.join(tmpdir(), 'staging-smoke-timeout-'));
+        temporaryDirectories.push(directory);
+        const marker = path.join(directory, 'late-write.txt');
+        const childScript = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'late'), 250)`;
+
+        const result = runDirectNodeCommand(['-e', childScript], { timeoutMs: 40 });
+
+        expect((result.error as NodeJS.ErrnoException | undefined)?.code).toBe('ETIMEDOUT');
+        expect(result.status).toBeNull();
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        expect(existsSync(marker)).toBe(false);
+    });
+
+    it('waits for a write-capable child to finish its delayed finally cleanup', () => {
+        const directory = mkdtempSync(path.join(tmpdir(), 'staging-smoke-cleanup-'));
+        temporaryDirectories.push(directory);
+        const marker = path.join(directory, 'cleanup-complete.txt');
+        const childScript = [
+            '(async () => {',
+            '  try { await new Promise((resolve) => setTimeout(resolve, 120)); }',
+            `  finally { require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'clean'); }`,
+            '})().catch(() => process.exitCode = 1);',
+        ].join('\n');
+
+        const result = runCleanupOwnedNodeCommand(['-e', childScript], {});
+
+        expect(result.error).toBeUndefined();
+        expect(result.status).toBe(0);
+        expect(existsSync(marker)).toBe(true);
+        expect(readFileSync(marker, 'utf8')).toBe('clean');
+    });
+
+    it('redacts complete PEM blocks for generic, RSA and EC private keys', () => {
+        const pemBlock = (variant: '' | 'RSA' | 'EC', payload: string) => {
+            const label = [variant, 'PRIVATE KEY'].filter(Boolean).join(' ');
+            return [`-----${'BEGIN'} ${label}-----`, payload, `-----${'END'} ${label}-----`].join('\n');
+        };
+        const input = [
+            'before',
+            pemBlock('', 'private-payload'),
+            'middle',
+            pemBlock('RSA', 'rsa-payload'),
+            pemBlock('EC', 'ec-payload'),
+            'after',
+        ].join('\n');
+
+        const sanitized = sanitizeStagingSmokeCapture(input);
+
+        expect(sanitized.match(/\[redacted-pem-block\]/gu)).toHaveLength(3);
+        expect(sanitized).not.toContain('BEGIN');
+        expect(sanitized).not.toContain('private-payload');
+        expect(sanitized).not.toContain('rsa-payload');
+        expect(sanitized).not.toContain('ec-payload');
+        expect(sanitized).toContain('before');
+        expect(sanitized).toContain('after');
+    });
+
+    it('redacts generic email addresses from non-whoami command captures', () => {
+        const sanitized = sanitizeStagingSmokeCapture('operator@example.com and Student.Name+qa@sub.example.es');
+        expect(sanitized).toBe('[redacted-email] and [redacted-email]');
+    });
+
+    it('reduces wrangler whoami JSON to safe booleans and account IDs', () => {
+        const rawIdentity = JSON.stringify({
+            email: 'operator@example.com',
+            name: 'Private Operator',
+            accounts: [{ id: 'd1a22bcf6477ff2ff31d2bfb83084e44', name: 'Private Account' }],
+        });
+
+        const summary = parseWranglerWhoamiSummary(rawIdentity, 0);
+        const persisted = JSON.stringify(summary);
+
+        expect(summary).toEqual({
+            authenticated: true,
+            jsonParsed: true,
+            accountIds: ['d1a22bcf6477ff2ff31d2bfb83084e44'],
+        });
+        expect(persisted).not.toContain('operator@example.com');
+        expect(persisted).not.toContain('Private Operator');
+        const whoamiStart = source.indexOf('function runWranglerWhoamiCapture');
+        const whoamiEnd = source.indexOf('function runWranglerCapture', whoamiStart);
+        const whoamiSource = source.slice(whoamiStart, whoamiEnd);
+        expect(whoamiSource).toContain('JSON.stringify(summary, null, 2)');
+        expect(whoamiSource).not.toContain('sanitize(result.stdout');
+        expect(whoamiSource).not.toContain('result.stderr');
     });
 });
+
+function readText(relativePath: string) {
+    return readFileSync(path.join(process.cwd(), relativePath), 'utf8');
+}

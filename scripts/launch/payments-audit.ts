@@ -519,11 +519,12 @@ function reviewPaymentTestsAndSmokes(): Finding {
             '/api/create-checkout',
             'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
             'verifyCompletedCheckoutEvidence',
+            'SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH',
             'synthetic webhook payloads are forbidden',
             'runReadOnlyPreflight',
             '--preflight-only',
             'assertExactSmokeEmailAllowlist',
-            'deleteSmokeCheckoutArtifacts',
+            'completedCheckoutEvidencePreserved',
             'cleanupSchedulingSmokeArtifacts',
         ]),
     ];
