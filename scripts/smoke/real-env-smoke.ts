@@ -23,6 +23,9 @@ import {
 // runner win; local defaults come exclusively from the ignored staging file.
 dotenv.config({ path: '.env.staging', override: false, quiet: true });
 
+const RUNTIME_PREFLIGHT_ONLY = process.argv.includes('--runtime-preflight-only');
+const PREFLIGHT_ONLY = process.argv.includes('--preflight-only') || RUNTIME_PREFLIGHT_ONLY;
+
 const BASE_URL = normalizeAndConfirmSmokeBaseUrl(
     requireEnv('SMOKE_BASE_URL'),
     requireEnv('SMOKE_EXTERNAL_WRITES_CONFIRMATION')
@@ -34,14 +37,16 @@ const TEACHER_PASSWORD = requireEnv('SMOKE_TEACHER_PASSWORD');
 const STUDENT_EMAIL = requireEnv('SMOKE_STUDENT_EMAIL');
 const STUDENT_PASSWORD = requireEnv('SMOKE_STUDENT_PASSWORD');
 const EMAIL_RECIPIENT_ALLOWLIST = requireEnv('EMAIL_RECIPIENT_ALLOWLIST');
-const COMPLETED_CHECKOUT_SESSION_ID = requireEnv('SMOKE_COMPLETED_CHECKOUT_SESSION_ID');
-const BILLING_LIFECYCLE_CONFIRMATION = requireEnv('SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION');
+const COMPLETED_CHECKOUT_SESSION_ID = RUNTIME_PREFLIGHT_ONLY
+    ? process.env.SMOKE_COMPLETED_CHECKOUT_SESSION_ID?.trim() ?? ''
+    : requireEnv('SMOKE_COMPLETED_CHECKOUT_SESSION_ID');
+const BILLING_LIFECYCLE_CONFIRMATION = RUNTIME_PREFLIGHT_ONLY
+    ? process.env.SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION?.trim() ?? ''
+    : requireEnv('SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION');
 const CHECKOUT_GATE_CONFIRMATION = requireEnv('STAGING_CHECKOUT_GATE_CONFIRMATION');
 const FULFILLMENT_WORKER_URL = normalizeAndConfirmFulfillmentWorkerUrl(requireEnv('FULFILLMENT_WORKER_URL'));
 const INTERNAL_JOB_SECRET = requireEnv('INTERNAL_JOB_SECRET');
 const SMOKE_AUTH_USER_SCAN_MAX_PAGES = readPositiveIntegerEnv('SMOKE_AUTH_USER_SCAN_MAX_PAGES', 100);
-const RUNTIME_PREFLIGHT_ONLY = process.argv.includes('--runtime-preflight-only');
-const PREFLIGHT_ONLY = process.argv.includes('--preflight-only') || RUNTIME_PREFLIGHT_ONLY;
 const EXPECTED_CHECKOUT_OVERRIDE = readExpectedCheckoutOverride(process.argv.slice(2));
 
 if (EXPECTED_CHECKOUT_OVERRIDE === 'false' && !PREFLIGHT_ONLY) {

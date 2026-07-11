@@ -2003,7 +2003,9 @@ describe('operations runbook launch readiness', () => {
             'SMOKE_STUDENT_EMAIL',
             'EMAIL_RECIPIENT_ALLOWLIST',
             'exactCheckoutGateApprovalSentence',
-            'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts',
+            '--bootstrap-checkout-approved',
+            'STAGING_CHECKOUT_BOOTSTRAP_APPROVAL_ENV',
+            'node --import tsx --import ./scripts/smoke/astro-env-node-register.mjs scripts/smoke/real-env-smoke.ts',
         ]) {
             expect(stagingSmokeRunner).toContain(snippet);
         }

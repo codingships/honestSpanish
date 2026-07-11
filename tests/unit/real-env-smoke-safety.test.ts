@@ -212,12 +212,17 @@ describe('narrow checkout smoke safety', () => {
         expect(checkoutSource).toContain('getExistingSmokeUser');
         expect(checkoutSource).not.toContain('auth.admin.createUser');
         expect(checkoutSource).not.toContain('auth.admin.updateUserById');
-        expect(checkoutSource).toContain(".eq('interest', 'checkout-smoke')");
+        expect(checkoutSource).toContain(".eq('interest', checkout.interest)");
+        expect(checkoutSource).toContain(".in('interest', ['checkout-smoke', 'staging-checkout-bootstrap'])");
         expect(checkoutSource).toContain(".from('checkout_intents')");
         expect(checkoutSource).toContain(".from('crm_opportunities')");
         expect(checkoutSource).toContain('probeCheckoutGateEnabledReadOnly');
-        expect(checkoutSource.indexOf('const authenticated = await signInForCheckout')).toBeLessThan(
-            checkoutSource.indexOf('await expireOwnedOpenCheckoutIntents(userId)')
+        const mainSource = checkoutSource.slice(
+            checkoutSource.indexOf('async function main()'),
+            checkoutSource.indexOf('function assertExistingAllowlistedStudent'),
+        );
+        expect(mainSource.indexOf('const authenticated = await signInForCheckout')).toBeLessThan(
+            mainSource.indexOf('await expireOwnedOpenCheckoutIntents(userId)')
         );
     });
 
@@ -244,5 +249,35 @@ describe('narrow checkout smoke safety', () => {
         expect(checkoutSource).not.toContain('generateTestHeaderString');
         expect(checkoutSource).not.toContain('postSignedWebhook');
         expect(checkoutSource).not.toContain('stripe.subscriptions.create');
+    });
+
+    it('bootstraps one real open Checkout only under exact staging approval and a Test Clock', () => {
+        expect(checkoutSource).toContain("process.argv.includes('--bootstrap-preflight')");
+        expect(checkoutSource).toContain("process.argv.includes('--bootstrap-preserve-open')");
+        expect(checkoutSource).toContain("process.argv.includes('--bootstrap-cleanup')");
+        expect(checkoutSource).toContain('EXACT_STAGING_CHECKOUT_BOOTSTRAP_APPROVAL');
+        expect(checkoutSource).toContain("const stagingStripeAccountId = 'acct_1TruqOC22M3erP0j'");
+        expect(checkoutSource).toContain('stripe.testHelpers.testClocks.create');
+        expect(checkoutSource).toContain("test_clock: testClock.id");
+        expect(checkoutSource).toContain("source: 'staging-checkout-bootstrap'");
+        expect(checkoutSource).toContain("selected?.pkg.name !== 'standard'");
+        expect(checkoutSource).toContain("account.country !== 'ES'");
+        expect(checkoutSource).toContain("account.default_currency !== 'eur'");
+        expect(checkoutSource).toContain('copyCheckoutUrlToClipboard(created.url)');
+        expect(checkoutSource).toContain('if (!preserveCheckout) await closeSmokeCheckout(checkout)');
+        expect(checkoutSource).toContain('cleanupOwnedBootstrapArtifacts');
+        expect(checkoutSource).toContain('Refusing to clean a bootstrap Customer with completed billing evidence.');
+        expect(checkoutSource).not.toContain('console.log(created.url)');
+        expect(checkoutSource).not.toContain('writeFileSync(created.url');
+    });
+
+    it('refuses a non-smoke open intent before expiring its Stripe Session', () => {
+        const functionStart = checkoutSource.indexOf('async function expireOwnedOpenCheckoutIntents');
+        const functionEnd = checkoutSource.indexOf('async function ensureCheckoutApproval');
+        const cleanupSource = checkoutSource.slice(functionStart, functionEnd);
+        const ownershipGuard = cleanupSource.indexOf('A non-smoke Checkout intent is already open');
+        const sessionExpire = cleanupSource.indexOf('stripe.checkout.sessions.expire');
+        expect(ownershipGuard).toBeGreaterThan(0);
+        expect(sessionExpire).toBeGreaterThan(ownershipGuard);
     });
 });

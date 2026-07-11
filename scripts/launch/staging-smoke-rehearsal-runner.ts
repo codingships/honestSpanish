@@ -2,6 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    EXACT_STAGING_CHECKOUT_BOOTSTRAP_APPROVAL,
+    STAGING_CHECKOUT_BOOTSTRAP_APPROVAL_ENV,
+} from '../smoke/staging-checkout-bootstrap-approval';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -76,7 +80,7 @@ interface RenderedArtifacts {
     summary: string;
 }
 
-const approvalEnvVar = 'STAGING_SMOKE_REHEARSAL_APPROVAL';
+const smokeApprovalEnvVar = 'STAGING_SMOKE_REHEARSAL_APPROVAL';
 const checkoutGateApprovalEnvVar = 'STAGING_CHECKOUT_GATE_APPROVAL';
 const checkoutGateConfirmationEnvVar = 'STAGING_CHECKOUT_GATE_CONFIRMATION';
 const cloudflareAccountId = 'd1a22bcf6477ff2ff31d2bfb83084e44';
@@ -84,9 +88,25 @@ const stagingWorkerName = 'espanolhonesto-staging';
 const baseUrl = 'https://espanolhonesto-staging.alindev95.workers.dev';
 const confirmation = 'writes-ok:espanolhonesto-staging.alindev95.workers.dev';
 const checkoutGateConfirmation = 'enabled-after-separate-cloudflare-approval:espanolhonesto-staging.alindev95.workers.dev';
-const exactApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode y evidencia de Checkout/webhooks reales ya prevalidada read-only, permitiendo unicamente writes de smoke necesarios en Supabase staging, Stripe test, Google, Resend y Admin Jobs, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de CRM, jobs, sesiones y artefactos temporales. El cambio temporal del gate requiere ademas su aprobacion Cloudflare separada y exacta; el runner aprobado sera responsable de restaurarlo y verificarlo en `false` dentro de `finally`. No autorizo ningun otro cambio externo.';
+const realEnvSmokeNodePrefix = [
+    '--import',
+    'tsx',
+    '--import',
+    './scripts/smoke/astro-env-node-register.mjs',
+    'scripts/smoke/real-env-smoke.ts',
+];
+const exactSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode y evidencia de Checkout/webhooks reales ya prevalidada read-only, permitiendo unicamente writes de smoke necesarios en Supabase staging, Stripe test, Google, Resend y Admin Jobs, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de CRM, jobs, sesiones y artefactos temporales. El cambio temporal del gate requiere ademas su aprobacion Cloudflare separada y exacta; el runner aprobado sera responsable de restaurarlo y verificarlo en `false` dentro de `finally`. No autorizo ningun otro cambio externo.';
 const exactCheckoutGateApprovalSentence = 'Apruebo que el runner cambie temporalmente solo `CHECKOUT_ENABLED_OVERRIDE` del Cloudflare Worker staging `espanolhonesto-staging` de `false` a `true` para completar y verificar el Checkout Stripe test aprobado y que, dentro de `finally`, lo devuelva a `false` y verifique el rollback incluso si el smoke o la activacion fallan; antes del primer write debe atestiguar el runtime cerrado, la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` y el Worker exactos. No autorizo deploy de codigo, cambios de rutas, dominios, DNS, otros secrets/vars, Workers production, Stripe live, Supabase, Google, Resend ni ningun otro write externo.';
-const executeRequested = process.argv.includes('--execute-approved');
+const fullSmokeRequested = process.argv.includes('--execute-approved');
+const bootstrapCheckoutRequested = process.argv.includes('--bootstrap-checkout-approved');
+const executeRequested = fullSmokeRequested || bootstrapCheckoutRequested;
+const executionFlag = bootstrapCheckoutRequested ? '--bootstrap-checkout-approved' : '--execute-approved';
+const approvalEnvVar = bootstrapCheckoutRequested
+    ? STAGING_CHECKOUT_BOOTSTRAP_APPROVAL_ENV
+    : smokeApprovalEnvVar;
+const exactApprovalSentence = bootstrapCheckoutRequested
+    ? EXACT_STAGING_CHECKOUT_BOOTSTRAP_APPROVAL
+    : exactSmokeApprovalSentence;
 const approvalMatched = process.env[approvalEnvVar] === exactApprovalSentence;
 const checkoutGateApprovalMatched = process.env[checkoutGateApprovalEnvVar] === exactCheckoutGateApprovalSentence;
 
@@ -129,7 +149,13 @@ const envNameRows: EnvSourceRow[] = [
     row('SMOKE_EXTERNAL_WRITES_CONFIRMATION', 'generated', 'fixed staging writes-ok host confirmation'),
 ];
 
-const requiredEnvNames = envNameRows.map((item) => item.name);
+const bootstrapDeferredEnvNames = new Set([
+    'SMOKE_COMPLETED_CHECKOUT_SESSION_ID',
+    'SMOKE_BILLING_LIFECYCLE_MANUAL_CONFIRMATION',
+]);
+const requiredEnvNames = envNameRows
+    .filter((item) => !bootstrapCheckoutRequested || !bootstrapDeferredEnvNames.has(item.name))
+    .map((item) => item.name);
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-staging-smoke-rehearsal-runner', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
@@ -142,26 +168,44 @@ const captures: Capture[] = [];
 const checks: Check[] = [
     validatePackageScript(),
     validateSmokeHarness(),
+    validateNodeSmokeRuntimeBridge(),
     validateFinalSmokePackArtifacts(),
-    validateEnvSources(),
+    bootstrapCheckoutRequested ? validateBootstrapEnvSources() : validateEnvSources(),
     validateApprovalGateSource(),
 ];
 
-if (executeRequested && !approvalMatched) {
+if (fullSmokeRequested && bootstrapCheckoutRequested) {
+    checks.push(failedCheck(
+        'mutually_exclusive_execution_modes',
+        'Full smoke and Checkout bootstrap modes cannot run in the same process.',
+        ['--execute-approved', '--bootstrap-checkout-approved', 'externalWriteCommandStarted=false'],
+    ));
+} else if (executeRequested && checks.some((check) => check.status === 'failed')) {
+    checks.push(failedCheck(
+        'initial_read_only_guards',
+        'One or more initial source, artifact or environment guards failed, so no write-capable command can run.',
+        [
+            `failed=${checks.filter((check) => check.status === 'failed').map((check) => check.name).join(',')}`,
+            'externalWriteCommandStarted=false',
+        ],
+    ));
+} else if (executeRequested && !approvalMatched) {
     checks.push({
         status: 'failed',
         name: 'exact_approval_gate',
-        message: 'Execution was requested but the exact staging smoke approval did not match, so no write-capable smoke can run.',
+        message: 'Execution was requested but the exact approval for this staging mode did not match, so no write-capable command can run.',
         details: [`env=${approvalEnvVar}`, 'required=exact sentence in approval-gate.md', 'externalWriteCommandStarted=false'],
     });
-} else if (executeRequested && approvalMatched) {
+} else if (bootstrapCheckoutRequested && approvalMatched) {
+    checks.push(...runApprovedCheckoutBootstrap(captures));
+} else if (fullSmokeRequested && approvalMatched) {
     checks.push(...runApprovedExecution(captures));
 } else {
     checks.push({
         status: 'ok',
         name: 'plan_mode_no_external_write',
         message: 'Plan mode generated the staging smoke runner package without running the write-capable smoke.',
-        details: ['executeRequested=false', 'externalWriteCommandStarted=false', `futureGate=${approvalEnvVar}`, 'futureFlag=--execute-approved'],
+        details: ['executeRequested=false', 'externalWriteCommandStarted=false', `futureGate=${approvalEnvVar}`, `futureFlag=${executionFlag}`],
     });
 }
 
@@ -316,6 +360,35 @@ function validateSmokeHarness(): Check {
     };
 }
 
+function validateNodeSmokeRuntimeBridge(): Check {
+    const registerPath = path.join('scripts', 'smoke', 'astro-env-node-register.mjs');
+    const loaderPath = path.join('scripts', 'smoke', 'astro-env-node-loader.mjs');
+    const shimPath = path.join('scripts', 'smoke', 'astro-env-server-node.mjs');
+    const missingFiles = [registerPath, loaderPath, shimPath].filter((file) => !existsSync(file));
+    const registerSource = existsSync(registerPath) ? readFileSync(registerPath, 'utf8') : '';
+    const loaderSource = existsSync(loaderPath) ? readFileSync(loaderPath, 'utf8') : '';
+    const shimSource = existsSync(shimPath) ? readFileSync(shimPath, 'utf8') : '';
+    const missingSnippets = [
+        ['register', "register(new URL('./astro-env-node-loader.mjs'"],
+        ['loader', "specifier === 'astro:env/server'"],
+        ['shim', 'process.env[key]'],
+    ].filter(([kind, snippet]) => !(
+        kind === 'register' ? registerSource : kind === 'loader' ? loaderSource : shimSource
+    ).includes(snippet)).map(([kind, snippet]) => `${kind}:${snippet}`);
+    const missing = [...missingFiles, ...missingSnippets];
+
+    return {
+        status: missing.length === 0 ? 'ok' : 'failed',
+        name: 'node_smoke_runtime_bridge',
+        message: missing.length === 0
+            ? 'The Node smoke bridge resolves only Astro runtime-secret reads to process.env while leaving Worker code unchanged.'
+            : 'The Node smoke bridge is missing or no longer maps the exact Astro runtime-secret module safely.',
+        details: missing.length === 0
+            ? [registerPath, loaderPath, shimPath, 'secretValuesPrinted=false']
+            : missing.map((item) => `missing=${item}`),
+    };
+}
+
 function validateFinalSmokePackArtifacts(): Check {
     if (!latestStagingApprovalPath || !latestStagingPreflightPath || !latestStagingCheckoutGateApprovalPath || !latestFinalSmokePackSummaryPath) {
         return {
@@ -331,7 +404,7 @@ function validateFinalSmokePackArtifacts(): Check {
     const checkoutGateApproval = readFileSync(latestStagingCheckoutGateApprovalPath, 'utf8');
     const summary = readFileSync(latestFinalSmokePackSummaryPath, 'utf8');
     const required = [
-        exactApprovalSentence,
+        exactSmokeApprovalSentence,
         exactCheckoutGateApprovalSentence,
         'READY_FOR_STAGING_SMOKE_APPROVAL',
         'Stripe test mode',
@@ -350,6 +423,57 @@ function validateFinalSmokePackArtifacts(): Check {
         details: missing.length === 0
             ? [`summary=${latestFinalSmokePackSummaryPath}`, `approval=${latestStagingApprovalPath}`, `preflight=${latestStagingPreflightPath}`, `checkoutGateApproval=${latestStagingCheckoutGateApprovalPath}`]
             : missing.map((snippet) => `missing=${snippet}`),
+    };
+}
+
+function validateBootstrapEnvSources(): Check {
+    const stagingEnv = parseEnvFile('.env.staging');
+    const baseEnv = parseEnvFile('.env');
+    const missing = requiredEnvNames.filter((name) => !resolveEnvName(name, stagingEnv, baseEnv));
+    const stripeSecret = resolveEnvName('STRIPE_SECRET_KEY', stagingEnv, baseEnv);
+    const stripeMode = stripeSecret?.startsWith('sk_test_')
+        ? 'test'
+        : stripeSecret?.startsWith('sk_live_')
+            ? 'live'
+            : stripeSecret
+                ? 'unknown'
+                : 'missing';
+    const stripeAccountExact = resolveEnvName('STRIPE_EXPECTED_ACCOUNT_ID', stagingEnv, baseEnv) === 'acct_1TruqOC22M3erP0j';
+    const roleEmails = [
+        resolveEnvName('SMOKE_ADMIN_EMAIL', stagingEnv, baseEnv),
+        resolveEnvName('SMOKE_TEACHER_EMAIL', stagingEnv, baseEnv),
+        resolveEnvName('SMOKE_STUDENT_EMAIL', stagingEnv, baseEnv),
+    ].filter((value): value is string => Boolean(value)).map((value) => value.toLowerCase());
+    const allowlist = new Set((resolveEnvName('EMAIL_RECIPIENT_ALLOWLIST', stagingEnv, baseEnv) ?? '')
+        .split(/[;,]/u)
+        .map((value) => value.trim().toLowerCase())
+        .filter(Boolean));
+    const roleAllowlistOk = roleEmails.length === 3
+        && new Set(roleEmails).size === 3
+        && allowlist.size === 3
+        && roleEmails.every((email) => allowlist.has(email) && !email.endsWith('@example.com'));
+    const gateConfirmationOk = resolveEnvName(checkoutGateConfirmationEnvVar, stagingEnv, baseEnv) === checkoutGateConfirmation;
+    const ok = missing.length === 0
+        && stripeMode === 'test'
+        && stripeAccountExact
+        && roleAllowlistOk
+        && gateConfirmationOk;
+
+    return {
+        status: ok ? 'ok' : 'failed',
+        name: 'staging_checkout_bootstrap_env_source_shape',
+        message: ok
+            ? 'Bootstrap env has the exact staging resources, Stripe test Sandbox and three existing allowlisted role accounts without requiring completed-payment evidence yet.'
+            : 'Bootstrap env is missing a required name or fails the exact staging, Stripe test or role allowlist contract.',
+        details: [
+            `missingNames=${missing.join(',') || 'none'}`,
+            `stripeSecretMode=${stripeMode}`,
+            `stripeAccountExact=${String(stripeAccountExact)}`,
+            `exactRoleAllowlist=${String(roleAllowlistOk)}`,
+            `separateCheckoutGateConfirmation=${String(gateConfirmationOk)}`,
+            'completedCheckoutEvidenceRequired=false-for-bootstrap-only',
+            'valuesPrinted=false',
+        ],
     };
 }
 
@@ -415,7 +539,7 @@ function validateApprovalGateSource(): Check {
     const source = readFileSync(new URL(import.meta.url), 'utf8');
     const required = [
         approvalEnvVar,
-        exactApprovalSentence,
+        bootstrapCheckoutRequested ? 'EXACT_STAGING_CHECKOUT_BOOTSTRAP_APPROVAL' : exactSmokeApprovalSentence,
         exactCheckoutGateApprovalSentence,
         checkoutGateConfirmationEnvVar,
         checkoutGateApprovalEnvVar,
@@ -424,6 +548,9 @@ function validateApprovalGateSource(): Check {
         'runCheckoutGateRollback',
         'finally',
         '--execute-approved',
+        '--bootstrap-checkout-approved',
+        'runApprovedCheckoutBootstrap',
+        'runCheckoutBootstrapCleanupCommand',
         'approvalMatched',
         'SMOKE_BASE_URL',
         'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
@@ -441,8 +568,172 @@ function validateApprovalGateSource(): Check {
         message: missing.length === 0
             ? 'Runner source contains exact approval gate, staging host confirmation, Stripe live rejection and sanitized capture posture.'
             : 'Runner source is missing required approval-gate safeguards.',
-        details: missing.length === 0 ? [`env=${approvalEnvVar}`, 'flag=--execute-approved'] : missing.map((snippet) => `missing=${snippet}`),
+        details: missing.length === 0 ? [`env=${approvalEnvVar}`, `flag=${executionFlag}`] : missing.map((snippet) => `missing=${snippet}`),
     };
+}
+
+function runApprovedCheckoutBootstrap(reportCaptures: Capture[]): Check[] {
+    const approvedChecks: Check[] = [{
+        status: 'ok',
+        name: 'exact_checkout_bootstrap_approval',
+        message: 'Exact staging Checkout bootstrap approval matched for the dedicated Sandbox and allowlisted student.',
+        details: [`env=${approvalEnvVar}`, 'flag=--bootstrap-checkout-approved', `SMOKE_BASE_URL=${baseUrl}`],
+    }];
+
+    const stagingEnv = parseEnvFile('.env.staging');
+    const baseEnv = parseEnvFile('.env');
+    const merged = buildSmokeEnv(stagingEnv, baseEnv);
+    if (!checkoutGateApprovalMatched) {
+        approvedChecks.push(failedCheck(
+            'exact_checkout_gate_approval',
+            'The separate Cloudflare staging checkout-gate approval did not match, so no Cloudflare or bootstrap write was attempted.',
+            [`env=${checkoutGateApprovalEnvVar}`, 'required=exact sentence in cloudflare-checkout-gate-approval.md'],
+        ));
+        return approvedChecks;
+    }
+    approvedChecks.push({
+        status: 'ok',
+        name: 'exact_checkout_gate_approval',
+        message: 'The separate exact approval authorizes only the staging checkout override true/false window owned by this runner.',
+        details: [`env=${checkoutGateApprovalEnvVar}`, `account=${cloudflareAccountId}`, `worker=${stagingWorkerName}`],
+    });
+
+    const missing = requiredEnvNames.filter((name) => !merged[name]);
+    if (missing.length > 0) {
+        approvedChecks.push(failedCheck(
+            'bootstrap_env_materialization',
+            'Approved Checkout bootstrap cannot run because required staging environment names are missing.',
+            missing.map((name) => `missing=${name}`),
+        ));
+        return approvedChecks;
+    }
+    if (merged.STRIPE_SECRET_KEY?.startsWith('sk_live_')) {
+        approvedChecks.push(failedCheck('stripe_test_mode_guard', 'Checkout bootstrap refused Stripe live credentials.', ['stripeSecretMode=live']));
+        return approvedChecks;
+    }
+    approvedChecks.push({
+        status: 'ok',
+        name: 'bootstrap_env_materialization',
+        message: 'Checkout bootstrap environment was materialized without completed-payment evidence or secret output.',
+        details: ['valuesPrinted=false', 'completedCheckoutEvidenceRequired=false-for-bootstrap-only'],
+    });
+
+    const cloudflarePreflight = runCloudflareReadOnlyPreflight();
+    reportCaptures.push(...cloudflarePreflight.captures);
+    approvedChecks.push(cloudflarePreflight.check);
+    if (cloudflarePreflight.check.status !== 'ok') return approvedChecks;
+
+    const closedRuntime = runRuntimePreflightCommand(merged, 'false', 0);
+    reportCaptures.push(closedRuntime);
+    approvedChecks.push({
+        status: closedRuntime.status,
+        name: 'bootstrap_closed_runtime_before_writes',
+        message: closedRuntime.status === 'ok'
+            ? 'The deployed staging runtimes attest checkout closed before any bootstrap write.'
+            : 'The closed staging runtime could not be attested, so no bootstrap write was started.',
+        details: [`exitCode=${closedRuntime.exitCode ?? 'unknown'}`, `capture=${closedRuntime.path}`, 'externalWriteCommandStarted=false'],
+    });
+    if (closedRuntime.status !== 'ok') return approvedChecks;
+
+    const bootstrapPreflight = runCheckoutBootstrapPreflightCommand(merged);
+    reportCaptures.push(bootstrapPreflight);
+    approvedChecks.push({
+        status: bootstrapPreflight.status,
+        name: 'checkout_bootstrap_read_only_preflight',
+        message: bootstrapPreflight.status === 'ok'
+            ? 'Stripe/Supabase/catalog/student bootstrap preconditions passed with checkout still closed.'
+            : 'Checkout bootstrap preconditions failed, so the Cloudflare gate was not changed.',
+        details: [`exitCode=${bootstrapPreflight.exitCode ?? 'unknown'}`, `capture=${bootstrapPreflight.path}`, 'externalWriteCommandStarted=false'],
+    });
+    if (bootstrapPreflight.status !== 'ok') return approvedChecks;
+
+    let gateWriteAttempted = false;
+    let bootstrapFailureNeedsCleanup = false;
+    let gateRollbackVerified = false;
+    try {
+        gateWriteAttempted = true;
+        const enableCapture = runCheckoutGateWrite('true', 'enable');
+        reportCaptures.push(enableCapture);
+        approvedChecks.push({
+            status: enableCapture.status,
+            name: 'cloudflare_staging_checkout_gate_enable',
+            message: enableCapture.status === 'ok'
+                ? 'The exact staging checkout gate write completed; enabled runtime verification is still required.'
+                : 'The checkout gate write failed or is ambiguous; bootstrap did not start and finally rollback is mandatory.',
+            details: [`exitCode=${enableCapture.exitCode ?? 'unknown'}`, `capture=${enableCapture.path}`, `worker=${stagingWorkerName}`],
+        });
+
+        if (enableCapture.status === 'ok') {
+            const enabledRuntime = runRuntimePreflightCommand(merged, 'true', 0);
+            reportCaptures.push(enabledRuntime);
+            approvedChecks.push({
+                status: enabledRuntime.status,
+                name: 'bootstrap_enabled_runtime_before_checkout',
+                message: enabledRuntime.status === 'ok'
+                    ? 'The deployed staging runtime attests checkout enabled for the bounded bootstrap window.'
+                    : 'The enabled runtime could not be attested, so no Checkout bootstrap write started.',
+                details: [`exitCode=${enabledRuntime.exitCode ?? 'unknown'}`, `capture=${enabledRuntime.path}`],
+            });
+
+            if (enabledRuntime.status === 'ok') {
+                const bootstrapCapture = runCheckoutBootstrapCommand(merged);
+                reportCaptures.push(bootstrapCapture);
+                approvedChecks.push({
+                    status: bootstrapCapture.status,
+                    name: 'staging_checkout_bootstrap_command',
+                    message: bootstrapCapture.status === 'ok'
+                        ? 'One verified open Stripe test Checkout was preserved and handed off only through the local clipboard.'
+                        : 'Checkout bootstrap failed or timed out; the runner will close the Cloudflare gate before starting a separate bounded cleanup subprocess.',
+                    details: [`exitCode=${bootstrapCapture.exitCode ?? 'unknown'}`, `capture=${bootstrapCapture.path}`, 'checkoutUrlStoredInEvidence=false'],
+                });
+                if (bootstrapCapture.status !== 'ok') {
+                    bootstrapFailureNeedsCleanup = true;
+                }
+            }
+        }
+    } catch (error) {
+        if (gateWriteAttempted) bootstrapFailureNeedsCleanup = true;
+        approvedChecks.push(failedCheck(
+            'checkout_bootstrap_or_gate_unexpected_error',
+            'An unexpected bootstrap/gate error occurred; finally rollback was still attempted.',
+            [sanitize(safeErrorMessage(error))],
+        ));
+    } finally {
+        if (gateWriteAttempted) {
+            try {
+                const rollbackCheck = runCheckoutGateRollback(merged, reportCaptures);
+                approvedChecks.push(rollbackCheck);
+                gateRollbackVerified = rollbackCheck.status === 'ok';
+            } catch (error) {
+                approvedChecks.push(failedCheck(
+                    'cloudflare_staging_checkout_gate_rollback',
+                    'Finally entered rollback, but the rollback procedure failed unexpectedly; state is ambiguous and requires immediate manual closure.',
+                    [sanitize(safeErrorMessage(error)), `worker=${stagingWorkerName}`, 'rollbackState=ambiguous'],
+                ));
+            }
+        }
+    }
+
+    if (bootstrapFailureNeedsCleanup && gateRollbackVerified) {
+        const cleanupCapture = runCheckoutBootstrapCleanupCommand(merged);
+        reportCaptures.push(cleanupCapture);
+        approvedChecks.push({
+            status: cleanupCapture.status,
+            name: 'staging_checkout_bootstrap_failure_cleanup',
+            message: cleanupCapture.status === 'ok'
+                ? 'After the gate rollback attempt, a fresh subprocess verified cleanup of only incomplete bootstrap-owned Stripe/Supabase artifacts.'
+                : 'After the gate rollback attempt, bootstrap artifact cleanup could not be verified; preserve the failed state for manual review.',
+            details: [`exitCode=${cleanupCapture.exitCode ?? 'unknown'}`, `capture=${cleanupCapture.path}`, 'cleanupStartedAfterGateRollbackAttempt=true'],
+        });
+    } else if (bootstrapFailureNeedsCleanup) {
+        approvedChecks.push(failedCheck(
+            'staging_checkout_bootstrap_failure_cleanup',
+            'Bootstrap cleanup was intentionally skipped because the Cloudflare checkout rollback is ambiguous; close and verify the gate manually before any data cleanup.',
+            [`worker=${stagingWorkerName}`, 'cleanupStarted=false', 'priority=close-checkout-gate'],
+        ));
+    }
+
+    return approvedChecks;
 }
 
 function runApprovedExecution(reportCaptures: Capture[]): Check[] {
@@ -571,19 +862,120 @@ function runApprovedExecution(reportCaptures: Capture[]): Check[] {
     return approvedChecks;
 }
 
+function runCheckoutBootstrapPreflightCommand(env: Record<string, string>): Capture {
+    const capturePath = path.join(outputDir, 'staging-checkout-bootstrap-read-only-preflight.txt');
+    const display = 'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke-checkout.ts --bootstrap-preflight';
+    const result = spawnSync('corepack', [
+        'pnpm',
+        '--config.verify-deps-before-run=false',
+        'exec',
+        'tsx',
+        'scripts/smoke-checkout.ts',
+        '--bootstrap-preflight',
+    ], {
+        env: { ...process.env, ...env },
+        encoding: 'utf8',
+        timeout: 180_000,
+        windowsHide: true,
+    });
+    writeFileSync(capturePath, [
+        `# command\n${display}`,
+        '# stdout',
+        sanitize(result.stdout ?? ''),
+        '# stderr',
+        sanitize(result.stderr ?? ''),
+        result.error ? `# error\n${sanitize(safeErrorMessage(result.error))}` : '',
+    ].join('\n'), 'utf8');
+    const exitCode = typeof result.status === 'number' ? result.status : null;
+    return {
+        id: 'staging-checkout-bootstrap-read-only-preflight',
+        display,
+        path: capturePath,
+        exitCode,
+        status: !result.error && exitCode === 0 ? 'ok' : 'failed',
+        externalWriteCommandStarted: false,
+    };
+}
+
+function runCheckoutBootstrapCommand(env: Record<string, string>): Capture {
+    const capturePath = path.join(outputDir, 'staging-checkout-bootstrap-command-output.txt');
+    const display = 'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke-checkout.ts --bootstrap-preserve-open';
+    const result = spawnSync('corepack', [
+        'pnpm',
+        '--config.verify-deps-before-run=false',
+        'exec',
+        'tsx',
+        'scripts/smoke-checkout.ts',
+        '--bootstrap-preserve-open',
+    ], {
+        env: { ...process.env, ...env },
+        encoding: 'utf8',
+        timeout: 240_000,
+        windowsHide: true,
+    });
+    writeFileSync(capturePath, [
+        `# command\n${display}`,
+        '# stdout',
+        sanitize(result.stdout ?? ''),
+        '# stderr',
+        sanitize(result.stderr ?? ''),
+        result.error ? `# error\n${sanitize(safeErrorMessage(result.error))}` : '',
+    ].join('\n'), 'utf8');
+    const exitCode = typeof result.status === 'number' ? result.status : null;
+    return {
+        id: 'staging-checkout-bootstrap-command',
+        display,
+        path: capturePath,
+        exitCode,
+        status: !result.error && exitCode === 0 ? 'ok' : 'failed',
+        externalWriteCommandStarted: true,
+    };
+}
+
+function runCheckoutBootstrapCleanupCommand(env: Record<string, string>): Capture {
+    const capturePath = path.join(outputDir, 'staging-checkout-bootstrap-failure-cleanup.txt');
+    const display = 'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke-checkout.ts --bootstrap-cleanup';
+    const result = spawnSync('corepack', [
+        'pnpm',
+        '--config.verify-deps-before-run=false',
+        'exec',
+        'tsx',
+        'scripts/smoke-checkout.ts',
+        '--bootstrap-cleanup',
+    ], {
+        env: { ...process.env, ...env },
+        encoding: 'utf8',
+        timeout: 180_000,
+        windowsHide: true,
+    });
+    writeFileSync(capturePath, [
+        `# command\n${display}`,
+        '# stdout',
+        sanitize(result.stdout ?? ''),
+        '# stderr',
+        sanitize(result.stderr ?? ''),
+        result.error ? `# error\n${sanitize(safeErrorMessage(result.error))}` : '',
+    ].join('\n'), 'utf8');
+    const exitCode = typeof result.status === 'number' ? result.status : null;
+    return {
+        id: 'staging-checkout-bootstrap-failure-cleanup',
+        display,
+        path: capturePath,
+        exitCode,
+        status: !result.error && exitCode === 0 ? 'ok' : 'failed',
+        externalWriteCommandStarted: true,
+    };
+}
+
 function runSmokePreflightCommand(
     env: Record<string, string>,
     expectedOverride: 'false' | 'true',
     phase: 'after-gate-write' | 'before-gate-write',
 ): Capture {
     const capturePath = path.join(outputDir, `staging-smoke-read-only-preflight-${phase}.txt`);
-    const display = `corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts --preflight-only --expect-checkout-override ${expectedOverride}`;
-    const result = spawnSync('corepack', [
-        'pnpm',
-        '--config.verify-deps-before-run=false',
-        'exec',
-        'tsx',
-        'scripts/smoke/real-env-smoke.ts',
+    const display = `node --import tsx --import ./scripts/smoke/astro-env-node-register.mjs scripts/smoke/real-env-smoke.ts --preflight-only --expect-checkout-override ${expectedOverride}`;
+    const result = spawnSync('node', [
+        ...realEnvSmokeNodePrefix,
         '--preflight-only',
         '--expect-checkout-override',
         expectedOverride,
@@ -615,13 +1007,9 @@ function runSmokePreflightCommand(
 
 function runRuntimePreflightCommand(env: Record<string, string>, expectedOverride: 'false' | 'true', attempt: number): Capture {
     const capturePath = path.join(outputDir, `staging-runtime-read-only-${expectedOverride}-attempt-${attempt}.txt`);
-    const display = `corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts --runtime-preflight-only --expect-checkout-override ${expectedOverride}`;
-    const result = spawnSync('corepack', [
-        'pnpm',
-        '--config.verify-deps-before-run=false',
-        'exec',
-        'tsx',
-        'scripts/smoke/real-env-smoke.ts',
+    const display = `node --import tsx --import ./scripts/smoke/astro-env-node-register.mjs scripts/smoke/real-env-smoke.ts --runtime-preflight-only --expect-checkout-override ${expectedOverride}`;
+    const result = spawnSync('node', [
+        ...realEnvSmokeNodePrefix,
         '--runtime-preflight-only',
         '--expect-checkout-override',
         expectedOverride,
@@ -797,14 +1185,8 @@ function runWranglerCapture(input: {
 
 function runSmokeCommand(env: Record<string, string>): Capture {
     const capturePath = path.join(outputDir, 'staging-smoke-command-output.txt');
-    const display = 'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts';
-    const result = spawnSync('corepack', [
-        'pnpm',
-        '--config.verify-deps-before-run=false',
-        'exec',
-        'tsx',
-        'scripts/smoke/real-env-smoke.ts',
-    ], {
+    const display = 'node --import tsx --import ./scripts/smoke/astro-env-node-register.mjs scripts/smoke/real-env-smoke.ts';
+    const result = spawnSync('node', realEnvSmokeNodePrefix, {
         env: {
             ...process.env,
             ...env,
@@ -970,7 +1352,9 @@ function renderCommandManifest(reportToRender: RunnerReport): string {
         generatedAt: reportToRender.endedAt,
         status: reportToRender.status,
         closureStatus: reportToRender.closureStatus,
-        mode: reportToRender.executeRequested ? 'execute-approved' : 'plan',
+        mode: reportToRender.executeRequested
+            ? bootstrapCheckoutRequested ? 'bootstrap-checkout-approved' : 'execute-approved'
+            : 'plan',
         baseUrl: reportToRender.baseUrl,
         confirmation: reportToRender.confirmation,
         approvalEnvVar: reportToRender.approvalEnvVar,
@@ -980,7 +1364,9 @@ function renderCommandManifest(reportToRender: RunnerReport): string {
         externalWriteCommandStarted: reportToRender.externalWriteCommandStarted,
         checkoutGateWriteAttempted: reportToRender.checkoutGateWriteAttempted,
         checkoutGateRollbackVerified: reportToRender.checkoutGateRollbackVerified,
-        command: 'corepack pnpm --config.verify-deps-before-run=false exec tsx scripts/smoke/real-env-smoke.ts',
+        command: bootstrapCheckoutRequested
+            ? 'corepack pnpm --config.verify-deps-before-run=false launch:staging-smoke-rehearsal-runner -- --bootstrap-checkout-approved'
+            : 'node --import tsx --import ./scripts/smoke/astro-env-node-register.mjs scripts/smoke/real-env-smoke.ts',
         requiredEnvNames: reportToRender.requiredEnvNames,
         envSourceMatrix: reportToRender.envSourceMatrix,
         safety: {
@@ -1017,6 +1403,23 @@ function renderCommandManifest(reportToRender: RunnerReport): string {
 }
 
 function renderExecutionPlan(reportToRender: RunnerReport): string {
+    const approvedSteps = bootstrapCheckoutRequested
+        ? [
+            '1. Materialize staging names in memory and reject missing names, Stripe live, a different Stripe account or a non-allowlisted role set.',
+            '2. Verify the exact Wrangler account/Worker and attest the deployed runtime with checkout override `false`.',
+            '3. Run the Checkout bootstrap read-only preflight: catalog, Student, CRM contact, no blocking subscription and no conflicting Customer state.',
+            '4. Write only `CHECKOUT_ENABLED_OVERRIDE=true`, re-attest the enabled runtime and prepare one Standard one-month Stripe test Checkout under a Test Clock.',
+            '5. Preserve the verified open Checkout and copy its URL only to the local clipboard; do not store it in evidence or logs.',
+            '6. In `finally`, restore `CHECKOUT_ENABLED_OVERRIDE=false` and require signed runtime attestation plus `403 Checkout is disabled`.',
+        ]
+        : [
+            '1. Materialize staging smoke environment names in memory from `.env.staging`, explicit process gates and generated host confirmation.',
+            '2. Reject missing names, live Stripe, non-allowlisted role emails, missing completed Checkout/manual lifecycle evidence or either missing exact approval.',
+            '3. Verify Wrangler account/Worker and run the complete read-only preflight with deployed checkout override `false`, including signed web/fulfillment runtime attestations.',
+            '4. Write only `CHECKOUT_ENABLED_OVERRIDE=true`, then re-run the full read-only preflight and require the enabled web runtime attestation before any smoke write.',
+            '5. Run the smoke only after both preflights pass; capture sanitized output and redacted evidence.',
+            '6. In `finally`, write `CHECKOUT_ENABLED_OVERRIDE=false` and require signed runtime attestation plus the `403 Checkout is disabled` probe; retry at most three times and fail as ambiguous if it cannot be verified.',
+        ];
     return `${[
         '# Staging Smoke Rehearsal Runner Execution Plan',
         '',
@@ -1045,17 +1448,12 @@ function renderExecutionPlan(reportToRender: RunnerReport): string {
         '```powershell',
         `$env:${approvalEnvVar}='${exactApprovalSentence.replace(/'/g, "''")}'`,
         `$env:${checkoutGateApprovalEnvVar}='${exactCheckoutGateApprovalSentence.replace(/'/g, "''")}'`,
-        'corepack pnpm --config.verify-deps-before-run=false launch:staging-smoke-rehearsal-runner -- --execute-approved',
+        `corepack pnpm --config.verify-deps-before-run=false launch:staging-smoke-rehearsal-runner -- ${executionFlag}`,
         '```',
         '',
         'The runner will:',
         '',
-        '1. Materialize staging smoke environment names in memory from `.env.staging`, explicit process gates and generated host confirmation.',
-        '2. Reject missing names, live Stripe, non-allowlisted role emails, missing completed Checkout/manual lifecycle evidence or either missing exact approval.',
-        '3. Verify Wrangler account/Worker and run the complete read-only preflight with deployed checkout override `false`, including signed web/fulfillment runtime attestations.',
-        '4. Write only `CHECKOUT_ENABLED_OVERRIDE=true`, then re-run the full read-only preflight and require the enabled web runtime attestation before any smoke write.',
-        '5. Run the smoke only after both preflights pass; capture sanitized output and redacted evidence.',
-        '6. In `finally`, write `CHECKOUT_ENABLED_OVERRIDE=false` and require signed runtime attestation plus the `403 Checkout is disabled` probe; retry at most three times and fail as ambiguous if it cannot be verified.',
+        ...approvedSteps,
         '',
         '## Environment Source Matrix',
         '',
@@ -1073,7 +1471,7 @@ function renderApprovalGate(reportToRender: RunnerReport): string {
         'This file is not approval. It documents the exact gate that the runner requires before it can run a write-capable staging smoke.',
         '',
         `- Environment variable: \`${approvalEnvVar}\`.`,
-        '- Required flag: `--execute-approved`.',
+        `- Required flag: \`${executionFlag}\`.`,
         `- Approval matched in this run: ${String(reportToRender.approvalMatched)}.`,
         `- Execute requested in this run: ${String(reportToRender.executeRequested)}.`,
         `- External write command started: ${String(reportToRender.externalWriteCommandStarted)}.`,
@@ -1206,7 +1604,7 @@ function renderSummary(reportToRender: RunnerReport): string {
         `- Rollback: ${toRelative(reportToRender.rollbackAfterStagingSmokePath)}`,
         `- Manual evidence dry run: ${toRelative(reportToRender.manualEvidenceAfterStagingSmokePath)}`,
         '',
-        `This runner is plan-only unless both exact approval environment variables (\`${approvalEnvVar}\` and \`${checkoutGateApprovalEnvVar}\`) plus \`--execute-approved\` are present. Approved mode first proves the closed deployed runtimes, owns only the exact temporary gate write, re-attests before smoke writes and restores/verifies \`false\` inside \`finally\`.`,
+        `This runner is plan-only unless both exact approval environment variables (\`${approvalEnvVar}\` and \`${checkoutGateApprovalEnvVar}\`) plus \`${executionFlag}\` are present. Approved mode first proves the closed deployed runtimes, owns only the exact temporary gate write, re-attests before any write and restores/verifies \`false\` inside \`finally\`.`,
         '',
         '| Status | Check | Message | Details |',
         '| --- | --- | --- | --- |',
@@ -1304,6 +1702,8 @@ function latestGeneratedPath(folderName: string, fileName: string): string | nul
 function sanitize(value: string): string {
     return value
         .replace(/-----BEGIN [\s\S]*?PRIVATE KEY-----/g, '[redacted-private-key]')
+        .replace(/https:\/\/checkout\.stripe\.com\/[^\s"')]+/g, '[redacted-checkout-url]')
+        .replace(/\b(?:cs|cus|sub|in|pi|evt|price|prod|pm)_(?:test|live)?_?[A-Za-z0-9_]+\b/g, '[redacted-stripe-id]')
         .replace(/sk_(live|test)_[A-Za-z0-9]{8,}/g, '[redacted-stripe-secret]')
         .replace(/pk_(live|test)_[A-Za-z0-9]{8,}/g, '[redacted-stripe-publishable]')
         .replace(/whsec_[A-Za-z0-9]{8,}/g, '[redacted-webhook-secret]')
