@@ -2,10 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const emailMocks = vi.hoisted(() => ({
     deliverEmail: vi.fn(),
+    sendFulfillmentEmailEffect: vi.fn(),
 }));
 
 vi.mock('../../src/lib/email/delivery', () => ({
     deliverEmail: emailMocks.deliverEmail,
+}));
+
+vi.mock('../../src/lib/fulfillment/effects', () => ({
+    sendFulfillmentEmailEffect: emailMocks.sendFulfillmentEmailEffect,
 }));
 
 describe('transactional email send logging', () => {
@@ -15,6 +20,11 @@ describe('transactional email send logging', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         emailMocks.deliverEmail.mockResolvedValue({ ok: true });
+        emailMocks.sendFulfillmentEmailEffect.mockResolvedValue({
+            idempotencyKey: 'fulfillment/job/email.renewal_notice.student',
+            providerId: 'email-1',
+            replayed: false,
+        });
         logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
         errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     });
@@ -92,5 +102,38 @@ describe('transactional email send logging', () => {
         );
         expect(errorSpy.mock.calls[0]?.[1]).toEqual(expect.any(String));
         expect(errorSpy.mock.calls.flat().join(' ')).not.toContain('student.person@example.com');
+    });
+
+    it('routes a job-associated email through the durable effect wrapper only', async () => {
+        const { sendRenewalNoticeEmail } = await import('../../src/lib/email/send');
+        const fulfillmentEffect = {
+            effectKey: 'email.renewal_notice.student',
+            jobId: '11111111-1111-4111-8111-111111111111',
+            leaseOwner: 'worker:test:1',
+            supabaseAdmin: { rpc: vi.fn() } as any,
+        };
+
+        await expect(sendRenewalNoticeEmail('student.person@example.com', {
+            locale: 'es',
+            studentName: 'Student',
+            packageName: 'Individual',
+            renewalAt: '2026-10-10T12:00:00.000Z',
+            cancelBy: '2026-10-10T12:00:00.000Z',
+            durationMonths: 3,
+            amountTotal: 27000,
+            currency: 'eur',
+            accountUrl: 'https://example.com/es/campus/account',
+            supportUrl: 'https://example.com/es/campus/support',
+            termsUrl: 'https://example.com/es/legal/terminos',
+        }, { fulfillmentEffect })).resolves.toBe(true);
+
+        expect(emailMocks.deliverEmail).not.toHaveBeenCalled();
+        expect(emailMocks.sendFulfillmentEmailEffect).toHaveBeenCalledWith(
+            fulfillmentEffect,
+            expect.objectContaining({
+                email: 'student.person@example.com',
+                source: 'renewal_notice',
+            }),
+        );
     });
 });

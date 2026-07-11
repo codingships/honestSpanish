@@ -3,7 +3,9 @@
  */
 export {
     deliverEmail,
+    deliverIdempotentEmail,
     getEmailDeliveryPolicy,
+    normalizeEmailAddressForDelivery,
     PRODUCTION_EMAIL_DAILY_RECIPIENT_LIMIT,
     PRODUCTION_EMAIL_MONTHLY_RECIPIENT_LIMIT,
     STAGING_EMAIL_DAILY_RECIPIENT_LIMIT,
@@ -13,6 +15,8 @@ export {
     type EmailDeliveryMode,
     type EmailDeliveryPolicy,
     type EmailDeliveryResult,
+    type IdempotentBudgetedEmail,
+    type IdempotentEmailDeliveryResult,
 } from './delivery';
 
 export {
@@ -57,4 +61,5 @@ export {
     sendProposalNextStepEmail,
     sendSupportTicketReceivedEmail,
     sendSupportTicketUpdatedEmail,
+    type TransactionalEmailSendOptions,
 } from './send';

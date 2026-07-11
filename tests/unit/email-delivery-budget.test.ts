@@ -21,6 +21,7 @@ vi.mock('../../src/lib/email/client', () => ({
 
 import {
     deliverEmail,
+    deliverIdempotentEmail,
     deliverPreReservedStagingSmokeEmail,
     getEmailDeliveryPolicy,
     PRODUCTION_EMAIL_DAILY_RECIPIENT_LIMIT,
@@ -179,6 +180,85 @@ describe('persistent email recipient budget gate', () => {
         expect(mocks.rpc).toHaveBeenCalledTimes(1);
         expect(mocks.send).toHaveBeenCalledTimes(1);
     });
+
+    it('returns the provider ID and passes the stable idempotency key to Resend', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'production',
+            EMAIL_DELIVERY_MODE: 'live',
+            RESEND_API_KEY: 're_live',
+        });
+        const idempotencyKey = 'fulfillment/11111111-1111-4111-8111-111111111111/email.welcome.student';
+
+        await expect(deliverIdempotentEmail({
+            ...email('STUDENT@example.com'),
+            from: 'Academia <hello@example.com>',
+            idempotencyKey,
+            to: 'STUDENT@example.com',
+        })).resolves.toEqual({ ok: true, providerId: 'email-1' });
+
+        expect(mocks.send).toHaveBeenCalledWith({
+            from: 'Academia <hello@example.com>',
+            html: '<p>Test</p>',
+            subject: 'Test',
+            to: 'student@example.com',
+        }, { idempotencyKey });
+    });
+
+    it('classifies a transport exception as unknown provider acceptance', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'production',
+            EMAIL_DELIVERY_MODE: 'live',
+            RESEND_API_KEY: 're_live',
+        });
+        const transportError = new Error('request timed out');
+        mocks.send.mockRejectedValue(transportError);
+
+        await expect(deliverIdempotentEmail({
+            ...email(),
+            idempotencyKey: 'fulfillment/11111111-1111-4111-8111-111111111111/email.welcome.student',
+            to: 'student@example.com',
+        })).resolves.toEqual({
+            acceptance: 'ambiguous',
+            error: transportError,
+            ok: false,
+            reason: 'provider_error',
+        });
+    });
+
+    it.each([
+        [null, 'ambiguous'],
+        [409, 'ambiguous'],
+        [503, 'ambiguous'],
+        [422, 'not_accepted'],
+    ] as const)(
+        'classifies a resolved Resend error with status %s as %s',
+        async (statusCode, acceptance) => {
+            Object.assign(mocks.env, {
+                PUBLIC_APP_ENV: 'production',
+                EMAIL_DELIVERY_MODE: 'live',
+                RESEND_API_KEY: 're_live',
+            });
+            const providerError = {
+                message: statusCode === null
+                    ? 'Unable to fetch data. The request could not be resolved.'
+                    : 'Provider response',
+                name: 'application_error',
+                statusCode,
+            };
+            mocks.send.mockResolvedValue({ data: null, error: providerError });
+
+            await expect(deliverIdempotentEmail({
+                ...email(),
+                idempotencyKey: 'fulfillment/11111111-1111-4111-8111-111111111111/email.welcome.student',
+                to: 'student@example.com',
+            })).resolves.toEqual({
+                acceptance,
+                error: providerError,
+                ok: false,
+                reason: 'provider_error',
+            });
+        },
+    );
 
     it('keeps pre-reserved smoke delivery inside the same fail-closed provider gateway', async () => {
         Object.assign(mocks.env, {

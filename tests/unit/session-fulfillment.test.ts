@@ -84,6 +84,10 @@ describe('session fulfillment', () => {
 
         await fulfillSingleSession(supabaseAdmin as any, 'session-1', {
             autoCreateMeeting: false,
+            emailEffectJob: {
+                jobId: '11111111-1111-4111-8111-111111111111',
+                leaseOwner: 'worker:test:1',
+            },
             sendEmail: true,
         });
 
@@ -95,6 +99,13 @@ describe('session fulfillment', () => {
             duration: 50,
             meetLink: 'https://meet.example/abc',
             documentLink: 'https://docs.example/doc',
+        }), expect.objectContaining({
+            fulfillmentEffect: expect.objectContaining({
+                effectKey: 'email.class_confirmation.student',
+                jobId: '11111111-1111-4111-8111-111111111111',
+                leaseOwner: 'worker:test:1',
+                supabaseAdmin,
+            }),
         }));
         expect(emailMocks.sendClassConfirmation).toHaveBeenCalledWith('teacher@example.com', expect.objectContaining({
             recipientName: 'Teacher One',
@@ -103,6 +114,13 @@ describe('session fulfillment', () => {
             duration: 50,
             meetLink: 'https://meet.example/abc',
             documentLink: 'https://docs.example/doc',
+        }), expect.objectContaining({
+            fulfillmentEffect: expect.objectContaining({
+                effectKey: 'email.class_confirmation.teacher',
+                jobId: '11111111-1111-4111-8111-111111111111',
+                leaseOwner: 'worker:test:1',
+                supabaseAdmin,
+            }),
         }));
         expect(crmClassEmailMocks.recordClassEmailOutInCrmSafe).toHaveBeenCalledWith(supabaseAdmin, expect.objectContaining({
             template: 'class_confirmation',

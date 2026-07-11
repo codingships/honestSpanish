@@ -11,6 +11,10 @@ import { sendClassCancelled } from '../email';
 import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
 import type { Database } from '../../types/database.types';
 import {
+    FulfillmentEffectError,
+    isFulfillmentEffectManualReviewError,
+} from './effects';
+import {
     asFulfillmentPayload,
     enqueueBulkSessionFulfillment,
     enqueueFulfillmentJob,
@@ -114,7 +118,8 @@ function localizedPackageName(
 
 async function processRenewalNotice(
     supabaseAdmin: SupabaseClient<Database>,
-    payload: FulfillmentJobPayload
+    payload: FulfillmentJobPayload,
+    job: FulfillmentJobRow,
 ) {
     if (
         !payload.userId
@@ -167,7 +172,7 @@ async function processRenewalNotice(
         accountUrl: `${siteUrl}/${locale}/campus/account`,
         supportUrl: `${siteUrl}/${locale}/campus/support`,
         termsUrl: `${siteUrl}/${locale}/legal/terminos`,
-    });
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.renewal_notice.student'));
 
     if (!emailSent) {
         throw new Error('Resend did not accept renewal notice email');
@@ -176,7 +181,8 @@ async function processRenewalNotice(
 
 async function processWelcomeFulfillment(
     supabaseAdmin: SupabaseClient<Database>,
-    payload: FulfillmentJobPayload
+    payload: FulfillmentJobPayload,
+    job: FulfillmentJobRow,
 ) {
     if (!payload.userId || !payload.packageId) {
         throw new Error('welcome_fulfillment requires userId and packageId');
@@ -264,7 +270,7 @@ async function processWelcomeFulfillment(
         policyAcceptedAt: payload.policyAcceptedAt,
         termsUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/legal/terminos`,
         supportUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/campus/support`,
-    });
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.welcome.student'));
 
     if (!emailSent) {
         throw new Error('Resend did not accept welcome email');
@@ -349,11 +355,11 @@ async function processSessionCancellation(
     const studentEmailSent = await sendClassCancelled(student.email, {
         recipientName: student.full_name || 'Estudiante',
         ...classDetails,
-    });
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.class_cancelled.student'));
     const teacherEmailSent = await sendClassCancelled(teacher.email, {
         recipientName: teacher.full_name || 'Profesor',
         ...classDetails,
-    });
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.class_cancelled.teacher'));
 
     if (!studentEmailSent || !teacherEmailSent) {
         throw new Error('Resend did not accept one or more cancellation emails');
@@ -383,6 +389,24 @@ async function processSessionCancellation(
     });
 }
 
+function fulfillmentEmailOptions(
+    supabaseAdmin: SupabaseClient<Database>,
+    job: FulfillmentJobRow,
+    effectKey: string,
+) {
+    if (!job.locked_by) {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_INVALID_CONTEXT', true);
+    }
+    return {
+        fulfillmentEffect: {
+            effectKey,
+            jobId: job.id,
+            leaseOwner: job.locked_by,
+            supabaseAdmin,
+        },
+    };
+}
+
 async function processJob(
     supabaseAdmin: SupabaseClient<Database>,
     job: FulfillmentJobRow
@@ -395,6 +419,7 @@ async function processJob(
             if (!sessionId) throw new Error('session_fulfillment requires sessionId');
             await fulfillSingleSession(supabaseAdmin, sessionId, {
                 autoCreateMeeting: payload.autoCreateMeeting,
+                emailEffectJob: fulfillmentEmailJob(job),
                 sendEmail: payload.sendEmail,
             });
             return;
@@ -404,22 +429,30 @@ async function processJob(
             if (sessionIds.length === 0) throw new Error('bulk_session_fulfillment requires sessionIds');
             await fulfillSessionBatch(supabaseAdmin, sessionIds, {
                 autoCreateMeeting: payload.autoCreateMeeting,
+                emailEffectJob: fulfillmentEmailJob(job),
                 sendEmail: payload.sendEmail,
             });
             return;
         }
         case 'welcome_fulfillment':
-            await processWelcomeFulfillment(supabaseAdmin, payload);
+            await processWelcomeFulfillment(supabaseAdmin, payload, job);
             return;
         case 'session_cancellation':
             await processSessionCancellation(supabaseAdmin, payload, job);
             return;
         case 'renewal_notice':
-            await processRenewalNotice(supabaseAdmin, payload);
+            await processRenewalNotice(supabaseAdmin, payload, job);
             return;
         default:
             throw new Error(`Unsupported fulfillment job type: ${job.job_type}`);
     }
+}
+
+function fulfillmentEmailJob(job: FulfillmentJobRow) {
+    if (!job.locked_by) {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_INVALID_CONTEXT', true);
+    }
+    return { jobId: job.id, leaseOwner: job.locked_by };
 }
 
 export async function processDueFulfillmentJobs(options: {
@@ -475,19 +508,33 @@ export async function processDueFulfillmentJobs(options: {
 
         let processingError: unknown = null;
         try {
-            await processJob(supabaseAdmin, { ...job, attempts, status: 'processing' });
+            await processJob(supabaseAdmin, {
+                ...job,
+                attempts,
+                locked_by: workerId,
+                status: 'processing',
+            });
         } catch (jobError) {
             processingError = jobError;
         }
 
         if (processingError) {
             const message = processingError instanceof Error ? processingError.message : 'Unknown fulfillment error';
-            const exhausted = attempts >= job.max_attempts;
+            const manualReview = isFulfillmentEffectManualReviewError(processingError);
+            const observationRetry = processingError instanceof FulfillmentEffectError
+                && (
+                    processingError.code === 'FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS'
+                    || processingError.code === 'FULFILLMENT_EFFECT_IN_PROGRESS'
+                );
+            const exhausted = !observationRetry && attempts >= job.max_attempts;
             const { data: failedJob, error: failError } = await supabaseAdmin
                 .from('fulfillment_jobs')
                 .update({
-                    status: exhausted ? 'failed' : 'pending',
-                    run_at: exhausted ? job.run_at : nextRunAt(attempts),
+                    ...(observationRetry ? { attempts: job.attempts } : {}),
+                    status: manualReview || exhausted ? 'failed' : 'pending',
+                    run_at: manualReview
+                        ? MANUAL_RECONCILIATION_RUN_AT
+                        : exhausted ? job.run_at : nextRunAt(attempts),
                     locked_at: null,
                     locked_by: null,
                     last_error: message,

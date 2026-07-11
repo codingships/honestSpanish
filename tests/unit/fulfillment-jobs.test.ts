@@ -14,8 +14,17 @@ vi.mock('../../src/lib/profiles-private', () => ({
 }));
 
 vi.mock('../../src/lib/email', () => ({
+    sendClassCancelled: vi.fn(),
     sendWelcomeEmail: vi.fn(),
     sendRenewalNoticeEmail: vi.fn(),
+}));
+
+vi.mock('../../src/lib/google/calendar', () => ({
+    cancelClassEvent: vi.fn(),
+}));
+
+vi.mock('../../src/lib/crm/class-email', () => ({
+    recordClassEmailOutInCrmSafe: vi.fn(),
 }));
 
 vi.mock('../../src/lib/crm/onboarding', () => ({
@@ -342,13 +351,24 @@ describe('fulfillment jobs', () => {
             studentEmail: 'student@example.com',
             teacherName: 'Teacher One',
         });
-        expect(email.sendWelcomeEmail).toHaveBeenCalledWith('student@example.com', expect.objectContaining({
-            locale: 'en',
-            studentName: 'Student One',
-            packageName: 'Hybrid Plan',
-            loginUrl: 'https://example.com/en/login',
-            driveFolderUrl: 'https://drive.google.com/folder-1',
-        }));
+        expect(email.sendWelcomeEmail).toHaveBeenCalledWith(
+            'student@example.com',
+            expect.objectContaining({
+                locale: 'en',
+                studentName: 'Student One',
+                packageName: 'Hybrid Plan',
+                loginUrl: 'https://example.com/en/login',
+                driveFolderUrl: 'https://drive.google.com/folder-1',
+            }),
+            expect.objectContaining({
+                fulfillmentEffect: expect.objectContaining({
+                    effectKey: 'email.welcome.student',
+                    jobId: job.id,
+                    leaseOwner: 'test-worker',
+                    supabaseAdmin,
+                }),
+            }),
+        );
         expect(crmOnboarding.recordPostPaymentOnboardingSafe).toHaveBeenCalledWith(supabaseAdmin, {
             profileId: 'student-1',
             email: 'student@example.com',
@@ -435,13 +455,24 @@ describe('fulfillment jobs', () => {
         })).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0 });
 
         expect(google.createStudentFolderStructure).not.toHaveBeenCalled();
-        expect(email.sendWelcomeEmail).toHaveBeenCalledWith('student2@example.com', expect.objectContaining({
-            locale: 'en',
-            studentName: 'Student Two',
-            packageName: 'individual',
-            loginUrl: 'https://example.com/en/login',
-            driveFolderUrl: 'https://drive.google.com/existing-folder',
-        }));
+        expect(email.sendWelcomeEmail).toHaveBeenCalledWith(
+            'student2@example.com',
+            expect.objectContaining({
+                locale: 'en',
+                studentName: 'Student Two',
+                packageName: 'individual',
+                loginUrl: 'https://example.com/en/login',
+                driveFolderUrl: 'https://drive.google.com/existing-folder',
+            }),
+            expect.objectContaining({
+                fulfillmentEffect: expect.objectContaining({
+                    effectKey: 'email.welcome.student',
+                    jobId: job.id,
+                    leaseOwner: 'test-worker',
+                    supabaseAdmin,
+                }),
+            }),
+        );
     });
 
     it('processes a localized renewal notice through the durable worker job', async () => {
@@ -521,7 +552,14 @@ describe('fulfillment jobs', () => {
             accountUrl: 'https://example.com/ru/campus/account',
             supportUrl: 'https://example.com/ru/campus/support',
             termsUrl: 'https://example.com/ru/legal/terminos',
-        });
+        }, expect.objectContaining({
+            fulfillmentEffect: expect.objectContaining({
+                effectKey: 'email.renewal_notice.student',
+                jobId: job.id,
+                leaseOwner: 'test-worker',
+                supabaseAdmin,
+            }),
+        }));
     });
 
     it('processes a due session fulfillment job and marks it succeeded', async () => {
@@ -556,7 +594,11 @@ describe('fulfillment jobs', () => {
         expect(sessionFulfillment.fulfillSingleSession).toHaveBeenCalledWith(
             supabaseAdmin,
             'session-1',
-            { autoCreateMeeting: undefined, sendEmail: undefined }
+            {
+                autoCreateMeeting: undefined,
+                emailEffectJob: { jobId: 'job-1', leaseOwner: 'test-worker' },
+                sendEmail: undefined,
+            }
         );
         expect(successChain.update).toHaveBeenCalledWith(expect.objectContaining({
             status: 'succeeded',
@@ -565,6 +607,100 @@ describe('fulfillment jobs', () => {
         expect(successChain.eq).toHaveBeenCalledWith('status', 'processing');
         expect(successChain.eq).toHaveBeenCalledWith('locked_by', 'test-worker');
         expect(successChain.eq).toHaveBeenCalledWith('attempts', 1);
+    });
+
+    it('uses separate durable effect keys for student and teacher cancellation emails', async () => {
+        const job = createJob({
+            id: 'job-cancellation',
+            job_type: 'session_cancellation',
+            payload: {
+                cancelledBy: 'admin',
+                reason: 'Cambio de horario',
+                sendEmail: true,
+                sessionId: 'session-1',
+            },
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [job], error: null }),
+        };
+        const sessionQuery = createSingleQuery({
+            data: {
+                calendar_event_id: null,
+                drive_doc_url: 'https://docs.example/class',
+                duration_minutes: 50,
+                id: 'session-1',
+                meet_link: 'https://meet.example/class',
+                scheduled_at: '2026-08-01T10:00:00.000Z',
+                student: {
+                    email: 'student@example.com',
+                    full_name: 'Student One',
+                    id: 'student-1',
+                },
+                student_id: 'student-1',
+                subscription_id: 'subscription-1',
+                teacher: {
+                    email: 'teacher@example.com',
+                    full_name: 'Teacher One',
+                    id: 'teacher-1',
+                },
+                teacher_id: 'teacher-1',
+            },
+            error: null,
+        });
+        const successChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: job.id }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery())
+                .mockReturnValueOnce(sessionQuery)
+                .mockReturnValueOnce(successChain),
+        };
+        const email = await import('../../src/lib/email');
+        const crmClassEmail = await import('../../src/lib/crm/class-email');
+        vi.mocked(email.sendClassCancelled).mockResolvedValue(true);
+        vi.mocked(crmClassEmail.recordClassEmailOutInCrmSafe).mockResolvedValue({ status: 'created' });
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0 });
+
+        expect(email.sendClassCancelled).toHaveBeenNthCalledWith(
+            1,
+            'student@example.com',
+            expect.objectContaining({ recipientName: 'Student One' }),
+            expect.objectContaining({
+                fulfillmentEffect: expect.objectContaining({
+                    effectKey: 'email.class_cancelled.student',
+                    jobId: job.id,
+                    leaseOwner: 'test-worker',
+                    supabaseAdmin,
+                }),
+            }),
+        );
+        expect(email.sendClassCancelled).toHaveBeenNthCalledWith(
+            2,
+            'teacher@example.com',
+            expect.objectContaining({ recipientName: 'Teacher One' }),
+            expect.objectContaining({
+                fulfillmentEffect: expect.objectContaining({
+                    effectKey: 'email.class_cancelled.teacher',
+                    jobId: job.id,
+                    leaseOwner: 'test-worker',
+                    supabaseAdmin,
+                }),
+            }),
+        );
     });
 
     it('quarantines a job instead of replaying providers when post-effect finalization is ambiguous', async () => {
@@ -618,6 +754,94 @@ describe('fulfillment jobs', () => {
             locked_by: null,
             last_error: POST_EFFECT_FINALIZATION_ERROR,
         });
+    });
+
+    it('quarantines a job immediately when an email effect requires manual review', async () => {
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [createJob()], error: null }),
+        };
+        const failChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'job-1' }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery())
+                .mockReturnValueOnce(failChain),
+        };
+        const sessionFulfillment = await import('../../src/lib/fulfillment/session-fulfillment');
+        const {
+            FulfillmentEffectError,
+        } = await import('../../src/lib/fulfillment/effects');
+        vi.mocked(sessionFulfillment.fulfillSingleSession).mockRejectedValueOnce(
+            new FulfillmentEffectError('FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS', true),
+        );
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+
+        expect(failChain.update).toHaveBeenCalledWith({
+            status: 'failed',
+            run_at: '9999-12-31T23:59:59.999Z',
+            locked_at: null,
+            locked_by: null,
+            last_error: 'FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS',
+        });
+    });
+
+    it('requeues a lost effect-finalization response instead of quarantining immediately', async () => {
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({
+                data: [createJob({ attempts: 2, max_attempts: 3 })],
+                error: null,
+            }),
+        };
+        const failChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'job-1' }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery())
+                .mockReturnValueOnce(failChain),
+        };
+        const sessionFulfillment = await import('../../src/lib/fulfillment/session-fulfillment');
+        const { FulfillmentEffectError } = await import('../../src/lib/fulfillment/effects');
+        vi.mocked(sessionFulfillment.fulfillSingleSession).mockRejectedValueOnce(
+            new FulfillmentEffectError('FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS', false),
+        );
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+
+        expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
+            attempts: 2,
+            status: 'pending',
+            last_error: 'FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS',
+        }));
+        expect(failChain.update).not.toHaveBeenCalledWith(expect.objectContaining({
+            run_at: '9999-12-31T23:59:59.999Z',
+        }));
     });
 
     it('skips a due job when another worker wins the processing lock', async () => {

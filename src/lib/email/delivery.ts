@@ -18,6 +18,15 @@ export type EmailDeliveryResult =
     | { ok: true }
     | { ok: false; reason: EmailDeliveryFailureReason; error?: unknown };
 
+export type IdempotentEmailDeliveryResult =
+    | { ok: true; providerId: string }
+    | {
+        acceptance: 'not_accepted' | 'ambiguous';
+        error?: unknown;
+        ok: false;
+        reason: EmailDeliveryFailureReason | 'invalid_idempotency_key';
+    };
+
 export type PreReservedStagingSmokeEmailResult =
     | { ok: true; providerId: string }
     | {
@@ -32,6 +41,11 @@ export type BudgetedEmail = {
     subject: string;
     html: string;
     source: string;
+};
+
+export type IdempotentBudgetedEmail = Omit<BudgetedEmail, 'to'> & {
+    idempotencyKey: string;
+    to: string;
 };
 
 export type EmailDeliveryPolicy = {
@@ -58,7 +72,7 @@ function parsePositiveLimit(raw: string | undefined, fallback: number, maximum: 
     return Math.min(parsed, maximum);
 }
 
-function normalizeEmailAddress(value: string): string | null {
+export function normalizeEmailAddressForDelivery(value: string): string | null {
     const trimmed = value.trim().toLowerCase();
     const angleAddress = /<([^<>]+)>$/.exec(trimmed)?.[1]?.trim() ?? trimmed;
     if (!/^\S+@\S+\.\S+$/.test(angleAddress)) return null;
@@ -71,7 +85,7 @@ function parseAllowlist(raw: string | undefined): Set<string> {
     return new Set(
         raw
             .split(/[,;\n]/)
-            .map(normalizeEmailAddress)
+            .map(normalizeEmailAddressForDelivery)
             .filter((value): value is string => Boolean(value)),
     );
 }
@@ -144,9 +158,27 @@ function classifyBudgetError(error: unknown): EmailDeliveryFailureReason {
     return 'budget_unavailable';
 }
 
+function classifyProviderErrorAcceptance(error: unknown): 'not_accepted' | 'ambiguous' {
+    const statusCode = (error as { statusCode?: unknown } | null)?.statusCode;
+    // Resend resolves fetch/network failures as an error with statusCode=null.
+    // Only an explicit, definitive client rejection is safe to retry. A
+    // timeout, conflict/in-flight idempotent request, 5xx, or unknown shape
+    // may have reached the provider and must not be replayed blindly.
+    if (
+        typeof statusCode === 'number'
+        && statusCode >= 400
+        && statusCode < 500
+        && statusCode !== 408
+        && statusCode !== 409
+    ) {
+        return 'not_accepted';
+    }
+    return 'ambiguous';
+}
+
 export async function deliverEmail(input: BudgetedEmail): Promise<EmailDeliveryResult> {
     const rawRecipients = Array.isArray(input.to) ? input.to : [input.to];
-    const recipients = rawRecipients.map(normalizeEmailAddress);
+    const recipients = rawRecipients.map(normalizeEmailAddressForDelivery);
     if (recipients.length === 0 || recipients.some((recipient) => !recipient)) {
         return { ok: false, reason: 'invalid_recipient' };
     }
@@ -199,6 +231,82 @@ export async function deliverEmail(input: BudgetedEmail): Promise<EmailDeliveryR
     }
 }
 
+/**
+ * Provider delivery for a durable fulfillment effect. Unlike deliverEmail,
+ * this exposes the provider ID and distinguishes a definite rejection from a
+ * transport outcome where provider acceptance is unknown.
+ */
+export async function deliverIdempotentEmail(
+    input: IdempotentBudgetedEmail,
+): Promise<IdempotentEmailDeliveryResult> {
+    const recipient = normalizeEmailAddressForDelivery(input.to);
+    if (!recipient) {
+        return { acceptance: 'not_accepted', ok: false, reason: 'invalid_recipient' };
+    }
+    if (
+        input.idempotencyKey.length < 1
+        || input.idempotencyKey.length > 256
+        || !/^fulfillment\/[A-Za-z0-9_.:/-]+$/.test(input.idempotencyKey)
+    ) {
+        return { acceptance: 'not_accepted', ok: false, reason: 'invalid_idempotency_key' };
+    }
+
+    const policy = getEmailDeliveryPolicy();
+    const blockedReason = policyFailure(policy, [recipient]);
+    if (blockedReason) {
+        console.warn(`[EmailBudget] blocked source=${safeToken(input.source, 'unknown', 80)} reason=${blockedReason}`);
+        return { acceptance: 'not_accepted', ok: false, reason: blockedReason };
+    }
+    if (!readRuntimeEnv('RESEND_API_KEY')) {
+        return { acceptance: 'not_accepted', ok: false, reason: 'provider_unavailable' };
+    }
+
+    const source = safeToken(input.source, 'unknown', 80);
+    try {
+        const supabaseAdmin = createSupabaseAdminClient();
+        const { error: budgetError } = await supabaseAdmin.rpc('reserve_email_recipient_budget', {
+            p_budget_scope: policy.budgetScope,
+            p_recipient_count: 1,
+            p_daily_limit: policy.dailyLimit,
+            p_monthly_limit: policy.monthlyLimit,
+            p_source: source,
+        });
+
+        if (budgetError) {
+            const reason = classifyBudgetError(budgetError);
+            console.warn(`[EmailBudget] blocked source=${source} reason=${reason}`);
+            return { acceptance: 'not_accepted', ok: false, reason };
+        }
+    } catch {
+        console.warn(`[EmailBudget] blocked source=${source} reason=budget_unavailable`);
+        return { acceptance: 'not_accepted', ok: false, reason: 'budget_unavailable' };
+    }
+
+    try {
+        const { data, error } = await getResend().emails.send({
+            from: input.from ?? getEmailFrom(),
+            to: recipient,
+            subject: input.subject,
+            html: input.html,
+        }, { idempotencyKey: input.idempotencyKey });
+
+        if (error) {
+            return {
+                acceptance: classifyProviderErrorAcceptance(error),
+                ok: false,
+                reason: 'provider_error',
+                error,
+            };
+        }
+        if (!data?.id) {
+            return { acceptance: 'ambiguous', ok: false, reason: 'provider_error' };
+        }
+        return { ok: true, providerId: data.id };
+    } catch (error) {
+        return { acceptance: 'ambiguous', ok: false, reason: 'provider_error', error };
+    }
+}
+
 export async function deliverPreReservedStagingSmokeEmail(input: {
     from: string;
     html: string;
@@ -206,7 +314,7 @@ export async function deliverPreReservedStagingSmokeEmail(input: {
     subject: string;
     to: string;
 }): Promise<PreReservedStagingSmokeEmailResult> {
-    const recipient = normalizeEmailAddress(input.to);
+    const recipient = normalizeEmailAddressForDelivery(input.to);
     const policy = getEmailDeliveryPolicy();
     const rawDailyLimit = Number(readRuntimeEnv('EMAIL_DAILY_RECIPIENT_LIMIT'));
     const rawMonthlyLimit = Number(readRuntimeEnv('EMAIL_MONTHLY_RECIPIENT_LIMIT'));

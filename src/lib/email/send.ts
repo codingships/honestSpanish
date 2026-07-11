@@ -5,6 +5,10 @@
 import { deliverEmail } from './delivery';
 import { describeEmailSendError, redactEmailForLog } from './errors';
 import {
+    sendFulfillmentEmailEffect,
+    type FulfillmentEmailEffectContext,
+} from '../fulfillment/effects';
+import {
     welcomeEmailTemplate,
     welcomeEmailSubject,
     renewalNoticeEmailTemplate,
@@ -41,7 +45,25 @@ type TransactionalEmailInput = {
     thrownLabel: string;
 };
 
-async function sendTransactionalEmail(input: TransactionalEmailInput): Promise<boolean> {
+export type TransactionalEmailSendOptions = {
+    fulfillmentEffect?: FulfillmentEmailEffectContext;
+};
+
+async function sendTransactionalEmail(
+    input: TransactionalEmailInput,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
+    if (options.fulfillmentEffect) {
+        await sendFulfillmentEmailEffect(options.fulfillmentEffect, {
+            email: input.email,
+            html: input.html,
+            source: input.source,
+            subject: input.subject,
+        });
+        console.log(`${input.successLabel} ${redactEmailForLog(input.email)}`);
+        return true;
+    }
+
     try {
         const result = await deliverEmail({
             to: input.email,
@@ -66,7 +88,11 @@ async function sendTransactionalEmail(input: TransactionalEmailInput): Promise<b
     }
 }
 
-export async function sendWelcomeEmail(email: string, data: WelcomeEmailData): Promise<boolean> {
+export async function sendWelcomeEmail(
+    email: string,
+    data: WelcomeEmailData,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
     return sendTransactionalEmail({
         email,
         subject: welcomeEmailSubject(data.locale),
@@ -75,12 +101,13 @@ export async function sendWelcomeEmail(email: string, data: WelcomeEmailData): P
         failureLabel: '[Email] Failed to send welcome email:',
         thrownLabel: '[Email] Error sending welcome email:',
         successLabel: '[Email] Welcome email sent to',
-    });
+    }, options);
 }
 
 export async function sendRenewalNoticeEmail(
     email: string,
     data: RenewalNoticeEmailData,
+    options: TransactionalEmailSendOptions = {},
 ): Promise<boolean> {
     return sendTransactionalEmail({
         email,
@@ -90,12 +117,13 @@ export async function sendRenewalNoticeEmail(
         failureLabel: '[Email] Failed to send renewal notice:',
         thrownLabel: '[Email] Error sending renewal notice:',
         successLabel: '[Email] Renewal notice sent to',
-    });
+    }, options);
 }
 
 export async function sendClassConfirmation(
     email: string,
     data: ClassConfirmationData,
+    options: TransactionalEmailSendOptions = {},
 ): Promise<boolean> {
     return sendTransactionalEmail({
         email,
@@ -107,7 +135,7 @@ export async function sendClassConfirmation(
         failureLabel: '[Email] Failed to send class confirmation:',
         thrownLabel: '[Email] Error sending class confirmation:',
         successLabel: '[Email] Class confirmation sent to',
-    });
+    }, options);
 }
 
 export async function sendClassReminder(email: string, data: ClassReminderData): Promise<boolean> {
@@ -122,7 +150,11 @@ export async function sendClassReminder(email: string, data: ClassReminderData):
     });
 }
 
-export async function sendClassCancelled(email: string, data: ClassCancelledData): Promise<boolean> {
+export async function sendClassCancelled(
+    email: string,
+    data: ClassCancelledData,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
     return sendTransactionalEmail({
         email,
         subject: `Class cancelled - ${data.date}`,
@@ -131,7 +163,7 @@ export async function sendClassCancelled(email: string, data: ClassCancelledData
         failureLabel: '[Email] Failed to send cancellation email:',
         thrownLabel: '[Email] Error sending cancellation email:',
         successLabel: '[Email] Cancellation email sent to',
-    });
+    }, options);
 }
 
 export async function sendClassConfirmationToBoth(

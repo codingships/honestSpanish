@@ -27,6 +27,10 @@ type ProcessedClass = {
 
 type FulfillmentOptions = {
     autoCreateMeeting?: boolean;
+    emailEffectJob?: {
+        jobId: string;
+        leaseOwner: string;
+    };
     sendEmail?: boolean;
 };
 
@@ -51,6 +55,7 @@ function formatClassTime(date: Date): string {
 }
 
 async function sendConfirmationOrThrow(
+    supabaseAdmin: SupabaseClient<Database>,
     studentEmail: string,
     studentName: string,
     teacherEmail: string,
@@ -61,25 +66,44 @@ async function sendConfirmationOrThrow(
         duration: number;
         meetLink?: string | null;
         documentLink?: string | null;
-    }
+    },
+    emailEffectJob?: FulfillmentOptions['emailEffectJob'],
 ) {
-    const studentSent = await sendClassConfirmation(studentEmail, {
+    const studentData = {
         recipientName: studentName,
         isTeacher: false,
         otherPartyName: teacherName,
         ...classDetails,
         meetLink: classDetails.meetLink ?? undefined,
         documentLink: classDetails.documentLink ?? undefined,
-    });
+    };
+    const studentSent = emailEffectJob
+        ? await sendClassConfirmation(studentEmail, studentData, {
+            fulfillmentEffect: {
+                ...emailEffectJob,
+                effectKey: 'email.class_confirmation.student',
+                supabaseAdmin,
+            },
+        })
+        : await sendClassConfirmation(studentEmail, studentData);
 
-    const teacherSent = await sendClassConfirmation(teacherEmail, {
+    const teacherData = {
         recipientName: teacherName,
         isTeacher: true,
         otherPartyName: studentName,
         ...classDetails,
         meetLink: classDetails.meetLink ?? undefined,
         documentLink: classDetails.documentLink ?? undefined,
-    });
+    };
+    const teacherSent = emailEffectJob
+        ? await sendClassConfirmation(teacherEmail, teacherData, {
+            fulfillmentEffect: {
+                ...emailEffectJob,
+                effectKey: 'email.class_confirmation.teacher',
+                supabaseAdmin,
+            },
+        })
+        : await sendClassConfirmation(teacherEmail, teacherData);
 
     if (!studentSent || !teacherSent) {
         throw new Error('Resend did not accept one or more class confirmation emails');
@@ -115,7 +139,7 @@ async function loadSessions(
 async function createArtifactsForSession(
     supabaseAdmin: SupabaseClient<Database>,
     session: SessionWithJoins,
-    options: Required<FulfillmentOptions>,
+    options: Required<Pick<FulfillmentOptions, 'autoCreateMeeting' | 'sendEmail'>>,
     privateProfiles: Awaited<ReturnType<typeof getPrivateProfiles>>
 ): Promise<ProcessedClass | null> {
     if (!session.scheduled_at) return null;
@@ -242,11 +266,13 @@ export async function fulfillSingleSession(
     };
 
     await sendConfirmationOrThrow(
+        supabaseAdmin,
         student.email,
         student.full_name || student.email.split('@')[0] || 'Estudiante',
         teacher.email,
         teacher.full_name || 'Profesor',
-        classDetails
+        classDetails,
+        options.emailEffectJob,
     );
 
     await recordClassEmailOutInCrmSafe(supabaseAdmin, {
@@ -319,11 +345,13 @@ export async function fulfillSessionBatch(
     };
 
     await sendConfirmationOrThrow(
+        supabaseAdmin,
         student.email,
         student.full_name || student.email.split('@')[0] || 'Estudiante',
         teacher.email,
         teacher.full_name || 'Profesor',
-        classDetails
+        classDetails,
+        options.emailEffectJob,
     );
 
     const batchSessionIds = processedClasses.map((processedClass) => processedClass.session.id);

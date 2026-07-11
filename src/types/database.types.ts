@@ -544,6 +544,74 @@ export type Database = {
         }
         Relationships: []
       }
+      fulfillment_effects: {
+        Row: {
+          attempt_generation: number
+          completed_at: string | null
+          created_at: string
+          effect_key: string
+          effect_type: string
+          error: Json | null
+          first_attempt_at: string | null
+          id: string
+          job_id: string
+          last_attempt_at: string | null
+          lease_expires_at: string | null
+          lease_owner: string | null
+          payload_sha256: string
+          provider_id: string | null
+          result: Json | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempt_generation?: number
+          completed_at?: string | null
+          created_at?: string
+          effect_key: string
+          effect_type: string
+          error?: Json | null
+          first_attempt_at?: string | null
+          id?: string
+          job_id: string
+          last_attempt_at?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          payload_sha256: string
+          provider_id?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempt_generation?: number
+          completed_at?: string | null
+          created_at?: string
+          effect_key?: string
+          effect_type?: string
+          error?: Json | null
+          first_attempt_at?: string | null
+          id?: string
+          job_id?: string
+          last_attempt_at?: string | null
+          lease_expires_at?: string | null
+          lease_owner?: string | null
+          payload_sha256?: string
+          provider_id?: string | null
+          result?: Json | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fulfillment_effects_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "fulfillment_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fulfillment_jobs: {
           Row: {
             attempts: number
@@ -1590,6 +1658,24 @@ export type Database = {
         }
         Returns: Database["public"]["Tables"]["checkout_intents"]["Row"]
       }
+      claim_fulfillment_effect: {
+        Args: {
+          p_effect_key: string
+          p_effect_type: string
+          p_job_id: string
+          p_lease_owner: string
+          p_lease_seconds?: number
+          p_payload_sha256: string
+        }
+        Returns: {
+          attempt_generation: number
+          claimed: boolean
+          effect_id: string
+          effect_status: string
+          provider_id: string | null
+          result: Json | null
+        }[]
+      }
       complete_checkout_intent: {
         Args: {
           p_intent_id: string
@@ -1600,6 +1686,18 @@ export type Database = {
           p_student_id: string
         }
         Returns: Database["public"]["Tables"]["checkout_intents"]["Row"]
+      }
+      finalize_fulfillment_effect: {
+        Args: {
+          p_attempt_generation: number
+          p_effect_id: string
+          p_error?: Json | null
+          p_lease_owner: string
+          p_outcome: string
+          p_provider_id?: string | null
+          p_result?: Json | null
+        }
+        Returns: boolean
       }
       reconcile_stripe_refund: {
         Args: {
