@@ -2,8 +2,12 @@ import type { APIContext } from 'astro';
 import { readRuntimeEnv, requireRuntimeEnv } from './runtime-env';
 
 const DEPLOYED_ENVIRONMENTS = new Set(['staging', 'production']);
-const BUILD_SUPABASE_URL = import.meta.env.PUBLIC_SUPABASE_URL;
-const BUILD_SUPABASE_ANON_KEY = import.meta.env.PUBLIC_SUPABASE_ANON_KEY;
+const BUILD_SUPABASE_URL = typeof import.meta.env === 'object'
+    ? import.meta.env.PUBLIC_SUPABASE_URL
+    : undefined;
+const BUILD_SUPABASE_ANON_KEY = typeof import.meta.env === 'object'
+    ? import.meta.env.PUBLIC_SUPABASE_ANON_KEY
+    : undefined;
 
 export function supabaseProjectRef(value: string | undefined): string | null {
     if (!value) return null;

@@ -32,7 +32,7 @@ describe('FulfillmentJobsManager', () => {
             if (init && typeof init === 'object' && init.method === 'POST') {
                 const body = JSON.parse(init.body as string);
                 if (body.action === 'process_due') {
-                    return jsonResponse({ result: { processed: 2, succeeded: 1, failed: 1 } });
+                    return jsonResponse({ result: { queued: true, limit: 20 } });
                 }
                 return jsonResponse({ job: failedJob });
             }
@@ -74,7 +74,7 @@ describe('FulfillmentJobsManager', () => {
             action: 'process_due',
             limit: 20,
         });
-        expect(await screen.findByRole('status')).toHaveTextContent('Procesados: 2, correctos: 1, fallidos: 1');
+        expect(await screen.findByRole('status')).toHaveTextContent('Procesamiento encolado. La lista se actualizará cuando termine.');
     });
 
     it('posts retry and cancel with the selected job id', async () => {

@@ -146,10 +146,12 @@ El nombre base es `espanol-honesto-fulfillment-env-required`; nunca es productio
 
 - `espanol-honesto-fulfillment-staging`
   - Health check: `/health`
+  - Queue: `espanol-honesto-fulfillment-staging-queue`
+  - DLQ: `espanol-honesto-fulfillment-staging-dlq`
 - `espanol-honesto-fulfillment-production`
   - Health check: `/health`
 
-El Fulfillment Worker activo declara un cron horario (`0 * * * *`) para procesar jobs pendientes y recordatorios. Staging se despliega activo antes del Astro Worker. Production se crea primero con el entorno `production_bootstrap`: `FULFILLMENT_RUNTIME_MODE=bootstrap`, email desactivado, cuotas cero, `crons=[]` y rutas operativas bloqueadas con 503. Después se despliega el Astro Worker que declara `FULFILLMENT_SERVICE`, se cargan secrets mientras fulfillment sigue inerte y solo un gate final separado despliega `--env production`. No usar `fetch()` público entre Workers de la misma cuenta.
+El Fulfillment Worker activo declara un cron horario (`0 * * * *`) para reconciliar jobs pendientes y recordatorios. En staging, `FULFILLMENT_QUEUE` publica señales `process_due` y el mismo Worker las consume con batch/concurrencia uno, cinco reintentos y DLQ; así Google/Resend no dependen de los 30 segundos posteriores a una respuesta HTTP. Supabase `fulfillment_jobs` conserva el estado durable. Staging se despliega activo antes del Astro Worker. Production se crea primero con el entorno `production_bootstrap`: `FULFILLMENT_RUNTIME_MODE=bootstrap`, email desactivado, cuotas cero, `crons=[]` y rutas operativas bloqueadas con 503. Después se despliega el Astro Worker que declara `FULFILLMENT_SERVICE`, se cargan secrets mientras fulfillment sigue inerte y solo un gate final separado despliega `--env production`. La Queue production no se crea ni se vincula durante staging. No usar `fetch()` público entre Workers de la misma cuenta.
 
 Despliegue:
 

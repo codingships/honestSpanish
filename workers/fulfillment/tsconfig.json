@@ -14,6 +14,7 @@
         "noEmit": true
     },
     "include": [
+        "worker-configuration.d.ts",
         "src/**/*.ts",
         "../../src/env.d.ts",
         "../../src/lib/**/*.ts",

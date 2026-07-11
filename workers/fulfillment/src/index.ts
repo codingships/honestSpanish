@@ -4,6 +4,7 @@ import {
     ExactFulfillmentJobError,
     processDueFulfillmentJobs,
     processExactFulfillmentJob,
+    quarantineStaleFulfillmentJobs,
 } from '../../../src/lib/fulfillment/jobs';
 import { sendClassReminder } from '../../../src/lib/email';
 import { recordClassEmailOutInCrmSafe } from '../../../src/lib/crm/class-email';
@@ -19,15 +20,35 @@ import {
 } from '../../../src/lib/runtime-attestation';
 
 type JsonObject = Record<string, unknown>;
+type FulfillmentEnvironment = 'staging' | 'production';
 type VersionMetadata = { id?: unknown; tag?: unknown; timestamp?: unknown };
-type Env = Record<string, string | VersionMetadata | undefined> & {
+export type FulfillmentQueueMessage = {
+    version: 1;
+    kind: 'process_due';
+    environment: FulfillmentEnvironment;
+    limit: number;
+    requestedAt: string;
+};
+type Env = Record<string, unknown> & {
+    FULFILLMENT_QUEUE?: Queue<FulfillmentQueueMessage>;
     CF_VERSION_METADATA?: VersionMetadata;
+    [key: string]: unknown;
 };
 type AvailableSlot = { slot_start: string; slot_end: string };
 type Handler = (body: JsonObject, env: Env) => Promise<unknown>;
 
 const SCHEDULED_FULFILLMENT_JOB_LIMIT = 5;
 const FULFILLMENT_WORKER_ID = 'cloudflare-fulfillment-worker';
+const FULFILLMENT_QUEUE_NAMES: Record<FulfillmentEnvironment, string> = {
+    staging: 'espanol-honesto-fulfillment-staging-queue',
+    production: 'espanol-honesto-fulfillment-production-queue',
+};
+const DEFAULT_FULFILLMENT_JOB_LIMIT = 20;
+const MAX_FULFILLMENT_JOB_LIMIT = 100;
+
+function fulfillmentWorkerRunId(scope: 'http' | 'scheduled'): string {
+    return `${FULFILLMENT_WORKER_ID}:${scope}:${crypto.randomUUID()}`;
+}
 
 function internalSecret(env: Env): string | null {
     return envString(env, 'INTERNAL_JOB_SECRET') || null;
@@ -40,6 +61,46 @@ function envString(env: Env, key: string): string | undefined {
 
 function fulfillmentRuntimeMode(env: Env): 'active' | 'bootstrap' {
     return envString(env, 'FULFILLMENT_RUNTIME_MODE') === 'active' ? 'active' : 'bootstrap';
+}
+
+function fulfillmentEnvironment(env: Env): FulfillmentEnvironment | null {
+    const appEnvironment = envString(env, 'PUBLIC_APP_ENV');
+    const workerIdentity = envString(env, 'WORKER_IDENTITY');
+    if (appEnvironment === 'staging' && workerIdentity === 'espanol-honesto-fulfillment-staging') {
+        return 'staging';
+    }
+    if (appEnvironment === 'production' && workerIdentity === 'espanol-honesto-fulfillment-production') {
+        return 'production';
+    }
+    return null;
+}
+
+function fulfillmentJobLimit(value: unknown): number {
+    if (value === undefined) return DEFAULT_FULFILLMENT_JOB_LIMIT;
+    if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > MAX_FULFILLMENT_JOB_LIMIT) {
+        throw new Error('INVALID_FULFILLMENT_JOB_LIMIT');
+    }
+    return Number(value);
+}
+
+function isFulfillmentQueueMessage(
+    value: unknown,
+    environment: FulfillmentEnvironment,
+): value is FulfillmentQueueMessage {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const message = value as Record<string, unknown>;
+    return message.version === 1
+        && message.kind === 'process_due'
+        && message.environment === environment
+        && Number.isSafeInteger(message.limit)
+        && Number(message.limit) >= 1
+        && Number(message.limit) <= MAX_FULFILLMENT_JOB_LIMIT
+        && typeof message.requestedAt === 'string'
+        && Number.isFinite(Date.parse(message.requestedAt));
+}
+
+function queueRetryDelay(attempts: number): number {
+    return Math.min(30 * (2 ** Math.max(attempts - 1, 0)), 30 * 60);
 }
 
 function json(status: number, body: unknown): Response {
@@ -74,12 +135,35 @@ async function readJson(request: Request): Promise<JsonObject> {
     return JSON.parse(text) as JsonObject;
 }
 
-async function handleProcessJobs(body: JsonObject): Promise<JsonObject> {
-    const limit = typeof body.limit === 'number' ? body.limit : 20;
-    return processDueFulfillmentJobs({
+async function handleProcessJobs(body: JsonObject, env: Env): Promise<JsonObject> {
+    const environment = fulfillmentEnvironment(env);
+    if (!environment) {
+        throw new Error('FULFILLMENT_RUNTIME_IDENTITY_INVALID');
+    }
+    const limit = fulfillmentJobLimit(body.limit);
+
+    // Production intentionally stays on the established inline path until its
+    // own Queue resources and rollout have been reviewed and explicitly approved.
+    if (environment === 'production') {
+        await quarantineStaleFulfillmentJobs();
+        return processDueFulfillmentJobs({
+            limit,
+            workerId: fulfillmentWorkerRunId('http'),
+        });
+    }
+
+    if (!env.FULFILLMENT_QUEUE) {
+        throw new Error('FULFILLMENT_QUEUE_NOT_CONFIGURED');
+    }
+    await env.FULFILLMENT_QUEUE.send({
+        version: 1,
+        kind: 'process_due',
+        environment,
         limit,
-        workerId: FULFILLMENT_WORKER_ID,
-    });
+        requestedAt: new Date().toISOString(),
+    }, { contentType: 'json' });
+
+    return { queued: true, limit };
 }
 
 function requiredSmokeString(body: JsonObject, key: string, pattern: RegExp): string {
@@ -442,6 +526,7 @@ async function sendDueReminders(
 
 async function handleSendReminders(): Promise<JsonObject> {
     const supabaseAdmin = createSupabaseAdminClient();
+    await quarantineStaleFulfillmentJobs({ supabaseAdmin });
     const fulfillment = await processDueFulfillmentJobs({ limit: 20, supabaseAdmin });
     const reminders = await sendDueReminders(supabaseAdmin);
 
@@ -472,12 +557,64 @@ async function handleSendExactReminder(body: JsonObject, env: Env): Promise<Json
 async function handleScheduled(): Promise<void> {
     const supabaseAdmin = createSupabaseAdminClient();
 
+    await quarantineStaleFulfillmentJobs({ supabaseAdmin });
     await processDueFulfillmentJobs({
         limit: SCHEDULED_FULFILLMENT_JOB_LIMIT,
-        workerId: FULFILLMENT_WORKER_ID,
+        workerId: fulfillmentWorkerRunId('scheduled'),
         supabaseAdmin,
     });
     await sendDueReminders(supabaseAdmin);
+}
+
+async function handleQueue(
+    batch: MessageBatch<FulfillmentQueueMessage>,
+    env: Env,
+): Promise<void> {
+    const environment = fulfillmentEnvironment(env);
+    if (
+        fulfillmentRuntimeMode(env) !== 'active'
+        || !environment
+        || batch.queue !== FULFILLMENT_QUEUE_NAMES[environment]
+    ) {
+        console.error(JSON.stringify({
+            event: 'fulfillment_queue_runtime_mismatch',
+            queue: batch.queue,
+        }));
+        batch.retryAll({ delaySeconds: 60 });
+        return;
+    }
+
+    for (const message of batch.messages) {
+        if (!isFulfillmentQueueMessage(message.body, environment)) {
+            console.error(JSON.stringify({
+                event: 'fulfillment_queue_invalid_message',
+                messageId: message.id,
+            }));
+            message.retry({ delaySeconds: 5 * 60 });
+            continue;
+        }
+
+        try {
+            await quarantineStaleFulfillmentJobs();
+            const result = await processDueFulfillmentJobs({
+                limit: message.body.limit,
+                workerId: `${FULFILLMENT_WORKER_ID}:queue:${message.id}:${message.attempts}`,
+            });
+            if (result.failed > 0) {
+                message.retry({ delaySeconds: queueRetryDelay(message.attempts) });
+                continue;
+            }
+            message.ack();
+        } catch (error) {
+            console.error(JSON.stringify({
+                event: 'fulfillment_queue_processing_failed',
+                messageId: message.id,
+                attempts: message.attempts,
+                error: error instanceof Error ? error.message : 'unknown_error',
+            }));
+            message.retry({ delaySeconds: queueRetryDelay(message.attempts) });
+        }
+    }
 }
 
 const routes: Record<string, Handler> = {
@@ -541,6 +678,13 @@ export default {
         }
     },
 
+    async queue(
+        batch: MessageBatch<FulfillmentQueueMessage>,
+        env: Env,
+    ): Promise<void> {
+        await handleQueue(batch, env);
+    },
+
     async scheduled(
         _controller: ScheduledController,
         env: Env,
@@ -552,4 +696,4 @@ export default {
         }
         ctx.waitUntil(handleScheduled());
     },
-};
+} satisfies ExportedHandler<Env, FulfillmentQueueMessage>;

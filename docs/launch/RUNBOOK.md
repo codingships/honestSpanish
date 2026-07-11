@@ -7,7 +7,7 @@
 3. Campus reclama un `checkout_intent` unico y abre Stripe Checkout para esa oferta inmutable.
 4. Webhook real completa el intent, crea/reconcilia `subscriptions` y `payments` y convierte la oportunidad exacta.
 5. Webhook encola `welcome_fulfillment` con el snapshot contractual.
-6. Cloudflare Fulfillment Worker procesa jobs y crea Drive/email.
+6. El endpoint interno publica `process_due`; Cloudflare Queue entrega la señal al Fulfillment Worker, que procesa jobs y crea Drive/email fuera de la ventana HTTP.
 7. Admin/teacher reserva clase.
 8. Cloudflare encola `session_fulfillment`.
 9. Cloudflare Fulfillment Worker crea Doc, Calendar, Meet y emails.
@@ -39,6 +39,7 @@ Revisar:
 
 - `profiles_private.drive_folder_id`.
 - `fulfillment_jobs` con `welcome_fulfillment`.
+- Queue `espanol-honesto-fulfillment-staging-queue` y su DLQ en staging.
 - Logs Cloudflare Fulfillment Worker.
 - Google credentials/scopes.
 - Resend logs.
@@ -48,6 +49,7 @@ Recuperacion:
 - Admin > Jobs > Reintentar.
 - Admin > Jobs > Procesar pendientes.
 - Si el Cloudflare Fulfillment Worker esta caido, revisar `/health`, secrets y deploy.
+- Si el job sigue pendiente, comprobar productor `FULFILLMENT_QUEUE`, consumidor, backlog/reintentos y DLQ antes de reintentarlo manualmente.
 - Si la llamada interna devuelve 404/1042 sin aparecer en logs del Fulfillment Worker, comprobar que el Astro Worker declara `FULFILLMENT_SERVICE` hacia el Worker del mismo entorno. No habilitar `global_fetch_strictly_public` como sustituto.
 
 ### Clase sin Meet/Doc/email
@@ -224,6 +226,15 @@ Cloudflare Fulfillment Worker local:
 ```bash
 pnpm fulfillment:dev
 
+# Primera provision de Queue staging: DLQ primero y Queue despues.
+pnpm exec wrangler queues create espanol-honesto-fulfillment-staging-dlq
+pnpm exec wrangler queues create espanol-honesto-fulfillment-staging-queue
+pnpm exec wrangler queues info espanol-honesto-fulfillment-staging-dlq
+pnpm exec wrangler queues info espanol-honesto-fulfillment-staging-queue
+
+# Desplegar solo el Fulfillment Worker staging con sus bindings declarados.
+pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars --strict
+
 # Producción: plan primero; cada write exige su aprobación exacta separada.
 pnpm launch:cloudflare-production-fulfillment-bootstrap
 pnpm launch:cloudflare-production-fulfillment-secrets
@@ -231,6 +242,24 @@ pnpm launch:cloudflare-production-worker-phase1
 pnpm launch:cloudflare-production-worker-secrets
 pnpm launch:cloudflare-production-fulfillment-enable
 ```
+
+Antes de provisionar, ejecutar `wrangler whoami`, `wrangler queues list` y
+`wrangler deployments status --config workers/fulfillment/wrangler.toml --env staging --json`;
+declarar la cuenta, comprobar que los dos nombres no existen y capturar la versión activa.
+No crear, enlazar ni desplegar recursos Queue de production dentro de este procedimiento.
+
+Rollback compuesto de Queue staging:
+
+1. Pausar delivery con `pnpm exec wrangler queues pause-delivery espanol-honesto-fulfillment-staging-queue` para conservar los mensajes sin entregarlos al código anterior.
+2. Volver a la versión capturada con `pnpm exec wrangler rollback <version-id> --config workers/fulfillment/wrangler.toml --env staging --yes`.
+3. Verificar `/health`, identidad/runtime y la versión activa.
+4. Si se abandona el consumidor Queue, retirarlo con `pnpm exec wrangler queues consumer remove espanol-honesto-fulfillment-staging-queue espanol-honesto-fulfillment-staging`.
+5. Conservar Queue, DLQ y mensajes para diagnóstico; no borrar ni purgar. En Workers Free la retención es 24 horas no configurables, también durante una pausa, por lo que hay que exportar la evidencia operativa antes de que expire. Reanudar delivery solo después de redesplegar una versión compatible y verificar el consumidor.
+
+Un job marcado `STALE_PROCESSING_REQUIRES_RECONCILIATION` o
+`POST_EFFECT_FINALIZATION_REQUIRES_RECONCILIATION` queda en cuarentena y no se
+reejecuta automáticamente: revisar primero Drive, Calendar y Resend, y usar
+Admin > Jobs > Reintentar solo cuando se haya descartado o corregido un efecto duplicado.
 
 La secuencia completa está en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Bootstrap, secrets fulfillment, web, secrets web y enable fulfillment son aprobaciones distintas. El runner de web se niega a desplegar sin un bootstrap ejecutado, con secrets completos y verificado de nuevo contra su versión remota actual. El runner de secrets fulfillment mantiene `production_bootstrap`; no envía emails ni procesa jobs. El runner enable es el único que despliega `--env production` y activa runtime/email/cron; si el resultado es fallido o ambiguo, restaura y verifica el bootstrap inerte. Las fases deben terminar con atestación autenticada de identidad, versión Cloudflare, modo operativo y ref Supabase exactos.
 

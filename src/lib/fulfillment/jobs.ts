@@ -52,10 +52,49 @@ export class ExactFulfillmentJobError extends Error {
 }
 
 const supportedWelcomeLocales = new Set(['es', 'en', 'ru']);
+const STALE_PROCESSING_AFTER_MS = 20 * 60 * 1000;
+const MANUAL_RECONCILIATION_RUN_AT = '9999-12-31T23:59:59.999Z';
+export const STALE_PROCESSING_ERROR = 'STALE_PROCESSING_REQUIRES_RECONCILIATION';
+export const POST_EFFECT_FINALIZATION_ERROR = 'POST_EFFECT_FINALIZATION_REQUIRES_RECONCILIATION';
 
 function nextRunAt(attempts: number): string {
     const delaySeconds = Math.min(30 * Math.pow(2, Math.max(attempts - 1, 0)), 30 * 60);
     return new Date(Date.now() + delaySeconds * 1000).toISOString();
+}
+
+export async function quarantineStaleFulfillmentJobs(options: {
+    supabaseAdmin?: SupabaseClient<Database>;
+    now?: Date;
+} = {}): Promise<number> {
+    const supabaseAdmin = options.supabaseAdmin ?? createSupabaseAdminClient();
+    const now = options.now ?? new Date();
+    const staleBefore = new Date(now.getTime() - STALE_PROCESSING_AFTER_MS).toISOString();
+    const { data, error } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .update({
+            status: 'failed',
+            run_at: MANUAL_RECONCILIATION_RUN_AT,
+            locked_at: null,
+            locked_by: null,
+            last_error: STALE_PROCESSING_ERROR,
+        })
+        .eq('status', 'processing')
+        .or(`locked_at.is.null,locked_at.lt.${staleBefore}`)
+        .select('id');
+
+    if (error) {
+        if (isMissingJobsTable(error)) return 0;
+        throw error;
+    }
+
+    const quarantined = data?.length ?? 0;
+    if (quarantined > 0) {
+        console.error(JSON.stringify({
+            event: 'fulfillment_stale_jobs_quarantined',
+            count: quarantined,
+        }));
+    }
+    return quarantined;
 }
 
 function normalizeWelcomeLocale(value: unknown) {
@@ -278,13 +317,17 @@ async function processSessionCancellation(
             throw new Error('Google Calendar event cancellation failed');
         }
 
-        await supabaseAdmin
+        const { error: cancellationStateError } = await supabaseAdmin
             .from('sessions')
             .update({
                 calendar_event_id: null,
                 meet_link: null,
             })
             .eq('id', sessionId);
+
+        if (cancellationStateError) {
+            throw cancellationStateError;
+        }
     }
 
     if (payload.sendEmail === false || !session.scheduled_at) return;
@@ -430,24 +473,17 @@ export async function processDueFulfillmentJobs(options: {
 
         if (!lockedJob) continue;
 
+        let processingError: unknown = null;
         try {
             await processJob(supabaseAdmin, { ...job, attempts, status: 'processing' });
-            const { error: successError } = await supabaseAdmin
-                .from('fulfillment_jobs')
-                .update({
-                    status: 'succeeded',
-                    locked_at: null,
-                    locked_by: null,
-                    last_error: null,
-                })
-                .eq('id', job.id);
-
-            if (successError) throw successError;
-            succeeded += 1;
         } catch (jobError) {
-            const message = jobError instanceof Error ? jobError.message : 'Unknown fulfillment error';
+            processingError = jobError;
+        }
+
+        if (processingError) {
+            const message = processingError instanceof Error ? processingError.message : 'Unknown fulfillment error';
             const exhausted = attempts >= job.max_attempts;
-            const { error: failError } = await supabaseAdmin
+            const { data: failedJob, error: failError } = await supabaseAdmin
                 .from('fulfillment_jobs')
                 .update({
                     status: exhausted ? 'failed' : 'pending',
@@ -456,13 +492,69 @@ export async function processDueFulfillmentJobs(options: {
                     locked_by: null,
                     last_error: message,
                 })
-                .eq('id', job.id);
+                .eq('id', job.id)
+                .eq('status', 'processing')
+                .eq('locked_by', workerId)
+                .eq('attempts', attempts)
+                .select('id')
+                .maybeSingle();
 
             if (failError) {
                 console.error('[Fulfillment] Could not mark failed job:', failError);
+            } else if (!failedJob) {
+                console.error(JSON.stringify({
+                    event: 'fulfillment_job_finalization_conflict',
+                    jobId: job.id,
+                }));
             }
             failed += 1;
+            continue;
         }
+
+        const { data: finalizedJob, error: successError } = await supabaseAdmin
+            .from('fulfillment_jobs')
+            .update({
+                status: 'succeeded',
+                locked_at: null,
+                locked_by: null,
+                last_error: null,
+            })
+            .eq('id', job.id)
+            .eq('status', 'processing')
+            .eq('locked_by', workerId)
+            .eq('attempts', attempts)
+            .select('id')
+            .maybeSingle();
+
+        if (!successError && finalizedJob) {
+            succeeded += 1;
+            continue;
+        }
+
+        const { data: quarantinedJob, error: quarantineError } = await supabaseAdmin
+            .from('fulfillment_jobs')
+            .update({
+                status: 'failed',
+                run_at: MANUAL_RECONCILIATION_RUN_AT,
+                locked_at: null,
+                locked_by: null,
+                last_error: POST_EFFECT_FINALIZATION_ERROR,
+            })
+            .eq('id', job.id)
+            .eq('status', 'processing')
+            .eq('locked_by', workerId)
+            .eq('attempts', attempts)
+            .select('id')
+            .maybeSingle();
+
+        console.error(JSON.stringify({
+            event: 'fulfillment_post_effect_finalization_requires_reconciliation',
+            jobId: job.id,
+            finalizationError: successError ? successError.message : 'ownership_conflict',
+            quarantineError: quarantineError?.message ?? null,
+            quarantined: Boolean(quarantinedJob),
+        }));
+        failed += 1;
     }
 
     return {

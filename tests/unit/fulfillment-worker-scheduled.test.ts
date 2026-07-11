@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     createSupabaseAdminClient: vi.fn(),
     processDueFulfillmentJobs: vi.fn(),
+    quarantineStaleFulfillmentJobs: vi.fn(),
     sendClassReminder: vi.fn(),
     recordClassEmailOutInCrmSafe: vi.fn(),
 }));
@@ -17,6 +18,7 @@ vi.mock('../../src/lib/fulfillment/jobs', () => ({
     },
     processDueFulfillmentJobs: mocks.processDueFulfillmentJobs,
     processExactFulfillmentJob: vi.fn(),
+    quarantineStaleFulfillmentJobs: mocks.quarantineStaleFulfillmentJobs,
 }));
 
 vi.mock('../../src/lib/email', () => ({
@@ -68,6 +70,41 @@ function createSupabaseAdmin(sessions: unknown[] = []) {
     };
 }
 
+const stagingQueueName = 'espanol-honesto-fulfillment-staging-queue';
+const stagingQueueEnv = {
+    FULFILLMENT_RUNTIME_MODE: 'active',
+    PUBLIC_APP_ENV: 'staging',
+    WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
+};
+
+function createQueueBatch(options: {
+    attempts?: number;
+    body?: unknown;
+    queue?: string;
+} = {}) {
+    const message = {
+        id: 'queue-message-1',
+        timestamp: new Date('2026-07-11T16:00:00.000Z'),
+        attempts: options.attempts ?? 1,
+        body: options.body ?? {
+            version: 1,
+            kind: 'process_due',
+            environment: 'staging',
+            limit: 5,
+            requestedAt: '2026-07-11T16:00:00.000Z',
+        },
+        ack: vi.fn(),
+        retry: vi.fn(),
+    };
+    const batch = {
+        queue: options.queue ?? stagingQueueName,
+        messages: [message],
+        ackAll: vi.fn(),
+        retryAll: vi.fn(),
+    };
+    return { batch, message };
+}
+
 describe('fulfillment worker scheduled handler', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -76,8 +113,88 @@ describe('fulfillment worker scheduled handler', () => {
             succeeded: 0,
             failed: 0,
         });
+        mocks.quarantineStaleFulfillmentJobs.mockResolvedValue(0);
         mocks.sendClassReminder.mockResolvedValue(true);
         mocks.recordClassEmailOutInCrmSafe.mockResolvedValue(undefined);
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('processes a valid Queue trigger and acknowledges only after durable jobs finish', async () => {
+        mocks.processDueFulfillmentJobs.mockResolvedValueOnce({
+            processed: 1,
+            succeeded: 1,
+            failed: 0,
+        });
+        const { batch, message } = createQueueBatch();
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        await worker.default.queue(batch as never, stagingQueueEnv);
+
+        expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
+            limit: 5,
+            workerId: 'cloudflare-fulfillment-worker:queue:queue-message-1:1',
+        });
+        expect(mocks.quarantineStaleFulfillmentJobs).toHaveBeenCalledTimes(1);
+        expect(message.ack).toHaveBeenCalledTimes(1);
+        expect(message.retry).not.toHaveBeenCalled();
+    });
+
+    it('retries the Queue message with backoff when a durable job reports failure', async () => {
+        mocks.processDueFulfillmentJobs.mockResolvedValueOnce({
+            processed: 1,
+            succeeded: 0,
+            failed: 1,
+        });
+        const { batch, message } = createQueueBatch({ attempts: 2 });
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        await worker.default.queue(batch as never, stagingQueueEnv);
+
+        expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 60 });
+        expect(message.ack).not.toHaveBeenCalled();
+    });
+
+    it('retries the Queue message when job processing throws', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.processDueFulfillmentJobs.mockRejectedValueOnce(new Error('database unavailable'));
+        const { batch, message } = createQueueBatch({ attempts: 3 });
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        await worker.default.queue(batch as never, stagingQueueEnv);
+
+        expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 120 });
+        expect(message.ack).not.toHaveBeenCalled();
+    });
+
+    it('sends malformed Queue messages toward the DLQ without calling providers', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { batch, message } = createQueueBatch({ body: { version: 99 } });
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        await worker.default.queue(batch as never, stagingQueueEnv);
+
+        expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
+        expect(message.retry).toHaveBeenCalledWith({ delaySeconds: 300 });
+        expect(message.ack).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when a Queue delivery reaches the wrong runtime identity', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { batch, message } = createQueueBatch();
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        await worker.default.queue(batch as never, {
+            ...stagingQueueEnv,
+            WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
+        });
+
+        expect(batch.retryAll).toHaveBeenCalledWith({ delaySeconds: 60 });
+        expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
+        expect(message.ack).not.toHaveBeenCalled();
+        expect(message.retry).not.toHaveBeenCalled();
     });
 
     it('tracks one scheduled run that processes a small job batch and then reminders', async () => {
@@ -101,9 +218,10 @@ describe('fulfillment worker scheduled handler', () => {
         expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledTimes(1);
         expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
             limit: 5,
-            workerId: 'cloudflare-fulfillment-worker',
+            workerId: expect.stringMatching(/^cloudflare-fulfillment-worker:scheduled:[0-9a-f-]+$/),
             supabaseAdmin: admin,
         });
+        expect(mocks.quarantineStaleFulfillmentJobs).toHaveBeenCalledWith({ supabaseAdmin: admin });
         expect(admin.from).toHaveBeenCalledWith('sessions');
     });
 

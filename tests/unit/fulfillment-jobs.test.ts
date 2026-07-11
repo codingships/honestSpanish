@@ -227,6 +227,35 @@ describe('fulfillment jobs', () => {
         })).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0 });
     });
 
+    it('quarantines stale processing jobs for manual reconciliation without replaying providers', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const quarantineChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            or: vi.fn().mockReturnThis(),
+            select: vi.fn().mockResolvedValue({ data: [{ id: 'stale-job-1' }], error: null }),
+        };
+        const supabaseAdmin = { from: vi.fn().mockReturnValue(quarantineChain) };
+        const { quarantineStaleFulfillmentJobs, STALE_PROCESSING_ERROR } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(quarantineStaleFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            now: new Date('2026-07-11T16:30:00.000Z'),
+        })).resolves.toBe(1);
+
+        expect(quarantineChain.update).toHaveBeenCalledWith({
+            status: 'failed',
+            run_at: '9999-12-31T23:59:59.999Z',
+            locked_at: null,
+            locked_by: null,
+            last_error: STALE_PROCESSING_ERROR,
+        });
+        expect(quarantineChain.eq).toHaveBeenCalledWith('status', 'processing');
+        expect(quarantineChain.or).toHaveBeenCalledWith(
+            'locked_at.is.null,locked_at.lt.2026-07-11T16:10:00.000Z',
+        );
+    });
+
     it('processes welcome fulfillment and records post-payment onboarding work in CRM', async () => {
         const job = createJob({
             job_type: 'welcome_fulfillment',
@@ -270,7 +299,9 @@ describe('fulfillment jobs', () => {
         });
         const successChain: any = {
             update: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockResolvedValue({ error: null }),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: job.id }, error: null }),
         };
         const supabaseAdmin = {
             from: vi.fn()
@@ -370,7 +401,9 @@ describe('fulfillment jobs', () => {
         });
         const successChain: any = {
             update: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockResolvedValue({ error: null }),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: job.id }, error: null }),
         };
         const supabaseAdmin = {
             from: vi.fn()
@@ -455,7 +488,9 @@ describe('fulfillment jobs', () => {
         });
         const successChain: any = {
             update: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockResolvedValue({ error: null }),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: job.id }, error: null }),
         };
         const supabaseAdmin = {
             from: vi.fn()
@@ -500,7 +535,9 @@ describe('fulfillment jobs', () => {
         const lockChain = createLockQuery();
         const successChain: any = {
             update: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockResolvedValue({ error: null }),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'job-1' }, error: null }),
         };
         const supabaseAdmin = {
             from: vi.fn()
@@ -525,6 +562,62 @@ describe('fulfillment jobs', () => {
             status: 'succeeded',
             last_error: null,
         }));
+        expect(successChain.eq).toHaveBeenCalledWith('status', 'processing');
+        expect(successChain.eq).toHaveBeenCalledWith('locked_by', 'test-worker');
+        expect(successChain.eq).toHaveBeenCalledWith('attempts', 1);
+    });
+
+    it('quarantines a job instead of replaying providers when post-effect finalization is ambiguous', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [createJob()], error: null }),
+        };
+        const finalizeChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+                data: null,
+                error: { message: 'database response was ambiguous' },
+            }),
+        };
+        const quarantineChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'job-1' }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery())
+                .mockReturnValueOnce(finalizeChain)
+                .mockReturnValueOnce(quarantineChain),
+        };
+        const sessionFulfillment = await import('../../src/lib/fulfillment/session-fulfillment');
+        vi.mocked(sessionFulfillment.fulfillSingleSession).mockResolvedValue(undefined);
+        const {
+            POST_EFFECT_FINALIZATION_ERROR,
+            processDueFulfillmentJobs,
+        } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+
+        expect(sessionFulfillment.fulfillSingleSession).toHaveBeenCalledTimes(1);
+        expect(quarantineChain.update).toHaveBeenCalledWith({
+            status: 'failed',
+            run_at: '9999-12-31T23:59:59.999Z',
+            locked_at: null,
+            locked_by: null,
+            last_error: POST_EFFECT_FINALIZATION_ERROR,
+        });
     });
 
     it('skips a due job when another worker wins the processing lock', async () => {
@@ -570,7 +663,9 @@ describe('fulfillment jobs', () => {
         const lockChain = createLockQuery();
         const failChain: any = {
             update: vi.fn().mockReturnThis(),
-            eq: vi.fn().mockResolvedValue({ error: null }),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'job-1' }, error: null }),
         };
         const supabaseAdmin = {
             from: vi.fn()

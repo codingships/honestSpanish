@@ -21,6 +21,7 @@ describe('Supabase runtime isolation', () => {
         const source = readFileSync('src/lib/supabase-runtime-guard.ts', 'utf8');
         expect(source).toContain('import.meta.env.PUBLIC_SUPABASE_URL');
         expect(source).toContain('import.meta.env.PUBLIC_SUPABASE_ANON_KEY');
+        expect(source).toContain("typeof import.meta.env === 'object'");
         expect(source).not.toContain('const importMeta = import.meta');
     });
 

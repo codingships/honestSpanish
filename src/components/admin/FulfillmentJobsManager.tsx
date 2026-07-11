@@ -18,6 +18,8 @@ type FulfillmentJobsResponse = {
     error?: string;
     jobs?: FulfillmentJob[];
     result?: {
+        queued?: boolean;
+        limit?: number;
         processed?: number;
         succeeded?: number;
         failed?: number;
@@ -111,7 +113,9 @@ export default function FulfillmentJobsManager() {
             });
             const data = await response.json() as FulfillmentJobsResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo procesar la cola');
-            setMessage(`Procesados: ${data.result?.processed ?? 0}, correctos: ${data.result?.succeeded ?? 0}, fallidos: ${data.result?.failed ?? 0}`);
+            setMessage(data.result?.queued === true
+                ? 'Procesamiento encolado. La lista se actualizará cuando termine.'
+                : `Procesados: ${data.result?.processed ?? 0}, correctos: ${data.result?.succeeded ?? 0}, fallidos: ${data.result?.failed ?? 0}`);
             await loadJobs();
         } catch (err) {
             setError(err instanceof Error ? err.message : 'No se pudo procesar la cola');

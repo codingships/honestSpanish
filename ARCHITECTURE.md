@@ -27,7 +27,7 @@ Paquete: `workers/fulfillment`.
 
 Responsable de:
 
-- `POST /internal/jobs/process`
+- `POST /internal/jobs/process`: en staging publica una senal pequena en Cloudflare Queues y responde sin ejecutar Google/Resend dentro de la ventana HTTP. Production conserva la ejecucion inline hasta que su Queue tenga una aprobacion separada.
 - `POST /internal/reminders/send`
 - `POST /internal/google/availability`
 - `POST /internal/google/filter-available-slots`
@@ -37,6 +37,12 @@ Responsable de:
 - `GET /health`
 
 Todas las rutas internas requieren `Authorization: Bearer INTERNAL_JOB_SECRET`.
+
+En staging, `espanol-honesto-fulfillment-staging` produce y consume
+`espanol-honesto-fulfillment-staging-queue`; los mensajes agotados pasan a
+`espanol-honesto-fulfillment-staging-dlq`. La Queue solo transporta la senal
+`process_due`: Supabase `fulfillment_jobs` sigue siendo la fuente de verdad,
+con batch y concurrencia limitados a uno para proteger Google, Resend y la base.
 
 ## Dominios
 
@@ -78,7 +84,7 @@ Flujo de pago:
 2. El alumno autenticado elige 1/3/6 meses y Supabase reclama un unico `checkout_intent` atomico.
 3. La app verifica proyecto Supabase, cuenta/modo Stripe y la oferta inmutable antes de crear una unica Checkout Session idempotente.
 4. El webhook exige el intent y el Price realmente cobrado, consume la aprobacion y crea `subscription`/`payment` con snapshot contractual.
-5. Webhook encola `welcome_fulfillment`; el Worker crea Drive y envia la confirmacion contractual.
+5. Webhook encola `welcome_fulfillment`, pide procesamiento por Queue y el consumidor del Worker crea Drive y envia la confirmacion contractual fuera del limite HTTP.
 
 Flujo de clase:
 
