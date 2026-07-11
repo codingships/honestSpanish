@@ -62,6 +62,60 @@ describe('real environment smoke safety', () => {
         expect(source).toContain('Completed Checkout and canonical billing lifecycle evidence must match');
     });
 
+    it('checks the aggregate Resend Free budget before any smoke mutation', () => {
+        const preflightSource = source.slice(
+            source.indexOf('async function runReadOnlyPreflight'),
+            source.indexOf('function assertExactSmokeEmailAllowlist'),
+        );
+        const budgetSource = source.slice(
+            source.indexOf('async function verifyStagingSmokeEmailBudget'),
+            source.indexOf('function assertExactSmokeEmailAllowlist'),
+        );
+        const mainPreflight = source.indexOf('const preflight = await runReadOnlyPreflight();');
+        const firstMutation = source.indexOf('await ensurePrimaryAssignment(student.id, teacherProfile.id);');
+
+        expect(preflightSource).toContain('const emailRecipientBudget = await verifyStagingSmokeEmailBudget();');
+        expect(preflightSource).toContain('emailRecipientBudget,');
+        expect(budgetSource).toContain("from('email_recipient_budget_usage')");
+        expect(budgetSource).toContain("eq('budget_scope', 'nonproduction')");
+        expect(budgetSource).toContain("in('period_kind', ['day', 'month'])");
+        expect(budgetSource).toContain('currentMonthlyRecipients: currentRecipients.monthly');
+        expect(budgetSource).toContain('configuredMonthlyLimit: EMAIL_MONTHLY_RECIPIENT_LIMIT');
+        expect(budgetSource).toContain('plannedSmokeRecipients: STAGING_SMOKE_PLANNED_RECIPIENTS');
+        expect(budgetSource).toContain('if (!assessment.allowed)');
+        expect(budgetSource).not.toContain('.insert(');
+        expect(budgetSource).not.toContain('.update(');
+        expect(budgetSource).not.toContain('.delete(');
+        expect(budgetSource).not.toContain('.rpc(');
+        expect(mainPreflight).toBeLessThan(firstMutation);
+    });
+
+    it('limits email coverage to one confirmation, reminder and cancellation pair', () => {
+        const schedulingSource = source.slice(
+            source.indexOf('async function runSchedulingLifecycleSmoke'),
+            source.indexOf('async function runAdminJobsRecoverySmoke'),
+        );
+        const cleanupSource = source.slice(
+            source.indexOf('async function cleanupSchedulingSmokeArtifacts'),
+            source.indexOf('async function createNoEmailSchedulingVariant'),
+        );
+
+        expect(schedulingSource.match(/scheduleFirstAvailableSession\(/gu)).toHaveLength(1);
+        expect(schedulingSource.match(/createNoEmailSchedulingVariant\(/gu)).toHaveLength(3);
+        expect(schedulingSource).toContain('/internal/reminders/send-exact');
+        expect(schedulingSource).toContain("waitForSessionFulfillmentJob(initialSessionId, 'session_fulfillment')");
+        expect(schedulingSource).toContain("waitForSessionFulfillmentJob(initialSessionId, 'session_cancellation')");
+        expect(schedulingSource).toContain('cancelSchedulingVariantWithoutEmail');
+        expect(schedulingSource).toContain('result.dailyEmailRecipientDelta === STAGING_SMOKE_PLANNED_RECIPIENTS');
+        expect(schedulingSource).toContain('result.monthlyEmailRecipientDelta === STAGING_SMOKE_PLANNED_RECIPIENTS');
+        expect(schedulingSource).toContain('result.dailyCleanupEmailRecipientDelta === 0');
+        expect(schedulingSource).toContain('result.monthlyCleanupEmailRecipientDelta === 0');
+        expect(source).toContain('sendEmail: false');
+        expect(cleanupSource).not.toContain('sendEmail');
+        expect(cleanupSource).not.toContain('enqueue');
+        expect(cleanupSource).not.toContain('authedJsonFetch');
+    });
+
     it('reuses only the existing allowlisted role accounts and performs bounded cleanup', () => {
         expect(source).toContain('assertExactSmokeEmailAllowlist');
         expect(source).toContain('EMAIL_RECIPIENT_ALLOWLIST must contain exactly');
@@ -199,7 +253,8 @@ describe('real environment smoke safety', () => {
     it('covers Admin Jobs retry and cleanup in the real environment smoke', () => {
         expect(source).toContain('runAdminJobsRecoverySmoke');
         expect(source).toContain('createSmokeFailedFulfillmentJob');
-        expect(source).toContain("job_type: 'welcome_fulfillment'");
+        expect(source).toContain("job_type: 'session_fulfillment'");
+        expect(source).toContain('sendEmail: false');
         expect(source).toContain("status: 'failed'");
         expect(source).toContain("source: 'real-env-smoke'");
         expect(source).toContain('/es/campus/admin/jobs');

@@ -2,10 +2,16 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+    parseStagingSmokeEmailBudget,
     parseWranglerWhoamiSummary,
+    RESEND_FREE_DAILY_RECIPIENT_LIMIT,
+    RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
     runCleanupOwnedNodeCommand,
     runDirectNodeCommand,
     sanitizeStagingSmokeCapture as sanitize,
+    STAGING_SMOKE_EMAIL_RECIPIENT_PLAN,
+    STAGING_SMOKE_PLANNED_RECIPIENTS,
+    type StagingSmokeEmailBudgetAssessment,
     wranglerCliArgs,
 } from './staging-smoke-runner-safety';
 
@@ -27,6 +33,7 @@ interface Capture {
     exitCode: number | null;
     status: CheckStatus;
     externalWriteCommandStarted: boolean;
+    emailRecipientBudget?: StagingSmokeEmailBudgetAssessment | null;
 }
 
 interface RunnerReport {
@@ -299,6 +306,13 @@ function validateSmokeHarness(): Check {
         '--runtime-preflight-only',
         'verifyDeployedStagingRuntime',
         'runReadOnlyPreflight',
+        'verifyStagingSmokeEmailBudget',
+        "from('email_recipient_budget_usage')",
+        "'month'",
+        'STAGING_SMOKE_PLANNED_RECIPIENTS',
+        'sendEmail: false',
+        'createNoEmailSchedulingVariant',
+        'cancelSchedulingVariantWithoutEmail',
         'externalWritesStarted: false',
         'authUsersCreated: 0',
         'redactSmokeResult(result)',
@@ -399,6 +413,14 @@ function validateEnvSources(): Check {
                 : 'missing';
     const completedSessionId = resolveEnvName('SMOKE_COMPLETED_CHECKOUT_SESSION_ID', stagingEnv, baseEnv);
     const billingEvidencePath = resolveEnvName('SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH', stagingEnv, baseEnv);
+    const emailDailyLimit = Number(resolveEnvName('EMAIL_DAILY_RECIPIENT_LIMIT', stagingEnv, baseEnv));
+    const emailDailyLimitOk = Number.isSafeInteger(emailDailyLimit)
+        && emailDailyLimit > 0
+        && emailDailyLimit <= RESEND_FREE_DAILY_RECIPIENT_LIMIT;
+    const emailMonthlyLimit = Number(resolveEnvName('EMAIL_MONTHLY_RECIPIENT_LIMIT', stagingEnv, baseEnv));
+    const emailMonthlyLimitOk = Number.isSafeInteger(emailMonthlyLimit)
+        && emailMonthlyLimit > 0
+        && emailMonthlyLimit <= RESEND_FREE_MONTHLY_RECIPIENT_LIMIT;
     const roleEmails = [
         resolveEnvName('SMOKE_ADMIN_EMAIL', stagingEnv, baseEnv),
         resolveEnvName('SMOKE_TEACHER_EMAIL', stagingEnv, baseEnv),
@@ -423,7 +445,9 @@ function validateEnvSources(): Check {
     const ok = missing.length === 0
         && stripeMode === 'test'
         && canonicalEvidenceShapeOk
-        && roleAllowlistOk;
+        && roleAllowlistOk
+        && emailDailyLimitOk
+        && emailMonthlyLimitOk;
 
     return {
         status: ok ? 'ok' : executeRequested ? 'failed' : 'warning',
@@ -437,6 +461,10 @@ function validateEnvSources(): Check {
             `completedCheckoutAndCanonicalLifecycleShape=${String(canonicalEvidenceShapeOk)}`,
             `canonicalBillingEvidencePathShape=${String(billingEvidencePathShapeOk)}`,
             `exactRoleAllowlist=${String(roleAllowlistOk)}`,
+            `emailDailyLimitAtOrBelowResendFreeCap=${String(emailDailyLimitOk)}`,
+            `resendFreeDailyRecipientLimit=${RESEND_FREE_DAILY_RECIPIENT_LIMIT}`,
+            `emailMonthlyLimitAtOrBelowResendFreeCap=${String(emailMonthlyLimitOk)}`,
+            `resendFreeMonthlyRecipientLimit=${RESEND_FREE_MONTHLY_RECIPIENT_LIMIT}`,
             'valuesPrinted=false',
         ],
     };
@@ -464,6 +492,10 @@ function validateApprovalGateSource(): Check {
                 "--expect-checkout-override', 'false'",
                 'runDirectNodeCommand',
                 'runCleanupOwnedNodeCommand',
+                'parseStagingSmokeEmailBudget',
+                'STAGING_SMOKE_PLANNED_RECIPIENTS',
+                'RESEND_FREE_DAILY_RECIPIENT_LIMIT',
+                'RESEND_FREE_MONTHLY_RECIPIENT_LIMIT',
             ],
         },
     ];
@@ -549,11 +581,18 @@ function runApprovedExecution(reportCaptures: Capture[]): Check[] {
         status: preflightCapture.status,
         name: 'all_preconditions_before_writes',
         message: preflightCapture.status === 'ok'
-            ? 'Read-only subprocess verified the closed runtime, 403 checkout probe, staging providers, role allowlist and completed payment evidence before any smoke write.'
+            ? 'Read-only subprocess verified the closed runtime, payment evidence and the strict Resend Free recipient budget before any smoke write.'
             : 'Read-only subprocess failed, so the write-capable smoke command was not started.',
         details: [
             `exitCode=${preflightCapture.exitCode ?? 'unknown'}`,
             `capture=${preflightCapture.path}`,
+            `emailCurrentDailyRecipients=${preflightCapture.emailRecipientBudget?.currentDailyRecipients ?? 'unverified'}`,
+            `emailPlannedSmokeRecipients=${preflightCapture.emailRecipientBudget?.plannedSmokeRecipients ?? STAGING_SMOKE_PLANNED_RECIPIENTS}`,
+            `emailProjectedDailyRecipients=${preflightCapture.emailRecipientBudget?.projectedDailyRecipients ?? 'unverified'}`,
+            `emailStrictDailyLimit=${RESEND_FREE_DAILY_RECIPIENT_LIMIT}`,
+            `emailCurrentMonthlyRecipients=${preflightCapture.emailRecipientBudget?.currentMonthlyRecipients ?? 'unverified'}`,
+            `emailProjectedMonthlyRecipients=${preflightCapture.emailRecipientBudget?.projectedMonthlyRecipients ?? 'unverified'}`,
+            `emailStrictMonthlyLimit=${RESEND_FREE_MONTHLY_RECIPIENT_LIMIT}`,
             'CHECKOUT_ENABLED_OVERRIDE=false',
             'externalWriteCommandStarted=false',
         ],
@@ -601,13 +640,15 @@ function runSmokePreflightCommand(env: Record<string, string>): Capture {
     ].join('\n');
     writeFileSync(capturePath, output, 'utf8');
     const exitCode = typeof result.status === 'number' ? result.status : null;
+    const emailRecipientBudget = parseStagingSmokeEmailBudget(result.stdout ?? '');
     return {
         id: 'staging-smoke-read-only-preflight-checkout-closed',
         display,
         path: capturePath,
         exitCode,
-        status: !result.error && exitCode === 0 ? 'ok' : 'failed',
+        status: !result.error && exitCode === 0 && emailRecipientBudget ? 'ok' : 'failed',
         externalWriteCommandStarted: false,
+        emailRecipientBudget,
     };
 }
 
@@ -912,6 +953,11 @@ function renderCommandManifest(reportToRender: RunnerReport): string {
             stripeLiveModeRejected: true,
             secretValuesStored: false,
             finalSmokeClosedByThisRunner: false,
+            resendFreeDailyRecipientLimit: RESEND_FREE_DAILY_RECIPIENT_LIMIT,
+            resendFreeMonthlyRecipientLimit: RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
+            plannedSmokeEmailRecipients: STAGING_SMOKE_PLANNED_RECIPIENTS,
+            smokeEmailRecipientPlan: STAGING_SMOKE_EMAIL_RECIPIENT_PLAN,
+            cleanupEmailRecipients: STAGING_SMOKE_EMAIL_RECIPIENT_PLAN.cleanup,
         },
         forbiddenScope: [
             'No production smoke and no live-domain claim from this rehearsal.',
@@ -939,9 +985,10 @@ function renderExecutionPlan(reportToRender: RunnerReport): string {
     const approvedSteps = [
         '1. Materialize staging smoke names in memory and reject missing names, Stripe live, non-allowlisted role emails or missing completed Checkout/canonical lifecycle evidence.',
         '2. Require local `CHECKOUT_ENABLED_OVERRIDE=false` and verify the exact Wrangler account/Worker read-only.',
-        '3. Run the complete read-only preflight with the deployed checkout override `false`, including signed runtime attestations and the `403 Checkout is disabled` probe.',
+        `3. Run the complete read-only preflight with checkout closed and require both current UTC daily + ${STAGING_SMOKE_PLANNED_RECIPIENTS} <= ${RESEND_FREE_DAILY_RECIPIENT_LIMIT} and current UTC monthly + ${STAGING_SMOKE_PLANNED_RECIPIENTS} <= ${RESEND_FREE_MONTHLY_RECIPIENT_LIMIT}.`,
         '4. Validate the explicit canonical lifecycle summary and revalidate the already completed Checkout/webhook/billing state live; never create or expire a Checkout Session.',
-        '5. Run the remaining Supabase/Google/Resend/Admin Jobs smoke writes with checkout closed; the runner imposes no hard timeout on this write-capable child and waits for its cleanup-owning `finally` before return.',
+        '5. Run one email-producing confirmation, reminder and cancellation path (two recipients each); secondary scheduling variants and cleanup use `sendEmail:false` or direct no-email equivalents.',
+        '6. Run the remaining Supabase/Google/Admin Jobs smoke writes with checkout closed; the runner imposes no hard timeout on this write-capable child and waits for its cleanup-owning `finally` before return.',
     ];
     return `${[
         '# Staging Smoke Rehearsal Runner Execution Plan',
@@ -955,6 +1002,9 @@ function renderExecutionPlan(reportToRender: RunnerReport): string {
         '- Checkout override throughout: false',
         `- Base URL: ${reportToRender.baseUrl}`,
         `- Confirmation: ${reportToRender.confirmation}`,
+        `- Planned smoke email recipients: ${STAGING_SMOKE_PLANNED_RECIPIENTS} / ${RESEND_FREE_DAILY_RECIPIENT_LIMIT} daily cap`,
+        `- Strict monthly recipient cap: ${RESEND_FREE_MONTHLY_RECIPIENT_LIMIT}`,
+        '- Email-producing coverage: confirmation 2 + reminder 2 + cancellation 2; secondary variants 0; cleanup 0',
         '',
         '## Plan Mode',
         '',
@@ -1009,6 +1059,7 @@ function renderApprovalGate(reportToRender: RunnerReport): string {
         '- Creating or expiring any Checkout Session; only the completed evidence may be read.',
         '- Supabase migrations, schema changes, destructive cleanup or broad data deletion.',
         '- Secret value printing or private payload evidence.',
+        `- More than ${STAGING_SMOKE_PLANNED_RECIPIENTS} smoke recipient entries or any cleanup email; strict ceilings remain ${RESEND_FREE_DAILY_RECIPIENT_LIMIT}/day and ${RESEND_FREE_MONTHLY_RECIPIENT_LIMIT}/month.`,
         '',
     ].join('\n')}\n`;
 }
@@ -1033,6 +1084,8 @@ function renderRollback(_reportToRender: RunnerReport): string {
         '- The harness reuses the existing allowlisted student; it creates zero Auth users and never needs access to that inbox.',
         '- It deletes temporary scheduling subscription/sessions, Google class docs/events, fulfillment job and matching audit rows; the reusable student and folder ID remain.',
         '- It restores prior notes, Google-link value and teacher assignments. A cleanup failure keeps the smoke failed.',
+        '- Cleanup sends zero email recipients. Secondary scheduling variants create real artifacts with `sendEmail:false`; cleanup cancels/deletes them directly without enqueuing email work.',
+        '- Evidence must show exactly +6 in both UTC daily and monthly counters before cleanup, then +0 in both counters during cleanup.',
         '- Leave the completed Checkout/webhook/payment evidence and all non-smoke customer/student data untouched.',
         '- Do not run Supabase schema migrations as part of smoke cleanup.',
         '- The runner does not hard-kill the write-capable child. Do not terminate it merely for taking longer than expected: a forced operator interruption can bypass cleanup and requires manual reconciliation.',
@@ -1084,6 +1137,10 @@ function renderSummary(reportToRender: RunnerReport): string {
         `- External write command started: ${String(reportToRender.externalWriteCommandStarted)}`,
         '- Cloudflare writes started: false',
         '- Checkout override throughout: false',
+        `- Planned smoke email recipients: ${STAGING_SMOKE_PLANNED_RECIPIENTS} (confirmation 2 + reminder 2 + cancellation 2)`,
+        `- Strict Resend Free daily recipient cap: ${RESEND_FREE_DAILY_RECIPIENT_LIMIT}`,
+        `- Strict Resend Free monthly recipient cap: ${RESEND_FREE_MONTHLY_RECIPIENT_LIMIT}`,
+        '- Secondary scheduling and cleanup email recipients: 0',
         `- Command manifest: ${toRelative(reportToRender.commandManifestPath)}`,
         `- Execution plan: ${toRelative(reportToRender.executionPlanPath)}`,
         `- Approval gate: ${toRelative(reportToRender.approvalGatePath)}`,
@@ -1123,6 +1180,9 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'Stripe live',
         'redacted',
         'rollback',
+        `Planned smoke email recipients: ${STAGING_SMOKE_PLANNED_RECIPIENTS}`,
+        `Strict Resend Free monthly recipient cap: ${RESEND_FREE_MONTHLY_RECIPIENT_LIMIT}`,
+        'Cleanup sends zero email recipients',
     ];
     const missing = required.filter((snippet) => !combined.includes(snippet));
     const hasValidClosure = [

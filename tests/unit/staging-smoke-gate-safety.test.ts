@@ -3,10 +3,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+    assessStagingSmokeEmailBudget,
+    MAX_STAGING_SMOKE_PLANNED_RECIPIENTS,
+    parseStagingSmokeEmailBudget,
     parseWranglerWhoamiSummary,
+    RESEND_FREE_DAILY_RECIPIENT_LIMIT,
+    RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
     runCleanupOwnedNodeCommand,
     runDirectNodeCommand,
     sanitizeStagingSmokeCapture,
+    STAGING_SMOKE_EMAIL_RECIPIENT_PLAN,
+    STAGING_SMOKE_PLANNED_RECIPIENTS,
     wranglerCliArgs,
 } from '../../scripts/launch/staging-smoke-runner-safety';
 
@@ -21,6 +28,107 @@ afterEach(() => {
 });
 
 describe('staging smoke checkout-closed runner', () => {
+    it('caps the normal smoke at six recipient entries with zero cleanup recipients', () => {
+        expect(STAGING_SMOKE_EMAIL_RECIPIENT_PLAN).toEqual({
+            classConfirmation: 2,
+            classReminder: 2,
+            classCancellation: 2,
+            secondarySchedulingVariants: 0,
+            cleanup: 0,
+        });
+        expect(STAGING_SMOKE_PLANNED_RECIPIENTS).toBe(6);
+        expect(STAGING_SMOKE_PLANNED_RECIPIENTS).toBeLessThanOrEqual(
+            MAX_STAGING_SMOKE_PLANNED_RECIPIENTS,
+        );
+        expect(RESEND_FREE_DAILY_RECIPIENT_LIMIT).toBe(10);
+        expect(RESEND_FREE_MONTHLY_RECIPIENT_LIMIT).toBe(100);
+    });
+
+    it('fails closed before writes when daily or monthly usage plus the smoke plan exceeds its cap', () => {
+        expect(assessStagingSmokeEmailBudget({
+            currentDailyRecipients: 4,
+            currentMonthlyRecipients: 94,
+            configuredDailyLimit: 10,
+            configuredMonthlyLimit: 100,
+        })).toMatchObject({
+            allowed: true,
+            currentDailyRecipients: 4,
+            currentMonthlyRecipients: 94,
+            plannedSmokeRecipients: 6,
+            projectedDailyRecipients: 10,
+            projectedMonthlyRecipients: 100,
+            effectiveDailyLimit: 10,
+            effectiveMonthlyLimit: 100,
+        });
+        expect(assessStagingSmokeEmailBudget({
+            currentDailyRecipients: 5,
+            currentMonthlyRecipients: 0,
+            configuredDailyLimit: 10,
+            configuredMonthlyLimit: 100,
+        })).toMatchObject({
+            allowed: false,
+            reason: 'daily_budget_exceeded',
+            projectedDailyRecipients: 11,
+        });
+        expect(assessStagingSmokeEmailBudget({
+            currentDailyRecipients: 0,
+            currentMonthlyRecipients: 95,
+            configuredDailyLimit: 10,
+            configuredMonthlyLimit: 100,
+        })).toMatchObject({
+            allowed: false,
+            reason: 'monthly_budget_exceeded',
+            projectedMonthlyRecipients: 101,
+        });
+        expect(assessStagingSmokeEmailBudget({
+            currentDailyRecipients: 0,
+            currentMonthlyRecipients: 0,
+            configuredDailyLimit: 11,
+            configuredMonthlyLimit: 100,
+        })).toMatchObject({
+            allowed: false,
+            reason: 'configured_limit_exceeds_resend_free_cap',
+        });
+        expect(assessStagingSmokeEmailBudget({
+            currentDailyRecipients: 0,
+            currentMonthlyRecipients: 0,
+            configuredDailyLimit: 10,
+            configuredMonthlyLimit: 101,
+        })).toMatchObject({
+            allowed: false,
+            reason: 'configured_limit_exceeds_resend_free_cap',
+        });
+        expect(assessStagingSmokeEmailBudget({
+            currentDailyRecipients: 0,
+            currentMonthlyRecipients: 0,
+            configuredDailyLimit: 10,
+            configuredMonthlyLimit: 100,
+            plannedSmokeRecipients: 9,
+        })).toMatchObject({
+            allowed: false,
+            reason: 'smoke_plan_exceeds_maximum',
+        });
+    });
+
+    it('accepts only a self-consistent successful budget payload from the read-only child', () => {
+        const assessment = assessStagingSmokeEmailBudget({
+            currentDailyRecipients: 2,
+            currentMonthlyRecipients: 20,
+            configuredDailyLimit: 10,
+            configuredMonthlyLimit: 100,
+        });
+        const stdout = JSON.stringify({ emailRecipientBudget: assessment });
+
+        expect(parseStagingSmokeEmailBudget(stdout)).toEqual(assessment);
+        expect(parseStagingSmokeEmailBudget(JSON.stringify({
+            emailRecipientBudget: { ...assessment, projectedDailyRecipients: 9 },
+        }))).toBeNull();
+        expect(parseStagingSmokeEmailBudget(JSON.stringify({
+            emailRecipientBudget: { ...assessment, projectedMonthlyRecipients: 27 },
+        }))).toBeNull();
+        expect(parseStagingSmokeEmailBudget('{}')).toBeNull();
+    });
+
     it('keeps checkout false throughout and reuses completed evidence before smoke writes', () => {
         const start = source.indexOf('function runApprovedExecution');
         const end = source.indexOf('function runSmokePreflightCommand');
@@ -32,6 +140,11 @@ describe('staging smoke checkout-closed runner', () => {
         expect(sourceGuard).toBeGreaterThan(0);
         expect(preflight).toBeGreaterThan(sourceGuard);
         expect(smoke).toBeGreaterThan(preflight);
+        expect(executionSource).toContain('preflightCapture.emailRecipientBudget');
+        expect(source.slice(
+            source.indexOf('function runSmokePreflightCommand'),
+            source.indexOf('function runCloudflareReadOnlyPreflight'),
+        )).toContain('parseStagingSmokeEmailBudget');
         expect(executionSource).toContain('completedCheckoutEvidenceReused=true');
         expect(executionSource).toContain('cloudflareWritesStarted=false');
         expect(source).toContain("'--expect-checkout-override',\n        'false'");

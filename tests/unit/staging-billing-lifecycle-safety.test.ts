@@ -4,9 +4,13 @@ import {
     assertInitialPaymentPreserved,
     assertCheckpointClockWindow,
     assertExclusiveLifecycleWebhookDestination,
+    assertLegacySecondPeriodRecoveryCheckpoint,
     assertLifecyclePhaseTransition,
     assertLifecyclePreflight,
     assertResumePhaseState,
+    assertTransitionNoticeBudgetUnchanged,
+    assertTransitionNoticeJobPattern,
+    assertUpcomingNoticeConfigurationConfirmation,
     buildRefundPlan,
     FAILING_PAYMENT_METHOD,
     INVOICE_UPCOMING_NOTICE_DAYS,
@@ -14,10 +18,15 @@ import {
     isLifecyclePhase,
     lifecycleConfirmationForSession,
     RECOVERY_PAYMENT_METHOD,
+    RENEWAL_FINALIZATION_OFFSET_SECONDS,
     sanitizeLifecycleText,
     STAGING_SUPABASE_PROJECT_REF,
     STRIPE_API_VERSION,
     STAGING_STRIPE_WEBHOOK_ENDPOINT_URL,
+    testClockAdvanceIdempotencyScope,
+    UPCOMING_NOTICE_CONFIRMATION_ENV,
+    upcomingNoticeConfirmationForSession,
+    requireSingleTransitionNoticeEventId,
     validateCanonicalLifecycleReport,
     validateLifecycleEnvironment,
     type LifecyclePreflightSnapshot,
@@ -140,8 +149,9 @@ function validPreflight(): LifecyclePreflightSnapshot {
 
 function canonicalLifecycleReport() {
     const canonicalEvidence = {
-        schemaVersion: 1,
+        schemaVersion: 2,
         status: 'complete',
+        strategy: 'second_period_recovery',
         stripeAccountId: 'acct_staging',
         supabaseProjectRef: STAGING_SUPABASE_PROJECT_REF,
         checkoutSessionId: sessionId,
@@ -149,6 +159,21 @@ function canonicalLifecycleReport() {
         subscriptionId: 'sub_safe',
         initialInvoiceId: 'in_initial',
         initialPaymentIntentId: 'pi_initial',
+        warmup: {
+            invoiceId: 'in_warmup',
+            paymentIntentId: 'pi_warmup',
+            invoicePaidEventId: 'evt_warmup_paid',
+            periodEnd: 2_200_000_000,
+        },
+        transitionNotice: {
+            eventId: 'evt_transition_upcoming',
+            jobId: '3af632f0-29b0-4a59-995f-61ef3b635d58',
+            dedupeKey: `renewal_notice:sub_safe:${new Date(2_200_000_000 * 1000).toISOString()}`,
+            invoicePeriodEnd: 2_100_000_000,
+            jobFingerprint: 'a'.repeat(64),
+            budgetBeforeBoundary: { dailyUsed: 2, monthlyUsed: 3 },
+            budgetAfterBoundary: { dailyUsed: 2, monthlyUsed: 3 },
+        },
         renewalInvoiceId: 'in_renewal',
         recoveredPaymentIntentId: 'pi_recovered',
         partialRefundId: 're_partial',
@@ -169,6 +194,8 @@ function canonicalLifecycleReport() {
             recoveredPaymentStatus: 'refunded',
             recoveredChargeFullyRefunded: true,
             initialPaymentPreserved: true,
+            warmupPaymentPreserved: true,
+            transitionNoticePreserved: true,
             processedWebhookEvents: 'succeeded',
         },
     };
@@ -188,12 +215,20 @@ function canonicalLifecycleReport() {
             subscriptionId: 'sub_safe',
             initialInvoiceId: 'in_initial',
             initialPaymentIntentId: 'pi_initial',
+            warmupInvoiceId: 'in_warmup',
+            warmupPaymentIntentId: 'pi_warmup',
+            transitionNoticeEventId: 'evt_transition_upcoming',
+            transitionNoticeJobId: '3af632f0-29b0-4a59-995f-61ef3b635d58',
             renewalInvoiceId: 'in_renewal',
             recoveredPaymentIntentId: 'pi_recovered',
             partialRefundId: 're_partial',
             finalRefundId: 're_final',
         },
-        mutationGate: { authorized: true, sessionBound: true },
+        mutationGate: {
+            authorized: true,
+            sessionBound: true,
+            upcomingNotice15DayAuthorized: true,
+        },
         checkpoint: { phase: 'complete' },
         error: null,
         canonicalEvidence,
@@ -218,6 +253,32 @@ describe('staging billing lifecycle safety', () => {
             ...validEnvironment(),
             confirmation: 'I_CONFIRM_STAGING_BILLING_LIFECYCLE:cs_test_other',
         }, { preflightOnly: false })).toThrow(/Mutation blocked/);
+    });
+
+    it('requires a second exact session-bound attestation for the 15-day recovery setting', () => {
+        const confirmation = upcomingNoticeConfirmationForSession(sessionId);
+        expect(confirmation).toBe(
+            `I_CONFIRM_STRIPE_UPCOMING_RENEWAL_EVENTS_15_DAYS:${sessionId}`
+        );
+        expect(() => assertUpcomingNoticeConfigurationConfirmation({
+            checkoutSessionId: sessionId,
+            confirmation,
+        })).not.toThrow();
+        expect(() => assertUpcomingNoticeConfigurationConfirmation({
+            checkoutSessionId: sessionId,
+            confirmation: 'I_CONFIRM_STRIPE_UPCOMING_RENEWAL_EVENTS_15_DAYS:cs_test_other',
+        })).toThrow(UPCOMING_NOTICE_CONFIRMATION_ENV);
+        expect(() => upcomingNoticeConfirmationForSession('cs_live_forbidden')).toThrow(/cs_test_/);
+    });
+
+    it('binds Test Clock idempotency to phase and target while remaining stable for resume', () => {
+        const first = testClockAdvanceIdempotencyScope('upcoming-at-15-day-boundary', 2_100_000_000);
+        const same = testClockAdvanceIdempotencyScope('upcoming-at-15-day-boundary', 2_100_000_000);
+        const second = testClockAdvanceIdempotencyScope('upcoming-at-15-day-boundary', 2_200_000_000);
+        expect(first).toBe(same);
+        expect(first).not.toBe(second);
+        expect(first).toBe('clock-upcoming-at-15-day-boundary-2100000000');
+        expect(() => testClockAdvanceIdempotencyScope('unsafe phase', 2_100_000_000)).toThrow(/safe phase/);
     });
 
     it('rejects live Stripe keys, the wrong account shape and any non-staging Supabase project', () => {
@@ -356,8 +417,188 @@ describe('staging billing lifecycle safety', () => {
         })).toThrow(/behind/);
         expect(() => assertLifecyclePhaseTransition('renewal_failed', 'renewal_recovered')).not.toThrow();
         expect(() => assertLifecyclePhaseTransition('renewal_recovered', 'renewal_failed')).toThrow(/backwards/);
+        expect(() => assertLifecyclePhaseTransition(
+            'warmup_renewal_preserved',
+            'transition_notice_verified'
+        )).not.toThrow();
         expect(isLifecyclePhase('partial_refund_completed')).toBe(true);
+        expect(isLifecyclePhase('warmup_renewal_preserved')).toBe(true);
+        expect(isLifecyclePhase('transition_notice_verified')).toBe(true);
         expect(isLifecyclePhase('arbitrary')).toBe(false);
+    });
+
+    it('bounds every second-period recovery crash window and accepts only the exact legacy checkpoint', () => {
+        const initialFrozenTime = 2_090_000_000;
+        const initialPeriodEnd = 2_100_000_000;
+        const firstBoundary = invoiceUpcomingBoundary(initialPeriodEnd);
+        const warmupFinalization = initialPeriodEnd + RENEWAL_FINALIZATION_OFFSET_SECONDS;
+        const warmupPeriodEnd = 2_103_000_000;
+        const recoveryBoundary = invoiceUpcomingBoundary(warmupPeriodEnd);
+        const recoveryBeforeBoundary = recoveryBoundary - 60;
+        const base = {
+            initialFrozenTime,
+            initialPeriodEnd,
+            strategy: 'second_period_recovery' as const,
+        };
+
+        for (const currentFrozenTime of [firstBoundary, initialPeriodEnd, warmupFinalization]) {
+            expect(() => assertCheckpointClockWindow({
+                ...base,
+                phase: 'upcoming_before_boundary_verified',
+                currentFrozenTime,
+            })).not.toThrow();
+        }
+        expect(() => assertCheckpointClockWindow({
+            ...base,
+            phase: 'upcoming_before_boundary_verified',
+            currentFrozenTime: firstBoundary - 1,
+        })).toThrow(/first-renewal/);
+        expect(() => assertCheckpointClockWindow({
+            ...base,
+            phase: 'warmup_renewal_preserved',
+            currentFrozenTime: warmupFinalization,
+            warmupPeriodEnd,
+        })).not.toThrow();
+        expect(() => assertCheckpointClockWindow({
+            ...base,
+            phase: 'transition_notice_verified',
+            currentFrozenTime: warmupFinalization,
+            warmupPeriodEnd,
+        })).not.toThrow();
+        for (const currentFrozenTime of [warmupFinalization, recoveryBeforeBoundary]) {
+            expect(() => assertCheckpointClockWindow({
+                ...base,
+                phase: 'recovery_upcoming_baseline_captured',
+                currentFrozenTime,
+                warmupPeriodEnd,
+            })).not.toThrow();
+        }
+        for (const currentFrozenTime of [recoveryBeforeBoundary, recoveryBoundary + 1]) {
+            expect(() => assertCheckpointClockWindow({
+                ...base,
+                phase: 'recovery_upcoming_before_boundary_verified',
+                currentFrozenTime,
+                warmupPeriodEnd,
+            })).not.toThrow();
+        }
+        expect(() => assertCheckpointClockWindow({
+            ...base,
+            phase: 'upcoming_observed',
+            currentFrozenTime: recoveryBoundary + 1,
+            warmupPeriodEnd,
+        })).not.toThrow();
+        expect(() => assertCheckpointClockWindow({
+            ...base,
+            phase: 'upcoming_observed',
+            currentFrozenTime: recoveryBoundary,
+            warmupPeriodEnd,
+        })).toThrow(/second 15-day boundary/);
+        expect(() => assertCheckpointClockWindow({
+            ...base,
+            phase: 'warmup_renewal_preserved',
+            currentFrozenTime: warmupFinalization,
+        })).toThrow(/warm-up period end/);
+
+        expect(() => assertLegacySecondPeriodRecoveryCheckpoint({
+            schemaVersion: 1,
+            phase: 'upcoming_before_boundary_verified',
+            currentFrozenTime: firstBoundary,
+            initialPeriodEnd,
+            upcomingBaselineEventIds: [],
+            hasPostUpcomingMutationEvidence: false,
+        })).not.toThrow();
+        expect(() => assertLegacySecondPeriodRecoveryCheckpoint({
+            schemaVersion: 1,
+            phase: 'upcoming_before_boundary_verified',
+            currentFrozenTime: firstBoundary,
+            initialPeriodEnd,
+            upcomingBaselineEventIds: [],
+            hasPostUpcomingMutationEvidence: true,
+        })).toThrow(/exact safe/);
+        expect(() => assertLegacySecondPeriodRecoveryCheckpoint({
+            schemaVersion: 1,
+            phase: 'upcoming_observed',
+            currentFrozenTime: firstBoundary,
+            initialPeriodEnd,
+            upcomingBaselineEventIds: [],
+            hasPostUpcomingMutationEvidence: false,
+        })).toThrow(/exact safe/);
+        expect(() => assertLegacySecondPeriodRecoveryCheckpoint({
+            schemaVersion: 1,
+            phase: 'upcoming_before_boundary_verified',
+            currentFrozenTime: firstBoundary,
+            initialPeriodEnd,
+            upcomingBaselineEventIds: ['evt_already_delivered'],
+            hasPostUpcomingMutationEvidence: false,
+        })).toThrow(/exact safe/);
+    });
+
+    it('accepts only one coherent transition notice and rejects duplicate events, jobs or budget use', () => {
+        const transitionEventId = requireSingleTransitionNoticeEventId({
+            baselineEventIds: [],
+            currentEventIds: ['evt_transition'],
+        });
+        expect(transitionEventId).toBe('evt_transition');
+        expect(() => requireSingleTransitionNoticeEventId({
+            baselineEventIds: [],
+            currentEventIds: ['evt_transition', 'evt_duplicate'],
+        })).toThrow(/exactly one late transition/);
+
+        const renewalAt = '2026-09-11T13:10:18.000Z';
+        const expected = {
+            eventId: 'evt_transition',
+            stripeInvoiceId: 'in_transition',
+            stripeSubscriptionId: 'sub_safe',
+            localSubscriptionId: 'local-subscription-id',
+            studentId: userId,
+            renewalAt,
+            amountTotal: 10_000,
+            currency: 'eur',
+        };
+        const job = {
+            id: '3af632f0-29b0-4a59-995f-61ef3b635d58',
+            jobType: 'renewal_notice',
+            status: 'succeeded',
+            subscriptionId: 'local-subscription-id',
+            studentId: userId,
+            dedupeKey: `renewal_notice:sub_safe:${renewalAt}`,
+            lastError: null,
+            payload: {
+                stripeEventId: 'evt_transition',
+                stripeInvoiceId: 'in_transition',
+                stripeSubscriptionId: 'sub_safe',
+                subscriptionId: 'local-subscription-id',
+                userId,
+                renewalAt,
+                cancelBy: renewalAt,
+                amountTotal: 10_000,
+                currency: 'eur',
+            },
+        };
+        expect(assertTransitionNoticeJobPattern([job], expected)).toBe(job.id);
+        expect(() => assertTransitionNoticeJobPattern([job, { ...job, id: 'bfa8f2f0-29b0-4a59-995f-61ef3b635d58' }], expected))
+            .toThrow(/exactly one fulfillment job/);
+        expect(() => assertTransitionNoticeJobPattern([{
+            ...job,
+            payload: { ...job.payload, stripeEventId: 'evt_wrong' },
+        }], expected)).toThrow(/payload is inconsistent/);
+        expect(() => assertTransitionNoticeJobPattern([{
+            ...job,
+            status: 'failed',
+        }], expected)).toThrow(/job or payload is inconsistent/);
+
+        expect(() => assertTransitionNoticeBudgetUnchanged(
+            { dailyUsed: 2, monthlyUsed: 3 },
+            { dailyUsed: 2, monthlyUsed: 3 },
+        )).not.toThrow();
+        expect(() => assertTransitionNoticeBudgetUnchanged(
+            { dailyUsed: 2, monthlyUsed: 3 },
+            { dailyUsed: 3, monthlyUsed: 3 },
+        )).toThrow(/budget increased/);
+        expect(() => assertTransitionNoticeBudgetUnchanged(
+            { dailyUsed: 2, monthlyUsed: 3 },
+            { dailyUsed: 2, monthlyUsed: 4 },
+        )).toThrow(/budget increased/);
     });
 
     it('allowlists exactly one enabled staging webhook destination for every lifecycle event', () => {
@@ -381,6 +622,19 @@ describe('staging billing lifecycle safety', () => {
     });
 
     it('requires phase-specific external state before any resumed mutation', () => {
+        for (const phase of [
+            'warmup_renewal_preserved',
+            'transition_notice_verified',
+            'recovery_upcoming_baseline_captured',
+            'recovery_upcoming_before_boundary_verified',
+        ] as const) {
+            expect(() => assertResumePhaseState({
+                phase,
+                stripeSubscriptionStatus: 'active',
+                localSubscriptionStatus: 'active',
+                cancelAtPeriodEnd: false,
+            })).not.toThrow();
+        }
         expect(() => assertResumePhaseState({
             phase: 'renewal_failed',
             stripeSubscriptionStatus: 'past_due',
@@ -415,10 +669,42 @@ describe('staging billing lifecycle safety', () => {
 
     it('accepts only a canonical complete lifecycle report bound to the exact account and session', () => {
         const valid = canonicalLifecycleReport();
-        expect(validateCanonicalLifecycleReport(valid, {
+        const validated = validateCanonicalLifecycleReport(valid, {
             checkoutSessionId: sessionId,
             stripeAccountId: 'acct_staging',
-        }).canonicalEvidence.finalState.processedWebhookEvents).toBe('succeeded');
+        });
+        expect(validated.canonicalEvidence.finalState.processedWebhookEvents).toBe('succeeded');
+        expect(validated.canonicalEvidence.warmup?.paymentIntentId).toBe('pi_warmup');
+        expect(validated.canonicalEvidence.transitionNotice?.eventId).toBe('evt_transition_upcoming');
+        const firstPeriod = {
+            ...valid,
+            mutationGate: {
+                ...valid.mutationGate,
+                upcomingNotice15DayAuthorized: false,
+            },
+            resources: {
+                ...valid.resources,
+                warmupInvoiceId: null,
+                warmupPaymentIntentId: null,
+                transitionNoticeEventId: null,
+                transitionNoticeJobId: null,
+            },
+            canonicalEvidence: {
+                ...valid.canonicalEvidence,
+                strategy: 'first_period',
+                warmup: null,
+                transitionNotice: null,
+                finalState: {
+                    ...valid.canonicalEvidence.finalState,
+                    warmupPaymentPreserved: null,
+                    transitionNoticePreserved: null,
+                },
+            },
+        };
+        expect(validateCanonicalLifecycleReport(firstPeriod, {
+            checkoutSessionId: sessionId,
+            stripeAccountId: 'acct_staging',
+        }).canonicalEvidence.strategy).toBe('first_period');
         expect(() => validateCanonicalLifecycleReport({
             ...valid,
             status: 'FAILED',
@@ -439,6 +725,58 @@ describe('staging billing lifecycle safety', () => {
             checkoutSessionId: sessionId,
             stripeAccountId: 'acct_staging',
         })).toThrow(/exact webhook event set/);
+        expect(() => validateCanonicalLifecycleReport({
+            ...valid,
+            canonicalEvidence: {
+                ...valid.canonicalEvidence,
+                warmup: {
+                    ...valid.canonicalEvidence.warmup,
+                    paymentIntentId: 'pi_recovered',
+                },
+            },
+        }, {
+            checkoutSessionId: sessionId,
+            stripeAccountId: 'acct_staging',
+        })).toThrow(/does not match/);
+        expect(() => validateCanonicalLifecycleReport({
+            ...valid,
+            canonicalEvidence: {
+                ...valid.canonicalEvidence,
+                warmup: {
+                    ...valid.canonicalEvidence.warmup,
+                    invoicePaidEventId: valid.canonicalEvidence.webhookEventIds.renewalPaid,
+                },
+            },
+        }, {
+            checkoutSessionId: sessionId,
+            stripeAccountId: 'acct_staging',
+        })).toThrow(/must be distinct/);
+        expect(() => validateCanonicalLifecycleReport({
+            ...valid,
+            canonicalEvidence: {
+                ...valid.canonicalEvidence,
+                transitionNotice: {
+                    ...valid.canonicalEvidence.transitionNotice,
+                    eventId: valid.canonicalEvidence.webhookEventIds.upcoming,
+                },
+            },
+        }, {
+            checkoutSessionId: sessionId,
+            stripeAccountId: 'acct_staging',
+        })).toThrow(/transition event must be distinct/);
+        expect(() => validateCanonicalLifecycleReport({
+            ...valid,
+            canonicalEvidence: {
+                ...valid.canonicalEvidence,
+                transitionNotice: {
+                    ...valid.canonicalEvidence.transitionNotice,
+                    budgetAfterBoundary: { dailyUsed: 3, monthlyUsed: 3 },
+                },
+            },
+        }, {
+            checkoutSessionId: sessionId,
+            stripeAccountId: 'acct_staging',
+        })).toThrow(/budget increased/);
     });
 
     it('builds partial and remaining refunds only for the recovered renewal PaymentIntent', () => {
@@ -447,6 +785,7 @@ describe('staging billing lifecycle safety', () => {
         expect(STRIPE_API_VERSION).toBe('2026-02-25.clover');
         expect(buildRefundPlan({
             initialPaymentIntentId: 'pi_initial',
+            warmupPaymentIntentId: 'pi_warmup',
             recoveredPaymentIntentId: 'pi_renewal',
             recoveredAmount: 9_999,
         })).toEqual({ partialAmount: 4_999, remainingAmount: 5_000 });
@@ -455,6 +794,12 @@ describe('staging billing lifecycle safety', () => {
             recoveredPaymentIntentId: 'pi_same',
             recoveredAmount: 10_000,
         })).toThrow(/must differ/);
+        expect(() => buildRefundPlan({
+            initialPaymentIntentId: 'pi_initial',
+            warmupPaymentIntentId: 'pi_renewal',
+            recoveredPaymentIntentId: 'pi_renewal',
+            recoveredAmount: 10_000,
+        })).toThrow(/Initial, warm-up and recovered/);
         expect(() => assertInitialPaymentPreserved({ status: 'succeeded', amountRefunded: 0 })).not.toThrow();
         expect(() => assertInitialPaymentPreserved({ status: 'refunded', amountRefunded: 10_000 })).toThrow();
     });
@@ -482,6 +827,7 @@ describe('staging billing lifecycle safety', () => {
 
         for (const snippet of [
             'stripe.testHelpers.testClocks.advance',
+            'testClockAdvanceIdempotencyScope(phase, target)',
             'stripe.customers.list({ test_clock:',
             "stripe.subscriptions.list({",
             'stripe.subscriptionSchedules.list({ customer:',
@@ -510,14 +856,32 @@ describe('staging billing lifecycle safety', () => {
             'resumeCheckpoint !== null',
             'assertCheckpointClockWindow',
             'assertResumePhaseState',
+            'assertLegacySecondPeriodRecoveryCheckpoint',
+            'assertUpcomingNoticeConfigurationConfirmation',
+            'UPCOMING_NOTICE_CONFIRMATION_ENV',
             'writeCheckpointAtomic',
             'renameSync(temporary, file)',
+            "strategy: 'second_period_recovery'",
+            "'warmup_renewal_preserved'",
+            "'transition_notice_verified'",
+            "'recovery_upcoming_baseline_captured'",
+            "'recovery_upcoming_before_boundary_verified'",
+            'assertUsableCurrentDefaultPaymentMethod',
+            'warmupPaidEventId',
+            'transitionNoticeEventId',
+            'transitionNoticeJobFingerprint',
+            'transitionNoticeBoundaryBudgetVerified',
+            'recoveryUpcomingBaselineEventIds',
+            'upcomingBoundary + 1',
             "'invoice.upcoming'",
             "'invoice.payment_failed'",
             'stripe.invoices.pay',
             'cancel_at_period_end: true',
             'stripe.refunds.create',
             'assertInitialPaymentStillPreserved',
+            'assertWarmupPaymentStillPreserved',
+            'assertTransitionNoticeStillPreserved',
+            'assertNoRenewalNoticeJobForEvent',
             'assertFinalLifecycleState',
             'buildCanonicalEvidence',
             'report.canonicalEvidence = buildCanonicalEvidence',

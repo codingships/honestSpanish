@@ -5,6 +5,7 @@ const stripeMocks = vi.hoisted(() => ({
     constructEventAsync: vi.fn(),
     subscriptionRetrieve: vi.fn(),
     invoicePaymentList: vi.fn(),
+    refundList: vi.fn(),
 }));
 
 const supabaseMocks = vi.hoisted(() => ({
@@ -40,6 +41,9 @@ vi.mock('../../src/lib/stripe', () => ({
         },
         invoicePayments: {
             list: stripeMocks.invoicePaymentList,
+        },
+        refunds: {
+            list: stripeMocks.refundList,
         },
     },
 }));
@@ -123,6 +127,40 @@ function expiredCheckoutEvent(overrides: Record<string, unknown> = {}) {
                 ...overrides,
             },
         },
+    };
+}
+
+function refundEvent(overrides: Record<string, unknown> = {}) {
+    return {
+        id: 'evt_refund_1',
+        type: 'charge.refunded',
+        livemode: false,
+        data: {
+            object: {
+                id: 'ch_1',
+                payment_intent: 'pi_1',
+                amount: 12000,
+                amount_refunded: 3000,
+                currency: 'eur',
+                livemode: false,
+                refunds: { data: [] },
+                ...overrides,
+            },
+        },
+    };
+}
+
+function stripeRefund(overrides: Record<string, unknown> = {}) {
+    return {
+        id: 're_1',
+        object: 'refund',
+        amount: 3000,
+        charge: 'ch_1',
+        created: 1783677600,
+        currency: 'eur',
+        payment_intent: 'pi_1',
+        status: 'succeeded',
+        ...overrides,
     };
 }
 
@@ -408,6 +446,7 @@ function makeRefundSupabase(directPaymentIntentMatch = true) {
         subscription_id: 'subscription-1',
         amount: 12000,
         amount_refunded: 0,
+        currency: 'eur',
         status: 'succeeded',
     };
     const lookupRows = directPaymentIntentMatch ? [payment] : [null, payment];
@@ -664,6 +703,7 @@ describe('POST /api/stripe-webhook', () => {
                 },
             }],
         });
+        stripeMocks.refundList.mockResolvedValue({ data: [], has_more: false });
         fulfillmentMocks.enqueueWelcomeFulfillment.mockResolvedValue(true);
         fulfillmentMocks.enqueueRenewalNotice.mockResolvedValue(true);
         crmMocks.recordCrmActivityForProfileSafe.mockResolvedValue({ status: 'created' });
@@ -1532,27 +1572,23 @@ describe('POST /api/stripe-webhook', () => {
         });
     });
 
-    it('synchronizes partial Stripe refunds without marking the whole payment refunded', async () => {
+    it('uses the charge-filtered Refunds API when the Dahlia charge expansion is empty', async () => {
         const refundSupabase = makeRefundSupabase();
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
-        stripeMocks.constructEventAsync.mockResolvedValue({
-            id: 'evt_refund_1',
-            type: 'charge.refunded',
-            data: {
-                object: {
-                    id: 'ch_1',
-                    payment_intent: 'pi_1',
-                    amount: 12000,
-                    amount_refunded: 3000,
-                    refunds: { data: [{ id: 're_1', created: 1783677600 }] },
-                },
-            },
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent());
+        stripeMocks.refundList.mockResolvedValueOnce({
+            data: [stripeRefund()],
+            has_more: false,
         });
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
         const response = await POST(webhookContext() as any);
 
         expect(response.status).toBe(200);
+        expect(stripeMocks.refundList).toHaveBeenCalledWith({
+            charge: 'ch_1',
+            limit: 100,
+        });
         expect(refundSupabase.refundRpc).toHaveBeenCalledWith('reconcile_stripe_refund', {
             p_payment_id: 'payment-1',
             p_amount_refunded: 3000,
@@ -1572,22 +1608,126 @@ describe('POST /api/stripe-webhook', () => {
         }));
     });
 
+    it('paginates beyond a partial expansion and resolves the second cumulative refund', async () => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent({
+            amount_refunded: 5000,
+            refunds: { data: [{ id: 're_second', created: 1783677660 }] },
+        }));
+        stripeMocks.refundList
+            .mockResolvedValueOnce({
+                data: [stripeRefund({
+                    id: 're_second',
+                    amount: 3000,
+                    created: 1783677660,
+                })],
+                has_more: true,
+            })
+            .mockResolvedValueOnce({
+                data: [stripeRefund({
+                    id: 're_first',
+                    amount: 2000,
+                    created: 1783677600,
+                })],
+                has_more: false,
+            });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(stripeMocks.refundList).toHaveBeenNthCalledWith(2, {
+            charge: 'ch_1',
+            limit: 100,
+            starting_after: 're_second',
+        });
+        expect(refundSupabase.refundRpc).toHaveBeenCalledWith('reconcile_stripe_refund', {
+            p_payment_id: 'payment-1',
+            p_amount_refunded: 5000,
+            p_stripe_refund_id: 're_second',
+            p_refunded_at: '2026-07-10T10:01:00.000Z',
+        });
+    });
+
+    it('orders same-second refunds by identifier before selecting the cumulative prefix', async () => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent({ amount_refunded: 12000 }));
+        stripeMocks.refundList.mockResolvedValueOnce({
+            data: [
+                stripeRefund({ id: 're_z', amount: 9000 }),
+                stripeRefund({ id: 're_a', amount: 3000 }),
+            ],
+            has_more: false,
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(refundSupabase.refundRpc).toHaveBeenCalledWith(
+            'reconcile_stripe_refund',
+            expect.objectContaining({
+                p_amount_refunded: 12000,
+                p_stripe_refund_id: 're_z',
+            }),
+        );
+    });
+
+    it('fails closed when the cumulative amount lands inside a same-second refund cohort', async () => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent());
+        stripeMocks.refundList.mockResolvedValueOnce({
+            data: [
+                stripeRefund({ id: 're_z', amount: 9000 }),
+                stripeRefund({ id: 're_a', amount: 3000 }),
+            ],
+            has_more: false,
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(500);
+        expect(refundSupabase.refundRpc).not.toHaveBeenCalled();
+        expect(refundSupabase.processedUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            processing_status: 'failed',
+        }));
+    });
+
+    it('excludes non-succeeded refunds from the authoritative cumulative amount', async () => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent());
+        stripeMocks.refundList.mockResolvedValueOnce({
+            data: [
+                stripeRefund({ id: 're_pending', amount: 9000, status: 'pending' }),
+                stripeRefund({ id: 're_succeeded' }),
+            ],
+            has_more: false,
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(refundSupabase.refundRpc).toHaveBeenCalledWith(
+            'reconcile_stripe_refund',
+            expect.objectContaining({ p_stripe_refund_id: 're_succeeded' }),
+        );
+    });
+
     it('synchronizes a full refund through the InvoicePayment invoice fallback', async () => {
         const refundSupabase = makeRefundSupabase(false);
         supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
-        stripeMocks.constructEventAsync.mockResolvedValue({
-            id: 'evt_refund_full_1',
-            type: 'charge.refunded',
-            data: {
-                object: {
-                    id: 'ch_full_1',
-                    payment_intent: 'pi_legacy',
-                    amount: 12000,
-                    amount_refunded: 12000,
-                    refunds: { data: [{ id: 're_full_1', created: 1783677600 }] },
-                },
-            },
-        });
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent({
+            id: 'ch_full_1',
+            payment_intent: 'pi_legacy',
+            amount_refunded: 12000,
+            refunds: { data: [{ id: 're_full_1', created: 1783677600 }] },
+        }));
         stripeMocks.invoicePaymentList.mockResolvedValueOnce({
             data: [{
                 id: 'ip_legacy',
@@ -1599,6 +1739,15 @@ describe('POST /api/stripe-webhook', () => {
                     payment_intent: 'pi_legacy',
                 },
             }],
+        });
+        stripeMocks.refundList.mockResolvedValueOnce({
+            data: [stripeRefund({
+                id: 're_full_1',
+                amount: 12000,
+                charge: 'ch_full_1',
+                payment_intent: 'pi_legacy',
+            })],
+            has_more: false,
         });
         const { POST } = await import('../../src/pages/api/stripe-webhook');
 
@@ -1634,5 +1783,91 @@ describe('POST /api/stripe-webhook', () => {
                 metadata: expect.objectContaining({ amount_refunded: 12000, status: 'refunded' }),
             }),
         );
+    });
+
+    it.each([
+        ['currency', { currency: 'usd' }],
+        ['charge', { charge: 'ch_other' }],
+        ['PaymentIntent', { payment_intent: 'pi_other' }],
+    ])('fails closed when the authoritative refund has an incompatible %s', async (_field, overrides) => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent());
+        stripeMocks.refundList.mockResolvedValueOnce({
+            data: [stripeRefund(overrides)],
+            has_more: false,
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(500);
+        expect(refundSupabase.refundRpc).not.toHaveBeenCalled();
+        expect(refundSupabase.processedUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            processing_status: 'failed',
+        }));
+    });
+
+    it('fails closed when the refunded charge mode differs from the verified runtime', async () => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent({ livemode: true }));
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(500);
+        expect(stripeMocks.refundList).not.toHaveBeenCalled();
+        expect(refundSupabase.refundRpc).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when succeeded refunds have no exact cumulative match', async () => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent());
+        stripeMocks.refundList.mockResolvedValueOnce({
+            data: [stripeRefund({ amount: 2999 })],
+            has_more: false,
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(500);
+        expect(refundSupabase.refundRpc).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when bounded pagination returns a duplicate refund identifier', async () => {
+        const refundSupabase = makeRefundSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(refundSupabase.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent());
+        stripeMocks.refundList
+            .mockResolvedValueOnce({
+                data: [stripeRefund()],
+                has_more: true,
+            })
+            .mockResolvedValueOnce({
+                data: [stripeRefund()],
+                has_more: false,
+            });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(500);
+        expect(refundSupabase.refundRpc).not.toHaveBeenCalled();
+    });
+
+    it('keeps refund reconciliation idempotent when the webhook event was already processed', async () => {
+        const duplicate = makeDuplicateSupabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(duplicate.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(refundEvent());
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(stripeMocks.refundList).not.toHaveBeenCalled();
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
     });
 });

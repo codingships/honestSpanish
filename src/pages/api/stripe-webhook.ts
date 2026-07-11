@@ -478,7 +478,7 @@ export const POST: APIRoute = async (context) => {
 
             case 'charge.refunded': {
                 const charge = event.data.object as Stripe.Charge;
-                await handleChargeRefunded(supabaseAdmin, charge);
+                await handleChargeRefunded(supabaseAdmin, charge, stripeRuntime);
                 break;
             }
 
@@ -1224,7 +1224,7 @@ async function handleInvoicePaymentFailed(
 
 type RefundPayment = Pick<
     Database['public']['Tables']['payments']['Row'],
-    'id' | 'student_id' | 'subscription_id' | 'amount' | 'amount_refunded' | 'status'
+    'id' | 'student_id' | 'subscription_id' | 'amount' | 'amount_refunded' | 'currency' | 'status'
 >;
 
 async function findLocalRefundPayment(
@@ -1234,7 +1234,7 @@ async function findLocalRefundPayment(
 ): Promise<RefundPayment | null> {
     const { data, error } = await supabaseAdmin
         .from('payments')
-        .select('id, student_id, subscription_id, amount, amount_refunded, status')
+        .select('id, student_id, subscription_id, amount, amount_refunded, currency, status')
         .eq(column, value)
         .order('created_at', { ascending: false })
         .limit(1)
@@ -1282,10 +1282,136 @@ async function findRefundPaymentByPaymentIntent(
     return null;
 }
 
+const STRIPE_REFUND_PAGE_SIZE = 100;
+const STRIPE_REFUND_MAX_PAGES = 10;
+
+async function listAuthoritativeChargeRefunds(chargeId: string): Promise<Stripe.Refund[]> {
+    const refunds: Stripe.Refund[] = [];
+    const refundIds = new Set<string>();
+    let startingAfter: string | undefined;
+
+    for (let pageNumber = 0; pageNumber < STRIPE_REFUND_MAX_PAGES; pageNumber += 1) {
+        const page = await stripe.refunds.list({
+            charge: chargeId,
+            limit: STRIPE_REFUND_PAGE_SIZE,
+            ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+
+        for (const refund of page.data) {
+            if (!refund.id || refundIds.has(refund.id)) {
+                throw new Error('Stripe refund list contains an ambiguous duplicate identifier');
+            }
+            refundIds.add(refund.id);
+            refunds.push(refund);
+        }
+
+        if (!page.has_more) return refunds;
+
+        const lastRefundId = page.data.at(-1)?.id;
+        if (!lastRefundId) {
+            throw new Error('Stripe refund pagination cannot advance deterministically');
+        }
+        startingAfter = lastRefundId;
+    }
+
+    throw new Error('Stripe refund pagination exceeded the bounded reconciliation limit');
+}
+
+async function resolveAuthoritativeRefund(
+    charge: Stripe.Charge,
+    paymentIntentId: string,
+    requestedAmountRefunded: number,
+    stripeRuntime: StripeRuntimeContext
+): Promise<Stripe.Refund> {
+    if (charge.livemode !== stripeRuntime.livemode) {
+        throw new Error('Stripe refunded charge mode does not match this runtime');
+    }
+
+    const chargeCurrency = charge.currency?.toLowerCase();
+    if (!charge.id || !chargeCurrency) {
+        throw new Error('Stripe refunded charge identity is incomplete');
+    }
+
+    const authoritativeRefunds = await listAuthoritativeChargeRefunds(charge.id);
+    const succeededRefunds: Stripe.Refund[] = [];
+
+    for (const refund of authoritativeRefunds) {
+        const refundChargeId = stripeObjectId(refund.charge);
+        const refundPaymentIntentId = stripeObjectId(refund.payment_intent);
+        const refundCurrency = refund.currency?.toLowerCase();
+
+        if (refundChargeId !== charge.id) {
+            throw new Error(`Stripe refund ${refund.id} belongs to an incompatible charge`);
+        }
+        if (refundPaymentIntentId !== paymentIntentId) {
+            throw new Error(`Stripe refund ${refund.id} belongs to an incompatible PaymentIntent`);
+        }
+        if (refundCurrency !== chargeCurrency) {
+            throw new Error(`Stripe refund ${refund.id} uses an incompatible currency`);
+        }
+
+        // Failed, canceled and still-pending refunds do not contribute to the
+        // authoritative amount_refunded total. Their identities are still
+        // checked above so an incoherent API response always fails closed.
+        if (refund.status !== 'succeeded') continue;
+
+        if (!Number.isSafeInteger(refund.amount) || refund.amount <= 0) {
+            throw new Error(`Stripe refund ${refund.id} has an invalid amount`);
+        }
+        if (!Number.isSafeInteger(refund.created) || refund.created <= 0) {
+            throw new Error(`Stripe refund ${refund.id} has an invalid creation timestamp`);
+        }
+        succeededRefunds.push(refund);
+    }
+
+    succeededRefunds.sort((left, right) => (
+        left.created - right.created
+        || left.id.localeCompare(right.id, 'en')
+    ));
+
+    let cumulativeAmount = 0;
+    for (let cohortStart = 0; cohortStart < succeededRefunds.length;) {
+        const cohortCreated = succeededRefunds[cohortStart].created;
+        let cohortEnd = cohortStart;
+        let cohortAmount = 0;
+
+        while (
+            cohortEnd < succeededRefunds.length
+            && succeededRefunds[cohortEnd].created === cohortCreated
+        ) {
+            cohortAmount += succeededRefunds[cohortEnd].amount;
+            cohortEnd += 1;
+        }
+
+        const cohortBoundaryAmount = cumulativeAmount + cohortAmount;
+        if (requestedAmountRefunded === cohortBoundaryAmount) {
+            // IDs give a deterministic representative only after the complete
+            // timestamp cohort has been accounted for.
+            return succeededRefunds[cohortEnd - 1];
+        }
+        if (
+            requestedAmountRefunded > cumulativeAmount
+            && requestedAmountRefunded < cohortBoundaryAmount
+        ) {
+            throw new Error('Stripe refund amount lands inside an ambiguous same-second cohort');
+        }
+        if (requestedAmountRefunded < cohortBoundaryAmount) break;
+
+        cumulativeAmount = cohortBoundaryAmount;
+        cohortStart = cohortEnd;
+    }
+
+    throw new Error('Stripe succeeded refunds do not exactly match charge.amount_refunded');
+}
+
 // ============================================
 // HANDLER: Full or partial refund synchronized from Stripe
 // ============================================
-async function handleChargeRefunded(supabaseAdmin: SupabaseClient<Database>, charge: Stripe.Charge) {
+async function handleChargeRefunded(
+    supabaseAdmin: SupabaseClient<Database>,
+    charge: Stripe.Charge,
+    stripeRuntime: StripeRuntimeContext
+) {
     const paymentIntentId = stripeObjectId(charge.payment_intent);
 
     if (!paymentIntentId) {
@@ -1298,19 +1424,36 @@ async function handleChargeRefunded(supabaseAdmin: SupabaseClient<Database>, cha
         throw new Error(`No local payment found for refunded PaymentIntent ${paymentIntentId}`);
     }
 
-    const requestedAmountRefunded = Math.max(0, Math.min(charge.amount_refunded ?? 0, payment.amount));
-    const latestRefund = [...(charge.refunds?.data ?? [])]
-        .sort((left, right) => (right.created ?? 0) - (left.created ?? 0))[0];
-    if (!latestRefund?.id) {
-        throw new Error('Stripe refunded charge has no refund identifier');
+    const requestedAmountRefunded = charge.amount_refunded;
+    const chargeCurrency = charge.currency?.toLowerCase();
+    const paymentCurrency = payment.currency?.toLowerCase();
+    if (
+        !Number.isSafeInteger(charge.amount)
+        || charge.amount <= 0
+        || charge.amount !== payment.amount
+        || !Number.isSafeInteger(requestedAmountRefunded)
+        || requestedAmountRefunded <= 0
+        || requestedAmountRefunded > charge.amount
+        || chargeCurrency !== paymentCurrency
+    ) {
+        throw new Error('Stripe refunded charge conflicts with the local payment');
     }
-    const refundedAt = new Date((latestRefund?.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
+
+    // charge.refunds is only a compatibility expansion and can be empty or
+    // truncated. The charge-filtered Refunds API is the verified authority.
+    const authoritativeRefund = await resolveAuthoritativeRefund(
+        charge,
+        paymentIntentId,
+        requestedAmountRefunded,
+        stripeRuntime
+    );
+    const refundedAt = new Date(authoritativeRefund.created * 1000).toISOString();
 
     const { data: reconciledPayment, error: updateError } = await supabaseAdmin
         .rpc('reconcile_stripe_refund', {
             p_payment_id: payment.id,
             p_amount_refunded: requestedAmountRefunded,
-            p_stripe_refund_id: latestRefund.id,
+            p_stripe_refund_id: authoritativeRefund.id,
             p_refunded_at: refundedAt,
         });
     if (updateError || !reconciledPayment) throw updateError ?? new Error('Refund reconciliation returned no payment');

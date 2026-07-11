@@ -18,6 +18,157 @@ export type SafeWranglerWhoamiSummary = {
     accountIds: string[];
 };
 
+export const RESEND_FREE_DAILY_RECIPIENT_LIMIT = 10;
+export const RESEND_FREE_MONTHLY_RECIPIENT_LIMIT = 100;
+export const MAX_STAGING_SMOKE_PLANNED_RECIPIENTS = 8;
+export const STAGING_SMOKE_EMAIL_RECIPIENT_PLAN = Object.freeze({
+    classConfirmation: 2,
+    classReminder: 2,
+    classCancellation: 2,
+    secondarySchedulingVariants: 0,
+    cleanup: 0,
+});
+export const STAGING_SMOKE_PLANNED_RECIPIENTS = Object.values(
+    STAGING_SMOKE_EMAIL_RECIPIENT_PLAN,
+).reduce<number>((total, recipientCount) => total + recipientCount, 0);
+
+export type StagingSmokeEmailBudgetAssessment = {
+    allowed: boolean;
+    reason:
+        | 'within_limit'
+        | 'invalid_budget_input'
+        | 'configured_limit_exceeds_resend_free_cap'
+        | 'smoke_plan_exceeds_maximum'
+        | 'daily_budget_exceeded'
+        | 'monthly_budget_exceeded';
+    currentDailyRecipients: number;
+    currentMonthlyRecipients: number;
+    plannedSmokeRecipients: number;
+    projectedDailyRecipients: number;
+    projectedMonthlyRecipients: number;
+    configuredDailyLimit: number;
+    configuredMonthlyLimit: number;
+    effectiveDailyLimit: number;
+    effectiveMonthlyLimit: number;
+    resendFreeDailyLimit: number;
+    resendFreeMonthlyLimit: number;
+};
+
+export function assessStagingSmokeEmailBudget(input: {
+    currentDailyRecipients: number;
+    currentMonthlyRecipients: number;
+    configuredDailyLimit: number;
+    configuredMonthlyLimit: number;
+    plannedSmokeRecipients?: number;
+}): StagingSmokeEmailBudgetAssessment {
+    const plannedSmokeRecipients = input.plannedSmokeRecipients
+        ?? STAGING_SMOKE_PLANNED_RECIPIENTS;
+    const validInputs = [
+        input.currentDailyRecipients,
+        input.currentMonthlyRecipients,
+        input.configuredDailyLimit,
+        input.configuredMonthlyLimit,
+        plannedSmokeRecipients,
+    ].every((value) => Number.isSafeInteger(value) && value >= 0)
+        && input.configuredDailyLimit > 0
+        && input.configuredMonthlyLimit > 0;
+    const projectedDailyRecipients = input.currentDailyRecipients + plannedSmokeRecipients;
+    const projectedMonthlyRecipients = input.currentMonthlyRecipients + plannedSmokeRecipients;
+    const effectiveDailyLimit = Math.min(
+        input.configuredDailyLimit,
+        RESEND_FREE_DAILY_RECIPIENT_LIMIT,
+    );
+    const effectiveMonthlyLimit = Math.min(
+        input.configuredMonthlyLimit,
+        RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
+    );
+
+    let reason: StagingSmokeEmailBudgetAssessment['reason'] = 'within_limit';
+    if (!validInputs) {
+        reason = 'invalid_budget_input';
+    } else if (
+        input.configuredDailyLimit > RESEND_FREE_DAILY_RECIPIENT_LIMIT
+        || input.configuredMonthlyLimit > RESEND_FREE_MONTHLY_RECIPIENT_LIMIT
+    ) {
+        reason = 'configured_limit_exceeds_resend_free_cap';
+    } else if (plannedSmokeRecipients > MAX_STAGING_SMOKE_PLANNED_RECIPIENTS) {
+        reason = 'smoke_plan_exceeds_maximum';
+    } else if (projectedDailyRecipients > effectiveDailyLimit) {
+        reason = 'daily_budget_exceeded';
+    } else if (projectedMonthlyRecipients > effectiveMonthlyLimit) {
+        reason = 'monthly_budget_exceeded';
+    }
+
+    return {
+        allowed: reason === 'within_limit',
+        reason,
+        currentDailyRecipients: input.currentDailyRecipients,
+        currentMonthlyRecipients: input.currentMonthlyRecipients,
+        plannedSmokeRecipients,
+        projectedDailyRecipients,
+        projectedMonthlyRecipients,
+        configuredDailyLimit: input.configuredDailyLimit,
+        configuredMonthlyLimit: input.configuredMonthlyLimit,
+        effectiveDailyLimit,
+        effectiveMonthlyLimit,
+        resendFreeDailyLimit: RESEND_FREE_DAILY_RECIPIENT_LIMIT,
+        resendFreeMonthlyLimit: RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
+    };
+}
+
+export function parseStagingSmokeEmailBudget(
+    stdout: string,
+): StagingSmokeEmailBudgetAssessment | null {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(stdout.trim()) as unknown;
+    } catch {
+        return null;
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+
+    const budget = (parsed as { emailRecipientBudget?: unknown }).emailRecipientBudget;
+    if (!budget || typeof budget !== 'object' || Array.isArray(budget)) return null;
+    const candidate = budget as Record<string, unknown>;
+    const numericNames = [
+        'currentDailyRecipients',
+        'currentMonthlyRecipients',
+        'plannedSmokeRecipients',
+        'projectedDailyRecipients',
+        'projectedMonthlyRecipients',
+        'configuredDailyLimit',
+        'configuredMonthlyLimit',
+        'effectiveDailyLimit',
+        'effectiveMonthlyLimit',
+        'resendFreeDailyLimit',
+        'resendFreeMonthlyLimit',
+    ] as const;
+    if (numericNames.some((name) => !Number.isSafeInteger(candidate[name]))) return null;
+    if (candidate.allowed !== true || candidate.reason !== 'within_limit') return null;
+
+    const assessment = assessStagingSmokeEmailBudget({
+        currentDailyRecipients: candidate.currentDailyRecipients as number,
+        currentMonthlyRecipients: candidate.currentMonthlyRecipients as number,
+        configuredDailyLimit: candidate.configuredDailyLimit as number,
+        configuredMonthlyLimit: candidate.configuredMonthlyLimit as number,
+        plannedSmokeRecipients: candidate.plannedSmokeRecipients as number,
+    });
+    if (
+        !assessment.allowed
+        || assessment.projectedDailyRecipients !== candidate.projectedDailyRecipients
+        || assessment.projectedMonthlyRecipients !== candidate.projectedMonthlyRecipients
+        || assessment.effectiveDailyLimit !== candidate.effectiveDailyLimit
+        || assessment.effectiveMonthlyLimit !== candidate.effectiveMonthlyLimit
+        || assessment.resendFreeDailyLimit !== candidate.resendFreeDailyLimit
+        || assessment.resendFreeMonthlyLimit !== candidate.resendFreeMonthlyLimit
+        || assessment.plannedSmokeRecipients !== STAGING_SMOKE_PLANNED_RECIPIENTS
+    ) {
+        return null;
+    }
+
+    return assessment;
+}
+
 export function runDirectNodeCommand(
     args: string[],
     options: DirectNodeCommandOptions,

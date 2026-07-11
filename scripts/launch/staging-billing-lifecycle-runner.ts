@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Stripe from 'stripe';
@@ -13,24 +14,35 @@ import {
     assertExclusiveLifecycleWebhookDestination,
     assertInitialPaymentPreserved,
     assertCheckpointClockWindow,
+    assertLegacySecondPeriodRecoveryCheckpoint,
     assertLifecyclePhaseTransition,
     assertLifecyclePreflight,
     assertResumePhaseState,
+    assertTransitionNoticeBudgetUnchanged,
+    assertTransitionNoticeJobPattern,
+    assertUpcomingNoticeConfigurationConfirmation,
     buildRefundPlan,
     FAILING_PAYMENT_METHOD,
     INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS,
     LIFECYCLE_CONFIRMATION_ENV,
     RECOVERY_PAYMENT_METHOD,
+    RENEWAL_FINALIZATION_OFFSET_SECONDS,
     sanitizeLifecycleText,
     STAGING_SUPABASE_PROJECT_REF,
     STRIPE_API_VERSION,
+    UPCOMING_NOTICE_CONFIRMATION_ENV,
     invoiceUpcomingBoundary,
     isLifecyclePhase,
     lifecyclePhaseIndex,
+    requireSingleTransitionNoticeEventId,
+    testClockAdvanceIdempotencyScope,
     validateLifecycleEnvironment,
     type CanonicalLifecycleEvidence,
     type LifecyclePhase,
     type LifecyclePreflightSnapshot,
+    type LifecycleStrategy,
+    type TransitionNoticeBudgetUsage,
+    type TransitionNoticeJobCandidate,
 } from './staging-billing-lifecycle-safety';
 
 type StepStatus = 'ok' | 'failed';
@@ -63,6 +75,10 @@ interface LifecycleReport {
         testClockId: string | null;
         initialInvoiceId: string | null;
         initialPaymentIntentId: string | null;
+        warmupInvoiceId: string | null;
+        warmupPaymentIntentId: string | null;
+        transitionNoticeEventId: string | null;
+        transitionNoticeJobId: string | null;
         renewalInvoiceId: string | null;
         recoveredPaymentIntentId: string | null;
         partialRefundId: string | null;
@@ -70,8 +86,10 @@ interface LifecycleReport {
     };
     mutationGate: {
         environmentVariable: string;
+        upcomingNoticeEnvironmentVariable: string;
         sessionBound: true;
         authorized: boolean;
+        upcomingNotice15DayAuthorized: boolean;
     };
     checkpoint: {
         path: string | null;
@@ -92,6 +110,11 @@ type LocalSubscription = Pick<
 type LocalPayment = Pick<
     Database['public']['Tables']['payments']['Row'],
     'id' | 'student_id' | 'subscription_id' | 'amount' | 'currency' | 'status' | 'stripe_payment_intent_id' | 'stripe_invoice_id' | 'amount_refunded' | 'stripe_refund_id'
+>;
+
+type TransitionNoticeJobRow = Pick<
+    Database['public']['Tables']['fulfillment_jobs']['Row'],
+    'id' | 'job_type' | 'status' | 'subscription_id' | 'student_id' | 'dedupe_key' | 'payload' | 'attempts' | 'max_attempts' | 'run_at' | 'locked_at' | 'locked_by' | 'last_error' | 'created_at' | 'updated_at'
 >;
 
 interface PreflightResult {
@@ -120,8 +143,7 @@ interface PreflightResult {
     fulfillmentVersionId: string;
 }
 
-interface LifecycleCheckpoint {
-    schemaVersion: 1;
+interface LifecycleCheckpointCommon {
     updatedAt: string;
     phase: LifecyclePhase;
     supabaseProjectRef: typeof STAGING_SUPABASE_PROJECT_REF;
@@ -139,6 +161,19 @@ interface LifecycleCheckpoint {
     failurePaymentMethodId?: string;
     recoveryPaymentMethodId?: string;
     upcomingBaselineEventIds?: string[];
+    warmupInvoiceId?: string;
+    warmupPaymentIntentId?: string;
+    warmupPaidEventId?: string;
+    warmupPeriodEnd?: number;
+    recoveryUpcomingBaselineEventIds?: string[];
+    transitionNoticeEventId?: string;
+    transitionNoticeJobId?: string;
+    transitionNoticeJobDedupeKey?: string;
+    transitionNoticeJobFingerprint?: string;
+    transitionNoticeInvoicePeriodEnd?: number;
+    transitionNoticeBudgetDailyUsed?: number;
+    transitionNoticeBudgetMonthlyUsed?: number;
+    transitionNoticeBoundaryBudgetVerified?: boolean;
     upcomingEventId?: string;
     renewalInvoiceId?: string;
     renewalFailedEventId?: string;
@@ -151,6 +186,17 @@ interface LifecycleCheckpoint {
     finalRefundId?: string;
     finalRefundEventId?: string;
 }
+
+interface LegacyLifecycleCheckpoint extends LifecycleCheckpointCommon {
+    schemaVersion: 1;
+}
+
+interface LifecycleCheckpoint extends LifecycleCheckpointCommon {
+    schemaVersion: 2;
+    strategy: LifecycleStrategy;
+}
+
+type ResumeLifecycleCheckpoint = LegacyLifecycleCheckpoint | LifecycleCheckpoint;
 
 const startedAt = new Date();
 const outputDir = path.join(
@@ -183,6 +229,10 @@ const report: LifecycleReport = {
         testClockId: null,
         initialInvoiceId: null,
         initialPaymentIntentId: null,
+        warmupInvoiceId: null,
+        warmupPaymentIntentId: null,
+        transitionNoticeEventId: null,
+        transitionNoticeJobId: null,
         renewalInvoiceId: null,
         recoveredPaymentIntentId: null,
         partialRefundId: null,
@@ -190,8 +240,10 @@ const report: LifecycleReport = {
     },
     mutationGate: {
         environmentVariable: LIFECYCLE_CONFIRMATION_ENV,
+        upcomingNoticeEnvironmentVariable: UPCOMING_NOTICE_CONFIRMATION_ENV,
         sessionBound: true,
         authorized: false,
+        upcomingNotice15DayAuthorized: false,
     },
     checkpoint: {
         path: null,
@@ -244,6 +296,20 @@ async function main(): Promise<void> {
             : null;
         if (!preflightOnly && !resumeRequested && checkpointExists) {
             throw new Error('A lifecycle checkpoint already exists. Re-run with --resume after reviewing it.');
+        }
+        const secondPeriodRecovery = resumeCheckpoint?.schemaVersion === 1
+            || resumeCheckpoint?.strategy === 'second_period_recovery';
+        if (!preflightOnly && secondPeriodRecovery) {
+            assertUpcomingNoticeConfigurationConfirmation({
+                checkoutSessionId: validated.checkoutSessionId,
+                confirmation: process.env[UPCOMING_NOTICE_CONFIRMATION_ENV],
+            });
+            report.mutationGate.upcomingNotice15DayAuthorized = true;
+            addStep(
+                'upcoming_notice_configuration_gate',
+                'Accepted the exact session-bound attestation that Stripe Upcoming renewal events is configured to 15 days.',
+                { noticeDays: 15, sessionBound: true }
+            );
         }
         report.mutationGate.authorized = !preflightOnly;
         addStep('environment_guard', 'Staging-only Stripe and Supabase environment guards passed.', {
@@ -347,54 +413,254 @@ async function executeLifecycle(
     initialCheckpoint: LifecycleCheckpoint
 ): Promise<LifecycleCheckpoint> {
     let checkpoint = initialCheckpoint;
-    const beforeUpcomingBoundary = invoiceUpcomingBoundary(preflight.initialPeriodEnd)
-        - INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS;
-    const upcomingBoundary = invoiceUpcomingBoundary(preflight.initialPeriodEnd);
+    let upcomingPeriodEnd = preflight.initialPeriodEnd;
+    let upcomingBaseline: Set<string>;
 
-    if (phaseBefore(checkpoint.phase, 'upcoming_baseline_captured')) {
-        const baselineIds = await captureMatchingEventIds(
-            stripe,
-            'invoice.upcoming',
-            (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId
-        );
-        if (baselineIds.size > 0) {
-            throw new Error('Cannot prove the 15-day boundary because invoice.upcoming already exists for the target subscription.');
+    if (checkpoint.strategy === 'second_period_recovery') {
+        if (phaseBefore(checkpoint.phase, 'warmup_renewal_preserved')) {
+            const warmupPaymentMethodId = await assertUsableCurrentDefaultPaymentMethod(stripe, preflight);
+            await advanceClockTo(
+                stripe,
+                preflight,
+                preflight.initialPeriodEnd,
+                'warmup-renewal-boundary',
+                timeoutMs
+            );
+            await advanceClockTo(
+                stripe,
+                preflight,
+                preflight.initialPeriodEnd + RENEWAL_FINALIZATION_OFFSET_SECONDS,
+                'warmup-renewal-finalization',
+                timeoutMs
+            );
+            const warmupInvoice = await waitForValue(
+                'paid warm-up renewal invoice',
+                () => findRenewalInvoice(stripe, preflight.subscriptionId, [preflight.initialInvoiceId]),
+                (invoice): invoice is Stripe.Invoice => Boolean(
+                    invoice
+                    && invoice.status === 'paid'
+                    && invoice.amount_paid > 1
+                ),
+                timeoutMs
+            );
+            const warmupPaidEvent = await waitForStripeEvent(
+                stripe,
+                'invoice.paid',
+                new Set(),
+                (event) => stripeEventObjectId(event) === warmupInvoice.id,
+                timeoutMs
+            );
+            await waitForProcessedWebhookSucceeded(supabase, warmupPaidEvent, timeoutMs);
+            const warmupPaymentIntentId = await requirePaidInvoicePaymentIntentId(stripe, warmupInvoice.id);
+            const warmupLocalPayment = await waitForLocalPayment(
+                supabase,
+                warmupInvoice.id,
+                (payment) => payment.status === 'succeeded'
+                    && payment.amount_refunded === 0
+                    && payment.stripe_payment_intent_id === warmupPaymentIntentId,
+                timeoutMs
+            );
+            const warmupSubscription = await waitForValue(
+                'active Stripe subscription after warm-up renewal',
+                () => stripe.subscriptions.retrieve(preflight.subscriptionId),
+                (subscription) => subscription.status === 'active',
+                timeoutMs
+            );
+            await waitForLocalSubscriptionStatus(supabase, preflight.subscriptionId, 'active', timeoutMs);
+            const warmupPeriodEnd = subscriptionPeriodEnd(warmupSubscription);
+            if (
+                warmupInvoice.billing_reason !== 'subscription_cycle'
+                || invoiceSubscriptionId(warmupInvoice) !== preflight.subscriptionId
+                || stripeObjectId(warmupInvoice.customer) !== preflight.customerId
+                || invoicePeriodEnd(warmupInvoice) !== warmupPeriodEnd
+                || warmupPeriodEnd <= preflight.initialPeriodEnd
+                || warmupLocalPayment.amount !== warmupInvoice.amount_paid
+                || warmupLocalPayment.currency !== warmupInvoice.currency
+                || warmupLocalPayment.subscription_id !== preflight.localSubscriptionId
+                || warmupLocalPayment.student_id !== preflight.userId
+            ) {
+                throw new Error('Warm-up renewal ownership or reconciliation is invalid.');
+            }
+            const warmupCharge = await retrievePaymentIntentCharge(stripe, warmupPaymentIntentId);
+            if (warmupCharge.refunded || warmupCharge.amount_refunded !== 0) {
+                throw new Error('Warm-up renewal charge is not preserved.');
+            }
+            checkpoint = saveCheckpoint(checkpoint, 'warmup_renewal_preserved', {
+                warmupInvoiceId: warmupInvoice.id,
+                warmupPaymentIntentId,
+                warmupPaidEventId: warmupPaidEvent.id,
+                warmupPeriodEnd,
+            });
+            addStep('warmup_renewal', 'Preserved the first paid renewal so the 15-day setting can take effect in the next billing period.', {
+                invoiceId: warmupInvoice.id,
+                paymentIntentId: warmupPaymentIntentId,
+                eventId: warmupPaidEvent.id,
+                periodEnd: warmupPeriodEnd,
+                paymentMethodId: warmupPaymentMethodId,
+                webhookProcessingStatus: 'succeeded',
+                localSubscriptionStatus: 'active',
+            });
         }
-        checkpoint = saveCheckpoint(checkpoint, 'upcoming_baseline_captured', {
-            upcomingBaselineEventIds: [...baselineIds].sort(),
-        });
+        await assertWarmupPaymentStillPreserved(stripe, supabase, preflight, checkpoint);
+        report.resources.warmupInvoiceId = requiredCheckpointValue(checkpoint.warmupInvoiceId, 'warm-up invoice');
+        report.resources.warmupPaymentIntentId = requiredCheckpointValue(
+            checkpoint.warmupPaymentIntentId,
+            'warm-up PaymentIntent'
+        );
+        upcomingPeriodEnd = requiredCheckpointInteger(checkpoint.warmupPeriodEnd, 'warm-up period end');
+
+        if (phaseBefore(checkpoint.phase, 'transition_notice_verified')) {
+            const currentEventIds = await captureMatchingEventIds(
+                stripe,
+                'invoice.upcoming',
+                (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId
+            );
+            const baselineEventIds = requiredCheckpointArray(
+                checkpoint.upcomingBaselineEventIds,
+                'original upcoming baseline'
+            );
+            const transitionNoticeEventId = requireSingleTransitionNoticeEventId({
+                baselineEventIds,
+                currentEventIds: [...currentEventIds],
+            });
+            const transitionEvent = await requireCheckpointEvent(
+                stripe,
+                transitionNoticeEventId,
+                'invoice.upcoming',
+                (event) => isTransitionUpcomingEvent(event, preflight, preflight.initialPeriodEnd)
+            );
+            await waitForProcessedWebhookSucceeded(supabase, transitionEvent, timeoutMs);
+            const transitionInvoice = transitionEvent.data.object as Stripe.Invoice;
+            const transitionJob = await requireTransitionNoticeJob(
+                supabase,
+                preflight,
+                transitionEvent,
+                upcomingPeriodEnd
+            );
+            const transitionBudget = await readEmailBudgetUsage(supabase);
+            checkpoint = saveCheckpoint(checkpoint, 'transition_notice_verified', {
+                transitionNoticeEventId,
+                transitionNoticeJobId: transitionJob.id,
+                transitionNoticeJobDedupeKey: transitionJob.dedupe_key ?? undefined,
+                transitionNoticeJobFingerprint: transitionNoticeJobFingerprint(transitionJob),
+                transitionNoticeInvoicePeriodEnd: transitionInvoice.period_end,
+                transitionNoticeBudgetDailyUsed: transitionBudget.dailyUsed,
+                transitionNoticeBudgetMonthlyUsed: transitionBudget.monthlyUsed,
+                recoveryUpcomingBaselineEventIds: [...currentEventIds].sort(),
+            });
+            addStep('transition_notice', 'Accepted exactly one late first-period upcoming event and preserved its already-succeeded second-period notice job.', {
+                eventId: transitionNoticeEventId,
+                jobId: transitionJob.id,
+                invoicePeriodEnd: transitionInvoice.period_end,
+                budgetDailyUsed: transitionBudget.dailyUsed,
+                budgetMonthlyUsed: transitionBudget.monthlyUsed,
+            });
+        }
+        await assertTransitionNoticeStillPreserved(
+            stripe,
+            supabase,
+            preflight,
+            checkpoint,
+            { requireBudgetUnchanged: phaseBefore(checkpoint.phase, 'upcoming_observed') }
+        );
+        report.resources.transitionNoticeEventId = requiredCheckpointValue(
+            checkpoint.transitionNoticeEventId,
+            'transition invoice.upcoming event'
+        );
+        report.resources.transitionNoticeJobId = requiredCheckpointValue(
+            checkpoint.transitionNoticeJobId,
+            'transition renewal-notice job'
+        );
+        if (phaseBefore(checkpoint.phase, 'recovery_upcoming_baseline_captured')) {
+            checkpoint = saveCheckpoint(checkpoint, 'recovery_upcoming_baseline_captured');
+        }
+        upcomingBaseline = new Set(requiredCheckpointArray(
+            checkpoint.recoveryUpcomingBaselineEventIds,
+            'recovery upcoming baseline'
+        ));
+        const recoveryBeforeBoundary = invoiceUpcomingBoundary(upcomingPeriodEnd)
+            - INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS;
+        if (phaseBefore(checkpoint.phase, 'recovery_upcoming_before_boundary_verified')) {
+            await advanceClockTo(
+                stripe,
+                preflight,
+                recoveryBeforeBoundary,
+                'recovery-upcoming-before-15-day-boundary',
+                timeoutMs
+            );
+            await assertNoNewStripeEvent(
+                stripe,
+                'invoice.upcoming',
+                upcomingBaseline,
+                (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId,
+                8_000
+            );
+            await assertTransitionNoticeStillPreserved(
+                stripe,
+                supabase,
+                preflight,
+                checkpoint,
+                { requireBudgetUnchanged: true }
+            );
+            checkpoint = saveCheckpoint(checkpoint, 'recovery_upcoming_before_boundary_verified');
+            addStep('invoice_upcoming_before_boundary', 'No invoice.upcoming event existed one minute before the second-period 15-day boundary.', {
+                clockTarget: recoveryBeforeBoundary,
+                noticeDays: 15,
+                eventObserved: false,
+            });
+        }
+    } else {
+        const beforeUpcomingBoundary = invoiceUpcomingBoundary(preflight.initialPeriodEnd)
+            - INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS;
+        if (phaseBefore(checkpoint.phase, 'upcoming_baseline_captured')) {
+            const baselineIds = await captureMatchingEventIds(
+                stripe,
+                'invoice.upcoming',
+                (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId
+            );
+            if (baselineIds.size > 0) {
+                throw new Error('Cannot prove the 15-day boundary because invoice.upcoming already exists for the target subscription.');
+            }
+            checkpoint = saveCheckpoint(checkpoint, 'upcoming_baseline_captured', {
+                upcomingBaselineEventIds: [...baselineIds].sort(),
+            });
+        }
+        upcomingBaseline = new Set(requiredCheckpointArray(checkpoint.upcomingBaselineEventIds, 'upcoming baseline'));
+        if (phaseBefore(checkpoint.phase, 'upcoming_before_boundary_verified')) {
+            await advanceClockTo(
+                stripe,
+                preflight,
+                beforeUpcomingBoundary,
+                'upcoming-before-15-day-boundary',
+                timeoutMs
+            );
+            await assertNoNewStripeEvent(
+                stripe,
+                'invoice.upcoming',
+                upcomingBaseline,
+                (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId,
+                8_000
+            );
+            checkpoint = saveCheckpoint(checkpoint, 'upcoming_before_boundary_verified');
+            addStep('invoice_upcoming_before_boundary', 'No invoice.upcoming event existed one minute before the 15-day boundary.', {
+                clockTarget: beforeUpcomingBoundary,
+                noticeDays: 15,
+                eventObserved: false,
+            });
+        }
     }
 
-    const upcomingBaseline = new Set(requiredCheckpointArray(checkpoint.upcomingBaselineEventIds, 'upcoming baseline'));
-    if (phaseBefore(checkpoint.phase, 'upcoming_before_boundary_verified')) {
-        await advanceClockTo(
-            stripe,
-            preflight,
-            beforeUpcomingBoundary,
-            'upcoming-before-15-day-boundary',
-            timeoutMs
-        );
-        await assertNoNewStripeEvent(
-            stripe,
-            'invoice.upcoming',
-            upcomingBaseline,
-            (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId,
-            8_000
-        );
-        checkpoint = saveCheckpoint(checkpoint, 'upcoming_before_boundary_verified');
-        addStep('invoice_upcoming_before_boundary', 'No invoice.upcoming event existed one minute before the 15-day boundary.', {
-            clockTarget: beforeUpcomingBoundary,
-            noticeDays: 15,
-            eventObserved: false,
-        });
-    }
+    const upcomingBoundary = invoiceUpcomingBoundary(upcomingPeriodEnd);
+    const upcomingClockTarget = checkpoint.strategy === 'second_period_recovery'
+        ? upcomingBoundary + 1
+        : upcomingBoundary;
 
     let upcomingEvent: Stripe.Event;
     if (phaseBefore(checkpoint.phase, 'upcoming_observed')) {
         await advanceClockTo(
             stripe,
             preflight,
-            upcomingBoundary,
+            upcomingClockTarget,
             'upcoming-at-15-day-boundary',
             timeoutMs
         );
@@ -402,27 +668,77 @@ async function executeLifecycle(
             stripe,
             'invoice.upcoming',
             upcomingBaseline,
-            (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId,
+            (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId
+                && (
+                    checkpoint.strategy !== 'second_period_recovery'
+                    || isCanonicalRecoveryUpcomingEvent(event, preflight, upcomingPeriodEnd)
+                ),
             timeoutMs
         );
         await waitForProcessedWebhookSucceeded(supabase, upcomingEvent, timeoutMs);
-        await waitForRenewalNoticeJob(supabase, preflight, upcomingEvent, timeoutMs);
-        checkpoint = saveCheckpoint(checkpoint, 'upcoming_observed', { upcomingEventId: upcomingEvent.id });
-        addStep('invoice_upcoming', 'Crossed exactly the configured 15-day boundary and verified successful renewal-notice delivery.', {
-            eventId: upcomingEvent.id,
-            clockTarget: upcomingBoundary,
-            webhookProcessingStatus: 'succeeded',
-            renewalNoticeDeliveryStatus: 'succeeded',
+        if (checkpoint.strategy === 'second_period_recovery') {
+            await assertTransitionNoticeStillPreserved(
+                stripe,
+                supabase,
+                preflight,
+                checkpoint,
+                {
+                    requireBudgetUnchanged: true,
+                    forbiddenUpcomingEventId: upcomingEvent.id,
+                }
+            );
+        } else {
+            await waitForRenewalNoticeJob(supabase, preflight, upcomingEvent, upcomingPeriodEnd, timeoutMs);
+        }
+        checkpoint = saveCheckpoint(checkpoint, 'upcoming_observed', {
+            upcomingEventId: upcomingEvent.id,
+            transitionNoticeBoundaryBudgetVerified: checkpoint.strategy === 'second_period_recovery'
+                ? true
+                : undefined,
         });
+        if (checkpoint.strategy === 'second_period_recovery') {
+            addStep('invoice_upcoming', 'Observed the canonical 15-day event and successful webhook while preserving the prior deduplicated job with no budget increase or second email.', {
+                eventId: upcomingEvent.id,
+                clockTarget: upcomingClockTarget,
+                webhookProcessingStatus: 'succeeded',
+                priorRenewalNoticeJobPreserved: true,
+                budgetDelta: 0,
+                secondEmailSent: false,
+            });
+        } else {
+            addStep('invoice_upcoming', 'Crossed exactly the configured 15-day boundary and verified successful renewal-notice delivery.', {
+                eventId: upcomingEvent.id,
+                clockTarget: upcomingClockTarget,
+                webhookProcessingStatus: 'succeeded',
+                renewalNoticeDeliveryStatus: 'succeeded',
+            });
+        }
     } else {
         upcomingEvent = await requireCheckpointEvent(
             stripe,
             checkpoint.upcomingEventId,
             'invoice.upcoming',
             (event) => eventInvoiceSubscriptionId(event) === preflight.subscriptionId
+                && (
+                    checkpoint.strategy !== 'second_period_recovery'
+                    || isCanonicalRecoveryUpcomingEvent(event, preflight, upcomingPeriodEnd)
+                )
         );
         await waitForProcessedWebhookSucceeded(supabase, upcomingEvent, timeoutMs);
-        await waitForRenewalNoticeJob(supabase, preflight, upcomingEvent, timeoutMs);
+        if (checkpoint.strategy === 'second_period_recovery') {
+            if (checkpoint.transitionNoticeBoundaryBudgetVerified !== true) {
+                throw new Error('Checkpoint has no proof that the canonical boundary caused no budget increase.');
+            }
+            await assertTransitionNoticeStillPreserved(
+                stripe,
+                supabase,
+                preflight,
+                checkpoint,
+                { requireBudgetUnchanged: false, forbiddenUpcomingEventId: upcomingEvent.id }
+            );
+        } else {
+            await waitForRenewalNoticeJob(supabase, preflight, upcomingEvent, upcomingPeriodEnd, timeoutMs);
+        }
     }
 
     if (phaseBefore(checkpoint.phase, 'failure_payment_method_set')) {
@@ -457,20 +773,27 @@ async function executeLifecycle(
         await advanceClockTo(
             stripe,
             preflight,
-            preflight.initialPeriodEnd,
+            upcomingPeriodEnd,
             'renewal-boundary',
             timeoutMs
         );
         await advanceClockTo(
             stripe,
             preflight,
-            preflight.initialPeriodEnd + 7_200,
+            upcomingPeriodEnd + RENEWAL_FINALIZATION_OFFSET_SECONDS,
             'renewal-finalization',
             timeoutMs
         );
         renewalInvoice = await waitForValue(
             'renewal invoice payment failure',
-            async () => findRenewalInvoice(stripe, preflight.subscriptionId, preflight.initialInvoiceId),
+            async () => findRenewalInvoice(
+                stripe,
+                preflight.subscriptionId,
+                [
+                    preflight.initialInvoiceId,
+                    ...(checkpoint.warmupInvoiceId ? [checkpoint.warmupInvoiceId] : []),
+                ]
+            ),
             (invoice): invoice is Stripe.Invoice => Boolean(
                 invoice
                 && invoice.status === 'open'
@@ -613,6 +936,7 @@ async function executeLifecycle(
 
     const refundPlan = buildRefundPlan({
         initialPaymentIntentId: preflight.initialPaymentIntentId,
+        warmupPaymentIntentId: checkpoint.warmupPaymentIntentId,
         recoveredPaymentIntentId,
         recoveredAmount: recoveredInvoice.amount_paid,
     });
@@ -731,6 +1055,7 @@ async function executeLifecycle(
             timeoutMs
         );
         await assertInitialPaymentStillPreserved(stripe, supabase, preflight);
+        await assertWarmupPaymentStillPreserved(stripe, supabase, preflight, checkpoint);
         checkpoint = saveCheckpoint(checkpoint, 'partial_refund_completed', {
             partialRefundId,
             partialRefundEventId: partialRefundEvent.id,
@@ -742,6 +1067,7 @@ async function executeLifecycle(
             webhookProcessingStatus: 'succeeded',
             amountRefunded: partialLocalPayment.amount_refunded,
             initialPaymentPreserved: true,
+            warmupPaymentPreserved: checkpoint.strategy === 'second_period_recovery',
         });
     } else {
         partialRefundId = requiredCheckpointValue(checkpoint.partialRefundId, 'partial refund');
@@ -801,6 +1127,7 @@ async function executeLifecycle(
         );
         await assertRecoveredChargeRefunded(stripe, recoveredPaymentIntentId, recoveredInvoice.amount_paid);
         await assertInitialPaymentStillPreserved(stripe, supabase, preflight);
+        await assertWarmupPaymentStillPreserved(stripe, supabase, preflight, checkpoint);
         checkpoint = saveCheckpoint(checkpoint, 'complete', {
             finalRefundId,
             finalRefundEventId: finalRefundEvent.id,
@@ -812,6 +1139,7 @@ async function executeLifecycle(
             webhookProcessingStatus: 'succeeded',
             amountRefunded: fullyRefundedLocalPayment.amount_refunded,
             initialPaymentPreserved: true,
+            warmupPaymentPreserved: checkpoint.strategy === 'second_period_recovery',
         });
     } else {
         report.resources.finalRefundId = requiredCheckpointValue(checkpoint.finalRefundId, 'final refund');
@@ -824,6 +1152,7 @@ async function executeLifecycle(
         );
         await waitForProcessedWebhookSucceeded(supabase, finalEvent, timeoutMs);
         await assertInitialPaymentStillPreserved(stripe, supabase, preflight);
+        await assertWarmupPaymentStillPreserved(stripe, supabase, preflight, checkpoint);
     }
 
     return checkpoint;
@@ -894,6 +1223,25 @@ async function assertFinalLifecycleState(
         recoveredLocalPayment.amount
     );
     await assertInitialPaymentStillPreserved(stripe, supabase, preflight);
+    await assertWarmupPaymentStillPreserved(stripe, supabase, preflight, checkpoint);
+    if (checkpoint.strategy === 'second_period_recovery') {
+        if (checkpoint.transitionNoticeBoundaryBudgetVerified !== true) {
+            throw new Error('Final recovery state has no no-delta budget proof for the canonical boundary.');
+        }
+        await assertTransitionNoticeStillPreserved(
+            stripe,
+            supabase,
+            preflight,
+            checkpoint,
+            {
+                requireBudgetUnchanged: false,
+                forbiddenUpcomingEventId: requiredCheckpointValue(
+                    checkpoint.upcomingEventId,
+                    'canonical invoice.upcoming event'
+                ),
+            }
+        );
+    }
 
     addStep('final_state_revalidation', 'Revalidated all final Stripe and Supabase lifecycle outcomes before reporting OK.', {
         stripeSubscriptionStatus: 'canceled',
@@ -902,6 +1250,8 @@ async function assertFinalLifecycleState(
         recoveredAmountRefunded: recoveredLocalPayment.amount_refunded,
         recoveredChargeFullyRefunded: true,
         initialPaymentPreserved: true,
+        warmupPaymentPreserved: checkpoint.strategy === 'second_period_recovery',
+        transitionNoticePreserved: checkpoint.strategy === 'second_period_recovery',
     });
 }
 
@@ -913,8 +1263,9 @@ function buildCanonicalEvidence(
         throw new Error('Canonical lifecycle evidence requires the complete checkpoint.');
     }
     return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         status: 'complete',
+        strategy: checkpoint.strategy,
         stripeAccountId: preflight.accountId,
         supabaseProjectRef: STAGING_SUPABASE_PROJECT_REF,
         checkoutSessionId: preflight.sessionId,
@@ -922,6 +1273,15 @@ function buildCanonicalEvidence(
         subscriptionId: preflight.subscriptionId,
         initialInvoiceId: preflight.initialInvoiceId,
         initialPaymentIntentId: preflight.initialPaymentIntentId,
+        warmup: checkpoint.strategy === 'second_period_recovery' ? {
+            invoiceId: requiredCheckpointValue(checkpoint.warmupInvoiceId, 'warm-up invoice'),
+            paymentIntentId: requiredCheckpointValue(checkpoint.warmupPaymentIntentId, 'warm-up PaymentIntent'),
+            invoicePaidEventId: requiredCheckpointValue(checkpoint.warmupPaidEventId, 'warm-up invoice.paid event'),
+            periodEnd: requiredCheckpointInteger(checkpoint.warmupPeriodEnd, 'warm-up period end'),
+        } : null,
+        transitionNotice: checkpoint.strategy === 'second_period_recovery'
+            ? buildCanonicalTransitionNotice(checkpoint)
+            : null,
         renewalInvoiceId: requiredCheckpointValue(checkpoint.renewalInvoiceId, 'renewal invoice'),
         recoveredPaymentIntentId: requiredCheckpointValue(
             checkpoint.recoveredPaymentIntentId,
@@ -945,19 +1305,55 @@ function buildCanonicalEvidence(
             recoveredPaymentStatus: 'refunded',
             recoveredChargeFullyRefunded: true,
             initialPaymentPreserved: true,
+            warmupPaymentPreserved: checkpoint.strategy === 'second_period_recovery' ? true : null,
+            transitionNoticePreserved: checkpoint.strategy === 'second_period_recovery' ? true : null,
             processedWebhookEvents: 'succeeded',
         },
     };
 }
 
-function readCheckpointForResume(sessionId: string, expectedAccountId: string): LifecycleCheckpoint {
+function buildCanonicalTransitionNotice(
+    checkpoint: LifecycleCheckpoint,
+): NonNullable<CanonicalLifecycleEvidence['transitionNotice']> {
+    if (checkpoint.transitionNoticeBoundaryBudgetVerified !== true) {
+        throw new Error('Canonical transition notice requires no-delta budget verification at the 15-day boundary.');
+    }
+    const dailyUsed = requiredCheckpointNonNegativeInteger(
+        checkpoint.transitionNoticeBudgetDailyUsed,
+        'transition daily email budget'
+    );
+    const monthlyUsed = requiredCheckpointNonNegativeInteger(
+        checkpoint.transitionNoticeBudgetMonthlyUsed,
+        'transition monthly email budget'
+    );
+    return {
+        eventId: requiredCheckpointValue(checkpoint.transitionNoticeEventId, 'transition invoice.upcoming event'),
+        jobId: requiredCheckpointValue(checkpoint.transitionNoticeJobId, 'transition renewal-notice job'),
+        dedupeKey: requiredCheckpointValue(
+            checkpoint.transitionNoticeJobDedupeKey,
+            'transition renewal-notice dedupe key'
+        ),
+        invoicePeriodEnd: requiredCheckpointInteger(
+            checkpoint.transitionNoticeInvoicePeriodEnd,
+            'transition invoice period end'
+        ),
+        jobFingerprint: requiredCheckpointValue(
+            checkpoint.transitionNoticeJobFingerprint,
+            'transition renewal-notice job fingerprint'
+        ),
+        budgetBeforeBoundary: { dailyUsed, monthlyUsed },
+        budgetAfterBoundary: { dailyUsed, monthlyUsed },
+    };
+}
+
+function readCheckpointForResume(sessionId: string, expectedAccountId: string): ResumeLifecycleCheckpoint {
     const file = checkpointPath(sessionId);
     if (!existsSync(file)) {
         throw new Error('--resume requires an existing lifecycle checkpoint; widened fresh preflight is forbidden.');
     }
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as LifecycleCheckpoint;
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as ResumeLifecycleCheckpoint;
     if (
-        parsed.schemaVersion !== 1
+        ![1, 2].includes(parsed.schemaVersion)
         || !isLifecyclePhase(parsed.phase)
         || parsed.supabaseProjectRef !== STAGING_SUPABASE_PROJECT_REF
         || parsed.stripeAccountId !== expectedAccountId
@@ -967,26 +1363,68 @@ function readCheckpointForResume(sessionId: string, expectedAccountId: string): 
     ) {
         throw new Error('Lifecycle checkpoint header is invalid for --resume.');
     }
+    if (
+        parsed.schemaVersion === 2
+        && !['first_period', 'second_period_recovery'].includes(parsed.strategy)
+    ) {
+        throw new Error('Lifecycle checkpoint strategy is invalid for --resume.');
+    }
     return parsed;
 }
 
 function initializeCheckpoint(
     preflight: PreflightResult,
-    resumeCheckpoint: LifecycleCheckpoint | null
+    resumeCheckpoint: ResumeLifecycleCheckpoint | null
 ): LifecycleCheckpoint {
     if (resumeCheckpoint) {
+        if (resumeCheckpoint.schemaVersion === 1) {
+            validateCheckpointIdentity(resumeCheckpoint, preflight);
+            assertLegacySecondPeriodRecoveryCheckpoint({
+                schemaVersion: resumeCheckpoint.schemaVersion,
+                phase: resumeCheckpoint.phase,
+                currentFrozenTime: preflight.testClockFrozenTime,
+                initialPeriodEnd: resumeCheckpoint.initialPeriodEnd,
+                upcomingBaselineEventIds: resumeCheckpoint.upcomingBaselineEventIds,
+                hasPostUpcomingMutationEvidence: hasPostUpcomingMutationEvidence(resumeCheckpoint),
+            });
+            const migrated: LifecycleCheckpoint = {
+                ...resumeCheckpoint,
+                schemaVersion: 2,
+                strategy: 'second_period_recovery',
+                updatedAt: new Date().toISOString(),
+            };
+            validateCheckpoint(migrated, preflight);
+            assertCheckpointClockWindow({
+                phase: migrated.phase,
+                currentFrozenTime: preflight.testClockFrozenTime,
+                initialFrozenTime: migrated.initialClockFrozenTime,
+                initialPeriodEnd: migrated.initialPeriodEnd,
+                strategy: migrated.strategy,
+            });
+            writeCheckpointAtomic(migrated);
+            report.checkpoint.phase = migrated.phase;
+            addStep(
+                'checkpoint_v2_migration',
+                'Migrated the exact safe v1 boundary checkpoint to second-period recovery without editing it manually.',
+                { fromSchemaVersion: 1, toSchemaVersion: 2, phase: migrated.phase }
+            );
+            return migrated;
+        }
         validateCheckpoint(resumeCheckpoint, preflight);
         assertCheckpointClockWindow({
             phase: resumeCheckpoint.phase,
             currentFrozenTime: preflight.testClockFrozenTime,
             initialFrozenTime: resumeCheckpoint.initialClockFrozenTime,
             initialPeriodEnd: resumeCheckpoint.initialPeriodEnd,
+            strategy: resumeCheckpoint.strategy,
+            warmupPeriodEnd: resumeCheckpoint.warmupPeriodEnd,
         });
         report.checkpoint.phase = resumeCheckpoint.phase;
         return resumeCheckpoint;
     }
     const checkpoint: LifecycleCheckpoint = {
-        schemaVersion: 1,
+        schemaVersion: 2,
+        strategy: 'first_period',
         updatedAt: new Date().toISOString(),
         phase: 'initial_verified',
         supabaseProjectRef: STAGING_SUPABASE_PROJECT_REF,
@@ -1016,7 +1454,7 @@ function saveCheckpoint(
     const next: LifecycleCheckpoint = {
         ...current,
         ...updates,
-        schemaVersion: 1,
+        schemaVersion: 2,
         phase,
         updatedAt: new Date().toISOString(),
     };
@@ -1044,25 +1482,90 @@ function validateCheckpoint(
         'accountId' | 'sessionId' | 'customerId' | 'subscriptionId' | 'testClockId' | 'initialInvoiceId' | 'initialPaymentIntentId' | 'initialPeriodEnd' | 'initialCheckoutEventId' | 'initialInvoicePaidEventId'
     >
 ): void {
+    const recoveryOnlyPhases = new Set<LifecyclePhase>([
+        'warmup_renewal_preserved',
+        'transition_notice_verified',
+        'recovery_upcoming_baseline_captured',
+        'recovery_upcoming_before_boundary_verified',
+    ]);
     if (
-        checkpoint.schemaVersion !== 1
+        checkpoint.schemaVersion !== 2
+        || !['first_period', 'second_period_recovery'].includes(checkpoint.strategy)
         || !isLifecyclePhase(checkpoint.phase)
-        || checkpoint.supabaseProjectRef !== STAGING_SUPABASE_PROJECT_REF
-        || checkpoint.stripeAccountId !== expected.accountId
-        || checkpoint.checkoutSessionId !== expected.sessionId
-        || checkpoint.customerId !== expected.customerId
-        || checkpoint.subscriptionId !== expected.subscriptionId
-        || checkpoint.testClockId !== expected.testClockId
-        || checkpoint.initialInvoiceId !== expected.initialInvoiceId
-        || checkpoint.initialPaymentIntentId !== expected.initialPaymentIntentId
-        || checkpoint.initialPeriodEnd !== expected.initialPeriodEnd
-        || !Number.isInteger(checkpoint.initialClockFrozenTime)
-        || checkpoint.initialClockFrozenTime <= 0
-        || checkpoint.initialCheckoutEventId !== expected.initialCheckoutEventId
-        || checkpoint.initialInvoicePaidEventId !== expected.initialInvoicePaidEventId
+        || (checkpoint.strategy === 'first_period' && recoveryOnlyPhases.has(checkpoint.phase))
+        || (
+            checkpoint.strategy === 'second_period_recovery'
+            && lifecyclePhaseIndex(checkpoint.phase) < lifecyclePhaseIndex('upcoming_before_boundary_verified')
+        )
+        || !checkpointIdentityMatches(checkpoint, expected)
     ) {
         throw new Error('Lifecycle checkpoint identity does not match the read-only preflight.');
     }
+}
+
+function validateCheckpointIdentity(
+    checkpoint: LifecycleCheckpointCommon,
+    expected: Pick<
+        PreflightResult,
+        'accountId' | 'sessionId' | 'customerId' | 'subscriptionId' | 'testClockId' | 'initialInvoiceId' | 'initialPaymentIntentId' | 'initialPeriodEnd' | 'initialCheckoutEventId' | 'initialInvoicePaidEventId'
+    >
+): void {
+    if (!checkpointIdentityMatches(checkpoint, expected)) {
+        throw new Error('Lifecycle checkpoint identity does not match the read-only preflight.');
+    }
+}
+
+function checkpointIdentityMatches(
+    checkpoint: LifecycleCheckpointCommon,
+    expected: Pick<
+        PreflightResult,
+        'accountId' | 'sessionId' | 'customerId' | 'subscriptionId' | 'testClockId' | 'initialInvoiceId' | 'initialPaymentIntentId' | 'initialPeriodEnd' | 'initialCheckoutEventId' | 'initialInvoicePaidEventId'
+    >
+): boolean {
+    return checkpoint.supabaseProjectRef === STAGING_SUPABASE_PROJECT_REF
+        && checkpoint.stripeAccountId === expected.accountId
+        && checkpoint.checkoutSessionId === expected.sessionId
+        && checkpoint.customerId === expected.customerId
+        && checkpoint.subscriptionId === expected.subscriptionId
+        && checkpoint.testClockId === expected.testClockId
+        && checkpoint.initialInvoiceId === expected.initialInvoiceId
+        && checkpoint.initialPaymentIntentId === expected.initialPaymentIntentId
+        && checkpoint.initialPeriodEnd === expected.initialPeriodEnd
+        && Number.isInteger(checkpoint.initialClockFrozenTime)
+        && checkpoint.initialClockFrozenTime > 0
+        && checkpoint.initialCheckoutEventId === expected.initialCheckoutEventId
+        && checkpoint.initialInvoicePaidEventId === expected.initialInvoicePaidEventId;
+}
+
+function hasPostUpcomingMutationEvidence(checkpoint: LegacyLifecycleCheckpoint): boolean {
+    return [
+        checkpoint.upcomingEventId,
+        checkpoint.failurePaymentMethodId,
+        checkpoint.recoveryPaymentMethodId,
+        checkpoint.warmupInvoiceId,
+        checkpoint.warmupPaymentIntentId,
+        checkpoint.warmupPaidEventId,
+        checkpoint.warmupPeriodEnd,
+        checkpoint.transitionNoticeEventId,
+        checkpoint.transitionNoticeJobId,
+        checkpoint.transitionNoticeJobDedupeKey,
+        checkpoint.transitionNoticeJobFingerprint,
+        checkpoint.transitionNoticeInvoicePeriodEnd,
+        checkpoint.transitionNoticeBudgetDailyUsed,
+        checkpoint.transitionNoticeBudgetMonthlyUsed,
+        checkpoint.transitionNoticeBoundaryBudgetVerified,
+        checkpoint.recoveryUpcomingBaselineEventIds,
+        checkpoint.renewalInvoiceId,
+        checkpoint.renewalFailedEventId,
+        checkpoint.recoveredPaymentIntentId,
+        checkpoint.renewalPaidEventId,
+        checkpoint.cancellationPeriodEnd,
+        checkpoint.cancellationEventId,
+        checkpoint.partialRefundId,
+        checkpoint.partialRefundEventId,
+        checkpoint.finalRefundId,
+        checkpoint.finalRefundEventId,
+    ].some((value) => value !== undefined);
 }
 
 function writeCheckpointAtomic(checkpoint: LifecycleCheckpoint): void {
@@ -1092,7 +1595,7 @@ async function runReadOnlyPreflight(
     supabase: SupabaseClient<Database>,
     checkoutSessionId: string,
     expectedAccountId: string,
-    resumeCheckpoint: LifecycleCheckpoint | null,
+    resumeCheckpoint: ResumeLifecycleCheckpoint | null,
 ): Promise<PreflightResult> {
     const account = await stripe.accounts.retrieve();
     if (account.id !== expectedAccountId) throw new Error('Stripe account mismatch.');
@@ -1482,6 +1985,33 @@ async function ensureDefaultPaymentMethod(
     return setDefaultPaymentMethod(stripe, preflight, testPaymentMethod, phase);
 }
 
+async function assertUsableCurrentDefaultPaymentMethod(
+    stripe: Stripe,
+    preflight: PreflightResult,
+): Promise<string> {
+    const customerResponse = await stripe.customers.retrieve(preflight.customerId);
+    if ('deleted' in customerResponse && customerResponse.deleted) {
+        throw new Error('Target customer was deleted before the warm-up renewal.');
+    }
+    const customer = customerResponse as Stripe.Customer;
+    const subscription = await stripe.subscriptions.retrieve(preflight.subscriptionId);
+    const effectiveDefault = stripeObjectId(subscription.default_payment_method)
+        ?? stripeObjectId(customer.invoice_settings.default_payment_method);
+    if (!effectiveDefault) {
+        throw new Error('Warm-up renewal requires an existing default PaymentMethod; automatic mutation is forbidden.');
+    }
+    const paymentMethod = await stripe.paymentMethods.retrieve(effectiveDefault);
+    if (
+        paymentMethod.livemode
+        || stripeObjectId(paymentMethod.customer) !== preflight.customerId
+        || paymentMethod.type !== 'card'
+        || paymentMethod.card?.last4 === '0341'
+    ) {
+        throw new Error('Existing warm-up PaymentMethod is not an attached non-failing test card for the exact customer.');
+    }
+    return paymentMethod.id;
+}
+
 async function advanceClockTo(
     stripe: Stripe,
     preflight: PreflightResult,
@@ -1497,7 +2027,10 @@ async function advanceClockTo(
     await stripe.testHelpers.testClocks.advance(preflight.testClockId, {
         frozen_time: target,
     }, {
-        idempotencyKey: idempotencyKey(preflight.sessionId, `clock-${phase}`),
+        idempotencyKey: idempotencyKey(
+            preflight.sessionId,
+            testClockAdvanceIdempotencyScope(phase, target)
+        ),
     });
     return waitForValue(
         `Test Clock ${phase}`,
@@ -1592,10 +2125,11 @@ async function waitForRenewalNoticeJob(
     supabase: SupabaseClient<Database>,
     preflight: PreflightResult,
     upcomingEvent: Stripe.Event,
+    renewalPeriodEnd: number,
     timeout: number
 ): Promise<void> {
     const invoice = upcomingEvent.data.object as Stripe.Invoice;
-    const renewalAt = new Date(preflight.initialPeriodEnd * 1000).toISOString();
+    const renewalAt = new Date(renewalPeriodEnd * 1000).toISOString();
     const dedupeKey = `renewal_notice:${preflight.subscriptionId}:${renewalAt}`;
     await waitForValue(
         'durable renewal_notice fulfillment job',
@@ -1632,6 +2166,199 @@ async function waitForRenewalNoticeJob(
     );
 }
 
+function isTransitionUpcomingEvent(
+    event: Stripe.Event,
+    preflight: PreflightResult,
+    initialPeriodEnd: number,
+): boolean {
+    const invoice = event.data.object as Stripe.Invoice;
+    return event.livemode === false
+        && invoice.livemode === false
+        && eventInvoiceSubscriptionId(event) === preflight.subscriptionId
+        && stripeObjectId(invoice.customer) === preflight.customerId
+        && invoice.period_end === initialPeriodEnd;
+}
+
+function isCanonicalRecoveryUpcomingEvent(
+    event: Stripe.Event,
+    preflight: PreflightResult,
+    warmupPeriodEnd: number,
+): boolean {
+    const invoice = event.data.object as Stripe.Invoice;
+    return event.livemode === false
+        && invoice.livemode === false
+        && eventInvoiceSubscriptionId(event) === preflight.subscriptionId
+        && stripeObjectId(invoice.customer) === preflight.customerId
+        && invoice.period_end === warmupPeriodEnd;
+}
+
+async function requireTransitionNoticeJob(
+    supabase: SupabaseClient<Database>,
+    preflight: PreflightResult,
+    transitionEvent: Stripe.Event,
+    warmupPeriodEnd: number,
+    expectedJobId?: string,
+): Promise<TransitionNoticeJobRow> {
+    const transitionInvoice = transitionEvent.data.object as Stripe.Invoice;
+    const renewalAt = new Date(warmupPeriodEnd * 1000).toISOString();
+    const dedupeKey = `renewal_notice:${preflight.subscriptionId}:${renewalAt}`;
+    const { data, error } = await supabase
+        .from('fulfillment_jobs')
+        .select('id, job_type, status, subscription_id, student_id, dedupe_key, payload, attempts, max_attempts, run_at, locked_at, locked_by, last_error, created_at, updated_at')
+        .eq('job_type', 'renewal_notice')
+        .eq('dedupe_key', dedupeKey)
+        .limit(2);
+    if (error) throw error;
+    const rows = (data ?? []) as TransitionNoticeJobRow[];
+    const candidates: TransitionNoticeJobCandidate[] = rows.map((job) => ({
+        id: job.id,
+        jobType: job.job_type,
+        status: job.status,
+        subscriptionId: job.subscription_id,
+        studentId: job.student_id,
+        dedupeKey: job.dedupe_key,
+        lastError: job.last_error,
+        payload: job.payload,
+    }));
+    const jobId = assertTransitionNoticeJobPattern(candidates, {
+        jobId: expectedJobId,
+        eventId: transitionEvent.id,
+        stripeInvoiceId: typeof transitionInvoice.id === 'string' && transitionInvoice.id
+            ? transitionInvoice.id
+            : null,
+        stripeSubscriptionId: preflight.subscriptionId,
+        localSubscriptionId: preflight.localSubscriptionId,
+        studentId: preflight.userId,
+        renewalAt,
+        amountTotal: Math.max(0, transitionInvoice.amount_due ?? transitionInvoice.total ?? 0),
+        currency: transitionInvoice.currency ?? 'eur',
+    });
+    const job = rows.find((candidate) => candidate.id === jobId);
+    if (!job) throw new Error('Transition notice job disappeared after exact pattern validation.');
+    return job;
+}
+
+async function assertTransitionNoticeStillPreserved(
+    stripe: Stripe,
+    supabase: SupabaseClient<Database>,
+    preflight: PreflightResult,
+    checkpoint: LifecycleCheckpoint,
+    options: {
+        requireBudgetUnchanged: boolean;
+        forbiddenUpcomingEventId?: string;
+    },
+): Promise<void> {
+    if (checkpoint.strategy !== 'second_period_recovery') return;
+    const eventId = requiredCheckpointValue(
+        checkpoint.transitionNoticeEventId,
+        'transition invoice.upcoming event'
+    );
+    const jobId = requiredCheckpointValue(checkpoint.transitionNoticeJobId, 'transition renewal-notice job');
+    const expectedDedupeKey = requiredCheckpointValue(
+        checkpoint.transitionNoticeJobDedupeKey,
+        'transition renewal-notice dedupe key'
+    );
+    const expectedFingerprint = requiredCheckpointValue(
+        checkpoint.transitionNoticeJobFingerprint,
+        'transition renewal-notice job fingerprint'
+    );
+    const invoicePeriodEnd = requiredCheckpointInteger(
+        checkpoint.transitionNoticeInvoicePeriodEnd,
+        'transition invoice period end'
+    );
+    if (invoicePeriodEnd !== preflight.initialPeriodEnd) {
+        throw new Error('Transition invoice period end is not the preserved first-period boundary.');
+    }
+    const transitionEvent = await requireCheckpointEvent(
+        stripe,
+        eventId,
+        'invoice.upcoming',
+        (event) => isTransitionUpcomingEvent(event, preflight, preflight.initialPeriodEnd)
+    );
+    await waitForProcessedWebhookSucceeded(supabase, transitionEvent, timeoutMs);
+    const warmupPeriodEnd = requiredCheckpointInteger(checkpoint.warmupPeriodEnd, 'warm-up period end');
+    const job = await requireTransitionNoticeJob(
+        supabase,
+        preflight,
+        transitionEvent,
+        warmupPeriodEnd,
+        jobId
+    );
+    if (
+        job.dedupe_key !== expectedDedupeKey
+        || transitionNoticeJobFingerprint(job) !== expectedFingerprint
+    ) {
+        throw new Error('Transition renewal-notice job changed after its checkpoint snapshot.');
+    }
+
+    const before: TransitionNoticeBudgetUsage = {
+        dailyUsed: requiredCheckpointNonNegativeInteger(
+            checkpoint.transitionNoticeBudgetDailyUsed,
+            'transition daily email budget'
+        ),
+        monthlyUsed: requiredCheckpointNonNegativeInteger(
+            checkpoint.transitionNoticeBudgetMonthlyUsed,
+            'transition monthly email budget'
+        ),
+    };
+    if (options.requireBudgetUnchanged) {
+        const current = await readEmailBudgetUsage(supabase);
+        assertTransitionNoticeBudgetUnchanged(before, current);
+    }
+    if (options.forbiddenUpcomingEventId) {
+        if (options.forbiddenUpcomingEventId === eventId) {
+            throw new Error('Canonical upcoming event must differ from the transition event.');
+        }
+        await assertNoRenewalNoticeJobForEvent(
+            supabase,
+            preflight,
+            options.forbiddenUpcomingEventId
+        );
+    }
+}
+
+async function assertNoRenewalNoticeJobForEvent(
+    supabase: SupabaseClient<Database>,
+    preflight: PreflightResult,
+    stripeEventId: string,
+): Promise<void> {
+    const { data, error } = await supabase
+        .from('fulfillment_jobs')
+        .select('id, payload')
+        .eq('job_type', 'renewal_notice')
+        .eq('subscription_id', preflight.localSubscriptionId)
+        .eq('student_id', preflight.userId)
+        .limit(100);
+    if (error) throw error;
+    if ((data?.length ?? 0) === 100) {
+        throw new Error('Cannot prove absence of a second renewal-notice job within the bounded query.');
+    }
+    const duplicate = data?.find((job) => jsonRecord(job.payload).stripeEventId === stripeEventId);
+    if (duplicate) {
+        throw new Error('Canonical upcoming event created a second renewal-notice fulfillment job.');
+    }
+}
+
+function transitionNoticeJobFingerprint(job: TransitionNoticeJobRow): string {
+    return createHash('sha256').update(stableJson(job)).digest('hex');
+}
+
+function stableJson(value: unknown): string {
+    return JSON.stringify(stableJsonValue(value));
+}
+
+function stableJsonValue(value: unknown): unknown {
+    if (Array.isArray(value)) return value.map((item) => stableJsonValue(item));
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>)
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([key, item]) => [key, stableJsonValue(item)])
+        );
+    }
+    return value;
+}
+
 async function requireCheckpointEvent(
     stripe: Stripe,
     eventId: string | undefined,
@@ -1657,6 +2384,13 @@ function requiredCheckpointInteger(value: number | undefined, label: string): nu
     return value as number;
 }
 
+function requiredCheckpointNonNegativeInteger(value: number | undefined, label: string): number {
+    if (!Number.isInteger(value) || (value ?? -1) < 0) {
+        throw new Error(`Lifecycle checkpoint has invalid ${label}.`);
+    }
+    return value as number;
+}
+
 function requiredCheckpointArray(value: string[] | undefined, label: string): string[] {
     if (!Array.isArray(value)) throw new Error(`Lifecycle checkpoint is missing ${label}.`);
     return value;
@@ -1671,11 +2405,12 @@ function jsonRecord(value: Database['public']['Tables']['fulfillment_jobs']['Row
 async function findRenewalInvoice(
     stripe: Stripe,
     subscriptionId: string,
-    initialInvoiceId: string
+    excludedInvoiceIds: readonly string[]
 ): Promise<Stripe.Invoice | null> {
+    const excluded = new Set(excludedInvoiceIds);
     const invoices = await stripe.invoices.list({ subscription: subscriptionId, limit: 100 });
     return invoices.data
-        .filter((invoice) => invoice.id !== initialInvoiceId && invoice.billing_reason === 'subscription_cycle')
+        .filter((invoice) => !excluded.has(invoice.id) && invoice.billing_reason === 'subscription_cycle')
         .sort((left, right) => right.created - left.created)[0] ?? null;
 }
 
@@ -1830,6 +2565,69 @@ async function assertInitialPaymentStillPreserved(
     }
 }
 
+async function assertWarmupPaymentStillPreserved(
+    stripe: Stripe,
+    supabase: SupabaseClient<Database>,
+    preflight: PreflightResult,
+    checkpoint: LifecycleCheckpoint,
+): Promise<void> {
+    if (checkpoint.strategy !== 'second_period_recovery') return;
+
+    const warmupInvoiceId = requiredCheckpointValue(checkpoint.warmupInvoiceId, 'warm-up invoice');
+    const warmupPaymentIntentId = requiredCheckpointValue(
+        checkpoint.warmupPaymentIntentId,
+        'warm-up PaymentIntent'
+    );
+    const warmupPeriodEnd = requiredCheckpointInteger(checkpoint.warmupPeriodEnd, 'warm-up period end');
+    if (warmupPaymentIntentId === preflight.initialPaymentIntentId) {
+        throw new Error('Warm-up PaymentIntent unexpectedly matches the initial PaymentIntent.');
+    }
+
+    const warmupInvoice = await stripe.invoices.retrieve(warmupInvoiceId);
+    if (
+        warmupInvoice.status !== 'paid'
+        || warmupInvoice.billing_reason !== 'subscription_cycle'
+        || warmupInvoice.amount_paid <= 1
+        || invoiceSubscriptionId(warmupInvoice) !== preflight.subscriptionId
+        || stripeObjectId(warmupInvoice.customer) !== preflight.customerId
+        || invoicePeriodEnd(warmupInvoice) !== warmupPeriodEnd
+    ) {
+        throw new Error('Warm-up Stripe invoice is no longer a preserved paid renewal.');
+    }
+    const paidPaymentIntentId = await requirePaidInvoicePaymentIntentId(stripe, warmupInvoiceId);
+    if (paidPaymentIntentId !== warmupPaymentIntentId) {
+        throw new Error('Warm-up InvoicePayment no longer matches its preserved PaymentIntent.');
+    }
+    const warmupPaidEvent = await requireCheckpointEvent(
+        stripe,
+        checkpoint.warmupPaidEventId,
+        'invoice.paid',
+        (event) => stripeEventObjectId(event) === warmupInvoiceId
+    );
+    await waitForProcessedWebhookSucceeded(supabase, warmupPaidEvent, timeoutMs);
+    await waitForLocalPayment(
+        supabase,
+        warmupInvoiceId,
+        (payment) => payment.status === 'succeeded'
+            && payment.amount_refunded === 0
+            && payment.amount === warmupInvoice.amount_paid
+            && payment.currency === warmupInvoice.currency
+            && payment.stripe_payment_intent_id === warmupPaymentIntentId
+            && payment.subscription_id === preflight.localSubscriptionId
+            && payment.student_id === preflight.userId,
+        timeoutMs
+    );
+    const warmupCharge = await retrievePaymentIntentCharge(stripe, warmupPaymentIntentId);
+    if (
+        warmupCharge.refunded
+        || warmupCharge.amount_refunded !== 0
+        || warmupCharge.amount !== warmupInvoice.amount_paid
+        || stripeObjectId(warmupCharge.customer) !== preflight.customerId
+    ) {
+        throw new Error('Warm-up Stripe charge is no longer fully preserved.');
+    }
+}
+
 async function waitForValue<T, U extends T>(
     label: string,
     read: () => Promise<T>,
@@ -1974,6 +2772,7 @@ function renderMarkdown(value: LifecycleReport): string {
         `- Checkpoint: ${value.checkpoint.path ?? 'not initialized'}`,
         `- Checkpoint phase: ${value.checkpoint.phase ?? 'not initialized'}`,
         `- Resume requested: ${value.checkpoint.resumeRequested}`,
+        `- Session-bound 15-day recovery attestation: ${value.mutationGate.upcomingNotice15DayAuthorized}`,
         '',
         '## Safety Scope',
         '',
@@ -1999,6 +2798,10 @@ function renderMarkdown(value: LifecycleReport): string {
         '',
         `- Initial invoice: ${value.resources.initialInvoiceId ?? 'not observed'}`,
         `- Initial PaymentIntent (preserved): ${value.resources.initialPaymentIntentId ?? 'not observed'}`,
+        `- Warm-up invoice (preserved): ${value.resources.warmupInvoiceId ?? 'not applicable'}`,
+        `- Warm-up PaymentIntent (preserved): ${value.resources.warmupPaymentIntentId ?? 'not applicable'}`,
+        `- Transition invoice.upcoming event: ${value.resources.transitionNoticeEventId ?? 'not applicable'}`,
+        `- Preserved transition renewal-notice job: ${value.resources.transitionNoticeJobId ?? 'not applicable'}`,
         `- Renewal invoice: ${value.resources.renewalInvoiceId ?? 'not observed'}`,
         `- Recovered renewal PaymentIntent: ${value.resources.recoveredPaymentIntentId ?? 'not observed'}`,
         `- Partial refund: ${value.resources.partialRefundId ?? 'not observed'}`,

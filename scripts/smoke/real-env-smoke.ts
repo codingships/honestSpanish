@@ -7,6 +7,7 @@ import * as dotenv from 'dotenv';
 import Stripe from 'stripe';
 import { cancelClassEvent, getEvent } from '../../src/lib/google/calendar';
 import { getDriveClient } from '../../src/lib/google/drive';
+import { fulfillSingleSession } from '../../src/lib/fulfillment/session-fulfillment';
 import {
     getCheckoutReadyPackageOffers,
     isPackageDuration,
@@ -23,6 +24,13 @@ import {
     validateCanonicalLifecycleReport,
     type CanonicalLifecycleReportSummary,
 } from '../launch/staging-billing-lifecycle-safety';
+import {
+    assessStagingSmokeEmailBudget,
+    RESEND_FREE_DAILY_RECIPIENT_LIMIT,
+    RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
+    STAGING_SMOKE_PLANNED_RECIPIENTS,
+    type StagingSmokeEmailBudgetAssessment,
+} from '../launch/staging-smoke-runner-safety';
 
 // This harness is staging-only. Process env values supplied by the gated
 // runner win; local defaults come exclusively from the ignored staging file.
@@ -42,6 +50,14 @@ const TEACHER_PASSWORD = requireEnv('SMOKE_TEACHER_PASSWORD');
 const STUDENT_EMAIL = requireEnv('SMOKE_STUDENT_EMAIL');
 const STUDENT_PASSWORD = requireEnv('SMOKE_STUDENT_PASSWORD');
 const EMAIL_RECIPIENT_ALLOWLIST = requireEnv('EMAIL_RECIPIENT_ALLOWLIST');
+const EMAIL_DAILY_RECIPIENT_LIMIT = readPositiveIntegerEnv(
+    'EMAIL_DAILY_RECIPIENT_LIMIT',
+    RESEND_FREE_DAILY_RECIPIENT_LIMIT,
+);
+const EMAIL_MONTHLY_RECIPIENT_LIMIT = readPositiveIntegerEnv(
+    'EMAIL_MONTHLY_RECIPIENT_LIMIT',
+    RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
+);
 const COMPLETED_CHECKOUT_SESSION_ID = RUNTIME_PREFLIGHT_ONLY
     ? process.env.SMOKE_COMPLETED_CHECKOUT_SESSION_ID?.trim() ?? ''
     : requireEnv('SMOKE_COMPLETED_CHECKOUT_SESSION_ID');
@@ -202,10 +218,12 @@ type SmokeResult = {
         initialSessionId: string | null;
         initialCalendarEventId: string | null;
         initialDriveDocId: string | null;
+        initialConfirmationJobStatus: string | null;
         calendarEventExistsBeforeCancel: boolean;
         conflictStatus: number;
         cancelStatus: number;
         cancelledSessionStatus: string | null;
+        cancellationJobStatus: string | null;
         calendarEventCleared: boolean;
         eventMissingAfterCancel: boolean;
         usageAfterSchedule: number | null;
@@ -231,6 +249,17 @@ type SmokeResult = {
         reminderSentCount: number | null;
         reminderFailedCount: number | null;
         reminderMarkedSent: boolean;
+        plannedEmailRecipients: number;
+        dailyEmailRecipientsBefore: number;
+        monthlyEmailRecipientsBefore: number;
+        dailyEmailRecipientsAfterCoverage: number | null;
+        monthlyEmailRecipientsAfterCoverage: number | null;
+        dailyEmailRecipientDelta: number | null;
+        monthlyEmailRecipientDelta: number | null;
+        dailyEmailRecipientsAfterCleanup: number | null;
+        monthlyEmailRecipientsAfterCleanup: number | null;
+        dailyCleanupEmailRecipientDelta: number | null;
+        monthlyCleanupEmailRecipientDelta: number | null;
         teacherDashboardStatus: number;
         teacherDashboardContainsStudent: boolean;
         teacherCalendarStatus: number;
@@ -371,10 +400,12 @@ async function main() {
             initialSessionId: null,
             initialCalendarEventId: null,
             initialDriveDocId: null,
+            initialConfirmationJobStatus: null,
             calendarEventExistsBeforeCancel: false,
             conflictStatus: 0,
             cancelStatus: 0,
             cancelledSessionStatus: null,
+            cancellationJobStatus: null,
             calendarEventCleared: false,
             eventMissingAfterCancel: false,
             usageAfterSchedule: null,
@@ -400,6 +431,17 @@ async function main() {
             reminderSentCount: null,
             reminderFailedCount: null,
             reminderMarkedSent: false,
+            plannedEmailRecipients: STAGING_SMOKE_PLANNED_RECIPIENTS,
+            dailyEmailRecipientsBefore: 0,
+            monthlyEmailRecipientsBefore: 0,
+            dailyEmailRecipientsAfterCoverage: null,
+            monthlyEmailRecipientsAfterCoverage: null,
+            dailyEmailRecipientDelta: null,
+            monthlyEmailRecipientDelta: null,
+            dailyEmailRecipientsAfterCleanup: null,
+            monthlyEmailRecipientsAfterCleanup: null,
+            dailyCleanupEmailRecipientDelta: null,
+            monthlyCleanupEmailRecipientDelta: null,
             teacherDashboardStatus: 0,
             teacherDashboardContainsStudent: false,
             teacherCalendarStatus: 0,
@@ -469,6 +511,7 @@ async function main() {
             checkoutGateVerified: EXPECTED_CHECKOUT_OVERRIDE,
             runtimeAttestationsVerified: true,
             allowlistedRoleAccountsVerified: true,
+            emailRecipientBudget: preflight.emailRecipientBudget,
             externalWritesStarted: false,
         }, null, 2));
         return;
@@ -545,6 +588,8 @@ async function main() {
             teacherProfile,
             student,
             activePackage,
+            dailyEmailRecipientsBefore: preflight.emailRecipientBudget.currentDailyRecipients,
+            monthlyEmailRecipientsBefore: preflight.emailRecipientBudget.currentMonthlyRecipients,
         });
 
         result.adminJobs = await runAdminJobsRecoverySmoke({
@@ -599,6 +644,7 @@ type ReadOnlySmokePreflight = {
     stripePrices: Awaited<ReturnType<typeof stripe.prices.list>>;
     realPaymentEvidence: VerifiedRealPaymentEvidence;
     checkoutGateStatus: number;
+    emailRecipientBudget: StagingSmokeEmailBudgetAssessment;
 };
 
 async function runReadOnlyPreflight(): Promise<ReadOnlySmokePreflight> {
@@ -654,6 +700,9 @@ async function runReadOnlyPreflight(): Promise<ReadOnlySmokePreflight> {
     if (blockingSubscription) {
         throw new Error('The reusable smoke student still has an active, pending or paused subscription; complete and verify the canonical cancellation lifecycle before the write phase.');
     }
+    // Keep the quota read as the final preflight operation so the snapshot is
+    // as fresh as possible before role authentication and the first mutation.
+    const emailRecipientBudget = await verifyStagingSmokeEmailBudget();
 
     return {
         activePackage,
@@ -663,7 +712,61 @@ async function runReadOnlyPreflight(): Promise<ReadOnlySmokePreflight> {
         stripePrices,
         realPaymentEvidence,
         checkoutGateStatus,
+        emailRecipientBudget,
     };
+}
+
+async function verifyStagingSmokeEmailBudget(): Promise<StagingSmokeEmailBudgetAssessment> {
+    const currentRecipients = await readEmailRecipientUsage();
+    const assessment = assessStagingSmokeEmailBudget({
+        currentDailyRecipients: currentRecipients.daily,
+        currentMonthlyRecipients: currentRecipients.monthly,
+        configuredDailyLimit: EMAIL_DAILY_RECIPIENT_LIMIT,
+        configuredMonthlyLimit: EMAIL_MONTHLY_RECIPIENT_LIMIT,
+        plannedSmokeRecipients: STAGING_SMOKE_PLANNED_RECIPIENTS,
+    });
+    if (!assessment.allowed) {
+        throw new Error(
+            `Staging smoke email budget rejected before writes: reason=${assessment.reason} daily=${assessment.currentDailyRecipients}+${assessment.plannedSmokeRecipients}->${assessment.projectedDailyRecipients}/${assessment.effectiveDailyLimit} monthly=${assessment.currentMonthlyRecipients}+${assessment.plannedSmokeRecipients}->${assessment.projectedMonthlyRecipients}/${assessment.effectiveMonthlyLimit}.`,
+        );
+    }
+    return assessment;
+}
+
+async function readEmailRecipientUsage(): Promise<{ daily: number; monthly: number }> {
+    const todayUtc = new Date().toISOString().slice(0, 10);
+    const monthUtc = `${todayUtc.slice(0, 8)}01`;
+    const { data, error } = await supabaseAdmin
+        .from('email_recipient_budget_usage')
+        .select('period_kind,period_start,recipient_count')
+        .eq('budget_scope', 'nonproduction')
+        .in('period_kind', ['day', 'month'])
+        .in('period_start', [todayUtc, monthUtc]);
+    if (error) throw error;
+    return {
+        daily: data?.find((row) =>
+            row.period_kind === 'day' && row.period_start === todayUtc
+        )?.recipient_count ?? 0,
+        monthly: data?.find((row) =>
+            row.period_kind === 'month' && row.period_start === monthUtc
+        )?.recipient_count ?? 0,
+    };
+}
+
+async function waitForEmailRecipientUsage(
+    expectedDailyMinimum: number,
+    expectedMonthlyMinimum: number,
+    timeoutMs: number = 45_000,
+): Promise<{ daily: number; monthly: number } | null> {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const current = await readEmailRecipientUsage();
+        if (current.daily >= expectedDailyMinimum && current.monthly >= expectedMonthlyMinimum) {
+            return current;
+        }
+        await sleep(500);
+    }
+    return null;
 }
 
 function assertExactSmokeEmailAllowlist() {
@@ -1164,6 +1267,8 @@ async function runSchedulingLifecycleSmoke(options: {
     teacherProfile: RoleProfile;
     student: SmokeStudent;
     activePackage: ActivePackage;
+    dailyEmailRecipientsBefore: number;
+    monthlyEmailRecipientsBefore: number;
 }): Promise<SmokeResult['schedulingLifecycle']> {
     const result: SmokeResult['schedulingLifecycle'] = {
         ok: false,
@@ -1176,10 +1281,12 @@ async function runSchedulingLifecycleSmoke(options: {
         initialSessionId: null,
         initialCalendarEventId: null,
         initialDriveDocId: null,
+        initialConfirmationJobStatus: null,
         calendarEventExistsBeforeCancel: false,
         conflictStatus: 0,
         cancelStatus: 0,
         cancelledSessionStatus: null,
+        cancellationJobStatus: null,
         calendarEventCleared: false,
         eventMissingAfterCancel: false,
         usageAfterSchedule: null,
@@ -1205,6 +1312,17 @@ async function runSchedulingLifecycleSmoke(options: {
         reminderSentCount: null,
         reminderFailedCount: null,
         reminderMarkedSent: false,
+        plannedEmailRecipients: STAGING_SMOKE_PLANNED_RECIPIENTS,
+        dailyEmailRecipientsBefore: options.dailyEmailRecipientsBefore,
+        monthlyEmailRecipientsBefore: options.monthlyEmailRecipientsBefore,
+        dailyEmailRecipientsAfterCoverage: null,
+        monthlyEmailRecipientsAfterCoverage: null,
+        dailyEmailRecipientDelta: null,
+        monthlyEmailRecipientDelta: null,
+        dailyEmailRecipientsAfterCleanup: null,
+        monthlyEmailRecipientsAfterCleanup: null,
+        dailyCleanupEmailRecipientDelta: null,
+        monthlyCleanupEmailRecipientDelta: null,
         teacherDashboardStatus: 0,
         teacherDashboardContainsStudent: false,
         teacherCalendarStatus: 0,
@@ -1246,6 +1364,10 @@ async function runSchedulingLifecycleSmoke(options: {
 
     result.initialCalendarEventId = initialSession?.calendar_event_id ?? null;
     result.initialDriveDocId = initialSession?.drive_doc_id ?? null;
+    const initialConfirmationJob = initialSessionId
+        ? await waitForSessionFulfillmentJob(initialSessionId, 'session_fulfillment')
+        : null;
+    result.initialConfirmationJobStatus = initialConfirmationJob?.status ?? null;
     result.calendarEventExistsBeforeCancel = initialSession?.calendar_event_id
         ? Boolean(await getEvent(initialSession.calendar_event_id))
         : false;
@@ -1280,6 +1402,10 @@ async function runSchedulingLifecycleSmoke(options: {
         )
         : null;
     result.cancelledSessionStatus = cancelledSession?.status ?? null;
+    const cancellationJob = initialSessionId
+        ? await waitForSessionFulfillmentJob(initialSessionId, 'session_cancellation')
+        : null;
+    result.cancellationJobStatus = cancellationJob?.status ?? null;
     result.calendarEventCleared = Boolean(cancelledSession && cancelledSession.calendar_event_id === null && cancelledSession.meet_link === null);
     if (initialSession?.calendar_event_id) {
         const cancelledEvent = await getEvent(initialSession.calendar_event_id);
@@ -1287,15 +1413,15 @@ async function runSchedulingLifecycleSmoke(options: {
     }
     result.usageAfterCancel = await getSubscriptionUsage(schedulingSubscription.id);
 
-    const rebookResponse = await authedJsonFetch(options.teacherSession, '/api/calendar/sessions', {
-        method: 'POST',
-        body: {
-            studentId: options.student.id,
-            scheduledAt: slot.toISOString(),
-            durationMinutes: 50,
-            autoCreateMeeting: true,
-        },
+    const rebookCandidate = await createNoEmailSchedulingVariant({
+        studentId: options.student.id,
+        teacherId: options.teacherProfile.id,
+        teacherEmail: options.teacherProfile.email || TEACHER_EMAIL,
+        subscriptionId: schedulingSubscription.id,
+        durationMinutes: 50,
+        preferredSlot: slot,
     });
+    const rebookResponse = rebookCandidate.response;
     result.rebookStatus = rebookResponse.status;
 
     const rebookSessionId = extractSessionId(rebookResponse.body);
@@ -1306,7 +1432,13 @@ async function runSchedulingLifecycleSmoke(options: {
     result.rebookCalendarEventId = rebookSession?.calendar_event_id ?? null;
     result.usageAfterRebook = await getSubscriptionUsage(schedulingSubscription.id);
 
-    const completeCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 50);
+    const completeCandidate = await createNoEmailSchedulingVariant({
+        studentId: options.student.id,
+        teacherId: options.teacherProfile.id,
+        teacherEmail: options.teacherProfile.email || TEACHER_EMAIL,
+        subscriptionId: schedulingSubscription.id,
+        durationMinutes: 50,
+    });
     const completedSessionId = extractSessionId(completeCandidate.response.body);
     result.completedSessionId = completedSessionId;
     const completedScheduledSession = completedSessionId
@@ -1342,7 +1474,13 @@ async function runSchedulingLifecycleSmoke(options: {
     result.completedNotesStored = completedSession?.teacher_notes === `Smoke completion notes ${options.suffix}`;
     result.usageAfterComplete = await getSubscriptionUsage(schedulingSubscription.id);
 
-    const noShowCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 50);
+    const noShowCandidate = await createNoEmailSchedulingVariant({
+        studentId: options.student.id,
+        teacherId: options.teacherProfile.id,
+        teacherEmail: options.teacherProfile.email || TEACHER_EMAIL,
+        subscriptionId: schedulingSubscription.id,
+        durationMinutes: 50,
+    });
     const noShowSessionId = extractSessionId(noShowCandidate.response.body);
     result.noShowSessionId = noShowSessionId;
     const noShowScheduledSession = noShowSessionId
@@ -1421,13 +1559,10 @@ async function runSchedulingLifecycleSmoke(options: {
     result.adminCalendarContainsNoShow = adminCalendarResponse.body.includes('"status":"no_show"') || adminCalendarResponse.body.includes('no_show');
 
     const cleanupCancelResponse = rebookSessionId
-        ? await authedJsonFetch(options.teacherSession, '/api/calendar/session-action', {
-            method: 'POST',
-            body: {
-                sessionId: rebookSessionId,
-                action: 'cancel',
-                reason: `Smoke cleanup ${options.suffix}`,
-            },
+        ? await cancelSchedulingVariantWithoutEmail({
+            sessionId: rebookSessionId,
+            actorId: options.teacherProfile.id,
+            reason: `Smoke cleanup ${options.suffix}`,
         })
         : { status: 0, body: 'missing rebook session id' as Json | string };
     result.cleanupCancelStatus = cleanupCancelResponse.status;
@@ -1436,6 +1571,18 @@ async function runSchedulingLifecycleSmoke(options: {
         await waitForSessionState(rebookSessionId, (session) => session.status === 'cancelled');
     }
     result.finalUsage = await getSubscriptionUsage(schedulingSubscription.id);
+    const emailRecipientsAfterCoverage = await waitForEmailRecipientUsage(
+        options.dailyEmailRecipientsBefore + STAGING_SMOKE_PLANNED_RECIPIENTS,
+        options.monthlyEmailRecipientsBefore + STAGING_SMOKE_PLANNED_RECIPIENTS,
+    );
+    result.dailyEmailRecipientsAfterCoverage = emailRecipientsAfterCoverage?.daily ?? null;
+    result.monthlyEmailRecipientsAfterCoverage = emailRecipientsAfterCoverage?.monthly ?? null;
+    result.dailyEmailRecipientDelta = result.dailyEmailRecipientsAfterCoverage === null
+        ? null
+        : result.dailyEmailRecipientsAfterCoverage - options.dailyEmailRecipientsBefore;
+    result.monthlyEmailRecipientDelta = result.monthlyEmailRecipientsAfterCoverage === null
+        ? null
+        : result.monthlyEmailRecipientsAfterCoverage - options.monthlyEmailRecipientsBefore;
 
     result.ok =
         result.studentFolderStatus === 200 &&
@@ -1445,11 +1592,13 @@ async function runSchedulingLifecycleSmoke(options: {
         Boolean(result.initialSessionId) &&
         Boolean(result.initialCalendarEventId) &&
         Boolean(result.initialDriveDocId) &&
+        result.initialConfirmationJobStatus === 'succeeded' &&
         result.calendarEventExistsBeforeCancel &&
         result.usageAfterSchedule === 1 &&
         result.conflictStatus === 409 &&
         result.cancelStatus === 200 &&
         result.cancelledSessionStatus === 'cancelled' &&
+        result.cancellationJobStatus === 'succeeded' &&
         result.calendarEventCleared &&
         result.eventMissingAfterCancel &&
         result.usageAfterCancel === 0 &&
@@ -1483,12 +1632,27 @@ async function runSchedulingLifecycleSmoke(options: {
         result.adminCalendarContainsCompleted &&
         result.adminCalendarContainsNoShow &&
         result.cleanupCancelStatus === 200 &&
-        result.finalUsage === 2;
+        result.finalUsage === 2 &&
+        result.plannedEmailRecipients === STAGING_SMOKE_PLANNED_RECIPIENTS &&
+        result.dailyEmailRecipientDelta === STAGING_SMOKE_PLANNED_RECIPIENTS &&
+        result.monthlyEmailRecipientDelta === STAGING_SMOKE_PLANNED_RECIPIENTS;
     } finally {
         if (schedulingSubscriptionId) {
             const cleaned = await cleanupSchedulingSmokeArtifacts(options.student.id, schedulingSubscriptionId);
             result.cleanupStatus = cleaned ? 'deleted_sessions_subscription_and_google_artifacts' : 'cleanup_failed';
-            result.ok = result.ok && cleaned;
+            const emailRecipientsAfterCleanup = await readEmailRecipientUsage();
+            result.dailyEmailRecipientsAfterCleanup = emailRecipientsAfterCleanup.daily;
+            result.monthlyEmailRecipientsAfterCleanup = emailRecipientsAfterCleanup.monthly;
+            result.dailyCleanupEmailRecipientDelta = result.dailyEmailRecipientsAfterCoverage === null
+                ? null
+                : result.dailyEmailRecipientsAfterCleanup - result.dailyEmailRecipientsAfterCoverage;
+            result.monthlyCleanupEmailRecipientDelta = result.monthlyEmailRecipientsAfterCoverage === null
+                ? null
+                : result.monthlyEmailRecipientsAfterCleanup - result.monthlyEmailRecipientsAfterCoverage;
+            result.ok = result.ok
+                && cleaned
+                && result.dailyCleanupEmailRecipientDelta === 0
+                && result.monthlyCleanupEmailRecipientDelta === 0;
         }
     }
 
@@ -1710,16 +1874,17 @@ async function createSmokeFailedFulfillmentJob(options: {
     student: SmokeStudent;
     activePackage: ActivePackage;
 }) {
+    const inertSessionId = crypto.randomUUID();
     const { data, error } = await supabaseAdmin
         .from('fulfillment_jobs')
         .insert({
-            job_type: 'welcome_fulfillment',
+            job_type: 'session_fulfillment',
             status: 'failed',
             student_id: options.student.id,
             payload: {
-                userId: options.student.id,
-                packageId: options.activePackage.id,
-                locale: 'es',
+                sessionId: inertSessionId,
+                autoCreateMeeting: false,
+                sendEmail: false,
                 smoke_managed: true,
                 source: 'real-env-smoke',
                 suffix: options.suffix,
@@ -1800,6 +1965,30 @@ async function waitForFulfillmentJobState(
         await sleep(500);
     }
 
+    return null;
+}
+
+async function waitForSessionFulfillmentJob(
+    sessionId: string,
+    jobType: 'session_fulfillment' | 'session_cancellation',
+    timeoutMs: number = 45_000,
+) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+        const { data, error } = await supabaseAdmin
+            .from('fulfillment_jobs')
+            .select('id,status')
+            .eq('session_id', sessionId)
+            .eq('job_type', jobType)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+        if (error) throw error;
+        if (data && ['succeeded', 'failed', 'cancelled'].includes(data.status ?? '')) {
+            return data;
+        }
+        await sleep(500);
+    }
     return null;
 }
 
@@ -2214,6 +2403,156 @@ async function cleanupSchedulingSmokeArtifacts(studentId: string, subscriptionId
     return !sessionVerifyError && !subscriptionVerifyError && remainingSession === null && remainingSubscription === null;
 }
 
+async function createNoEmailSchedulingVariant(options: {
+    studentId: string;
+    teacherId: string;
+    teacherEmail: string;
+    subscriptionId: string;
+    durationMinutes: number;
+    preferredSlot?: Date;
+}) {
+    const generatedSlots = buildNoEmailSchedulingCandidateSlots();
+    const candidateSlots = options.preferredSlot
+        ? [
+            new Date(options.preferredSlot),
+            ...generatedSlots.filter((slot) => slot.getTime() !== options.preferredSlot!.getTime()),
+        ]
+        : generatedSlots;
+    let lastFailure: { slot: string; reason: string } | null = null;
+
+    for (const slot of candidateSlots) {
+        const end = new Date(slot.getTime() + options.durationMinutes * 60_000);
+        if (!(await isGoogleSlotAvailableForSmoke(options.teacherEmail, slot, end))) {
+            lastFailure = { slot: slot.toISOString(), reason: 'google-calendar-busy' };
+            continue;
+        }
+
+        const sessionsUsed = await getSubscriptionUsage(options.subscriptionId);
+        const { data: subscription, error: subscriptionError } = await supabaseAdmin
+            .from('subscriptions')
+            .select('sessions_total')
+            .eq('id', options.subscriptionId)
+            .single();
+        if (subscriptionError) throw subscriptionError;
+        if (sessionsUsed >= (subscription.sessions_total ?? 0)) {
+            throw new Error('No sessions remain for a no-email smoke scheduling variant.');
+        }
+
+        const { data: session, error: sessionError } = await supabaseAdmin
+            .from('sessions')
+            .insert({
+                subscription_id: options.subscriptionId,
+                student_id: options.studentId,
+                teacher_id: options.teacherId,
+                scheduled_at: slot.toISOString(),
+                duration_minutes: options.durationMinutes,
+                status: 'scheduled',
+                reminder_sent: false,
+            })
+            .select('id')
+            .single();
+        if (sessionError?.code === '23P01') {
+            lastFailure = { slot: slot.toISOString(), reason: 'database-conflict' };
+            continue;
+        }
+        if (sessionError || !session) throw sessionError ?? new Error('No-email smoke session insert failed.');
+
+        const { data: quotaUpdate, error: quotaError } = await supabaseAdmin
+            .from('subscriptions')
+            .update({ sessions_used: sessionsUsed + 1 })
+            .eq('id', options.subscriptionId)
+            .eq('sessions_used', sessionsUsed)
+            .select('id')
+            .maybeSingle();
+        if (quotaError || !quotaUpdate) {
+            await supabaseAdmin.from('sessions').delete().eq('id', session.id);
+            throw quotaError ?? new Error('No-email smoke session quota update lost an optimistic race.');
+        }
+
+        // Secondary variants still exercise real Drive/Docs/Calendar/Meet
+        // artifacts, but never reserve or send another Resend recipient.
+        await fulfillSingleSession(supabaseAdmin, session.id, {
+            autoCreateMeeting: true,
+            sendEmail: false,
+        });
+
+        return {
+            slot,
+            response: {
+                status: 201,
+                body: { session: { id: session.id }, sendEmail: false } as Json,
+            },
+        };
+    }
+
+    throw new Error(`Could not create a no-email scheduling variant. Last failure: ${JSON.stringify(lastFailure)}`);
+}
+
+function buildNoEmailSchedulingCandidateSlots(): Date[] {
+    const slots: Date[] = [];
+    for (let dayOffset = 21; dayOffset < 90; dayOffset += 1) {
+        for (const hour of [6, 8, 10, 12, 14, 16, 18, 20]) {
+            const slot = new Date();
+            slot.setUTCDate(slot.getUTCDate() + dayOffset);
+            slot.setUTCHours(hour, 0, 0, 0);
+            slots.push(slot);
+        }
+    }
+    return slots;
+}
+
+async function isGoogleSlotAvailableForSmoke(teacherEmail: string, start: Date, end: Date) {
+    const response = await fetch(`${FULFILLMENT_WORKER_URL}/internal/google/availability`, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${INTERNAL_JOB_SECRET}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            teacherEmail,
+            startTime: start.toISOString(),
+            endTime: end.toISOString(),
+        }),
+    });
+    const body = await readJsonOrText(response);
+    if (!response.ok || !body || typeof body !== 'object' || Array.isArray(body)) {
+        throw new Error(`Google availability preflight failed with status ${response.status}.`);
+    }
+    return body.available === true;
+}
+
+async function cancelSchedulingVariantWithoutEmail(options: {
+    sessionId: string;
+    actorId: string;
+    reason: string;
+}): Promise<{ status: number; body: Json | string }> {
+    const session = await getSession(options.sessionId);
+    if (!session) return { status: 404, body: 'missing session' };
+
+    const { data: cancelRows, error: cancelError } = await supabaseAdmin.rpc('cancel_scheduled_session', {
+        p_session_id: options.sessionId,
+        p_cancelled_by: options.actorId,
+        p_cancelled_by_role: 'teacher',
+        p_cancellation_reason: options.reason,
+    });
+    if (cancelError) throw cancelError;
+    if (!cancelRows?.[0]) return { status: 409, body: 'session state changed' };
+
+    if (session.calendar_event_id && !(await cancelClassEvent(session.calendar_event_id))) {
+        throw new Error('No-email cleanup could not cancel its smoke Calendar event.');
+    }
+    const { error: updateError } = await supabaseAdmin
+        .from('sessions')
+        .update({ calendar_event_id: null, meet_link: null })
+        .eq('id', options.sessionId);
+    if (updateError) throw updateError;
+
+    return {
+        status: 200,
+        body: { success: true, sendEmail: false },
+    };
+}
+
 async function scheduleFirstAvailableSession(teacherSession: string, studentId: string, durationMinutes: number) {
     let lastFailure: { slot: string; status: number; body: Json | string } | null = null;
 
@@ -2421,6 +2760,12 @@ function renderSmokeSummary(result: SmokeResult) {
         '',
         'This staging-only smoke reuses the three existing allowlisted role accounts; it never creates Auth users and never needs access to the student inbox. It calls Supabase staging, Stripe test, Google and Resend only after a read-only preflight validates every gate. The JSON evidence is redacted before it is written.',
         'Checkout stays disabled throughout and the unauthenticated probe must return `403 Checkout is disabled`. The smoke reuses `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` from a real completed Checkout and preserves that evidence; it never creates or expires another Checkout Session. Billing renewal/failure/resume/cancellation requires an explicit canonical lifecycle report plus live terminal revalidation. Synthetic Stripe events are never generated.',
+        '',
+        '## Email Recipient Budget',
+        '',
+        `- Planned recipients: ${result.schedulingLifecycle.plannedEmailRecipients}`,
+        `- UTC daily delta before cleanup: ${result.schedulingLifecycle.dailyEmailRecipientDelta ?? 'unverified'}; cleanup delta: ${result.schedulingLifecycle.dailyCleanupEmailRecipientDelta ?? 'unverified'}`,
+        `- UTC monthly delta before cleanup: ${result.schedulingLifecycle.monthlyEmailRecipientDelta ?? 'unverified'}; cleanup delta: ${result.schedulingLifecycle.monthlyCleanupEmailRecipientDelta ?? 'unverified'}`,
         '',
         '## Sections',
         '',

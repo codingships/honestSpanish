@@ -3,9 +3,11 @@ export const STRIPE_API_VERSION = '2026-02-25.clover' as const;
 export const FAILING_PAYMENT_METHOD = 'pm_card_chargeCustomerFail';
 export const RECOVERY_PAYMENT_METHOD = 'pm_card_visa';
 export const LIFECYCLE_CONFIRMATION_ENV = 'STAGING_BILLING_LIFECYCLE_CONFIRMATION';
+export const UPCOMING_NOTICE_CONFIRMATION_ENV = 'STAGING_BILLING_UPCOMING_NOTICE_15_DAY_CONFIRMATION';
 export const INVOICE_UPCOMING_NOTICE_DAYS = 15;
 export const INVOICE_UPCOMING_NOTICE_SECONDS = INVOICE_UPCOMING_NOTICE_DAYS * 24 * 60 * 60;
 export const INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS = 60;
+export const RENEWAL_FINALIZATION_OFFSET_SECONDS = 7_200;
 export const STAGING_STRIPE_WEBHOOK_ENDPOINT_URL = 'https://espanolhonesto-staging.alindev95.workers.dev/api/stripe-webhook';
 export const LIFECYCLE_WEBHOOK_EVENT_TYPES = [
     'checkout.session.completed',
@@ -19,6 +21,10 @@ export const LIFECYCLE_PHASES = [
     'initial_verified',
     'upcoming_baseline_captured',
     'upcoming_before_boundary_verified',
+    'warmup_renewal_preserved',
+    'transition_notice_verified',
+    'recovery_upcoming_baseline_captured',
+    'recovery_upcoming_before_boundary_verified',
     'upcoming_observed',
     'failure_payment_method_set',
     'renewal_failed',
@@ -29,6 +35,7 @@ export const LIFECYCLE_PHASES = [
     'complete',
 ] as const;
 export type LifecyclePhase = typeof LIFECYCLE_PHASES[number];
+export type LifecycleStrategy = 'first_period' | 'second_period_recovery';
 
 const CHECKOUT_SESSION_PATTERN = /^cs_test_[A-Za-z0-9_]+$/;
 const CUSTOMER_PATTERN = /^cus_[A-Za-z0-9_]+$/;
@@ -36,6 +43,7 @@ const SUBSCRIPTION_PATTERN = /^sub_[A-Za-z0-9_]+$/;
 const INVOICE_PATTERN = /^in_[A-Za-z0-9_]+$/;
 const PAYMENT_INTENT_PATTERN = /^pi_[A-Za-z0-9_]+$/;
 const TEST_CLOCK_PATTERN = /^clock_[A-Za-z0-9_]+$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 
 export interface LifecycleEnvironmentInput {
     stripeSecretKey?: string;
@@ -159,9 +167,26 @@ export interface LifecycleWebhookEndpointSnapshot {
     enabledEvents: string[];
 }
 
+export interface TransitionNoticeJobCandidate {
+    id: string;
+    jobType: string;
+    status: string;
+    subscriptionId: string | null;
+    studentId: string | null;
+    dedupeKey: string | null;
+    lastError: string | null;
+    payload: unknown;
+}
+
+export interface TransitionNoticeBudgetUsage {
+    dailyUsed: number;
+    monthlyUsed: number;
+}
+
 export interface CanonicalLifecycleEvidence {
-    schemaVersion: 1;
+    schemaVersion: 2;
     status: 'complete';
+    strategy: LifecycleStrategy;
     stripeAccountId: string;
     supabaseProjectRef: typeof STAGING_SUPABASE_PROJECT_REF;
     checkoutSessionId: string;
@@ -169,6 +194,21 @@ export interface CanonicalLifecycleEvidence {
     subscriptionId: string;
     initialInvoiceId: string;
     initialPaymentIntentId: string;
+    warmup: {
+        invoiceId: string;
+        paymentIntentId: string;
+        invoicePaidEventId: string;
+        periodEnd: number;
+    } | null;
+    transitionNotice: {
+        eventId: string;
+        jobId: string;
+        dedupeKey: string;
+        invoicePeriodEnd: number;
+        jobFingerprint: string;
+        budgetBeforeBoundary: TransitionNoticeBudgetUsage;
+        budgetAfterBoundary: TransitionNoticeBudgetUsage;
+    } | null;
     renewalInvoiceId: string;
     recoveredPaymentIntentId: string;
     partialRefundId: string;
@@ -189,6 +229,8 @@ export interface CanonicalLifecycleEvidence {
         recoveredPaymentStatus: 'refunded';
         recoveredChargeFullyRefunded: true;
         initialPaymentPreserved: true;
+        warmupPaymentPreserved: true | null;
+        transitionNoticePreserved: true | null;
         processedWebhookEvents: 'succeeded';
     };
 }
@@ -209,6 +251,10 @@ export interface CanonicalLifecycleReportSummary {
         subscriptionId: string;
         initialInvoiceId: string;
         initialPaymentIntentId: string;
+        warmupInvoiceId: string | null;
+        warmupPaymentIntentId: string | null;
+        transitionNoticeEventId: string | null;
+        transitionNoticeJobId: string | null;
         renewalInvoiceId: string;
         recoveredPaymentIntentId: string;
         partialRefundId: string;
@@ -217,6 +263,7 @@ export interface CanonicalLifecycleReportSummary {
     mutationGate: {
         authorized: true;
         sessionBound: true;
+        upcomingNotice15DayAuthorized: boolean;
     };
     checkpoint: {
         phase: 'complete';
@@ -230,6 +277,138 @@ export function lifecycleConfirmationForSession(sessionId: string): string {
         throw new Error('Lifecycle confirmation requires a cs_test_ Checkout Session ID.');
     }
     return `I_CONFIRM_STAGING_BILLING_LIFECYCLE:${sessionId}`;
+}
+
+export function upcomingNoticeConfirmationForSession(sessionId: string): string {
+    if (!CHECKOUT_SESSION_PATTERN.test(sessionId)) {
+        throw new Error('Upcoming-notice confirmation requires a cs_test_ Checkout Session ID.');
+    }
+    return `I_CONFIRM_STRIPE_UPCOMING_RENEWAL_EVENTS_15_DAYS:${sessionId}`;
+}
+
+export function assertUpcomingNoticeConfigurationConfirmation(input: {
+    checkoutSessionId: string;
+    confirmation?: string;
+}): void {
+    if (input.confirmation !== upcomingNoticeConfirmationForSession(input.checkoutSessionId)) {
+        throw new Error(
+            `Second-period recovery blocked. Set ${UPCOMING_NOTICE_CONFIRMATION_ENV} to the exact session-bound 15-day confirmation.`
+        );
+    }
+}
+
+export function assertLegacySecondPeriodRecoveryCheckpoint(input: {
+    schemaVersion: number;
+    phase: unknown;
+    currentFrozenTime: number;
+    initialPeriodEnd: number;
+    upcomingBaselineEventIds: unknown;
+    hasPostUpcomingMutationEvidence: boolean;
+}): void {
+    const baseline = input.upcomingBaselineEventIds;
+    if (
+        input.schemaVersion !== 1
+        || input.phase !== 'upcoming_before_boundary_verified'
+        || input.currentFrozenTime !== invoiceUpcomingBoundary(input.initialPeriodEnd)
+        || !Array.isArray(baseline)
+        || baseline.length !== 0
+        || baseline.some((eventId) => typeof eventId !== 'string' || !/^evt_[A-Za-z0-9_]+$/u.test(eventId))
+        || input.hasPostUpcomingMutationEvidence
+    ) {
+        throw new Error('Legacy checkpoint is not the exact safe second-period recovery checkpoint.');
+    }
+}
+
+export function requireSingleTransitionNoticeEventId(input: {
+    baselineEventIds: readonly string[];
+    currentEventIds: readonly string[];
+}): string {
+    for (const [label, ids] of [
+        ['baseline', input.baselineEventIds],
+        ['current', input.currentEventIds],
+    ] as const) {
+        if (
+            new Set(ids).size !== ids.length
+            || ids.some((eventId) => !/^evt_[A-Za-z0-9_]+$/u.test(eventId))
+        ) {
+            throw new Error(`Transition notice ${label} event set is invalid.`);
+        }
+    }
+    const current = new Set(input.currentEventIds);
+    if (input.baselineEventIds.some((eventId) => !current.has(eventId))) {
+        throw new Error('Transition notice baseline is not contained in the current event set.');
+    }
+    const baseline = new Set(input.baselineEventIds);
+    const transitionEventIds = input.currentEventIds.filter((eventId) => !baseline.has(eventId));
+    if (transitionEventIds.length !== 1) {
+        throw new Error('Second-period recovery requires exactly one late transition invoice.upcoming event.');
+    }
+    return transitionEventIds[0];
+}
+
+export function assertTransitionNoticeJobPattern(
+    candidates: readonly TransitionNoticeJobCandidate[],
+    expected: {
+        jobId?: string;
+        eventId: string;
+        stripeInvoiceId: string | null;
+        stripeSubscriptionId: string;
+        localSubscriptionId: string;
+        studentId: string;
+        renewalAt: string;
+        amountTotal: number;
+        currency: string;
+    },
+): string {
+    if (candidates.length !== 1) {
+        throw new Error('Transition notice must have exactly one fulfillment job for the renewal dedupe key.');
+    }
+    const job = candidates[0];
+    const payload = recordValue(job.payload, 'Transition notice job payload');
+    const invoiceMatches = expected.stripeInvoiceId === null
+        ? payload.stripeInvoiceId === undefined
+        : payload.stripeInvoiceId === expected.stripeInvoiceId;
+    if (
+        !UUID_PATTERN.test(job.id)
+        || (expected.jobId !== undefined && job.id !== expected.jobId)
+        || job.jobType !== 'renewal_notice'
+        || job.status !== 'succeeded'
+        || job.subscriptionId !== expected.localSubscriptionId
+        || job.studentId !== expected.studentId
+        || job.dedupeKey !== `renewal_notice:${expected.stripeSubscriptionId}:${expected.renewalAt}`
+        || job.lastError !== null
+        || payload.stripeEventId !== expected.eventId
+        || !invoiceMatches
+        || payload.stripeSubscriptionId !== expected.stripeSubscriptionId
+        || payload.subscriptionId !== expected.localSubscriptionId
+        || payload.userId !== expected.studentId
+        || payload.renewalAt !== expected.renewalAt
+        || payload.cancelBy !== expected.renewalAt
+        || payload.amountTotal !== expected.amountTotal
+        || payload.currency !== expected.currency
+    ) {
+        throw new Error('Transition notice fulfillment job or payload is inconsistent with the late event.');
+    }
+    return job.id;
+}
+
+export function assertTransitionNoticeBudgetUnchanged(
+    before: TransitionNoticeBudgetUsage,
+    after: TransitionNoticeBudgetUsage,
+): void {
+    for (const usage of [before, after]) {
+        if (
+            !Number.isInteger(usage.dailyUsed)
+            || usage.dailyUsed < 0
+            || !Number.isInteger(usage.monthlyUsed)
+            || usage.monthlyUsed < 0
+        ) {
+            throw new Error('Transition notice budget snapshot is invalid.');
+        }
+    }
+    if (before.dailyUsed !== after.dailyUsed || before.monthlyUsed !== after.monthlyUsed) {
+        throw new Error('Staging email budget increased while crossing the canonical 15-day boundary.');
+    }
 }
 
 export function validateLifecycleEnvironment(
@@ -285,6 +464,13 @@ export function invoiceUpcomingBoundary(periodEnd: number): number {
     return periodEnd - INVOICE_UPCOMING_NOTICE_SECONDS;
 }
 
+export function testClockAdvanceIdempotencyScope(phase: string, target: number): string {
+    if (!/^[a-z0-9-]+$/u.test(phase) || !Number.isInteger(target) || target <= 0) {
+        throw new Error('Test Clock idempotency scope requires a safe phase and positive target timestamp.');
+    }
+    return `clock-${phase}-${target}`;
+}
+
 export function assertLifecyclePhaseTransition(current: LifecyclePhase, next: LifecyclePhase): void {
     if (lifecyclePhaseIndex(next) < lifecyclePhaseIndex(current)) {
         throw new Error('Refusing to move the lifecycle checkpoint backwards.');
@@ -296,6 +482,8 @@ export function assertCheckpointClockWindow(input: {
     currentFrozenTime: number;
     initialFrozenTime: number;
     initialPeriodEnd: number;
+    strategy?: LifecycleStrategy;
+    warmupPeriodEnd?: number;
 }): void {
     const boundary = invoiceUpcomingBoundary(input.initialPeriodEnd);
     const beforeBoundary = boundary - INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS;
@@ -306,6 +494,50 @@ export function assertCheckpointClockWindow(input: {
         || input.initialFrozenTime >= beforeBoundary
     ) {
         throw new Error('Checkpoint Test Clock time is invalid.');
+    }
+
+    const strategy = input.strategy ?? 'first_period';
+    if (strategy === 'second_period_recovery') {
+        const warmupFinalization = input.initialPeriodEnd + RENEWAL_FINALIZATION_OFFSET_SECONDS;
+        if (input.phase === 'upcoming_before_boundary_verified') {
+            if (![boundary, input.initialPeriodEnd, warmupFinalization].includes(input.currentFrozenTime)) {
+                throw new Error('Recovery checkpoint has an ambiguous first-renewal Test Clock position.');
+            }
+            return;
+        }
+        if (!Number.isInteger(input.warmupPeriodEnd) || (input.warmupPeriodEnd ?? 0) <= input.initialPeriodEnd) {
+            throw new Error('Recovery checkpoint is missing a valid warm-up period end.');
+        }
+        const recoveryBoundary = invoiceUpcomingBoundary(input.warmupPeriodEnd as number);
+        const recoveryBeforeBoundary = recoveryBoundary - INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS;
+        if (recoveryBeforeBoundary <= warmupFinalization) {
+            throw new Error('Recovery checkpoint warm-up period cannot prove a second 15-day boundary.');
+        }
+        if (input.phase === 'warmup_renewal_preserved' || input.phase === 'transition_notice_verified') {
+            if (input.currentFrozenTime !== warmupFinalization) {
+                throw new Error('Warm-up/transition checkpoint has an ambiguous Test Clock position.');
+            }
+            return;
+        }
+        if (input.phase === 'recovery_upcoming_baseline_captured') {
+            if (![warmupFinalization, recoveryBeforeBoundary].includes(input.currentFrozenTime)) {
+                throw new Error('Recovery upcoming baseline checkpoint has an ambiguous Test Clock position.');
+            }
+            return;
+        }
+        if (input.phase === 'recovery_upcoming_before_boundary_verified') {
+            if (![recoveryBeforeBoundary, recoveryBoundary + 1].includes(input.currentFrozenTime)) {
+                throw new Error('Recovery pre-boundary checkpoint has an ambiguous Test Clock position.');
+            }
+            return;
+        }
+        if (lifecyclePhaseIndex(input.phase) < lifecyclePhaseIndex('warmup_renewal_preserved')) {
+            throw new Error('Second-period recovery cannot resume from an earlier checkpoint phase.');
+        }
+        if (input.currentFrozenTime < recoveryBoundary + 1) {
+            throw new Error('Post-upcoming recovery checkpoint is behind the second 15-day boundary.');
+        }
+        return;
     }
 
     if (input.phase === 'initial_verified') {
@@ -376,6 +608,10 @@ export function assertResumePhaseState(input: {
         case 'initial_verified':
         case 'upcoming_baseline_captured':
         case 'upcoming_before_boundary_verified':
+        case 'warmup_renewal_preserved':
+        case 'transition_notice_verified':
+        case 'recovery_upcoming_baseline_captured':
+        case 'recovery_upcoming_before_boundary_verified':
         case 'upcoming_observed':
             if (!active) throw new Error('Resume state is inconsistent with the pre-renewal checkpoint phase.');
             return;
@@ -421,6 +657,20 @@ export function validateCanonicalLifecycleReport(
     const evidence = recordValue(report.canonicalEvidence, 'Canonical lifecycle evidence');
     const eventIds = recordValue(evidence.webhookEventIds, 'Canonical lifecycle webhook events');
     const finalState = recordValue(evidence.finalState, 'Canonical lifecycle final state');
+    const strategy = evidence.strategy;
+    const isSecondPeriodRecovery = strategy === 'second_period_recovery';
+    const warmup = evidence.warmup === null
+        ? null
+        : recordValue(evidence.warmup, 'Canonical lifecycle warm-up evidence');
+    const transitionNotice = evidence.transitionNotice === null
+        ? null
+        : recordValue(evidence.transitionNotice, 'Canonical lifecycle transition-notice evidence');
+    const transitionBudgetBefore = transitionNotice === null
+        ? null
+        : recordValue(transitionNotice.budgetBeforeBoundary, 'Transition-notice budget before boundary');
+    const transitionBudgetAfter = transitionNotice === null
+        ? null
+        : recordValue(transitionNotice.budgetAfterBoundary, 'Transition-notice budget after boundary');
 
     const requiredResourcePatterns: Array<[unknown, RegExp, string]> = [
         [resources.checkoutSessionId, CHECKOUT_SESSION_PATTERN, 'report Checkout Session'],
@@ -437,6 +687,46 @@ export function validateCanonicalLifecycleReport(
         if (typeof candidate !== 'string' || !pattern.test(candidate)) {
             throw new Error(`Canonical lifecycle evidence has an invalid ${label}.`);
         }
+    }
+    if (isSecondPeriodRecovery) {
+        const requiredWarmupPatterns: Array<[unknown, RegExp, string]> = [
+            [resources.warmupInvoiceId, INVOICE_PATTERN, 'report warm-up invoice'],
+            [resources.warmupPaymentIntentId, PAYMENT_INTENT_PATTERN, 'report warm-up PaymentIntent'],
+            [warmup?.invoiceId, INVOICE_PATTERN, 'evidence warm-up invoice'],
+            [warmup?.paymentIntentId, PAYMENT_INTENT_PATTERN, 'evidence warm-up PaymentIntent'],
+            [warmup?.invoicePaidEventId, /^evt_[A-Za-z0-9_]+$/u, 'evidence warm-up invoice.paid event'],
+            [resources.transitionNoticeEventId, /^evt_[A-Za-z0-9_]+$/u, 'report transition invoice.upcoming event'],
+            [resources.transitionNoticeJobId, UUID_PATTERN, 'report transition renewal-notice job'],
+            [transitionNotice?.eventId, /^evt_[A-Za-z0-9_]+$/u, 'evidence transition invoice.upcoming event'],
+            [transitionNotice?.jobId, UUID_PATTERN, 'evidence transition renewal-notice job'],
+            [transitionNotice?.jobFingerprint, /^[a-f0-9]{64}$/u, 'evidence transition job fingerprint'],
+        ];
+        for (const [candidate, pattern, label] of requiredWarmupPatterns) {
+            if (typeof candidate !== 'string' || !pattern.test(candidate)) {
+                throw new Error(`Canonical lifecycle evidence has an invalid ${label}.`);
+            }
+        }
+        if (!Number.isInteger(warmup?.periodEnd) || (warmup?.periodEnd as number) <= 0) {
+            throw new Error('Canonical lifecycle evidence has an invalid warm-up period end.');
+        }
+        if (
+            transitionNotice === null
+            || !Number.isInteger(transitionNotice.invoicePeriodEnd)
+            || (transitionNotice.invoicePeriodEnd as number) <= 0
+            || (transitionNotice.invoicePeriodEnd as number) >= (warmup?.periodEnd as number)
+            || transitionNotice.dedupeKey !== `renewal_notice:${evidence.subscriptionId}:${new Date((warmup?.periodEnd as number) * 1000).toISOString()}`
+            || transitionBudgetBefore === null
+            || transitionBudgetAfter === null
+        ) {
+            throw new Error('Canonical lifecycle evidence has an invalid transition notice.');
+        }
+        assertTransitionNoticeBudgetUnchanged({
+            dailyUsed: transitionBudgetBefore.dailyUsed as number,
+            monthlyUsed: transitionBudgetBefore.monthlyUsed as number,
+        }, {
+            dailyUsed: transitionBudgetAfter.dailyUsed as number,
+            monthlyUsed: transitionBudgetAfter.monthlyUsed as number,
+        });
     }
     for (const [name, eventId] of Object.entries(eventIds)) {
         if (typeof eventId !== 'string' || !/^evt_[A-Za-z0-9_]+$/u.test(eventId)) {
@@ -458,6 +748,15 @@ export function validateCanonicalLifecycleReport(
         || new Set(Object.values(eventIds)).size !== requiredEventNames.length) {
         throw new Error('Canonical lifecycle evidence does not contain the exact webhook event set.');
     }
+    if (isSecondPeriodRecovery && Object.values(eventIds).includes(warmup?.invoicePaidEventId)) {
+        throw new Error('Canonical lifecycle warm-up event must be distinct from the target webhook event set.');
+    }
+    if (isSecondPeriodRecovery && Object.values(eventIds).includes(transitionNotice?.eventId)) {
+        throw new Error('Canonical lifecycle transition event must be distinct from the target webhook event set.');
+    }
+    if (isSecondPeriodRecovery && transitionNotice?.eventId === warmup?.invoicePaidEventId) {
+        throw new Error('Canonical lifecycle transition event must differ from the warm-up invoice.paid event.');
+    }
 
     const evidenceMatches = report.schemaVersion === 1
         && report.status === 'OK'
@@ -470,16 +769,41 @@ export function validateCanonicalLifecycleReport(
         && scope.productionExcluded === true
         && mutationGate.authorized === true
         && mutationGate.sessionBound === true
+        && (isSecondPeriodRecovery
+            ? mutationGate.upcomingNotice15DayAuthorized === true
+            : mutationGate.upcomingNotice15DayAuthorized === false)
         && checkpoint.phase === 'complete'
         && resources.checkoutSessionId === expected.checkoutSessionId
-        && evidence.schemaVersion === 1
+        && evidence.schemaVersion === 2
         && evidence.status === 'complete'
+        && (strategy === 'first_period' || isSecondPeriodRecovery)
         && evidence.stripeAccountId === expected.stripeAccountId
         && evidence.supabaseProjectRef === STAGING_SUPABASE_PROJECT_REF
         && evidence.checkoutSessionId === expected.checkoutSessionId
         && evidence.subscriptionId === resources.subscriptionId
         && evidence.initialInvoiceId === resources.initialInvoiceId
         && evidence.initialPaymentIntentId === resources.initialPaymentIntentId
+        && (isSecondPeriodRecovery
+            ? warmup !== null
+                && warmup.invoiceId === resources.warmupInvoiceId
+                && warmup.paymentIntentId === resources.warmupPaymentIntentId
+                && warmup.paymentIntentId !== evidence.initialPaymentIntentId
+                && warmup.paymentIntentId !== evidence.recoveredPaymentIntentId
+                && warmup.invoiceId !== evidence.initialInvoiceId
+                && warmup.invoiceId !== evidence.renewalInvoiceId
+                && finalState.warmupPaymentPreserved === true
+                && transitionNotice !== null
+                && transitionNotice.eventId === resources.transitionNoticeEventId
+                && transitionNotice.jobId === resources.transitionNoticeJobId
+                && finalState.transitionNoticePreserved === true
+            : warmup === null
+                && resources.warmupInvoiceId === null
+                && resources.warmupPaymentIntentId === null
+                && finalState.warmupPaymentPreserved === null
+                && transitionNotice === null
+                && resources.transitionNoticeEventId === null
+                && resources.transitionNoticeJobId === null
+                && finalState.transitionNoticePreserved === null)
         && evidence.renewalInvoiceId === resources.renewalInvoiceId
         && evidence.recoveredPaymentIntentId === resources.recoveredPaymentIntentId
         && evidence.partialRefundId === resources.partialRefundId
@@ -736,13 +1060,26 @@ export function assertLifecyclePreflight(
 
 export function buildRefundPlan(input: {
     initialPaymentIntentId: string;
+    warmupPaymentIntentId?: string;
     recoveredPaymentIntentId: string;
     recoveredAmount: number;
 }): RefundPlan {
     assertPattern(input.initialPaymentIntentId, PAYMENT_INTENT_PATTERN, 'Initial PaymentIntent is invalid');
+    if (input.warmupPaymentIntentId !== undefined) {
+        assertPattern(input.warmupPaymentIntentId, PAYMENT_INTENT_PATTERN, 'Warm-up PaymentIntent is invalid');
+    }
     assertPattern(input.recoveredPaymentIntentId, PAYMENT_INTENT_PATTERN, 'Recovered PaymentIntent is invalid');
     if (input.initialPaymentIntentId === input.recoveredPaymentIntentId) {
         throw new Error('Recovered renewal PaymentIntent must differ from the preserved initial PaymentIntent.');
+    }
+    if (
+        input.warmupPaymentIntentId !== undefined
+        && (
+            input.warmupPaymentIntentId === input.initialPaymentIntentId
+            || input.warmupPaymentIntentId === input.recoveredPaymentIntentId
+        )
+    ) {
+        throw new Error('Initial, warm-up and recovered renewal PaymentIntents must differ.');
     }
     assertPositiveInteger(input.recoveredAmount, 'Recovered payment amount must be a positive integer');
     if (input.recoveredAmount <= 1) {
