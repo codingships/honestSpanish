@@ -13,6 +13,7 @@ const config = readFileSync('workers/fulfillment/wrangler.toml', 'utf8');
 const runner = readFileSync('scripts/launch/cloudflare-production-queue-provision.ts', 'utf8');
 const shared = readFileSync('scripts/launch/cloudflare-production-queue-shared.ts', 'utf8');
 const packageJson = readFileSync('package.json', 'utf8');
+const productionRunbook = readFileSync('docs/launch/CLOUDFLARE_PRODUCTION.md', 'utf8');
 
 describe('Cloudflare production Queue provisioning', () => {
     it('binds the producer and consumer only in active production', () => {
@@ -75,7 +76,11 @@ describe('Cloudflare production Queue provisioning', () => {
         for (const snippet of [
             'PRODUCTION_QUEUE_APPROVAL_ENV',
             'PRODUCTION_QUEUE_APPROVAL_SENTENCE',
-            "supportedArguments = new Set(['--execute-approved'])",
+            "supportedArguments = new Set(['--execute-approved', '--verify-existing'])",
+            "throw new Error('--execute-approved and --verify-existing are mutually exclusive')",
+            'exact_existing_inventory_gate',
+            'verify_existing_read_only',
+            "closureStatus = 'VERIFIED_EXISTING'",
             "process.env[PRODUCTION_QUEUE_APPROVAL_ENV]?.trim() === PRODUCTION_QUEUE_APPROVAL_SENTENCE",
             'exact_name_collision_gate',
             'clearForProvision',
@@ -100,6 +105,7 @@ describe('Cloudflare production Queue provisioning', () => {
         }
 
         expect(runner.indexOf("const createDlq = runCommand")).toBeLessThan(runner.indexOf("const createQueue = runCommand"));
+        expect(runner.indexOf('if (verifyExistingRequested)')).toBeLessThan(runner.indexOf('exact_name_collision_gate'));
         expect(PRODUCTION_QUEUE_APPROVAL_SENTENCE).toContain(PRODUCTION_QUEUE_TARGET.accountId);
         expect(PRODUCTION_QUEUE_APPROVAL_SENTENCE.indexOf(PRODUCTION_QUEUE_TARGET.deadLetterQueue))
             .toBeLessThan(PRODUCTION_QUEUE_APPROVAL_SENTENCE.indexOf(PRODUCTION_QUEUE_TARGET.queue));
@@ -130,5 +136,22 @@ describe('Cloudflare production Queue provisioning', () => {
     it('keeps package wiring for the parent integration step', () => {
         expect(packageJson).toContain('"launch:cloudflare-production-queues": "tsx scripts/launch/cloudflare-production-queue-provision.ts"');
         expect(runner).toContain('launch:cloudflare-production-queues');
+    });
+
+    it('places inert Queue provisioning before the fulfillment bootstrap and final enable', () => {
+        const queueStep = productionRunbook.indexOf('2. Crear, bajo aprobación exacta separada');
+        const bootstrapStep = productionRunbook.indexOf('3. Desplegar primero `espanol-honesto-fulfillment-production`');
+        const enableStep = productionRunbook.indexOf('10. Habilitar fulfillment únicamente');
+
+        expect(queueStep).toBeGreaterThan(-1);
+        expect(queueStep).toBeLessThan(bootstrapStep);
+        expect(bootstrapStep).toBeLessThan(enableStep);
+        expect(productionRunbook).toContain('pnpm launch:cloudflare-production-queues -- --execute-approved');
+        expect(productionRunbook).toContain('pnpm launch:cloudflare-production-queues -- --verify-existing');
+        expect(productionRunbook).toContain('no despliega Workers ni añade consumidores manualmente');
+        expect(productionRunbook).toContain('`production_bootstrap` no declara bindings');
+        expect(productionRunbook).toContain('Es un prerrequisito externo separado');
+        expect(productionRunbook).toContain('el runner de enable no crea, borra, adopta ni valida el inventario de Queues');
+        expect(productionRunbook).toContain('la existencia de Queues procede del preflight separado');
     });
 });

@@ -4,14 +4,15 @@ import {
     allowListExactlyMatches,
     applyVerifiedAuthConfigChange,
     exactApprovalMatched,
+    hasBroadAuthRedirectWildcard,
     mergeUriAllowList,
     PRODUCTION_AUTH_APPROVALS,
     productionDesiredPatch,
     redactedPreflight,
     safeErrorMessage,
     selectSafeAuthConfig,
-    STAGING_AUTH_CALLBACKS,
-    STAGING_CALLBACKS_APPROVAL,
+    STAGING_AUTH_REDIRECTS,
+    STAGING_REDIRECTS_APPROVAL,
     SUPABASE_AUTH_TARGETS,
     verifyExactSafePatch,
     getSafeAuthConfig,
@@ -79,22 +80,46 @@ describe('Supabase Auth config runners', () => {
         expect(artifact).not.toContain('must-not-appear');
     });
 
-    it('preserves existing staging allowlist entries and adds every exact callback once', () => {
+    it('preserves exact staging allowlist entries and adds all confirmation and reset redirects once', () => {
         const existing = [
             'https://existing.example/callback',
-            STAGING_AUTH_CALLBACKS[0],
-            'https://another.example/**',
+            STAGING_AUTH_REDIRECTS[0],
+            'https://another.example/auth/confirm',
         ].join(', ');
-        const merged = mergeUriAllowList(existing, STAGING_AUTH_CALLBACKS);
+        const merged = mergeUriAllowList(existing, STAGING_AUTH_REDIRECTS);
         const entries = merged.split(',');
 
         expect(entries).toContain('https://existing.example/callback');
-        expect(entries).toContain('https://another.example/**');
-        for (const callback of STAGING_AUTH_CALLBACKS) {
-            expect(entries.filter((entry) => entry === callback)).toHaveLength(1);
+        expect(entries).toContain('https://another.example/auth/confirm');
+        for (const redirect of STAGING_AUTH_REDIRECTS) {
+            expect(entries.filter((entry) => entry === redirect)).toHaveLength(1);
         }
         expect(allowListExactlyMatches(merged, merged)).toBe(true);
-        expect(allowListExactlyMatches(`${merged},${STAGING_AUTH_CALLBACKS[0]}`, merged)).toBe(false);
+        expect(allowListExactlyMatches(`${merged},${STAGING_AUTH_REDIRECTS[0]}`, merged)).toBe(false);
+    });
+
+    it('pins six exact staging redirects and rejects broad Supabase Auth wildcard syntax before merge', () => {
+        expect(STAGING_AUTH_REDIRECTS).toEqual([
+            'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=es',
+            'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=en',
+            'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=ru',
+            'https://espanolhonesto-staging.alindev95.workers.dev/es/reset-password',
+            'https://espanolhonesto-staging.alindev95.workers.dev/en/reset-password',
+            'https://espanolhonesto-staging.alindev95.workers.dev/ru/reset-password',
+        ]);
+        expect(STAGING_AUTH_REDIRECTS.every((entry) => !hasBroadAuthRedirectWildcard(entry))).toBe(true);
+
+        for (const wildcard of [
+            'https://*.example.com/auth/confirm',
+            'https://example.com/**',
+            'https://example.com/[!a-z]',
+            'https://example.com/%2A',
+            'https://example.com/?',
+        ]) {
+            expect(hasBroadAuthRedirectWildcard(wildcard)).toBe(true);
+            expect(() => mergeUriAllowList(wildcard, STAGING_AUTH_REDIRECTS))
+                .toThrow('contains a broad wildcard');
+        }
     });
 
     it('requires both the execute flag and the exact phase-specific approval sentence', () => {
@@ -109,7 +134,7 @@ describe('Supabase Auth config runners', () => {
         expect(exactApprovalMatched(inert, ['--execute-approved'], {
             [inert.approvalEnvVar]: `${inert.exactApprovalSentence} extra`,
         })).toBe(false);
-        expect(exactApprovalMatched(STAGING_CALLBACKS_APPROVAL, ['--execute-approved'], {
+        expect(exactApprovalMatched(STAGING_REDIRECTS_APPROVAL, ['--execute-approved'], {
             [inert.approvalEnvVar]: inert.exactApprovalSentence,
         })).toBe(false);
     });
@@ -232,7 +257,7 @@ describe('Supabase Auth config runners', () => {
     });
 
     it('patches only the staging allowlist and preserves every other safe field', async () => {
-        const mergedAllowList = mergeUriAllowList(baseConfig.uri_allow_list, STAGING_AUTH_CALLBACKS);
+        const mergedAllowList = mergeUriAllowList(baseConfig.uri_allow_list, STAGING_AUTH_REDIRECTS);
         const after = { ...baseConfig, uri_allow_list: mergedAllowList };
         const fetcher = sequenceFetcher([
             jsonResponse(baseConfig),
@@ -244,7 +269,7 @@ describe('Supabase Auth config runners', () => {
             projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
             token: 'test-management-token',
             buildDesiredPatch: (before) => ({
-                uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_CALLBACKS),
+                uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_REDIRECTS),
             }),
             verifyDesired: (before, observed, patch) => (
                 observed.disable_signup === before.disable_signup

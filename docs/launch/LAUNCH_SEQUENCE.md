@@ -56,6 +56,7 @@ Condiciones esperadas:
 - `pnpm launch:worktree` no detecta archivos no versionables; `WARNING` es aceptable mientras existan cambios pendientes sin commit.
 - `pnpm launch:cleanup`, `pnpm launch:content`, `pnpm launch:seo`, `pnpm launch:public-visual`, `pnpm launch:security`, `pnpm launch:operations`, `pnpm launch:payments` y `pnpm launch:accessibility` pasan sin warnings relevantes.
 - `pnpm launch:functional-rc` pasa para demostrar solicitud, CRM, emails, diagnostico, onboarding, seguridad sin cobros reales y soporte con tests locales/mock.
+- El simulacro de incidente, las alertas Sentry y la prueba/aceptacion explicita del rollback estan cerrados con evidencia no secreta; son bloqueadores RC aunque las integraciones production activas sigan final-only.
 - `pnpm launch:no-real-payments -- --deployed-url <staging-url>` pasa para confirmar que el entorno desplegado responde 403 temprano en `/api/create-checkout`; sin URL puede quedar solo con warning de confirmacion manual. No debe haber ningun camino publico que abra Stripe Checkout sin decision explicita.
 - Si el probe desplegado devuelve `400 priceId is required`, ejecutar `pnpm launch:staging-no-real-payments-remediation` y corregir Cloudflare Pages staging antes de cerrar no-cobros.
 - `pnpm launch:rc-external-closure` genera la hoja unica `outputs/launch-rc-external-closure/<timestamp>/rc-external-closure-pack.md` para Cloudflare checkout blocking, Supabase staging rollout y operations evidence antes de pedir writes externos.

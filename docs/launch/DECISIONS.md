@@ -207,6 +207,8 @@ Decision: no existe compra publica directa. El admin aprueba un paquete concreto
 
 Decision: Español Honesto no acepta alumnos menores de 18 años. Solicitud, diagnóstico, registro y checkout exigen declaración expresa de mayoría de edad; leads, perfiles de alumno y checkout conservan versión y fecha de la declaración. El campus bloquea a alumnos sin declaración persistida y les ofrece un flujo de confirmación dedicado; administradores y profesores quedan fuera de ese bloqueo por rol. No se recoge fecha de nacimiento.
 
+Decision de redirecciones Auth staging: `uri_allow_list` debe contener rutas exactas, sin `*`, `**`, clases, llaves, escapes ni equivalentes codificados. Se permiten únicamente las tres confirmaciones localizadas `/api/auth/confirm?lang=es|en|ru` y las tres recuperaciones `/{es|en|ru}/reset-password`, además de entradas exactas ya existentes. El runner bloquea antes de cualquier PATCH si el baseline o la lista requerida contiene un comodín amplio; no lo conserva ni lo elimina sin una autorización distinta.
+
 Pros:
 - Webhooks simples.
 - Pago queda vinculado a usuario Supabase.

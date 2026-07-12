@@ -111,10 +111,34 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Resolve exact runtime URLs
+        shell: bash
+        env:
+          PRODUCTION_PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
+          PRODUCTION_FULFILLMENT_WORKER_URL: ${{ secrets.FULFILLMENT_WORKER_URL }}
+        run: |
+          if [ "$GITHUB_REF_NAME" = "main" ]; then
+            if [ "$PRODUCTION_PUBLIC_SITE_URL" != "https://espanolhonesto.com" ]; then
+              echo "Production PUBLIC_SITE_URL is missing or does not match the canonical production URL."
+              exit 1
+            fi
+            if [ "$PRODUCTION_FULFILLMENT_WORKER_URL" != "https://espanol-honesto-fulfillment-production.alindev95.workers.dev" ]; then
+              echo "Production FULFILLMENT_WORKER_URL is missing or does not match the exact production Worker."
+              exit 1
+            fi
+            printf '%s\n' "PUBLIC_SITE_URL=$PRODUCTION_PUBLIC_SITE_URL" >> "$GITHUB_ENV"
+            printf '%s\n' "FULFILLMENT_WORKER_URL=$PRODUCTION_FULFILLMENT_WORKER_URL" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_NAME" = "staging" ]; then
+            printf '%s\n' "PUBLIC_SITE_URL=https://espanolhonesto-staging.alindev95.workers.dev" >> "$GITHUB_ENV"
+            printf '%s\n' "FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-staging.alindev95.workers.dev" >> "$GITHUB_ENV"
+          else
+            echo "Unsupported deploy branch: $GITHUB_REF_NAME"
+            exit 1
+          fi
+
       - name: Build
         env:
           CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
-          PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
           PUBLIC_APP_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
           SUPABASE_EXPECTED_PROJECT_REF: ${{ github.ref_name == 'main' && 'vkkahxsybhbutszerawz' || 'mzjyvmlxfpzdfdjzxxyj' }}
           WORKER_IDENTITY: ${{ github.ref_name == 'main' && 'espanolhonesto' || 'espanolhonesto-staging' }}
@@ -129,7 +153,6 @@ jobs:
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          FULFILLMENT_WORKER_URL: ${{ secrets.FULFILLMENT_WORKER_URL }}
           INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
           CHECKOUT_ENABLED: "false"
         shell: bash
@@ -191,11 +214,5 @@ jobs:
       - name: Verify staging checkout is disabled
         if: github.ref_name == 'staging'
         env:
-          STAGING_WORKER_URL: ${{ vars.CLOUDFLARE_STAGING_URL || vars.CLOUDFLARE_WORKERS_STAGING_URL }}
-        shell: bash
-        run: |
-          if [ -z "$STAGING_WORKER_URL" ]; then
-            echo "Missing CLOUDFLARE_STAGING_URL or CLOUDFLARE_WORKERS_STAGING_URL for staging checkout verification."
-            exit 1
-          fi
-          pnpm run launch:no-real-payments -- --deployed-url "$STAGING_WORKER_URL"
+          STAGING_WORKER_URL: https://espanolhonesto-staging.alindev95.workers.dev
+        run: pnpm run launch:no-real-payments -- --deployed-url "$STAGING_WORKER_URL"

@@ -27,7 +27,7 @@ Estado: apoyo para operar sin cobros reales hasta el cierre final de Stripe.
 corepack pnpm launch:no-real-payments
 ```
 
-CI ejecuta `pnpm run launch:no-real-payments` en build/test y fuerza `CHECKOUT_ENABLED=false` durante el build. Tras desplegar la rama `staging`, GitHub Actions ejecuta un probe read-only contra `CLOUDFLARE_WORKERS_STAGING_URL` o `CLOUDFLARE_STAGING_URL`. El deploy de staging no debe considerarse apto para RC si ese probe no devuelve 403 `Checkout is disabled`.
+CI ejecuta `pnpm run launch:no-real-payments` en build/test y fuerza `CHECKOUT_ENABLED=false` durante el build. Tras desplegar la rama `staging`, GitHub Actions ejecuta el probe read-only contra el Worker canónico `https://espanolhonesto-staging.alindev95.workers.dev`; no usa `staging.espanolhonesto.com` ni depende de una variable externa mientras ese dominio custom siga sin configurar. El deploy de staging no debe considerarse apto para RC si ese probe no devuelve 403 `Checkout is disabled`.
 
 Para RC local, si no se pasa URL explicita, los scripts usan como fallback el Worker staging directo `https://espanolhonesto-staging.alindev95.workers.dev`. `https://staging.espanolhonesto.com` sigue siendo evidencia de dominio custom/final, pero no debe ser el fallback silencioso de no-real-payments mientras DNS/SSL/routing no esten verificados.
 

@@ -12,10 +12,13 @@ export const SUPABASE_AUTH_TARGETS = {
     },
 } as const;
 
-export const STAGING_AUTH_CALLBACKS = [
+export const STAGING_AUTH_REDIRECTS = [
     'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=es',
     'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=en',
     'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=ru',
+    'https://espanolhonesto-staging.alindev95.workers.dev/es/reset-password',
+    'https://espanolhonesto-staging.alindev95.workers.dev/en/reset-password',
+    'https://espanolhonesto-staging.alindev95.workers.dev/ru/reset-password',
 ] as const;
 
 export type SafeAuthConfig = {
@@ -55,11 +58,11 @@ export const PRODUCTION_AUTH_APPROVALS = {
     },
 } as const satisfies Record<string, ApprovalSpec>;
 
-export const STAGING_CALLBACKS_APPROVAL = {
+export const STAGING_REDIRECTS_APPROVAL = {
     environment: 'staging',
     projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
-    approvalEnvVar: 'SUPABASE_AUTH_STAGING_CALLBACKS_APPROVAL',
-    exactApprovalSentence: `Autorizo actualizar únicamente uri_allow_list de Supabase staging mzjyvmlxfpzdfdjzxxyj para añadir ${STAGING_AUTH_CALLBACKS.join(', ')}, preservando todas las entradas existentes, verificarla y restaurar el valor previo si falla. No autorizo producción ni otros campos o recursos.`,
+    approvalEnvVar: 'SUPABASE_AUTH_STAGING_REDIRECTS_APPROVAL',
+    exactApprovalSentence: `Autorizo actualizar únicamente uri_allow_list de Supabase staging mzjyvmlxfpzdfdjzxxyj para añadir ${STAGING_AUTH_REDIRECTS.join(', ')}, preservando todas las entradas exactas existentes, bloqueando antes de escribir si existe cualquier comodín amplio, verificando el resultado y restaurando el valor previo si falla. No autorizo producción ni otros campos o recursos.`,
 } as const satisfies ApprovalSpec;
 
 export type ChangeResult = {
@@ -143,6 +146,8 @@ export function mergeUriAllowList(
     requiredEntries: readonly string[],
 ): string {
     const merged = parseUriAllowList(currentValue);
+    assertNoBroadAuthRedirectWildcards(merged);
+    assertNoBroadAuthRedirectWildcards(requiredEntries);
     const seen = new Set(merged);
 
     for (const entry of requiredEntries) {
@@ -153,6 +158,34 @@ export function mergeUriAllowList(
     }
 
     return merged.join(',');
+}
+
+export function assertNoBroadAuthRedirectWildcards(entries: readonly string[]): void {
+    for (const entry of entries) {
+        if (hasBroadAuthRedirectWildcard(entry)) {
+            throw new Error('Supabase Auth redirect allowlist contains a broad wildcard');
+        }
+    }
+}
+
+export function hasBroadAuthRedirectWildcard(value: string): boolean {
+    const entry = value.trim();
+    if (!entry) return false;
+
+    // Supabase Auth supports glob syntax in redirect URLs. The RC contract is
+    // exact-path only: reject raw or percent-encoded globstar, character-class,
+    // brace and escape syntax. A literal query delimiter remains valid for the
+    // three exact `?lang=` confirmation callbacks.
+    if (/[*\[\]{}\\]/u.test(entry)
+        || /%(?:2a|5b|5d|7b|7d|5c)/iu.test(entry)) {
+        return true;
+    }
+
+    const queryDelimiter = entry.indexOf('?');
+    if (queryDelimiter < 0) return false;
+
+    const query = entry.slice(queryDelimiter + 1);
+    return query.length === 0 || !query.includes('=');
 }
 
 export function allowListExactlyMatches(value: string, expected: string): boolean {

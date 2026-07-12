@@ -1,5 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    collectOpenRcOperationalBlockers,
+    hasExplicitRcOperationalClosureEvidence,
+} from './rc-operational-checklist';
 
 interface PrimarySummary {
     status: string;
@@ -285,6 +289,7 @@ function reviewChecklist(target: Finding[]): void {
         .filter((line) => line.trim().startsWith('- [ ]'));
     const secondaryReviewOpen = sectionLines(checklist, '## Revision Secundaria')
         .filter((line) => line.trim().startsWith('- [ ]'));
+    const rcOperationalBlockers = collectOpenRcOperationalBlockers(checklist);
     const items = parseChecklistItems(checklist);
 
     target.push({
@@ -294,6 +299,15 @@ function reviewChecklist(target: Finding[]): void {
             ? 'No unchecked Go/No-Go blockers remain in CHECKLIST.md.'
             : 'Unchecked Go/No-Go blockers remain in CHECKLIST.md.',
         details: blockers.map((line) => line.trim()),
+    });
+
+    target.push({
+        status: rcOperationalBlockers.length === 0 ? 'ok' : 'failed',
+        area: 'release candidate operational blockers',
+        message: rcOperationalBlockers.length === 0
+            ? 'Incident simulation, Sentry alerts and rollback proof are closed for the Release Candidate.'
+            : 'Release Candidate operational blockers remain open in CHECKLIST.md.',
+        details: rcOperationalBlockers.map((blocker) => `${blocker.id}: ${blocker.line}`),
     });
 
     target.push({
@@ -1875,7 +1889,7 @@ function reviewEvidencePaths(checklist: string, target: Finding[]): void {
 }
 
 function reviewCheckedEvidence(items: ChecklistItem[], target: Finding[]): void {
-    const requireEvidenceSections = new Set(['Go/No-Go Blockers', 'Revision Secundaria']);
+    const requireEvidenceSections = new Set(['Go/No-Go Blockers', 'Operacion', 'Revision Secundaria']);
     const checkedWithoutEvidence = items
         .filter((item) => item.checked)
         .filter((item) => !hasEvidence(item.line))
@@ -1889,8 +1903,8 @@ function reviewCheckedEvidence(items: ChecklistItem[], target: Finding[]): void 
         status: checkedWithoutEvidence.length === 0 ? 'ok' : 'failed',
         area: 'checked blocker evidence',
         message: checkedWithoutEvidence.length === 0
-            ? 'Checked Go/No-Go and secondary-review items include explicit evidence, a validated Current Evidence reference, or decision text.'
-            : 'Checked Go/No-Go or secondary-review items lack explicit evidence.',
+            ? 'Checked Go/No-Go, Operations and secondary-review items include explicit evidence, a validated Current Evidence reference, accepted-risk owner/date or decision text.'
+            : 'Checked Go/No-Go, Operations or secondary-review items lack explicit evidence.',
         details: checkedWithoutEvidence.map((item) => `${item.section}: ${item.line}`),
     });
 
@@ -1972,6 +1986,7 @@ function reviewLaunchGovernance(checklist: string, target: Finding[]): void {
 function hasEvidence(line: string): boolean {
     const lower = line.toLowerCase();
     return lower.includes('evidencia:')
+        || hasExplicitRcOperationalClosureEvidence(line)
         || hasCurrentEvidenceReference(line)
         || lower.includes('decision')
         || lower.includes('decidida')

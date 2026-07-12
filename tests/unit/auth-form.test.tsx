@@ -90,52 +90,65 @@ describe('AuthForm', () => {
         });
     });
 
-    it('registers with a trimmed email and does not perform a secondary login when Supabase returns no session', async () => {
-        authMock.signUp.mockResolvedValueOnce({
-            data: { user: { id: 'user-1', identities: [{ id: 'identity-1' }] }, session: null },
-            error: null,
-        });
+    it.each(['es', 'en', 'ru'] as const)(
+        'registers in %s with the exact localized confirmation redirect and no secondary login',
+        async (lang) => {
+            const localized = ui[lang];
+            authMock.signUp.mockResolvedValueOnce({
+                data: { user: { id: 'user-1', identities: [{ id: 'identity-1' }] }, session: null },
+                error: null,
+            });
 
-        renderAuthForm();
-        fireEvent.click(screen.getByRole('button', { name: translations.auth.register }));
-        fillCredentials(' nueva@example.com ', 'secret123');
-        fireEvent.click(screen.getByLabelText(translations.auth.adultConfirmation));
-        fireEvent.click(screen.getByRole('button', { name: translations.auth.submitRegister }));
+            renderAuthForm(null, lang);
+            fireEvent.click(screen.getByRole('button', { name: localized.auth.register }));
+            fireEvent.change(screen.getByLabelText(localized.auth.email), {
+                target: { value: ' nueva@example.com ' },
+            });
+            fireEvent.change(screen.getByLabelText(localized.auth.password), {
+                target: { value: 'secret123' },
+            });
+            fireEvent.click(screen.getByLabelText(localized.auth.adultConfirmation));
+            fireEvent.click(screen.getByRole('button', { name: localized.auth.submitRegister }));
 
-        await waitFor(() => expect(authMock.signUp).toHaveBeenCalledTimes(1));
-        expect(authMock.signUp).toHaveBeenCalledWith({
-            email: 'nueva@example.com',
-            password: 'secret123',
-            options: {
-                emailRedirectTo: `${window.location.origin}/api/auth/confirm?lang=es`,
-                data: {
-                    full_name: 'nueva',
-                    adult_confirmed: true,
-                    adult_confirmed_at: expect.any(String),
-                    age_policy_version: '2026-07-10',
+            await waitFor(() => expect(authMock.signUp).toHaveBeenCalledTimes(1));
+            expect(authMock.signUp).toHaveBeenCalledWith({
+                email: 'nueva@example.com',
+                password: 'secret123',
+                options: {
+                    emailRedirectTo: `${window.location.origin}/api/auth/confirm?lang=${lang}`,
+                    data: {
+                        full_name: 'nueva',
+                        adult_confirmed: true,
+                        adult_confirmed_at: expect.any(String),
+                        age_policy_version: '2026-07-10',
+                    },
                 },
-            },
-        });
-        expect(authMock.signInWithPassword).not.toHaveBeenCalled();
-        expect(await screen.findByRole('status')).toHaveTextContent(translations.auth.success.registered);
-    });
+            });
+            expect(authMock.signInWithPassword).not.toHaveBeenCalled();
+            expect(await screen.findByRole('status')).toHaveTextContent(localized.auth.success.registered);
+        },
+    );
 
-    it('always reports reset-email success while trimming the email and suppressing reset errors', async () => {
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-        authMock.resetPasswordForEmail.mockRejectedValueOnce(new Error('User not found'));
+    it.each(['es', 'en', 'ru'] as const)(
+        'uses the exact %s reset-password redirect while suppressing provider errors',
+        async (lang) => {
+            const localized = ui[lang];
+            const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+            authMock.resetPasswordForEmail.mockRejectedValueOnce(new Error('User not found'));
 
-        renderAuthForm();
-        fireEvent.click(screen.getByRole('button', { name: translations.auth.forgotPassword }));
-        fireEvent.change(screen.getByLabelText(translations.auth.email), {
-            target: { value: ' reset@example.com ' },
-        });
-        fireEvent.click(screen.getByRole('button', { name: translations.auth.sendResetLink }));
+            renderAuthForm(null, lang);
+            fireEvent.click(screen.getByRole('button', { name: localized.auth.forgotPassword }));
+            fireEvent.change(screen.getByLabelText(localized.auth.email), {
+                target: { value: ' reset@example.com ' },
+            });
+            fireEvent.click(screen.getByRole('button', { name: localized.auth.sendResetLink }));
 
-        await waitFor(() => expect(authMock.resetPasswordForEmail).toHaveBeenCalledTimes(1));
-        expect(authMock.resetPasswordForEmail).toHaveBeenCalledWith('reset@example.com', {
-            redirectTo: expect.stringMatching(/\/es\/reset-password$/),
-        });
-        expect(await screen.findByRole('status')).toHaveTextContent(translations.auth.success.resetEmailSent);
-        expect(consoleError).not.toHaveBeenCalled();
-    });
+            await waitFor(() => expect(authMock.resetPasswordForEmail).toHaveBeenCalledTimes(1));
+            expect(authMock.resetPasswordForEmail).toHaveBeenCalledWith('reset@example.com', {
+                redirectTo: `${window.location.origin}/${lang}/reset-password`,
+            });
+            expect(await screen.findByRole('status')).toHaveTextContent(localized.auth.success.resetEmailSent);
+            expect(consoleError).not.toHaveBeenCalled();
+        },
+    );
 });

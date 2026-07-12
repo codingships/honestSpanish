@@ -341,9 +341,10 @@ Orden recomendado:
 1. Preparar entradas KeePassXC por entorno: Dev, Staging, Production y GitHub CI. Registrar fecha de rotacion, origen, permisos y responsable, sin pegar valores en docs.
 2. Generar o rotar secretos en el proveedor original: Supabase, Stripe, Cloudflare, Google, Resend, Turnstile, Sentry y GitHub.
 3. Actualizar consumidores de staging: Cloudflare Astro Worker, Cloudflare Fulfillment Worker y GitHub environment `staging`.
-4. Ejecutar smoke staging: auth, checkout test si aplica, webhook test, Worker `/health`, job seguro, Resend test, Turnstile y logs.
-5. Actualizar consumidores de production: Cloudflare Astro Worker, Cloudflare Fulfillment Worker y GitHub environment `Production`.
-6. Ejecutar comprobaciones locales y de cierre:
+4. Antes del smoke Auth, ejecutar `pnpm launch:supabase-auth-staging-callbacks` en modo plan. Con una aprobación externa separada, su ejecución debe añadir exactamente las confirmaciones `/api/auth/confirm?lang=es|en|ru` y las recuperaciones `/{es|en|ru}/reset-password`, conservar solo entradas exactas existentes, quedar `OK` con `wildcardPolicy=exact_only` y bloquear antes de escribir si el baseline contiene comodines amplios. No usar un wildcard de dominio o ruta para simplificar staging.
+5. Ejecutar smoke staging: alta nueva con confirmación, recuperación de contraseña, login, checkout test si aplica, webhook test, Worker `/health`, job seguro, Resend test, Turnstile y logs. La alta y la recuperación usan una cuenta controlada y cleanup explícito; no reutilizar ni borrar las cuentas operativas de admin/profesor/alumno sin un plan aprobado.
+6. Actualizar consumidores de production: Cloudflare Astro Worker, Cloudflare Fulfillment Worker y GitHub environment `Production`.
+7. Ejecutar comprobaciones locales y de cierre:
 
 ```bash
 pnpm secrets:check
@@ -353,8 +354,8 @@ pnpm launch:final-readiness
 pnpm launch:status
 ```
 
-7. Ejecutar solo el smoke minimo/manual production antes de aceptar trafico publico; no repetir el arnes staging ni crear datos sinteticos masivos.
-8. Revocar claves antiguas y registrar evidencia no secreta en `docs/launch/MANUAL_EVIDENCE.local.json`.
+8. Ejecutar solo el smoke minimo/manual production antes de aceptar trafico publico; no repetir el arnes staging ni crear datos sinteticos masivos.
+9. Revocar claves antiguas y registrar evidencia no secreta en `docs/launch/MANUAL_EVIDENCE.local.json`.
 
 Notas por proveedor:
 

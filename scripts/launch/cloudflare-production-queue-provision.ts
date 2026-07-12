@@ -13,7 +13,7 @@ import {
 } from './cloudflare-production-queue-shared';
 
 type CheckStatus = 'ok' | 'failed';
-type ClosureStatus = 'PLAN_READY' | 'PROVISIONED' | 'BLOCKED' | 'PARTIAL_WRITE_STOP';
+type ClosureStatus = 'PLAN_READY' | 'VERIFIED_EXISTING' | 'PROVISIONED' | 'BLOCKED' | 'PARTIAL_WRITE_STOP';
 
 interface Check {
     status: CheckStatus;
@@ -44,13 +44,17 @@ interface InventoryResult {
     pagesRead: number;
 }
 
-const supportedArguments = new Set(['--execute-approved']);
+const supportedArguments = new Set(['--execute-approved', '--verify-existing']);
 const unsupportedArguments = process.argv.slice(2).filter((argument) => !supportedArguments.has(argument));
 if (unsupportedArguments.length > 0) {
     throw new Error(`Unsupported argument(s): ${unsupportedArguments.join(', ')}`);
 }
 
 const executeRequested = process.argv.includes('--execute-approved');
+const verifyExistingRequested = process.argv.includes('--verify-existing');
+if (executeRequested && verifyExistingRequested) {
+    throw new Error('--execute-approved and --verify-existing are mutually exclusive');
+}
 const startedAt = new Date();
 const outputDir = path.join(
     process.cwd(),
@@ -81,7 +85,8 @@ if (checks.every((check) => check.status === 'ok')) {
 }
 
 const status = checks.some((check) => check.status === 'failed') ? 'FAILED' : 'OK';
-if (status === 'OK' && executeRequested) closureStatus = 'PROVISIONED';
+if (status === 'OK' && verifyExistingRequested) closureStatus = 'VERIFIED_EXISTING';
+else if (status === 'OK' && executeRequested) closureStatus = 'PROVISIONED';
 else if (status === 'OK') closureStatus = 'PLAN_READY';
 else if (externalWritePerformed) closureStatus = 'PARTIAL_WRITE_STOP';
 
@@ -100,6 +105,7 @@ const report = {
     closureStatus,
     target: PRODUCTION_QUEUE_TARGET,
     executeRequested,
+    verifyExistingRequested,
     remoteReadPerformed,
     externalWriteAttempted,
     externalWritePerformed,
@@ -163,6 +169,46 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     const before = readQueueInventory('queues-before');
     checks.push(inventoryCommandCheck('queue_inventory_before', before));
     if (before.status === 'failed') return;
+
+    if (verifyExistingRequested) {
+        const exactExistingState = before.inventory.queueCount === 1
+            && before.inventory.deadLetterQueueCount === 1;
+        checks.push(exactExistingState
+            ? ok('exact_existing_inventory_gate', 'Both exact production Queue resources exist once.', [
+                `queue=${PRODUCTION_QUEUE_TARGET.queue}:present_once`,
+                `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}:present_once`,
+                `pagesRead=${before.pagesRead}`,
+            ])
+            : failed('exact_existing_inventory_gate', 'Read-only verification requires exactly one production Queue and one DLQ.', [
+                `queueCount=${before.inventory.queueCount}`,
+                `dlqCount=${before.inventory.deadLetterQueueCount}`,
+                'externalWriteAttempted=false',
+            ]));
+        if (!exactExistingState) return;
+
+        const queueInfo = runCommand(readCommand('production-queue-info-verify-existing', [
+            'queues',
+            'info',
+            PRODUCTION_QUEUE_TARGET.queue,
+        ]));
+        const dlqInfo = runCommand(readCommand('production-dlq-info-verify-existing', [
+            'queues',
+            'info',
+            PRODUCTION_QUEUE_TARGET.deadLetterQueue,
+        ]));
+        captures.push(queueInfo, dlqInfo);
+        checks.push(commandCheck(queueInfo), commandCheck(dlqInfo));
+        if (queueInfo.status === 'failed' || dlqInfo.status === 'failed') return;
+
+        closureStatus = 'VERIFIED_EXISTING';
+        checks.push(ok('verify_existing_read_only', 'Existing production Queue resources were verified without writes.', [
+            'verifyExistingRequested=true',
+            'remoteReadPerformed=true',
+            'externalWriteAttempted=false',
+            'externalWritePerformed=false',
+        ]));
+        return;
+    }
 
     const clear = before.inventory.clearForProvision
         && before.inventory.queueCount === 0
@@ -485,6 +531,7 @@ function renderApprovalGate(): string {
         `- First resource: \`${PRODUCTION_QUEUE_TARGET.deadLetterQueue}\`.`,
         `- Second resource: \`${PRODUCTION_QUEUE_TARGET.queue}\`.`,
         `- Required flag: \`--execute-approved\`.`,
+        '- Read-only post-provision verification flag: `--verify-existing` (mutually exclusive with execution).',
         `- Required environment variable: \`${PRODUCTION_QUEUE_APPROVAL_ENV}\`.`,
         '',
         '## Exact Approval Sentence',
@@ -494,6 +541,7 @@ function renderApprovalGate(): string {
         '## Safety Boundary',
         '',
         '- Plan mode performs only Wrangler identity and Queue inventory reads.',
+        '- `--verify-existing` performs identity, full inventory and exact Queue info reads; it requires both exact resources once and never enters the create branch.',
         '- Any pre-existing exact target name blocks creation and requires manual review.',
         '- Execution creates the DLQ first, verifies it, then creates the primary Queue and verifies both.',
         '- No cleanup is automatic after a partial write; stop and request separate authority.',
@@ -512,6 +560,7 @@ function renderSummary(value: typeof report): string {
         `- Queue: ${value.target.queue}`,
         `- DLQ: ${value.target.deadLetterQueue}`,
         `- Execute requested: ${String(value.executeRequested)}`,
+        `- Verify existing requested: ${String(value.verifyExistingRequested)}`,
         `- Remote read performed: ${String(value.remoteReadPerformed)}`,
         `- External write attempted: ${String(value.externalWriteAttempted)}`,
         `- External write performed: ${String(value.externalWritePerformed)}`,

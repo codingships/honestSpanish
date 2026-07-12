@@ -66,9 +66,8 @@ describe('no-real-payments launch mode', () => {
             'Usar `manual-evidence-dry-run.txt` solo despues de que el post-fix probe desplegado pase',
             'no registrar `payments_staging` como cerrado',
             'CI ejecuta `pnpm run launch:no-real-payments`',
-            'CLOUDFLARE_STAGING_URL',
-            'CLOUDFLARE_WORKERS_STAGING_URL',
-            'no debe ser el fallback silencioso de no-real-payments',
+            'Worker canónico `https://espanolhonesto-staging.alindev95.workers.dev`',
+            'ni depende de una variable externa',
             'https://staging.espanolhonesto.com',
             'deploy de staging no debe considerarse apto para RC',
         ]) {
@@ -79,6 +78,7 @@ describe('no-real-payments launch mode', () => {
             'pnpm run launch:no-real-payments',
             'CHECKOUT_ENABLED: "false"',
             'Verify staging checkout is disabled',
+            'STAGING_WORKER_URL: https://espanolhonesto-staging.alindev95.workers.dev',
             '--deployed-url "$STAGING_WORKER_URL"',
         ]) {
             expect(ci).toContain(snippet);

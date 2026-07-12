@@ -38,6 +38,7 @@ const findings: Finding[] = [
     reviewObservabilityPolicy(),
     reviewSupabaseBackupRunbook(),
     reviewOperationsRunbook(),
+    reviewRcOperationalGate(),
 ];
 
 const failed = findings.filter((finding) => finding.status === 'failed');
@@ -88,10 +89,14 @@ function reviewCloudflareFulfillmentWorker(): Finding {
     const wranglerFile = path.join('workers', 'fulfillment', 'wrangler.toml');
     const workerFile = path.join('workers', 'fulfillment', 'src', 'index.ts');
     const productionSecretsRunnerFile = path.join('scripts', 'launch', 'cloudflare-production-fulfillment-secrets.ts');
+    const productionQueueRunnerFile = path.join('scripts', 'launch', 'cloudflare-production-queue-provision.ts');
+    const productionRunbookFile = path.join('docs', 'launch', 'CLOUDFLARE_PRODUCTION.md');
     const packageJson = readIfExists(packageFile);
     const wrangler = readIfExists(wranglerFile);
     const worker = readIfExists(workerFile);
     const productionSecretsRunner = readIfExists(productionSecretsRunnerFile);
+    const productionQueueRunner = readIfExists(productionQueueRunnerFile);
+    const productionRunbook = readIfExists(productionRunbookFile);
     const details: string[] = [];
 
     details.push(...missingSnippets(packageFile, packageJson, [
@@ -158,6 +163,20 @@ function reviewCloudflareFulfillmentWorker(): Finding {
         "'--env', 'production_bootstrap'",
     ]));
 
+    details.push(...missingSnippets(productionQueueRunnerFile, productionQueueRunner, [
+        "supportedArguments = new Set(['--execute-approved', '--verify-existing'])",
+        '--execute-approved and --verify-existing are mutually exclusive',
+        'exact_existing_inventory_gate',
+        'verify_existing_read_only',
+        "closureStatus = 'VERIFIED_EXISTING'",
+    ]));
+
+    details.push(...missingSnippets(productionRunbookFile, productionRunbook, [
+        'pnpm launch:cloudflare-production-queues -- --execute-approved',
+        'pnpm launch:cloudflare-production-queues -- --verify-existing',
+        'el runner de enable no crea, borra, adopta ni valida el inventario de Queues',
+    ]));
+
     return {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'Cloudflare fulfillment Worker',
@@ -192,7 +211,15 @@ function reviewCiDeployPipeline(): Finding {
         'deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run',
         'run: pnpm run deploy',
         'Verify staging checkout is disabled',
-        'CLOUDFLARE_STAGING_URL',
+        'STAGING_WORKER_URL: https://espanolhonesto-staging.alindev95.workers.dev',
+        'Resolve exact runtime URLs',
+        'PRODUCTION_PUBLIC_SITE_URL',
+        'PRODUCTION_FULFILLMENT_WORKER_URL',
+        'Production PUBLIC_SITE_URL is missing or does not match the canonical production URL.',
+        'Production FULFILLMENT_WORKER_URL is missing or does not match the exact production Worker.',
+        'PUBLIC_SITE_URL=https://espanolhonesto-staging.alindev95.workers.dev',
+        'FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-staging.alindev95.workers.dev',
+        '>> "$GITHUB_ENV"',
         '--deployed-url "$STAGING_WORKER_URL"',
         'FULFILLMENT_WORKER_URL',
         'Validate inert production Fulfillment bootstrap package',
@@ -208,6 +235,12 @@ function reviewCiDeployPipeline(): Finding {
     }
     if (content.includes('wrangler deploy --config workers/fulfillment/wrangler.toml --env production --keep-vars')) {
         details.push(`${file}: main CI must never auto-deploy active fulfillment production.`);
+    }
+    if (content.includes("github.ref_name == 'main' && vars.PUBLIC_SITE_URL ||")) {
+        details.push(`${file}: production PUBLIC_SITE_URL must fail closed instead of falling back to staging.`);
+    }
+    if (content.includes("github.ref_name == 'main' && secrets.FULFILLMENT_WORKER_URL ||")) {
+        details.push(`${file}: production FULFILLMENT_WORKER_URL must fail closed instead of falling back to staging.`);
     }
     const fulfillmentDryRunIndex = content.indexOf('name: Validate staging Cloudflare Fulfillment Worker deploy package');
     const fulfillmentDeployIndex = content.indexOf('name: Deploy staging Cloudflare Fulfillment Worker');
@@ -593,6 +626,46 @@ function reviewOperationsRunbook(): Finding {
         message: details.length === 0
             ? 'Runbook covers critical incidents, deploy, rollback and final technical Go/No-Go smoke.'
             : 'Runbook is missing launch-critical operational procedures.',
+        details,
+    };
+}
+
+function reviewRcOperationalGate(): Finding {
+    const helperFile = path.join('scripts', 'launch', 'rc-operational-checklist.ts');
+    const statusFile = path.join('scripts', 'launch', 'status.ts');
+    const secondaryFile = path.join('scripts', 'launch', 'secondary-review.ts');
+    const checklistFile = path.join('docs', 'launch', 'CHECKLIST.md');
+    const details = [
+        ...missingSnippets(helperFile, readIfExists(helperFile), [
+            'incident_simulation',
+            'sentry_alerts',
+            'rollback_proof',
+            'collectOpenRcOperationalBlockers',
+            'hasExplicitRcOperationalClosureEvidence',
+            'missing from ## Operacion',
+            'incomplete_evidence',
+            'Riesgo aceptado por',
+        ]),
+        ...missingSnippets(statusFile, readIfExists(statusFile), [
+            'collectOpenRcOperationalBlockers',
+            'rcOperationalOpenChecks',
+            'RC_BLOCKED_BY_RELEASE_CANDIDATE_CHECKS',
+        ]),
+        ...missingSnippets(secondaryFile, readIfExists(secondaryFile), [
+            'collectOpenRcOperationalBlockers',
+            'release candidate operational blockers',
+        ]),
+        ...missingSnippets(checklistFile, readIfExists(checklistFile), [
+            'Las filas de simulacro de incidente, alertas Sentry y rollback son bloqueadores del Release Candidate',
+        ]),
+    ];
+
+    return {
+        status: details.length === 0 ? 'ok' : 'failed',
+        area: 'release candidate operational gate',
+        message: details.length === 0
+            ? 'Release Candidate and secondary-review gates fail closed on incident simulation, Sentry alerts and rollback proof.'
+            : 'Release Candidate operational blockers are not wired fail-closed into launch status and secondary review.',
         details,
     };
 }

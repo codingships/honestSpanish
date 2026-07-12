@@ -99,7 +99,7 @@ El nombre base es deliberadamente `espanolhonesto-env-required`; nunca es produc
 
 Variables por entorno:
 
-- `PUBLIC_SITE_URL`
+- `PUBLIC_SITE_URL`: el paso CI `Resolve exact runtime URLs` exige en `main` exactamente `https://espanolhonesto.com` y falla si falta o difiere; solo en `staging` fija directamente el Worker canónico.
 - `PUBLIC_APP_ENV`
 - `PUBLIC_SUPABASE_URL`
 - `PUBLIC_SUPABASE_ANON_KEY`
@@ -232,14 +232,15 @@ Variables por environment:
 - `PUBLIC_APP_ENV`
 - `CHECKOUT_ENABLED=false` hasta cierre deliberado de pagos.
 - `CHECKOUT_ENABLED_OVERRIDE=false` o ausente hasta la ventana de activacion.
-- `CLOUDFLARE_STAGING_URL`
-- `CLOUDFLARE_WORKERS_STAGING_URL` opcional si se quiere separar el nombre de la URL publica.
+- `CLOUDFLARE_STAGING_URL` y `CLOUDFLARE_WORKERS_STAGING_URL` quedan solo como overrides opcionales de runners locales. CI no los consume mientras el staging canónico sea el Worker directo.
 
 Valores actuales:
 
 - Worker staging: `espanolhonesto-staging`
 - Worker production: `espanolhonesto`
 - URL staging preferida para probes RC/no-real-payments: `https://espanolhonesto-staging.alindev95.workers.dev`
+- URL fulfillment staging fijada por CI: `https://espanol-honesto-fulfillment-staging.alindev95.workers.dev`; no necesita almacenarse como secret porque es pública.
+- CI escribe ambas URLs en `GITHUB_ENV` después de validar la rama. `main` exige además `FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-production.alindev95.workers.dev`; nunca cae a una URL staging si falta una variable/secret production.
 - Dominio custom staging opcional futuro: `https://staging.espanolhonesto.com`. No esta configurado y no debe usarse en probes ni comandos hasta verificar DNS, SSL y routing.
 
 ## Supabase
@@ -263,6 +264,8 @@ Operativo:
 
 Usar `SUPABASE_DB_URL` solo para migraciones/SQL. No lo usa la app.
 Los runners de navegador y `pnpm dev` validan la identidad staging pero eliminan `SUPABASE_DB_URL`, `SUPABASE_*_DB_URL`, `DATABASE_URL` y `PG*` antes de arrancar Astro o Playwright.
+
+Auth staging usa un allowlist exacto y separado del rollout SQL. `pnpm launch:supabase-auth-staging-callbacks` es plan-only por defecto y prepara seis destinos en `es`, `en` y `ru`: confirmación en `/api/auth/confirm?lang=<lang>` y recuperación en `/<lang>/reset-password`. La ejecución exige aprobación literal y `SUPABASE_ACCESS_TOKEN`; conserva únicamente entradas exactas existentes y falla antes del PATCH si detecta `*`, `**`, clases, llaves, escapes o equivalentes codificados. El summary debe quedar `OK`, `wildcardPolicy=exact_only` y contener los seis destinos antes de validar alta nueva o recuperación en staging.
 
 Production Supabase se prepara con runners separados y fail-closed:
 

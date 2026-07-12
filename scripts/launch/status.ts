@@ -11,6 +11,7 @@ import {
     type StandalonePrimaryEvidence,
     type StandaloneSecondaryEvidence,
 } from './status-evidence';
+import { collectOpenRcOperationalBlockers } from './rc-operational-checklist';
 
 type FindingStatus = 'ok' | 'warning' | 'failed';
 type LaunchStatus = 'BLOCKED' | 'READY_WITH_ACCEPTED_RISKS' | 'READY_CANDIDATE' | 'NO_EVIDENCE';
@@ -425,9 +426,14 @@ const strictQaOpenFindings = collectStrictQaOpenFindings(strictQaTracker?.data ?
 const strictQaOpenSecurityFindings = strictQaOpenFindings.filter(isStrictQaSecurityFinding);
 const strictQaStandaloneOpenFindings = strictQaOpenFindings.filter((finding) => !isStrictQaFindingRepresentedByManualEvidence(finding));
 const checklist = readIfExists(path.join('docs', 'launch', 'CHECKLIST.md'));
-const openGoNoGo = sectionLines(checklist, '## Go/No-Go Blockers')
+const openChecklistGoNoGo = sectionLines(checklist, '## Go/No-Go Blockers')
     .filter((line) => line.trim().startsWith('- [ ]'))
     .map((line) => line.trim());
+const rcOperationalBlockers = collectOpenRcOperationalBlockers(checklist);
+const openGoNoGo = uniqueList([
+    ...openChecklistGoNoGo,
+    ...rcOperationalBlockers.map((blocker) => blocker.line),
+]);
 
 const standaloneAuditDefinitions = [
     { commandName: 'pnpm launch:security', secondaryArea: 'security evidence', evidence: securityAudit },
@@ -485,7 +491,8 @@ const releaseCandidateReadiness = buildReleaseCandidateReadiness(
     effectivePrimary,
     noRealPaymentsRemediation?.data ?? null,
     strictQaOpenSecurityFindings,
-    strictQaStandaloneOpenFindings
+    strictQaStandaloneOpenFindings,
+    rcOperationalBlockers.map((blocker) => blocker.id),
 );
 const gateFreshnessInputs: EvidenceTimestamp[] = [
     // Full-gate freshness is scoped to commands that `pnpm launch:gate`
@@ -1212,7 +1219,8 @@ function buildReleaseCandidateReadiness(
     primarySummary: PrimarySummary | null,
     noRealPaymentsRemediationSummary: CheckBackedSummary | null,
     strictQaOpenSecurityFindings: StrictQaFinding[],
-    strictQaStandaloneOpenFindings: StrictQaFinding[]
+    strictQaStandaloneOpenFindings: StrictQaFinding[],
+    rcOperationalOpenChecks: string[],
 ): ReleaseCandidateReadiness {
     const phaseOneOpenChecks = grouped.phase_1_now
         .filter((check) => check.status === 'failed')
@@ -1230,6 +1238,7 @@ function buildReleaseCandidateReadiness(
         .filter((check) => check.status === 'failed')
             .map((check) => check.id),
         ...(stagingNoRealPaymentsBlocked ? ['no_real_payments_staging'] : []),
+        ...rcOperationalOpenChecks,
     ];
     const finalOnlyOpenChecks = grouped.phase_3_final.map((check) => check.id);
     const finalLaunchOpenChecks = uniqueList([...finalOnlyOpenChecks, ...strictQaStandaloneIds]);
@@ -1293,7 +1302,9 @@ function buildReleaseCandidateReadiness(
             provenNow,
             nextDecision: releaseCandidateOpenChecks.includes('no_real_payments_staging')
                 ? 'Corregir Cloudflare Worker staging desde el pack de pnpm launch:rc-external-closure y los ultimos rc-staging-package.md/rc-staging-package-files.txt/rc-staging-runtime-diff.patch/rc-staging-runtime-manifest.json/worker-staging-build-manifest.json: si HEAD/deploy no contiene el guard, empaquetar/redeployar la slice minima antes de confiar en CHECKOUT_ENABLED=false; si se usa dist local, exigir readyForStagingDeployPackage=true; despues ejecutar pnpm launch:no-real-payments -- --deployed-url <staging-url> y pnpm launch:rc.'
-                : 'Cerrar Stripe staging o documentar que el RC se congela sin aceptar pagos.',
+                : rcOperationalOpenChecks.length > 0
+                    ? `Cerrar los bloqueos operativos RC (${rcOperationalOpenChecks.join(', ')}) con evidencia no secreta o una aceptacion de riesgo explicita; despues rerun pnpm launch:operations, pnpm launch:status y pnpm launch:rc.`
+                    : 'Cerrar Stripe staging o documentar que el RC se congela sin aceptar pagos.',
         };
     }
 

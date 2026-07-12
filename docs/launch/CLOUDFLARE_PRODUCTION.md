@@ -53,19 +53,32 @@ CI ejecuta ambos dry-runs en `main`, pero no despliega ningún Worker de producc
 ## Fases Separadas
 
 1. Ejecutar los preflights read-only y revisar cuenta, recursos y configuración.
-2. Desplegar primero `espanol-honesto-fulfillment-production` con `pnpm launch:cloudflare-production-fulfillment-bootstrap`: entorno `production_bootstrap`, runtime `bootstrap`, email `disabled`, cuotas cero y `crons=[]`. Verificar `/health` y `503 FULFILLMENT_DISABLED` en una ruta operativa.
-3. Cargar únicamente `INTERNAL_JOB_SECRET` con `pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets` contra `production_bootstrap`; la lista remota debe contener exactamente ese nombre y la atestación debe demostrar Supabase, Google, Resend, remitente y cron-secret ausentes, además de runtime/email inertes, bloqueo `503` y cero Cron Triggers.
-4. Solo con fulfillment todavía inerte, `pnpm launch:cloudflare-production-worker-phase1` construye `production_bootstrap`, valida el `dist/server/wrangler.json` resuelto y despliega el web sin rutas ni cron. Inmediatamente antes exige una versión fresca de fulfillment con salud `bootstrap`, bloqueo `503`, HMAC exacta y schedules vacíos; inmediatamente después exige salud web bootstrap y 503 en rutas públicas, campus, API, `robots.txt` y assets (incluido `/_astro/*`).
-5. Cargar únicamente `INTERNAL_JOB_SECRET` con `pnpm launch:cloudflare-production-worker-bootstrap-secrets`; solo autentica y firma la atestación HMAC. El wrapper no necesita Supabase URL/anon para salud ni atestación, así que esos valores también se reservan para el gate activo final. El runner rechaza cualquier otro nombre y vuelve a probar todas las rutas 503.
-6. Atestiguar por HMAC la versión web recién leída con `WEB_RUNTIME_MODE=bootstrap` y fingerprints ausentes para Supabase URL/anon/service role, Stripe, Resend, Turnstile, cron y level-check.
-7. Dejar para la ventana final el build activo `pnpm build:production:release` y los runners completos `pnpm launch:cloudflare-production-worker-secrets` y `pnpm launch:cloudflare-production-fulfillment-secrets`; estas rutas distintas cargan los providers finales y siguen exigiendo identidad legal final, Stripe Live y aprobaciones exactas.
-8. En el mismo proceso y justo antes de la habilitación, volver a listar las versiones remotas exactas de fulfillment y web activo y atestiguar por HMAC ambas configuraciones. Los resúmenes locales son evidencia auxiliar, nunca sustituyen esta doble prueba fresca.
-9. Habilitar fulfillment únicamente con la aprobación distinta de `pnpm launch:cloudflare-production-fulfillment-enable`. Solo este runner despliega `--env production`, que activa runtime, email live y cron.
-10. Exigir la comprobación directa posterior de identidad, nueva versión Cloudflare, modo activo, HMAC y cron remoto para fulfillment.
-11. Solo después, solicitar una aprobación distinta para mover los dominios.
-12. El smoke con emails, Google, jobs, Supabase o pagos es otra fase y necesita su propia aprobación.
+2. Crear, bajo aprobación exacta separada, primero `espanol-honesto-fulfillment-production-dlq` y después `espanol-honesto-fulfillment-production-queue` con `pnpm launch:cloudflare-production-queues`. Esta fase solo crea las dos Queues: no despliega Workers ni añade consumidores manualmente. Mientras fulfillment siga en `production_bootstrap`, las Queues quedan inertes y sin bindings.
+3. Desplegar primero `espanol-honesto-fulfillment-production` con `pnpm launch:cloudflare-production-fulfillment-bootstrap`: entorno `production_bootstrap`, runtime `bootstrap`, email `disabled`, cuotas cero y `crons=[]`. Verificar `/health` y `503 FULFILLMENT_DISABLED` en una ruta operativa.
+4. Cargar únicamente `INTERNAL_JOB_SECRET` con `pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets` contra `production_bootstrap`; la lista remota debe contener exactamente ese nombre y la atestación debe demostrar Supabase, Google, Resend, remitente y cron-secret ausentes, además de runtime/email inertes, bloqueo `503` y cero Cron Triggers.
+5. Solo con fulfillment todavía inerte, `pnpm launch:cloudflare-production-worker-phase1` construye `production_bootstrap`, valida el `dist/server/wrangler.json` resuelto y despliega el web sin rutas ni cron. Inmediatamente antes exige una versión fresca de fulfillment con salud `bootstrap`, bloqueo `503`, HMAC exacta y schedules vacíos; inmediatamente después exige salud web bootstrap y 503 en rutas públicas, campus, API, `robots.txt` y assets (incluido `/_astro/*`).
+6. Cargar únicamente `INTERNAL_JOB_SECRET` con `pnpm launch:cloudflare-production-worker-bootstrap-secrets`; solo autentica y firma la atestación HMAC. El wrapper no necesita Supabase URL/anon para salud ni atestación, así que esos valores también se reservan para el gate activo final. El runner rechaza cualquier otro nombre y vuelve a probar todas las rutas 503.
+7. Atestiguar por HMAC la versión web recién leída con `WEB_RUNTIME_MODE=bootstrap` y fingerprints ausentes para Supabase URL/anon/service role, Stripe, Resend, Turnstile, cron y level-check.
+8. Dejar para la ventana final el build activo `pnpm build:production:release` y los runners completos `pnpm launch:cloudflare-production-worker-secrets` y `pnpm launch:cloudflare-production-fulfillment-secrets`; estas rutas distintas cargan los providers finales y siguen exigiendo identidad legal final, Stripe Live y aprobaciones exactas.
+9. Justo antes de la habilitación, ejecutar por separado `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only y confirmar que las dos Queues production exactas existen una sola vez. Después, ya dentro del proceso de enable, volver a listar las versiones remotas exactas de fulfillment y web activo y atestiguar por HMAC ambas configuraciones. Los resúmenes locales son evidencia auxiliar, nunca sustituyen estas lecturas frescas.
+10. Habilitar fulfillment únicamente con la aprobación distinta de `pnpm launch:cloudflare-production-fulfillment-enable`. Solo este runner despliega `--env production`, conecta productor/consumidor a las Queues ya creadas y activa runtime, email live y cron.
+11. Exigir la comprobación directa posterior de identidad, nueva versión Cloudflare, modo activo, HMAC y cron remoto para fulfillment; la existencia de Queues procede del preflight separado del paso 9, no de esta atestación.
+12. Solo después, solicitar una aprobación distinta para mover los dominios.
+13. El smoke con emails, Google, jobs, Supabase o pagos es otra fase y necesita su propia aprobación.
 
 El orden es una dependencia técnica, no una preferencia: `wrangler.toml` liga `FULFILLMENT_SERVICE` al Worker production exacto. Por ello el target inerte debe existir, tener solo el HMAC compartido y quedar atestiguado sin providers sobre una versión remota recién leída antes de desplegar el web Worker.
+
+Las Queues son también una dependencia previa del enable activo: `production_bootstrap` no declara bindings y por eso sigue inerte aunque los dos recursos ya existan; `env.production` sí declara el productor, consumidor y DLQ. Si cualquiera de los nombres exactos ya existe antes de provisionar, el runner se detiene y no lo reutiliza ni modifica.
+
+Plan y ejecución separada:
+
+```bash
+pnpm launch:cloudflare-production-queues
+# solo tras revisar el inventario read-only y aprobar literalmente el alcance emitido:
+pnpm launch:cloudflare-production-queues -- --execute-approved
+# una vez creadas, verificación read-only separada antes del enable final:
+pnpm launch:cloudflare-production-queues -- --verify-existing
+```
 
 ## Gate Fresco Antes Del Deploy Web
 
@@ -157,6 +170,8 @@ La ejecución aprobada usa un fichero seguro ignorado seleccionado por `CLOUDFLA
 
 ## Habilitación Final Separada
 
+Antes de invocarla, el operador debe ejecutar `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only y confirmar que las dos Queues exactas ya existen una sola vez. Es un prerrequisito externo separado: el runner de enable no crea, borra, adopta ni valida el inventario de Queues.
+
 `pnpm launch:cloudflare-production-fulfillment-enable` es el único camino que despliega `--env production`. En modo plan no llama a Cloudflare. La ejecución aprobada se niega a escribir si falta cualquiera de estas pruebas:
 
 - cuenta y URL directa exactas;
@@ -188,6 +203,7 @@ Los artefactos guardan únicamente el resultado, identidad, coincidencia de vers
 - Parar antes del primer secret mínimo si la lista remota contiene algo distinto de `INTERNAL_JOB_SECRET`; este runner no elimina ni reutiliza secretos activos inesperados.
 - Parar después de la carga mínima si HMAC no demuestra la nueva versión, `WEB_RUNTIME_MODE=bootstrap` y ausencia de Supabase URL/anon/service role, Stripe, Resend, Turnstile, cron y level-check.
 - Parar la habilitación final si las versiones recién listadas de fulfillment y web no superan ambas atestaciones HMAC en el mismo proceso, o falta cualquier secret name.
+- El operador debe parar antes de invocar el runner de enable si el preflight separado detecta una Queue ausente, colisión/duplicado de nombre o inventario distinto del productor, consumidor y DLQ declarados. El runner de enable no sustituye esta comprobación y no crea, borra ni reutiliza Queues.
 - Parar antes de dominios si falla cualquier atestación.
 - Mantener los dominios en Pages y `CHECKOUT_ENABLED=false` durante toda la preparación.
 - Si falla una carga de secreto, corregir solo ese nombre bajo una nueva aprobación exacta; no borrar Workers ni Pages.
