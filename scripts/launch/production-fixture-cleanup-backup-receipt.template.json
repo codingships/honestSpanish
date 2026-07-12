@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "targetProjectRef": "vkkahxsybhbutszerawz",
-  "aggregateSnapshotSha256": "dbd25299db5562a01a65ad3d2d64689fc0871d9a64d5d3378e074c06e20cf5ab",
-  "approvalScopeSha256": "12054149aa95adb338665bb6b6e20f2c875fc1c05f0693e71d41a9685743f510",
+  "aggregateSnapshotSha256": "765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6",
+  "approvalScopeSha256": "35e5a8bf6a9f06b4419381171b04f3a050f4e9457fd674375a7e26ebc34672ec",
   "createdAt": "<ISO-8601 timestamp no older than 24 hours>",
   "backupCompleted": false,
   "artifactStoredOutsideRepository": true,

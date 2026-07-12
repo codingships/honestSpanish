@@ -110,6 +110,7 @@ export const PRODUCTION_ROLLOUT_WAVES: readonly ProductionRolloutWave[] = [
             migration('20260712114000', 'harden_teacher_availability_overlap', '03c48790abf657571b43c2170a58f148d6d15e130a93f4de9be3be6a40aaaea3'),
             migration('20260712114500', 'require_current_adult_policy_on_signup', '5f01e7e0a2854174cab59002bea4ee01987782846f8a2266bd2dba5c897b7cfb'),
             migration('20260712115000', 'harden_data_api_table_grants', '88e26ddd4eed1ba337ab1902fa707de38619f76158b9a46fcbd1b9adf00707b4'),
+            migration('20260712195500', 'harden_sessions_status_contract', '5106b1f3081f91246682ff9dc02ed1904eac4fc8dae065bfc05ac3136d5d65b1'),
         ],
     },
 ] as const;
@@ -260,8 +261,8 @@ export function validateProductionRolloutAllowlist(root = process.cwd()): Allowl
     const sources = new Map<string, string>();
     const versions = new Set<string>();
 
-    if (PRODUCTION_ROLLOUT_MIGRATIONS.length !== 24) {
-        errors.push(`Allowlist must contain exactly 24 migrations, observed ${PRODUCTION_ROLLOUT_MIGRATIONS.length}.`);
+    if (PRODUCTION_ROLLOUT_MIGRATIONS.length !== 25) {
+        errors.push(`Allowlist must contain exactly 25 migrations, observed ${PRODUCTION_ROLLOUT_MIGRATIONS.length}.`);
     }
     for (const migrationEntry of PRODUCTION_ROLLOUT_MIGRATIONS) {
         if (versions.has(migrationEntry.version)) errors.push(`Duplicate version ${migrationEntry.version}.`);
@@ -1023,6 +1024,28 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                     AND NOT EXISTS(
                         SELECT 1 FROM public.sessions
                         WHERE duration_minutes IS NULL OR duration_minutes NOT IN (30,40,50)
+                    )
+                )`),
+                fact('hardening_session_status_contract', 'true', `(
+                    EXISTS(
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sessions' AND column_name='status'
+                          AND data_type='text' AND is_nullable='NO'
+                          AND column_default='''scheduled''::text'
+                    )
+                    AND EXISTS(
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid='public.sessions'::regclass
+                          AND conname='sessions_status_check'
+                          AND contype='c'
+                          AND pg_get_constraintdef(oid) ILIKE '%scheduled%'
+                          AND pg_get_constraintdef(oid) ILIKE '%completed%'
+                          AND pg_get_constraintdef(oid) ILIKE '%cancelled%'
+                          AND pg_get_constraintdef(oid) ILIKE '%no_show%'
+                    )
+                    AND NOT EXISTS(
+                        SELECT 1 FROM public.sessions
+                        WHERE status IS NULL OR status NOT IN ('scheduled','completed','cancelled','no_show')
                     )
                 )`),
                 fact('hardening_overlap_constraint', 'true', `(SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.teacher_availability'::regclass AND conname='teacher_availability_no_active_overlap' AND contype='x'))`),

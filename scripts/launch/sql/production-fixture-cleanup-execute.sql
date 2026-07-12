@@ -8,8 +8,8 @@ SET LOCAL idle_in_transaction_session_timeout = '60s';
 SELECT (
     :'cleanup_gate' = 'EXECUTE_PRODUCTION_FIXTURE_CLEANUP_V1'
     AND :'cleanup_project_ref' = 'vkkahxsybhbutszerawz'
-    AND :'cleanup_snapshot_sha256' = 'dbd25299db5562a01a65ad3d2d64689fc0871d9a64d5d3378e074c06e20cf5ab'
-    AND :'cleanup_scope_sha256' = '12054149aa95adb338665bb6b6e20f2c875fc1c05f0693e71d41a9685743f510'
+    AND :'cleanup_snapshot_sha256' = '765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6'
+    AND :'cleanup_scope_sha256' = '35e5a8bf6a9f06b4419381171b04f3a050f4e9457fd674375a7e26ebc34672ec'
     AND :'cleanup_backup_receipt_sha256' ~ '^[a-f0-9]{64}$'
     AND :'cleanup_package_stripe_reference_sha256' ~ '^[a-f0-9]{64}$'
 ) AS cleanup_gate_ok \gset
@@ -199,11 +199,11 @@ BEGIN
     END IF;
 
     IF (SELECT count(*) FROM public.jobs WHERE status = 'succeeded') <> 111
-        OR (SELECT count(*) FROM public.jobs WHERE kind = 'cancel_session') <> 20
-        OR (SELECT count(*) FROM public.jobs WHERE kind = 'welcome') <> 22
-        OR (SELECT count(*) FROM public.jobs WHERE kind = 'provision') <> 42
-        OR (SELECT count(*) FROM public.jobs WHERE kind = 'reminder') <> 5
-        OR (SELECT count(*) FROM public.jobs WHERE kind = 'create_drive_folder') <> 22
+        OR (SELECT count(*) FROM public.jobs WHERE kind = 'scheduling.cancel_session') <> 20
+        OR (SELECT count(*) FROM public.jobs WHERE kind = 'billing.send_welcome_email') <> 22
+        OR (SELECT count(*) FROM public.jobs WHERE kind = 'scheduling.provision_session') <> 42
+        OR (SELECT count(*) FROM public.jobs WHERE kind = 'scheduling.send_session_reminder') <> 5
+        OR (SELECT count(*) FROM public.jobs WHERE kind = 'billing.create_student_drive_folder') <> 22
         OR (SELECT count(*) FROM public.jobs WHERE aggregate_type = 'session') <> 67
         OR (SELECT count(*) FROM public.jobs WHERE aggregate_type = 'subscription') <> 44
         OR (
@@ -446,6 +446,6 @@ COMMIT;
 
 SELECT 'FIXTURE_CLEANUP_EXECUTE_OK|'
     || 'project_ref=vkkahxsybhbutszerawz|'
-    || 'snapshot=dbd25299db5562a01a65ad3d2d64689fc0871d9a64d5d3378e074c06e20cf5ab|'
-    || 'scope=12054149aa95adb338665bb6b6e20f2c875fc1c05f0693e71d41a9685743f510|'
+    || 'snapshot=765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6|'
+    || 'scope=35e5a8bf6a9f06b4419381171b04f3a050f4e9457fd674375a7e26ebc34672ec|'
     || 'auth_users=BLOCKED_UNTOUCHED_138|packages=4|legacy_jobs=ABSENT';

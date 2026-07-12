@@ -117,7 +117,7 @@ function buildQueueItems(): QueueItem[] {
                 'supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql',
             ]),
             rollbackPath: latestGeneratedPath('launch-supabase-production-rollout-runner', 'rollback-and-switch-plan.md'),
-            allowedScope: 'Apply only the source-bound production rollout wave processed_at_small_fix, or include it as the first wave of the exact 23-migration production rollout; verify migration history hash, absent default and clean webhook aggregates read-only.',
+            allowedScope: 'Apply only the source-bound production rollout wave processed_at_small_fix, or include it as the first wave of the exact 25-migration production rollout; verify migration history hash, absent default and clean webhook aggregates read-only.',
             forbiddenScope: [
                 'No db push broad sync',
                 'No row/user/Auth/Storage/API-setting changes',

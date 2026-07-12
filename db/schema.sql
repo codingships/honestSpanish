@@ -201,7 +201,7 @@ CREATE TABLE sessions (
     scheduled_at TIMESTAMPTZ,
     duration_minutes INTEGER NOT NULL DEFAULT 50,
     meet_link TEXT,
-    status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'completed', 'cancelled', 'no_show')),
+    status TEXT NOT NULL DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'completed', 'cancelled', 'no_show')),
     teacher_notes TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW(),

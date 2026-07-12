@@ -11,7 +11,7 @@ export const STAGING_HARDENING_TARGET = {
 
 export const STAGING_HARDENING_DB_URL_ENV = 'SUPABASE_STAGING_DB_URL';
 export const STAGING_HARDENING_APPROVAL_ENV = 'SUPABASE_STAGING_HARDENING_APPROVAL';
-export const STAGING_HARDENING_APPROVAL = 'Autorizo aplicar exclusivamente, y en este orden, las migraciones `20260712112000_reconcile_database_model_contract.sql`, `20260712114000_harden_teacher_availability_overlap.sql`, `20260712114500_require_current_adult_policy_on_signup.sql` y `20260712115000_harden_data_api_table_grants.sql`, con sus hashes fijados por el runner, al proyecto Supabase staging `mzjyvmlxfpzdfdjzxxyj`; ejecutar primero el preflight de solo lectura, aplicarlas y registrarlas juntas en una transaccion, y verificar despues modelo, defaults, enum, grants exactos de Data API, helpers, indices, constraint, triggers, funciones, las 13 policies de identidad limitadas a authenticated con auth.uid() cacheable, permisos e historial. No autorizo produccion ni ningun otro cambio o servicio externo.';
+export const STAGING_HARDENING_APPROVAL = 'Autorizo aplicar exclusivamente la cola aun pendiente de la secuencia fijada `20260712112000_reconcile_database_model_contract.sql`, `20260712114000_harden_teacher_availability_overlap.sql`, `20260712114500_require_current_adult_policy_on_signup.sql`, `20260712115000_harden_data_api_table_grants.sql`, `20260712195500_harden_sessions_status_contract.sql`, con sus hashes fijados por el runner, al proyecto Supabase staging `mzjyvmlxfpzdfdjzxxyj`; el runner debe reconocer solo un prefijo exacto ya aplicado, ejecutar primero el preflight de solo lectura, aplicar y registrar exclusivamente la cola faltante en una transaccion, y verificar despues modelo, defaults, enum, grants exactos de Data API, helpers, indices, constraints, triggers, funciones, status de sesiones NOT NULL y las 13 policies de identidad limitadas a authenticated con auth.uid() cacheable, permisos e historial. No autorizo produccion ni ningun otro cambio o servicio externo.';
 
 export interface StagingHardeningMigration {
     version: string;
@@ -45,6 +45,12 @@ export const STAGING_HARDENING_MIGRATIONS: readonly StagingHardeningMigration[] 
         file: 'supabase/migrations/20260712115000_harden_data_api_table_grants.sql',
         sha256: '88e26ddd4eed1ba337ab1902fa707de38619f76158b9a46fcbd1b9adf00707b4',
     },
+    {
+        version: '20260712195500',
+        name: 'harden_sessions_status_contract',
+        file: 'supabase/migrations/20260712195500_harden_sessions_status_contract.sql',
+        sha256: '5106b1f3081f91246682ff9dc02ed1904eac4fc8dae065bfc05ac3136d5d65b1',
+    },
 ];
 
 export interface MigrationValidation {
@@ -61,7 +67,8 @@ export interface DatabaseTargetValidation {
 export interface FactValidation {
     valid: boolean;
     details: string[];
-    historyState?: 'none' | 'complete' | 'partial_or_unexpected';
+    historyState?: 'none' | 'valid_prefix' | 'complete' | 'partial_or_unexpected';
+    appliedMigrationCount?: number;
 }
 
 export type SqlFacts = Map<string, string>;
@@ -153,6 +160,9 @@ export function validateStagingDatabaseUrl(rawValue: string | undefined): Databa
 
 export function renderStagingHardeningPreflightSql(): string {
     const versions = STAGING_HARDENING_MIGRATIONS.map((migration) => `'${migration.version}'`).join(', ');
+    const expectedHistoryRows = STAGING_HARDENING_MIGRATIONS
+        .map((migration) => `('${migration.version}', '${migration.name}')`)
+        .join(', ');
     return `${[
         '-- Espanol Honesto staging hardening: read-only preflight.',
         '-- Target ref is validated from the credential endpoint before psql is started.',
@@ -167,6 +177,11 @@ export function renderStagingHardeningPreflightSql(): string {
         `select 'migration_history_versions', coalesce(string_agg(version, ',' order by version), '')`,
         'from supabase_migrations.schema_migrations',
         `where version in (${versions});`,
+        `select 'migration_history_exact_rows', count(*)::text`,
+        'from supabase_migrations.schema_migrations history',
+        `join (values ${expectedHistoryRows}) expected(version, name)`,
+        '  on history.version = expected.version and history.name = expected.name',
+        `where cardinality(history.statements) > 0;`,
         `select 'teacher_availability_table', (to_regclass('public.teacher_availability') is not null)::text;`,
         `select 'profiles_table', (to_regclass('public.profiles') is not null)::text;`,
         `select 'profiles_private_table', (to_regclass('public.profiles_private') is not null)::text;`,
@@ -190,6 +205,8 @@ export function renderStagingHardeningPreflightSql(): string {
         `  and column_name in ('drive_doc_url', 'calendar_event_id', 'meet_link');`,
         `select 'unsupported_session_duration_count', count(*)::text`,
         `from public.sessions where duration_minutes is null or duration_minutes not in (30, 40, 50);`,
+        `select 'unsupported_session_status_count', count(*)::text`,
+        `from public.sessions where status is null or status not in ('scheduled', 'completed', 'cancelled', 'no_show');`,
         `select 'reminder_column_boolean_or_absent', (not exists(`,
         `    select 1 from information_schema.columns`,
         `    where table_schema = 'public' and table_name = 'sessions' and column_name = 'reminder_sent'`,
@@ -256,15 +273,33 @@ export function renderStagingHardeningPreflightSql(): string {
     ].join('\n')}\n`;
 }
 
-export function renderStagingHardeningApplySql(rootDir = process.cwd()): string {
+export function renderStagingHardeningApplySql(
+    rootDir = process.cwd(),
+    alreadyAppliedCount = 0,
+): string {
+    if (!Number.isInteger(alreadyAppliedCount)
+        || alreadyAppliedCount < 0
+        || alreadyAppliedCount > STAGING_HARDENING_MIGRATIONS.length) {
+        throw new Error('alreadyAppliedCount must identify an exact migration prefix.');
+    }
+
     const migrationSources = STAGING_HARDENING_MIGRATIONS.map((migration) => ({
         ...migration,
         source: readFileSync(path.resolve(rootDir, migration.file), 'utf8').trim(),
     }));
+    const pendingSources = migrationSources.slice(alreadyAppliedCount);
     const versions = migrationSources.map((migration) => `'${migration.version}'`).join(', ');
+    const expectedPrefixVersions = migrationSources
+        .slice(0, alreadyAppliedCount)
+        .map((migration) => migration.version)
+        .join(',');
+    const expectedHistoryRows = migrationSources
+        .map((migration) => `('${migration.version}', '${migration.name}')`)
+        .join(', ');
     const lines = [
         '-- Write-capable artifact. It does not authorize itself.',
         `-- Exact target: Supabase staging ${STAGING_HARDENING_TARGET.projectRef}.`,
+        `-- Exact applied prefix: ${alreadyAppliedCount}; exact pending suffix: ${pendingSources.length}.`,
         '-- The runner executes this only after its exact approval and read-only preflight pass.',
         '\\set ON_ERROR_STOP on',
         'BEGIN;',
@@ -273,19 +308,29 @@ export function renderStagingHardeningApplySql(rootDir = process.cwd()): string 
         'DO $staging_hardening_history_gate$',
         'DECLARE',
         '    v_existing_count INTEGER;',
+        '    v_existing_versions TEXT;',
+        '    v_exact_prefix_rows INTEGER;',
         'BEGIN',
-        '    SELECT count(*) INTO v_existing_count',
+        "    SELECT count(*), coalesce(string_agg(version, ',' order by version), '')",
+        '    INTO v_existing_count, v_existing_versions',
         '    FROM supabase_migrations.schema_migrations',
         `    WHERE version IN (${versions});`,
-        '    IF v_existing_count <> 0 THEN',
-        "        RAISE EXCEPTION 'Staging hardening migration history changed after preflight; expected zero target versions';",
+        '    SELECT count(*) INTO v_exact_prefix_rows',
+        '    FROM supabase_migrations.schema_migrations history',
+        `    JOIN (VALUES ${expectedHistoryRows}) expected(version, name)`,
+        '      ON history.version = expected.version AND history.name = expected.name',
+        '    WHERE cardinality(history.statements) > 0;',
+        `    IF v_existing_count <> ${alreadyAppliedCount}`,
+        `       OR v_existing_versions <> '${expectedPrefixVersions}'`,
+        `       OR v_exact_prefix_rows <> ${alreadyAppliedCount} THEN`,
+        "        RAISE EXCEPTION 'Staging hardening migration history changed after preflight; expected exact applied prefix';",
         '    END IF;',
         'END',
         '$staging_hardening_history_gate$;',
         '',
     ];
 
-    for (const migration of migrationSources) {
+    for (const migration of pendingSources) {
         const sqlTag = `$staging_hardening_${migration.version}$`;
         lines.push(
             `-- ${migration.file}`,
@@ -391,6 +436,28 @@ export function renderStagingHardeningPostVerifySql(): string {
         `    and not exists(`,
         `        select 1 from public.sessions`,
         `        where duration_minutes is null or duration_minutes not in (30, 40, 50)`,
+        `    )`,
+        `)::text;`,
+        `select 'session_status_contract', (` ,
+        `    exists(`,
+        `        select 1 from information_schema.columns`,
+        `        where table_schema = 'public' and table_name = 'sessions' and column_name = 'status'`,
+        `          and data_type = 'text' and is_nullable = 'NO'`,
+        `          and column_default = '''scheduled''::text'`,
+        `    )`,
+        `    and exists(`,
+        `        select 1 from pg_constraint`,
+        `        where conrelid = 'public.sessions'::regclass`,
+        `          and conname = 'sessions_status_check'`,
+        `          and contype = 'c'`,
+        `          and pg_get_constraintdef(oid) ilike '%scheduled%'`,
+        `          and pg_get_constraintdef(oid) ilike '%completed%'`,
+        `          and pg_get_constraintdef(oid) ilike '%cancelled%'`,
+        `          and pg_get_constraintdef(oid) ilike '%no_show%'`,
+        `    )`,
+        `    and not exists(`,
+        `        select 1 from public.sessions`,
+        `        where status is null or status not in ('scheduled', 'completed', 'cancelled', 'no_show')`,
         `    )`,
         `)::text;`,
         `select 'student_teacher_profile_policy_valid', exists(`,
@@ -606,14 +673,21 @@ export function parseSqlFacts(output: string): SqlFacts {
 
 export function validatePreflightFacts(facts: SqlFacts): FactValidation {
     const details: string[] = [];
-    const expectedVersions = STAGING_HARDENING_MIGRATIONS.map((migration) => migration.version).join(',');
+    const expectedMigrationVersions = STAGING_HARDENING_MIGRATIONS.map((migration) => migration.version);
     const historyCount = Number(facts.get('migration_history_count'));
     const historyVersions = facts.get('migration_history_versions') ?? '';
-    const historyState = historyCount === 0 && historyVersions === ''
-        ? 'none'
-        : historyCount === STAGING_HARDENING_MIGRATIONS.length && historyVersions === expectedVersions
-            ? 'complete'
-            : 'partial_or_unexpected';
+    const exactHistoryRows = Number(facts.get('migration_history_exact_rows'));
+    const observedVersions = historyVersions === '' ? [] : historyVersions.split(',');
+    const exactPrefix = Number.isInteger(historyCount)
+        && historyCount === observedVersions.length
+        && observedVersions.every((version, index) => version === expectedMigrationVersions[index]);
+    const historyState = !exactPrefix
+        ? 'partial_or_unexpected'
+        : historyCount === 0
+            ? 'none'
+            : historyCount === STAGING_HARDENING_MIGRATIONS.length
+                ? 'complete'
+                : 'valid_prefix';
 
     requireFact(facts, 'current_database', STAGING_HARDENING_TARGET.databaseName, details);
     const historyColumns = new Set((facts.get('migration_history_columns') ?? '').split(','));
@@ -621,7 +695,9 @@ export function validatePreflightFacts(facts: SqlFacts): FactValidation {
         if (!historyColumns.has(column)) details.push(`migration_history_columns missing ${column}`);
     }
     if (historyState === 'partial_or_unexpected') {
-        details.push(`migration history must contain none or all exact versions (count=${String(historyCount)}, versions=${historyVersions})`);
+        details.push(`migration history must contain an exact ordered prefix (count=${String(historyCount)}, versions=${historyVersions})`);
+    } else if (exactHistoryRows !== historyCount) {
+        details.push(`migration history prefix names/statements mismatch (count=${String(historyCount)}, exactRows=${String(exactHistoryRows)})`);
     }
     for (const key of [
         'teacher_availability_table',
@@ -643,6 +719,7 @@ export function validatePreflightFacts(facts: SqlFacts): FactValidation {
     requireFact(facts, 'unsupported_lead_status_count', '0', details);
     requireFact(facts, 'null_lead_required_fields_count', '0', details);
     requireFact(facts, 'unsupported_session_duration_count', '0', details);
+    requireFact(facts, 'unsupported_session_status_count', '0', details);
     requireFact(facts, 'session_canonical_columns_count', '3', details);
     requireFact(facts, 'public_is_admin_dependency_count', '0', details);
     requireFact(facts, 'hardening_index_target_tables_count', '8', details);
@@ -652,7 +729,12 @@ export function validatePreflightFacts(facts: SqlFacts): FactValidation {
     const legacyCount = Number(facts.get('legacy_unique_count'));
     if (![0, 1].includes(legacyCount)) details.push(`legacy_unique_count expected 0 or 1, observed ${String(legacyCount)}`);
 
-    return { valid: details.length === 0, details, historyState };
+    return {
+        valid: details.length === 0,
+        details,
+        historyState,
+        appliedMigrationCount: historyState === 'partial_or_unexpected' ? undefined : historyCount,
+    };
 }
 
 export function validatePostVerifyFacts(facts: SqlFacts): FactValidation {
@@ -683,6 +765,7 @@ export function validatePostVerifyFacts(facts: SqlFacts): FactValidation {
         'legacy_session_columns_absent',
         'sessions_reminder_contract',
         'session_duration_contract',
+        'session_status_contract',
         'student_teacher_profile_policy_valid',
         'target_constraint_valid',
         'legacy_unique_absent',

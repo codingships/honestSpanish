@@ -17,6 +17,7 @@ const billingCatalogMigration = readFileSync('supabase/migrations/20260710205031
 const billingReconciliationMigration = readFileSync('supabase/migrations/20260710215712_harden_billing_reconciliation.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutRecoveryMigration = readFileSync('supabase/migrations/20260710221846_harden_checkout_orphan_recovery.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutSnapshotMigration = readFileSync('supabase/migrations/20260710223900_harden_checkout_customer_and_snapshot_immutability.sql', 'utf8').replace(/\r\n/g, '\n');
+const sessionStatusContractMigration = readFileSync('supabase/migrations/20260712195500_harden_sessions_status_contract.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -105,6 +106,23 @@ describe('database schema security invariants', () => {
             expect(sessionWriteHardeningMigration).toContain(snippet);
         }
 
+    });
+
+    it('makes the session status contract non-null and reproducible from migrations', () => {
+        expect(schema).toContain("status TEXT NOT NULL DEFAULT 'scheduled' CHECK");
+        for (const snippet of [
+            'LOCK TABLE public.sessions IN ACCESS EXCLUSIVE MODE',
+            "WHERE status IS NULL",
+            "status NOT IN ('scheduled', 'completed', 'cancelled', 'no_show')",
+            'DROP CONSTRAINT IF EXISTS sessions_status_check',
+            'ADD CONSTRAINT sessions_status_check',
+            "ALTER COLUMN status SET DEFAULT 'scheduled'",
+            'ALTER COLUMN status SET NOT NULL',
+        ]) {
+            expect(sessionStatusContractMigration).toContain(snippet);
+        }
+        expect(databaseTypes).toContain('status: string;');
+        expect(databaseTypes).toContain('status?: string;');
     });
 
     it('tracks Stripe webhook processing state across known live schema drift', () => {

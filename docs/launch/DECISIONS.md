@@ -97,10 +97,11 @@ Pros:
 - Absorbe en el historial deployable `sessions.reminder_sent`, sus indices operativos, `idx_profiles_role` y la policy autenticada alumno -> profesor que antes solo existian en hosted/SQL manual.
 - Reconstruye las 13 policies de identidad del campus con destino explicito `authenticated` y `(select auth.uid())`, conservando permisos y evitando evaluacion por fila o sobre roles publicos.
 - La migracion de hardening posterior hace cumplir tambien en PostgreSQL las duraciones 30/40/50, ademas de impedir solapes activos de disponibilidad.
+- `20260712195500_harden_sessions_status_contract.sql` hace reproducible el `CHECK` de estado y fija `sessions.status` como `NOT NULL`; el runner de staging acepta las cuatro migraciones anteriores como prefijo exacto y aplica solo esta cola.
 - Permite que el rollout verifique por efectos el modelo base antes de crear CRM, billing y los indices finales.
 
 Contras:
-- Staging debe aplicar y verificar juntas, en orden, `20260712112000`, `20260712114000`, `20260712114500` y `20260712115000` antes de autorizar production.
+- Staging debe verificar en orden `20260712112000`, `20260712114000`, `20260712114500`, `20260712115000` y `20260712195500` antes de autorizar production; nunca se reaplica un prefijo ya registrado.
 - Production incorpora una ola dedicada `base_model_reconciliation`; su hash y receipt deben regenerarse si cambia el SQL.
 
 Decision: fijar explicitamente los grants de tablas de Data API con `20260712115000_harden_data_api_table_grants.sql`.

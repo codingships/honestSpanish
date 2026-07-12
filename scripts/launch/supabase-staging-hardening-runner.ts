@@ -217,7 +217,13 @@ if (executeRequested && preflightRequested) {
                     ],
                 });
 
-                if (preflightValidation.historyState === 'none') {
+                if (preflightValidation.historyState !== 'complete') {
+                    const alreadyAppliedCount = preflightValidation.appliedMigrationCount ?? 0;
+                    writeFileSync(
+                        artifacts.applySql,
+                        renderStagingHardeningApplySql(process.cwd(), alreadyAppliedCount),
+                        'utf8',
+                    );
                     writeCommandInvoked = true;
                     const apply = runPsql(
                         'apply_exact_migrations',
@@ -233,7 +239,7 @@ if (executeRequested && preflightRequested) {
                     checks.push({
                         status: 'ok',
                         name: 'already_applied_skip_write',
-                        message: 'All four exact history versions already exist, so the runner skipped the write and moved to verification.',
+                        message: 'All five exact history versions already exist, so the runner skipped the write and moved to verification.',
                         details: ['writeCommandInvoked=false', 'externalWritePerformed=false'],
                     });
                 }
@@ -349,7 +355,7 @@ function validateRunnerSourcePosture(): Check {
         "mode === 'execute-approved' && !approvalMatched",
         'const targetValidation = validateStagingDatabaseUrl',
         "'preflight_readonly'",
-        "preflightValidation.historyState === 'none'",
+        "preflightValidation.historyState !== 'complete'",
         "'apply_exact_migrations'",
         "'post_apply_readonly_verification'",
     ];
@@ -501,14 +507,14 @@ function renderExecutionPlan(report: RunnerReport): string {
         'pnpm launch:supabase-staging-hardening -- --execute-approved',
         '```',
         '',
-        'Execution order is fixed: local hash allowlist → endpoint allowlist → read-only preflight → one atomic transaction containing exactly all four migrations and history inserts → read-only post-verification.',
+        'Execution order is fixed: local hash allowlist → endpoint allowlist → read-only preflight → one atomic transaction containing exactly the missing suffix of the five-migration sequence and its history inserts → read-only post-verification.',
         '',
         '## Stop conditions',
         '',
         '- Stop before connecting if any local SHA-256 changes.',
         '- Stop before connecting if exact approval is absent for execute mode.',
         '- Stop before SQL if the endpoint is not exactly staging `mzjyvmlxfpzdfdjzxxyj`.',
-        '- Stop before write if only a non-empty subset of target migrations appears in history, active overlaps exist, dependencies are missing or the existing named constraint has another definition.',
+        '- Stop before write if target history is not an exact ordered prefix, active overlaps exist, dependencies are missing or an existing named constraint has another definition.',
         '- If all target versions already exist, do not reapply; run only the exact post-verification.',
         '- Never run a general migration push, migration repair, production action, Auth setting change or provider write from this runner.',
         '',
@@ -534,7 +540,7 @@ function renderApprovalGate(report: RunnerReport): string {
         '## Explicitly excluded',
         '',
         '- Production and every Supabase project other than `mzjyvmlxfpzdfdjzxxyj`.',
-        '- Any migration other than the four pinned files/hashes.',
+        '- Any migration other than the five pinned files/hashes.',
         '- General database push, migration repair, row cleanup, Auth/configuration changes, Storage changes and secret rotation.',
         '- Cloudflare, Stripe, Resend, Google, Sentry, DNS, domain, email and payment actions.',
         '',
@@ -551,7 +557,7 @@ function renderRollbackPlan(report: RunnerReport): string {
         '',
         '## After a committed apply',
         '',
-        'There is intentionally no automatic rollback command. The four migrations tighten invariants and only normalize values accepted by preflight; a forward fix is safer than silently weakening them.',
+        'There is intentionally no automatic rollback command. The five-migration sequence tightens invariants and only normalizes values accepted by preflight; a forward fix is safer than silently weakening them.',
         '',
         'If a verified staging incident requires reversal:',
         '',
@@ -559,7 +565,7 @@ function renderRollbackPlan(report: RunnerReport): string {
         '2. Obtain a separate exact approval naming staging, the incident and the precise reversal SQL.',
         '3. In a read-only transaction, prove there are no duplicate active slots before considering restoration of the former unique constraint; otherwise do not drop the exclusion constraint.',
         '4. Restore the prior `handle_new_user()` definition from the committed migration immediately preceding this hardening, not from an ad-hoc reconstruction.',
-        '5. Remove the four migration-history rows only in the same transaction that completely restores all prior schema effects. Never use migration repair as a shortcut.',
+        '5. Remove only the migration-history rows applied by the incident run, and only in the same transaction that completely restores those schema effects. Never use migration repair as a shortcut.',
         '6. Re-run the read-only preflight/verification appropriate to the restored state and record a non-secret incident receipt.',
         '',
         'If post-verification fails after a successful commit, do not retry or roll back automatically. Inspect metadata read-only and prepare a reviewed forward fix or separately approved reversal.',
@@ -584,7 +590,7 @@ function renderManifest(report: RunnerReport): string {
         execution: {
             generalDbPush: false,
             migrationRepair: false,
-            transaction: 'all four migrations and supabase_migrations.schema_migrations inserts in one transaction',
+            transaction: 'exact missing suffix of the five migrations and its supabase_migrations.schema_migrations inserts in one transaction',
             preflight: 'read-only',
             postVerification: 'read-only',
         },

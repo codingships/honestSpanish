@@ -39,11 +39,11 @@
     "shapeSha256": "b707ddc341370795c975b8eddff2ae1394afed9f121ab116306fea2db3e1b1ec",
     "status": { "succeeded": 111 },
     "kinds": {
-      "cancel_session": 20,
-      "welcome": 22,
-      "provision": 42,
-      "reminder": 5,
-      "create_drive_folder": 22
+      "scheduling.cancel_session": 20,
+      "billing.send_welcome_email": 22,
+      "scheduling.provision_session": 42,
+      "scheduling.send_session_reminder": 5,
+      "billing.create_student_drive_folder": 22
     },
     "aggregateTypes": { "session": 67, "subscription": 44 },
     "createdDateUtc": "2026-04-17",

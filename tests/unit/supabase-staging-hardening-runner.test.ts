@@ -22,13 +22,14 @@ import {
 const rootDir = process.cwd();
 
 describe('Supabase staging hardening runner', () => {
-    it('pins exactly the four approved staging migration files and their SHA-256 values', () => {
+    it('pins exactly the five approved staging migration files and their SHA-256 values', () => {
         expect(STAGING_HARDENING_TARGET.projectRef).toBe('mzjyvmlxfpzdfdjzxxyj');
         expect(STAGING_HARDENING_MIGRATIONS.map((migration) => migration.file)).toEqual([
             'supabase/migrations/20260712112000_reconcile_database_model_contract.sql',
             'supabase/migrations/20260712114000_harden_teacher_availability_overlap.sql',
             'supabase/migrations/20260712114500_require_current_adult_policy_on_signup.sql',
             'supabase/migrations/20260712115000_harden_data_api_table_grants.sql',
+            'supabase/migrations/20260712195500_harden_sessions_status_contract.sql',
         ]);
 
         for (const migration of STAGING_HARDENING_MIGRATIONS) {
@@ -62,15 +63,18 @@ describe('Supabase staging hardening runner', () => {
 
     it('renders one atomic apply file with the migrations and history inserts in fixed order', () => {
         const sql = renderStagingHardeningApplySql(rootDir);
-        const positions = STAGING_HARDENING_MIGRATIONS.map((migration) => ({
-            migration: sql.indexOf(migration.file),
-            history: sql.indexOf(`VALUES ('${migration.version}'`),
-        }));
+        const positions = STAGING_HARDENING_MIGRATIONS.map((migration) => {
+            const migrationPosition = sql.indexOf(migration.file);
+            return {
+                migration: migrationPosition,
+                history: sql.indexOf(`VALUES ('${migration.version}'`, migrationPosition),
+            };
+        });
 
         expect(sql).toContain('\\set ON_ERROR_STOP on');
         expect(sql).toContain('BEGIN;');
         expect(sql.trimEnd().endsWith('COMMIT;')).toBe(true);
-        expect(sql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(4);
+        expect(sql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(5);
         for (const [index, position] of positions.entries()) {
             expect(position.migration).toBeGreaterThan(index === 0 ? -1 : positions[index - 1].history);
             expect(position.history).toBeGreaterThan(position.migration);
@@ -78,6 +82,14 @@ describe('Supabase staging hardening runner', () => {
         expect(sql).not.toContain('supabase db push');
         expect(sql).not.toContain('supabase migration repair');
         expect(sql).not.toContain('vkkahxsybhbutszerawz');
+
+        const suffixSql = renderStagingHardeningApplySql(rootDir, 4);
+        expect(suffixSql).toContain('Exact applied prefix: 4; exact pending suffix: 1');
+        expect(suffixSql).toContain('20260712195500_harden_sessions_status_contract.sql');
+        expect(suffixSql).not.toContain('20260712115000_harden_data_api_table_grants.sql');
+        expect(suffixSql).toContain('v_exact_prefix_rows');
+        expect(suffixSql).toContain('cardinality(history.statements) > 0');
+        expect(suffixSql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(1);
     });
 
     it('keeps both preflight and post-verification SQL read-only', () => {
@@ -95,25 +107,45 @@ describe('Supabase staging hardening runner', () => {
         );
     });
 
-    it('accepts a clean preflight with neither migration and rejects partial history or overlaps', () => {
+    it('accepts an exact applied prefix and rejects unordered history or invalid session data', () => {
         const clean = preflightFacts();
         expect(validatePreflightFacts(clean)).toMatchObject({ valid: true, historyState: 'none' });
 
         const alreadyApplied = preflightFacts({
-            migration_history_count: '4',
-            migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000',
+            migration_history_count: '5',
+            migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000,20260712195500',
+            migration_history_exact_rows: '5',
         });
         expect(validatePreflightFacts(alreadyApplied)).toMatchObject({ valid: true, historyState: 'complete' });
 
-        const partial = preflightFacts({
-            migration_history_count: '1',
-            migration_history_versions: '20260712112000',
+        const validPrefix = preflightFacts({
+            migration_history_count: '4',
+            migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000',
+            migration_history_exact_rows: '4',
         });
-        expect(validatePreflightFacts(partial)).toMatchObject({ valid: false, historyState: 'partial_or_unexpected' });
+        expect(validatePreflightFacts(validPrefix)).toMatchObject({
+            valid: true,
+            historyState: 'valid_prefix',
+            appliedMigrationCount: 4,
+        });
+
+        const unordered = preflightFacts({
+            migration_history_count: '1',
+            migration_history_versions: '20260712114000',
+        });
+        expect(validatePreflightFacts(unordered)).toMatchObject({ valid: false, historyState: 'partial_or_unexpected' });
+
+        const alteredPrefix = preflightFacts({
+            migration_history_count: '4',
+            migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000',
+            migration_history_exact_rows: '3',
+        });
+        expect(validatePreflightFacts(alteredPrefix)).toMatchObject({ valid: false, historyState: 'valid_prefix' });
 
         expect(validatePreflightFacts(preflightFacts({ active_overlap_count: '1' })).valid).toBe(false);
         expect(validatePreflightFacts(preflightFacts({ null_lead_required_fields_count: '1' })).valid).toBe(false);
         expect(validatePreflightFacts(preflightFacts({ unsupported_session_duration_count: '1' })).valid).toBe(false);
+        expect(validatePreflightFacts(preflightFacts({ unsupported_session_status_count: '1' })).valid).toBe(false);
         expect(validatePreflightFacts(preflightFacts({ reminder_column_boolean_or_absent: 'false' })).valid).toBe(false);
         expect(validatePreflightFacts(preflightFacts({ target_constraint_valid_or_absent: 'false' })).valid).toBe(false);
     });
@@ -129,6 +161,7 @@ describe('Supabase staging hardening runner', () => {
             ['public_is_admin_absent', 'false'],
             ['sessions_reminder_contract', 'false'],
             ['session_duration_contract', 'false'],
+            ['session_status_contract', 'false'],
             ['student_teacher_profile_policy_valid', 'false'],
             ['authenticated_identity_policies_count', '12'],
             ['data_api_authenticated_grants_count', '62'],
@@ -190,6 +223,7 @@ function preflightFacts(overrides: Record<string, string> = {}): Map<string, str
         migration_history_columns: 'name,statements,version',
         migration_history_count: '0',
         migration_history_versions: '',
+        migration_history_exact_rows: '0',
         teacher_availability_table: 'true',
         profiles_table: 'true',
         profiles_private_table: 'true',
@@ -202,6 +236,7 @@ function preflightFacts(overrides: Record<string, string> = {}): Map<string, str
         null_lead_required_fields_count: '0',
         session_canonical_columns_count: '3',
         unsupported_session_duration_count: '0',
+        unsupported_session_status_count: '0',
         public_is_admin_dependency_count: '0',
         hardening_index_target_tables_count: '8',
         btree_gist_available: 'true',
@@ -219,9 +254,9 @@ function preflightFacts(overrides: Record<string, string> = {}): Map<string, str
 function postVerifyFacts(overrides: Record<string, string> = {}): Map<string, string> {
     return new Map(Object.entries({
         current_database: 'postgres',
-        migration_history_count: '4',
-        migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000',
-        migration_history_exact_rows: '4',
+        migration_history_count: '5',
+        migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000,20260712195500',
+        migration_history_exact_rows: '5',
         leads_updated_at_contract: 'true',
         leads_status_contract: 'true',
         leads_defaults_contract: 'true',
@@ -230,6 +265,7 @@ function postVerifyFacts(overrides: Record<string, string> = {}): Map<string, st
         legacy_session_columns_absent: 'true',
         sessions_reminder_contract: 'true',
         session_duration_contract: 'true',
+        session_status_contract: 'true',
         student_teacher_profile_policy_valid: 'true',
         authenticated_identity_policies_count: '13',
         data_api_anon_grants_count: '1',

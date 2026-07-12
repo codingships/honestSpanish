@@ -40,10 +40,10 @@ const runnerSource = readFileSync('scripts/launch/supabase-production-rollout-ru
 const sharedSource = readFileSync('scripts/launch/supabase-production-rollout-runner-shared.ts', 'utf8');
 
 describe('Supabase production wave rollout runner', () => {
-    it('pins the exact 24 migrations in seven dependency-ordered waves and excludes staging smoke', () => {
-        expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 1, 7, 7, 4, 1, 3]);
-        expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(24);
-        expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(24);
+    it('pins the exact 25 migrations in seven dependency-ordered waves and excludes staging smoke', () => {
+        expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 1, 7, 7, 4, 1, 4]);
+        expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(25);
+        expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(25);
         expect(PRODUCTION_ROLLOUT_MIGRATIONS.some((entry) => entry.version === STAGING_ONLY_VERSION)).toBe(false);
         expect(validateProductionRolloutAllowlist()).toMatchObject({ valid: true, errors: [] });
         expect(selectedWavesThrough('billing_contract').map((wave) => wave.id)).toEqual([
@@ -89,7 +89,7 @@ describe('Supabase production wave rollout runner', () => {
 
             const partial = structuredClone(preflight);
             partial.migrationInventory.localMigrations[1].historyStatus = 'exact';
-            partial.migrationInventory.semanticMissingCountExcludingStagingOnly = 23;
+            partial.migrationInventory.semanticMissingCountExcludingStagingOnly = 24;
             const partialPath = writeJson(directory, 'partial.json', partial);
             expect(readProductionPreflightEvidence(partialPath, now)).toMatchObject({ valid: false });
 
@@ -107,7 +107,7 @@ describe('Supabase production wave rollout runner', () => {
 
             const aliased = structuredClone(preflight);
             aliased.migrationInventory.localMigrations[0].historyStatus = 'alias';
-            aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 23;
+            aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 24;
             expect(readProductionPreflightEvidence(writeJson(directory, 'aliased.json', aliased), now))
                 .toMatchObject({ valid: false });
         });
@@ -196,15 +196,17 @@ describe('Supabase production wave rollout runner', () => {
         const expected = expectedProductionWaveVerificationFacts(waves);
         expect(sql).toContain("'hardening_availability_updated_at_trigger'");
         expect(sql).toContain("'hardening_session_duration_contract'");
+        expect(sql).toContain("'hardening_session_status_contract'");
         expect(sql).toContain("'hardening_required_indexes'");
         expect(sql).toContain("'hardening_data_api_grants_exact'");
         expect(sql).toContain('table_row.relrowsecurity');
         expect(sql).toContain('defaults.defaclnamespace=0');
         expect(expected.get('hardening_availability_updated_at_trigger')).toBe('true');
         expect(expected.get('hardening_session_duration_contract')).toBe('true');
+        expect(expected.get('hardening_session_status_contract')).toBe('true');
         expect(expected.get('hardening_required_indexes')).toBe('13');
         expect(expected.get('hardening_data_api_grants_exact')).toBe('true');
-        expect(expected.get('history_verified_count')).toBe('24');
+        expect(expected.get('history_verified_count')).toBe('25');
     });
 
     it('chains encrypted backup, public cleanup, active Auth quarantine, Google policy and staging proof', () => {
@@ -396,11 +398,11 @@ function preflightEvidence(endedAt: string): ProductionPreflightEvidence {
                         name: 'staging_integration_smoke_runs',
                         file: `supabase/migrations/${STAGING_ONLY_VERSION}_staging_integration_smoke_runs.sql`,
                         sha256: 'f'.repeat(64),
-                    }, 24),
+                    }, 25),
                     stagingOnly: true,
                 },
             ],
-            semanticMissingCountExcludingStagingOnly: 24,
+            semanticMissingCountExcludingStagingOnly: 25,
             ambiguousCount: 0,
         },
         aggregates: {},

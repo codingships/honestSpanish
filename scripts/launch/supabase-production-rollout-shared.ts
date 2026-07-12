@@ -86,11 +86,12 @@ export const KNOWN_MIGRATION_WAVES = [
     },
     {
         id: 'deferred_rc_hardening',
-        label: 'Hardening de solapes, politica 18+ y grants Data API',
+        label: 'Hardening de solapes, politica 18+, grants Data API y status de sesiones',
         versions: [
             '20260712114000',
             '20260712114500',
             '20260712115000',
+            '20260712195500',
         ],
         destructive: false,
         requiresBackupEvidence: true,

@@ -1,7 +1,9 @@
 // Generated from the Supabase staging schema after the four pinned RC
-// hardening migrations were applied. PostgreSQL's catalog does not expose
-// NULL semantics for PL/pgSQL argument/result fields precisely, so the
-// nullable RPC fields below are deliberately widened to match their SQL bodies.
+// hardening migrations were applied, then reconciled with the pending
+// 20260712195500 sessions status contract. PostgreSQL's catalog does not
+// expose NULL semantics for PL/pgSQL argument/result fields precisely. The
+// nullable RPC fields below
+// are deliberately widened to match their SQL bodies.
 export type Json =
   | string
   | number
@@ -1157,7 +1159,7 @@ export type Database = {
           post_class_report: Json | null;
           reminder_sent: boolean;
           scheduled_at: string | null;
-          status: string | null;
+          status: string;
           student_id: string;
           subscription_id: string;
           teacher_id: string | null;
@@ -1179,7 +1181,7 @@ export type Database = {
           post_class_report?: Json | null;
           reminder_sent?: boolean;
           scheduled_at?: string | null;
-          status?: string | null;
+          status?: string;
           student_id: string;
           subscription_id: string;
           teacher_id?: string | null;
@@ -1201,7 +1203,7 @@ export type Database = {
           post_class_report?: Json | null;
           reminder_sent?: boolean;
           scheduled_at?: string | null;
-          status?: string | null;
+          status?: string;
           student_id?: string;
           subscription_id?: string;
           teacher_id?: string | null;
