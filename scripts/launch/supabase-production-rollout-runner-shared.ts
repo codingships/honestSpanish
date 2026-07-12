@@ -62,7 +62,7 @@ export const PRODUCTION_ROLLOUT_WAVES: readonly ProductionRolloutWave[] = [
     {
         id: 'base_model_reconciliation',
         migrations: [
-            migration('20260712112000', 'reconcile_database_model_contract', '3f0ca7ae51221c35549d1434ef3bbfa332cbe131caee7cc060cb5eb4a403f6ea'),
+            migration('20260712112000', 'reconcile_database_model_contract', '84b12589850221c71b0f6ac1d9210e1a4c180836c274b6078ab638eca6b343aa'),
         ],
     },
     {
@@ -109,6 +109,7 @@ export const PRODUCTION_ROLLOUT_WAVES: readonly ProductionRolloutWave[] = [
         migrations: [
             migration('20260712114000', 'harden_teacher_availability_overlap', '03c48790abf657571b43c2170a58f148d6d15e130a93f4de9be3be6a40aaaea3'),
             migration('20260712114500', 'require_current_adult_policy_on_signup', '5f01e7e0a2854174cab59002bea4ee01987782846f8a2266bd2dba5c897b7cfb'),
+            migration('20260712115000', 'harden_data_api_table_grants', '88e26ddd4eed1ba337ab1902fa707de38619f76158b9a46fcbd1b9adf00707b4'),
         ],
     },
 ] as const;
@@ -259,8 +260,8 @@ export function validateProductionRolloutAllowlist(root = process.cwd()): Allowl
     const sources = new Map<string, string>();
     const versions = new Set<string>();
 
-    if (PRODUCTION_ROLLOUT_MIGRATIONS.length !== 23) {
-        errors.push(`Allowlist must contain exactly 23 migrations, observed ${PRODUCTION_ROLLOUT_MIGRATIONS.length}.`);
+    if (PRODUCTION_ROLLOUT_MIGRATIONS.length !== 24) {
+        errors.push(`Allowlist must contain exactly 24 migrations, observed ${PRODUCTION_ROLLOUT_MIGRATIONS.length}.`);
     }
     for (const migrationEntry of PRODUCTION_ROLLOUT_MIGRATIONS) {
         if (versions.has(migrationEntry.version)) errors.push(`Duplicate version ${migrationEntry.version}.`);
@@ -948,6 +949,27 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                       AND cmd='SELECT' AND roles=ARRAY['authenticated']::name[]
                       AND qual ILIKE '%student_teachers%' AND qual ILIKE '%auth.uid()%'
                 ))`),
+                fact('model_authenticated_identity_policies', '13', `(SELECT count(*)
+                    FROM pg_policies
+                    WHERE schemaname='public'
+                      AND policyname IN (
+                          'Students can view their teachers',
+                          'Students can view own payments',
+                          'Teachers can view their students',
+                          'Users can update own profile',
+                          'Users can view own profile',
+                          'Students can view own sessions',
+                          'Teachers can view assigned sessions',
+                          'Students can see their teachers',
+                          'Teachers can see their students',
+                          'Students can view own subscriptions',
+                          'Teachers can view assigned student subscriptions',
+                          'Students can view assigned teacher availability',
+                          'Teachers can manage own availability'
+                      )
+                      AND roles=ARRAY['authenticated']::name[]
+                      AND qual ILIKE '%select auth.uid()%'
+                )`),
                 fact('model_reconciliation_indexes', '2', `(SELECT count(*) FROM (VALUES
                     (to_regclass('public.idx_profiles_role')),
                     (to_regclass('public.idx_sessions_reminder_pending'))
@@ -1004,6 +1026,11 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                     )
                 )`),
                 fact('hardening_overlap_constraint', 'true', `(SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.teacher_availability'::regclass AND conname='teacher_availability_no_active_overlap' AND contype='x'))`),
+                fact('hardening_btree_gist_schema', 'public', `(SELECT namespace.nspname
+                    FROM pg_extension extension
+                    JOIN pg_namespace namespace ON namespace.oid=extension.extnamespace
+                    WHERE extension.extname='btree_gist'
+                )`),
                 fact('hardening_legacy_unique_absent', 'true', `(SELECT NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.teacher_availability'::regclass AND conname='teacher_availability_teacher_id_day_of_week_start_time_key'))`),
                 fact('hardening_availability_updated_at_trigger', 'true', `(SELECT EXISTS(
                     SELECT 1 FROM pg_trigger trigger_row
@@ -1032,6 +1059,75 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                     (to_regclass('public.subscriptions_package_idx'))
                 ) required(index_oid) WHERE index_oid IS NOT NULL)`),
                 fact('hardening_handle_new_user_policy', 'true', `(SELECT EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.handle_new_user()') AND pg_get_functiondef(oid) LIKE '%2026-07-10%' AND pg_get_functiondef(oid) LIKE '%v_requested_age_policy_version = v_current_age_policy_version%'))`),
+                fact('hardening_data_api_grants_exact', 'true', `(
+                    (SELECT count(*)=1 FROM (
+                        SELECT DISTINCT table_name, privilege_type
+                        FROM information_schema.table_privileges
+                        WHERE table_schema='public' AND grantee='anon'
+                    ) grants)
+                    AND (SELECT count(*)=63 FROM (
+                        SELECT DISTINCT table_name, privilege_type
+                        FROM information_schema.table_privileges
+                        WHERE table_schema='public' AND grantee='authenticated'
+                    ) grants)
+                    AND NOT EXISTS(
+                        SELECT 1
+                        FROM (
+                            SELECT DISTINCT grantee, table_name, privilege_type
+                            FROM information_schema.table_privileges
+                            WHERE table_schema='public'
+                              AND grantee IN ('PUBLIC','anon','authenticated')
+                        ) grants
+                        WHERE NOT (
+                            (grantee='anon' AND table_name='packages' AND privilege_type='SELECT')
+                            OR (grantee='authenticated' AND table_name IN (
+                                'leads','crm_contacts','crm_opportunities','crm_tasks','crm_activities',
+                                'crm_consents','fulfillment_jobs','packages','payments','profiles',
+                                'profiles_private','sessions','student_teachers','subscriptions','teacher_availability'
+                            ) AND privilege_type IN ('SELECT','INSERT','UPDATE','DELETE'))
+                            OR (grantee='authenticated' AND table_name IN (
+                                'admin_audit_log','processed_webhook_events'
+                            ) AND privilege_type='SELECT')
+                            OR (grantee='authenticated' AND table_name='support_tickets' AND privilege_type='INSERT')
+                        )
+                    )
+                    AND (SELECT count(*)=18
+                        FROM pg_class table_row
+                        JOIN pg_namespace namespace ON namespace.oid=table_row.relnamespace
+                        WHERE namespace.nspname='public'
+                          AND table_row.relkind IN ('r','p')
+                          AND table_row.relrowsecurity
+                          AND table_row.relname IN (
+                              'admin_audit_log','crm_activities','crm_consents','crm_contacts',
+                              'crm_opportunities','crm_tasks','fulfillment_jobs','leads','packages',
+                              'payments','processed_webhook_events','profiles','profiles_private',
+                              'sessions','student_teachers','subscriptions','support_tickets',
+                              'teacher_availability'
+                          )
+                    )
+                    AND NOT EXISTS(
+                        SELECT 1
+                        FROM (
+                            SELECT DISTINCT table_name
+                            FROM information_schema.table_privileges
+                            WHERE table_schema='public' AND grantee IN ('anon','authenticated')
+                        ) granted_tables
+                        JOIN pg_class table_row
+                          ON table_row.oid=to_regclass(format('public.%I', granted_tables.table_name))
+                        WHERE NOT table_row.relrowsecurity
+                    )
+                    AND NOT EXISTS(
+                        SELECT 1
+                        FROM pg_default_acl defaults
+                        JOIN pg_roles owner_role ON owner_role.oid=defaults.defaclrole
+                        LEFT JOIN pg_namespace namespace ON namespace.oid=defaults.defaclnamespace
+                        CROSS JOIN LATERAL aclexplode(defaults.defaclacl) acl
+                        WHERE owner_role.rolname='postgres'
+                          AND (defaults.defaclnamespace=0 OR namespace.nspname='public')
+                          AND defaults.defaclobjtype='r'
+                          AND (acl.grantee=0 OR pg_get_userbyid(acl.grantee) IN ('anon','authenticated'))
+                    )
+                )`),
             ];
     }
 }

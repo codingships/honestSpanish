@@ -702,10 +702,37 @@ ALTER TABLE crm_activities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE crm_consents ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teacher_availability ENABLE ROW LEVEL SECURITY;
 
-REVOKE ALL ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents FROM anon;
-REVOKE ALL ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents FROM public;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents TO service_role;
+REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres
+    REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    REVOKE ALL PRIVILEGES ON TABLES FROM PUBLIC, anon, authenticated;
+
+GRANT SELECT ON TABLE packages TO anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    leads,
+    crm_contacts,
+    crm_opportunities,
+    crm_tasks,
+    crm_activities,
+    crm_consents,
+    fulfillment_jobs,
+    packages,
+    payments,
+    profiles,
+    profiles_private,
+    sessions,
+    student_teachers,
+    subscriptions,
+    teacher_availability
+TO authenticated;
+
+GRANT SELECT ON TABLE admin_audit_log, processed_webhook_events TO authenticated;
+GRANT INSERT ON TABLE support_tickets TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+    leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents
+TO service_role;
 
 REVOKE ALL ON TABLE package_prices FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE ON TABLE package_prices TO service_role;
@@ -2430,7 +2457,7 @@ CREATE POLICY "Admins can manage payments"
     ON payments FOR ALL TO authenticated USING ((select private.is_admin()));
 
 CREATE POLICY "Students can view own payments" 
-    ON payments FOR SELECT USING (student_id = auth.uid());
+    ON payments FOR SELECT TO authenticated USING (student_id = (select auth.uid()));
 
 -- PROFILES POLICIES
 CREATE POLICY "Admins can do everything on profiles" 
@@ -2446,15 +2473,15 @@ CREATE POLICY "Students can view their teachers"
     ));
 
 CREATE POLICY "Teachers can view their students" 
-    ON profiles FOR SELECT 
-    USING (EXISTS (SELECT 1 FROM student_teachers st WHERE st.teacher_id = auth.uid() AND st.student_id = profiles.id));
+    ON profiles FOR SELECT TO authenticated
+    USING (EXISTS (SELECT 1 FROM student_teachers st WHERE st.teacher_id = (select auth.uid()) AND st.student_id = profiles.id));
 
 CREATE POLICY "Users can update own profile" 
-    ON profiles FOR UPDATE 
-    USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+    ON profiles FOR UPDATE TO authenticated
+    USING ((select auth.uid()) = id) WITH CHECK ((select auth.uid()) = id);
 
 CREATE POLICY "Users can view own profile" 
-    ON profiles FOR SELECT USING (auth.uid() = id);
+    ON profiles FOR SELECT TO authenticated USING ((select auth.uid()) = id);
 
 CREATE POLICY "Admins can manage profiles_private"
     ON profiles_private FOR ALL TO authenticated USING ((select private.is_admin())) WITH CHECK ((select private.is_admin()));
@@ -2464,43 +2491,45 @@ CREATE POLICY "Admins can manage sessions"
     ON sessions FOR ALL TO authenticated USING ((select private.is_admin()));
 
 CREATE POLICY "Students can view own sessions" 
-    ON sessions FOR SELECT USING (student_id = auth.uid());
+    ON sessions FOR SELECT TO authenticated USING (student_id = (select auth.uid()));
 
 CREATE POLICY "Teachers can view assigned sessions"
-    ON sessions FOR SELECT
-    USING (teacher_id = auth.uid());
+    ON sessions FOR SELECT TO authenticated
+    USING (teacher_id = (select auth.uid()));
 
 -- STUDENT_TEACHERS POLICIES
 CREATE POLICY "Admins can manage assignments" 
     ON student_teachers FOR ALL TO authenticated USING ((select private.is_admin()));
 
 CREATE POLICY "Students can see their teachers" 
-    ON student_teachers FOR SELECT USING (student_id = auth.uid());
+    ON student_teachers FOR SELECT TO authenticated USING (student_id = (select auth.uid()));
 
 CREATE POLICY "Teachers can see their students" 
-    ON student_teachers FOR SELECT USING (teacher_id = auth.uid());
+    ON student_teachers FOR SELECT TO authenticated USING (teacher_id = (select auth.uid()));
 
 -- SUBSCRIPTIONS POLICIES
 CREATE POLICY "Admins can manage subscriptions" 
     ON subscriptions FOR ALL TO authenticated USING ((select private.is_admin()));
 
 CREATE POLICY "Students can view own subscriptions" 
-    ON subscriptions FOR SELECT USING (student_id = auth.uid());
+    ON subscriptions FOR SELECT TO authenticated USING (student_id = (select auth.uid()));
 
 CREATE POLICY "Teachers can view assigned student subscriptions" 
-    ON subscriptions FOR SELECT 
-    USING (EXISTS (SELECT 1 FROM student_teachers st WHERE st.teacher_id = auth.uid() AND st.student_id = subscriptions.student_id));
+    ON subscriptions FOR SELECT TO authenticated
+    USING (EXISTS (SELECT 1 FROM student_teachers st WHERE st.teacher_id = (select auth.uid()) AND st.student_id = subscriptions.student_id));
 
 -- TEACHER_AVAILABILITY POLICIES
 CREATE POLICY "Admins can manage all availability" 
     ON teacher_availability FOR ALL TO authenticated USING ((select private.is_admin()));
 
 CREATE POLICY "Students can view assigned teacher availability" 
-    ON teacher_availability FOR SELECT 
-    USING (EXISTS (SELECT 1 FROM student_teachers st WHERE st.student_id = auth.uid() AND st.teacher_id = teacher_availability.teacher_id));
+    ON teacher_availability FOR SELECT TO authenticated
+    USING (EXISTS (SELECT 1 FROM student_teachers st WHERE st.student_id = (select auth.uid()) AND st.teacher_id = teacher_availability.teacher_id));
 
 CREATE POLICY "Teachers can manage own availability" 
-    ON teacher_availability FOR ALL USING (teacher_id = auth.uid());
+    ON teacher_availability FOR ALL TO authenticated
+    USING (teacher_id = (select auth.uid()))
+    WITH CHECK (teacher_id = (select auth.uid()));
 
 -- =============================================
 -- FUNCTIONS & TRIGGERS

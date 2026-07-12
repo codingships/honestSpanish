@@ -25,7 +25,15 @@ test.describe('Residual public routes', () => {
         const response = await page.goto('/es/blog/');
 
         expect(response?.status()).toBe(200);
-        await expect(page.locator('main, body')).toContainText('Blog');
+        const main = page.locator('main#main-content');
+        await expect(main).toHaveCount(1);
+        await expect(main).toContainText('Blog');
+        await expect(page.getByRole('navigation', { name: 'Ruta de navegación' })).toBeVisible();
+        const skipLink = page.getByRole('link', { name: 'Saltar al contenido principal' });
+        await skipLink.focus();
+        await expect(skipLink).toBeVisible();
+        await page.keyboard.press('Enter');
+        await expect(main).toBeFocused();
         await expect(page.locator('article')).not.toHaveCount(0);
         await expect(page.locator('article a[href^="/es/blog/"]').first()).toBeVisible();
         await expect(page.locator('a[href="/es#contacto"]')).toBeVisible();
@@ -41,6 +49,14 @@ test.describe('Residual public routes', () => {
         const response = await page.goto(articleHref!);
 
         expect(response?.status()).toBe(200);
+        const main = page.locator('main#main-content');
+        await expect(main).toHaveCount(1);
+        await expect(page.getByRole('navigation', { name: 'Ruta de navegación' })).toBeVisible();
+        const skipLink = page.getByRole('link', { name: 'Saltar al contenido principal' });
+        await skipLink.focus();
+        await expect(skipLink).toBeVisible();
+        await page.keyboard.press('Enter');
+        await expect(main).toBeFocused();
         await expect(page.locator('article h1')).toBeVisible();
         await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
             'href',
@@ -49,6 +65,53 @@ test.describe('Residual public routes', () => {
         await expect(page.locator('nav a[href="/es/blog"]')).toBeVisible();
         await expect(page.locator('section a[href="/es#contacto"]')).toBeVisible();
         await expectPageHasNoMojibake(page);
+    });
+
+    test('localized blog and segment skip links move keyboard focus to main content', async ({ page }) => {
+        const localizedBlogRoutes = [
+            {
+                index: '/es/blog/',
+                article: '/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+                skip: 'Saltar al contenido principal',
+                breadcrumb: 'Ruta de navegación',
+            },
+            {
+                index: '/en/blog/',
+                article: '/en/blog/how-long-to-speak-spanish-fluently',
+                skip: 'Skip to main content',
+                breadcrumb: 'Breadcrumb',
+            },
+            {
+                index: '/ru/blog/',
+                article: '/ru/blog/how-long-to-speak-spanish-fluently',
+                skip: 'Перейти к основному содержанию',
+                breadcrumb: 'Навигационная цепочка',
+            },
+        ];
+
+        for (const localized of localizedBlogRoutes) {
+            for (const route of [localized.index, localized.article]) {
+                await page.goto(route);
+                const main = page.locator('main#main-content');
+                await expect(main).toHaveCount(1);
+                await expect(page.getByRole('navigation', { name: localized.breadcrumb })).toBeVisible();
+                const skipLink = page.getByRole('link', { name: localized.skip });
+                await skipLink.focus();
+                await expect(skipLink).toBeVisible();
+                await page.keyboard.press('Enter');
+                await expect(main).toBeFocused();
+            }
+        }
+
+        await page.goto('/es/espanol-para-vivir-en-espana');
+        const segmentMain = page.locator('main#main-content');
+        await expect(segmentMain).toHaveCount(1);
+        await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
+        const segmentSkipLink = page.getByRole('link', { name: 'Saltar al contenido principal' });
+        await segmentSkipLink.focus();
+        await expect(segmentSkipLink).toBeVisible();
+        await page.keyboard.press('Enter');
+        await expect(segmentMain).toBeFocused();
     });
 
     test('blog RSS feed returns localized XML without encoded text corruption', async ({ page }) => {

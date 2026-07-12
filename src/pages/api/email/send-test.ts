@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import {
     buildEmailPreview,
+    emailPreviewLocales,
     emailPreviewTypes,
+    isEmailPreviewLocale,
     isEmailPreviewType,
     sendEmailPreview,
 } from '../../../lib/email/previews';
@@ -12,6 +14,7 @@ import { describeEmailSendError } from '../../../lib/email/errors';
 const sendTestSchema = z.object({
     type: z.enum(emailPreviewTypes),
     email: z.string().trim().email(),
+    locale: z.enum(emailPreviewLocales).optional(),
 });
 
 async function requireAdmin(context: Parameters<APIRoute>[0]) {
@@ -47,11 +50,15 @@ export const GET: APIRoute = async (context) => {
     if ('error' in auth) return json({ error: auth.error }, auth.status);
 
     const type = new URL(context.request.url).searchParams.get('type') || 'welcome';
+    const locale = new URL(context.request.url).searchParams.get('locale') || 'en';
     if (!isEmailPreviewType(type)) {
         return json({ error: `Invalid type. Must be one of: ${emailPreviewTypes.join(', ')}` }, 400);
     }
+    if (!isEmailPreviewLocale(locale)) {
+        return json({ error: `Invalid locale. Must be one of: ${emailPreviewLocales.join(', ')}` }, 400);
+    }
 
-    return json(buildEmailPreview(type));
+    return json(buildEmailPreview(type, locale));
 };
 
 export const POST: APIRoute = async (context) => {
@@ -71,7 +78,11 @@ export const POST: APIRoute = async (context) => {
     }
 
     try {
-        const success = await sendEmailPreview(parsed.data.type, parsed.data.email);
+        const success = await sendEmailPreview(
+            parsed.data.type,
+            parsed.data.email,
+            parsed.data.locale ?? 'en',
+        );
         return json({
             success,
             message: success

@@ -450,33 +450,35 @@ async function sendDueReminders(
         }
 
         const sessionDate = new Date(session.scheduled_at);
-        const date = sessionDate.toLocaleDateString('es-ES', {
+        const date = sessionDate.toLocaleDateString('en-GB', {
             weekday: 'long',
             day: 'numeric',
             month: 'long',
             year: 'numeric',
             timeZone: 'Europe/Madrid',
         });
-        const time = sessionDate.toLocaleTimeString('es-ES', {
+        const time = sessionDate.toLocaleTimeString('en-GB', {
             hour: '2-digit',
             minute: '2-digit',
+            hour12: false,
             timeZone: 'Europe/Madrid',
+            timeZoneName: 'short',
         });
 
         const studentSent = await sendClassReminder(student.email, {
-            recipientName: student.full_name || 'Estudiante',
+            recipientName: student.full_name || 'Student',
             date,
             time,
-            teacherName: teacher.full_name || 'Tu profesor',
+            teacherName: teacher.full_name || 'Your teacher',
             meetLink: session.meet_link ?? undefined,
             documentLink: session.drive_doc_url ?? undefined,
         });
 
         const teacherSent = await sendClassReminder(teacher.email, {
-            recipientName: teacher.full_name || 'Profesor',
+            recipientName: teacher.full_name || 'Teacher',
             date,
             time,
-            studentName: student.full_name || 'Tu estudiante',
+            studentName: student.full_name || 'Your student',
             meetLink: session.meet_link ?? undefined,
             documentLink: session.drive_doc_url ?? undefined,
         });

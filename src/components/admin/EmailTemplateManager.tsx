@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { EmailPreviewType } from '../../lib/email/previews';
+import type { EmailPreviewLocale, EmailPreviewType } from '../../lib/email/previews';
 
 type EmailPreview = {
     type: EmailPreviewType;
@@ -14,6 +14,7 @@ type EmailPreviewResponse = Partial<EmailPreview> & {
 
 const templateOptions: Array<{ value: EmailPreviewType; label: string; description: string }> = [
     { value: 'welcome', label: 'Bienvenida alumno', description: 'Alta de plan y acceso al campus.' },
+    { value: 'renewal', label: 'Aviso de renovacion', description: 'Importe, periodo y opciones antes del cobro.' },
     { value: 'confirmation', label: 'Confirmacion clase', description: 'Clase programada con Meet y documento.' },
     { value: 'reminder', label: 'Recordatorio clase', description: 'Aviso previo a la clase.' },
     { value: 'cancelled', label: 'Cancelacion clase', description: 'Clase cancelada con motivo.' },
@@ -31,6 +32,7 @@ interface Props {
 
 export default function EmailTemplateManager({ adminEmail }: Props) {
     const [selectedType, setSelectedType] = useState<EmailPreviewType>('welcome');
+    const [selectedLocale, setSelectedLocale] = useState<EmailPreviewLocale>('en');
     const [recipientEmail, setRecipientEmail] = useState(adminEmail);
     const [preview, setPreview] = useState<EmailPreview | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -53,7 +55,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
             setMessage(null);
 
             try {
-                const response = await fetch(`/api/email/send-test?type=${selectedType}`, {
+                const response = await fetch(`/api/email/send-test?type=${selectedType}&locale=${selectedLocale}`, {
                     signal: controller.signal,
                 });
                 const data = await response.json() as EmailPreviewResponse;
@@ -75,7 +77,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
             isActive = false;
             controller.abort();
         };
-    }, [selectedType]);
+    }, [selectedLocale, selectedType]);
 
     const sendTestEmail = async () => {
         const email = recipientEmail.trim();
@@ -89,7 +91,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
             const response = await fetch('/api/email/send-test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type: selectedType, email }),
+                body: JSON.stringify({ type: selectedType, email, locale: selectedLocale }),
             });
             const data = await response.json() as EmailPreviewResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo enviar el email');
@@ -125,6 +127,23 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
                         ))}
                     </select>
                 </label>
+
+                {(selectedType === 'welcome' || selectedType === 'renewal') && (
+                    <label className="block">
+                        <span className="mb-2 block font-mono text-xs font-bold uppercase text-[#006064]">
+                            Idioma
+                        </span>
+                        <select
+                            value={selectedLocale}
+                            onChange={(event) => setSelectedLocale(event.target.value as EmailPreviewLocale)}
+                            className="w-full border-2 border-[#006064] bg-white p-3 font-bold text-[#006064]"
+                        >
+                            <option value="es">Español</option>
+                            <option value="en">English</option>
+                            <option value="ru">Русский</option>
+                        </select>
+                    </label>
+                )}
 
                 <div className="border border-[#006064]/20 bg-[#E0F7FA] p-3 text-sm text-[#006064]">
                     <p className="font-bold">{selectedTemplate.label}</p>

@@ -50,6 +50,7 @@ describe('EmailTemplateManager', () => {
         expect(requestBody(1)).toEqual({
             type: 'welcome',
             email: 'qa@example.com',
+            locale: 'en',
         });
         expect(screen.getByRole('status')).toHaveTextContent('Email enviado');
     });

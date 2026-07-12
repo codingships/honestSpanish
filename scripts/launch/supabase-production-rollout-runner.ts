@@ -434,7 +434,7 @@ async function main(): Promise<void> {
             scopeSha256,
             allowlistSha256: allowlist.allowlistSha256,
             through: args.through,
-            migrationCount: 23,
+            migrationCount: 24,
             migrationManifestSha256: sha256(stableJson(PRODUCTION_ROLLOUT_MIGRATIONS.map(migrationIdentity))),
             preflightEvidenceSha256: preflight.sha256,
             backupReceiptSha256: backup.sha256,

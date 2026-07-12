@@ -33,7 +33,7 @@ vi.mock('../../src/lib/crm/class-email', () => ({
     recordClassEmailOutInCrmSafe: crmClassEmailMocks.recordClassEmailOutInCrmSafe,
 }));
 
-import { fulfillSingleSession } from '../../src/lib/fulfillment/session-fulfillment';
+import { fulfillSessionBatch, fulfillSingleSession } from '../../src/lib/fulfillment/session-fulfillment';
 
 function createSessionsQuery(result: { data: unknown; error: unknown }) {
     const query: any = {
@@ -96,6 +96,8 @@ describe('session fulfillment', () => {
             recipientName: 'Student One',
             isTeacher: false,
             otherPartyName: 'Teacher One',
+            date: 'Friday, 26 June 2026',
+            time: '12:00 CEST',
             duration: 50,
             meetLink: 'https://meet.example/abc',
             documentLink: 'https://docs.example/doc',
@@ -138,5 +140,50 @@ describe('session fulfillment', () => {
             documentLink: 'https://docs.example/doc',
             source: 'session_fulfillment',
         }));
+    });
+
+    it('does not append a zero-additional-classes suffix to a one-session batch', async () => {
+        const session = {
+            id: 'session-1',
+            subscription_id: 'subscription-1',
+            student_id: 'student-1',
+            teacher_id: 'teacher-1',
+            scheduled_at: '2026-06-26T10:00:00.000Z',
+            duration_minutes: 50,
+            meet_link: 'https://meet.example/abc',
+            drive_doc_url: 'https://docs.example/doc',
+            drive_doc_id: 'doc-1',
+            calendar_event_id: 'event-1',
+            student: {
+                id: 'student-1',
+                full_name: 'Student One',
+                email: 'student@example.com',
+            },
+            teacher: {
+                id: 'teacher-1',
+                full_name: 'Teacher One',
+                email: 'teacher@example.com',
+            },
+        };
+        const sessionsQuery = createSessionsQuery({ data: [session], error: null });
+        const supabaseAdmin = {
+            from: vi.fn((table: string) => {
+                if (table === 'sessions') return sessionsQuery;
+                throw new Error(`Unexpected table ${table}`);
+            }),
+        };
+
+        await fulfillSessionBatch(supabaseAdmin as any, ['session-1'], {
+            autoCreateMeeting: false,
+            sendEmail: true,
+        });
+
+        expect(emailMocks.sendClassConfirmation).toHaveBeenCalledWith(
+            'student@example.com',
+            expect.objectContaining({
+                date: 'Friday, 26 June 2026',
+            }),
+        );
+        expect(emailMocks.sendClassConfirmation.mock.calls[0]?.[1]?.date).not.toContain('+ 0');
     });
 });

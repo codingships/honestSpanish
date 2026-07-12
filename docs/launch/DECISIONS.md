@@ -95,12 +95,25 @@ Pros:
 - Elimina el helper residual `public.is_admin()` sin `CASCADE` y conserva exclusivamente `private.is_admin()`.
 - Retira columnas legacy de sesiones solo despues de preservar sus valores en las columnas canonicas.
 - Absorbe en el historial deployable `sessions.reminder_sent`, sus indices operativos, `idx_profiles_role` y la policy autenticada alumno -> profesor que antes solo existian en hosted/SQL manual.
+- Reconstruye las 13 policies de identidad del campus con destino explicito `authenticated` y `(select auth.uid())`, conservando permisos y evitando evaluacion por fila o sobre roles publicos.
 - La migracion de hardening posterior hace cumplir tambien en PostgreSQL las duraciones 30/40/50, ademas de impedir solapes activos de disponibilidad.
 - Permite que el rollout verifique por efectos el modelo base antes de crear CRM, billing y los indices finales.
 
 Contras:
-- Staging debe aplicar y verificar juntas, en orden, `20260712112000`, `20260712114000` y `20260712114500` antes de autorizar production.
+- Staging debe aplicar y verificar juntas, en orden, `20260712112000`, `20260712114000`, `20260712114500` y `20260712115000` antes de autorizar production.
 - Production incorpora una ola dedicada `base_model_reconciliation`; su hash y receipt deben regenerarse si cambia el SQL.
+
+Decision: fijar explicitamente los grants de tablas de Data API con `20260712115000_harden_data_api_table_grants.sql`.
+
+Pros:
+- Elimina `TRUNCATE`, `REFERENCES` y `TRIGGER` heredados de defaults historicos, operaciones que RLS no protege.
+- Alinea grants y policies: un `SELECT` anonimo para `packages`, 63 grants autenticados exactos y cero superficie cliente en seis tablas service-only.
+- Revoca los defaults globales y los de `public` para tablas creadas por `postgres`, de modo que futuras tablas fallen cerradas hasta declarar su contrato Data API.
+- Reafirma RLS en las 18 tablas que reciben algun grant cliente y el post-check exige 18/18 con RLS, cero tablas concedidas sin RLS y cero ACL cliente globales o de `public`.
+
+Contras:
+- Toda tabla publica futura que deba exponerse requerira grants explicitos ademas de RLS.
+- Los default ACL administrados por `supabase_admin` pertenecen a la plataforma; el runner verifica los de `postgres`, propietario de las migraciones de la aplicacion.
 
 Decision: la base de datos actua como ultima barrera semantica para relaciones alumno/profesor en operaciones de campus.
 

@@ -39,18 +39,22 @@ function one<T>(value: T | T[] | null | undefined): T | null {
 }
 
 function formatClassDate(date: Date): string {
-    return date.toLocaleDateString('es-ES', {
+    return date.toLocaleDateString('en-GB', {
         weekday: 'long',
         year: 'numeric',
         month: 'long',
         day: 'numeric',
+        timeZone: 'Europe/Madrid',
     });
 }
 
 function formatClassTime(date: Date): string {
-    return date.toLocaleTimeString('es-ES', {
+    return date.toLocaleTimeString('en-GB', {
         hour: '2-digit',
         minute: '2-digit',
+        hour12: false,
+        timeZone: 'Europe/Madrid',
+        timeZoneName: 'short',
     });
 }
 
@@ -146,7 +150,7 @@ async function createArtifactsForSession(
 
     const student = one(session.student);
     const teacher = one(session.teacher);
-    const studentName = student?.full_name || student?.email?.split('@')[0] || 'Estudiante';
+    const studentName = student?.full_name || student?.email?.split('@')[0] || 'Student';
     const studentEmail = student?.email || '';
     const teacherEmail = teacher?.email || '';
     const studentPrivate = privateProfiles.get(session.student_id);
@@ -268,9 +272,9 @@ export async function fulfillSingleSession(
     await sendConfirmationOrThrow(
         supabaseAdmin,
         student.email,
-        student.full_name || student.email.split('@')[0] || 'Estudiante',
+        student.full_name || student.email.split('@')[0] || 'Student',
         teacher.email,
-        teacher.full_name || 'Profesor',
+        teacher.full_name || 'Teacher',
         classDetails,
         options.emailEffectJob,
     );
@@ -336,8 +340,12 @@ export async function fulfillSessionBatch(
     }
 
     const firstClass = processedClasses.sort((a, b) => a.date.getTime() - b.date.getTime())[0];
+    const additionalClassCount = processedClasses.length - 1;
+    const batchDate = formatClassDate(firstClass.date);
     const classDetails = {
-        date: `${formatClassDate(firstClass.date)} (+ ${processedClasses.length - 1} clases agendadas)`,
+        date: additionalClassCount > 0
+            ? `${batchDate} (+ ${additionalClassCount} ${additionalClassCount === 1 ? 'class' : 'classes'} scheduled)`
+            : batchDate,
         time: formatClassTime(firstClass.date),
         duration: firstSession.duration_minutes || DEFAULT_CLASS_DURATION_MINUTES,
         meetLink: firstClass.meetLink,
@@ -347,9 +355,9 @@ export async function fulfillSessionBatch(
     await sendConfirmationOrThrow(
         supabaseAdmin,
         student.email,
-        student.full_name || student.email.split('@')[0] || 'Estudiante',
+        student.full_name || student.email.split('@')[0] || 'Student',
         teacher.email,
-        teacher.full_name || 'Profesor',
+        teacher.full_name || 'Teacher',
         classDetails,
         options.emailEffectJob,
     );

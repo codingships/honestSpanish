@@ -7,6 +7,8 @@ const leadCaptureSource = readFileSync('src/components/LeadCaptureForm.tsx', 'ut
 const translationsSource = readFileSync('src/i18n/translations.ts', 'utf8');
 const blogLayoutSource = readFileSync('src/layouts/BlogLayout.astro', 'utf8');
 const blogIndexSource = readFileSync('src/pages/[lang]/blog/index.astro', 'utf8');
+const segmentLandingSource = readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8');
+const tableOfContentsSource = readFileSync('src/components/blog/TableOfContents.astro', 'utf8');
 const segmentLivingSource = readFileSync('src/pages/es/espanol-para-vivir-en-espana.astro', 'utf8');
 const segmentProfessionalSource = readFileSync('src/pages/es/espanol-para-profesionales.astro', 'utf8');
 const segmentConversationSource = readFileSync('src/pages/es/clases-de-conversacion-en-espanol.astro', 'utf8');
@@ -93,7 +95,7 @@ describe('landing public launch content', () => {
             translationsSource,
             blogLayoutSource,
             blogIndexSource,
-            readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8'),
+            segmentLandingSource,
             segmentLivingSource,
             segmentProfessionalSource,
             segmentConversationSource,
@@ -101,6 +103,22 @@ describe('landing public launch content', () => {
         ];
 
         expect(publicLaunchSources.filter(hasLikelyMojibake)).toEqual([]);
+    });
+
+    it('keeps segment and blog routes keyboard-bypassable with named navigation landmarks', () => {
+        expect(segmentLandingSource).toContain('href="#main-content"');
+        expect(segmentLandingSource).toContain('<main id="main-content" tabindex="-1">');
+        expect(segmentLandingSource).toContain('aria-label="Navegación principal"');
+
+        for (const source of [blogIndexSource, blogLayoutSource]) {
+            expect(source).toContain('href="#main-content"');
+            expect(source).toContain('<main id="main-content" tabindex="-1">');
+            expect(source).toContain('aria-label={accessibilityCopy.breadcrumb}');
+            expect(source).toContain('aria-current="page"');
+        }
+
+        expect(tableOfContentsSource).toContain('aria-labelledby="blog-toc-heading"');
+        expect(tableOfContentsSource).toContain('id="blog-toc-heading"');
     });
 
     it('keeps launch content audit as a second guard for the commercial promise', () => {
@@ -162,10 +180,10 @@ describe('landing public launch content', () => {
 
     it('keeps public plan CTAs application-only and leaves approved checkout inside campus', () => {
         expect(landingSource).toContain("const checkoutMode = 'application' as const");
-        expect(readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8')).toContain("const checkoutMode = 'application' as const");
+        expect(segmentLandingSource).toContain("const checkoutMode = 'application' as const");
         expect(landingSource).not.toContain('isCheckoutEnabled');
         expect(landingSource).toContain('checkoutMode={checkoutMode}');
-        expect(readFileSync('src/components/landing/SegmentLandingPage.astro', 'utf8')).toContain('checkoutMode={checkoutMode}');
+        expect(segmentLandingSource).toContain('checkoutMode={checkoutMode}');
         expect(pricingSource).toContain("checkoutMode?: 'application' | 'checkout'");
         expect(pricingSource).toContain("checkoutMode = 'application'");
         expect(pricingSource).toContain('requestApplication');

@@ -11,7 +11,7 @@ export const STAGING_HARDENING_TARGET = {
 
 export const STAGING_HARDENING_DB_URL_ENV = 'SUPABASE_STAGING_DB_URL';
 export const STAGING_HARDENING_APPROVAL_ENV = 'SUPABASE_STAGING_HARDENING_APPROVAL';
-export const STAGING_HARDENING_APPROVAL = 'Autorizo aplicar exclusivamente, y en este orden, las migraciones `20260712112000_reconcile_database_model_contract.sql`, `20260712114000_harden_teacher_availability_overlap.sql` y `20260712114500_require_current_adult_policy_on_signup.sql`, con sus hashes fijados por el runner, al proyecto Supabase staging `mzjyvmlxfpzdfdjzxxyj`; ejecutar primero el preflight de solo lectura, aplicarlas y registrarlas juntas en una transaccion, y verificar despues modelo, defaults, enum, grants, helpers, indices, constraint, triggers, funciones, permisos e historial. No autorizo produccion ni ningun otro cambio o servicio externo.';
+export const STAGING_HARDENING_APPROVAL = 'Autorizo aplicar exclusivamente, y en este orden, las migraciones `20260712112000_reconcile_database_model_contract.sql`, `20260712114000_harden_teacher_availability_overlap.sql`, `20260712114500_require_current_adult_policy_on_signup.sql` y `20260712115000_harden_data_api_table_grants.sql`, con sus hashes fijados por el runner, al proyecto Supabase staging `mzjyvmlxfpzdfdjzxxyj`; ejecutar primero el preflight de solo lectura, aplicarlas y registrarlas juntas en una transaccion, y verificar despues modelo, defaults, enum, grants exactos de Data API, helpers, indices, constraint, triggers, funciones, las 13 policies de identidad limitadas a authenticated con auth.uid() cacheable, permisos e historial. No autorizo produccion ni ningun otro cambio o servicio externo.';
 
 export interface StagingHardeningMigration {
     version: string;
@@ -25,7 +25,7 @@ export const STAGING_HARDENING_MIGRATIONS: readonly StagingHardeningMigration[] 
         version: '20260712112000',
         name: 'reconcile_database_model_contract',
         file: 'supabase/migrations/20260712112000_reconcile_database_model_contract.sql',
-        sha256: '3f0ca7ae51221c35549d1434ef3bbfa332cbe131caee7cc060cb5eb4a403f6ea',
+        sha256: '84b12589850221c71b0f6ac1d9210e1a4c180836c274b6078ab638eca6b343aa',
     },
     {
         version: '20260712114000',
@@ -38,6 +38,12 @@ export const STAGING_HARDENING_MIGRATIONS: readonly StagingHardeningMigration[] 
         name: 'require_current_adult_policy_on_signup',
         file: 'supabase/migrations/20260712114500_require_current_adult_policy_on_signup.sql',
         sha256: '5f01e7e0a2854174cab59002bea4ee01987782846f8a2266bd2dba5c897b7cfb',
+    },
+    {
+        version: '20260712115000',
+        name: 'harden_data_api_table_grants',
+        file: 'supabase/migrations/20260712115000_harden_data_api_table_grants.sql',
+        sha256: '88e26ddd4eed1ba337ab1902fa707de38619f76158b9a46fcbd1b9adf00707b4',
     },
 ];
 
@@ -394,7 +400,109 @@ export function renderStagingHardeningPostVerifySql(): string {
         `      and cmd = 'SELECT' and roles = array['authenticated']::name[]`,
         `      and qual ilike '%student_teachers%' and qual ilike '%auth.uid()%'`,
         `)::text;`,
+        `select 'authenticated_identity_policies_count', count(*)::text`,
+        `from pg_policies`,
+        `where schemaname = 'public'`,
+        `  and policyname in (`,
+        `      'Students can view their teachers',`,
+        `      'Students can view own payments',`,
+        `      'Teachers can view their students',`,
+        `      'Users can update own profile',`,
+        `      'Users can view own profile',`,
+        `      'Students can view own sessions',`,
+        `      'Teachers can view assigned sessions',`,
+        `      'Students can see their teachers',`,
+        `      'Teachers can see their students',`,
+        `      'Students can view own subscriptions',`,
+        `      'Teachers can view assigned student subscriptions',`,
+        `      'Students can view assigned teacher availability',`,
+        `      'Teachers can manage own availability'`,
+        `  )`,
+        `  and roles = array['authenticated']::name[]`,
+        `  and qual ilike '%select auth.uid()%';`,
+        `select 'data_api_anon_grants_count', count(*)::text from (`,
+        `    select distinct table_name, privilege_type`,
+        `    from information_schema.table_privileges`,
+        `    where table_schema = 'public' and grantee = 'anon'`,
+        `) grants;`,
+        `select 'data_api_authenticated_grants_count', count(*)::text from (`,
+        `    select distinct table_name, privilege_type`,
+        `    from information_schema.table_privileges`,
+        `    where table_schema = 'public' and grantee = 'authenticated'`,
+        `) grants;`,
+        `select 'data_api_public_grants_count', count(*)::text from (`,
+        `    select distinct table_name, privilege_type`,
+        `    from information_schema.table_privileges`,
+        `    where table_schema = 'public' and grantee = 'PUBLIC'`,
+        `) grants;`,
+        `select 'data_api_authenticated_crud_tables_count', count(*)::text from (`,
+        `    select table_name`,
+        `    from information_schema.table_privileges`,
+        `    where table_schema = 'public' and grantee = 'authenticated'`,
+        `      and table_name in (`,
+        `          'leads', 'crm_contacts', 'crm_opportunities', 'crm_tasks',`,
+        `          'crm_activities', 'crm_consents', 'fulfillment_jobs', 'packages',`,
+        `          'payments', 'profiles', 'profiles_private', 'sessions',`,
+        `          'student_teachers', 'subscriptions', 'teacher_availability'`,
+        `      )`,
+        `      and privilege_type in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')`,
+        `    group by table_name`,
+        `    having count(distinct privilege_type) = 4`,
+        `) complete_tables;`,
+        `select 'data_api_client_granted_tables_rls_count', count(*)::text`,
+        `from pg_class table_row`,
+        `join pg_namespace namespace on namespace.oid = table_row.relnamespace`,
+        `where namespace.nspname = 'public'`,
+        `  and table_row.relkind in ('r', 'p')`,
+        `  and table_row.relrowsecurity`,
+        `  and table_row.relname in (`,
+        `      'admin_audit_log', 'crm_activities', 'crm_consents', 'crm_contacts',`,
+        `      'crm_opportunities', 'crm_tasks', 'fulfillment_jobs', 'leads',`,
+        `      'packages', 'payments', 'processed_webhook_events', 'profiles',`,
+        `      'profiles_private', 'sessions', 'student_teachers', 'subscriptions',`,
+        `      'support_tickets', 'teacher_availability'`,
+        `  );`,
+        `select 'data_api_client_granted_tables_without_rls_count', count(*)::text from (`,
+        `    select distinct table_name`,
+        `    from information_schema.table_privileges`,
+        `    where table_schema = 'public' and grantee in ('anon', 'authenticated')`,
+        `) granted_tables`,
+        `join pg_class table_row on table_row.oid = to_regclass(format('public.%I', granted_tables.table_name))`,
+        `where not table_row.relrowsecurity;`,
+        `select 'data_api_unexpected_client_grants_count', count(*)::text from (`,
+        `    select distinct grantee, table_name, privilege_type`,
+        `    from information_schema.table_privileges`,
+        `    where table_schema = 'public'`,
+        `      and grantee in ('PUBLIC', 'anon', 'authenticated')`,
+        `      and not (`,
+        `          (grantee = 'anon' and table_name = 'packages' and privilege_type = 'SELECT')`,
+        `          or (grantee = 'authenticated' and table_name in (`,
+        `              'leads', 'crm_contacts', 'crm_opportunities', 'crm_tasks',`,
+        `              'crm_activities', 'crm_consents', 'fulfillment_jobs', 'packages',`,
+        `              'payments', 'profiles', 'profiles_private', 'sessions',`,
+        `              'student_teachers', 'subscriptions', 'teacher_availability'`,
+        `          ) and privilege_type in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'))`,
+        `          or (grantee = 'authenticated' and table_name in (`,
+        `              'admin_audit_log', 'processed_webhook_events'`,
+        `          ) and privilege_type = 'SELECT')`,
+        `          or (grantee = 'authenticated' and table_name = 'support_tickets'`,
+        `              and privilege_type = 'INSERT')`,
+        `      )`,
+        `) unexpected;`,
+        `select 'data_api_postgres_default_client_grants_count', count(*)::text`,
+        `from pg_default_acl defaults`,
+        `join pg_roles owner_role on owner_role.oid = defaults.defaclrole`,
+        `left join pg_namespace namespace on namespace.oid = defaults.defaclnamespace`,
+        `cross join lateral aclexplode(defaults.defaclacl) acl`,
+        `where owner_role.rolname = 'postgres'`,
+        `  and (defaults.defaclnamespace = 0 or namespace.nspname = 'public')`,
+        `  and defaults.defaclobjtype = 'r'`,
+        `  and (acl.grantee = 0 or pg_get_userbyid(acl.grantee) in ('anon', 'authenticated'));`,
         `select 'btree_gist_installed', exists(select 1 from pg_extension where extname = 'btree_gist')::text;`,
+        `select 'btree_gist_schema', namespace.nspname`,
+        `from pg_extension extension`,
+        `join pg_namespace namespace on namespace.oid = extension.extnamespace`,
+        `where extension.extname = 'btree_gist';`,
         `select 'active_overlap_count', count(*)::text`,
         'from public.teacher_availability first_slot',
         'join public.teacher_availability second_slot',
@@ -555,6 +663,16 @@ export function validatePostVerifyFacts(facts: SqlFacts): FactValidation {
     requireFact(facts, 'migration_history_versions', expectedVersions, details);
     requireFact(facts, 'migration_history_exact_rows', String(STAGING_HARDENING_MIGRATIONS.length), details);
     requireFact(facts, 'btree_gist_installed', 'true', details);
+    requireFact(facts, 'btree_gist_schema', 'public', details);
+    requireFact(facts, 'authenticated_identity_policies_count', '13', details);
+    requireFact(facts, 'data_api_anon_grants_count', '1', details);
+    requireFact(facts, 'data_api_authenticated_grants_count', '63', details);
+    requireFact(facts, 'data_api_public_grants_count', '0', details);
+    requireFact(facts, 'data_api_authenticated_crud_tables_count', '15', details);
+    requireFact(facts, 'data_api_client_granted_tables_rls_count', '18', details);
+    requireFact(facts, 'data_api_client_granted_tables_without_rls_count', '0', details);
+    requireFact(facts, 'data_api_unexpected_client_grants_count', '0', details);
+    requireFact(facts, 'data_api_postgres_default_client_grants_count', '0', details);
     requireFact(facts, 'active_overlap_count', '0', details);
     for (const key of [
         'leads_updated_at_contract',

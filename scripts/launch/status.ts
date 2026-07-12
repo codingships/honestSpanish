@@ -2627,7 +2627,7 @@ function strictQaBlockerClosureRow(blocker: Finding, paths: ClosureWorksheetPath
             : fix;
     const evidenceMinimum =
         findingId === 'ERR-QA-SUPABASE-PROCESSED-AT-DEFAULT-149'
-            ? 'Do not execute the retired legacy cleanup runner. Apply `processed_at_small_fix` through the source-bound production rollout, either alone or as the first of all 23 migrations, under its fresh exact approval. Then rerun the processed_at read-only preflight and require staging/production defaults NULL plus clean webhook aggregates. Only after that evidence exists, update strict-qa-results.json to Fixed, rebuild strict-qa-tracker-v2.xlsx and rerun pnpm launch:status. Explicit accepted risk remains a fallback only.'
+            ? 'Do not execute the retired legacy cleanup runner. Apply `processed_at_small_fix` through the source-bound production rollout, either alone or as the first of all 24 migrations, under its fresh exact approval. Then rerun the processed_at read-only preflight and require staging/production defaults NULL plus clean webhook aggregates. Only after that evidence exists, update strict-qa-results.json to Fixed, rebuild strict-qa-tracker-v2.xlsx and rerun pnpm launch:status. Explicit accepted risk remains a fallback only.'
             : 'Record fix or accepted-risk evidence in strict-qa-results.json, rebuild strict-qa-tracker-v2.xlsx and rerun pnpm launch:status.';
 
     return `| ${escapeCell(findingId)} | ${escapeCell(`${severity} / ${type}`)} | ${escapeCell(closeItWith)} | ${escapeCell(evidenceMinimum)} |`;

@@ -362,6 +362,7 @@ describe('database schema security invariants', () => {
     });
 
     it('defines the CRM core as admin-managed relationship data', () => {
+        const compactSchema = schema.replace(/\s+/gu, ' ');
         for (const tableName of [
             'crm_contacts',
             'crm_opportunities',
@@ -386,9 +387,13 @@ describe('database schema security invariants', () => {
         expect(schema).toContain('CREATE POLICY "Admins can manage crm tasks"');
         expect(schema).toContain('CREATE POLICY "Admins can manage crm activities"');
         expect(schema).toContain('CREATE POLICY "Admins can manage crm consents"');
-        expect(schema).toContain('REVOKE ALL ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents FROM anon');
-        expect(schema).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents TO authenticated');
-        expect(schema).toContain('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents TO service_role');
+        expect(schema).toContain('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM PUBLIC, anon, authenticated');
+        expect(compactSchema).toContain(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents, fulfillment_jobs, packages, payments, profiles, profiles_private, sessions, student_teachers, subscriptions, teacher_availability TO authenticated',
+        );
+        expect(compactSchema).toContain(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE leads, crm_contacts, crm_opportunities, crm_tasks, crm_activities, crm_consents TO service_role',
+        );
     });
 
     it('keeps the hosted CRM migration retry-safe for staging rollout', () => {

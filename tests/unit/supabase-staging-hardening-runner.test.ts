@@ -22,12 +22,13 @@ import {
 const rootDir = process.cwd();
 
 describe('Supabase staging hardening runner', () => {
-    it('pins exactly the three approved staging migration files and their SHA-256 values', () => {
+    it('pins exactly the four approved staging migration files and their SHA-256 values', () => {
         expect(STAGING_HARDENING_TARGET.projectRef).toBe('mzjyvmlxfpzdfdjzxxyj');
         expect(STAGING_HARDENING_MIGRATIONS.map((migration) => migration.file)).toEqual([
             'supabase/migrations/20260712112000_reconcile_database_model_contract.sql',
             'supabase/migrations/20260712114000_harden_teacher_availability_overlap.sql',
             'supabase/migrations/20260712114500_require_current_adult_policy_on_signup.sql',
+            'supabase/migrations/20260712115000_harden_data_api_table_grants.sql',
         ]);
 
         for (const migration of STAGING_HARDENING_MIGRATIONS) {
@@ -69,7 +70,7 @@ describe('Supabase staging hardening runner', () => {
         expect(sql).toContain('\\set ON_ERROR_STOP on');
         expect(sql).toContain('BEGIN;');
         expect(sql.trimEnd().endsWith('COMMIT;')).toBe(true);
-        expect(sql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(3);
+        expect(sql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(4);
         for (const [index, position] of positions.entries()) {
             expect(position.migration).toBeGreaterThan(index === 0 ? -1 : positions[index - 1].history);
             expect(position.history).toBeGreaterThan(position.migration);
@@ -99,8 +100,8 @@ describe('Supabase staging hardening runner', () => {
         expect(validatePreflightFacts(clean)).toMatchObject({ valid: true, historyState: 'none' });
 
         const alreadyApplied = preflightFacts({
-            migration_history_count: '3',
-            migration_history_versions: '20260712112000,20260712114000,20260712114500',
+            migration_history_count: '4',
+            migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000',
         });
         expect(validatePreflightFacts(alreadyApplied)).toMatchObject({ valid: true, historyState: 'complete' });
 
@@ -129,6 +130,13 @@ describe('Supabase staging hardening runner', () => {
             ['sessions_reminder_contract', 'false'],
             ['session_duration_contract', 'false'],
             ['student_teacher_profile_policy_valid', 'false'],
+            ['authenticated_identity_policies_count', '12'],
+            ['data_api_authenticated_grants_count', '62'],
+            ['data_api_client_granted_tables_rls_count', '17'],
+            ['data_api_client_granted_tables_without_rls_count', '1'],
+            ['data_api_unexpected_client_grants_count', '1'],
+            ['data_api_postgres_default_client_grants_count', '1'],
+            ['btree_gist_schema', 'extensions'],
             ['active_overlap_count', '1'],
             ['target_constraint_valid', 'false'],
             ['teacher_availability_updated_at_trigger_valid', 'false'],
@@ -211,9 +219,9 @@ function preflightFacts(overrides: Record<string, string> = {}): Map<string, str
 function postVerifyFacts(overrides: Record<string, string> = {}): Map<string, string> {
     return new Map(Object.entries({
         current_database: 'postgres',
-        migration_history_count: '3',
-        migration_history_versions: '20260712112000,20260712114000,20260712114500',
-        migration_history_exact_rows: '3',
+        migration_history_count: '4',
+        migration_history_versions: '20260712112000,20260712114000,20260712114500,20260712115000',
+        migration_history_exact_rows: '4',
         leads_updated_at_contract: 'true',
         leads_status_contract: 'true',
         leads_defaults_contract: 'true',
@@ -223,7 +231,17 @@ function postVerifyFacts(overrides: Record<string, string> = {}): Map<string, st
         sessions_reminder_contract: 'true',
         session_duration_contract: 'true',
         student_teacher_profile_policy_valid: 'true',
+        authenticated_identity_policies_count: '13',
+        data_api_anon_grants_count: '1',
+        data_api_authenticated_grants_count: '63',
+        data_api_public_grants_count: '0',
+        data_api_authenticated_crud_tables_count: '15',
+        data_api_client_granted_tables_rls_count: '18',
+        data_api_client_granted_tables_without_rls_count: '0',
+        data_api_unexpected_client_grants_count: '0',
+        data_api_postgres_default_client_grants_count: '0',
         btree_gist_installed: 'true',
+        btree_gist_schema: 'public',
         active_overlap_count: '0',
         target_constraint_valid: 'true',
         legacy_unique_absent: 'true',

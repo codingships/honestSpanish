@@ -92,9 +92,10 @@ function reviewRlsSchema(): Finding {
         ['processed_webhook_events admin-only select', /ON\s+processed_webhook_events\s+FOR\s+SELECT\s+TO\s+authenticated\s+USING\s*\(\s*\(select\s+private\.is_admin\(\)\)\s*\)/i],
         ['fulfillment_jobs admin-only management', /ON\s+fulfillment_jobs\s+FOR\s+ALL\s+TO\s+authenticated\s+USING\s*\(\s*\(select\s+private\.is_admin\(\)\)\s*\)\s+WITH\s+CHECK\s*\(\s*\(select\s+private\.is_admin\(\)\)\s*\)/i],
         ['admin_audit_log admin-only select', /ON\s+admin_audit_log\s+FOR\s+SELECT\s+TO\s+authenticated\s+USING\s*\(\s*\(select\s+private\.is_admin\(\)\)\s*\)/i],
-        ['payments student own select', /ON\s+payments\s+FOR\s+SELECT\s+USING\s*\(\s*student_id\s*=\s*auth\.uid\(\)\s*\)/i],
-        ['sessions student own select', /ON\s+sessions\s+FOR\s+SELECT\s+USING\s*\(\s*student_id\s*=\s*auth\.uid\(\)\s*\)/i],
-        ['student_teachers assignment visibility', /ON\s+student_teachers\s+FOR\s+SELECT\s+USING\s*\(\s*(student_id|teacher_id)\s*=\s*auth\.uid\(\)\s*\)/i],
+        ['payments student own select', /ON\s+payments\s+FOR\s+SELECT\s+TO\s+authenticated\s+USING\s*\(\s*student_id\s*=\s*\(select\s+auth\.uid\(\)\)\s*\)/i],
+        ['sessions student own select', /ON\s+sessions\s+FOR\s+SELECT\s+TO\s+authenticated\s+USING\s*\(\s*student_id\s*=\s*\(select\s+auth\.uid\(\)\)\s*\)/i],
+        ['student_teachers student assignment visibility', /ON\s+student_teachers\s+FOR\s+SELECT\s+TO\s+authenticated\s+USING\s*\(\s*student_id\s*=\s*\(select\s+auth\.uid\(\)\)\s*\)/i],
+        ['student_teachers teacher assignment visibility', /ON\s+student_teachers\s+FOR\s+SELECT\s+TO\s+authenticated\s+USING\s*\(\s*teacher_id\s*=\s*\(select\s+auth\.uid\(\)\)\s*\)/i],
     ];
 
     for (const [label, pattern] of requiredPolicies) {

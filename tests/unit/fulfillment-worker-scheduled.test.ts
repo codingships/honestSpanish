@@ -317,6 +317,12 @@ describe('fulfillment worker scheduled handler', () => {
         expect(sessionsQuery.eq).toHaveBeenCalledWith('id', sessionId);
         expect(sessionsQuery.eq).toHaveBeenCalledWith('teacher_notes', smokeMarker);
         expect(mocks.sendClassReminder).toHaveBeenCalledTimes(2);
+        expect(mocks.sendClassReminder).toHaveBeenCalledWith(
+            'student@example.test',
+            expect.objectContaining({
+                time: expect.stringMatching(/\b(?:CET|CEST|GMT[+-]\d+)\b/u),
+            }),
+        );
     });
 
     it('rejects every operational endpoint before auth while bootstrap mode is active', async () => {

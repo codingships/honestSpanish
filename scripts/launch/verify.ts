@@ -231,13 +231,19 @@ function checkLaunchGateAutomation(packageJson: { scripts?: Record<string, strin
     if (!publicVisualSmoke.includes("'outputs', 'launch-public-visual'")
         || !publicVisualSmoke.includes("DEMO_GUIDE_ENABLED: 'false'")
         || !publicVisualSmoke.includes("DEMO_GUIDE_LOGIN_ENABLED: 'false'")
+        || !publicVisualSmoke.includes("name: 'home en'")
+        || !publicVisualSmoke.includes("name: 'home ru'")
+        || !publicVisualSmoke.includes("name: 'blog index en'")
+        || !publicVisualSmoke.includes("name: 'blog index ru'")
+        || !publicVisualSmoke.includes("name: 'blog article en'")
+        || !publicVisualSmoke.includes("name: 'blog article ru'")
         || !publicVisualSmoke.includes('/es/espanol-para-vivir-en-espana')
         || !publicVisualSmoke.includes('/es/espanol-para-profesionales')
         || !publicVisualSmoke.includes('/es/clases-de-conversacion-en-espanol')
         || !publicVisualSmoke.includes('mojibakeMarkers')
         || !publicVisualSmoke.includes('privateLinks')
         || !publicVisualSmoke.includes('Horizontal overflow')) {
-        findings.push('scripts/launch/public-visual-smoke.ts must write launch-public-visual evidence, keep demo disabled, cover the three Spanish segment pages, and detect mojibake, private links and horizontal overflow.');
+        findings.push('scripts/launch/public-visual-smoke.ts must write launch-public-visual evidence, keep demo disabled, cover ES/EN/RU homes and blog plus the three Spanish segment pages, and detect mojibake, private links and horizontal overflow.');
     }
     if (!phaseOneScript.includes("'outputs', 'launch-phase-1'")
         || !phaseOneScript.includes('launch:cleanup')
@@ -726,6 +732,14 @@ function checkDemoQuarantine(): GateResult {
         || !accessibilitySmoke.includes('/es/espanol-para-profesionales')
         || !accessibilitySmoke.includes('/es/clases-de-conversacion-en-espanol')) {
         findings.push('launch accessibility smoke must cover the Spanish segment landing pages.');
+    }
+    if (!accessibilitySmoke.includes("{ name: 'blog index es', path: '/es/blog' }")
+        || !accessibilitySmoke.includes("{ name: 'blog index en', path: '/en/blog' }")
+        || !accessibilitySmoke.includes("{ name: 'blog index ru', path: '/ru/blog' }")
+        || !accessibilitySmoke.includes('/es/blog/cuanto-tiempo-hablar-espanol-fluido')
+        || !accessibilitySmoke.includes('/en/blog/how-long-to-speak-spanish-fluently')
+        || !accessibilitySmoke.includes('/ru/blog/how-long-to-speak-spanish-fluently')) {
+        findings.push('launch accessibility smoke must cover localized blog indexes and one published article in ES/EN/RU.');
     }
     const publicDemoReferences = findUnexpectedPublicDemoReferences();
     if (publicDemoReferences.length > 0) {

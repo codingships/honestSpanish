@@ -23,8 +23,8 @@ if (filteredHeadings.length === 0) {
 }
 ---
 
-<nav class="bg-[#E0F7FA] border-l-4 border-[#006064] p-6 mb-12 my-8 rounded-r-lg">
-    <h2 class="font-display text-xl text-[#006064] mb-4 uppercase tracking-wider">{lang === 'es' ? 'Contenidos' : lang === 'en' ? 'Table of Contents' : 'Содержание'}</h2>
+<nav aria-labelledby="blog-toc-heading" class="bg-[#E0F7FA] border-l-4 border-[#006064] p-6 mb-12 my-8 rounded-r-lg">
+    <h2 id="blog-toc-heading" class="font-display text-xl text-[#006064] mb-4 uppercase tracking-wider">{lang === 'es' ? 'Contenidos' : lang === 'en' ? 'Table of Contents' : 'Содержание'}</h2>
     <ul class="space-y-2 font-sans">
         {filteredHeadings.map((heading) => (
             <li class={`leading-tight ${heading.depth === 3 ? 'ml-6 text-sm' : 'font-bold mt-3'}`}>

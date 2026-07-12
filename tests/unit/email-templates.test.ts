@@ -10,9 +10,11 @@ import {
     missingInfoEmailTemplate,
     proposalNextStepEmailTemplate,
     renewalNoticeEmailTemplate,
+    renewalNoticeSubject,
     supportTicketReceivedTemplate,
     supportTicketUpdatedTemplate,
     welcomeEmailTemplate,
+    welcomeEmailSubject,
 } from '../../src/lib/email/templates';
 
 const mojibakePattern = /(?:Ã|Â|Ð|ðŸ|â€|â|â|�)/;
@@ -49,6 +51,19 @@ describe('lead application email', () => {
         expect(html).not.toContain('<script');
         expect(html).not.toContain('<img');
         expect(html).not.toMatch(mojibakePattern);
+    });
+
+    it('exposes the English renewal notice in the admin preview tool', () => {
+        const preview = buildEmailPreview('renewal');
+
+        expect(preview.subject).toBe('Your subscription renewal notice - Español Honesto');
+        expect(preview.html).toContain('Your subscription will renew soon');
+        expect(preview.html).toContain('Standard monthly');
+        expect(preview.html).not.toContain('£');
+        expect(preview.html).toContain('€');
+        expect(preview.html).toContain('/en/campus/account');
+        expect(preview.html).toContain('/en/legal/terminos');
+        expect(preview.html).not.toMatch(mojibakePattern);
     });
 
     it('confirms the application and explains fit review before purchase', () => {
@@ -110,6 +125,11 @@ describe('lead application email', () => {
         });
 
         expect(preview.subject).toBe('Your subscription confirmation - Español Honesto');
+        expect(preview.html).toContain('Contract confirmation');
+        expect(preview.html).toContain('Subscription period: 3 month(s)');
+        expect(preview.html).toContain('Classes available in this period: 12');
+        expect(preview.html).toContain('Terms version: 2026-07-10');
+        expect(preview.html).toContain('/en/legal/terminos');
         expect(html).toContain('Welcome, Alina');
         expect(html).toContain('Your plan is active: <strong>Hybrid Plan</strong>.');
         expect(html).toContain('check that you can access your dashboard and materials');
@@ -127,6 +147,36 @@ describe('lead application email', () => {
         expect(html).toContain('lost only after full performance');
         expect(html).toContain('/es/legal/terminos');
         expect(html).not.toMatch(mojibakePattern);
+    });
+
+    it.each(['es', 'en', 'ru'] as const)('previews localized welcome and renewal emails in %s', (locale) => {
+        const welcome = buildEmailPreview('welcome', locale);
+        const renewal = buildEmailPreview('renewal', locale);
+
+        expect(welcome.subject).toBe(welcomeEmailSubject(locale));
+        expect(renewal.subject).toBe(renewalNoticeSubject(locale));
+        expect(welcome.html).toContain(`/${locale}/login`);
+        expect(welcome.html).toContain(`/${locale}/legal/terminos`);
+        expect(welcome.html).toContain('2026-07-10');
+        expect(renewal.html).toContain(`/${locale}/campus/account`);
+        expect(renewal.html).toContain(`/${locale}/legal/terminos`);
+        expect(welcome.html).toContain({
+            es: 'Híbrido mensual',
+            en: 'Hybrid monthly',
+            ru: 'Гибридный месяц',
+        }[locale]);
+        expect(renewal.html).toContain({
+            es: 'Mensual estándar',
+            en: 'Standard monthly',
+            ru: 'Стандартный месяц',
+        }[locale]);
+        expect(renewal.html).toContain({
+            es: '¿Tienes dudas? Responde a este correo.',
+            en: 'Questions? Reply to this email.',
+            ru: 'Есть вопросы? Ответьте на это письмо.',
+        }[locale]);
+        expect(welcome.html).not.toMatch(mojibakePattern);
+        expect(renewal.html).not.toMatch(mojibakePattern);
     });
 
     it.each([
@@ -346,6 +396,8 @@ describe('lead application email', () => {
             expect(emailTemplateManagerSource).toContain(`value: '${type}'`);
         }
         expect(emailTemplateManagerSource).toContain('Soporte actualizado');
-        expect(emailTemplateManagerSource).toContain("import type { EmailPreviewType }");
+        expect(emailTemplateManagerSource).toContain(
+            "import type { EmailPreviewLocale, EmailPreviewType }",
+        );
     });
 });

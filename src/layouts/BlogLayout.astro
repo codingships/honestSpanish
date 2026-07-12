@@ -66,6 +66,12 @@ const blogCta = {
     href: post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}#contacto`,
   },
 }[lang];
+
+const accessibilityCopy = {
+  es: { skip: 'Saltar al contenido principal', breadcrumb: 'Ruta de navegación' },
+  en: { skip: 'Skip to main content', breadcrumb: 'Breadcrumb' },
+  ru: { skip: 'Перейти к основному содержанию', breadcrumb: 'Навигационная цепочка' },
+}[lang];
 ---
 
 <BaseLayout 
@@ -77,19 +83,23 @@ const blogCta = {
 >
     <script is:inline type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
 
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
+        {accessibilityCopy.skip}
+    </a>
     <div class="bg-white min-h-screen text-[#006064] font-sans">
         
         {/* Navigation / Breadcrumbs */}
-        <nav class="bg-[#E0F7FA] py-4 px-6 border-b-2 border-[#006064]">
-            <div class="max-w-4xl mx-auto flex items-center text-sm font-mono uppercase tracking-wide opacity-70">
+        <nav aria-label={accessibilityCopy.breadcrumb} class="bg-[#E0F7FA] py-4 px-6 border-b-2 border-[#006064]">
+            <div class="max-w-4xl mx-auto flex items-center text-sm font-mono uppercase tracking-wide text-[#006064]">
                 <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
-                <span class="mx-2">/</span>
+                <span aria-hidden="true" class="mx-2">/</span>
                 <a href={getLocalizedPath('/blog', lang)} class="hover:underline">{t('common.blog')}</a>
-                <span class="mx-2">/</span>
-                <span class="truncate">{title}</span>
+                <span aria-hidden="true" class="mx-2">/</span>
+                <span aria-current="page" class="truncate">{title}</span>
             </div>
         </nav>
 
+        <main id="main-content" tabindex="-1">
         <article class="max-w-4xl mx-auto px-6 py-12">
             
             {/* Header */}
@@ -100,7 +110,7 @@ const blogCta = {
                 <h1 class="font-display text-4xl md:text-5xl lg:text-6xl mb-6 leading-tight">
                     {title}
                 </h1>
-                <div class="flex items-center justify-center gap-4 text-sm font-mono opacity-60 uppercase">
+                <div class="flex items-center justify-center gap-4 text-sm font-mono text-[#006064] uppercase">
                     <span>{formattedDate}</span>
                     <span>•</span>
                     <span>{author}</span>
@@ -147,6 +157,8 @@ const blogCta = {
                 {blogCta.button}
             </a>
         </section>
+
+        </main>
 
     </div>
 </BaseLayout>

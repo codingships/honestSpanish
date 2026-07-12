@@ -678,7 +678,11 @@ describe('fulfillment jobs', () => {
         expect(email.sendClassCancelled).toHaveBeenNthCalledWith(
             1,
             'student@example.com',
-            expect.objectContaining({ recipientName: 'Student One' }),
+            expect.objectContaining({
+                recipientName: 'Student One',
+                date: 'Saturday, 1 August 2026',
+                time: '12:00 CEST',
+            }),
             expect.objectContaining({
                 fulfillmentEffect: expect.objectContaining({
                     effectKey: 'email.class_cancelled.student',

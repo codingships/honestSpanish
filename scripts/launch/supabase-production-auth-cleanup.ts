@@ -88,7 +88,7 @@ interface RolloutReceipt {
     scopeSha256: string;
     allowlistSha256: string;
     through: 'deferred_rc_hardening';
-    migrationCount: 23;
+    migrationCount: 24;
     migrationManifestSha256: string;
     preflightEvidenceSha256: string;
     backupReceiptSha256: string;
@@ -355,7 +355,7 @@ function writePlan(outputDir: string): void {
             passwordRotation: 'two random values passed directly to Admin API and never persisted',
             refreshSessions: 'must verify zero after rotation',
             accessJwt: `production remains inert for JWT TTL plus ${PRODUCTION_AUTH_DEFAULT_JWT_EXPIRY_SECONDS === 3600 ? 'five-minute skew' : 'safety skew'}`,
-            finalProfiles: 'created only after all 23 migrations in seven rollout waves and quarantine expiry',
+            finalProfiles: 'created only after all 24 migrations in seven rollout waves and quarantine expiry',
             signup: 'must remain disabled',
             checkout: 'must remain disabled',
             outboundEmails: 'forbidden; password resets are final-window only',
@@ -368,7 +368,7 @@ function writePlan(outputDir: string): void {
             'Run preflight; it reads Auth/config/database aggregates and emits no identity values.',
             'Execute initial delete or an explicitly approved resume; stop on any partial failure.',
             `Consume ${PRODUCTION_AUTH_OUTPUT_FILES.reducedReceipt} in the production rollout runner.`,
-            'Apply all 23 allowlisted migrations in seven waves while production remains quarantined.',
+            'Apply all 24 allowlisted migrations in seven waves while production remains quarantined.',
             'After quarantine expiry, run a fresh preflight with the rollout receipt.',
             'Finalize the two minimal profiles/private rows and emit the final Auth policy receipt.',
             'Send password reset emails only in the separately approved final launch window.',
@@ -1308,7 +1308,7 @@ function loadAndValidateRolloutReceipt(
         || value.status !== 'PRODUCTION_ROLLOUT_ALL_WAVES_APPLIED_AND_VERIFIED'
         || value.targetProjectRef !== PRODUCTION_AUTH_CLEANUP_TARGET.projectRef
         || value.through !== 'deferred_rc_hardening'
-        || value.migrationCount !== 23
+        || value.migrationCount !== 24
         || !hashes.every((hash) => /^[a-f0-9]{64}$/u.test(hash))
         || value.backupReceiptSha256 !== cleanup.backupReceiptSha256
         || value.publicCleanupReceiptSha256 !== cleanup.publicCleanupReceiptSha256

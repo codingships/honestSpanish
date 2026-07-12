@@ -40,10 +40,10 @@ const runnerSource = readFileSync('scripts/launch/supabase-production-rollout-ru
 const sharedSource = readFileSync('scripts/launch/supabase-production-rollout-runner-shared.ts', 'utf8');
 
 describe('Supabase production wave rollout runner', () => {
-    it('pins the exact 23 migrations in seven dependency-ordered waves and excludes staging smoke', () => {
-        expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 1, 7, 7, 4, 1, 2]);
-        expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(23);
-        expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(23);
+    it('pins the exact 24 migrations in seven dependency-ordered waves and excludes staging smoke', () => {
+        expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 1, 7, 7, 4, 1, 3]);
+        expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(24);
+        expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(24);
         expect(PRODUCTION_ROLLOUT_MIGRATIONS.some((entry) => entry.version === STAGING_ONLY_VERSION)).toBe(false);
         expect(validateProductionRolloutAllowlist()).toMatchObject({ valid: true, errors: [] });
         expect(selectedWavesThrough('billing_contract').map((wave) => wave.id)).toEqual([
@@ -89,7 +89,7 @@ describe('Supabase production wave rollout runner', () => {
 
             const partial = structuredClone(preflight);
             partial.migrationInventory.localMigrations[1].historyStatus = 'exact';
-            partial.migrationInventory.semanticMissingCountExcludingStagingOnly = 22;
+            partial.migrationInventory.semanticMissingCountExcludingStagingOnly = 23;
             const partialPath = writeJson(directory, 'partial.json', partial);
             expect(readProductionPreflightEvidence(partialPath, now)).toMatchObject({ valid: false });
 
@@ -107,7 +107,7 @@ describe('Supabase production wave rollout runner', () => {
 
             const aliased = structuredClone(preflight);
             aliased.migrationInventory.localMigrations[0].historyStatus = 'alias';
-            aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 22;
+            aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 23;
             expect(readProductionPreflightEvidence(writeJson(directory, 'aliased.json', aliased), now))
                 .toMatchObject({ valid: false });
         });
@@ -197,10 +197,14 @@ describe('Supabase production wave rollout runner', () => {
         expect(sql).toContain("'hardening_availability_updated_at_trigger'");
         expect(sql).toContain("'hardening_session_duration_contract'");
         expect(sql).toContain("'hardening_required_indexes'");
+        expect(sql).toContain("'hardening_data_api_grants_exact'");
+        expect(sql).toContain('table_row.relrowsecurity');
+        expect(sql).toContain('defaults.defaclnamespace=0');
         expect(expected.get('hardening_availability_updated_at_trigger')).toBe('true');
         expect(expected.get('hardening_session_duration_contract')).toBe('true');
         expect(expected.get('hardening_required_indexes')).toBe('13');
-        expect(expected.get('history_verified_count')).toBe('23');
+        expect(expected.get('hardening_data_api_grants_exact')).toBe('true');
+        expect(expected.get('history_verified_count')).toBe('24');
     });
 
     it('chains encrypted backup, public cleanup, active Auth quarantine, Google policy and staging proof', () => {
@@ -392,11 +396,11 @@ function preflightEvidence(endedAt: string): ProductionPreflightEvidence {
                         name: 'staging_integration_smoke_runs',
                         file: `supabase/migrations/${STAGING_ONLY_VERSION}_staging_integration_smoke_runs.sql`,
                         sha256: 'f'.repeat(64),
-                    }, 23),
+                    }, 24),
                     stagingOnly: true,
                 },
             ],
-            semanticMissingCountExcludingStagingOnly: 23,
+            semanticMissingCountExcludingStagingOnly: 24,
             ambiguousCount: 0,
         },
         aggregates: {},

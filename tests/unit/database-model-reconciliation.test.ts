@@ -93,6 +93,38 @@ describe('database model reconciliation', () => {
         expect(databaseTypes).not.toContain('reminder_sent: boolean | null;');
     });
 
+    it('scopes identity policies to authenticated users and caches auth.uid()', () => {
+        const policyNames = [
+            'Students can view their teachers',
+            'Students can view own payments',
+            'Teachers can view their students',
+            'Users can update own profile',
+            'Users can view own profile',
+            'Students can view own sessions',
+            'Teachers can view assigned sessions',
+            'Students can see their teachers',
+            'Teachers can see their students',
+            'Students can view own subscriptions',
+            'Teachers can view assigned student subscriptions',
+            'Students can view assigned teacher availability',
+            'Teachers can manage own availability',
+        ];
+
+        for (const policyName of policyNames) {
+            const start = reconciliation.indexOf(`CREATE POLICY "${policyName}"`);
+            expect(start).toBeGreaterThan(-1);
+            const policy = reconciliation.slice(start, reconciliation.indexOf(';', start) + 1);
+            expect(policy).toContain('TO authenticated');
+            expect(policy).toContain('(SELECT auth.uid())');
+
+            const schemaStart = schema.indexOf(`CREATE POLICY "${policyName}"`);
+            expect(schemaStart).toBeGreaterThan(-1);
+            const schemaPolicy = schema.slice(schemaStart, schema.indexOf(';', schemaStart) + 1);
+            expect(schemaPolicy).toContain('TO authenticated');
+            expect(schemaPolicy).toMatch(/\(select auth[.]uid\(\)\)/iu);
+        }
+    });
+
     it('covers the ten previously unindexed core foreign keys', () => {
         const coreIndexes = [
             'checkout_intents_contact_idx',
@@ -200,7 +232,7 @@ describe('database model reconciliation', () => {
     });
 
     it('documents the deliberate nullable RPC overrides that Supabase cannot infer', () => {
-        expect(databaseTypes).toContain('nullable RPC fields below are deliberately widened');
+        expect(databaseTypes).toMatch(/nullable RPC fields below\s+\/\/ are deliberately widened/u);
         for (const snippet of [
             'p_cancellation_reason?: string | null',
             'p_error?: Json | null',

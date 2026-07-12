@@ -173,5 +173,98 @@ CREATE POLICY "Students can view their teachers"
           AND assignment.teacher_id = profiles.id
     ));
 
+-- Historical user-facing policies were created without an explicit target
+-- role and invoked auth.uid() once per candidate row. Keep the same access
+-- model while limiting it to authenticated users and allowing Postgres to
+-- cache the request identity as an initplan.
+DROP POLICY IF EXISTS "Students can view own payments" ON public.payments;
+CREATE POLICY "Students can view own payments"
+    ON public.payments FOR SELECT
+    TO authenticated
+    USING (student_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Teachers can view their students" ON public.profiles;
+CREATE POLICY "Teachers can view their students"
+    ON public.profiles FOR SELECT
+    TO authenticated
+    USING (EXISTS (
+        SELECT 1
+        FROM public.student_teachers AS assignment
+        WHERE assignment.teacher_id = (SELECT auth.uid())
+          AND assignment.student_id = profiles.id
+    ));
+
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+CREATE POLICY "Users can update own profile"
+    ON public.profiles FOR UPDATE
+    TO authenticated
+    USING ((SELECT auth.uid()) = id)
+    WITH CHECK ((SELECT auth.uid()) = id);
+
+DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
+CREATE POLICY "Users can view own profile"
+    ON public.profiles FOR SELECT
+    TO authenticated
+    USING ((SELECT auth.uid()) = id);
+
+DROP POLICY IF EXISTS "Students can view own sessions" ON public.sessions;
+CREATE POLICY "Students can view own sessions"
+    ON public.sessions FOR SELECT
+    TO authenticated
+    USING (student_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Teachers can view assigned sessions" ON public.sessions;
+CREATE POLICY "Teachers can view assigned sessions"
+    ON public.sessions FOR SELECT
+    TO authenticated
+    USING (teacher_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Students can see their teachers" ON public.student_teachers;
+CREATE POLICY "Students can see their teachers"
+    ON public.student_teachers FOR SELECT
+    TO authenticated
+    USING (student_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Teachers can see their students" ON public.student_teachers;
+CREATE POLICY "Teachers can see their students"
+    ON public.student_teachers FOR SELECT
+    TO authenticated
+    USING (teacher_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Students can view own subscriptions" ON public.subscriptions;
+CREATE POLICY "Students can view own subscriptions"
+    ON public.subscriptions FOR SELECT
+    TO authenticated
+    USING (student_id = (SELECT auth.uid()));
+
+DROP POLICY IF EXISTS "Teachers can view assigned student subscriptions" ON public.subscriptions;
+CREATE POLICY "Teachers can view assigned student subscriptions"
+    ON public.subscriptions FOR SELECT
+    TO authenticated
+    USING (EXISTS (
+        SELECT 1
+        FROM public.student_teachers AS assignment
+        WHERE assignment.teacher_id = (SELECT auth.uid())
+          AND assignment.student_id = subscriptions.student_id
+    ));
+
+DROP POLICY IF EXISTS "Students can view assigned teacher availability" ON public.teacher_availability;
+CREATE POLICY "Students can view assigned teacher availability"
+    ON public.teacher_availability FOR SELECT
+    TO authenticated
+    USING (EXISTS (
+        SELECT 1
+        FROM public.student_teachers AS assignment
+        WHERE assignment.student_id = (SELECT auth.uid())
+          AND assignment.teacher_id = teacher_availability.teacher_id
+    ));
+
+DROP POLICY IF EXISTS "Teachers can manage own availability" ON public.teacher_availability;
+CREATE POLICY "Teachers can manage own availability"
+    ON public.teacher_availability FOR ALL
+    TO authenticated
+    USING (teacher_id = (SELECT auth.uid()))
+    WITH CHECK (teacher_id = (SELECT auth.uid()));
+
 -- Follow-up after hosted application: regenerate src/types/database.types.ts
 -- from the reconciled Supabase staging schema.

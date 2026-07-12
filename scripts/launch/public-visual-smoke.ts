@@ -12,6 +12,7 @@ interface PublicTarget {
     name: string;
     path: string;
     expectedTexts: string[];
+    ctaText: string;
 }
 
 interface ViewportTarget {
@@ -78,6 +79,7 @@ const targets: PublicTarget[] = [
     {
         name: 'home es',
         path: '/es',
+        ctaText: 'SOLICITAR PLAZA',
         expectedTexts: [
             'Español Honesto',
             'Qué incluye el curso',
@@ -91,8 +93,35 @@ const targets: PublicTarget[] = [
         ],
     },
     {
+        name: 'home en',
+        path: '/en',
+        ctaText: 'APPLY FOR A PLACE',
+        expectedTexts: [
+            'Español Honesto',
+            'LIVE',
+            'SPAIN',
+            'HOW IT WORKS',
+            'THREE TEACHERS. ONE IDEA.',
+            'APPLY FOR A PLACE',
+        ],
+    },
+    {
+        name: 'home ru',
+        path: '/ru',
+        ctaText: 'ОСТАВИТЬ ЗАЯВКУ',
+        expectedTexts: [
+            'Español Honesto',
+            'ЖИТЬ',
+            'ИСПАНИИ',
+            'КАК ЭТО РАБОТАЕТ',
+            'ТРИ ПРЕПОДАВАТЕЛЯ. ОДНА ИДЕЯ.',
+            'ОСТАВИТЬ ЗАЯВКУ',
+        ],
+    },
+    {
         name: 'living in Spain landing es',
         path: '/es/espanol-para-vivir-en-espana',
+        ctaText: 'SOLICITAR PLAZA',
         expectedTexts: [
             'VIVIR',
             'ESPAÑA',
@@ -105,6 +134,7 @@ const targets: PublicTarget[] = [
     {
         name: 'professionals landing es',
         path: '/es/espanol-para-profesionales',
+        ctaText: 'SOLICITAR PLAZA',
         expectedTexts: [
             'ESPAÑOL',
             'PROFESIONALES',
@@ -117,6 +147,7 @@ const targets: PublicTarget[] = [
     {
         name: 'conversation landing es',
         path: '/es/clases-de-conversacion-en-espanol',
+        ctaText: 'SOLICITAR PLAZA',
         expectedTexts: [
             'HABLAR',
             'CONGELARTE',
@@ -124,6 +155,72 @@ const targets: PublicTarget[] = [
             'Entrar y salir de conversaciones cotidianas',
             'Seguir hablando cuando falta una palabra',
             'Primero encaje. Después plan.',
+        ],
+    },
+    {
+        name: 'blog index es',
+        path: '/es/blog',
+        ctaText: 'Solicitar plaza',
+        expectedTexts: [
+            'Blog',
+            'Artículos sobre aprendizaje, cultura y vida en España.',
+            '¿Quieres hablar de estos temas en español?',
+            'SOLICITAR PLAZA',
+        ],
+    },
+    {
+        name: 'blog index en',
+        path: '/en/blog',
+        ctaText: 'Apply for a place',
+        expectedTexts: [
+            'Blog',
+            'Articles about learning, culture, and life in Spain.',
+            'Want to discuss these topics in Spanish?',
+            'APPLY FOR A PLACE',
+        ],
+    },
+    {
+        name: 'blog index ru',
+        path: '/ru/blog',
+        ctaText: 'Оставить заявку',
+        expectedTexts: [
+            'Блог',
+            'Статьи об обучении, культуре и жизни в Испании.',
+            'Хотите говорить об этом по-испански?',
+            'ОСТАВИТЬ ЗАЯВКУ',
+        ],
+    },
+    {
+        name: 'blog article es',
+        path: '/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+        ctaText: 'Solicitar plaza',
+        expectedTexts: [
+            '¿Cuánto tiempo se tarda en hablar español con fluidez?',
+            'Entre 600 y 800 horas de práctica deliberada',
+            '¿Quieres llevar esto a una conversación real?',
+            'SOLICITAR PLAZA',
+        ],
+    },
+    {
+        name: 'blog article en',
+        path: '/en/blog/how-long-to-speak-spanish-fluently',
+        ctaText: 'Apply for a place',
+        expectedTexts: [
+            'How long does it take to speak Spanish fluently?',
+            'Between 600 and 800 hours of deliberate practice',
+            'Want to turn this into real conversation?',
+            'APPLY FOR A PLACE',
+        ],
+    },
+    {
+        name: 'blog article ru',
+        path: '/ru/blog/how-long-to-speak-spanish-fluently',
+        ctaText: 'Оставить заявку',
+        expectedTexts: [
+            'Сколько времени нужно, чтобы свободно говорить по-испански?',
+            'От 600 до 800 часов целенаправленной практики',
+            'Хотите перейти к живой разговорной практике?',
+            'ОСТАВИТЬ ЗАЯВКУ',
         ],
     },
 ];
@@ -273,7 +370,7 @@ async function auditVisualPageOnce(page: Page, target: PublicTarget, viewport: V
             errors.push(`HTTP status ${httpStatus}.`);
         }
 
-        const details = await page.evaluate((expectedTexts) => {
+        const details = await page.evaluate(({ expectedTexts, ctaText }) => {
             const bodyText = document.body?.innerText || '';
             const mojibakeMarkers = ['Ã', 'Â', '�', 'Ð'].filter((marker) => bodyText.includes(marker));
             const staleText = 'Si ya sabes por que necesitas espanol';
@@ -290,8 +387,19 @@ async function auditVisualPageOnce(page: Page, target: PublicTarget, viewport: V
                     }
                 });
             const actionableText = Array.from(document.querySelectorAll('a, button'))
+                .filter((element) => {
+                    const style = window.getComputedStyle(element);
+                    const rect = element.getBoundingClientRect();
+                    return !element.hasAttribute('hidden')
+                        && element.getAttribute('aria-hidden') !== 'true'
+                        && style.display !== 'none'
+                        && style.visibility !== 'hidden'
+                        && Number.parseFloat(style.opacity || '1') > 0
+                        && rect.width > 0
+                        && rect.height > 0;
+                })
                 .map((element) => element.textContent || '')
-                .filter((text) => /solicitar plaza/i.test(text));
+                .filter((text) => text.toLocaleLowerCase().includes(ctaText.toLocaleLowerCase()));
             const documentWidth = Math.max(
                 document.documentElement.scrollWidth,
                 document.body?.scrollWidth || 0,
@@ -308,7 +416,7 @@ async function auditVisualPageOnce(page: Page, target: PublicTarget, viewport: V
                 viewportWidth,
                 hasViteOverlay: Boolean(document.querySelector('vite-error-overlay')),
             };
-        }, target.expectedTexts);
+        }, { expectedTexts: target.expectedTexts, ctaText: target.ctaText });
 
         if (details.missingExpectedTexts.length > 0) {
             errors.push(`Missing expected text: ${details.missingExpectedTexts.join(' / ')}.`);
@@ -416,7 +524,7 @@ function renderMarkdown(summary: PublicVisualSummary): string {
     lines.push('');
     lines.push('## Scope');
     lines.push('');
-    lines.push('This smoke checks the public Spanish launch surface on desktop and mobile: render status, expected positioning copy, mojibake markers, stale unaccented copy, horizontal overflow, private/demo/API links, and the solicitar plaza CTA. It does not replace final SEO/LLM review after copy, legal, domain and payment mode are frozen.');
+    lines.push('This smoke checks ES/EN/RU homes and blog surfaces plus the Spanish segment landings on desktop and mobile: render status, expected positioning copy, mojibake markers, stale unaccented copy, horizontal overflow, private/demo/API links, and a visible localized application CTA. It does not replace final SEO/LLM review after copy, legal, domain and payment mode are frozen.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;

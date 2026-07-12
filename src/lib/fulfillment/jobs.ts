@@ -162,7 +162,7 @@ async function processRenewalNotice(
     const siteUrl = getSiteUrl('https://espanolhonesto.com');
     const emailSent = await sendRenewalNoticeEmail(student.email, {
         locale,
-        studentName: student.full_name || 'Estudiante',
+        studentName: student.full_name || { es: 'Estudiante', en: 'Student', ru: 'Ученик' }[locale],
         packageName: localizedPackageName(packageDisplayName, packageKey, locale),
         renewalAt: payload.renewalAt,
         cancelBy: payload.cancelBy,
@@ -346,18 +346,30 @@ async function processSessionCancellation(
     }
 
     const classDetails = {
-        date: new Date(session.scheduled_at).toLocaleDateString('es-ES', { timeZone: 'Europe/Madrid' }),
-        time: new Date(session.scheduled_at).toLocaleTimeString('es-ES', { timeZone: 'Europe/Madrid' }),
-        reason: payload.reason || 'Sin motivo especificado',
+        date: new Date(session.scheduled_at).toLocaleDateString('en-GB', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'Europe/Madrid',
+        }),
+        time: new Date(session.scheduled_at).toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Europe/Madrid',
+            timeZoneName: 'short',
+        }),
+        reason: payload.reason || 'No reason provided',
         cancelledBy: payload.cancelledBy || 'admin',
     };
 
     const studentEmailSent = await sendClassCancelled(student.email, {
-        recipientName: student.full_name || 'Estudiante',
+        recipientName: student.full_name || 'Student',
         ...classDetails,
     }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.class_cancelled.student'));
     const teacherEmailSent = await sendClassCancelled(teacher.email, {
-        recipientName: teacher.full_name || 'Profesor',
+        recipientName: teacher.full_name || 'Teacher',
         ...classDetails,
     }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.class_cancelled.teacher'));
 

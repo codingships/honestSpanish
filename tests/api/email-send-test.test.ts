@@ -8,6 +8,7 @@ vi.mock('../../src/lib/supabase-server', () => ({
 vi.mock('../../src/lib/email/previews', () => {
     const emailPreviewTypes = [
         'welcome',
+        'renewal',
         'confirmation',
         'reminder',
         'cancelled',
@@ -18,13 +19,16 @@ vi.mock('../../src/lib/email/previews', () => {
         'support-received',
         'support-updated',
     ];
+    const emailPreviewLocales = ['es', 'en', 'ru'];
     return {
         emailPreviewTypes,
+        emailPreviewLocales,
         isEmailPreviewType: vi.fn((value: string) => emailPreviewTypes.includes(value)),
-        buildEmailPreview: vi.fn((type: string) => ({
+        isEmailPreviewLocale: vi.fn((value: string) => emailPreviewLocales.includes(value)),
+        buildEmailPreview: vi.fn((type: string, locale: string) => ({
             type,
-            subject: `Subject ${type}`,
-            html: `<p>${type}</p>`,
+            subject: `Subject ${type} ${locale}`,
+            html: `<p>${type} ${locale}</p>`,
         })),
         sendEmailPreview: vi.fn().mockResolvedValue(true),
     };
@@ -41,10 +45,10 @@ function createRoleClient(role: string) {
     });
 }
 
-function getContext(type = 'welcome') {
+function getContext(type = 'welcome', locale = 'en') {
     return {
         request: {
-            url: `http://localhost:4321/api/email/send-test?type=${type}`,
+            url: `http://localhost:4321/api/email/send-test?type=${type}&locale=${locale}`,
         },
         cookies: { get: vi.fn(), set: vi.fn() },
     };
@@ -79,9 +83,9 @@ describe('/api/email/send-test', () => {
         const body = await readJson(response);
 
         expect(response.status).toBe(200);
-        expect(body.subject).toBe('Subject welcome');
-        expect(body.html).toBe('<p>welcome</p>');
-        expect(buildEmailPreview).toHaveBeenCalledWith('welcome');
+        expect(body.subject).toBe('Subject welcome en');
+        expect(body.html).toBe('<p>welcome en</p>');
+        expect(buildEmailPreview).toHaveBeenCalledWith('welcome', 'en');
         expect(sendEmailPreview).not.toHaveBeenCalled();
     });
 
@@ -91,12 +95,16 @@ describe('/api/email/send-test', () => {
         vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
 
         const { POST } = await import('../../src/pages/api/email/send-test');
-        const response = await POST(postContext({ type: 'support-updated', email: 'admin@example.com' }) as any);
+        const response = await POST(postContext({
+            type: 'support-updated',
+            email: 'admin@example.com',
+            locale: 'ru',
+        }) as any);
         const body = await readJson(response);
 
         expect(response.status).toBe(200);
         expect(body.success).toBe(true);
-        expect(sendEmailPreview).toHaveBeenCalledWith('support-updated', 'admin@example.com');
+        expect(sendEmailPreview).toHaveBeenCalledWith('support-updated', 'admin@example.com', 'ru');
     });
 
     it('redacts provider errors when a test email throws', async () => {
@@ -152,9 +160,11 @@ describe('/api/email/send-test', () => {
 
         const { GET, POST } = await import('../../src/pages/api/email/send-test');
         const invalidGet = await GET(getContext('unknown') as any);
+        const invalidLocale = await GET(getContext('welcome', 'de') as any);
         const invalidPost = await POST(postContext({ type: 'welcome', email: 'not-an-email' }) as any);
 
         expect(invalidGet.status).toBe(400);
+        expect(invalidLocale.status).toBe(400);
         expect(invalidPost.status).toBe(400);
     });
 });

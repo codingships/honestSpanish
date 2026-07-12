@@ -41,6 +41,12 @@ const blogIndexCta = {
     },
 }[lang as 'es' | 'en' | 'ru'];
 
+const accessibilityCopy = {
+    es: { skip: 'Saltar al contenido principal', breadcrumb: 'Ruta de navegación' },
+    en: { skip: 'Skip to main content', breadcrumb: 'Breadcrumb' },
+    ru: { skip: 'Перейти к основному содержанию', breadcrumb: 'Навигационная цепочка' },
+}[lang as 'es' | 'en' | 'ru'];
+
 ---
 
 <BaseLayout 
@@ -48,18 +54,22 @@ const blogIndexCta = {
     description={t('meta.description')} 
     lang={lang}
 >
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
+        {accessibilityCopy.skip}
+    </a>
     <div class="bg-white min-h-screen font-sans text-[#006064]">
+        <main id="main-content" tabindex="-1">
         
         {/* Header */}
         <header class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
             <div class="max-w-6xl mx-auto text-center">
-                <nav class="flex justify-center text-sm font-mono uppercase tracking-wide opacity-70 mb-8">
+                <nav aria-label={accessibilityCopy.breadcrumb} class="flex justify-center text-sm font-mono uppercase tracking-wide text-[#006064] mb-8">
                      <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
-                     <span class="mx-2">/</span>
-                     <span>{t('common.blog')}</span>
+                     <span aria-hidden="true" class="mx-2">/</span>
+                     <span aria-current="page">{t('common.blog')}</span>
                 </nav>
                 <h1 class="font-display text-5xl md:text-7xl mb-4 text-[#006064] tracking-tighter">{t('common.blog')}</h1>
-                <p class="text-xl max-w-2xl mx-auto opacity-70">
+                <p class="text-xl max-w-2xl mx-auto text-[#006064]">
                     {lang === 'es' ? 'Artículos sobre aprendizaje, cultura y vida en España.' : 
                      lang === 'en' ? 'Articles about learning, culture, and life in Spain.' : 
                      'Статьи об обучении, культуре и жизни в Испании.'}
@@ -91,7 +101,7 @@ const blogIndexCta = {
                                 )}
                             </a>
                             
-                            <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wide opacity-60">
+                            <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wide text-[#006064]">
                                 <span class="bg-[#006064]/10 px-2 py-1 rounded">{post.data.category}</span>
                                 <span>•</span>
                                 <span>{new Date(post.data.publishedAt).toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric' })}</span>
@@ -103,7 +113,7 @@ const blogIndexCta = {
                                 </h2>
                             </a>
                             
-                            <p class="text-[#006064]/70 mb-6 line-clamp-3">
+                            <p class="text-[#006064] mb-6 line-clamp-3">
                                 {post.data.description}
                             </p>
 
@@ -136,6 +146,8 @@ const blogIndexCta = {
                 </a>
             </div>
         </section>
+
+        </main>
 
     </div>
 </BaseLayout>

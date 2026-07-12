@@ -474,7 +474,7 @@ export function renewalNoticeEmailTemplate(data: RenewalNoticeEmailData): string
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.signoff}</p>
     `;
 
-    return baseTemplate(content);
+    return baseTemplate(content, data.locale);
 }
 
 // ============================================
