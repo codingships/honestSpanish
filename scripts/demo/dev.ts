@@ -1,8 +1,7 @@
 import { spawn } from 'node:child_process';
-import dotenv from 'dotenv';
+import { loadStagingBrowserEnvironment } from '../staging-browser-environment';
 
-dotenv.config({ path: '.env', quiet: true });
-dotenv.config({ path: '.env.test', override: true, quiet: true });
+loadStagingBrowserEnvironment();
 
 process.env.DEMO_GUIDE_ENABLED ||= 'true';
 process.env.DEMO_GUIDE_LOGIN_ENABLED ||= 'true';
@@ -22,7 +21,7 @@ if (missingKeys.length > 0) {
 }
 
 const command = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
-const args = ['pnpm', 'exec', 'astro', 'dev', '--mode', 'test', '--host', '0.0.0.0', ...process.argv.slice(2)];
+const args = ['pnpm', 'dev', '--', '--host', '0.0.0.0', ...process.argv.slice(2)];
 
 const child = spawn(command, args, {
     env: process.env,

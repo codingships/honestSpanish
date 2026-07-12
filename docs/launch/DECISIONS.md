@@ -91,14 +91,16 @@ Contras:
 Decision: reconciliar el contrato base del modelo con `20260712112000_reconcile_database_model_contract.sql` antes de las olas de esquema de aplicacion y del hardening RC.
 
 Pros:
-- Fija `leads.updated_at`, `lead_status`, defaults y grants con el mismo contrato en staging y production.
+- Fija `leads.updated_at`, `lead_status`, `status`/`created_at` obligatorios, defaults y grants con el mismo contrato en staging y production.
 - Elimina el helper residual `public.is_admin()` sin `CASCADE` y conserva exclusivamente `private.is_admin()`.
 - Retira columnas legacy de sesiones solo despues de preservar sus valores en las columnas canonicas.
+- Absorbe en el historial deployable `sessions.reminder_sent`, sus indices operativos, `idx_profiles_role` y la policy autenticada alumno -> profesor que antes solo existian en hosted/SQL manual.
+- La migracion de hardening posterior hace cumplir tambien en PostgreSQL las duraciones 30/40/50, ademas de impedir solapes activos de disponibilidad.
 - Permite que el rollout verifique por efectos el modelo base antes de crear CRM, billing y los indices finales.
 
 Contras:
 - Staging debe aplicar y verificar juntas, en orden, `20260712112000`, `20260712114000` y `20260712114500` antes de autorizar production.
-- Production incorpora una séptima ola `base_model_reconciliation`; su hash y receipt deben regenerarse si cambia el SQL.
+- Production incorpora una ola dedicada `base_model_reconciliation`; su hash y receipt deben regenerarse si cambia el SQL.
 
 Decision: la base de datos actua como ultima barrera semantica para relaciones alumno/profesor en operaciones de campus.
 

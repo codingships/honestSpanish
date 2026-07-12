@@ -10,6 +10,11 @@ import {
     type ExternalWriteOutcome,
     type ExternalWritePerformed,
 } from './external-write-receipt';
+import {
+    requestTurnstileCloudflareApi,
+    TURNSTILE_CLOUDFLARE_REQUEST_TIMEOUT_MS,
+    type CloudflareApiResponse,
+} from './turnstile-cloudflare-request';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -30,13 +35,6 @@ interface SummaryLike {
     status?: string;
     envFile?: string;
     checks?: Array<{ status?: string; name?: string; message?: string; details?: string[] }>;
-}
-
-interface CloudflareApiResponse<T> {
-    success?: boolean;
-    errors?: Array<{ code?: number; message?: string }>;
-    messages?: unknown[];
-    result?: T;
 }
 
 interface TurnstileWidget {
@@ -378,6 +376,8 @@ function validateApprovalGateSource(): Check {
         'runApprovedExecution',
         'buildExactApprovalSentence',
         'cloudflareRequest',
+        'requestTurnstileCloudflareApi',
+        'TURNSTILE_CLOUDFLARE_REQUEST_TIMEOUT_MS',
         'GET',
         'PUT',
         '/challenges/widgets/',
@@ -388,6 +388,7 @@ function validateApprovalGateSource(): Check {
         'externalWriteOutcome',
         'ambiguous_needs_readonly_reconciliation',
         'readonlyReconciliationRequired',
+        'put_error_or_timeout_outcome_ambiguous',
         'externalWritePerformed=false',
     ];
     const missing = required.filter((snippet) => !source.includes(snippet));
@@ -790,23 +791,13 @@ async function cloudflareRequest<T>(
     pathname: string,
     body?: unknown,
 ): Promise<CloudflareApiResponse<T>> {
-    const response = await fetch(`https://api.cloudflare.com/client/v4${pathname}`, {
+    return requestTurnstileCloudflareApi<T>({
+        apiToken: env.apiToken,
         method,
-        headers: {
-            Authorization: `Bearer ${env.apiToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
+        pathname,
+        body,
+        timeoutMs: TURNSTILE_CLOUDFLARE_REQUEST_TIMEOUT_MS,
     });
-    const payload = await response.json() as CloudflareApiResponse<T>;
-    if (!response.ok && payload.success !== false) {
-        return {
-            success: false,
-            errors: [{ code: response.status, message: response.statusText }],
-            result: payload as T,
-        };
-    }
-    return payload;
 }
 
 function writeExecutionCapture(

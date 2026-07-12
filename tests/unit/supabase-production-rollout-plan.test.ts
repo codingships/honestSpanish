@@ -101,6 +101,10 @@ describe('Supabase production rollout safety', () => {
             'base_model_reconciliation',
             'destructiveFixtureCleanup',
             'billing_contract',
+            'assessProcessedAtPosture',
+            'assessBillingPackagePriceLinks',
+            "values[0] === '--' ? values.slice(1) : values",
+            'missing or incomplete processed_at_posture and billing_package_price_links aggregates as hard blockers',
             'supabase db push',
             'supabase migration repair',
         ]) {

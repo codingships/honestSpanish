@@ -86,6 +86,12 @@ describe('Supabase staging hardening runner', () => {
             expect(withoutComments).not.toMatch(/^\s*(?:insert|update|delete|create|alter|drop|truncate|grant|revoke)\b/imu);
             expect(sql.trimEnd().endsWith('COMMIT;')).toBe(true);
         }
+        expect(renderStagingHardeningPreflightSql()).toContain(
+            "select 'reminder_column_boolean_or_absent', (not exists(",
+        );
+        expect(renderStagingHardeningPostVerifySql()).toContain(
+            "select 'legacy_unique_absent', (not exists(",
+        );
     });
 
     it('accepts a clean preflight with neither migration and rejects partial history or overlaps', () => {
@@ -105,6 +111,9 @@ describe('Supabase staging hardening runner', () => {
         expect(validatePreflightFacts(partial)).toMatchObject({ valid: false, historyState: 'partial_or_unexpected' });
 
         expect(validatePreflightFacts(preflightFacts({ active_overlap_count: '1' })).valid).toBe(false);
+        expect(validatePreflightFacts(preflightFacts({ null_lead_required_fields_count: '1' })).valid).toBe(false);
+        expect(validatePreflightFacts(preflightFacts({ unsupported_session_duration_count: '1' })).valid).toBe(false);
+        expect(validatePreflightFacts(preflightFacts({ reminder_column_boolean_or_absent: 'false' })).valid).toBe(false);
         expect(validatePreflightFacts(preflightFacts({ target_constraint_valid_or_absent: 'false' })).valid).toBe(false);
     });
 
@@ -117,10 +126,13 @@ describe('Supabase staging hardening runner', () => {
             ['leads_status_contract', 'false'],
             ['leads_acl_valid', 'false'],
             ['public_is_admin_absent', 'false'],
+            ['sessions_reminder_contract', 'false'],
+            ['session_duration_contract', 'false'],
+            ['student_teacher_profile_policy_valid', 'false'],
             ['active_overlap_count', '1'],
             ['target_constraint_valid', 'false'],
             ['teacher_availability_updated_at_trigger_valid', 'false'],
-            ['required_operational_indexes_count', '12'],
+            ['required_operational_indexes_count', '14'],
             ['handle_new_user_hardened', 'false'],
             ['auth_trigger_valid', 'false'],
             ['handle_new_user_acl_valid', 'false'],
@@ -177,8 +189,11 @@ function preflightFacts(overrides: Record<string, string> = {}): Map<string, str
         leads_table: 'true',
         sessions_table: 'true',
         lead_status_type_valid_or_absent: 'true',
+        reminder_column_boolean_or_absent: 'true',
         unsupported_lead_status_count: '0',
+        null_lead_required_fields_count: '0',
         session_canonical_columns_count: '3',
+        unsupported_session_duration_count: '0',
         public_is_admin_dependency_count: '0',
         hardening_index_target_tables_count: '8',
         btree_gist_available: 'true',
@@ -205,12 +220,15 @@ function postVerifyFacts(overrides: Record<string, string> = {}): Map<string, st
         leads_acl_valid: 'true',
         public_is_admin_absent: 'true',
         legacy_session_columns_absent: 'true',
+        sessions_reminder_contract: 'true',
+        session_duration_contract: 'true',
+        student_teacher_profile_policy_valid: 'true',
         btree_gist_installed: 'true',
         active_overlap_count: '0',
         target_constraint_valid: 'true',
         legacy_unique_absent: 'true',
         teacher_availability_updated_at_trigger_valid: 'true',
-        required_operational_indexes_count: '13',
+        required_operational_indexes_count: '15',
         required_staging_smoke_indexes_count: '6',
         handle_new_user_hardened: 'true',
         auth_trigger_valid: 'true',

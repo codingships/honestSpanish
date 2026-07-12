@@ -42,8 +42,8 @@ CREATE TABLE leads (
     age_policy_version TEXT,
     consent_given BOOLEAN NOT NULL DEFAULT FALSE,
     ip_address TEXT,
-    status lead_status DEFAULT 'new',
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()),
+    status lead_status NOT NULL DEFAULT 'new',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now()),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -199,7 +199,7 @@ CREATE TABLE sessions (
     student_id UUID NOT NULL REFERENCES profiles(id),
     teacher_id UUID REFERENCES profiles(id),
     scheduled_at TIMESTAMPTZ,
-    duration_minutes INTEGER DEFAULT 50,
+    duration_minutes INTEGER NOT NULL DEFAULT 50,
     meet_link TEXT,
     status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'completed', 'cancelled', 'no_show')),
     teacher_notes TEXT,
@@ -213,8 +213,10 @@ CREATE TABLE sessions (
     drive_doc_id TEXT,
     drive_doc_url TEXT,
     calendar_event_id TEXT,
-    reminder_sent BOOLEAN DEFAULT FALSE,
-    post_class_report JSONB
+    reminder_sent BOOLEAN NOT NULL DEFAULT FALSE,
+    post_class_report JSONB,
+    CONSTRAINT sessions_duration_minutes_supported
+        CHECK (duration_minutes IN (30, 40, 50))
 );
 
 CREATE EXTENSION IF NOT EXISTS btree_gist;
@@ -606,6 +608,9 @@ CREATE INDEX idx_sessions_student ON sessions(student_id);
 CREATE INDEX idx_sessions_teacher ON sessions(teacher_id);
 CREATE INDEX idx_sessions_scheduled ON sessions(scheduled_at);
 CREATE INDEX idx_sessions_status ON sessions(status);
+CREATE INDEX idx_sessions_reminder_pending
+    ON sessions(scheduled_at, status, reminder_sent)
+    WHERE status = 'scheduled' AND reminder_sent = FALSE;
 CREATE INDEX sessions_subscription_idx ON sessions(subscription_id);
 CREATE INDEX sessions_cancelled_by_idx ON sessions(cancelled_by);
 CREATE INDEX idx_payments_student ON payments(student_id);
@@ -2432,8 +2437,13 @@ CREATE POLICY "Admins can do everything on profiles"
     ON profiles FOR ALL TO authenticated USING ((select private.is_admin()));
 
 CREATE POLICY "Students can view their teachers" 
-    ON profiles FOR SELECT 
-    USING (EXISTS (SELECT 1 FROM student_teachers st WHERE st.student_id = auth.uid() AND st.teacher_id = profiles.id));
+    ON profiles FOR SELECT
+    TO authenticated
+    USING (EXISTS (
+        SELECT 1 FROM student_teachers st
+        WHERE st.student_id = (SELECT auth.uid())
+          AND st.teacher_id = profiles.id
+    ));
 
 CREATE POLICY "Teachers can view their students" 
     ON profiles FOR SELECT 
@@ -3350,7 +3360,6 @@ INSERT INTO packages (name, display_name, price_monthly, sessions_per_month, has
 ('standard', '{"es": "Mensual Estándar", "en": "Standard Monthly", "ru": "Стандартный месяц"}', 14500, 4, FALSE, FALSE, TRUE),
 ('hybrid', '{"es": "Híbrido Mensual", "en": "Hybrid Monthly", "ru": "Гибридный месяц"}', 15000, 4, TRUE, TRUE, TRUE),
 ('bootcamp', '{"es": "Intensivo Bootcamp", "en": "Bootcamp Intensive", "ru": "Интенсив Bootcamp"}', 34500, 20, FALSE, FALSE, TRUE);
-+
 -- Added by the post-smoke model hardening migration. Keep these outside the
 -- verbatim staging-only migration block above while retaining the final schema.
 CREATE INDEX staging_integration_smoke_runs_student_idx

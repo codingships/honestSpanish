@@ -1,6 +1,27 @@
 -- Prevent exact duplicate and partially overlapping recurring availability
 -- blocks at the database boundary. The exclusion constraint is evaluated in
 -- the insert transaction, so concurrent requests cannot both succeed.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM public.sessions
+        WHERE duration_minutes IS NULL
+           OR duration_minutes NOT IN (30, 40, 50)
+    ) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'Cannot enforce supported class durations: values outside 30, 40 or 50 minutes exist';
+    END IF;
+END $$;
+
+ALTER TABLE public.sessions
+    ALTER COLUMN duration_minutes SET DEFAULT 50,
+    ALTER COLUMN duration_minutes SET NOT NULL,
+    DROP CONSTRAINT IF EXISTS sessions_duration_minutes_supported,
+    ADD CONSTRAINT sessions_duration_minutes_supported
+        CHECK (duration_minutes IN (30, 40, 50));
+
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 DO $$

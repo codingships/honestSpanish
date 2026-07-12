@@ -701,7 +701,7 @@ export type Database = {
           age_policy_version: string | null;
           availability: string | null;
           consent_given: boolean;
-          created_at: string | null;
+          created_at: string;
           crm_contact_id: string | null;
           crm_opportunity_id: string | null;
           current_level: string | null;
@@ -726,7 +726,7 @@ export type Database = {
           preferred_package: string | null;
           source_path: string | null;
           spoken_languages: string[];
-          status: Database["public"]["Enums"]["lead_status"] | null;
+          status: Database["public"]["Enums"]["lead_status"];
           updated_at: string | null;
         };
         Insert: {
@@ -735,7 +735,7 @@ export type Database = {
           age_policy_version?: string | null;
           availability?: string | null;
           consent_given?: boolean;
-          created_at?: string | null;
+          created_at?: string;
           crm_contact_id?: string | null;
           crm_opportunity_id?: string | null;
           current_level?: string | null;
@@ -760,7 +760,7 @@ export type Database = {
           preferred_package?: string | null;
           source_path?: string | null;
           spoken_languages?: string[];
-          status?: Database["public"]["Enums"]["lead_status"] | null;
+          status?: Database["public"]["Enums"]["lead_status"];
           updated_at?: string | null;
         };
         Update: {
@@ -769,7 +769,7 @@ export type Database = {
           age_policy_version?: string | null;
           availability?: string | null;
           consent_given?: boolean;
-          created_at?: string | null;
+          created_at?: string;
           crm_contact_id?: string | null;
           crm_opportunity_id?: string | null;
           current_level?: string | null;
@@ -794,7 +794,7 @@ export type Database = {
           preferred_package?: string | null;
           source_path?: string | null;
           spoken_languages?: string[];
-          status?: Database["public"]["Enums"]["lead_status"] | null;
+          status?: Database["public"]["Enums"]["lead_status"];
           updated_at?: string | null;
         };
         Relationships: [
@@ -1150,11 +1150,11 @@ export type Database = {
           created_at: string | null;
           drive_doc_id: string | null;
           drive_doc_url: string | null;
-          duration_minutes: number | null;
+          duration_minutes: number;
           id: string;
           meet_link: string | null;
           post_class_report: Json | null;
-          reminder_sent: boolean | null;
+          reminder_sent: boolean;
           scheduled_at: string | null;
           status: string | null;
           student_id: string;
@@ -1172,11 +1172,11 @@ export type Database = {
           created_at?: string | null;
           drive_doc_id?: string | null;
           drive_doc_url?: string | null;
-          duration_minutes?: number | null;
+          duration_minutes?: number;
           id?: string;
           meet_link?: string | null;
           post_class_report?: Json | null;
-          reminder_sent?: boolean | null;
+          reminder_sent?: boolean;
           scheduled_at?: string | null;
           status?: string | null;
           student_id: string;
@@ -1194,11 +1194,11 @@ export type Database = {
           created_at?: string | null;
           drive_doc_id?: string | null;
           drive_doc_url?: string | null;
-          duration_minutes?: number | null;
+          duration_minutes?: number;
           id?: string;
           meet_link?: string | null;
           post_class_report?: Json | null;
-          reminder_sent?: boolean | null;
+          reminder_sent?: boolean;
           scheduled_at?: string | null;
           status?: string | null;
           student_id?: string;

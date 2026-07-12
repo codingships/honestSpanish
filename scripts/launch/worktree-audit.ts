@@ -304,7 +304,6 @@ function classifyPath(filePath: string): string {
     if (matchesAny(filePath, [/^\.agent\//, /^\.agents\//])) return 'agent_tooling';
 
     if (matchesAny(filePath, [
-        /^db\/rls_security_patch\.sql$/,
         /^supabase\/migrations\/(?:021_harden_session_write_policies|022_track_stripe_webhook_processing_state|20260702124757_harden_profile_role_trigger)\.sql$/,
         /^tests\/unit\/database-schema-invariants\.test\.ts$/,
     ])) return 'database_security_external';

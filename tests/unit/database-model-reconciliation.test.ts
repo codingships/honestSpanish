@@ -13,6 +13,10 @@ const schema = readFileSync('db/schema.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
 
 describe('database model reconciliation', () => {
+    it('keeps the canonical schema free of patch artifacts', () => {
+        expect(schema).not.toMatch(/^(?:\+|<<<<<<<.*|=======|>>>>>>>.*)$/mu);
+    });
+
     it('normalizes the leads contract only after validating status values', () => {
         for (const snippet of [
             'ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()',
@@ -23,7 +27,9 @@ describe('database model reconciliation', () => {
             "ALTER COLUMN lang SET DEFAULT 'es'::TEXT",
             'ALTER COLUMN consent_given SET DEFAULT FALSE',
             "ALTER COLUMN status SET DEFAULT 'new'::public.lead_status",
-            'ALTER COLUMN created_at DROP NOT NULL',
+            'ALTER COLUMN status SET NOT NULL',
+            "ALTER COLUMN created_at SET DEFAULT timezone('utc'::TEXT, NOW())",
+            'ALTER COLUMN created_at SET NOT NULL',
         ]) {
             expect(reconciliation).toContain(snippet);
         }
@@ -65,6 +71,28 @@ describe('database model reconciliation', () => {
         }
     });
 
+    it('absorbs hosted-only reminder and profile-read objects into deployable history', () => {
+        for (const snippet of [
+            'ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE',
+            'SET reminder_sent = FALSE',
+            'ALTER COLUMN reminder_sent SET NOT NULL',
+            'CREATE INDEX IF NOT EXISTS idx_sessions_reminder_pending',
+            'CREATE INDEX IF NOT EXISTS idx_profiles_role',
+            'DROP POLICY IF EXISTS "Students can view their teachers"',
+            'CREATE POLICY "Students can view their teachers"',
+            'TO authenticated',
+            'assignment.student_id = (SELECT auth.uid())',
+        ]) {
+            expect(reconciliation).toContain(snippet);
+        }
+
+        expect(schema).toContain('reminder_sent BOOLEAN NOT NULL DEFAULT FALSE');
+        expect(schema).toContain('CREATE INDEX idx_sessions_reminder_pending');
+        expect(schema).toContain('CREATE INDEX idx_profiles_role');
+        expect(databaseTypes).toContain('reminder_sent: boolean;');
+        expect(databaseTypes).not.toContain('reminder_sent: boolean | null;');
+    });
+
     it('covers the ten previously unindexed core foreign keys', () => {
         const coreIndexes = [
             'checkout_intents_contact_idx',
@@ -101,6 +129,25 @@ describe('database model reconciliation', () => {
             expect(sql).toContain('BEFORE UPDATE ON');
             expect(sql).toContain('EXECUTE FUNCTION public.update_updated_at()');
         }
+    });
+
+    it('enforces the application class-duration contract at the database boundary', () => {
+        for (const snippet of [
+            'duration_minutes IS NULL',
+            'duration_minutes NOT IN (30, 40, 50)',
+            'ALTER COLUMN duration_minutes SET NOT NULL',
+            'CONSTRAINT sessions_duration_minutes_supported',
+            'CHECK (duration_minutes IN (30, 40, 50))',
+        ]) {
+            expect(availabilityHardening).toContain(snippet);
+            if (snippet.startsWith('CONSTRAINT') || snippet.startsWith('CHECK')) {
+                expect(schema).toContain(snippet);
+            }
+        }
+
+        expect(schema).toContain('duration_minutes INTEGER NOT NULL DEFAULT 50');
+        expect(databaseTypes).toContain('duration_minutes: number;');
+        expect(databaseTypes).not.toContain('duration_minutes: number | null;');
     });
 
     it('adds all six staging-smoke FK indexes only when the staging table exists', () => {
@@ -147,6 +194,9 @@ describe('database model reconciliation', () => {
         expect(databaseTypes).not.toContain('      is_admin: { Args: never; Returns: boolean }');
         expect(databaseTypes).toContain('email_idempotency_key: string | null');
         expect(databaseTypes).toContain('email_idempotency_key?: string | null');
+        expect(leadsBlock).toContain('created_at: string;');
+        expect(leadsBlock).toContain('status: Database["public"]["Enums"]["lead_status"];');
+        expect(leadsBlock).not.toContain('status: Database["public"]["Enums"]["lead_status"] | null;');
     });
 
     it('documents the deliberate nullable RPC overrides that Supabase cannot infer', () => {

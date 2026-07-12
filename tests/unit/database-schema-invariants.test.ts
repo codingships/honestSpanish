@@ -19,7 +19,6 @@ const checkoutRecoveryMigration = readFileSync('supabase/migrations/202607102218
 const checkoutSnapshotMigration = readFileSync('supabase/migrations/20260710223900_harden_checkout_customer_and_snapshot_immutability.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
-const rlsSecurityPatch = readFileSync('db/rls_security_patch.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
 
 describe('database schema security invariants', () => {
@@ -106,21 +105,6 @@ describe('database schema security invariants', () => {
             expect(sessionWriteHardeningMigration).toContain(snippet);
         }
 
-        expect(rlsSecurityPatch).not.toContain('ON public.sessions FOR ALL');
-        expect(rlsSecurityPatch).not.toContain('ON sessions FOR ALL');
-        expect(rlsSecurityPatch).not.toContain('WITH CHECK');
-        expect(rlsSecurityPatch).not.toMatch(/CREATE POLICY "Teachers can view and update assigned sessions"/);
-
-        for (const snippet of [
-            'DROP POLICY IF EXISTS "Students can cancel own sessions" ON public.sessions',
-            'DROP POLICY IF EXISTS "Teachers can create assigned sessions" ON public.sessions',
-            'DROP POLICY IF EXISTS "Teachers can update assigned sessions" ON public.sessions',
-            'DROP POLICY IF EXISTS "Teachers can view and update assigned sessions" ON public.sessions',
-            'CREATE POLICY "Teachers can view assigned sessions"',
-            'ON public.sessions FOR SELECT',
-        ]) {
-            expect(rlsSecurityPatch).toContain(snippet);
-        }
     });
 
     it('tracks Stripe webhook processing state across known live schema drift', () => {

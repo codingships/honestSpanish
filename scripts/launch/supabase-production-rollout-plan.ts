@@ -11,6 +11,10 @@ import {
     toPosix,
     type MigrationHistoryMapping,
 } from './supabase-production-rollout-shared';
+import {
+    assessBillingPackagePriceLinks,
+    assessProcessedAtPosture,
+} from './supabase-production-rollout-evidence';
 
 type GateStatus = 'ready' | 'blocked' | 'already_closed';
 
@@ -109,7 +113,14 @@ const fixtureCounts = asRecord(preflight.aggregates.fixture_counts);
 const fixtureDistributions = asRecord(preflight.aggregates.fixture_distributions);
 const billingHazard = asRecord(preflight.aggregates.billing_legacy_hazard);
 const packagePriceLinks = asRecord(preflight.aggregates.billing_package_price_links);
-const processedAtPosture = asRecord(preflight.aggregates.processed_at_posture);
+const processedAtPostureAssessment = assessProcessedAtPosture(preflight.aggregates.processed_at_posture);
+const packagePriceLinksAssessment = assessBillingPackagePriceLinks(
+    preflight.aggregates.billing_package_price_links,
+    {
+        total_subscriptions: fixtureCounts.subscriptions,
+        stripe_linked: billingHazard.stripe_linked,
+    },
+);
 const baselineHistoryEffects = asRecord(preflight.aggregates.baseline_history_effects);
 const baselineEffectsVerified = Object.keys(baselineHistoryEffects).length > 0
     && Object.values(baselineHistoryEffects).every((present) => present === true);
@@ -143,26 +154,28 @@ const migrationMap = new Map(preflight.migrationInventory.localMigrations.map((m
 const stagingOnlyMigration = migrationMap.get(STAGING_ONLY_VERSION);
 const stagingOnlyExcluded = stagingOnlyMigration?.historyStatus === 'missing';
 const processedMigration = migrationMap.get(PROCESSED_AT_VERSION);
-const processedAlreadyClosed = (processedMigration?.historyStatus === 'exact' || processedMigration?.historyStatus === 'alias')
-    && processedAtPosture.column_default === '<NULL>';
+const processedAlreadyClosed = preflightSafe
+    && preflightFresh
+    && localInventoryStable
+    && stagingOnlyExcluded
+    && (processedMigration?.historyStatus === 'exact' || processedMigration?.historyStatus === 'alias')
+    && processedAtPostureAssessment.alreadyClosed;
 const processedReady = preflightSafe
     && preflightFresh
     && localInventoryStable
     && stagingOnlyExcluded
     && processedMigration?.historyStatus === 'missing'
-    && processedAtPosture.column_default !== '<NULL>'
-    && Number(processedAtPosture.invalid_status ?? 0) === 0
-    && Number(processedAtPosture.processing_with_processed_at ?? 0) === 0;
+    && processedAtPostureAssessment.readyForFix;
 
 const processedGate: GateStatus = processedAlreadyClosed
     ? 'already_closed'
     : processedReady ? 'ready' : 'blocked';
 
-const stripeLinkedWithoutPackagePrice = Number(packagePriceLinks.stripe_linked_without_package_price ?? 0);
+const stripeLinkedWithoutPackagePrice = packagePriceLinksAssessment.stripeLinkedWithoutPackagePrice;
 const cleanupGate: GateStatus = backupReceipt.valid && preservationPolicy.valid
     ? 'ready'
     : 'blocked';
-const billingDataReady = stripeLinkedWithoutPackagePrice === 0;
+const billingDataReady = packagePriceLinksAssessment.ready;
 const baseModelReconciliationPresent = waveIsPresent('base_model_reconciliation');
 const applicationSchemaPresent = waveIsPresent('application_schema');
 const runtimeAndPolicyPresent = waveIsPresent('runtime_and_policy');
@@ -322,9 +335,20 @@ const report = {
         processedAtSmallFix: {
             status: processedGate,
             version: PROCESSED_AT_VERSION,
-            currentDefault: processedAtPosture.column_default ?? '<unknown>',
+            currentDefault: processedAtPostureAssessment.columnDefault,
+            evidenceComplete: processedAtPostureAssessment.complete,
+            evidenceSummary: processedAtPostureAssessment.summary,
+            counts: processedAtPostureAssessment.counts,
             requiresBackupEvidence: false,
             requiresPreservationPolicy: false,
+        },
+        billingPackagePriceLinks: {
+            status: (billingDataReady ? 'ready' : 'blocked') as GateStatus,
+            evidenceComplete: packagePriceLinksAssessment.complete,
+            evidenceSummary: packagePriceLinksAssessment.summary,
+            columnPresent: packagePriceLinksAssessment.columnPresent,
+            stripeLinkedWithoutPackagePrice,
+            allSubscriptionsWithoutPackagePrice: packagePriceLinksAssessment.allSubscriptionsWithoutPackagePrice,
         },
         destructiveFixtureCleanup: {
             status: cleanupGate,
@@ -332,6 +356,7 @@ const report = {
             preservationPolicy,
             noCleanupSqlGenerated: true,
             stripeLinkedWithoutPackagePrice,
+            packageLinkEvidenceComplete: packagePriceLinksAssessment.complete,
         },
         stagingHardeningEvidence,
         migrationWaves: waves,
@@ -390,15 +415,16 @@ function parseArgs(values: string[]): {
     preservationPolicy: string | null;
     stagingHardeningEvidence: string | null;
 } {
+    const normalizedValues = values[0] === '--' ? values.slice(1) : values;
     const parsed = {
         preflight: null as string | null,
         backupEvidenceReceipt: null as string | null,
         preservationPolicy: null as string | null,
         stagingHardeningEvidence: null as string | null,
     };
-    for (let index = 0; index < values.length; index += 1) {
-        const value = values[index];
-        const next = values[index + 1];
+    for (let index = 0; index < normalizedValues.length; index += 1) {
+        const value = normalizedValues[index];
+        const next = normalizedValues[index + 1];
         if (value === '--preflight' && next) {
             parsed.preflight = path.resolve(next);
             index += 1;
@@ -628,10 +654,11 @@ function renderSummary(value: typeof report): string {
         '',
         '## Separate gates',
         '',
-        '| Gate | Status | Backup required | Preservation policy required | Blocking fact |',
+        '| Gate | Status | Backup required | Preservation policy required | Evidence / blocking fact |',
         '| --- | --- | --- | --- | --- |',
-        `| processed_at small fix | ${value.gates.processedAtSmallFix.status} | no | no | current default=${String(value.gates.processedAtSmallFix.currentDefault)} |`,
-        `| destructive fixture cleanup | ${value.gates.destructiveFixtureCleanup.status} | yes | yes | Stripe-linked without package_price_id=${value.gates.destructiveFixtureCleanup.stripeLinkedWithoutPackagePrice} |`,
+        `| processed_at small fix | ${value.gates.processedAtSmallFix.status} | no | no | ${value.gates.processedAtSmallFix.evidenceSummary} |`,
+        `| billing package-price links | ${value.gates.billingPackagePriceLinks.status} | no | no | ${value.gates.billingPackagePriceLinks.evidenceSummary} |`,
+        `| destructive fixture cleanup | ${value.gates.destructiveFixtureCleanup.status} | yes | yes | backup receipt valid=${value.gates.destructiveFixtureCleanup.backupReceipt.valid}; preservation policy valid=${value.gates.destructiveFixtureCleanup.preservationPolicy.valid} |`,
         ...value.gates.migrationWaves
             .filter((wave) => wave.id !== 'processed_at_small_fix')
             .map((wave) => `| ${wave.id} | ${wave.gateStatus} | ${wave.requiresBackupEvidence ? 'yes' : 'no'} | ${wave.requiresPreservationPolicy ? 'yes' : 'no'} | pending=${wave.pending.length}; already present=${wave.alreadyPresent.length} |`),
@@ -667,6 +694,7 @@ function renderSummary(value: typeof report): string {
         '- Never run `supabase migration repair` to hide alias drift.',
         `- Never apply ${STAGING_ONLY_VERSION}_staging_integration_smoke_runs.sql to production.`,
         '- Never clean fixtures without both a fresh backup evidence receipt and a complete preservation policy bound to the aggregate snapshot hash.',
+        '- Treat missing or incomplete processed_at_posture and billing_package_price_links aggregates as hard blockers, never as zero counts.',
         '- Never start the billing wave while any Stripe-linked subscription lacks `package_price_id`.',
         '- Never apply the deferred RC hardening wave to production until both exact migrations pass overlap, availability and signup checks in staging.',
         '- Stop if checkout is enabled, target ref changes, local hashes drift, the preflight is older than 24 hours or verification finds a mismatch.',

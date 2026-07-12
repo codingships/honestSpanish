@@ -12,6 +12,17 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM public.leads
+        WHERE status IS NULL
+           OR created_at IS NULL
+    ) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23502',
+            MESSAGE = 'Cannot enforce the canonical leads contract: null status or created_at values exist';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.leads
         WHERE status IS NOT NULL
           AND status::TEXT NOT IN ('new', 'contacted', 'discarded')
     ) THEN
@@ -63,7 +74,9 @@ ALTER TABLE public.leads
     ALTER COLUMN lang SET DEFAULT 'es'::TEXT,
     ALTER COLUMN consent_given SET DEFAULT FALSE,
     ALTER COLUMN status SET DEFAULT 'new'::public.lead_status,
-    ALTER COLUMN created_at DROP NOT NULL;
+    ALTER COLUMN status SET NOT NULL,
+    ALTER COLUMN created_at SET DEFAULT timezone('utc'::TEXT, NOW()),
+    ALTER COLUMN created_at SET NOT NULL;
 
 REVOKE ALL ON TABLE public.leads FROM PUBLIC, anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.leads TO authenticated;
@@ -125,6 +138,40 @@ ALTER TABLE public.sessions
     DROP COLUMN IF EXISTS drive_doc_link,
     DROP COLUMN IF EXISTS google_calendar_event_id,
     DROP COLUMN IF EXISTS google_meet_link;
+
+-- This field was historically added from an ad-hoc SQL script even though the
+-- fulfillment Worker relies on it. Absorb it into the deployable history and
+-- make null impossible so reminder claims cannot silently skip a session.
+ALTER TABLE public.sessions
+    ADD COLUMN IF NOT EXISTS reminder_sent BOOLEAN DEFAULT FALSE;
+
+UPDATE public.sessions
+SET reminder_sent = FALSE
+WHERE reminder_sent IS NULL;
+
+ALTER TABLE public.sessions
+    ALTER COLUMN reminder_sent SET DEFAULT FALSE,
+    ALTER COLUMN reminder_sent SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_sessions_reminder_pending
+    ON public.sessions (scheduled_at, status, reminder_sent)
+    WHERE status = 'scheduled' AND reminder_sent = FALSE;
+
+-- Both hosted projects received these objects outside the migration history.
+-- Keep fresh databases and migration-built environments equivalent.
+CREATE INDEX IF NOT EXISTS idx_profiles_role
+    ON public.profiles(role);
+
+DROP POLICY IF EXISTS "Students can view their teachers" ON public.profiles;
+CREATE POLICY "Students can view their teachers"
+    ON public.profiles FOR SELECT
+    TO authenticated
+    USING (EXISTS (
+        SELECT 1
+        FROM public.student_teachers AS assignment
+        WHERE assignment.student_id = (SELECT auth.uid())
+          AND assignment.teacher_id = profiles.id
+    ));
 
 -- Follow-up after hosted application: regenerate src/types/database.types.ts
 -- from the reconciled Supabase staging schema.

@@ -262,10 +262,12 @@ Operativo:
 - `SUPABASE_DB_URL`
 
 Usar `SUPABASE_DB_URL` solo para migraciones/SQL. No lo usa la app.
+Los runners de navegador y `pnpm dev` validan la identidad staging pero eliminan `SUPABASE_DB_URL`, `SUPABASE_*_DB_URL`, `DATABASE_URL` y `PG*` antes de arrancar Astro o Playwright.
 
 Production Supabase se prepara con runners separados y fail-closed:
 
 - `pnpm launch:supabase-production-readonly-preflight` consulta exclusivamente `espanol-honesto` (`vkkahxsybhbutszerawz`, `eu-west-1`) con `default_transaction_read_only=on`; inventaria versiones/nombres remotos, hashes y orden local, y guarda solo metadatos y conteos agregados.
+- `pnpm launch:supabase-production-connector-preflight` importa el mismo snapshot agregado obtenido con el conector Supabase, revalida target/frescura/historial/hashes y coherencia cruzada de conteos, y nunca conserva el snapshot bruto en su summary.
 - `pnpm launch:supabase-production-rollout-plan` es local/plan-only: no conecta a Supabase, no genera SQL de limpieza ni bundles de aplicacion, separa autorizaciones y produce manifiesto, plantillas de backup/preservacion, frases exactas, verificacion y rollback.
 - `pnpm launch:supabase-production-logical-backup` crea, solo con aprobacion exacta, un dump custom `public` + `auth` fuera del repositorio en un directorio Windows EFS verificado. Su recibo no contiene la ruta ni credenciales.
 - `pnpm launch:supabase-production-fixture-cleanup` previsualiza y ejecuta el manifiesto v2 vinculado al backup: borra fixtures publicos exactos, elimina `public.jobs` sin `CASCADE`, conserva cuatro paquetes y no toca Auth, Storage ni proveedores externos.
@@ -273,7 +275,7 @@ Production Supabase se prepara con runners separados y fail-closed:
 - `pnpm launch:production-availability` solo se habilita despues de un `auth-policy-receipt.json` cerrado: fija el profesor preservado y crea L-V 09:00-18:00 en `Europe/Madrid`, con preflight y verificacion exactos.
 - `pnpm launch:supabase-production-rollout` es plan-only por defecto. Su ejecucion final exige evidencia fresca y vinculada de preflight, backup, limpieza publica, Auth en cuarentena, politica Google, hardening staging y Sentry production `HARDENED_AND_VERIFIED`, mas aprobacion exacta y atestacion de checkout desactivado.
 
-El inventario read-only de 2026-07-12 encontro 45 migraciones locales actuales y 24 entradas remotas. La reconciliacion nueva `20260712112000_reconcile_database_model_contract.sql` eleva a 23 las migraciones semanticas pendientes para production, excluyendo `20260710150000_staging_integration_smoke_runs.sql`, que es exclusivamente staging y nunca se aplica a production. Primero debe pasar en staging junto con `20260712114000` y `20260712114500`, en ese orden exacto; el mismo receipt cierra modelo, disponibilidad y signup 18+ antes de autorizar production.
+El inventario read-only de 2026-07-12 encontro 45 migraciones locales actuales y 24 entradas remotas. La reconciliacion `20260712112000_reconcile_database_model_contract.sql` deja deployables los objetos que solo existian en hosted (`reminder_sent`, policy alumno -> profesor e indices), cierra nulabilidad/defaults de leads y mantiene en 23 las migraciones semanticas pendientes para production. `20260710150000_staging_integration_smoke_runs.sql` es exclusivamente staging y nunca se aplica a production. Primero deben pasar juntas en staging `20260712112000`, `20260712114000` (duraciones 30/40/50 y solapes) y `20260712114500`, en ese orden exacto; el mismo receipt cierra modelo, disponibilidad y signup 18+ antes de autorizar production.
 
 No usar `supabase db push` contra este historial divergente ni `supabase migration repair` para igualarlo visualmente. Los aliases y el choque de nombre se verifican por efectos de esquema; no se reaplican a ciegas. La primera ola contiene solo `20260703211451_drop_processed_webhook_processed_at_default.sql`; la segunda es `base_model_reconciliation` y las otras cinco conservan su orden de dependencias. Las seis posteriores a `processed_at_small_fix` exigen backup y cierre de fixtures previo. El runner verifica cada ola y emite el recibo final solo tras las 23 migraciones. La migracion staging-only permanece ausente y checkout permanece desactivado durante todo el rollout.
 

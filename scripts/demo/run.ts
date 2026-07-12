@@ -1,7 +1,10 @@
 import path from 'node:path';
 import { appendFile, writeFile } from 'node:fs/promises';
-import dotenv from 'dotenv';
 import { chromium, type Browser, type Locator, type Page } from 'playwright';
+import {
+    assertStagingOrLocalBrowserBaseUrl,
+    loadStagingBrowserEnvironment,
+} from '../staging-browser-environment';
 import {
     clearOverlayAction,
     consumeOverlayAction,
@@ -28,14 +31,12 @@ import {
     type DemoRunSummary,
     type DemoUsers,
     type SectionId,
-    type SensitiveGate,
     type StepOutcome,
     type StepResult,
     type StepStatus,
 } from './shared';
 
-dotenv.config({ path: '.env', quiet: true });
-dotenv.config({ path: '.env.test', override: true, quiet: true });
+loadStagingBrowserEnvironment();
 
 class DemoFinishedError extends Error {
     constructor() {
@@ -66,6 +67,7 @@ interface RuntimeState {
 }
 
 const config = readDemoConfig(process.argv.slice(2));
+config.baseUrl = assertStagingOrLocalBrowserBaseUrl(config.baseUrl, 'demo base URL');
 const users = readDemoUsers();
 const startedAt = new Date();
 const outputDir = await createRunDirectory(startedAt);

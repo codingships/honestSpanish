@@ -182,6 +182,9 @@ describe('Supabase production wave rollout runner', () => {
         expect(sql).toContain("'fulfillment_effects_empty'");
         expect(sql).toContain("'model_leads_status_contract'");
         expect(sql).toContain("'model_leads_acl_valid'");
+        expect(sql).toContain("'model_sessions_reminder_contract'");
+        expect(sql).toContain("'model_student_teacher_profile_policy'");
+        expect(expected.get('model_reconciliation_indexes')).toBe('2');
         expect(expected.get('model_public_is_admin_absent')).toBe('true');
         expect(expected.get('history_verified_count')).toBe('21');
         expect(expected.get('staging_only_absent')).toBe('true');
@@ -192,8 +195,10 @@ describe('Supabase production wave rollout runner', () => {
         const sql = renderProductionWaveVerifySql(waves);
         const expected = expectedProductionWaveVerificationFacts(waves);
         expect(sql).toContain("'hardening_availability_updated_at_trigger'");
+        expect(sql).toContain("'hardening_session_duration_contract'");
         expect(sql).toContain("'hardening_required_indexes'");
         expect(expected.get('hardening_availability_updated_at_trigger')).toBe('true');
+        expect(expected.get('hardening_session_duration_contract')).toBe('true');
         expect(expected.get('hardening_required_indexes')).toBe('13');
         expect(expected.get('history_verified_count')).toBe('23');
     });

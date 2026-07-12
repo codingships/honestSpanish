@@ -136,7 +136,7 @@ type SessionRow = {
     subscription_id: string;
     status: string | null;
     scheduled_at: string | null;
-    duration_minutes: number | null;
+    duration_minutes: number;
     meet_link: string | null;
     drive_doc_id: string | null;
     drive_doc_url: string | null;
@@ -145,7 +145,7 @@ type SessionRow = {
     completed_at: string | null;
     teacher_notes: string | null;
     post_class_report: Json | null;
-    reminder_sent: boolean | null;
+    reminder_sent: boolean;
 };
 
 type SmokeSectionKey = 'notes' | 'drive' | 'checkout' | 'webhook' | 'billingLifecycle' | 'schedulingLifecycle' | 'adminJobs' | 'cleanup';

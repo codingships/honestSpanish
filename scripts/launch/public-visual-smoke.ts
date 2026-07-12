@@ -1,9 +1,12 @@
-import dotenv from 'dotenv';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { launchChromiumForLaunch } from './playwright-browser';
+import {
+    assertStagingOrLocalBrowserBaseUrl,
+    loadStagingBrowserEnvironment,
+} from '../staging-browser-environment';
 
 interface PublicTarget {
     name: string;
@@ -53,14 +56,16 @@ if (!existsSync('package.json')) {
     throw new Error('Run this script from the repository root.');
 }
 
-dotenv.config({ path: '.env', quiet: true });
-dotenv.config({ path: '.env.test', override: true, quiet: true });
+loadStagingBrowserEnvironment();
 
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-public-visual', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
 
 const port = Number(process.env.LAUNCH_PUBLIC_VISUAL_PORT || 4391);
-const baseUrl = process.env.LAUNCH_PUBLIC_VISUAL_BASE_URL || `http://127.0.0.1:${port}`;
+const baseUrl = assertStagingOrLocalBrowserBaseUrl(
+    process.env.LAUNCH_PUBLIC_VISUAL_BASE_URL || `http://127.0.0.1:${port}`,
+    'LAUNCH_PUBLIC_VISUAL_BASE_URL',
+);
 const shouldStartServer = !process.env.LAUNCH_PUBLIC_VISUAL_BASE_URL;
 const serverLogPath = path.join(outputDir, 'dev-server.log');
 
@@ -180,7 +185,7 @@ try {
 }
 
 function startDevServer(port: number, logPath: string): ChildProcessWithoutNullStreams {
-    const child = spawn(corepackCommand(), ['pnpm', 'exec', 'astro', 'dev', '--host', '127.0.0.1', '--port', String(port)], {
+    const child = spawn(corepackCommand(), ['pnpm', 'dev', '--', '--host', '127.0.0.1', '--port', String(port)], {
         cwd: process.cwd(),
         env: {
             ...process.env,

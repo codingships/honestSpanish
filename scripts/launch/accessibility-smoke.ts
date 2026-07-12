@@ -1,5 +1,4 @@
 import AxeBuilder from '@axe-core/playwright';
-import dotenv from 'dotenv';
 import { type Browser, type Page } from 'playwright';
 import { spawn, spawnSync, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -11,6 +10,10 @@ import {
     type AccessibilityAuthRole,
 } from './accessibility-auth-policy';
 import { launchChromiumForLaunch } from './playwright-browser';
+import {
+    assertStagingOrLocalBrowserBaseUrl,
+    loadStagingBrowserEnvironment,
+} from '../staging-browser-environment';
 
 interface PageTarget {
     name: string;
@@ -46,14 +49,16 @@ if (!existsSync('package.json')) {
     throw new Error('Run this script from the repository root.');
 }
 
-dotenv.config({ path: '.env', quiet: true });
-dotenv.config({ path: '.env.test', override: true, quiet: true });
+loadStagingBrowserEnvironment();
 
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-accessibility', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
 
 const port = Number(process.env.LAUNCH_ACCESSIBILITY_PORT || 4387);
-const baseUrl = process.env.LAUNCH_ACCESSIBILITY_BASE_URL || `http://127.0.0.1:${port}`;
+const baseUrl = assertStagingOrLocalBrowserBaseUrl(
+    process.env.LAUNCH_ACCESSIBILITY_BASE_URL || `http://127.0.0.1:${port}`,
+    'LAUNCH_ACCESSIBILITY_BASE_URL',
+);
 const shouldStartServer = !process.env.LAUNCH_ACCESSIBILITY_BASE_URL;
 const targets: PageTarget[] = [
     { name: 'home es', path: '/es' },

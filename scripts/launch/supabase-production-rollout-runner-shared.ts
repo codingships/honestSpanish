@@ -62,7 +62,7 @@ export const PRODUCTION_ROLLOUT_WAVES: readonly ProductionRolloutWave[] = [
     {
         id: 'base_model_reconciliation',
         migrations: [
-            migration('20260712112000', 'reconcile_database_model_contract', 'a5c65d8fc02bc38d1bc55df1d5c6e25af4ab092fcc976384306238a0590f4126'),
+            migration('20260712112000', 'reconcile_database_model_contract', '3f0ca7ae51221c35549d1434ef3bbfa332cbe131caee7cc060cb5eb4a403f6ea'),
         ],
     },
     {
@@ -107,7 +107,7 @@ export const PRODUCTION_ROLLOUT_WAVES: readonly ProductionRolloutWave[] = [
     {
         id: 'deferred_rc_hardening',
         migrations: [
-            migration('20260712114000', 'harden_teacher_availability_overlap', '271786dda04f3f0735c856a6f7774e482a660e3fc9044962a1284670895a9884'),
+            migration('20260712114000', 'harden_teacher_availability_overlap', '03c48790abf657571b43c2170a58f148d6d15e130a93f4de9be3be6a40aaaea3'),
             migration('20260712114500', 'require_current_adult_policy_on_signup', '5f01e7e0a2854174cab59002bea4ee01987782846f8a2266bd2dba5c897b7cfb'),
         ],
     },
@@ -896,6 +896,7 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                         SELECT 1 FROM information_schema.columns
                         WHERE table_schema='public' AND table_name='leads' AND column_name='status'
                           AND udt_schema='public' AND udt_name='lead_status' AND column_default ILIKE '%new%'
+                          AND is_nullable='NO'
                     ) AND (
                         SELECT string_agg(enum_value.enumlabel, ',' ORDER BY enum_value.enumsortorder) = 'new,contacted,discarded'
                         FROM pg_enum enum_value
@@ -907,7 +908,8 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                     WHERE table_schema='public' AND table_name='leads' AND (
                         (column_name='lang' AND column_default='''es''::text')
                         OR (column_name='consent_given' AND column_default='false')
-                        OR (column_name='created_at' AND is_nullable='YES')
+                        OR (column_name='created_at' AND is_nullable='NO'
+                            AND column_default='timezone(''utc''::text, now())')
                     )
                 ))`),
                 fact('model_leads_acl_valid', 'true', `(
@@ -930,6 +932,26 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                     WHERE table_schema='public' AND table_name='sessions'
                       AND column_name IN ('drive_doc_link','google_calendar_event_id','google_meet_link')
                 ))`),
+                fact('model_sessions_reminder_contract', 'true', `(
+                    EXISTS(
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sessions' AND column_name='reminder_sent'
+                          AND data_type='boolean' AND is_nullable='NO' AND column_default='false'
+                    )
+                    AND NOT EXISTS(SELECT 1 FROM public.sessions WHERE reminder_sent IS NULL)
+                    AND to_regclass('public.idx_sessions_reminder_pending') IS NOT NULL
+                )`),
+                fact('model_student_teacher_profile_policy', 'true', `(SELECT EXISTS(
+                    SELECT 1 FROM pg_policies
+                    WHERE schemaname='public' AND tablename='profiles'
+                      AND policyname='Students can view their teachers'
+                      AND cmd='SELECT' AND roles=ARRAY['authenticated']::name[]
+                      AND qual ILIKE '%student_teachers%' AND qual ILIKE '%auth.uid()%'
+                ))`),
+                fact('model_reconciliation_indexes', '2', `(SELECT count(*) FROM (VALUES
+                    (to_regclass('public.idx_profiles_role')),
+                    (to_regclass('public.idx_sessions_reminder_pending'))
+                ) required(index_oid) WHERE index_oid IS NOT NULL)`),
             ];
         case 'application_schema':
             return [
@@ -963,6 +985,24 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
             ];
         case 'deferred_rc_hardening':
             return [
+                fact('hardening_session_duration_contract', 'true', `(
+                    EXISTS(
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='sessions' AND column_name='duration_minutes'
+                          AND is_nullable='NO' AND column_default='50'
+                    )
+                    AND EXISTS(
+                        SELECT 1 FROM pg_constraint
+                        WHERE conrelid='public.sessions'::regclass
+                          AND conname='sessions_duration_minutes_supported'
+                          AND contype='c'
+                          AND pg_get_constraintdef(oid) ILIKE '%duration_minutes%30%40%50%'
+                    )
+                    AND NOT EXISTS(
+                        SELECT 1 FROM public.sessions
+                        WHERE duration_minutes IS NULL OR duration_minutes NOT IN (30,40,50)
+                    )
+                )`),
                 fact('hardening_overlap_constraint', 'true', `(SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.teacher_availability'::regclass AND conname='teacher_availability_no_active_overlap' AND contype='x'))`),
                 fact('hardening_legacy_unique_absent', 'true', `(SELECT NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.teacher_availability'::regclass AND conname='teacher_availability_teacher_id_day_of_week_start_time_key'))`),
                 fact('hardening_availability_updated_at_trigger', 'true', `(SELECT EXISTS(
