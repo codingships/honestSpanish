@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
@@ -29,8 +30,15 @@ import {
     RESEND_FREE_DAILY_RECIPIENT_LIMIT,
     RESEND_FREE_MONTHLY_RECIPIENT_LIMIT,
     STAGING_SMOKE_PLANNED_RECIPIENTS,
+    sanitizeStagingSmokeCapture,
     type StagingSmokeEmailBudgetAssessment,
 } from '../launch/staging-smoke-runner-safety';
+import {
+    buildSubscriptionCandidateDateKeys,
+    findFirstSchedulableAvailableSlot,
+    isAcceptedDriveFolderProvisioning,
+    parseAvailableSlotStartsForDate,
+} from './real-env-smoke-safety';
 
 // This harness is staging-only. Process env values supplied by the gated
 // runner win; local defaults come exclusively from the ignored staging file.
@@ -145,6 +153,8 @@ type SmokeSectionKey = 'notes' | 'drive' | 'checkout' | 'webhook' | 'billingLife
 type SmokeResult = {
     ok: boolean;
     failedSections: SmokeSectionKey[];
+    skippedSections: SmokeSectionKey[];
+    executionError: Json | null;
     timestamp: string;
     remoteSchema: {
         profilesPrivateAvailable: boolean;
@@ -157,12 +167,14 @@ type SmokeResult = {
         packagePrice3mId: string | null;
     };
     notes: {
+        attempted: boolean;
         ok: boolean;
         status: number;
         body: Json | string;
         persistedNotes: string | null;
     };
     drive: {
+        attempted: boolean;
         ok: boolean;
         status: number;
         body: Json | string;
@@ -208,7 +220,9 @@ type SmokeResult = {
         paymentStatus: string | null;
     };
     schedulingLifecycle: {
+        attempted: boolean;
         ok: boolean;
+        error: Json | null;
         studentFolderStatus: number;
         studentFolderBody: Json | string;
         driveFolderId: string | null;
@@ -273,6 +287,7 @@ type SmokeResult = {
         cleanupStatus: string | null;
     };
     adminJobs: {
+        attempted: boolean;
         ok: boolean;
         adminJobsPageStatus: number;
         adminJobsPageContainsTitle: boolean;
@@ -301,6 +316,8 @@ type SmokeResult = {
         completedCheckoutEvidencePreserved: boolean;
         profileStateRestored: boolean;
         reusableStudentPreserved: boolean;
+        temporaryTeacherAvailabilityCreated: boolean;
+        temporaryTeacherAvailabilityDeleted: boolean;
     };
 };
 
@@ -327,6 +344,8 @@ async function main() {
     const result: SmokeResult = {
         ok: false,
         failedSections: [],
+        skippedSections: [],
+        executionError: null,
         timestamp,
         remoteSchema: {
             profilesPrivateAvailable: false,
@@ -339,12 +358,14 @@ async function main() {
             packagePrice3mId: null,
         },
         notes: {
+            attempted: false,
             ok: false,
             status: 0,
             body: '',
             persistedNotes: null,
         },
         drive: {
+            attempted: false,
             ok: false,
             status: 0,
             body: '',
@@ -390,7 +411,9 @@ async function main() {
             paymentStatus: null,
         },
         schedulingLifecycle: {
+            attempted: false,
             ok: false,
+            error: null,
             studentFolderStatus: 0,
             studentFolderBody: '',
             driveFolderId: null,
@@ -455,6 +478,7 @@ async function main() {
             cleanupStatus: null,
         },
         adminJobs: {
+            attempted: false,
             ok: false,
             adminJobsPageStatus: 0,
             adminJobsPageContainsTitle: false,
@@ -483,6 +507,8 @@ async function main() {
             completedCheckoutEvidencePreserved: false,
             profileStateRestored: false,
             reusableStudentPreserved: false,
+            temporaryTeacherAvailabilityCreated: false,
+            temporaryTeacherAvailabilityDeleted: true,
         },
     };
 
@@ -521,6 +547,7 @@ async function main() {
     const initialPrivateState = await getReusableStudentPrivateState(student.id);
     let runError: unknown = null;
     let teacherDrivePermissionExisted = false;
+    let temporaryTeacherAvailabilityId: string | null = null;
 
     result.stripe.activeRecurringPrices = stripePrices.data.filter((price) => Boolean(price.recurring)).length;
     result.stripe.activeOneTimePrices = stripePrices.data.filter((price) => !price.recurring).length;
@@ -533,8 +560,17 @@ async function main() {
         const teacherSession = await createSessionCookieHeader(TEACHER_EMAIL, TEACHER_PASSWORD);
         const adminSession = await createSessionCookieHeader(ADMIN_EMAIL, ADMIN_PASSWORD);
         const studentSession = await createSessionCookieHeader(STUDENT_EMAIL, STUDENT_PASSWORD);
+        if (!(await hasCanonicalAvailableSlotWithinSubscriptionWindow(teacherSession, teacherProfile.id, 50))) {
+            temporaryTeacherAvailabilityId = randomUUID();
+            await createTemporaryTeacherAvailability(teacherProfile.id, temporaryTeacherAvailabilityId);
+            result.cleanup.temporaryTeacherAvailabilityCreated = true;
+            if (!(await hasCanonicalAvailableSlotWithinSubscriptionWindow(teacherSession, teacherProfile.id, 50))) {
+                throw new Error('Temporary teacher availability did not produce a canonical Google-filtered slot.');
+            }
+        }
         await ensurePrimaryAssignment(student.id, teacherProfile.id);
 
+        result.notes.attempted = true;
         const notesResponse = await authedJsonFetch(teacherSession, '/api/update-student-notes', {
             method: 'POST',
             body: { studentId: student.id, notes: notesText },
@@ -544,6 +580,7 @@ async function main() {
         result.notes.persistedNotes = await getStudentNotes(student.id);
         result.notes.ok = notesResponse.status === 200 && result.notes.persistedNotes === notesText;
 
+        result.drive.attempted = true;
         const driveResponse = await authedJsonFetch(adminSession, '/api/google/create-student-folder', {
             method: 'POST',
             body: { studentId: student.id },
@@ -572,7 +609,7 @@ async function main() {
         }
 
         result.drive.ok =
-            driveResponse.status === 200 &&
+            isAcceptedDriveFolderProvisioning(driveResponse, driveState) &&
             Boolean(result.drive.driveFolderId) &&
             Boolean(result.drive.driveFolderUrl) &&
             result.drive.publicLinkPermissionBeforeLink &&
@@ -592,6 +629,10 @@ async function main() {
             monthlyEmailRecipientsBefore: preflight.emailRecipientBudget.currentMonthlyRecipients,
         });
 
+        if (!result.schedulingLifecycle.ok) {
+            throw new Error(`Scheduling lifecycle smoke failed: ${JSON.stringify(result.schedulingLifecycle.error ?? 'section checks did not close')}`);
+        }
+
         result.adminJobs = await runAdminJobsRecoverySmoke({
             suffix,
             adminSession,
@@ -600,7 +641,16 @@ async function main() {
         });
     } catch (error) {
         runError = error;
+        result.executionError = redactErrorForSmokeEvidence(error) as Json;
     } finally {
+        try {
+            result.cleanup.temporaryTeacherAvailabilityDeleted = await deleteTemporaryTeacherAvailability(
+                temporaryTeacherAvailabilityId,
+                teacherProfile.id,
+            );
+        } catch {
+            result.cleanup.temporaryTeacherAvailabilityDeleted = false;
+        }
         try {
             result.cleanup.completedCheckoutEvidencePreserved = result.checkout.cleanupStatus === 'completed-checkout-evidence-preserved';
             const profileRestored = await restoreReusableStudentPrivateState(student.id, initialPrivateState);
@@ -613,13 +663,15 @@ async function main() {
             result.cleanup.reusableStudentPreserved = Boolean(await getAuthUserByEmail(STUDENT_EMAIL));
             result.cleanup.ok = result.cleanup.completedCheckoutEvidencePreserved
                 && result.cleanup.profileStateRestored
-                && result.cleanup.reusableStudentPreserved;
+                && result.cleanup.reusableStudentPreserved
+                && result.cleanup.temporaryTeacherAvailabilityDeleted;
         } catch {
             result.cleanup.ok = false;
         }
     }
 
     result.failedSections = getSmokeFailureSections(result);
+    result.skippedSections = getSmokeSkippedSections(result);
     result.ok = result.failedSections.length === 0 && runError === null;
     const summaryPath = writeSmokeEvidence(result);
     console.log(JSON.stringify(redactSmokeResult(result), null, 2));
@@ -1271,7 +1323,9 @@ async function runSchedulingLifecycleSmoke(options: {
     monthlyEmailRecipientsBefore: number;
 }): Promise<SmokeResult['schedulingLifecycle']> {
     const result: SmokeResult['schedulingLifecycle'] = {
+        attempted: true,
         ok: false,
+        error: null,
         studentFolderStatus: 0,
         studentFolderBody: '',
         driveFolderId: null,
@@ -1351,7 +1405,13 @@ async function runSchedulingLifecycleSmoke(options: {
 
     const schedulingSubscription = await createSchedulingSubscription(options.student.id, options.activePackage);
     schedulingSubscriptionId = schedulingSubscription.id;
-    const scheduledCandidate = await scheduleFirstAvailableSession(options.teacherSession, options.student.id, 50);
+    const scheduledCandidate = await scheduleFirstAvailableSession({
+        teacherSession: options.teacherSession,
+        teacherId: options.teacherProfile.id,
+        studentId: options.student.id,
+        subscriptionEndDate: schedulingSubscription.ends_at,
+        durationMinutes: 50,
+    });
     const slot = scheduledCandidate.slot;
     result.slotIso = slot.toISOString();
     result.initialScheduleStatus = scheduledCandidate.response.status;
@@ -1585,7 +1645,7 @@ async function runSchedulingLifecycleSmoke(options: {
         : result.monthlyEmailRecipientsAfterCoverage - options.monthlyEmailRecipientsBefore;
 
     result.ok =
-        result.studentFolderStatus === 200 &&
+        isAcceptedDriveFolderProvisioning(studentFolderResponse, studentDriveState) &&
         Boolean(result.driveFolderId) &&
         Boolean(result.driveFolderUrl) &&
         result.initialScheduleStatus === 201 &&
@@ -1636,23 +1696,31 @@ async function runSchedulingLifecycleSmoke(options: {
         result.plannedEmailRecipients === STAGING_SMOKE_PLANNED_RECIPIENTS &&
         result.dailyEmailRecipientDelta === STAGING_SMOKE_PLANNED_RECIPIENTS &&
         result.monthlyEmailRecipientDelta === STAGING_SMOKE_PLANNED_RECIPIENTS;
+    } catch (error) {
+        result.error = redactErrorForSmokeEvidence(error) as Json;
     } finally {
         if (schedulingSubscriptionId) {
-            const cleaned = await cleanupSchedulingSmokeArtifacts(options.student.id, schedulingSubscriptionId);
-            result.cleanupStatus = cleaned ? 'deleted_sessions_subscription_and_google_artifacts' : 'cleanup_failed';
-            const emailRecipientsAfterCleanup = await readEmailRecipientUsage();
-            result.dailyEmailRecipientsAfterCleanup = emailRecipientsAfterCleanup.daily;
-            result.monthlyEmailRecipientsAfterCleanup = emailRecipientsAfterCleanup.monthly;
-            result.dailyCleanupEmailRecipientDelta = result.dailyEmailRecipientsAfterCoverage === null
-                ? null
-                : result.dailyEmailRecipientsAfterCleanup - result.dailyEmailRecipientsAfterCoverage;
-            result.monthlyCleanupEmailRecipientDelta = result.monthlyEmailRecipientsAfterCoverage === null
-                ? null
-                : result.monthlyEmailRecipientsAfterCleanup - result.monthlyEmailRecipientsAfterCoverage;
-            result.ok = result.ok
-                && cleaned
-                && result.dailyCleanupEmailRecipientDelta === 0
-                && result.monthlyCleanupEmailRecipientDelta === 0;
+            try {
+                const cleaned = await cleanupSchedulingSmokeArtifacts(options.student.id, schedulingSubscriptionId);
+                result.cleanupStatus = cleaned ? 'deleted_sessions_subscription_and_google_artifacts' : 'cleanup_failed';
+                const emailRecipientsAfterCleanup = await readEmailRecipientUsage();
+                result.dailyEmailRecipientsAfterCleanup = emailRecipientsAfterCleanup.daily;
+                result.monthlyEmailRecipientsAfterCleanup = emailRecipientsAfterCleanup.monthly;
+                result.dailyCleanupEmailRecipientDelta = result.dailyEmailRecipientsAfterCoverage === null
+                    ? null
+                    : result.dailyEmailRecipientsAfterCleanup - result.dailyEmailRecipientsAfterCoverage;
+                result.monthlyCleanupEmailRecipientDelta = result.monthlyEmailRecipientsAfterCoverage === null
+                    ? null
+                    : result.monthlyEmailRecipientsAfterCleanup - result.monthlyEmailRecipientsAfterCoverage;
+                result.ok = result.ok
+                    && cleaned
+                    && result.dailyCleanupEmailRecipientDelta === 0
+                    && result.monthlyCleanupEmailRecipientDelta === 0;
+            } catch (cleanupError) {
+                result.cleanupStatus = 'cleanup_failed';
+                result.error ??= redactErrorForSmokeEvidence(cleanupError) as Json;
+                result.ok = false;
+            }
         }
     }
 
@@ -1666,6 +1734,7 @@ async function runAdminJobsRecoverySmoke(options: {
     activePackage: ActivePackage;
 }): Promise<SmokeResult['adminJobs']> {
     const result: SmokeResult['adminJobs'] = {
+        attempted: true,
         ok: false,
         adminJobsPageStatus: 0,
         adminJobsPageContainsTitle: false,
@@ -2317,7 +2386,13 @@ async function authedTextFetch(cookieHeader: string, path: string) {
 
 function getSmokeFailureSections(result: SmokeResult): SmokeSectionKey[] {
     return smokeSectionStatuses(result)
-        .filter(([, ok]) => !ok)
+        .filter(([, status]) => status === 'failed')
+        .map(([section]) => section);
+}
+
+function getSmokeSkippedSections(result: SmokeResult): SmokeSectionKey[] {
+    return smokeSectionStatuses(result)
+        .filter(([, status]) => status === 'skipped')
         .map(([section]) => section);
 }
 
@@ -2553,42 +2628,144 @@ async function cancelSchedulingVariantWithoutEmail(options: {
     };
 }
 
-async function scheduleFirstAvailableSession(teacherSession: string, studentId: string, durationMinutes: number) {
-    let lastFailure: { slot: string; status: number; body: Json | string } | null = null;
-
-    for (let dayOffset = 14; dayOffset < 90; dayOffset += 1) {
-        for (const hour of [6, 8, 10, 12, 14, 16, 18, 20]) {
-            const slot = new Date();
-            slot.setUTCDate(slot.getUTCDate() + dayOffset);
-            slot.setUTCHours(hour, 0, 0, 0);
-
-            const response = await authedJsonFetch(teacherSession, '/api/calendar/sessions', {
+async function scheduleFirstAvailableSession(options: {
+    teacherSession: string;
+    teacherId: string;
+    studentId: string;
+    subscriptionEndDate: string;
+    durationMinutes: number;
+}) {
+    const probe = await findFirstSchedulableAvailableSlot<Json | string>({
+        now: new Date(),
+        subscriptionEndDate: options.subscriptionEndDate,
+        listAvailableSlotStarts: (dateKey) => listCanonicalAvailableSlotStarts(
+            options.teacherSession,
+            options.teacherId,
+            dateKey,
+            options.durationMinutes,
+        ),
+        schedule: (slotStart) => authedJsonFetch(options.teacherSession, '/api/calendar/sessions', {
                 method: 'POST',
                 body: {
-                    studentId,
-                    scheduledAt: slot.toISOString(),
-                    durationMinutes,
+                    studentId: options.studentId,
+                    scheduledAt: new Date(slotStart).toISOString(),
+                    durationMinutes: options.durationMinutes,
                     autoCreateMeeting: true,
                 },
-            });
+            }),
+    });
 
-            if (response.status === 201) {
-                return { slot, response };
-            }
-
-            lastFailure = {
-                slot: slot.toISOString(),
-                status: response.status,
-                body: response.body,
-            };
-
-            if (response.status !== 409) {
-                throw new Error(`Scheduling probe failed at ${slot.toISOString()} with status ${response.status}: ${JSON.stringify(redactJsonForSmokeEvidence(response.body))}`);
-            }
-        }
+    if (probe.kind === 'scheduled') {
+        return { slot: new Date(probe.slotStart), response: probe.response };
+    }
+    if (probe.kind === 'fatal') {
+        throw new Error(`Scheduling probe failed at ${probe.slotStart} with status ${probe.response.status}: ${JSON.stringify(redactJsonForSmokeEvidence(probe.response.body))}`);
     }
 
-    throw new Error(`Could not schedule any candidate slot. Last failure: ${JSON.stringify(redactJsonForSmokeEvidence(lastFailure))}`);
+    throw new Error(`Could not schedule any canonical available slot before the subscription end date. Last failure: ${JSON.stringify(redactJsonForSmokeEvidence(probe.lastFailure))}`);
+}
+
+async function hasCanonicalAvailableSlotWithinSubscriptionWindow(
+    teacherSession: string,
+    teacherId: string,
+    durationMinutes: number,
+): Promise<boolean> {
+    const now = new Date();
+    const subscriptionEndDate = addMonthsToDateString(toIsoDate(now), 1);
+    for (const dateKey of buildSubscriptionCandidateDateKeys({ now, subscriptionEndDate })) {
+        const slots = await listCanonicalAvailableSlotStarts(
+            teacherSession,
+            teacherId,
+            dateKey,
+            durationMinutes,
+        );
+        if (slots.length > 0) return true;
+    }
+
+    return false;
+}
+
+async function createTemporaryTeacherAvailability(teacherId: string, id: string): Promise<void> {
+    const candidateDate = new Date();
+    candidateDate.setUTCDate(candidateDate.getUTCDate() + 14);
+    const dayOfWeek = candidateDate.getUTCDay();
+    const candidateWindows = [
+        { start: '06:17:00', end: '22:17:00' },
+        { start: '05:13:00', end: '21:13:00' },
+        { start: '07:19:00', end: '23:19:00' },
+    ];
+
+    const { data: existing, error: readError } = await supabaseAdmin
+        .from('teacher_availability')
+        .select('start_time')
+        .eq('teacher_id', teacherId)
+        .eq('day_of_week', dayOfWeek);
+    if (readError) throw readError;
+
+    const existingStarts = new Set((existing ?? []).map((row) => row.start_time));
+    const selected = candidateWindows.find((window) => !existingStarts.has(window.start));
+    if (!selected) {
+        throw new Error('No collision-free temporary teacher availability window is available.');
+    }
+
+    const { data, error } = await supabaseAdmin
+        .from('teacher_availability')
+        .insert({
+            id,
+            teacher_id: teacherId,
+            day_of_week: dayOfWeek,
+            start_time: selected.start,
+            end_time: selected.end,
+            is_active: true,
+        })
+        .select('id')
+        .single();
+    if (error || data?.id !== id) throw error ?? new Error('Temporary teacher availability insert returned the wrong row.');
+}
+
+async function deleteTemporaryTeacherAvailability(id: string | null, teacherId: string): Promise<boolean> {
+    if (!id) return true;
+
+    const { error } = await supabaseAdmin
+        .from('teacher_availability')
+        .delete()
+        .eq('id', id)
+        .eq('teacher_id', teacherId)
+        .select('id');
+    if (error) return false;
+
+    const { data: remaining, error: verifyError } = await supabaseAdmin
+        .from('teacher_availability')
+        .select('id')
+        .eq('id', id)
+        .maybeSingle();
+    return !verifyError && remaining === null;
+}
+
+async function listCanonicalAvailableSlotStarts(
+    teacherSession: string,
+    teacherId: string,
+    dateKey: string,
+    durationMinutes: number,
+) {
+    const query = new URLSearchParams({
+        teacherId,
+        date: dateKey,
+        duration: String(durationMinutes),
+    });
+    const response = await authedJsonFetch(
+        teacherSession,
+        `/api/calendar/available-slots?${query.toString()}`,
+    );
+    if (response.status !== 200) {
+        throw new Error(`Available-slot lookup failed for ${dateKey} with status ${response.status}: ${JSON.stringify(redactJsonForSmokeEvidence(response.body))}`);
+    }
+
+    const slots = parseAvailableSlotStartsForDate(response.body, dateKey);
+    if (!slots) {
+        throw new Error(`Available-slot lookup returned an invalid or out-of-date payload for ${dateKey}.`);
+    }
+    return slots;
 }
 
 function extractSessionId(body: Json | string) {
@@ -2755,6 +2932,7 @@ function renderSmokeSummary(result: SmokeResult) {
         `- Timestamp: ${result.timestamp}`,
         `- Base host: ${new URL(BASE_URL).host}`,
         `- Failed sections: ${result.failedSections.length === 0 ? 'none' : result.failedSections.join(', ')}`,
+        `- Skipped sections: ${result.skippedSections.length === 0 ? 'none' : result.skippedSections.join(', ')}`,
         '',
         '## Scope',
         '',
@@ -2773,8 +2951,8 @@ function renderSmokeSummary(result: SmokeResult) {
         '| --- | --- |',
     ];
 
-    for (const [section, ok] of smokeSectionStatuses(result)) {
-        lines.push(`| ${section} | ${ok ? 'ok' : 'failed'} |`);
+    for (const [section, status] of smokeSectionStatuses(result)) {
+        lines.push(`| ${section} | ${status} |`);
     }
 
     lines.push('');
@@ -2791,16 +2969,16 @@ function renderSmokeSummary(result: SmokeResult) {
     return `${lines.join('\n')}\n`;
 }
 
-function smokeSectionStatuses(result: SmokeResult): Array<[SmokeSectionKey, boolean]> {
+function smokeSectionStatuses(result: SmokeResult): Array<[SmokeSectionKey, 'ok' | 'failed' | 'skipped']> {
     return [
-        ['notes', result.notes.ok],
-        ['drive', result.drive.ok],
-        ['checkout', result.checkout.ok],
-        ['webhook', result.webhook.ok],
-        ['billingLifecycle', result.billingLifecycle.ok],
-        ['schedulingLifecycle', result.schedulingLifecycle.ok],
-        ['adminJobs', result.adminJobs.ok],
-        ['cleanup', result.cleanup.ok],
+        ['notes', result.notes.attempted ? (result.notes.ok ? 'ok' : 'failed') : 'skipped'],
+        ['drive', result.drive.attempted ? (result.drive.ok ? 'ok' : 'failed') : 'skipped'],
+        ['checkout', result.checkout.ok ? 'ok' : 'failed'],
+        ['webhook', result.webhook.ok ? 'ok' : 'failed'],
+        ['billingLifecycle', result.billingLifecycle.ok ? 'ok' : 'failed'],
+        ['schedulingLifecycle', result.schedulingLifecycle.attempted ? (result.schedulingLifecycle.ok ? 'ok' : 'failed') : 'skipped'],
+        ['adminJobs', result.adminJobs.attempted ? (result.adminJobs.ok ? 'ok' : 'failed') : 'skipped'],
+        ['cleanup', result.cleanup.ok ? 'ok' : 'failed'],
     ];
 }
 
@@ -2857,7 +3035,7 @@ function redactSmokeString(value: string, key = '') {
 }
 
 function redactFreeformSmokeString(value: string) {
-    return value
+    return sanitizeStagingSmokeCapture(value)
         .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, '[redacted-email]')
         .replace(/https?:\/\/[^\s"')]+/g, (url) => redactUrlForSmokeEvidence(url))
         .replace(/\b(?:cs|cus|sub|in|pi|evt|price|prod|pm|tok)_(?:test|live)?_?[A-Za-z0-9_]+\b/g, '[redacted-stripe-id]')

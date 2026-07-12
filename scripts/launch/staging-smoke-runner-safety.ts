@@ -223,13 +223,7 @@ export function parseWranglerWhoamiSummary(
     stdout: string,
     exitCode: number | null,
 ): SafeWranglerWhoamiSummary {
-    let parsed: unknown = null;
-    try {
-        parsed = JSON.parse(stdout.trim()) as unknown;
-    } catch {
-        // The persisted summary records only that parsing failed. Raw identity
-        // output (including an operator email) must never be written as evidence.
-    }
+    const parsed = parseFirstJsonDocument(stdout);
 
     const accountIds = new Set<string>();
     collectAccountIds(parsed, accountIds, false);
@@ -239,6 +233,50 @@ export function parseWranglerWhoamiSummary(
         jsonParsed: parsed !== null,
         accountIds: [...accountIds].sort(),
     };
+}
+
+function parseFirstJsonDocument(stdout: string): unknown | null {
+    for (let start = 0; start < stdout.length; start += 1) {
+        const opening = stdout[start];
+        if (opening !== '{' && opening !== '[') continue;
+
+        const closing = opening === '{' ? '}' : ']';
+        let depth = 0;
+        let inString = false;
+        let escaped = false;
+
+        for (let end = start; end < stdout.length; end += 1) {
+            const character = stdout[end];
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                } else if (character === '\\') {
+                    escaped = true;
+                } else if (character === '"') {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (character === '"') {
+                inString = true;
+                continue;
+            }
+            if (character === opening) depth += 1;
+            if (character === closing) depth -= 1;
+            if (depth !== 0) continue;
+
+            try {
+                return JSON.parse(stdout.slice(start, end + 1)) as unknown;
+            } catch {
+                break;
+            }
+        }
+    }
+
+    // The persisted summary records only that parsing failed. Raw identity
+    // output (including an operator email) must never be written as evidence.
+    return null;
 }
 
 export function sanitizeStagingSmokeCapture(value: string): string {

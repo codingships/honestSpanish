@@ -1,12 +1,185 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+    buildSubscriptionCandidateDateKeys,
+    findFirstSchedulableAvailableSlot,
+    isAcceptedDriveFolderProvisioning,
+    parseAvailableSlotStarts,
+    parseAvailableSlotStartsForDate,
+} from '../../scripts/smoke/real-env-smoke-safety';
 
 const source = readFileSync(path.join(process.cwd(), 'scripts/smoke/real-env-smoke.ts'), 'utf8');
 const checkoutSource = readFileSync(path.join(process.cwd(), 'scripts/smoke-checkout.ts'), 'utf8');
 const checkoutBootstrapApprovalSource = readFileSync(path.join(process.cwd(), 'scripts/smoke/staging-checkout-bootstrap-approval.ts'), 'utf8');
 
 describe('real environment smoke safety', () => {
+    it('accepts an exact pre-existing Drive folder for the reusable smoke student', () => {
+        const state = {
+            driveFolderId: 'folder-1',
+            driveFolderUrl: 'https://drive.google.com/drive/folders/folder-1',
+        };
+
+        expect(isAcceptedDriveFolderProvisioning({ status: 200, body: { success: true } }, state)).toBe(true);
+        expect(isAcceptedDriveFolderProvisioning({
+            status: 400,
+            body: {
+                error: 'Student already has a Drive folder',
+                folderId: state.driveFolderId,
+                folderUrl: state.driveFolderUrl,
+            },
+        }, state)).toBe(true);
+        expect(isAcceptedDriveFolderProvisioning({
+            status: 400,
+            body: {
+                error: 'Student already has a Drive folder',
+                folderId: 'different-folder',
+                folderUrl: state.driveFolderUrl,
+            },
+        }, state)).toBe(false);
+        expect(isAcceptedDriveFolderProvisioning({ status: 400, body: { error: 'Other error' } }, state)).toBe(false);
+    });
+
+    it('parses only valid canonical available-slot payloads', () => {
+        expect(parseAvailableSlotStarts({
+            slots: [
+                { slot_start: '2026-07-28T08:30:00.000Z', slot_end: '2026-07-28T09:20:00.000Z' },
+                { slot_start: '2026-07-28T10:15:00.000Z' },
+            ],
+        })).toEqual([
+            '2026-07-28T08:30:00.000Z',
+            '2026-07-28T10:15:00.000Z',
+        ]);
+        expect(parseAvailableSlotStarts({ slots: [] })).toEqual([]);
+        expect(parseAvailableSlotStarts({ slots: [{ slot_start: 'not-a-date' }] })).toBeNull();
+        expect(parseAvailableSlotStarts({ slots: [{ slot_end: '2026-07-28T09:20:00.000Z' }] })).toBeNull();
+        expect(parseAvailableSlotStarts({})).toBeNull();
+        expect(parseAvailableSlotStartsForDate({
+            slots: [{ slot_start: '2026-07-28T08:30:00.000Z' }],
+        }, '2026-07-28')).toEqual(['2026-07-28T08:30:00.000Z']);
+        expect(parseAvailableSlotStartsForDate({
+            slots: [{ slot_start: '2026-07-29T08:30:00.000Z' }],
+        }, '2026-07-28')).toBeNull();
+    });
+
+    it('selects real teacher availability before attempting the write-capable session endpoint', () => {
+        const schedulingProbe = source.slice(
+            source.indexOf('async function scheduleFirstAvailableSession'),
+            source.indexOf('function extractSessionId'),
+        );
+
+        expect(schedulingProbe).toContain('listAvailableSlotStarts: (dateKey) => listCanonicalAvailableSlotStarts');
+        expect(schedulingProbe).toContain('/api/calendar/available-slots?');
+        expect(schedulingProbe).toContain('parseAvailableSlotStartsForDate');
+        expect(schedulingProbe).toContain("'/api/calendar/sessions'");
+        expect(schedulingProbe).not.toContain('for (const hour of');
+        expect(schedulingProbe).toContain('subscriptionEndDate: options.subscriptionEndDate');
+    });
+
+    it('preserves scheduling cleanup evidence and marks downstream Admin Jobs as skipped on failure', () => {
+        expect(source).toContain('attempted: boolean;');
+        expect(source).toContain('result.error = redactErrorForSmokeEvidence(error) as Json;');
+        expect(source).toContain("result.cleanupStatus = 'cleanup_failed';");
+        expect(source).toContain("result.schedulingLifecycle.attempted ? (result.schedulingLifecycle.ok ? 'ok' : 'failed') : 'skipped'");
+        expect(source).toContain("result.adminJobs.attempted ? (result.adminJobs.ok ? 'ok' : 'failed') : 'skipped'");
+        expect(source.indexOf('if (!result.schedulingLifecycle.ok)')).toBeLessThan(
+            source.indexOf('result.adminJobs = await runAdminJobsRecoverySmoke'),
+        );
+    });
+
+    it('checks canonical availability before creating one bounded temporary window and always deletes it', () => {
+        const teacherAuth = source.indexOf('const teacherSession = await createSessionCookieHeader');
+        const studentAuth = source.indexOf('const studentSession = await createSessionCookieHeader');
+        const availabilityPreflight = source.indexOf('await hasCanonicalAvailableSlotWithinSubscriptionWindow');
+        const temporaryInsert = source.indexOf('await createTemporaryTeacherAvailability(teacherProfile.id, temporaryTeacherAvailabilityId);');
+        const primaryAssignment = source.indexOf('await ensurePrimaryAssignment(student.id, teacherProfile.id);');
+
+        expect(teacherAuth).toBeGreaterThan(0);
+        expect(studentAuth).toBeGreaterThan(teacherAuth);
+        expect(availabilityPreflight).toBeGreaterThan(teacherAuth);
+        expect(availabilityPreflight).toBeGreaterThan(studentAuth);
+        expect(temporaryInsert).toBeGreaterThan(availabilityPreflight);
+        expect(temporaryInsert).toBeLessThan(primaryAssignment);
+        expect(source).toContain(".from('teacher_availability')");
+        expect(source).toContain('temporaryTeacherAvailabilityId = randomUUID();');
+        expect(source).toContain('temporaryTeacherAvailabilityDeleted = await deleteTemporaryTeacherAvailability');
+        expect(source).toContain('&& result.cleanup.temporaryTeacherAvailabilityDeleted;');
+        expect(source).toContain('Temporary teacher availability did not produce a canonical Google-filtered slot.');
+        expect(source).toContain('parseAvailableSlotStartsForDate(response.body, dateKey)');
+    });
+
+    it('uses non-round canonical slots, retries only conflicts and never crosses the subscription end date', async () => {
+        const requestedDates: string[] = [];
+        const attemptedSlots: string[] = [];
+        const first = '2026-07-28T08:30:00.000Z';
+        const second = '2026-07-28T10:15:00.000Z';
+
+        const result = await findFirstSchedulableAvailableSlot<{
+            error?: string;
+            session?: { id: string };
+        }>({
+            now: new Date('2026-07-12T08:00:00.000Z'),
+            subscriptionEndDate: '2026-08-12',
+            listAvailableSlotStarts: async (dateKey) => {
+                requestedDates.push(dateKey);
+                return dateKey === '2026-07-28' ? [first, second] : [];
+            },
+            schedule: async (slotStart) => {
+                attemptedSlots.push(slotStart);
+                return slotStart === first
+                    ? { status: 409, body: { error: 'conflict' } }
+                    : { status: 201, body: { session: { id: 'session-1' } } };
+            },
+        });
+
+        expect(result).toEqual({
+            kind: 'scheduled',
+            slotStart: second,
+            response: { status: 201, body: { session: { id: 'session-1' } } },
+        });
+        expect(attemptedSlots).toEqual([first, second]);
+        expect(requestedDates.every((dateKey) => dateKey <= '2026-08-12')).toBe(true);
+    });
+
+    it('builds an inclusive bounded candidate window for the temporary subscription', () => {
+        const dates = buildSubscriptionCandidateDateKeys({
+            now: new Date('2026-07-12T08:00:00.000Z'),
+            subscriptionEndDate: '2026-08-12',
+        });
+
+        expect(dates[0]).toBe('2026-07-26');
+        expect(dates.at(-1)).toBe('2026-08-12');
+        expect(dates).not.toContain('2026-08-13');
+    });
+
+    it('stops on a non-conflict scheduling failure and returns no write attempt when there are no slots', async () => {
+        const fatalAttempts: string[] = [];
+        const fatal = await findFirstSchedulableAvailableSlot({
+            now: new Date('2026-07-12T08:00:00.000Z'),
+            subscriptionEndDate: '2026-08-12',
+            listAvailableSlotStarts: async () => ['2026-07-28T08:30:00.000Z', '2026-07-28T10:15:00.000Z'],
+            schedule: async (slotStart) => {
+                fatalAttempts.push(slotStart);
+                return { status: 400, body: { error: 'invalid' } };
+            },
+        });
+        expect(fatal.kind).toBe('fatal');
+        expect(fatalAttempts).toHaveLength(1);
+
+        let emptyAttempts = 0;
+        const none = await findFirstSchedulableAvailableSlot({
+            now: new Date('2026-07-12T08:00:00.000Z'),
+            subscriptionEndDate: '2026-08-12',
+            listAvailableSlotStarts: async () => [],
+            schedule: async () => {
+                emptyAttempts += 1;
+                return { status: 201, body: {} };
+            },
+        });
+        expect(none).toEqual({ kind: 'none', lastFailure: null });
+        expect(emptyAttempts).toBe(0);
+    });
+
     it('requires explicit environment credentials instead of hardcoded launch accounts', () => {
         expect(source).toContain("requireEnv('SMOKE_BASE_URL')");
         expect(source).toContain("requireEnv('SMOKE_EXTERNAL_WRITES_CONFIRMATION')");
@@ -45,7 +218,7 @@ describe('real environment smoke safety', () => {
 
     it('validates every precondition read-only before starting any write', () => {
         const preflightCall = source.indexOf('const preflight = await runReadOnlyPreflight();');
-        const firstWritePhaseCall = source.indexOf('await ensurePrimaryAssignment(student.id, teacherProfile.id);');
+        const firstWritePhaseCall = source.indexOf('await createTemporaryTeacherAvailability(teacherProfile.id, temporaryTeacherAvailabilityId);');
         const roleAuthenticationCall = source.indexOf('const teacherSession = await createSessionCookieHeader');
         expect(preflightCall).toBeGreaterThan(0);
         expect(roleAuthenticationCall).toBeGreaterThan(preflightCall);
@@ -72,7 +245,7 @@ describe('real environment smoke safety', () => {
             source.indexOf('function assertExactSmokeEmailAllowlist'),
         );
         const mainPreflight = source.indexOf('const preflight = await runReadOnlyPreflight();');
-        const firstMutation = source.indexOf('await ensurePrimaryAssignment(student.id, teacherProfile.id);');
+        const firstMutation = source.indexOf('await createTemporaryTeacherAvailability(teacherProfile.id, temporaryTeacherAvailabilityId);');
 
         expect(preflightSource).toContain('const emailRecipientBudget = await verifyStagingSmokeEmailBudget();');
         expect(preflightSource).toContain('emailRecipientBudget,');
@@ -210,11 +383,14 @@ describe('real environment smoke safety', () => {
         expect(source).toContain('failedSections: SmokeSectionKey[]');
         expect(source).toContain('function getSmokeFailureSections');
         expect(source).toContain('result.failedSections = getSmokeFailureSections(result);');
+        expect(source).toContain('result.skippedSections = getSmokeSkippedSections(result);');
         expect(source).toContain('result.ok = result.failedSections.length === 0 && runError === null;');
         expect(source).toContain('Real environment smoke failed sections:');
-        expect(source).toContain("['billingLifecycle', result.billingLifecycle.ok]");
-        expect(source).toContain("['schedulingLifecycle', result.schedulingLifecycle.ok]");
-        expect(source).toContain("['adminJobs', result.adminJobs.ok]");
+        expect(source).toContain("['billingLifecycle', result.billingLifecycle.ok ? 'ok' : 'failed']");
+        expect(source).toContain("['schedulingLifecycle', result.schedulingLifecycle.attempted ? (result.schedulingLifecycle.ok ? 'ok' : 'failed') : 'skipped']");
+        expect(source).toContain("['adminJobs', result.adminJobs.attempted ? (result.adminJobs.ok ? 'ok' : 'failed') : 'skipped']");
+        expect(source).toContain('result.executionError = redactErrorForSmokeEvidence(error) as Json;');
+        expect(source).toContain('`- Skipped sections: ${result.skippedSections.length === 0');
     });
 
     it('uses a configurable Supabase Auth user scan limit instead of a fixed ten-page cap', () => {
@@ -228,6 +404,7 @@ describe('real environment smoke safety', () => {
     it('redacts final smoke command output and errors before printing', () => {
         expect(source).toContain('console.log(JSON.stringify(redactSmokeResult(result), null, 2));');
         expect(source).toContain('console.error(redactErrorForSmokeEvidence(error));');
+        expect(source).toContain('sanitizeStagingSmokeCapture(value)');
         expect(source).toContain('function redactJsonForSmokeEvidence');
         expect(source).toContain('function redactSmokeString');
         expect(source).toContain('[redacted-email]');

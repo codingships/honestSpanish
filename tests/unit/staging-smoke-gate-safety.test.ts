@@ -269,6 +269,29 @@ describe('staging smoke checkout-closed runner', () => {
         expect(whoamiSource).not.toContain('sanitize(result.stdout');
         expect(whoamiSource).not.toContain('result.stderr');
     });
+
+    it('parses Wrangler informational output around whoami JSON without persisting identity text', () => {
+        const rawIdentity = [
+            'Cloudflare agent skills are available for Codex.',
+            JSON.stringify({
+                email: 'operator@example.com',
+                accounts: [{ id: 'd1a22bcf6477ff2ff31d2bfb83084e44', name: 'Private Account' }],
+            }),
+            'A newer Wrangler version is available.',
+        ].join('\n');
+
+        const summary = parseWranglerWhoamiSummary(rawIdentity, 0);
+        const persisted = JSON.stringify(summary);
+
+        expect(summary).toEqual({
+            authenticated: true,
+            jsonParsed: true,
+            accountIds: ['d1a22bcf6477ff2ff31d2bfb83084e44'],
+        });
+        expect(persisted).not.toContain('operator@example.com');
+        expect(persisted).not.toContain('Private Account');
+        expect(persisted).not.toContain('Cloudflare agent skills');
+    });
 });
 
 function readText(relativePath: string) {
