@@ -20,6 +20,7 @@ const mockTranslations = {
     errorAdding: 'Error al añadir el horario',
     errorRemoving: 'Error al eliminar el horario',
     invalidTimeRange: 'La hora final debe ser posterior a la inicial',
+    timezoneNotice: 'Todos los horarios se muestran en Europe/Madrid.',
 };
 
 const makeSlot = (overrides: Record<string, unknown> = {}) => ({
@@ -78,6 +79,11 @@ describe('AvailabilityManager — add slot form', () => {
         expect(screen.getByLabelText(mockTranslations.day)).toBeDefined();
         expect(screen.getByLabelText(mockTranslations.from)).toBeDefined();
         expect(screen.getByLabelText(mockTranslations.to)).toBeDefined();
+    });
+
+    it('makes the academy time zone explicit', () => {
+        render(<AvailabilityManager {...defaultProps} />);
+        expect(screen.getByRole('note')).toHaveTextContent('Europe/Madrid');
     });
 
     it('clicking "Cancelar" in form hides the form', () => {

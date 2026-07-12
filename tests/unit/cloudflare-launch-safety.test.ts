@@ -134,10 +134,11 @@ describe('Cloudflare launch environment safety', () => {
             '--env production_bootstrap',
             'externalWriteAttempted = true',
             'initial_validation_gate',
+            "path.join(outputDir, 'summary.json')",
         ]) expect(runner).toContain(snippet);
     });
 
-    it('orders bootstrap, web, inert secret loading and explicit final enable in the manifest', () => {
+    it('orders bootstrap, HMAC-only bootstrap secrets, web and explicit final enable in the manifest', () => {
         const lifecycle = read('scripts/launch/cloudflare-production-fulfillment-lifecycle.ts');
         const manifest = read('scripts/launch/cloudflare-production-runtime-cutover.ts');
         const webRunner = read('scripts/launch/cloudflare-production-worker-phase1.ts');
@@ -159,7 +160,7 @@ describe('Cloudflare launch environment safety', () => {
 
         const orderedPhases = [
             'phase_1_fulfillment_inert_bootstrap',
-            'phase_2_fulfillment_secrets_while_inert',
+            'phase_2_fulfillment_bootstrap_hmac_only',
             'phase_3_fresh_bootstrap_attestation_before_web',
             'phase_4_web_worker_create_deploy',
             'phase_5_web_worker_secret_names',
@@ -172,6 +173,9 @@ describe('Cloudflare launch environment safety', () => {
             expect(manifest.indexOf(orderedPhases[index - 1])).toBeLessThan(manifest.indexOf(orderedPhases[index]));
         }
         expect(webRunner).toContain('validateFulfillmentBootstrapEvidence()');
+        expect(webRunner).toContain('validateFulfillmentBootstrapSecretsEvidence()');
+        expect(webRunner).toContain("const fulfillmentBootstrapSecretNames = [");
+        expect(webRunner).toContain("config.googleBoundary === 'absent'");
         expect(webRunner).toContain('initial_validation_gate');
         expect(webRunner).toContain('externalWriteAttempted = true');
     });

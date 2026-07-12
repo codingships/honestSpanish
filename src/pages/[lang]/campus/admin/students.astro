@@ -1,12 +1,12 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 import StudentFilters from '../../../../components/admin/StudentFilters';
 
 export const prerender = false;
 
-const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 // Get Supabase client and verify user
@@ -69,17 +69,31 @@ const { data: assignmentsRaw } = studentIds.length
         .eq('is_primary', true)
     : { data: [] };
 
-const subscriptionByStudent = new Map();
-(subscriptionsRaw || []).forEach((subscription: any) => {
+type SubscriptionSummary = NonNullable<typeof subscriptionsRaw>[number];
+
+const localizedStringRecord = (value: unknown): Record<string, string> | null => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const localized: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (typeof entry === 'string') localized[key] = entry;
+    }
+    return Object.keys(localized).length > 0 ? localized : null;
+};
+
+const subscriptionByStudent = new Map<string, SubscriptionSummary>();
+for (const subscription of subscriptionsRaw ?? []) {
     if (!subscriptionByStudent.has(subscription.student_id)) {
         subscriptionByStudent.set(subscription.student_id, subscription);
     }
-});
+}
 
-const teacherByStudent = new Map();
-(assignmentsRaw || []).forEach((assignment: any) => {
-    teacherByStudent.set(assignment.student_id, assignment?.profiles?.full_name || null);
-});
+const teacherByStudent = new Map<string, string | null>();
+for (const assignment of assignmentsRaw ?? []) {
+    const relatedProfile = Array.isArray(assignment.profiles)
+        ? assignment.profiles[0]
+        : assignment.profiles;
+    teacherByStudent.set(assignment.student_id, relatedProfile?.full_name ?? null);
+}
 
 const students = (studentsRaw || []).map((student) => {
     const subscription = subscriptionByStudent.get(student.id);
@@ -89,8 +103,8 @@ const students = (studentsRaw || []).map((student) => {
         subscription_status: subscription?.status || null,
         subscription_ends: subscription?.ends_at || null,
         package_name: subscription?.packages?.name || null,
-        package_display_name: subscription?.packages?.display_name || null,
-        teacher_name: teacherByStudent.get(student.id) || null,
+        package_display_name: localizedStringRecord(subscription?.packages?.display_name),
+        teacher_name: teacherByStudent.get(student.id) ?? null,
     };
 });
 
@@ -100,10 +114,13 @@ const { data: packages } = await supabase
     .select('name, display_name')
     .eq('is_active', true);
 
-const packagesList = (packages || []).map(pkg => ({
-    name: pkg.name,
-    displayName: pkg.display_name[lang] || pkg.display_name['es'] || pkg.name,
-}));
+const packagesList = (packages ?? []).map((pkg) => {
+    const displayName = localizedStringRecord(pkg.display_name);
+    return {
+        name: pkg.name,
+        displayName: displayName?.[lang] ?? displayName?.es ?? pkg.name,
+    };
+});
 
 const studentCount = students?.length || 0;
 

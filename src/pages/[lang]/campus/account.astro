@@ -466,28 +466,18 @@ const driveUi: Record<'es' | 'en' | 'ru', {
     </div>
 </CampusLayout>
 
-<script define:vars={{ driveUi: driveUi[lang], changePasswordLabel: t('campus.account.changePassword') }}>
-    // Stripe Customer Portal
-    const stripeBtn = document.getElementById('manage-stripe-btn');
-    stripeBtn?.addEventListener('click', async () => {
-        try {
-            stripeBtn.textContent = '...';
-            const response = await fetch('/api/account/create-portal-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.url) {
-                    window.location.href = data.url;
-                }
-            }
-        } catch (error) {
-            console.error('Error opening Stripe portal:', error);
-        }
-    });
+<script>
+    import { openBillingPortal } from '../../../lib/billing-portal-client';
 
+    const stripeBtn = document.getElementById('manage-stripe-btn') as HTMLButtonElement | null;
+    stripeBtn?.addEventListener('click', () => {
+        void openBillingPortal({ button: stripeBtn }).catch((error) => {
+            console.error('Error opening Stripe portal:', error);
+        });
+    });
+</script>
+
+<script define:vars={{ driveUi: driveUi[lang], changePasswordLabel: t('campus.account.changePassword') }}>
     // Change Password
     const changePwdBtn = document.getElementById('change-password-btn');
     const changePwdForm = document.getElementById('change-password-form');

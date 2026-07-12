@@ -15,6 +15,22 @@ describe('staging environment isolation', () => {
         expect(astroConfig).toContain("cacheDir: path.join(process.cwd(), 'node_modules', '.vite-staging')");
     });
 
+    it('isolates and refreshes the Vite dependency cache for the E2E server', () => {
+        const astroConfig = read('astro.config.mjs');
+        const e2eServer = read('tests/e2e/start-server.mjs');
+        const playwrightConfig = read('playwright.config.ts');
+
+        expect(astroConfig).toContain("cacheDir: path.join(process.cwd(), 'node_modules', '.vite-e2e')");
+        expect(astroConfig).toContain("'@marsidev/react-turnstile'");
+        expect(astroConfig).toContain("'@supabase/ssr'");
+        expect(astroConfig).toContain("'react/jsx-dev-runtime'");
+        expect(astroConfig).toContain('include: e2eSsrOptimizedDependencies');
+        expect(e2eServer).toContain("spawnSync(process.execPath, [astroCli, 'sync']");
+        expect(e2eServer).toContain("[astroCli, 'dev']");
+        expect(e2eServer).not.toContain("[astroCli, 'dev', '--force']");
+        expect(playwrightConfig).toContain("url: 'http://localhost:4321/api/e2e-runtime/environment'");
+    });
+
     it('keeps staging on official Turnstile test keys when no dedicated keys exist', () => {
         const runner = read('scripts/dev/staging.ts');
         const workerConfig = read('wrangler.toml');

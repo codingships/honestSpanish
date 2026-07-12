@@ -69,7 +69,7 @@ describe('ResetPasswordForm', () => {
         expect(submit).toBeDisabled();
         expect(screen.getByLabelText(translations.auth.newPassword)).toBeDisabled();
 
-        expect(await screen.findByRole('alert')).toHaveTextContent('Este enlace no es valido o ha caducado');
+        expect(await screen.findByRole('alert')).toHaveTextContent('Este enlace no es válido o ha caducado');
         expect(screen.getByRole('link', { name: translations.auth.login })).toHaveAttribute('href', '/es/login');
 
         act(() => {

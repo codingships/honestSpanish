@@ -12,6 +12,7 @@ export const prerender = false;
 const ATTESTED_KEYS = [
     'CHECKOUT_ENABLED',
     'CHECKOUT_ENABLED_OVERRIDE',
+    'CRON_SECRET',
     'EMAIL_DAILY_RECIPIENT_LIMIT',
     'EMAIL_DELIVERY_MODE',
     'EMAIL_FROM',
@@ -19,6 +20,7 @@ const ATTESTED_KEYS = [
     'EMAIL_RECIPIENT_ALLOWLIST',
     'FULFILLMENT_WORKER_URL',
     'INTERNAL_JOB_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
     'PUBLIC_APP_ENV',
     'PUBLIC_STRIPE_PUBLISHABLE_KEY',
     'PUBLIC_SUPABASE_ANON_KEY',
@@ -31,6 +33,9 @@ const ATTESTED_KEYS = [
     'STRIPE_PORTAL_CONFIGURATION_ID',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'PUBLIC_TURNSTILE_SITE_KEY',
+    'TURNSTILE_SECRET_KEY',
+    'WEB_RUNTIME_MODE',
     'WORKER_IDENTITY',
 ] as const;
 
@@ -60,7 +65,17 @@ export const POST: APIRoute = async (context) => {
         : appEnvironment === 'production'
             ? 'espanolhonesto'
             : null;
-    if (!expectedIdentity || readRuntimeEnv('WORKER_IDENTITY', context) !== expectedIdentity) {
+    const webRuntimeMode = readRuntimeEnv('WEB_RUNTIME_MODE', context);
+    const validMode = appEnvironment === 'staging'
+        ? webRuntimeMode === 'active'
+        : appEnvironment === 'production'
+            ? webRuntimeMode === 'bootstrap' || webRuntimeMode === 'active'
+            : false;
+    if (
+        !expectedIdentity
+        || !validMode
+        || readRuntimeEnv('WORKER_IDENTITY', context) !== expectedIdentity
+    ) {
         return response(404, { errorCode: 'ATTESTATION_RUNTIME_INVALID' });
     }
     const internalSecret = readRuntimeEnv('INTERNAL_JOB_SECRET', context) ?? '';

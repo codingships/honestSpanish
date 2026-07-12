@@ -12,7 +12,9 @@ binding = "CF_VERSION_METADATA"
 # Las variables sensibles se configuran en el dashboard de Cloudflare.
 # Aqui solo van defaults no sensibles y fail-closed.
 NODE_ENV = "production"
+WEB_RUNTIME_MODE = "bootstrap"
 CHECKOUT_ENABLED = "false"
+CHECKOUT_ENABLED_OVERRIDE = "false"
 
 [env.staging]
 name = "espanolhonesto-staging"
@@ -24,6 +26,7 @@ service = "espanol-honesto-fulfillment-staging"
 [env.staging.vars]
 NODE_ENV = "production"
 PUBLIC_APP_ENV = "staging"
+WEB_RUNTIME_MODE = "active"
 SUPABASE_EXPECTED_PROJECT_REF = "mzjyvmlxfpzdfdjzxxyj"
 WORKER_IDENTITY = "espanolhonesto-staging"
 PUBLIC_SITE_URL = "https://espanolhonesto-staging.alindev95.workers.dev"
@@ -39,6 +42,37 @@ SENTRY_ENVIRONMENT = "staging"
 [env.staging.version_metadata]
 binding = "CF_VERSION_METADATA"
 
+# Bootstrap uses the exact production Worker name but serves no application
+# routes. Only /health and the authenticated runtime attestation are reachable.
+[env.production_bootstrap]
+name = "espanolhonesto"
+
+[env.production_bootstrap.assets]
+# Required for inertness: prerendered HTML must not bypass the Worker guard.
+run_worker_first = true
+
+[[env.production_bootstrap.services]]
+binding = "FULFILLMENT_SERVICE"
+service = "espanol-honesto-fulfillment-production"
+
+[env.production_bootstrap.vars]
+NODE_ENV = "production"
+PUBLIC_APP_ENV = "production"
+WEB_RUNTIME_MODE = "bootstrap"
+SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"
+WORKER_IDENTITY = "espanolhonesto"
+PUBLIC_SITE_URL = "https://espanolhonesto.com"
+FULFILLMENT_WORKER_URL = "https://espanol-honesto-fulfillment-production.alindev95.workers.dev"
+CHECKOUT_ENABLED = "false"
+CHECKOUT_ENABLED_OVERRIDE = "false"
+EMAIL_DELIVERY_MODE = "disabled"
+EMAIL_DAILY_RECIPIENT_LIMIT = "0"
+EMAIL_MONTHLY_RECIPIENT_LIMIT = "0"
+SENTRY_ENVIRONMENT = "production-bootstrap"
+
+[env.production_bootstrap.version_metadata]
+binding = "CF_VERSION_METADATA"
+
 [env.production]
 name = "espanolhonesto"
 
@@ -49,6 +83,7 @@ service = "espanol-honesto-fulfillment-production"
 [env.production.vars]
 NODE_ENV = "production"
 PUBLIC_APP_ENV = "production"
+WEB_RUNTIME_MODE = "active"
 SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"
 WORKER_IDENTITY = "espanolhonesto"
 PUBLIC_SITE_URL = "https://espanolhonesto.com"

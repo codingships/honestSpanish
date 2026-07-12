@@ -121,6 +121,7 @@ Variables por entorno:
 - `SENTRY_CAPTURE_LOCAL=false` por defecto; poner `true` solo para depurar captura local deliberada sin mezclarla con production.
 - `SENTRY_ENVIRONMENT` opcional; si falta, captura local opt-in usa `local-<NODE_ENV>` y entornos desplegados usan `PUBLIC_APP_ENV`.
 - `SENTRY_MAX_UNRESOLVED_ISSUES=0` por defecto para que cualquier issue sin resolver en el entorno auditado deje warning QA; subirlo solo con aceptacion explicita de riesgo.
+- `pnpm launch:sentry-production-hardening` usa el token solo para un preflight de proyecto/workflows/detector/owner. Sin aprobacion literal es GET-only; su ejecucion aprobada se limita a scrub de IP y dos workflows email en `production` y no persiste IDs, miembros ni tokens.
 - `SENTRY_UPLOAD_SOURCEMAPS` opcional; solo `true` para subidas locales intencionales. En CI/deploy se permite por `CI=true`.
 - `CRON_SECRET`
 - `FULFILLMENT_WORKER_URL`
@@ -162,13 +163,14 @@ pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env stagi
 pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run
 pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run
 pnpm launch:cloudflare-production-fulfillment-bootstrap
+pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets
 pnpm launch:cloudflare-production-fulfillment-secrets
 pnpm launch:cloudflare-production-fulfillment-enable
 ```
 
 No usar `pnpm --filter ... run deploy -- --env ...`: el script del paquete ya selecciona staging y produciria dos `--env`. CI ejecuta primero dry-run y después un único deploy inequívoco solo para staging. En production no hay deploy automático ni comando raw documentado: se usan los tres gates anteriores.
 
-Para production, el bootstrap inerte se despliega antes del web Worker. `pnpm launch:cloudflare-production-fulfillment-secrets` carga nombres contra `production_bootstrap` y exige salud/bootstrap/bloqueo 503 antes del primer write; después reatestigua el mismo estado inerte. `pnpm launch:cloudflare-production-fulfillment-enable` es la aprobación distinta que, tras probar web + secrets + atestación, activa runtime, email live 80/día y 2.400/mes y cron horario. Ver `docs/launch/CLOUDFLARE_PRODUCTION.md`.
+Para production, el bootstrap inerte se despliega antes del web Worker. `pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets` carga solo `INTERNAL_JOB_SECRET`, rechaza nombres de providers y atestigua su ausencia con salud/bootstrap/bloqueo 503 y cron vacío. `pnpm launch:cloudflare-production-fulfillment-secrets` queda para la ventana final y carga Supabase/Google/Resend mientras el runtime aún está inerte. `pnpm launch:cloudflare-production-fulfillment-enable` es la aprobación distinta que, tras probar web + secrets + atestación, activa runtime, email live 80/día y 2.400/mes y cron horario. Ver `docs/launch/CLOUDFLARE_PRODUCTION.md`.
 
 Variables:
 
@@ -260,6 +262,20 @@ Operativo:
 - `SUPABASE_DB_URL`
 
 Usar `SUPABASE_DB_URL` solo para migraciones/SQL. No lo usa la app.
+
+Production Supabase se prepara con runners separados y fail-closed:
+
+- `pnpm launch:supabase-production-readonly-preflight` consulta exclusivamente `espanol-honesto` (`vkkahxsybhbutszerawz`, `eu-west-1`) con `default_transaction_read_only=on`; inventaria versiones/nombres remotos, hashes y orden local, y guarda solo metadatos y conteos agregados.
+- `pnpm launch:supabase-production-rollout-plan` es local/plan-only: no conecta a Supabase, no genera SQL de limpieza ni bundles de aplicacion, separa autorizaciones y produce manifiesto, plantillas de backup/preservacion, frases exactas, verificacion y rollback.
+- `pnpm launch:supabase-production-logical-backup` crea, solo con aprobacion exacta, un dump custom `public` + `auth` fuera del repositorio en un directorio Windows EFS verificado. Su recibo no contiene la ruta ni credenciales.
+- `pnpm launch:supabase-production-fixture-cleanup` previsualiza y ejecuta el manifiesto v2 vinculado al backup: borra fixtures publicos exactos, elimina `public.jobs` sin `CASCADE`, conserva cuatro paquetes y no toca Auth, Storage ni proveedores externos.
+- `pnpm launch:supabase-production-auth-cleanup` separa reduccion/cuarentena y finalizacion: primero deja dos Auth sin perfiles; despues de las 22 olas y del vencimiento de la cuarentena crea los dos perfiles minimos.
+- `pnpm launch:production-availability` solo se habilita despues de un `auth-policy-receipt.json` cerrado: fija el profesor preservado y crea L-V 09:00-18:00 en `Europe/Madrid`, con preflight y verificacion exactos.
+- `pnpm launch:supabase-production-rollout` es plan-only por defecto. Su ejecucion final exige evidencia fresca y vinculada de preflight, backup, limpieza publica, Auth en cuarentena, politica Google, hardening staging y Sentry production `HARDENED_AND_VERIFIED`, mas aprobacion exacta y atestacion de checkout desactivado.
+
+El preflight read-only de 2026-07-12 encontro 44 migraciones locales actuales y 24 entradas remotas: 29 versiones canonicas ausentes, 6 aliases semanticos, un choque version/nombre y tres historiales semanticos duplicados. Hay 22 migraciones semanticas pendientes para production, excluyendo `20260710150000_staging_integration_smoke_runs.sql`, que es exclusivamente staging y nunca se aplica a production. Las dos ultimas (`20260712114000` y `20260712114500`) forman una ola de hardening diferida: antes deben pasar preflight de solapes, aplicacion y pruebas de disponibilidad/signup en staging.
+
+No usar `supabase db push` contra este historial divergente ni `supabase migration repair` para igualarlo visualmente. Los aliases y el choque de nombre se verifican por efectos de esquema; no se reaplican a ciegas. La primera ola contiene solo `20260703211451_drop_processed_webhook_processed_at_default.sql`; las otras cinco exigen backup y cierre de fixtures previo. El runner verifica cada ola y emite el recibo final solo tras las 22 migraciones. La migracion staging-only permanece ausente y checkout permanece desactivado durante todo el rollout.
 
 La pasarela de email requiere aplicar `supabase/migrations/20260710083915_enforce_resend_recipient_budget.sql` primero en staging y despues en production. La tabla solo contiene contadores agregados, tiene RLS y la funcion de reserva es ejecutable exclusivamente por `service_role`.
 

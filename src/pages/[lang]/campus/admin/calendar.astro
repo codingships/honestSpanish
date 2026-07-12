@@ -1,12 +1,13 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../../i18n/utils';
+import { getLangFromParam, useTranslations, type SupportedLang } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 import AdminCalendar from '../../../../components/calendar/AdminCalendar';
+import type { Session as AdminSession, Student, Teacher } from '../../../../components/calendar/hooks/useAdminCalendar';
 
 export const prerender = false;
 
-const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 const supabase = createSupabaseServerClient(Astro);
@@ -61,16 +62,42 @@ const { data: studentsWithSubs } = await supabase
     .gte('ends_at', new Date().toISOString());
 
 // Extraer estudiantes únicos
-const studentsMap = new Map();
-(studentsWithSubs || []).forEach((sub: any) => {
-    if (sub.profiles && !studentsMap.has(sub.profiles.id)) {
-        studentsMap.set(sub.profiles.id, sub.profiles);
+const studentsMap = new Map<string, Student>();
+for (const subscription of studentsWithSubs ?? []) {
+    const relatedProfile = Array.isArray(subscription.profiles)
+        ? subscription.profiles[0]
+        : subscription.profiles;
+    if (relatedProfile && !studentsMap.has(relatedProfile.id)) {
+        studentsMap.set(relatedProfile.id, {
+            id: relatedProfile.id,
+            full_name: relatedProfile.full_name,
+            email: relatedProfile.email,
+        });
     }
+}
+const students: Student[] = Array.from(studentsMap.values());
+const calendarTeachers: Teacher[] = (teachers ?? []).map((teacher) => ({
+    id: teacher.id,
+    full_name: teacher.full_name,
+    email: teacher.email,
+}));
+const calendarSessions: AdminSession[] = (sessions ?? []).flatMap((session) => {
+    if (!session.scheduled_at || !session.student) return [];
+    return [{
+        id: session.id,
+        scheduled_at: session.scheduled_at,
+        duration_minutes: session.duration_minutes ?? 50,
+        status: session.status ?? 'scheduled',
+        meet_link: session.meet_link,
+        teacher_notes: session.teacher_notes,
+        drive_doc_url: session.drive_doc_url,
+        student: session.student,
+        teacher: session.teacher,
+    }];
 });
-const students = Array.from(studentsMap.values());
 
 // Calcular estadísticas
-const allSessions = sessions || [];
+const allSessions = calendarSessions;
 const thisMonthSessions = allSessions.filter(s => {
     const sessionDate = new Date(s.scheduled_at);
     return sessionDate.getMonth() === today.getMonth() && sessionDate.getFullYear() === today.getFullYear();
@@ -98,7 +125,7 @@ const todaySessions = allSessions.filter(s => {
 }).sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
 
 // Nombres de días
-const dayNames: Record<string, string[]> = {
+const dayNames: Record<SupportedLang, string[]> = {
     es: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
     en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     ru: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
@@ -210,7 +237,7 @@ const calendarTranslations = {
                 📅 {calendarTranslations.todayClasses} ({todaySessions.length})
             </h2>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {todaySessions.map((session: any) => {
+                {todaySessions.map((session) => {
                     const time = new Date(session.scheduled_at).toLocaleTimeString(lang === 'es' ? 'es-ES' : 'en-US', {
                         hour: '2-digit',
                         minute: '2-digit'
@@ -234,8 +261,8 @@ const calendarTranslations = {
     <!-- Calendar -->
     <AdminCalendar 
         client:load
-        sessions={sessions || []}
-        teachers={teachers || []}
+        sessions={calendarSessions}
+        teachers={calendarTeachers}
         students={students}
         lang={lang}
         translations={calendarTranslations}

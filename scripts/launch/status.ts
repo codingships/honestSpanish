@@ -1,5 +1,16 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    applyFreshStandalonePrimaryEvidence,
+    applyFreshStandaloneSecondaryEvidence,
+    readJsonEvidenceCandidates,
+    readLatestJsonOrMarkdownSummary,
+    selectStagingSmokeEvidence,
+    summarizePrimaryResults,
+    type StagingSmokeEvidenceSummary,
+    type StandalonePrimaryEvidence,
+    type StandaloneSecondaryEvidence,
+} from './status-evidence';
 
 type FindingStatus = 'ok' | 'warning' | 'failed';
 type LaunchStatus = 'BLOCKED' | 'READY_WITH_ACCEPTED_RISKS' | 'READY_CANDIDATE' | 'NO_EVIDENCE';
@@ -348,6 +359,7 @@ const phaseOneFocusDetails: Record<typeof phaseOneFocusOrder[number], Omit<Phase
 
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-status', stamp(startedAt));
+const outputsRoot = path.join(process.cwd(), 'outputs');
 const finalClosurePackPath = path.join(outputDir, 'final-closure-pack.md');
 mkdirSync(outputDir, { recursive: true });
 
@@ -361,6 +373,11 @@ const gate = readLatestJson<GateSummary>('launch-gate', 'summary.json');
 const releaseCandidateGate = readLatestJson<ReleaseCandidateGateSummary>('launch-rc', 'summary.json');
 const phaseOne = readLatestJson<PhaseOneSummary>('launch-phase-1', 'summary.json');
 const functionalRc = readLatestJson<AuditSummary>('launch-functional-rc', 'summary.json');
+const securityAudit = readLatestJson<AuditSummary>('launch-security', 'summary.json');
+const operationsAudit = readLatestJson<AuditSummary>('launch-operations', 'summary.json');
+const accessibilityAudit = readLatestJson<AuditSummary>('launch-accessibility', 'summary.json');
+const cleanupAudit = readLatestJson<AuditSummary>('launch-cleanup', 'summary.json');
+const finalReadinessAudit = readLatestJson<AuditSummary>('launch-final-readiness', 'summary.json');
 const payments = readLatestJson<AuditSummary>('launch-payments', 'summary.json');
 const noRealPayments = readLatestJson<CheckBackedSummary>('launch-no-real-payments', 'summary.json');
 const noRealPaymentsRemediation = readLatestJson<CheckBackedSummary>('launch-staging-no-real-payments-remediation', 'summary.json');
@@ -383,7 +400,13 @@ const turnstileDomainClosureRunner = readLatestJson<CheckBackedSummary>('launch-
 const sentryTriagePack = readLatestJson<CheckBackedSummary>('launch-sentry-triage-pack', 'summary.json');
 const sentryIssueTriageRunner = readLatestJson<CheckBackedSummary>('launch-sentry-issue-triage-runner', 'summary.json');
 const finalSmokeExecutionPack = readLatestJson<CheckBackedSummary>('launch-final-smoke-execution-pack', 'summary.json');
-const stagingSmokeRehearsalRunner = readLatestJson<CheckBackedSummary>('launch-staging-smoke-rehearsal-runner', 'summary.json');
+const stagingSmokeSelection = selectStagingSmokeEvidence(readJsonEvidenceCandidates<CheckBackedSummary & StagingSmokeEvidenceSummary>(
+    outputsRoot,
+    'launch-staging-smoke-rehearsal-runner',
+    'summary.json',
+));
+const stagingSmokeRehearsalRunner = stagingSmokeSelection.preferred;
+const stagingSmokeLatestPlan = stagingSmokeSelection.latestPlan;
 const finalApprovalQueue = readLatestJson<CheckBackedSummary>('launch-final-approval-queue', 'summary.json');
 const finalApprovalQueueManifest = readLatestJson<FinalApprovalQueueManifest>('launch-final-approval-queue', 'final-approval-queue-manifest.json');
 const cloudflareProductionRuntimeReadonly = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-runtime-readonly', 'summary.json');
@@ -391,7 +414,10 @@ const cloudflareProductionRuntimeCutoverPreflight = readLatestJson<CheckBackedSu
 const cloudflareProductionRuntimeCutover = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-runtime-cutover', 'summary.json');
 const cloudflareProductionWorkerPhaseOne = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-worker-phase1', 'summary.json');
 const cloudflareProductionWorkerSecrets = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-worker-secrets', 'summary.json');
-const cloudflareProductionFulfillmentSecrets = readLatestJson<CheckBackedSummary>('launch-cloudflare-production-fulfillment-secrets', 'summary.json');
+const cloudflareProductionFulfillmentSecrets = readLatestJsonOrMarkdownSummary<CheckBackedSummary>(
+    outputsRoot,
+    'launch-cloudflare-production-fulfillment-secrets',
+);
 const supabaseProcessedAtCleanupRunner = readLatestJson<CheckBackedSummary>('launch-supabase-processed-at-cleanup-runner', 'summary.json');
 const supabaseProcessedAtReadonlyPreflight = latestGeneratedPath('supabase-processed-at-readonly-preflight', 'summary.md');
 const strictQaTracker = readLatestStrictQaResults();
@@ -403,11 +429,45 @@ const openGoNoGo = sectionLines(checklist, '## Go/No-Go Blockers')
     .filter((line) => line.trim().startsWith('- [ ]'))
     .map((line) => line.trim());
 
+const standaloneAuditDefinitions = [
+    { commandName: 'pnpm launch:security', secondaryArea: 'security evidence', evidence: securityAudit },
+    { commandName: 'pnpm launch:operations', secondaryArea: 'operations evidence', evidence: operationsAudit },
+    { commandName: 'pnpm launch:accessibility', secondaryArea: 'accessibility evidence', evidence: accessibilityAudit },
+    { commandName: 'pnpm launch:cleanup', secondaryArea: 'cleanup evidence', evidence: cleanupAudit },
+    { commandName: 'pnpm launch:final-readiness', secondaryArea: 'final readiness evidence', evidence: finalReadinessAudit },
+] as const;
+const standalonePrimaryEvidence: StandalonePrimaryEvidence[] = standaloneAuditDefinitions.flatMap(({ commandName, evidence }) => evidence
+    ? [{ commandName, file: evidence.file, data: evidence.data }]
+    : []);
+const standaloneSecondaryEvidence: StandaloneSecondaryEvidence[] = standaloneAuditDefinitions.flatMap(({ commandName, secondaryArea, evidence }) => evidence
+    ? [{ commandName, secondaryArea, file: evidence.file, data: evidence.data }]
+    : []);
+const effectivePrimaryResults = primary
+    ? applyFreshStandalonePrimaryEvidence(primary.data.results, primary.data.endedAt, standalonePrimaryEvidence)
+    : [];
+const effectivePrimary: PrimarySummary | null = primary
+    ? {
+        ...primary.data,
+        status: summarizePrimaryResults(effectivePrimaryResults),
+        results: effectivePrimaryResults,
+    }
+    : null;
+const effectiveSecondary: SecondaryReviewSummary | null = secondary
+    ? {
+        ...secondary.data,
+        findings: applyFreshStandaloneSecondaryEvidence(
+            secondary.data.findings,
+            secondary.data.endedAt,
+            standaloneSecondaryEvidence,
+        ),
+    }
+    : null;
+
 const blockers = [
-    ...collectBlockers(primary?.data ?? null, manual?.data ?? null, secondary?.data ?? null),
+    ...collectBlockers(effectivePrimary, manual?.data ?? null, effectiveSecondary),
     ...strictQaStandaloneOpenFindings.map(strictQaFindingToBlocker),
 ];
-const warnings = collectWarnings(primary?.data ?? null, manual?.data ?? null, secondary?.data ?? null);
+const warnings = collectWarnings(effectivePrimary, manual?.data ?? null, effectiveSecondary);
 const manualEvidenceByPhase = normalizeManualEvidenceByPhase(manual?.data ?? null);
 const manualEvidencePhaseSummary = summarizeManualEvidenceByPhase(manualEvidenceByPhase);
 const manualEvidenceCoverage = buildManualEvidenceCoverage(manual?.data ?? null);
@@ -418,11 +478,11 @@ const urgencySummary = buildUrgencySummary(
     stagingNoRealPaymentsBlocked,
     strictQaOpenSecurityFindings
 );
-const status = deriveStatus(primary?.data ?? null, manual?.data ?? null, secondary?.data ?? null, blockers, openGoNoGo);
+const status = deriveStatus(effectivePrimary, manual?.data ?? null, effectiveSecondary, blockers, openGoNoGo);
 const releaseCandidateReadiness = buildReleaseCandidateReadiness(
     manualEvidencePhaseSummary,
     manualEvidenceByPhase,
-    primary?.data ?? null,
+    effectivePrimary,
     noRealPaymentsRemediation?.data ?? null,
     strictQaOpenSecurityFindings,
     strictQaStandaloneOpenFindings
@@ -480,8 +540,33 @@ const sources: SourceRef[] = [
     },
     {
         label: 'primary verification',
-        status: primary?.data.status ?? 'missing',
+        status: effectivePrimary?.status ?? 'missing',
         path: primary?.file ?? null,
+    },
+    {
+        label: 'security audit',
+        status: securityAudit?.data.status ?? 'missing',
+        path: securityAudit?.file ?? null,
+    },
+    {
+        label: 'operations audit',
+        status: operationsAudit?.data.status ?? 'missing',
+        path: operationsAudit?.file ?? null,
+    },
+    {
+        label: 'accessibility audit',
+        status: accessibilityAudit?.data.status ?? 'missing',
+        path: accessibilityAudit?.file ?? null,
+    },
+    {
+        label: 'cleanup audit',
+        status: cleanupAudit?.data.status ?? 'missing',
+        path: cleanupAudit?.file ?? null,
+    },
+    {
+        label: 'final readiness audit',
+        status: finalReadinessAudit?.data.status ?? 'missing',
+        path: finalReadinessAudit?.file ?? null,
     },
     {
         label: 'launch sequence',
@@ -645,8 +730,13 @@ const sources: SourceRef[] = [
     },
     {
         label: 'staging smoke rehearsal runner',
-        status: stagingSmokeRehearsalRunner?.data.status ?? 'missing',
+        status: summarizeStagingSmokeEvidence(stagingSmokeRehearsalRunner?.data ?? null),
         path: stagingSmokeRehearsalRunner?.file ?? null,
+    },
+    {
+        label: 'staging smoke latest plan',
+        status: summarizeStagingSmokeEvidence(stagingSmokeLatestPlan?.data ?? null),
+        path: stagingSmokeLatestPlan?.file ?? null,
     },
     {
         label: 'final approval queue',
@@ -842,7 +932,7 @@ function collectBlockers(
 function isSecondaryMetaFinding(finding: Finding, hasPrimary: boolean, hasManual: boolean): boolean {
     const area = finding.area ?? '';
     if (area === 'go/no-go blockers') return true;
-    if (hasPrimary && (area === 'primary evidence' || area === 'primary status')) return true;
+    if (hasPrimary && (area === 'primary evidence' || area === 'primary status' || area === 'primary warnings')) return true;
     if (hasManual && area === 'manual launch evidence') return true;
     return false;
 }
@@ -855,7 +945,8 @@ function collectWarnings(
     return [
         ...(primarySummary?.results ?? []),
         ...(manualSummary?.findings ?? []),
-        ...(secondarySummary?.findings ?? []),
+        ...(secondarySummary?.findings ?? [])
+            .filter((finding) => !isSecondaryMetaFinding(finding, Boolean(primarySummary), Boolean(manualSummary))),
     ].filter((finding) => finding.status === 'warning');
 }
 
@@ -1257,7 +1348,32 @@ function buildCurrentEvidence(sourceRefs: SourceRef[]): CurrentEvidence[] {
         {
             sourceLabel: 'primary verification',
             label: 'Primary Verification',
-            role: 'Current automated launch verifier; secondary review can use this through launch:status for freshness.',
+            role: 'Automated launch verifier with newer standalone security, operations, accessibility, cleanup and final-readiness audits applied to matching command results only.',
+        },
+        {
+            sourceLabel: 'security audit',
+            label: 'Security Audit',
+            role: 'Latest standalone launch:security evidence; supersedes only an older matching primary-verification command result.',
+        },
+        {
+            sourceLabel: 'operations audit',
+            label: 'Operations Audit',
+            role: 'Latest standalone launch:operations evidence; supersedes only an older matching primary-verification command result.',
+        },
+        {
+            sourceLabel: 'accessibility audit',
+            label: 'Accessibility Audit',
+            role: 'Latest standalone launch:accessibility evidence; manual accessibility evidence remains separately required.',
+        },
+        {
+            sourceLabel: 'cleanup audit',
+            label: 'Cleanup Audit',
+            role: 'Latest standalone launch:cleanup evidence; the human keep/move/delete decision remains separately required.',
+        },
+        {
+            sourceLabel: 'final readiness audit',
+            label: 'Final Readiness Audit',
+            role: 'Latest standalone automated integration/smoke-hook audit; deliberate legal, provider and final-smoke evidence remains separately required.',
         },
         {
             sourceLabel: 'phase 1 gate',
@@ -1396,8 +1512,13 @@ function buildCurrentEvidence(sourceRefs: SourceRef[]): CurrentEvidence[] {
         },
         {
             sourceLabel: 'staging smoke rehearsal runner',
-            label: 'Staging Smoke Rehearsal Runner',
-            role: 'Plan-only and exact-gated staging lifecycle smoke rehearsal runner; plan mode proves no external writes, approved mode is restricted to staging Supabase, Stripe test, Google, Resend and Admin Jobs smoke artifacts.',
+            label: 'Staging Smoke Executed Success',
+            role: 'Latest successful exact-gated staging lifecycle execution when one exists; a newer plan-only run cannot hide this evidence.',
+        },
+        {
+            sourceLabel: 'staging smoke latest plan',
+            label: 'Staging Smoke Latest Plan',
+            role: 'Latest local-only staging rehearsal plan, retained separately from successful executed evidence.',
         },
         {
             sourceLabel: 'final approval queue',
@@ -1707,6 +1828,11 @@ function summarizeNoRealPaymentsRemediation(summary: CheckBackedSummary | null):
     }
 
     return summary.status;
+}
+
+function summarizeStagingSmokeEvidence(summary: StagingSmokeEvidenceSummary | null): string {
+    if (!summary) return 'missing';
+    return summary.closureStatus ? `${summary.status} / ${summary.closureStatus}` : summary.status;
 }
 
 function hasFailedCheck(summary: CheckBackedSummary | null, checkName: string): boolean {

@@ -4,7 +4,7 @@ import noiseTexture from '../../assets/noise_texture.png';
 interface Props {
   headline: string;
   subtext: string;
-  statements: string[];
+  statements: readonly string[];
 }
 
 const { headline, subtext, statements } = Astro.props;

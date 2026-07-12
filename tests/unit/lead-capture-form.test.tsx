@@ -63,6 +63,19 @@ describe('LeadCaptureForm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('shows the localized privacy error after adult confirmation without calling the API', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        renderLeadCaptureForm();
+        fillRequiredContactFields();
+        fireEvent.click(screen.getByLabelText(translations.adultConfirmation));
+        fireEvent.click(screen.getByRole('button', { name: translations.button }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(translations.consentError);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('blocks submission with a security error while Turnstile has not produced a token', async () => {
         const fetchMock = vi.fn();
         vi.stubGlobal('fetch', fetchMock);

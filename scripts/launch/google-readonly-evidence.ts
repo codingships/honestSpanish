@@ -61,6 +61,7 @@ if (serviceAccountEmail && serviceAccountPrivateKey && adminEmail && driveRootFo
     const calendar = calendarApi({ version: 'v3', auth });
 
     checks.push(await checkDriveFile(drive, driveRootFolderId, 'drive_root', 'application/vnd.google-apps.folder'));
+    checks.push(await checkDriveChildrenAggregate(drive, driveRootFolderId));
     checks.push(await checkDrivePermissions(drive, driveRootFolderId, 'drive_root_permissions'));
     checks.push(await checkDriveFile(drive, templateDocId, 'template_doc_drive', 'application/vnd.google-apps.document'));
     checks.push(await checkDrivePermissions(drive, templateDocId, 'template_doc_permissions'));
@@ -232,6 +233,72 @@ async function checkDrivePermissions(
     }
 }
 
+async function checkDriveChildrenAggregate(
+    drive: ReturnType<typeof driveApi>,
+    folderId: string,
+): Promise<Check> {
+    try {
+        const mimeCounts = new Map<string, number>();
+        let total = 0;
+        let folders = 0;
+        let oldestCreatedAt: string | null = null;
+        let newestCreatedAt: string | null = null;
+        let pageToken: string | undefined;
+
+        do {
+            const response = await drive.files.list({
+                q: `'${folderId.replaceAll("'", "\\'")}' in parents and trashed = false`,
+                supportsAllDrives: true,
+                includeItemsFromAllDrives: true,
+                pageSize: 1000,
+                pageToken,
+                fields: 'nextPageToken,files(mimeType,createdTime)',
+            });
+
+            for (const file of response.data.files ?? []) {
+                const mimeType = file.mimeType ?? 'unknown';
+                mimeCounts.set(mimeType, (mimeCounts.get(mimeType) ?? 0) + 1);
+                total += 1;
+                if (mimeType === 'application/vnd.google-apps.folder') folders += 1;
+                if (file.createdTime) {
+                    oldestCreatedAt = !oldestCreatedAt || file.createdTime < oldestCreatedAt
+                        ? file.createdTime
+                        : oldestCreatedAt;
+                    newestCreatedAt = !newestCreatedAt || file.createdTime > newestCreatedAt
+                        ? file.createdTime
+                        : newestCreatedAt;
+                }
+            }
+
+            pageToken = response.data.nextPageToken ?? undefined;
+        } while (pageToken);
+
+        return {
+            status: total === 0 ? 'ok' : 'warning',
+            name: 'drive_root_children_aggregate',
+            message: total === 0
+                ? 'The configured Drive root has no active direct children.'
+                : 'The configured Drive root has active direct children that require an environment-specific fixture review.',
+            details: [
+                `root=${compactId(folderId)}`,
+                `active_direct_children=${total}`,
+                `folders=${folders}`,
+                `mime_counts=${[...mimeCounts.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([mime, count]) => `${mime}:${count}`).join('|') || 'none'}`,
+                `oldest_created_at=${oldestCreatedAt ?? 'none'}`,
+                `newest_created_at=${newestCreatedAt ?? 'none'}`,
+                'names_or_owners_read=false',
+            ],
+        };
+    } catch (error) {
+        return {
+            status: 'failed',
+            name: 'drive_root_children_aggregate',
+            message: 'The configured Drive root direct children could not be counted.',
+            details: [`root=${compactId(folderId)}`, safeErrorMessage(error)],
+        };
+    }
+}
+
 async function checkDocsTemplate(
     docs: ReturnType<typeof docsApi>,
     documentId: string,
@@ -397,7 +464,7 @@ function renderMarkdown(report: Report): string {
         '',
         '## Scope',
         '',
-        'This check is read-only. It authorizes with the app-configured Google scopes and impersonated admin subject, reads Drive root/template metadata, reads aggregate permission metadata, reads minimal Google Docs template metadata, and reads primary-calendar/FreeBusy metadata. It does not create, copy, update, delete, share, revoke, append, schedule, cancel, send invitations, retrieve secret values, or write Supabase.',
+        'This check is read-only. It authorizes with the app-configured Google scopes and impersonated admin subject, reads Drive root/template metadata, counts active direct root children without reading their names or owners, reads aggregate permission metadata, reads minimal Google Docs template metadata, and reads primary-calendar/FreeBusy metadata. It does not create, copy, update, delete, share, revoke, append, schedule, cancel, send invitations, retrieve secret values, or write Supabase.',
         '',
         '## Checks',
         '',
@@ -412,7 +479,7 @@ function renderMarkdown(report: Report): string {
     lines.push('');
     lines.push('## Final Closure Note');
     lines.push('');
-    lines.push('This evidence supports Google integration readiness only. It does not replace the final write-path smoke for folder creation, template copying, Docs append, Meet event creation, teacher FreeBusy conflict behavior, cancellation, invitation delivery, or dashboard/key-rotation review.');
+    lines.push('This evidence supports Google integration readiness and root-cleanliness review only. It does not replace the final write-path smoke for folder creation, template copying, Docs append, Meet event creation, teacher FreeBusy conflict behavior, cancellation, invitation delivery, or dashboard/key-rotation review.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;

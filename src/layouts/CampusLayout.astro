@@ -1,18 +1,19 @@
 ---
 import BaseLayout from './BaseLayout.astro';
-import { useTranslations } from '../i18n/utils';
+import { getLangFromParam, useTranslations } from '../i18n/utils';
 
 interface Props {
   title: string;
   user: {
-    email?: string;
-    full_name?: string;
-    role?: string;
+    email?: string | null;
+    full_name?: string | null;
+    role?: string | null;
   };
   lang: string;
 }
 
-const { title, user, lang } = Astro.props;
+const { title, user, lang: langParam } = Astro.props;
+const lang = getLangFromParam(langParam);
 const t = useTranslations(lang);
 const role = user.role || 'student';
 

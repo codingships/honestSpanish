@@ -5,7 +5,7 @@ interface AvailabilitySlot {
     day_of_week: number;
     start_time: string;
     end_time: string;
-    is_active: boolean;
+    is_active: boolean | null;
 }
 
 interface AvailabilityManagerProps {
@@ -27,6 +27,7 @@ interface AvailabilityManagerProps {
         errorAdding: string;
         errorRemoving: string;
         invalidTimeRange?: string;
+        timezoneNotice: string;
     };
 }
 
@@ -162,6 +163,13 @@ export default function AvailabilityManager({
 
     return (
         <div className="space-y-6">
+            <p
+                role="note"
+                className="border-2 border-[#006064] bg-[#E0F7FA] p-4 text-sm font-bold text-[#006064]"
+            >
+                {t.timezoneNotice}
+            </p>
+
             {/* Mensaje */}
             {message && (
                 <div role={message.type === 'success' ? 'status' : 'alert'} className={`p-4 font-bold text-sm ${message.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'

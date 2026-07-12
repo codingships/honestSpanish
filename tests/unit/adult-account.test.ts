@@ -6,6 +6,10 @@ const migration = readFileSync(
     'supabase/migrations/20260710144000_enforce_adult_account_attestation.sql',
     'utf8',
 ).replace(/\r\n/g, '\n');
+const currentPolicyMigration = readFileSync(
+    'supabase/migrations/20260712114500_require_current_adult_policy_on_signup.sql',
+    'utf8',
+).replace(/\r\n/g, '\n');
 
 describe('adult account attestation', () => {
     it('requires the persisted boolean, server timestamp and policy version together', () => {
@@ -19,6 +23,11 @@ describe('adult account attestation', () => {
             adult_confirmed: true,
             adult_confirmed_at: null,
             age_policy_version: '2026-07-10',
+        })).toBe(false);
+        expect(hasVerifiedAdultAccount({
+            adult_confirmed: true,
+            adult_confirmed_at: '2026-07-10T10:00:00.000Z',
+            age_policy_version: 'legacy-auth-attestation',
         })).toBe(false);
         expect(hasVerifiedAdultAccount({
             adult_confirmed: false,
@@ -39,6 +48,17 @@ describe('adult account attestation', () => {
         expect(migration).toContain('adult_confirmed_at');
         expect(migration).toContain('age_policy_version');
         expect(migration).toContain('GRANT EXECUTE ON FUNCTION public.handle_new_user() TO service_role;');
+    });
+
+    it('accepts signup metadata only for the exact current legal policy version', () => {
+        expect(currentPolicyMigration).toContain("v_current_age_policy_version CONSTANT TEXT := '2026-07-10'");
+        expect(currentPolicyMigration).toContain(
+            'v_requested_age_policy_version = v_current_age_policy_version',
+        );
+        expect(currentPolicyMigration).toContain(
+            'CASE WHEN v_adult_confirmed THEN v_current_age_policy_version ELSE NULL END',
+        );
+        expect(currentPolicyMigration).not.toContain('unversioned-auth-attestation');
     });
 
     it('blocks direct authenticated profile updates while preserving service-role writes', () => {

@@ -46,6 +46,7 @@ describe('E2E staging environment guard', () => {
             E2E_DISABLE_EXTERNAL_INTEGRATIONS: 'true',
             E2E_RUNTIME_ISOLATED: 'true',
             E2E_TARGET_SUPABASE_REF: STAGING_SUPABASE_PROJECT_REF,
+            SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_PROJECT_REF,
         });
         expect(result.values.RESEND_API_KEY).toBeUndefined();
     });

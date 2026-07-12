@@ -102,6 +102,26 @@ const status = checks.some((check) => check.status === 'failed')
     : checks.some((check) => check.status === 'warning')
         ? 'WARNING'
         : 'OK';
+const endedAt = new Date();
+const summaryJson = {
+    schemaVersion: 1,
+    startedAt: startedAt.toISOString(),
+    endedAt: endedAt.toISOString(),
+    status,
+    outputDir,
+    executeRequested,
+    externalWritePerformed,
+    externalWriteAttempted,
+    checks,
+    captures: captures.map((capture) => ({
+        ...capture,
+        outputPath: relative(capture.outputPath),
+    })),
+    approvalGatePath: path.join(outputDir, 'approval-gate.md'),
+    executionPlanPath: path.join(outputDir, 'execution-plan.md'),
+    commandManifestPath: path.join(outputDir, 'command-manifest.json'),
+    summaryPath: path.join(outputDir, 'summary.md'),
+};
 
 writeFileSync(path.join(outputDir, 'approval-gate.md'), renderApprovalGate(), 'utf8');
 writeFileSync(path.join(outputDir, 'execution-plan.md'), renderExecutionPlan(), 'utf8');
@@ -131,6 +151,7 @@ writeFileSync(path.join(outputDir, 'command-manifest.json'), JSON.stringify({
         outputPath: relative(capture.outputPath),
     })),
 }, null, 2), 'utf8');
+writeFileSync(path.join(outputDir, 'summary.json'), JSON.stringify(summaryJson, null, 2), 'utf8');
 writeFileSync(path.join(outputDir, 'summary.md'), renderSummary(status), 'utf8');
 
 console.log(`[launch:cloudflare-production-fulfillment-secrets] Status: ${status}`);

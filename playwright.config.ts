@@ -213,7 +213,10 @@ export default defineConfig({
     ],
     webServer: {
         command: 'node tests/e2e/start-server.mjs',
-        url: 'http://localhost:4321',
+        // Probe a provider-free, React-free endpoint. Probing `/` follows the
+        // redirect to `/es` while Vite is still settling its SSR optimizer and
+        // can mix dependency hashes in the first disposable readiness request.
+        url: 'http://localhost:4321/api/e2e-runtime/environment',
         reuseExistingServer: false,
         timeout: 120000,
     },

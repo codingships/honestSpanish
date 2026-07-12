@@ -232,7 +232,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             value={formData.name}
                             onChange={handleChange}
                             required
-                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans"
+                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans"
                         />
                     </div>
 
@@ -247,7 +247,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             onChange={handleChange}
                             placeholder={t.placeholder}
                             required
-                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans"
+                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans"
                         />
                     </div>
 
@@ -259,7 +259,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             name="interest"
                             value={formData.interest}
                             onChange={handleChange}
-                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-[#006064]"
+                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-[#006064]"
                         >
                             <option value="general">{t.interests.general}</option>
                             <option value="company">{t.interests.company}</option>
@@ -274,7 +274,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             name="currentLevel"
                             value={formData.currentLevel}
                             onChange={handleChange}
-                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-[#006064]"
+                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-[#006064]"
                         >
                             <option value="not_sure">{t.levels.not_sure}</option>
                             <option value="a1">{t.levels.a1}</option>
@@ -305,7 +305,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                                         type="checkbox"
                                         checked={formData.spokenLanguages.includes(value)}
                                         onChange={(event) => handleLanguageChange(value, event.currentTarget.checked)}
-                                        className="h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
+                                        className="h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-2 focus:ring-[#006064] focus:ring-offset-2"
                                     />
                                     {label}
                                 </label>
@@ -320,7 +320,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             onChange={handleChange}
                             placeholder={t.otherLanguagesPlaceholder}
                             maxLength={120}
-                            className="mt-1 w-full border-2 border-[#006064] bg-white p-3 font-sans focus:outline-none focus:ring-2 focus:ring-[#006064]/20"
+                            className="mt-1 w-full border-2 border-[#006064] bg-white p-3 font-sans focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2"
                         />
                     </fieldset>
 
@@ -334,7 +334,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             placeholder={t.goalPlaceholder}
                             maxLength={700}
                             rows={4}
-                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans resize-y min-h-24"
+                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans resize-y min-h-24"
                         />
                     </div>
 
@@ -348,7 +348,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             placeholder={t.availabilityPlaceholder}
                             maxLength={400}
                             rows={3}
-                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans resize-y min-h-20"
+                            className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans resize-y min-h-20"
                         />
                     </div>
 
@@ -359,7 +359,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             checked={formData.adultConfirmed}
                             onChange={handleChange}
                             aria-required="true"
-                            className="mt-1 w-4 h-4 text-[#006064] border-2 border-[#006064] rounded focus:ring-[#006064]/20"
+                            className="mt-1 w-4 h-4 text-[#006064] border-2 border-[#006064] rounded focus:ring-2 focus:ring-[#006064] focus:ring-offset-2"
                         />
                         <span>{t.adultConfirmation}</span>
                     </label>
@@ -373,7 +373,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             checked={formData.consent}
                             onChange={handleChange}
                             aria-required="true"
-                            className="mt-1 w-4 h-4 text-[#006064] border-2 border-[#006064] rounded focus:ring-[#006064]/20"
+                        className="mt-1 w-4 h-4 text-[#006064] border-2 border-[#006064] rounded focus:ring-2 focus:ring-[#006064] focus:ring-offset-2"
                         />
                         <label htmlFor="consent" className="text-xs text-[#006064]/80 leading-snug">
                             {t.consent}

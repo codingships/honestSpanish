@@ -130,6 +130,61 @@ Recuperacion:
 
 Este modo ya no es la postura comercial final: queda como rollback inmediato si Stripe live, legal, webhook, portal o fulfillment presentan un incidente.
 
+### Rollout Supabase Production Inerte
+
+Objetivo: llevar `espanol-honesto` (`vkkahxsybhbutszerawz`) al esquema RC sin abrir checkout y sin ocultar el historial divergente.
+
+1. Ejecutar `pnpm launch:supabase-production-readonly-preflight`. Debe confirmar el ref exacto, usar `default_transaction_read_only=on`, terminar sin ambiguedades y no seleccionar identificadores, emails, IDs Stripe, payloads ni secretos. Conservar su `summary.json`; caduca a las 24 horas para este flujo.
+2. Revisar `pnpm launch:supabase-production-rollout-plan` y generar el paquete ejecutable en modo local con `pnpm launch:supabase-production-rollout`. El segundo comando no conecta en su modo por defecto: fija los 22 hashes, las seis olas, los efectos que se verificaran y la exclusion de `20260710150000_staging_integration_smoke_runs.sql`. Los artefactos historicos `backup-evidence-receipt.template.json` y `fixture-preservation-policy.template.json` del plan sirven para revisar las decisiones; la ejecucion v2 exige los receipts verificados descritos en los pasos siguientes.
+3. Crear el backup con `pnpm launch:supabase-production-logical-backup -- plan --destination <ruta-absoluta-nueva.dump>` y despues su ejecucion aprobada. El directorio debe estar fuera del repositorio y cifrado con Windows EFS, verificado por `cipher.exe`; el archivo incluye solo `public` y `auth`. No continuar sin `backup-receipt.json` fresco y verificado. El dump contiene PII y hashes de contrasena: nunca guardarlo en el repo, outputs, capturas o logs.
+4. Ejecutar primero el preview de `pnpm launch:supabase-production-fixture-cleanup -- preview`. La ejecucion aprobada vuelve a comprobar el snapshot v2 y, en una unica transaccion, elimina exactamente 111 filas de la tabla legacy `public.jobs`, la elimina sin `CASCADE`, elimina los 2 `support_tickets` y el resto de fixtures publicos, conserva solo `group`, `standard`, `hybrid` y `bootcamp`, y limpia sus referencias Stripe locales. Debe emitir `public-cleanup-receipt.json`; Auth, Storage, Stripe y Google quedan fuera de esta transaccion.
+5. Con el backup y el recibo publico, usar `pnpm launch:supabase-production-auth-cleanup` para el preflight y la fase `delete`. Debe conservar solo admin/profesor, borrar los 136 alumnos fixture, revocar refresh sessions, rotar credenciales sin conservarlas y emitir `auth-reduced-quarantined-receipt.json` con `auth=2`, `profiles=0`. Mantener production sin trafico durante la cuarentena.
+6. Cerrar por separado los 110 folders fixture de la raiz Drive production: `pnpm launch:google-production-fixture-cleanup` solo puede mover a papelera los hijos directos del snapshot exacto y verificar raiz activa vacia; nunca borra permanentemente. Si se difiere deliberadamente, aportar evidencia explicita aprobada con el mismo conteo. Ninguna de las dos rutas autoriza Calendar, permisos, la raiz o staging.
+7. Aplicar y verificar primero en staging `20260712114000` y `20260712114500` con `pnpm launch:supabase-staging-hardening`. Production solo acepta un summary real `APPLIED_AND_VERIFIED`, no un plan ni una afirmacion de que ya estaba aplicado. Cerrar tambien `pnpm launch:sentry-production-hardening` con ejecucion aprobada: el summary debe ser fresco, apuntar a `honestspanish/espanol-honesto-astro` production y quedar `HARDENED_AND_VERIFIED` con scrubbing IP y los dos workflows exactos.
+8. Mientras la cuarentena Auth siga activa, con al menos 15 minutos restantes al iniciar, y checkout continúe desactivado, ejecutar `pnpm launch:supabase-production-rollout -- --execute-approved --checkout-disabled-confirmed --through deferred_rc_hardening` con las rutas explicitas de preflight, backup, limpieza publica, Auth reducido, politica Google, hardening staging y `--sentry-hardening-evidence <summary.json>`. El runner aplica las 22 migraciones en seis transacciones/olas, registra el source exacto en historial, comprueba que la cuarentena no expire entre olas y hace verificacion read-only despues de cada una. `supabase db push` y `supabase migration repair` estan prohibidos.
+9. Solo tras `production-rollout-receipt.json`, y una vez vencida la cuarentena, ejecutar el preflight y `finalize` de `pnpm launch:supabase-production-auth-cleanup`. Debe crear exclusivamente los dos perfiles minimos admin/profesor y sus dos filas privadas, y emitir `auth-policy-receipt.json`. Hasta entonces production sigue inerte.
+10. Con ese receipt final, ejecutar primero `pnpm launch:production-availability -- --preflight-readonly --auth-policy-receipt <auth-policy-receipt.json>` y despues su ejecucion aprobada. Solo puede crear para el profesor preservado las cinco franjas L-V 09:00-18:00 `Europe/Madrid`, verificar el conjunto exacto y emitir `production-availability-receipt.json`; signup y checkout siguen desactivados.
+11. Si falta el marcador de commit o falla una verificacion, no reintentar. Mantener checkout y fulfillment inertes, generar preflight fresco y elegir un fix-forward revisado. Si hace falta restaurar, hacerlo en un proyecto Supabase aislado, verificarlo y pedir otra aprobacion para cambiar conexiones; ningun runner restaura o conmuta automaticamente. El backup no incluye Storage ni objetos externos Stripe/Google.
+
+Subflujo Auth exacto, siempre con rutas explicitas y sin copiar secretos a la linea de comandos:
+
+```bash
+# Local: no red ni writes.
+pnpm launch:supabase-production-auth-cleanup
+
+# Read-only: genera preflight-evidence.json y exact-approval-required.txt.
+pnpm launch:supabase-production-auth-cleanup -- preflight \
+  --backup-receipt <backup-receipt.json> \
+  --public-cleanup-receipt <public-cleanup-receipt.json>
+
+# Write inicial. Usar literalmente la aprobacion dinamica emitida por el preflight.
+pnpm launch:supabase-production-auth-cleanup -- delete \
+  --backup-receipt <backup-receipt.json> \
+  --public-cleanup-receipt <public-cleanup-receipt.json> \
+  --evidence <preflight-evidence.json> \
+  --execute-approved
+
+# Tras production-rollout-receipt.json y quarantineUntil: preflight final read-only.
+pnpm launch:supabase-production-auth-cleanup -- preflight \
+  --backup-receipt <backup-receipt.json> \
+  --public-cleanup-receipt <public-cleanup-receipt.json> \
+  --auth-reduced-receipt <auth-reduced-quarantined-receipt.json> \
+  --rollout-receipt <production-rollout-receipt.json>
+
+# Write final, con una aprobacion distinta.
+pnpm launch:supabase-production-auth-cleanup -- finalize \
+  --backup-receipt <backup-receipt.json> \
+  --public-cleanup-receipt <public-cleanup-receipt.json> \
+  --auth-reduced-receipt <auth-reduced-quarantined-receipt.json> \
+  --rollout-receipt <production-rollout-receipt.json> \
+  --evidence <preflight-evidence.json> \
+  --execute-approved
+```
+
+El preflight toma `PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_DB_URL` de variables de proceso o `.env`; `SUPABASE_ACCESS_TOKEN` solo de proceso; y resuelve exclusivamente `TEST_ADMIN_EMAIL`/`TEST_TEACHER_EMAIL` desde proceso o `.env.test`. Nunca lee sus passwords. Cada write exige además el valor exacto de `SUPABASE_PRODUCTION_AUTH_INERT_CONFIRMATION` y uno de cuatro envs de aprobacion independientes (`..._DELETE_APPROVAL`, `..._RESUME_DELETE_APPROVAL`, `..._FINALIZE_APPROVAL`, `..._RESUME_FINALIZE_APPROVAL`). Copiar esos valores desde `exact-approval-required.txt`, no reconstruirlos manualmente.
+
+Un fallo parcial termina el proceso y deja `auth-cleanup-checkpoint.json` solo con conteos y hashes agregados. No reejecutar el mismo comando: generar un preflight nuevo con `--checkpoint`, revisar el estado y usar `resume-delete` o `resume-finalize` con otra aprobacion. Se bloquea si aparece un usuario posterior al freeze, si los dos preservados no son exactos, si hay ownership en Supabase Storage, si signup no esta desactivado, si JWT supera una hora, si queda cualquier fixture o si el receipt de las 22 olas no coincide. No envia reset ni ningun otro email, no toca Stripe y deja expresamente intactas las 110 carpetas fixture observadas en Google Drive.
+
 ### Activacion Stripe Live En La Ventana Final
 
 Objetivo: aceptar pagos reales desde el primer dia sin depender de editar `wrangler.toml` segundos antes.
@@ -137,10 +192,10 @@ Objetivo: aceptar pagos reales desde el primer dia sin depender de editar `wrang
 Precondiciones obligatorias:
 
 1. `LEGAL_IDENTITY_MODE='verified'`, revision humana registrada y build production desbloqueada.
-2. Migraciones aplicadas en staging y production, incluidas las cuatro migraciones billing desde `20260710205031_harden_billing_catalog_and_checkout_approval.sql` hasta `20260710223900_harden_checkout_customer_and_snapshot_immutability.sql`; `SUPABASE_EXPECTED_PROJECT_REF` coincide en ambos Workers. En production solo se aplican después de resolver las 27 suscripciones test heredadas y hacer backup lógico/manual.
+2. Migraciones aplicadas en staging y production, incluidas las cuatro migraciones billing desde `20260710205031_harden_billing_catalog_and_checkout_approval.sql` hasta `20260710223900_harden_checkout_customer_and_snapshot_immutability.sql`; `SUPABASE_EXPECTED_PROJECT_REF` coincide en ambos Workers. En production solo se aplican mediante el rollout por olas despues del backup EFS, `public-cleanup-receipt.json` y `auth-reduced-quarantined-receipt.json`, que cierran las 27 suscripciones test heredadas antes de billing.
 3. Compra Stripe test staging completa mediante aprobacion CRM e intent real: checkout, webhook idempotente, suscripcion/cuota, email contractual, Drive, portal, cancelacion y reembolso reconciliado.
 4. Confirmar en esa compra que el alcance inicial sigue siendo tarjeta, sin códigos promocionales, y que el importe de la renovación coincide con el resumen contractual.
-5. Fulfillment Worker `espanol-honesto-fulfillment-production` creado primero en bootstrap inerte; sus secrets se cargan y reatestiguan mientras sigue inerte; después se despliega el Worker web `espanolhonesto` conectado mediante `FULFILLMENT_SERVICE`, se cargan sus secrets y se realiza una atestación dual fresca; la habilitación final de fulfillment se aprueba por separado y ambos se prueban por URL directa sin mover aún el dominio.
+5. Fulfillment Worker `espanol-honesto-fulfillment-production` creado primero en bootstrap inerte; antes del web recibe solo `INTERNAL_JOB_SECRET` y se atestigua sin providers. Después se despliega el Worker web `espanolhonesto` conectado mediante `FULFILLMENT_SERVICE` y recibe también solo el HMAC. Supabase/Google/Resend y los secrets web activos se cargan en la ventana final; la habilitación de fulfillment se aprueba por separado y ambos se prueban por URL directa sin mover aún el dominio.
 6. Keys, Customers, Products, Prices y webhook secret live pertenecen a la cuenta exacta `STRIPE_EXPECTED_ACCOUNT_ID`; la cuenta es espanola y tiene details/charges/payouts habilitados.
 7. `STRIPE_PORTAL_CONFIGURATION_ID` es live, permite actualizar pago/ver facturas/cancelar al final del periodo y no permite cambiar de plan; aviso de renovacion y desistimiento estan operativos.
 8. Fiscalidad y facturación validadas: los importes públicos tienen tratamiento documentado como precio final, el asesor ha confirmado impuestos/exención y datos de factura, y Stripe no puede añadir un total inesperado que el webhook rechazaría.
@@ -149,9 +204,9 @@ Secuencia:
 
 1. Ejecutar preflight read-only y declarar la cuenta Cloudflare, ambos Workers, cuenta/mode Stripe live y proyecto Supabase production que se van a tocar.
 2. Crear primero fulfillment inerte con `pnpm launch:cloudflare-production-fulfillment-bootstrap -- --execute-approved`; verificar `operationMode=bootstrap`, `crons=[]` y `503 FULFILLMENT_DISABLED`.
-3. Cargar/verificar primero los secrets de fulfillment con `pnpm launch:cloudflare-production-fulfillment-secrets -- --execute-approved`; usa `production_bootstrap` y debe seguir atestiguando email/jobs/cron inertes.
-4. Desplegar después el Worker web con `pnpm launch:cloudflare-production-worker-phase1 -- --execute-approved`, que revalida inmediatamente el bootstrap completo, manteniendo `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false`; luego cargar/verificar los secrets web con su runner separado.
-5. Habilitar fulfillment solo con `pnpm launch:cloudflare-production-fulfillment-enable -- --execute-approved`, que exige bootstrap, web, secret names y atestación antes de activar runtime/email live/cron.
+3. Cargar/verificar únicamente `INTERNAL_JOB_SECRET` con `pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets -- --execute-approved`; debe rechazar cualquier provider secret y atestiguar Supabase/Google/Resend/cron ausentes.
+4. Desplegar después el Worker web con `pnpm launch:cloudflare-production-worker-phase1 -- --execute-approved`, que revalida inmediatamente el bootstrap HMAC-only, manteniendo `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false`; luego cargar solo su HMAC con `pnpm launch:cloudflare-production-worker-bootstrap-secrets -- --execute-approved`.
+5. En la ventana final, cargar los secrets activos con los runners separados de web y fulfillment; habilitar fulfillment solo con `pnpm launch:cloudflare-production-fulfillment-enable -- --execute-approved`, que exige bootstrap, web, secret names y atestación antes de activar runtime/email live/cron.
 6. Sincronizar desde Admin los paquetes production con Prices live; verificar las 12 ofertas `package_prices` (4 x 3), account/mode y snapshots de Customer separados de staging.
 7. Probar por URL directa production con checkout cerrado, luego fijar el secret runtime `CHECKOUT_ENABLED_OVERRIDE=true` solo en el Worker `espanolhonesto` con aprobacion exacta.
 8. Confirmar que la landing sigue en `solicitar plaza`; aprobar un alumno/plan controlado y comprobar que solo Campus abre checkout, que falta de aceptaciones devuelve 400 y que la compra recorre intent, webhook, confirmacion y fulfillment.
@@ -261,7 +316,7 @@ Un job marcado `STALE_PROCESSING_REQUIRES_RECONCILIATION` o
 reejecuta automáticamente: revisar primero Drive, Calendar y Resend, y usar
 Admin > Jobs > Reintentar solo cuando se haya descartado o corregido un efecto duplicado.
 
-La secuencia completa está en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Bootstrap, secrets fulfillment, web, secrets web y enable fulfillment son aprobaciones distintas. El runner de web se niega a desplegar sin un bootstrap ejecutado, con secrets completos y verificado de nuevo contra su versión remota actual. El runner de secrets fulfillment mantiene `production_bootstrap`; no envía emails ni procesa jobs. El runner enable es el único que despliega `--env production` y activa runtime/email/cron; si el resultado es fallido o ambiguo, restaura y verifica el bootstrap inerte. Las fases deben terminar con atestación autenticada de identidad, versión Cloudflare, modo operativo y ref Supabase exactos.
+La secuencia completa está en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Bootstrap, HMAC mínimo de fulfillment, web, HMAC mínimo web, secrets activos finales y enable fulfillment son aprobaciones distintas. El runner de web se niega a desplegar sin un bootstrap ejecutado, con exactamente el HMAC compartido y providers ausentes, verificado de nuevo contra su versión remota actual. El runner completo de secrets fulfillment se reserva para la ventana final y mantiene `production_bootstrap`; no envía emails ni procesa jobs. El runner enable es el único que despliega `--env production` y activa runtime/email/cron; si el resultado es fallido o ambiguo, restaura y verifica el bootstrap inerte. Las fases deben terminar con atestación autenticada de identidad, versión Cloudflare, modo operativo y ref Supabase exactos.
 
 ## Rotacion Final De Claves
 

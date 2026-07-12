@@ -159,9 +159,15 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (error) {
-        // Si es duplicado, ignorar
-        if (error.code === '23505') {
-            return new Response(JSON.stringify({ message: 'Slot already exists' }), { status: 200 });
+        // A database constraint is the concurrency-safe source of truth for
+        // both exact duplicates (23505) and overlapping active ranges (23P01).
+        if (error.code === '23505' || error.code === '23P01') {
+            return new Response(JSON.stringify({
+                error: 'Availability overlaps an existing active slot',
+            }), {
+                status: 409,
+                headers: { 'Content-Type': 'application/json' },
+            });
         }
         return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }

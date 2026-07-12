@@ -27,6 +27,12 @@ describe('Sentry read-only launch evidence', () => {
             'Selected Sentry environment has unresolved issues above allowed threshold.',
             'summary.sample.length < limit',
             'Returned issue rows below are bounded by --limit',
+            'sentry_project_privacy_and_release_readonly',
+            'sentry_alert_configuration_readonly',
+            '/workflows/',
+            '/rules/',
+            'project_security_token_persisted=false',
+            'notification_target_ids_persisted=false',
         ]) {
             expect(source).toContain(snippet);
         }

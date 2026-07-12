@@ -61,6 +61,7 @@ interface PhaseOneReport {
     externalWriteAttempted: boolean;
     externalWritePerformed: boolean;
     latestFulfillmentBootstrapSummaryPath: string | null;
+    latestFulfillmentBootstrapSecretsSummaryPath: string | null;
     latestPreflightSummaryPath: string | null;
     latestVariableMatrixPath: string | null;
     latestCutoverManifestPath: string | null;
@@ -93,7 +94,7 @@ const target: CloudflareTarget = {
 };
 
 const approvalEnvVar = 'CLOUDFLARE_PHASE1_APPROVAL';
-const exactApprovalSentence = 'Apruebo crear/desplegar el Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el build actual de `C:\\Users\\Alin\\Desktop\\Academia\\pruebas`, despues de cargar los secrets de fulfillment manteniendolo inerte y verificar inmediatamente su version remota, HMAC, modo bootstrap, bloqueo 503 y cron vacio, con `CHECKOUT_ENABLED=false`, sin adjuntar ni mover `espanolhonesto.com` ni `www.espanolhonesto.com`, sin activar pagos reales, sin borrar Pages y sin cambiar DNS.';
+const exactApprovalSentence = 'Apruebo crear/desplegar unicamente el bootstrap inerte del Cloudflare Worker web production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando `production_bootstrap` y el build actual de `C:\\Users\\Alin\\Desktop\\Academia\\pruebas`, despues de verificar fulfillment inerte con exactamente `INTERNAL_JOB_SECRET` y providers ausentes, con todas las rutas de aplicacion bloqueadas en 503, `WEB_RUNTIME_MODE=bootstrap`, checkout y email desactivados, sin exigir datos legales finales ni Stripe Live, sin cargar secrets web, sin adjuntar ni mover `espanolhonesto.com` ni `www.espanolhonesto.com`, sin borrar Pages y sin cambiar DNS.';
 const executeRequested = process.argv.includes('--execute-approved');
 const approvalMatched = process.env[approvalEnvVar] === exactApprovalSentence;
 
@@ -105,14 +106,57 @@ const latestPreflightSummaryPath = latestGeneratedPath('launch-cloudflare-produc
 const latestVariableMatrixPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'cloudflare-production-worker-variable-matrix.md');
 const latestCutoverManifestPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover', 'cloudflare-production-runtime-cutover-manifest.json');
 const latestPhaseOneApprovalPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover', 'approval-request-phase-1-worker.md');
-const latestFulfillmentBootstrapSummaryPath = latestGeneratedPath('launch-cloudflare-production-fulfillment-bootstrap', 'summary.md');
-const latestFulfillmentSecretsSummaryPath = latestGeneratedPath('launch-cloudflare-production-fulfillment-secrets', 'summary.md');
+const latestFulfillmentBootstrapSummaryPath = latestGeneratedPathMatching(
+    'launch-cloudflare-production-fulfillment-bootstrap',
+    'summary.md',
+    ['- Status: OK', '- Execute requested: true', '- External write performed: true', '| ok | health_bootstrap |', '| ok | bootstrap_operational_block |'],
+);
+const latestFulfillmentBootstrapSecretsSummaryPath = latestGeneratedPathMatching(
+    'launch-cloudflare-production-fulfillment-bootstrap-secrets',
+    'summary.md',
+    [
+        '- Status: OK',
+        '- Execute requested: true',
+        '- External write performed: true',
+        '| ok | minimal_bootstrap_secret_shape_after_write |',
+        '| ok | direct_fulfillment_bootstrap_hmac_attestation |',
+    ],
+);
 const fulfillmentWorker = 'espanol-honesto-fulfillment-production';
 const fulfillmentDirectUrl = 'https://espanol-honesto-fulfillment-production.alindev95.workers.dev/';
-const fulfillmentSecretNames = [
-    'PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'INTERNAL_JOB_SECRET',
+const webDirectUrl = 'https://espanolhonesto.alindev95.workers.dev/';
+const bootstrapAllowedWebSecretNames = new Set([
+    'INTERNAL_JOB_SECRET',
+]);
+const forbiddenBootstrapWebSecretNames = new Set([
+    'PUBLIC_SUPABASE_URL',
+    'PUBLIC_SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'PUBLIC_STRIPE_PUBLISHABLE_KEY',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
+    'RESEND_API_KEY',
+    'EMAIL_FROM',
+    'RESEND_FROM_EMAIL',
+    'EMAIL_RECIPIENT_ALLOWLIST',
+    'PUBLIC_TURNSTILE_SITE_KEY',
+    'TURNSTILE_SECRET_KEY',
+    'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
+    'PUBLIC_SENTRY_DSN',
+    'SENTRY_DSN',
+    'SENTRY_AUTH_TOKEN',
+]);
+const fulfillmentBootstrapSecretNames = [
+    'INTERNAL_JOB_SECRET',
+] as const;
+const withheldFulfillmentProviderSecretNames = [
+    'PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY',
     'GOOGLE_SERVICE_ACCOUNT_EMAIL', 'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', 'GOOGLE_ADMIN_EMAIL',
-    'GOOGLE_DRIVE_ROOT_FOLDER_ID', 'GOOGLE_TEMPLATE_DOC_ID', 'RESEND_API_KEY', 'EMAIL_FROM', 'RESEND_FROM_EMAIL',
+    'GOOGLE_DRIVE_ROOT_FOLDER_ID', 'GOOGLE_TEMPLATE_DOC_ID',
+    'RESEND_API_KEY', 'EMAIL_FROM', 'RESEND_FROM_EMAIL', 'CRON_SECRET',
 ] as const;
 
 const commands = buildCommands();
@@ -121,9 +165,9 @@ let externalWriteAttempted = false;
 const checks: PhaseOneCheck[] = [
     validatePackageScript(),
     validateFulfillmentBootstrapEvidence(),
-    validateFulfillmentSecretsEvidence(),
-    validateLatestNoWritePreflight(),
-    validateLatestCutoverPack(),
+    validateFulfillmentBootstrapSecretsEvidence(),
+    validateBootstrapBuildSource(),
+    validateFinalRouteSeparation(),
     validateWranglerConfig(),
     validateApprovalGateSource(),
     validateForbiddenScopeSource(),
@@ -216,6 +260,7 @@ function createReport(reportChecks: PhaseOneCheck[], reportCaptures: CommandCapt
         externalWriteAttempted,
         externalWritePerformed,
         latestFulfillmentBootstrapSummaryPath,
+        latestFulfillmentBootstrapSecretsSummaryPath,
         latestPreflightSummaryPath,
         latestVariableMatrixPath,
         latestCutoverManifestPath,
@@ -263,28 +308,32 @@ function validateFulfillmentBootstrapEvidence(): PhaseOneCheck {
     };
 }
 
-function validateFulfillmentSecretsEvidence(): PhaseOneCheck {
-    if (!latestFulfillmentSecretsSummaryPath || !existsSync(latestFulfillmentSecretsSummaryPath)) {
+function validateFulfillmentBootstrapSecretsEvidence(): PhaseOneCheck {
+    if (!latestFulfillmentBootstrapSecretsSummaryPath || !existsSync(latestFulfillmentBootstrapSecretsSummaryPath)) {
         return {
             status: 'failed',
-            name: 'fulfillment_secrets_before_web',
-            message: 'Fulfillment secrets must be loaded and re-attested while bootstrap remains inert before web deploy.',
-            details: ['run=pnpm launch:cloudflare-production-fulfillment-secrets -- --execute-approved'],
+            name: 'fulfillment_bootstrap_hmac_before_web',
+            message: 'The HMAC-only fulfillment bootstrap must be loaded and re-attested before web deploy.',
+            details: ['run=pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets -- --execute-approved'],
         };
     }
-    const summary = readFileSync(latestFulfillmentSecretsSummaryPath, 'utf8');
+    const summary = readFileSync(latestFulfillmentBootstrapSecretsSummaryPath, 'utf8');
     const required = [
         '- Status: OK', '- Execute requested: true', '- External write performed: true',
-        '| ok | bootstrap_operational_block_pre_write |', '| ok | direct_fulfillment_runtime_attestation |',
+        '| ok | minimal_bootstrap_secret_shape_after_write |',
+        '| ok | direct_fulfillment_bootstrap_hmac_attestation |',
+        '| ok | fulfillment_bootstrap_no_cron |',
     ];
     const missing = required.filter((snippet) => !summary.includes(snippet));
     return {
         status: missing.length === 0 ? 'ok' : 'failed',
-        name: 'fulfillment_secrets_before_web',
+        name: 'fulfillment_bootstrap_hmac_before_web',
         message: missing.length === 0
-            ? 'Latest local evidence records fulfillment secret loading and bootstrap re-attestation.'
-            : 'Fulfillment secret/bootstrap evidence is incomplete; web deploy is blocked.',
-        details: missing.length === 0 ? [`summary=${latestFulfillmentSecretsSummaryPath}`] : missing.map((snippet) => `missing=${snippet}`),
+            ? 'Latest local evidence proves fulfillment has only the shared HMAC secret and no active providers.'
+            : 'Minimal fulfillment bootstrap secret evidence is incomplete; web deploy is blocked.',
+        details: missing.length === 0
+            ? [`summary=${latestFulfillmentBootstrapSecretsSummaryPath}`, 'activeProviders=absent']
+            : missing.map((snippet) => `missing=${snippet}`),
     };
 }
 
@@ -308,88 +357,83 @@ function validatePackageScript(): PhaseOneCheck {
     if (packageJson.scripts?.['launch:cloudflare-production-worker-phase1'] !== 'tsx scripts/launch/cloudflare-production-worker-phase1.ts') {
         missing.push('launch:cloudflare-production-worker-phase1=tsx scripts/launch/cloudflare-production-worker-phase1.ts');
     }
+    if (packageJson.scripts?.['build:production:bootstrap'] !== 'tsx scripts/dev/build-production-bootstrap.ts') {
+        missing.push('build:production:bootstrap=tsx scripts/dev/build-production-bootstrap.ts');
+    }
+    if (packageJson.scripts?.['launch:cloudflare-production-worker-bootstrap-secrets'] !== 'tsx scripts/launch/cloudflare-production-worker-bootstrap-secrets.ts') {
+        missing.push('launch:cloudflare-production-worker-bootstrap-secrets=tsx scripts/launch/cloudflare-production-worker-bootstrap-secrets.ts');
+    }
+    if (packageJson.scripts?.['launch:cloudflare-production-fulfillment-bootstrap-secrets'] !== 'tsx scripts/launch/cloudflare-production-fulfillment-bootstrap-secrets.ts') {
+        missing.push('launch:cloudflare-production-fulfillment-bootstrap-secrets=tsx scripts/launch/cloudflare-production-fulfillment-bootstrap-secrets.ts');
+    }
 
     return {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'package_script_cloudflare_phase1',
         message: missing.length === 0
-            ? 'Package scripts expose the gated Cloudflare production Worker phase-1 runner and preserve pnpm policy.'
-            : 'Package scripts are missing the gated Cloudflare production Worker phase-1 runner or pnpm package manager contract.',
-        details: missing.length === 0 ? ['launch:cloudflare-production-worker-phase1'] : missing.map((item) => `missing=${item}`),
+            ? 'Package scripts expose distinct bootstrap build/deploy/minimal-secret runners and preserve pnpm policy.'
+            : 'Package scripts are missing a bootstrap build/deploy/minimal-secret command or pnpm contract.',
+        details: missing.length === 0
+            ? ['build:production:bootstrap', 'launch:cloudflare-production-fulfillment-bootstrap-secrets', 'launch:cloudflare-production-worker-phase1', 'launch:cloudflare-production-worker-bootstrap-secrets']
+            : missing.map((item) => `missing=${item}`),
     };
 }
 
-function validateLatestNoWritePreflight(): PhaseOneCheck {
-    if (!latestPreflightSummaryPath || !existsSync(latestPreflightSummaryPath)) {
-        return {
-            status: 'failed',
-            name: 'latest_no_write_preflight_exists',
-            message: 'The Cloudflare runtime cutover preflight must exist before phase-1 execution can be considered.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight'],
-        };
-    }
-
-    const preflight = readFileSync(latestPreflightSummaryPath, 'utf8');
+function validateBootstrapBuildSource(): PhaseOneCheck {
+    const packageJson = readIfExists('package.json') ?? '';
+    const buildSource = readIfExists(path.join('scripts', 'dev', 'build-production-bootstrap.ts')) ?? '';
+    const astroConfig = readIfExists('astro.config.mjs') ?? '';
     const required = [
-        'Cloudflare Production Runtime Preflight Refresh',
-        'Remote write performed: false',
-        `Target account: ${target.accountId}`,
-        `Target Worker: ${target.productionWorker}`,
-        'CHECKOUT_ENABLED=false in config: True',
-        'Dry-run after build looked successful: True',
-        'Dry-run mentions CHECKOUT_ENABLED=false: True',
-        'Dry-run avoids custom domains: True',
-        'Production secret-list shape: worker_missing',
-        'dist removed after dry-run: True',
-        'wrangler deploy --config dist/server/wrangler.json --dry-run',
-    ];
-    const missing = required.filter((snippet) => !preflight.includes(snippet));
-    const matrixMissing = !latestVariableMatrixPath || !existsSync(latestVariableMatrixPath);
-
-    return {
-        status: missing.length === 0 && !matrixMissing ? 'ok' : 'failed',
-        name: 'latest_no_write_preflight_exists',
-        message: missing.length === 0 && !matrixMissing
-            ? 'Latest no-write preflight proves build, dry-run, checkout-off, no-domain-attachment and expected missing Worker posture.'
-            : 'Latest no-write preflight is missing required phase-1 safety facts.',
-        details: missing.length === 0 && !matrixMissing
-            ? [`preflight=${latestPreflightSummaryPath}`, `variableMatrix=${latestVariableMatrixPath}`]
-            : [
-                ...missing.map((snippet) => `missing=${snippet}`),
-                ...(matrixMissing ? ['missing=cloudflare-production-worker-variable-matrix.md'] : []),
-            ],
-    };
-}
-
-function validateLatestCutoverPack(): PhaseOneCheck {
-    if (!latestCutoverManifestPath || !existsSync(latestCutoverManifestPath) || !latestPhaseOneApprovalPath || !existsSync(latestPhaseOneApprovalPath)) {
-        return {
-            status: 'failed',
-            name: 'latest_cutover_pack_exists',
-            message: 'The Cloudflare cutover package and phase-1 approval request must exist before this runner can be used.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover'],
-        };
-    }
-
-    const approval = readFileSync(latestPhaseOneApprovalPath, 'utf8');
-    const required = [
-        '# Cloudflare Production Worker Phase 1 Approval Request',
-        exactApprovalSentence,
-        'No domain move, DNS change, Pages deletion, route change, zone change or custom-domain attachment.',
-        'No secret value printing or storage in outputs.',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
-    ];
-    const missing = required.filter((snippet) => !approval.includes(snippet));
+        ['package.json', packageJson, '"build:production:bootstrap": "tsx scripts/dev/build-production-bootstrap.ts"'],
+        ['build-production-bootstrap.ts', buildSource, "process.env.CLOUDFLARE_ENV = 'production_bootstrap'"],
+        ['build-production-bootstrap.ts', buildSource, "process.env.WEB_RUNTIME_MODE = 'bootstrap'"],
+        ['build-production-bootstrap.ts', buildSource, "process.env.EMAIL_DELIVERY_MODE = 'disabled'"],
+        ['build-production-bootstrap.ts', buildSource, "'STRIPE_SECRET_KEY'"],
+        ['build-production-bootstrap.ts', buildSource, "delete process.env[key]"],
+        ['build-production-bootstrap.ts', buildSource, 'installBootstrapEntry(generatedConfigPath)'],
+        ['build-production-bootstrap.ts', buildSource, "const ALLOWED_PATHS = new Set(['/health', '/api/internal/runtime-attestation'])"],
+        ['build-production-bootstrap.ts', buildSource, "config.main = wrapperName"],
+        ['build-production-bootstrap.ts', buildSource, 'validateBootstrapBundle(distRoot, sourceCredentialValues)'],
+        ['build-production-bootstrap.ts', buildSource, 'assets.run_worker_first=true'],
+        ['astro.config.mjs', astroConfig, 'legalIdentityIsExample && !productionBootstrap'],
+    ] as const;
+    const missing = required
+        .filter(([, source, snippet]) => !source.includes(snippet))
+        .map(([file, , snippet]) => `${file}:${snippet}`);
 
     return {
         status: missing.length === 0 ? 'ok' : 'failed',
-        name: 'latest_cutover_pack_exists',
+        name: 'bootstrap_build_source',
         message: missing.length === 0
-            ? 'Latest cutover package contains the phase-1 approval text, forbidden scope and rollback/verification support.'
-            : 'Latest cutover package is missing required approval-gate facts.',
+            ? 'The dedicated production bootstrap build selects production_bootstrap, strips active-provider credentials and bypasses only the final legal-identity gate while inert.'
+            : 'The dedicated bootstrap build is missing required inert-mode or legal/Stripe separation safeguards.',
         details: missing.length === 0
-            ? [`manifest=${latestCutoverManifestPath}`, `approval=${latestPhaseOneApprovalPath}`]
-            : missing.map((snippet) => `missing=${snippet}`),
+            ? ['build=pnpm run build:production:bootstrap', 'legalFinalRequiredForActive=true', 'stripeLiveRequiredForActive=true']
+            : missing.map((item) => `missing=${item}`),
+    };
+}
+
+function validateFinalRouteSeparation(): PhaseOneCheck {
+    const packageJson = readIfExists('package.json') ?? '';
+    const finalRunner = readIfExists(path.join('scripts', 'launch', 'cloudflare-production-worker-secrets.ts')) ?? '';
+    const required = [
+        '"launch:cloudflare-production-worker-bootstrap-secrets": "tsx scripts/launch/cloudflare-production-worker-bootstrap-secrets.ts"',
+        '"launch:cloudflare-production-worker-secrets": "tsx scripts/launch/cloudflare-production-worker-secrets.ts"',
+    ];
+    const missing = required.filter((snippet) => !packageJson.includes(snippet));
+    if (!finalRunner.includes('fresh_stripe_live_readiness_pre_write_gate')) {
+        missing.push('final worker secrets runner keeps Stripe Live gate');
+    }
+
+    return {
+        status: missing.length === 0 ? 'ok' : 'failed',
+        name: 'bootstrap_and_final_routes_separate',
+        message: missing.length === 0
+            ? 'Bootstrap secret loading and final active/live secret loading are separate commands and approval surfaces.'
+            : 'Bootstrap and final active/live secret routes are not yet fully separated.',
+        details: missing.length === 0
+            ? ['bootstrap=INTERNAL_JOB_SECRET only for HMAC', 'final=Supabase runtime + legal/Stripe Live still required']
+            : missing.map((item) => `missing=${item}`),
     };
 }
 
@@ -405,25 +449,42 @@ function validateWranglerConfig(): PhaseOneCheck {
     }
 
     const wrangler = readFileSync(wranglerPath, 'utf8');
-    const checkoutFalseCount = [...wrangler.matchAll(/CHECKOUT_ENABLED\s*=\s*"false"/g)].length;
+    const bootstrapStart = wrangler.indexOf('[env.production_bootstrap]');
+    const activeStart = wrangler.indexOf('[env.production]');
+    const bootstrap = bootstrapStart >= 0 && activeStart > bootstrapStart
+        ? wrangler.slice(bootstrapStart, activeStart)
+        : '';
     const required = [
         'name = "espanolhonesto-env-required"',
         'keep_vars = true',
+        '[env.production_bootstrap]',
         '[env.production]',
-        'name = "espanolhonesto"',
         '[env.staging]',
         'name = "espanolhonesto-staging"',
     ];
     const missing = required.filter((snippet) => !wrangler.includes(snippet));
-    if (checkoutFalseCount < 3) missing.push('CHECKOUT_ENABLED = "false" in base, staging and production vars');
+    for (const snippet of [
+        'name = "espanolhonesto"',
+        'WEB_RUNTIME_MODE = "bootstrap"',
+        'CHECKOUT_ENABLED = "false"',
+        'CHECKOUT_ENABLED_OVERRIDE = "false"',
+        'EMAIL_DELIVERY_MODE = "disabled"',
+        'EMAIL_DAILY_RECIPIENT_LIMIT = "0"',
+        'EMAIL_MONTHLY_RECIPIENT_LIMIT = "0"',
+        'service = "espanol-honesto-fulfillment-production"',
+        '[env.production_bootstrap.assets]',
+        'run_worker_first = true',
+    ]) {
+        if (!bootstrap.includes(snippet)) missing.push(`production_bootstrap:${snippet}`);
+    }
 
     return {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'wrangler_phase1_config',
         message: missing.length === 0
-            ? 'Wrangler config uses a safe base name and keeps explicit production/staging names, keep_vars and checkout-off posture.'
-            : 'Wrangler config is missing the required phase-1 safety posture.',
-        details: missing.length === 0 ? [`checkoutFalseCount=${checkoutFalseCount}`] : missing.map((snippet) => `missing=${snippet}`),
+            ? 'Wrangler config has an exact-name production_bootstrap environment with inert web, checkout, email and fulfillment binding posture.'
+            : 'Wrangler config is missing the required production_bootstrap safety posture.',
+        details: missing.length === 0 ? ['environment=production_bootstrap', 'runtime=bootstrap', 'checkout=false', 'email=disabled'] : missing.map((snippet) => `missing=${snippet}`),
     };
 }
 
@@ -445,6 +506,7 @@ function validateApprovalGateSource(): PhaseOneCheck {
         'const exactApprovalSentence =',
         'executeRequested && !approvalMatched',
         'externalWritePerformed=false',
+        'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
@@ -474,6 +536,7 @@ function validateForbiddenScopeSource(): PhaseOneCheck {
         'No `CHECKOUT_ENABLED=true`',
         'No secret value printing',
         'No Stripe live mode',
+        'No final legal identity requirement',
         'No Supabase, Google, Resend, Sentry, Turnstile or GitHub writes',
     ];
     const missing = required.filter((snippet) => !source.includes(snippet));
@@ -514,37 +577,49 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
         ],
     });
 
-    const preWriteCommands = [
-        commands.readonly,
-        commands.cutoverPreflight,
-        commands.build,
-        commands.deployDryRun,
-    ];
+    const readonlyCapture = runCommand(commands.readonly);
+    reportCaptures.push(readonlyCapture);
+    executionChecks.push(checkForCapture(readonlyCapture));
+    if (readonlyCapture.status === 'failed') return executionChecks;
 
-    for (const command of preWriteCommands) {
-        const capture = runCommand(command);
-        reportCaptures.push(capture);
-        executionChecks.push(checkForCapture(capture));
-        if (capture.status === 'failed') return executionChecks;
-    }
+    const remoteWebShape = validateFreshReadonlyWebShapeBeforeDeploy();
+    executionChecks.push(remoteWebShape);
+    if (remoteWebShape.status === 'failed') return executionChecks;
 
-    const dryRunCapture = reportCaptures.find((capture) => capture.id === commands.deployDryRun.id);
-    const dryRunOutput = dryRunCapture ? readFileSync(dryRunCapture.path, 'utf8') : '';
-    const dryRunIsSafe = dryRunOutput.includes('CHECKOUT_ENABLED') &&
-        dryRunOutput.includes('false') &&
+    const buildCapture = runCommand(commands.build);
+    reportCaptures.push(buildCapture);
+    executionChecks.push(checkForCapture(buildCapture));
+    if (buildCapture.status === 'failed') return executionChecks;
+
+    const builtConfigCheck = validateBuiltBootstrapConfig();
+    executionChecks.push(builtConfigCheck);
+    if (builtConfigCheck.status === 'failed') return executionChecks;
+
+    const dryRunCapture = runCommand(commands.deployDryRun);
+    reportCaptures.push(dryRunCapture);
+    executionChecks.push(checkForCapture(dryRunCapture));
+    if (dryRunCapture.status === 'failed') return executionChecks;
+
+    const dryRunOutput = readFileSync(dryRunCapture.path, 'utf8');
+    const dryRunIsSafe = [
+        'WEB_RUNTIME_MODE', 'bootstrap',
+        'CHECKOUT_ENABLED', 'CHECKOUT_ENABLED_OVERRIDE', 'false',
+        'EMAIL_DELIVERY_MODE', 'disabled',
+        'EMAIL_DAILY_RECIPIENT_LIMIT', 'EMAIL_MONTHLY_RECIPIENT_LIMIT', '0',
+    ].every((snippet) => dryRunOutput.includes(snippet)) &&
         !target.customDomains.some((domain) => dryRunOutput.includes(domain));
 
     executionChecks.push({
         status: dryRunIsSafe ? 'ok' : 'failed',
         name: 'phase1_dry_run_guard_before_write',
         message: dryRunIsSafe
-            ? 'Immediate dry-run still shows checkout disabled and no custom-domain attachment before the approved deploy.'
-            : 'Immediate dry-run does not prove checkout-off and no-domain-attachment posture; deploy command was not run.',
+            ? 'Immediate dry-run proves production_bootstrap, web/checkout/email inertness and no custom-domain attachment before the approved deploy.'
+            : 'Immediate dry-run does not prove production_bootstrap inertness and no-domain-attachment posture; deploy command was not run.',
         details: dryRunIsSafe
             ? [`capture=${dryRunCapture?.path ?? 'missing'}`]
             : [
                 `capture=${dryRunCapture?.path ?? 'missing'}`,
-                'required=CHECKOUT_ENABLED false and no espanolhonesto.com/www mention',
+                'required=WEB_RUNTIME_MODE bootstrap, checkout false, email disabled/zero and no espanolhonesto.com/www mention',
             ],
     });
 
@@ -575,7 +650,287 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
         if (capture.status === 'failed') return executionChecks;
     }
 
+    const deploymentCapture = reportCaptures.find((capture) => capture.id === commands.deploymentsList.id);
+    const secretCapture = reportCaptures.find((capture) => capture.id === commands.secretList.id);
+    const webVersionId = deploymentCapture ? deploymentVersionId(deploymentCapture) : null;
+    if (!webVersionId || !secretCapture) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'web_bootstrap_version_and_secret_shape',
+            message: 'Post-deploy web version or secret-name evidence is missing.',
+            details: [`versionPresent=${String(Boolean(webVersionId))}`, `secretCapturePresent=${String(Boolean(secretCapture))}`],
+        });
+        return executionChecks;
+    }
+
+    executionChecks.push(validateBootstrapSecretShape(secretCapture));
+    if (executionChecks.at(-1)?.status === 'failed') return executionChecks;
+    executionChecks.push(...await verifyWebBootstrapAfterDeploy(webVersionId));
+
     return executionChecks;
+}
+
+function validateFreshReadonlyWebShapeBeforeDeploy(): PhaseOneCheck {
+    const summaryPath = latestGeneratedPath('launch-cloudflare-production-runtime-readonly', 'summary.md');
+    const deploymentsPath = latestGeneratedPath('launch-cloudflare-production-runtime-readonly', 'production_worker_deployments.txt');
+    const secretsPath = latestGeneratedPath('launch-cloudflare-production-runtime-readonly', 'production_worker_secrets.txt');
+    const summary = summaryPath ? readIfExists(summaryPath) ?? '' : '';
+    const deployments = deploymentsPath ? readIfExists(deploymentsPath) ?? '' : '';
+    const secrets = secretsPath ? readIfExists(secretsPath) ?? '' : '';
+    const accountMatched = summary.includes(target.accountId);
+    const workerAbsent = deployments.includes('This Worker does not exist on your account. [code: 10007]')
+        && secrets.includes(`Worker "${target.productionWorker}" not found.`);
+
+    if (accountMatched && workerAbsent) {
+        return {
+            status: 'ok',
+            name: 'fresh_remote_web_shape_before_deploy',
+            message: 'Fresh read-only evidence proves the exact production web Worker does not exist yet, so no remote secret/route state can be inherited.',
+            details: [`summary=${summaryPath}`, 'workerAbsent=true', 'remoteSecrets=none'],
+        };
+    }
+
+    const secretShape = extractSecretNames(secrets);
+    const forbidden = [...secretShape.names].filter((name) => forbiddenBootstrapWebSecretNames.has(name));
+    const unexpected = [...secretShape.names].filter((name) => !bootstrapAllowedWebSecretNames.has(name));
+    const currentVersionId = /"version_id"\s*:\s*"([0-9a-f]{8}-[0-9a-f-]{27})"/iu.exec(deployments)?.[1] ?? null;
+    const priorExecutedSummaryPath = latestGeneratedPathMatching(
+        'launch-cloudflare-production-worker-phase1',
+        'summary.md',
+        ['- Status: OK', '- Execute requested: true', '| ok | web_bootstrap_health_after_deploy |'],
+    );
+    const priorExecutedSummary = priorExecutedSummaryPath ? readIfExists(priorExecutedSummaryPath) ?? '' : '';
+    const knownBootstrap = priorExecutedSummary.includes('- Status: OK')
+        && priorExecutedSummary.includes('- Execute requested: true')
+        && priorExecutedSummary.includes('| ok | web_bootstrap_health_after_deploy |')
+        && Boolean(currentVersionId && priorExecutedSummary.includes(`deploymentVersion=${currentVersionId}`));
+    const safeExisting = accountMatched
+        && secretShape.parsed
+        && forbidden.length === 0
+        && unexpected.length === 0
+        && knownBootstrap;
+
+    return {
+        status: safeExisting ? 'ok' : 'failed',
+        name: 'fresh_remote_web_shape_before_deploy',
+        message: safeExisting
+            ? 'Existing Worker is traceable to a previously attested bootstrap and still has only minimal/empty secret names.'
+            : 'Existing or ambiguous Worker state is not proven safe before deploy; no Cloudflare write may start.',
+        details: [
+            `accountMatched=${String(accountMatched)}`,
+            `workerAbsent=${String(workerAbsent)}`,
+            `secretListParsed=${String(secretShape.parsed)}`,
+            `forbidden=${forbidden.join(',') || 'none'}`,
+            `unexpected=${unexpected.join(',') || 'none'}`,
+            `currentVersionId=${currentVersionId ?? 'missing'}`,
+            `knownBootstrap=${String(knownBootstrap)}`,
+        ],
+    };
+}
+
+function validateBuiltBootstrapConfig(): PhaseOneCheck {
+    const configPath = path.join('dist', 'server', 'wrangler.json');
+    if (!existsSync(configPath)) {
+        return {
+            status: 'failed',
+            name: 'built_bootstrap_config',
+            message: 'The bootstrap build did not produce dist/server/wrangler.json.',
+            details: [`missing=${configPath}`],
+        };
+    }
+
+    try {
+        const config = JSON.parse(readFileSync(configPath, 'utf8')) as {
+            name?: unknown;
+            main?: unknown;
+            targetEnvironment?: unknown;
+            vars?: Record<string, unknown>;
+            assets?: { run_worker_first?: unknown };
+            services?: Array<{ binding?: unknown; service?: unknown }>;
+            routes?: unknown[];
+            triggers?: { crons?: unknown[] };
+        };
+        const vars = config.vars ?? {};
+        const serviceBound = config.services?.some((binding) =>
+            binding.binding === 'FULFILLMENT_SERVICE'
+            && binding.service === fulfillmentWorker,
+        ) === true;
+        const expected: Array<[string, unknown, unknown]> = [
+            ['name', config.name, target.productionWorker],
+            ['main', config.main, 'bootstrap-entry.mjs'],
+            ['targetEnvironment', config.targetEnvironment, 'production_bootstrap'],
+            ['PUBLIC_APP_ENV', vars.PUBLIC_APP_ENV, 'production'],
+            ['WEB_RUNTIME_MODE', vars.WEB_RUNTIME_MODE, 'bootstrap'],
+            ['SUPABASE_EXPECTED_PROJECT_REF', vars.SUPABASE_EXPECTED_PROJECT_REF, 'vkkahxsybhbutszerawz'],
+            ['WORKER_IDENTITY', vars.WORKER_IDENTITY, target.productionWorker],
+            ['CHECKOUT_ENABLED', vars.CHECKOUT_ENABLED, 'false'],
+            ['CHECKOUT_ENABLED_OVERRIDE', vars.CHECKOUT_ENABLED_OVERRIDE, 'false'],
+            ['EMAIL_DELIVERY_MODE', vars.EMAIL_DELIVERY_MODE, 'disabled'],
+            ['EMAIL_DAILY_RECIPIENT_LIMIT', vars.EMAIL_DAILY_RECIPIENT_LIMIT, '0'],
+            ['EMAIL_MONTHLY_RECIPIENT_LIMIT', vars.EMAIL_MONTHLY_RECIPIENT_LIMIT, '0'],
+        ];
+        const mismatches = expected
+            .filter(([, actual, wanted]) => actual !== wanted)
+            .map(([name, actual, wanted]) => `${name}=${String(actual ?? 'missing')} expected=${String(wanted)}`);
+        if (!serviceBound) mismatches.push(`FULFILLMENT_SERVICE=${fulfillmentWorker}`);
+        if (config.assets?.run_worker_first !== true) mismatches.push('assets.run_worker_first=true');
+        if ((config.routes?.length ?? 0) > 0) mismatches.push('routes must be absent/empty');
+        if ((config.triggers?.crons?.length ?? 0) > 0) mismatches.push('crons must be absent/empty');
+        const serialized = JSON.stringify(config);
+        for (const name of forbiddenBootstrapWebSecretNames) {
+            if (serialized.includes(`"${name}"`)) mismatches.push(`forbiddenBinding=${name}`);
+        }
+
+        return {
+            status: mismatches.length === 0 ? 'ok' : 'failed',
+            name: 'built_bootstrap_config',
+            message: mismatches.length === 0
+                ? 'The generated deploy config is bound to production_bootstrap and contains only inert web/email/checkout posture with no routes or active-provider bindings.'
+                : 'The generated deploy config is not the exact inert production_bootstrap package.',
+            details: mismatches.length === 0 ? [`config=${configPath}`, 'activeProviderBindings=absent'] : mismatches,
+        };
+    } catch (error) {
+        return {
+            status: 'failed',
+            name: 'built_bootstrap_config',
+            message: 'The generated bootstrap Wrangler config could not be parsed.',
+            details: [sanitizeError(error instanceof Error ? error : new Error(String(error)))],
+        };
+    }
+}
+
+function validateBootstrapSecretShape(capture: CommandCapture): PhaseOneCheck {
+    const captureText = readIfExists(capture.path) ?? '';
+    const parsed = extractSecretNames(captureText);
+    const forbidden = [...parsed.names].filter((name) => forbiddenBootstrapWebSecretNames.has(name));
+    const unexpected = [...parsed.names].filter((name) => !bootstrapAllowedWebSecretNames.has(name));
+    const safe = parsed.parsed && forbidden.length === 0 && unexpected.length === 0;
+    return {
+        status: safe ? 'ok' : 'failed',
+        name: 'web_bootstrap_secret_shape_after_deploy',
+        message: safe
+            ? 'Remote secret-name evidence contains no active-provider or non-minimal bootstrap names.'
+            : 'Remote secret-name evidence is unparseable or contains secrets outside the minimal bootstrap allowlist.',
+        details: [
+            `parsed=${String(parsed.parsed)}`,
+            `secretCount=${parsed.names.size}`,
+            `forbidden=${forbidden.join(',') || 'none'}`,
+            `unexpected=${unexpected.join(',') || 'none'}`,
+        ],
+    };
+}
+
+function extractSecretNames(captureText: string): { names: Set<string>; parsed: boolean } {
+    const names = new Set<string>();
+    const jsonMatch = captureText.match(/\[\s*\{[\s\S]*?\}\s*\]/u) ?? captureText.match(/\[\s*\]/u);
+    if (!jsonMatch) return { names, parsed: false };
+    try {
+        const parsed = JSON.parse(jsonMatch[0]) as Array<{ name?: unknown }>;
+        if (!Array.isArray(parsed)) return { names, parsed: false };
+        for (const item of parsed) {
+            if (typeof item?.name === 'string' && item.name) names.add(item.name);
+        }
+        return { names, parsed: true };
+    } catch {
+        return { names, parsed: false };
+    }
+}
+
+async function verifyWebBootstrapAfterDeploy(expectedVersionId: string): Promise<PhaseOneCheck[]> {
+    const results: PhaseOneCheck[] = [];
+    try {
+        const healthResponse = await fetch(new URL('/health', webDirectUrl), {
+            redirect: 'manual',
+            signal: AbortSignal.timeout(20_000),
+        });
+        const health = await healthResponse.json() as {
+            appEnvironment?: unknown;
+            runtimeMode?: unknown;
+            status?: unknown;
+            workerIdentity?: unknown;
+            checkoutEnabled?: unknown;
+        };
+        const healthy = healthResponse.status === 200
+            && health.appEnvironment === 'production'
+            && health.runtimeMode === 'bootstrap'
+            && health.status === 'ok'
+            && health.workerIdentity === target.productionWorker
+            && health.checkoutEnabled === false;
+        results.push({
+            status: healthy ? 'ok' : 'failed',
+            name: 'web_bootstrap_health_after_deploy',
+            message: healthy
+                ? 'Direct workers.dev health proves the newly deployed web Worker is the inert production bootstrap.'
+                : 'Direct workers.dev health did not prove the exact inert production bootstrap.',
+            details: [
+                `httpStatus=${healthResponse.status}`,
+                `runtimeMode=${String(health.runtimeMode ?? 'missing')}`,
+                `workerIdentity=${String(health.workerIdentity ?? 'missing')}`,
+                `deploymentVersion=${expectedVersionId}`,
+            ],
+        });
+
+        const routeSpecs: Array<{ path: string; method: 'GET' | 'POST' }> = [
+            { path: '/', method: 'GET' },
+            { path: '/es', method: 'GET' },
+            { path: '/es/campus', method: 'GET' },
+            { path: '/robots.txt', method: 'GET' },
+            { path: '/vite.svg', method: 'GET' },
+            { path: '/favicon.png', method: 'GET' },
+            { path: '/sitemap-index.xml', method: 'GET' },
+            { path: bootstrapAssetProbePath(), method: 'GET' },
+            { path: '/api/checkout', method: 'POST' },
+        ];
+        for (const route of routeSpecs) {
+            const response = await fetch(new URL(route.path, webDirectUrl), {
+                method: route.method,
+                headers: route.method === 'POST' ? { 'Content-Type': 'application/json' } : undefined,
+                body: route.method === 'POST' ? '{}' : undefined,
+                redirect: 'manual',
+                signal: AbortSignal.timeout(20_000),
+            });
+            let errorCode = 'invalid-body';
+            try {
+                errorCode = String((await response.json() as { errorCode?: unknown }).errorCode ?? 'missing');
+            } catch {
+                // Keep only the non-secret parse result in evidence.
+            }
+            const headersAreInert = response.headers.get('Cache-Control') === 'no-store'
+                && (response.headers.get('X-Robots-Tag') ?? '').includes('noindex');
+            results.push({
+                status: response.status === 503 && errorCode === 'WEB_RUNTIME_BOOTSTRAP' && headersAreInert ? 'ok' : 'failed',
+                name: `web_bootstrap_503_${route.method.toLowerCase()}_${route.path.replace(/[^a-z0-9]+/giu, '_') || 'root'}`,
+                message: 'Representative public, campus and API routes must remain unavailable in bootstrap mode.',
+                details: [`route=${route.method} ${route.path}`, `httpStatus=${response.status}`, `errorCode=${errorCode}`, `inertHeaders=${String(headersAreInert)}`],
+            });
+        }
+
+        const attestationGet = await fetch(new URL('/api/internal/runtime-attestation', webDirectUrl), {
+            method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(20_000),
+        });
+        results.push({
+            status: attestationGet.status === 404 ? 'ok' : 'failed',
+            name: 'web_bootstrap_attestation_get_hidden_after_deploy',
+            message: 'The diagnostic attestation path must expose only its authenticated POST contract; GET remains 404.',
+            details: [`httpStatus=${attestationGet.status}`],
+        });
+    } catch (error) {
+        results.push({
+            status: 'failed',
+            name: 'web_bootstrap_direct_probe_after_deploy',
+            message: 'Direct post-deploy bootstrap probes failed or timed out.',
+            details: [sanitizeError(error instanceof Error ? error : new Error(String(error)))],
+        });
+    }
+    return results;
+}
+
+function bootstrapAssetProbePath(): string {
+    const assetRoot = path.join(process.cwd(), 'dist', 'client', '_astro');
+    if (!existsSync(assetRoot)) return '/_astro/bootstrap-probe.js';
+    const firstAsset = readdirSync(assetRoot, { withFileTypes: true })
+        .find((entry) => entry.isFile());
+    return firstAsset ? `/_astro/${encodeURIComponent(firstAsset.name)}` : '/_astro/bootstrap-probe.js';
 }
 
 function runCommand(command: CommandSpec): CommandCapture {
@@ -643,7 +998,7 @@ function deploymentVersionId(capture: CommandCapture): string | null {
 
 async function verifyFreshFulfillmentBootstrap(expectedVersionId: string): Promise<PhaseOneCheck[]> {
     const missing = [
-        ...fulfillmentSecretNames.filter((name) => !process.env[name]?.trim()),
+        ...fulfillmentBootstrapSecretNames.filter((name) => !process.env[name]?.trim()),
         ...(!process.env.CLOUDFLARE_API_TOKEN?.trim() ? ['CLOUDFLARE_API_TOKEN'] : []),
     ];
     if (missing.length > 0) {
@@ -690,14 +1045,27 @@ async function verifyFreshFulfillmentBootstrap(expectedVersionId: string): Promi
         });
         const envelope = await attestationResponse.json() as RuntimeAttestationEnvelope;
         const config = await buildRuntimeAttestationConfig('fulfillment', {
-            ...Object.fromEntries(fulfillmentSecretNames.map((name) => [name, process.env[name]?.trim() ?? ''])),
+            INTERNAL_JOB_SECRET: process.env.INTERNAL_JOB_SECRET?.trim() ?? '',
             PUBLIC_APP_ENV: 'production', SUPABASE_EXPECTED_PROJECT_REF: 'vkkahxsybhbutszerawz',
             WORKER_IDENTITY: fulfillmentWorker, WORKER_VERSION_ID: expectedVersionId,
             PUBLIC_SITE_URL: 'https://espanolhonesto.com', FULFILLMENT_RUNTIME_MODE: 'bootstrap',
             EMAIL_DELIVERY_MODE: 'disabled', EMAIL_DAILY_RECIPIENT_LIMIT: '0', EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
             CHECKOUT_ENABLED: 'false', CHECKOUT_ENABLED_OVERRIDE: 'false',
         });
+        const providersAbsent = config.googleBoundary === 'absent'
+            && config.googleServiceAccountFingerprint === 'absent'
+            && config.googlePrivateKeyFingerprint === 'absent'
+            && config.googleAdminFingerprint === 'absent'
+            && config.googleDriveRootFingerprint === 'absent'
+            && config.googleTemplateFingerprint === 'absent'
+            && config.supabaseUrlFingerprint === 'absent'
+            && config.supabaseServiceRoleFingerprint === 'absent'
+            && config.resendApiKeyFingerprint === 'absent'
+            && config.resendAllowlistFingerprint === 'absent'
+            && config.resendSenderFingerprint === 'absent'
+            && config.cronSecretFingerprint === 'absent';
         const attested = attestationResponse.status === 200
+            && providersAbsent
             && envelope.workerVersionId === expectedVersionId
             && envelope.workerIdentity === fulfillmentWorker
             && await verifyRuntimeAttestation(envelope, {
@@ -707,7 +1075,12 @@ async function verifyFreshFulfillmentBootstrap(expectedVersionId: string): Promi
             status: attested ? 'ok' : 'failed',
             name: 'fresh_fulfillment_bootstrap_hmac_before_web',
             message: 'Fresh HMAC attestation must bind bootstrap config to the just-listed fulfillment version.',
-            details: [`workerVersionMatched=${String(envelope.workerVersionId === expectedVersionId)}`, `proofVerified=${String(attested)}`],
+            details: [
+                `workerVersionMatched=${String(envelope.workerVersionId === expectedVersionId)}`,
+                `providersAbsent=${String(providersAbsent)}`,
+                `proofVerified=${String(attested)}`,
+                `withheld=${withheldFulfillmentProviderSecretNames.join(',')}`,
+            ],
         });
 
         const schedulesResponse = await fetch(
@@ -762,6 +1135,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
             cutoverManifest: toRelativeOrNull(report.latestCutoverManifestPath),
             phaseOneApproval: toRelativeOrNull(report.latestPhaseOneApprovalPath),
             fulfillmentBootstrap: toRelativeOrNull(report.latestFulfillmentBootstrapSummaryPath),
+            fulfillmentBootstrapHmac: toRelativeOrNull(report.latestFulfillmentBootstrapSecretsSummaryPath),
         },
         forbiddenScope: forbiddenScopeLines(),
     }, null, 2)}\n`;
@@ -769,7 +1143,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
     const executionPlan = `${[
         '# Cloudflare Production Worker Phase 1 Execution Plan',
         '',
-        'This is a gated runner package for creating/deploying only the production Worker shell. It is not domain approval and it is not secret loading approval.',
+        'This is a gated runner package for creating/deploying only the inert production_bootstrap web Worker. It is not active-release, domain or secret-loading approval.',
         '',
         '## Current Mode',
         '',
@@ -784,15 +1158,14 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         `- Worker: \`${report.target.productionWorker}\`.`,
         `- Existing Pages project that currently owns domains: \`${report.target.pagesProject}\`.`,
         `- Domains that must not move in phase 1: ${report.target.customDomains.map((domain) => `\`${domain}\``).join(', ')}.`,
-        '- Required runtime state claim: `CHECKOUT_ENABLED=false`.',
+        '- Required runtime state: `WEB_RUNTIME_MODE=bootstrap`, checkout false, email disabled and quotas zero.',
+        '- Every application route must return `503 WEB_RUNTIME_BOOTSTRAP`; only `/health` and authenticated runtime attestation remain diagnostic.',
         '',
         '## Evidence To Review First',
         '',
-        `- No-write preflight: ${toRelativeOrFallback(report.latestPreflightSummaryPath, 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md')}`,
-        `- Variable matrix: ${toRelativeOrFallback(report.latestVariableMatrixPath, 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/cloudflare-production-worker-variable-matrix.md')}`,
-        `- Cutover manifest: ${toRelativeOrFallback(report.latestCutoverManifestPath, 'outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/cloudflare-production-runtime-cutover-manifest.json')}`,
-        `- Phase-1 approval request: ${toRelativeOrFallback(report.latestPhaseOneApprovalPath, 'outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/approval-request-phase-1-worker.md')}`,
         `- Fulfillment bootstrap proof: ${toRelativeOrFallback(report.latestFulfillmentBootstrapSummaryPath, 'outputs/launch-cloudflare-production-fulfillment-bootstrap/<timestamp>/summary.md')}`,
+        `- Fulfillment HMAC-only proof: ${toRelativeOrFallback(report.latestFulfillmentBootstrapSecretsSummaryPath, 'outputs/launch-cloudflare-production-fulfillment-bootstrap-secrets/<timestamp>/summary.md')}`,
+        '- Local bootstrap sources: `wrangler.toml`, `scripts/dev/build-production-bootstrap.ts`, `astro.config.mjs`, `src/middleware.ts`.',
         '',
         '## Commands Encoded In This Runner',
         '',
@@ -813,8 +1186,9 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         '',
         '- Stop if the logged-in Cloudflare account is not `d1a22bcf6477ff2ff31d2bfb83084e44`.',
         '- Stop if dry-run mentions `espanolhonesto.com` or `www.espanolhonesto.com`.',
-        '- Stop if dry-run does not show `CHECKOUT_ENABLED=false`.',
-        '- Stop if Worker already exists with unknown ownership or unexpected routes.',
+        '- Stop if dry-run does not show bootstrap mode, checkout false and email disabled with zero quotas.',
+        '- Stop if the generated config is not `targetEnvironment=production_bootstrap` or contains routes, cron or active-provider bindings.',
+        '- Stop if the remote Worker contains any secret outside the minimal bootstrap allowlist.',
         '- Stop if any tool asks to move a domain, edit DNS, delete Pages, put secrets or enable checkout.',
         '',
     ].join('\n')}\n`;
@@ -837,10 +1211,11 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         '',
         '## Allowed Scope After Match',
         '',
-        '- Build current workspace.',
-        '- Run immediate Wrangler production dry-run.',
-        '- Deploy only Worker `espanolhonesto` to account `d1a22bcf6477ff2ff31d2bfb83084e44` with `CHECKOUT_ENABLED=false` and `--keep-vars`.',
-        '- Verify deployments list and secret names by read-only commands.',
+        '- Build the current workspace only with `pnpm run build:production:bootstrap`.',
+        '- Validate the resolved `dist/server/wrangler.json` and run an immediate Wrangler dry-run.',
+        '- Deploy only Worker `espanolhonesto` to account `d1a22bcf6477ff2ff31d2bfb83084e44` with bootstrap/checkout/email inertness and `--keep-vars`.',
+        '- Verify deployments, minimal secret-name shape, direct health and representative 503 routes.',
+        '- Do not require final legal identity or Stripe Live for this inert bootstrap; both remain mandatory for the later active build.',
         '',
         '## Forbidden Scope',
         '',
@@ -882,8 +1257,8 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         'corepack pnpm launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
-        '  --summary "Cloudflare production Worker phase 1 completed: Worker espanolhonesto exists in the intended Cloudflare account with checkout disabled; domains remain on Pages until later approval."',
-        `  --environment "Cloudflare account ${report.target.accountId}; Worker ${report.target.productionWorker}; phase 1 only; domains not moved"`,
+        '  --summary "Cloudflare production web bootstrap completed: Worker espanolhonesto is inert, checkout/email are disabled and representative application routes return 503; domains remain on Pages."',
+        `  --environment "Cloudflare account ${report.target.accountId}; Worker ${report.target.productionWorker}; production_bootstrap only; domains not moved"`,
         '  --owner Alin',
         `  --evidence "command_output=../../${toRelative(report.summaryPath)}::phase-1 runner summary reviewed; replace placeholder after actual approved execution"`,
         `  --evidence "command_output=../../${toRelative(report.commandManifestPath)}::command manifest reviewed; no secret values stored"`,
@@ -928,6 +1303,8 @@ function renderSummary(report: PhaseOneReport): string {
         '',
         `- Account: ${report.target.accountLabel} (${report.target.accountId}).`,
         `- Worker: \`${report.target.productionWorker}\`.`,
+        '- Runtime: `production_bootstrap` / `WEB_RUNTIME_MODE=bootstrap`.',
+        '- Checkout/email: disabled; quotas zero.',
         `- Domains not moved in phase 1: ${report.target.customDomains.map((domain) => `\`${domain}\``).join(', ')}.`,
         '',
         '## Checks',
@@ -962,6 +1339,9 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'No DNS change',
         'No Pages deletion',
         'No secret value printing',
+        'production_bootstrap',
+        'WEB_RUNTIME_MODE=bootstrap',
+        'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
     ];
@@ -993,7 +1373,6 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
 
 function buildCommands(): Record<string, CommandSpec> & {
     readonly: CommandSpec;
-    cutoverPreflight: CommandSpec;
     build: CommandSpec;
     deployDryRun: CommandSpec;
     deployKeepVars: CommandSpec;
@@ -1009,24 +1388,16 @@ function buildCommands(): Record<string, CommandSpec> & {
             timeoutMs: 120000,
             writesCloudflare: false,
         },
-        cutoverPreflight: {
-            id: 'cloudflare-production-runtime-cutover-preflight',
-            display: 'corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'launch:cloudflare-production-runtime-cutover-preflight'],
-            timeoutMs: 240000,
-            writesCloudflare: false,
-        },
         build: {
-            id: 'pnpm-build',
-            display: 'corepack pnpm --config.verify-deps-before-run=false run build:production:release',
+            id: 'pnpm-build-production-bootstrap',
+            display: 'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
             bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:release'],
+            args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:bootstrap'],
             timeoutMs: 240000,
             writesCloudflare: false,
         },
         deployDryRun: {
-            id: 'wrangler-deploy-production-dry-run',
+            id: 'wrangler-deploy-production-bootstrap-dry-run',
             display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
             bin: 'corepack',
             args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--dry-run'],
@@ -1034,7 +1405,7 @@ function buildCommands(): Record<string, CommandSpec> & {
             writesCloudflare: false,
         },
         deployKeepVars: {
-            id: 'wrangler-deploy-production-keep-vars',
+            id: 'wrangler-deploy-production-bootstrap-keep-vars',
             display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
             bin: 'corepack',
             args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
@@ -1077,7 +1448,9 @@ function forbiddenScopeLines(): string[] {
         'No custom-domain attachment.',
         'No `CHECKOUT_ENABLED=true`.',
         'No secret value printing or storage in outputs.',
+        'No web secret loading in phase 1.',
         'No Stripe live mode, real checkout session or real payment.',
+        'No final legal identity requirement for the inert bootstrap build; active release still requires it.',
         'No Supabase, Google, Resend, Sentry, Turnstile or GitHub writes.',
     ];
 }
@@ -1104,6 +1477,21 @@ function latestGeneratedPath(folderName: string, fileName: string): string | nul
         .reverse();
 
     return candidates[0] ?? null;
+}
+
+function latestGeneratedPathMatching(folderName: string, fileName: string, snippets: readonly string[]): string | null {
+    const root = path.join(process.cwd(), 'outputs', folderName);
+    if (!existsSync(root)) return null;
+    const candidates = readdirSync(root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => path.join(root, entry.name, fileName))
+        .filter((candidate) => existsSync(candidate))
+        .sort()
+        .reverse();
+    return candidates.find((candidate) => {
+        const contents = readFileSync(candidate, 'utf8');
+        return snippets.every((snippet) => contents.includes(snippet));
+    }) ?? null;
 }
 
 function toRelative(filePath: string): string {

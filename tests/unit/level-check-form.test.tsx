@@ -69,6 +69,19 @@ describe('LevelCheckForm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('requires diagnostic consent after adult confirmation is satisfied', async () => {
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+
+        renderLevelCheckForm();
+        fillRequiredDiagnosticFields();
+        fireEvent.click(document.querySelector('input[name="adultConfirmed"]') as HTMLInputElement);
+        fireEvent.click(screen.getByRole('button', { name: translations.button }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(translations.consentError);
+        expect(fetchMock).not.toHaveBeenCalled();
+    });
+
     it('blocks submission with a security error when consent is checked but Turnstile is pending', async () => {
         const fetchMock = vi.fn();
         vi.stubGlobal('fetch', fetchMock);

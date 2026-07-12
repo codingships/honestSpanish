@@ -1,4 +1,4 @@
-import { defineConfig } from 'astro/config';
+import { defineConfig, sessionDrivers } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
 import tailwind from '@astrojs/tailwind';
@@ -15,6 +15,16 @@ import path from 'node:path';
 
 const e2eRuntimeRoot = new URL('./tests/e2e/runtime/', import.meta.url);
 const e2eRuntimeIsolated = process.env.E2E_RUNTIME_ISOLATED === 'true';
+const e2eSsrOptimizedDependencies = [
+    '@marsidev/react-turnstile',
+    '@supabase/ssr',
+    '@supabase/supabase-js',
+    'react',
+    'react/jsx-dev-runtime',
+    'react/jsx-runtime',
+    'react-dom',
+    'react-dom/server',
+];
 if (!e2eRuntimeIsolated && !process.env.CLOUDFLARE_ENV) {
     // Astro 6/@astrojs-cloudflare selects Wrangler environments with
     // CLOUDFLARE_ENV. Local commands must fail safe to staging.
@@ -39,8 +49,19 @@ const envMode = e2eRuntimeIsolated
 const env = loadEnv(envMode, envDirectory, '');
 const legalIdentitySource = readFileSync(new URL('./src/lib/legal-identity.ts', import.meta.url), 'utf8');
 const legalIdentityIsExample = /LEGAL_IDENTITY_MODE\s*=\s*['"]example['"]/.test(legalIdentitySource);
+const productionBootstrap = env.PUBLIC_APP_ENV === 'production'
+    && process.env.CLOUDFLARE_ENV === 'production_bootstrap'
+    && env.WEB_RUNTIME_MODE === 'bootstrap'
+    && env.CHECKOUT_ENABLED === 'false'
+    && env.CHECKOUT_ENABLED_OVERRIDE === 'false'
+    && env.EMAIL_DELIVERY_MODE === 'disabled'
+    && env.EMAIL_DAILY_RECIPIENT_LIMIT === '0'
+    && env.EMAIL_MONTHLY_RECIPIENT_LIMIT === '0';
 
-if (env.PUBLIC_APP_ENV === 'production' && legalIdentityIsExample) {
+if (process.env.CLOUDFLARE_ENV === 'production_bootstrap' && !productionBootstrap) {
+    throw new Error('[production-bootstrap] Refused: production bootstrap must keep web, checkout and email inert.');
+}
+if (env.PUBLIC_APP_ENV === 'production' && legalIdentityIsExample && !productionBootstrap) {
     throw new Error('[legal-identity] Production build refused: replace example legal identity with verified public data.');
 }
 const e2eProcessKeys = [
@@ -122,6 +143,12 @@ const keystaticEnabled = env.KEYSTATIC_ENABLED === 'true' && process.env.NODE_EN
 export default defineConfig({
     site: 'https://espanolhonesto.com',
     output: 'server',
+    // The application uses Supabase cookies and never Astro sessions. An
+    // in-memory no-op-sized driver avoids auto-provisioning a Cloudflare KV
+    // namespace that the runtime would not use.
+    session: {
+        driver: sessionDrivers.lruCache({ max: 32 }),
+    },
     devToolbar: {
         enabled: false,
     },
@@ -130,7 +157,17 @@ export default defineConfig({
         ...(process.env.ESPANOL_RUNTIME_ENV_DIR ? {
             cacheDir: path.join(process.cwd(), 'node_modules', '.vite-staging'),
         } : {}),
-        ...(e2eRuntimeIsolated ? { envDir: fileURLToPath(e2eRuntimeRoot) } : {}),
+        ...(e2eRuntimeIsolated ? {
+            envDir: fileURLToPath(e2eRuntimeRoot),
+            cacheDir: path.join(process.cwd(), 'node_modules', '.vite-e2e'),
+            environments: {
+                ssr: {
+                    optimizeDeps: {
+                        include: e2eSsrOptimizedDependencies,
+                    },
+                },
+            },
+        } : {}),
         define: {
             __SENTRY_DSN__: JSON.stringify(sentryDsn),
             __SENTRY_ENVIRONMENT__: JSON.stringify(sentryEnvironment),
@@ -157,6 +194,7 @@ export default defineConfig({
         }
     },
     adapter: cloudflare({
+        imageService: 'passthrough',
         prerenderEnvironment: 'node',
         ...(e2eRuntimeIsolated ? {
             configPath: './tests/e2e/runtime/wrangler.toml',

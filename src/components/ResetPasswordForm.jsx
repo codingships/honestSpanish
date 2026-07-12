@@ -20,7 +20,7 @@ export default function ResetPasswordForm({ lang, translations }) {
     const recoveryCopy = {
         es: {
             verifying: 'Verificando enlace...',
-            invalid: 'Este enlace no es valido o ha caducado. Pide un nuevo enlace desde iniciar sesion.',
+            invalid: 'Este enlace no es válido o ha caducado. Pide un nuevo enlace desde iniciar sesión.',
         },
         en: {
             verifying: 'Verifying link...',
@@ -92,7 +92,7 @@ export default function ResetPasswordForm({ lang, translations }) {
             setSuccess(true);
         } catch (err) {
             console.error(err);
-            setError(err.message || 'An error occurred');
+            setError(t.auth.error.generic);
         } finally {
             setLoading(false);
         }
@@ -107,9 +107,9 @@ export default function ResetPasswordForm({ lang, translations }) {
         return (
             <div role="status" aria-live="polite" className="w-full max-w-md mx-auto bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] text-center">
                 <div className="text-4xl mb-4" aria-hidden="true">✅</div>
-                <h2 className="font-display text-2xl text-[#006064] uppercase mb-4">
+                <h1 className="font-display text-2xl text-[#006064] uppercase mb-4">
                     {t.auth.success.passwordChanged}
-                </h2>
+                </h1>
                 <a
                     href={`/${lang}/login`}
                     className="inline-block bg-[#006064] text-white px-6 py-3 font-bold text-sm uppercase border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
@@ -123,9 +123,9 @@ export default function ResetPasswordForm({ lang, translations }) {
     return (
         <div className="w-full max-w-md mx-auto bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
             <div className="text-center mb-6">
-                <h2 id={titleId} className="font-display text-2xl sm:text-3xl leading-tight text-[#006064] uppercase mb-2">
+                <h1 id={titleId} className="font-display text-2xl sm:text-3xl leading-tight text-[#006064] uppercase mb-2">
                     {t.auth.resetPassword}
-                </h2>
+                </h1>
             </div>
 
             {error && (
@@ -175,7 +175,7 @@ export default function ResetPasswordForm({ lang, translations }) {
                         autoComplete="new-password"
                         disabled={loading || !sessionReady}
                         aria-describedby={error ? errorId : undefined}
-                        className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]`}
+                        className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064]`}
                         placeholder="••••••••"
                     />
                 </div>
@@ -195,7 +195,7 @@ export default function ResetPasswordForm({ lang, translations }) {
                         autoComplete="new-password"
                         disabled={loading || !sessionReady}
                         aria-describedby={error ? errorId : undefined}
-                        className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]`}
+                        className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064]`}
                         placeholder="••••••••"
                     />
                 </div>

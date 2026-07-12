@@ -25,7 +25,11 @@ describe('fulfillment Worker runtime boundary', () => {
             config.indexOf('[env.staging]'),
             config.indexOf('[env.production_bootstrap]'),
         );
-        const productionConfig = config.slice(config.indexOf('[env.production_bootstrap]'));
+        const bootstrapConfig = config.slice(
+            config.indexOf('[env.production_bootstrap]'),
+            config.indexOf('[env.production]'),
+        );
+        const productionConfig = config.slice(config.indexOf('[env.production]'));
 
         expect(config).toContain('keep_vars = true');
         expect(config).toContain('[alias]');
@@ -38,9 +42,19 @@ describe('fulfillment Worker runtime boundary', () => {
         expect(stagingConfig).toContain('dead_letter_queue = "espanol-honesto-fulfillment-staging-dlq"');
         expect(stagingConfig).toContain('max_batch_size = 1');
         expect(stagingConfig).toContain('max_concurrency = 1');
-        expect(productionConfig).not.toContain('queues.producers');
-        expect(productionConfig).not.toContain('queues.consumers');
-        expect(productionConfig).not.toContain('FULFILLMENT_QUEUE');
+        expect(bootstrapConfig).not.toContain('queues.producers');
+        expect(bootstrapConfig).not.toContain('queues.consumers');
+        expect(bootstrapConfig).not.toContain('FULFILLMENT_QUEUE');
+        expect(productionConfig).toContain('[[env.production.queues.producers]]');
+        expect(productionConfig).toContain('binding = "FULFILLMENT_QUEUE"');
+        expect(productionConfig).toContain('queue = "espanol-honesto-fulfillment-production-queue"');
+        expect(productionConfig).toContain('[[env.production.queues.consumers]]');
+        expect(productionConfig).toContain('max_batch_size = 1');
+        expect(productionConfig).toContain('max_batch_timeout = 1');
+        expect(productionConfig).toContain('max_retries = 5');
+        expect(productionConfig).toContain('dead_letter_queue = "espanol-honesto-fulfillment-production-dlq"');
+        expect(productionConfig).toContain('max_concurrency = 1');
+        expect(productionConfig).toContain('retry_delay = 30');
         expect(packageJson).toContain('"deploy": "wrangler deploy --config wrangler.toml --env staging"');
         expect(packageJson).toContain('"deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run"');
         expect(worker).not.toContain('applyRuntimeEnv');

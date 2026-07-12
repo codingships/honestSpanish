@@ -27,11 +27,15 @@ if (mismatches.length > 0) {
 process.env.CLOUDFLARE_ENV = 'production';
 process.env.NODE_ENV = 'production';
 process.env.PUBLIC_APP_ENV = 'production';
+process.env.WEB_RUNTIME_MODE = 'active';
 process.env.SUPABASE_EXPECTED_PROJECT_REF = productionRef;
 process.env.PUBLIC_SITE_URL = productionSite;
+process.env.CHECKOUT_ENABLED = 'false';
+process.env.CHECKOUT_ENABLED_OVERRIDE = 'false';
 // Production runtime secrets are Cloudflare bindings. They must never be
 // serialized into dist/server/.dev.vars by the Astro adapter.
 process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV = 'false';
+process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = 'false';
 
 const command = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
 const result = spawnSync(command, ['pnpm', 'exec', 'astro', 'build', '--mode', 'production'], {

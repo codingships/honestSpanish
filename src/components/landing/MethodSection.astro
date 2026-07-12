@@ -10,7 +10,7 @@ interface Props {
   manifesto: string;
   closing: string;
   subtitle: string;
-  columns: MethodColumn[];
+  columns: readonly MethodColumn[];
 }
 
 const { headline, manifesto, closing, subtitle, columns } = Astro.props;

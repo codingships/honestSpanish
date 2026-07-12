@@ -1,4 +1,5 @@
 import * as dotenv from 'dotenv';
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -49,6 +50,28 @@ interface SentryProject {
     id?: string;
     slug?: string;
     name?: string;
+}
+
+interface SentryProjectDetails {
+    id?: string;
+    slug?: string;
+    status?: string;
+    access?: string[];
+    dataScrubber?: boolean;
+    dataScrubberDefaults?: boolean;
+    scrubIPAddresses?: boolean;
+    defaultEnvironment?: string;
+    latestRelease?: { version?: string } | null;
+    options?: Record<string, unknown>;
+}
+
+interface SentryMember {
+    id?: string;
+    role?: string;
+    orgRole?: string;
+    expired?: boolean;
+    pending?: boolean;
+    user?: { id?: string } | null;
 }
 
 interface SentryIssue {
@@ -136,9 +159,204 @@ if (token && !looksPlaceholder(token)) {
     checks.push(...resolution.checks);
 
     if (projectResolution.orgSlug && projectResolution.projectSlug) {
+        checks.push(await checkProjectPrivacyAndRelease(projectResolution.orgSlug, projectResolution.projectSlug));
+        checks.push(await checkAlertConfiguration(projectResolution.orgSlug, projectResolution.projectSlug));
+        checks.push(await checkNotificationOwnerAggregate(projectResolution.orgSlug));
         allEnvironment = await queryIssues(projectResolution.orgSlug, projectResolution.projectSlug, null);
         selectedEnvironmentSummary = await queryIssues(projectResolution.orgSlug, projectResolution.projectSlug, selectedEnvironment);
     }
+}
+
+async function checkNotificationOwnerAggregate(orgSlug: string): Promise<Check> {
+    try {
+        const members = await sentryGet<SentryMember[]>(`/api/0/organizations/${encodeURIComponent(orgSlug)}/members/`);
+        const active = members.filter((member) => member.expired !== true && member.pending !== true);
+        const privileged = active.filter((member) => ['owner', 'manager', 'admin'].includes(member.orgRole ?? member.role ?? ''));
+        const exactOwner = privileged.length === 1 ? privileged[0] : active.length === 1 ? active[0] : null;
+        const targetId = exactOwner?.user?.id ?? exactOwner?.id;
+        const byRole: Record<string, number> = {};
+        for (const member of active) count(byRole, member.orgRole ?? member.role ?? 'unknown');
+
+        return {
+            status: exactOwner && targetId ? 'ok' : 'warning',
+            name: 'sentry_notification_owner_aggregate_readonly',
+            message: exactOwner && targetId
+                ? 'Exactly one active notification-owner candidate can be pinned without persisting identity data.'
+                : 'Sentry notification ownership is ambiguous and needs a dashboard/user choice before alert creation.',
+            details: [
+                `members=${members.length}`,
+                `active_members=${active.length}`,
+                `privileged_active_members=${privileged.length}`,
+                `roles=${JSON.stringify(byRole)}`,
+                `exact_owner_candidate=${Boolean(exactOwner && targetId)}`,
+                `owner_id_fingerprint=${targetId ? createHash('sha256').update(targetId, 'utf8').digest('hex') : 'none'}`,
+                'member_ids_persisted=false',
+                'emails_or_names_persisted=false',
+            ],
+        };
+    } catch (error) {
+        return {
+            status: 'warning',
+            name: 'sentry_notification_owner_aggregate_readonly',
+            message: 'Sentry organization member ownership could not be read.',
+            details: [safeErrorMessage(error)],
+        };
+    }
+}
+
+async function checkProjectPrivacyAndRelease(orgSlug: string, projectSlug: string): Promise<Check> {
+    try {
+        const project = await sentryGet<SentryProjectDetails>(
+            `/api/0/projects/${encodeURIComponent(orgSlug)}/${encodeURIComponent(projectSlug)}/`,
+        );
+        const scrubData = project.dataScrubber === true || project.options?.['sentry:scrub_data'] === true;
+        const scrubDefaults = project.dataScrubberDefaults === true || project.options?.['sentry:scrub_defaults'] === true;
+        const scrubIp = project.scrubIPAddresses === true || project.options?.['sentry:scrub_ip_address'] === true;
+        const privacyReady = scrubData && scrubDefaults && scrubIp;
+        const releasePresent = Boolean(project.latestRelease?.version);
+
+        return {
+            status: privacyReady ? 'ok' : 'warning',
+            name: 'sentry_project_privacy_and_release_readonly',
+            message: privacyReady
+                ? 'Effective project privacy scrubbing is enabled; release/environment metadata was read as aggregate state.'
+                : 'One or more recommended Sentry privacy scrubbing controls are not enabled for the project.',
+            details: [
+                `project_status=${project.status ?? 'unknown'}`,
+                `data_scrubber=${scrubData}`,
+                `default_scrubbers=${scrubDefaults}`,
+                `scrub_ip_addresses=${scrubIp}`,
+                `default_environment=${safeText(project.defaultEnvironment)}`,
+                `latest_release_present=${releasePresent}`,
+                `alerts_read_access=${project.access?.includes('alerts:read') === true}`,
+                `alerts_write_access=${project.access?.includes('alerts:write') === true}`,
+                'project_security_token_persisted=false',
+                'sensitive_fields_persisted=false',
+            ],
+        };
+    } catch (error) {
+        return {
+            status: 'warning',
+            name: 'sentry_project_privacy_and_release_readonly',
+            message: 'Sentry project privacy/release metadata could not be read.',
+            details: [safeErrorMessage(error)],
+        };
+    }
+}
+
+async function checkAlertConfiguration(orgSlug: string, projectSlug: string): Promise<Check> {
+    const endpointResults: string[] = [];
+    const alertNames = new Set<string>();
+    const actionTypes = new Set<string>();
+    let total = 0;
+    let readableEndpoints = 0;
+    let detectorCount = 0;
+    let enabledErrorDetectors = 0;
+    let exactErrorDetectorFingerprint = 'none';
+
+    for (const endpoint of [
+        {
+            name: 'workflows',
+            path: `/api/0/organizations/${encodeURIComponent(orgSlug)}/workflows/`,
+            params: { project: projectSlug },
+        },
+        {
+            name: 'legacy_issue_rules',
+            path: `/api/0/projects/${encodeURIComponent(orgSlug)}/${encodeURIComponent(projectSlug)}/rules/`,
+            params: {},
+        },
+    ]) {
+        try {
+            const payload = await sentryGet<unknown>(endpoint.path, endpoint.params);
+            const records = extractAlertRecords(payload);
+            readableEndpoints += 1;
+            total += records.length;
+            endpointResults.push(`${endpoint.name}:ok:${records.length}`);
+            for (const record of records) {
+                if (typeof record.name === 'string' && record.name.trim()) alertNames.add(safeText(record.name));
+                collectActionTypes(record, actionTypes);
+            }
+        } catch (error) {
+            endpointResults.push(`${endpoint.name}:${safeErrorMessage(error)}`);
+        }
+    }
+
+    try {
+        const payload = await sentryGet<unknown>(
+            `/api/0/organizations/${encodeURIComponent(orgSlug)}/detectors/`,
+            { project: projectSlug },
+        );
+        const detectors = extractAlertRecords(payload);
+        const enabledError = detectors.filter((record) => record.type === 'error' && record.enabled !== false);
+        detectorCount = detectors.length;
+        enabledErrorDetectors = enabledError.length;
+        const id = enabledError.length === 1 && (typeof enabledError[0].id === 'string' || typeof enabledError[0].id === 'number')
+            ? String(enabledError[0].id)
+            : null;
+        exactErrorDetectorFingerprint = id
+            ? createHash('sha256').update(id, 'utf8').digest('hex')
+            : 'none';
+        endpointResults.push(`detectors:ok:${detectors.length}`);
+    } catch (error) {
+        endpointResults.push(`detectors:${safeErrorMessage(error)}`);
+    }
+
+    const configured = total > 0;
+    return {
+        status: readableEndpoints === 0 || !configured ? 'warning' : 'ok',
+        name: 'sentry_alert_configuration_readonly',
+        message: configured
+            ? 'Sentry returned active alert/workflow configuration metadata for the exact project.'
+            : 'No readable alert/workflow configuration was found for the exact Sentry project.',
+        details: [
+            `readable_endpoints=${readableEndpoints}`,
+            `alert_or_workflow_records=${total}`,
+            `detectors=${detectorCount}`,
+            `enabled_error_detectors=${enabledErrorDetectors}`,
+            `exact_error_detector_fingerprint=${exactErrorDetectorFingerprint}`,
+            `names=${[...alertNames].sort().slice(0, 20).join('|') || 'none'}`,
+            `action_types=${[...actionTypes].sort().join('|') || 'none'}`,
+            `endpoint_results=${endpointResults.join('|')}`,
+            'notification_target_ids_persisted=false',
+            'integration_tokens_persisted=false',
+        ],
+    };
+}
+
+function extractAlertRecords(payload: unknown): Array<Record<string, unknown>> {
+    if (Array.isArray(payload)) return payload.filter(isRecord);
+    if (!isRecord(payload)) return [];
+    for (const key of ['data', 'results', 'workflows', 'rules']) {
+        const value = payload[key];
+        if (Array.isArray(value)) return value.filter(isRecord);
+    }
+    return [];
+}
+
+function collectActionTypes(value: unknown, output: Set<string>, depth = 0): void {
+    if (depth > 5) return;
+    if (Array.isArray(value)) {
+        for (const item of value) collectActionTypes(item, output, depth + 1);
+        return;
+    }
+    if (!isRecord(value)) return;
+    for (const [key, nested] of Object.entries(value)) {
+        if ((key === 'type' || key === 'actionType') && typeof nested === 'string' && nested.length <= 100) {
+            output.add(safeText(nested));
+        }
+        if (key === 'actions' || key === 'action' || key === 'config' || key === 'data') {
+            collectActionTypes(nested, output, depth + 1);
+        }
+    }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function safeText(value: string | null | undefined): string {
+    if (!value) return 'missing';
+    return value.replace(/[|\r\n]/gu, ' ').slice(0, 120);
 }
 
 checks.push(checkUnresolvedIssueThreshold(selectedEnvironmentSummary, issueThreshold));
@@ -472,7 +690,7 @@ function renderMarkdown(report: Report): string {
         '',
         '## Scope',
         '',
-        'This command is read-only. It uses Sentry GET endpoints for organizations, projects and issue lists. It does not resolve issues, create alerts, change projects, upload sourcemaps, query event details, fetch stack traces, fetch raw payloads, mutate dashboards, retrieve secret values or write to any external service.',
+        'This command is read-only. It uses Sentry GET endpoints for organizations, projects, privacy/release posture, alert/workflow aggregates and issue lists. It does not resolve issues, create alerts, change projects, upload sourcemaps, query event details, fetch stack traces, fetch raw payloads, mutate dashboards, retrieve secret values or write to any external service.',
         '',
         '## Project Resolution',
         '',

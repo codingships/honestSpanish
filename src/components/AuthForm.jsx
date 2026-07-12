@@ -10,7 +10,7 @@ const getLangFromUrl = () => {
     return ['es', 'en', 'ru'].includes(lang) ? lang : 'es';
 };
 
-export default function AuthForm({ lang: langProp, translations }) {
+export default function AuthForm({ lang: langProp, translations, initialError }) {
     const lang = langProp || getLangFromUrl();
 
     // mode: 'login' | 'register' | 'forgotPassword'
@@ -19,7 +19,7 @@ export default function AuthForm({ lang: langProp, translations }) {
     const [password, setPassword] = useState('');
     const [adultConfirmed, setAdultConfirmed] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
+    const [error, setError] = useState(initialError || null);
     const [successMessage, setSuccessMessage] = useState(null);
 
     const t = translations;
@@ -74,15 +74,19 @@ export default function AuthForm({ lang: langProp, translations }) {
                 });
                 if (error) throw error;
 
-                const currentLang = getLangFromUrl();
+                const currentLang = lang;
                 window.location.href = `/api/auth/post-login?lang=${currentLang}`;
             } else {
                 const fullName = normalizedEmail.split('@')[0];
+                const currentLang = lang;
+                const confirmationUrl = new URL('/api/auth/confirm', window.location.origin);
+                confirmationUrl.searchParams.set('lang', currentLang);
 
                 const { data, error } = await supabase.auth.signUp({
                     email: normalizedEmail,
                     password,
                     options: {
+                        emailRedirectTo: confirmationUrl.toString(),
                         data: {
                             full_name: fullName,
                             adult_confirmed: true,
@@ -94,7 +98,7 @@ export default function AuthForm({ lang: langProp, translations }) {
                 if (error) throw error;
 
                 if (data?.session) {
-                    window.location.href = `/api/auth/post-login?lang=${getLangFromUrl()}`;
+                    window.location.href = `/api/auth/post-login?lang=${currentLang}`;
                 } else {
                     setSuccessMessage(t.auth.success.registered);
                 }
@@ -105,7 +109,7 @@ export default function AuthForm({ lang: langProp, translations }) {
             } else if (err.message && err.message.includes("User already registered")) {
                 setError(t.auth.error.emailTaken);
             } else {
-                setError(err.message || "An error occurred");
+                setError(t.auth.error.generic);
             }
         } finally {
             setLoading(false);
@@ -127,14 +131,14 @@ export default function AuthForm({ lang: langProp, translations }) {
         return (
             <div className="w-full max-w-md mx-auto relative">
                 <a href={`/${lang}`} className="absolute -top-10 left-0 text-[#006064] text-sm font-bold font-mono hover:opacity-70 transition-opacity">
-                    ← Volver
+                    ← {t.auth.backHome}
                 </a>
                 <div className="bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
                     <div className="text-center mb-6">
-                        <h2 className="font-display text-3xl text-[#006064] uppercase mb-2">
+                        <h1 className="font-display text-3xl text-[#006064] uppercase mb-2">
                             {t.auth.resetPassword}
-                        </h2>
-                        <p className="text-sm text-[#006064]/70">
+                        </h1>
+                        <p className="text-sm text-[#006064]">
                             {t.auth.resetPasswordInstructions}
                         </p>
                     </div>
@@ -163,8 +167,8 @@ export default function AuthForm({ lang: langProp, translations }) {
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064] placeholder-[#006064]/30`}
-                                placeholder="nombre@ejemplo.com"
+                                className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064] placeholder-[#006064]/50`}
+                                placeholder={t.auth.emailPlaceholder}
                             />
                         </div>
 
@@ -197,13 +201,13 @@ export default function AuthForm({ lang: langProp, translations }) {
     return (
         <div className="w-full max-w-md mx-auto relative">
             <a href={`/${lang}`} className="absolute -top-10 left-0 text-[#006064] text-sm font-bold font-mono hover:opacity-70 transition-opacity">
-                ← Volver
+                ← {t.auth.backHome}
             </a>
             <div className="bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
                 <div className="text-center mb-8">
-                    <h2 className="font-display text-3xl text-[#006064] uppercase mb-2">
+                    <h1 className="font-display text-3xl text-[#006064] uppercase mb-2">
                         {mode === 'login' ? t.auth.login : t.auth.register}
-                    </h2>
+                    </h1>
                 </div>
 
                 {error && (
@@ -230,8 +234,8 @@ export default function AuthForm({ lang: langProp, translations }) {
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
-                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064] placeholder-[#006064]/30`}
-                            placeholder="nombre@ejemplo.com"
+                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064] placeholder-[#006064]/50`}
+                            placeholder={t.auth.emailPlaceholder}
                         />
                     </div>
 
@@ -246,7 +250,7 @@ export default function AuthForm({ lang: langProp, translations }) {
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
-                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]`}
+                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064]`}
                             placeholder="••••••••"
                         />
                     </div>

@@ -1,12 +1,12 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
 import PaymentRecoveryActions from '../../../../components/admin/PaymentRecoveryActions';
-import { useTranslations } from '../../../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 
 export const prerender = false;
 
-const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 // Get Supabase client and verify user
@@ -58,13 +58,13 @@ const { data: paymentsRaw } = await supabase
     `)
     .order('created_at', { ascending: false });
 
-const payments = (paymentsRaw || []).map((pay: any) => ({
+const payments = (paymentsRaw || []).map((pay) => ({
     id: pay.id,
     student_id: pay.student_id,
-    amount: pay.amount,
+    amount: pay.amount ?? 0,
     amount_refunded: pay.amount_refunded || 0,
     currency: pay.currency || 'eur',
-    status: pay.status,
+    status: pay.status ?? 'unknown',
     created_at: pay.created_at,
     stripe_payment_intent_id: pay.stripe_payment_intent_id,
     student_name: pay.profiles?.full_name,
@@ -82,8 +82,8 @@ const startOfMonth = new Date();
 startOfMonth.setDate(1);
 startOfMonth.setHours(0, 0, 0, 0);
 
-const thisMonthPayments = payments.filter(p => 
-    p.status === 'succeeded' && new Date(p.created_at) >= startOfMonth
+const thisMonthPayments = payments.filter(p =>
+    p.status === 'succeeded' && p.created_at !== null && new Date(p.created_at) >= startOfMonth
 );
 const totalThisMonth = thisMonthPayments.reduce(
     (sum, p) => sum + Math.max(0, (p.amount || 0) - (p.amount_refunded || 0)),
@@ -100,7 +100,8 @@ const formatCurrency = (cents: number) => {
     }).format(cents / 100);
 };
 
-const formatDate = (dateStr: string) => {
+const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '—';
     const date = new Date(dateStr);
     return date.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
         day: 'numeric',
@@ -111,9 +112,20 @@ const formatDate = (dateStr: string) => {
     });
 };
 
-const getPackageDisplay = (pay: any) => {
+const getPackageDisplay = (pay: (typeof payments)[number]) => {
     if (!pay.package_name) return '—';
-    const name = pay.package_display_name?.[lang] || pay.package_display_name?.['es'] || pay.package_name;
+    const displayName = pay.package_display_name;
+    const localized = displayName && typeof displayName === 'object' && !Array.isArray(displayName)
+        ? displayName[lang]
+        : null;
+    const spanish = displayName && typeof displayName === 'object' && !Array.isArray(displayName)
+        ? displayName.es
+        : null;
+    const name = typeof localized === 'string'
+        ? localized
+        : typeof spanish === 'string'
+            ? spanish
+            : pay.package_name;
     const duration = pay.duration_months ? ` - ${pay.duration_months}m` : '';
     return name + duration;
 };
@@ -300,10 +312,13 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
 
 <script>
     // Client-side filtering
-    const dateFilter = document.getElementById('date-filter') as HTMLSelectElement;
-    const statusFilter = document.getElementById('status-filter') as HTMLSelectElement;
-    const searchFilter = document.getElementById('search-filter') as HTMLInputElement;
-    const rows = document.querySelectorAll('.payment-row');
+    const dateFilterElement = document.getElementById('date-filter');
+    const statusFilterElement = document.getElementById('status-filter');
+    const searchFilterElement = document.getElementById('search-filter');
+    const dateFilter = dateFilterElement instanceof HTMLSelectElement ? dateFilterElement : null;
+    const statusFilter = statusFilterElement instanceof HTMLSelectElement ? statusFilterElement : null;
+    const searchFilter = searchFilterElement instanceof HTMLInputElement ? searchFilterElement : null;
+    const rows = document.querySelectorAll<HTMLElement>('.payment-row');
 
     function filterRows() {
         const dateValue = dateFilter?.value || 'all';
@@ -329,7 +344,7 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
             const showByStatus = statusValue === 'all' || rowStatus === statusValue;
             const showBySearch = !searchValue || rowEmail.includes(searchValue);
 
-            (row as HTMLElement).style.display = (showByDate && showByStatus && showBySearch) ? '' : 'none';
+            row.style.display = (showByDate && showByStatus && showBySearch) ? '' : 'none';
         });
     }
 

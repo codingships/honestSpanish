@@ -56,6 +56,10 @@ const requiredWebAttestationNames = [
     'STRIPE_WEBHOOK_SECRET',
     'STRIPE_EXPECTED_ACCOUNT_ID',
     'STRIPE_PORTAL_CONFIGURATION_ID',
+    'PUBLIC_TURNSTILE_SITE_KEY',
+    'TURNSTILE_SECRET_KEY',
+    'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
 ] as const;
 
 const phase = process.argv[2] as Phase | undefined;
@@ -515,6 +519,7 @@ async function webRuntimeAttestation(expectedVersionId: string): Promise<Check> 
         const config = await buildRuntimeAttestationConfig('web', {
             ...Object.fromEntries(requiredWebAttestationNames.map((name) => [name, secretValue(name)])),
             PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
             SUPABASE_EXPECTED_PROJECT_REF: target.supabaseRef,
             WORKER_IDENTITY: target.webIdentity,
             WORKER_VERSION_ID: expectedVersionId,

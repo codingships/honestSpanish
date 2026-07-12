@@ -38,6 +38,10 @@ Verificar en staging o production segun fase:
 9. Release/deploy tags o contexto suficiente para saber que version fallo.
 10. Si Sentry no esta disponible en la fase actual, registrar accepted risk con owner, motivo, fallback y plan de revision.
 
+El preflight reproducible es `pnpm launch:sentry-readonly -- --env-file .env --environment production --time-range 14d --limit 50`. Ademas de issues agregados, comprueba scrubbing, release, reglas/workflows, detector y ownership sin guardar eventos, titulos, miembros ni IDs sin hash.
+
+Si el proyecto exacto no tiene alertas, `pnpm launch:sentry-production-hardening` prepara un plan GET-only. Su modo aprobado habilita exclusivamente scrub de IP y crea dos workflows `production`: email ante issue nuevo/regresado y email ante 10 eventos del mismo issue en 5 minutos. Exige hashes exactos de detector/owner, autorizacion literal y `--execute-approved`; no cambia issues. Las incidencias historicas se tratan despues con `pnpm launch:sentry-issue-triage-runner`, nunca dentro del hardening.
+
 ## Fallback Sin Sentry Completo
 
 Si el dashboard de Sentry no esta listo antes del RC, el RC puede seguir bloqueado o avanzar solo con riesgo aceptado si:
@@ -77,3 +81,4 @@ No incluir:
 - Se ha probado una alerta segura o se ha documentado por que no se prueba antes del Go/No-Go.
 - La evidencia esta registrada sin secretos.
 - `pnpm launch:operations`, `pnpm launch:security` y `pnpm launch:status` se han rerunteeado despues.
+- El resumen ejecutado de `pnpm launch:sentry-production-hardening -- --execute-approved` acredita `HARDENED_AND_VERIFIED`, o existe un equivalente manual explicitamente aceptado.

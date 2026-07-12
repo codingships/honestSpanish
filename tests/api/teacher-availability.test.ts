@@ -51,13 +51,15 @@ const makeSupabase = ({
     currentRole = 'admin',
     targetRole = 'teacher',
     availability = [{ id: 'slot-1' }],
+    availabilityError = null,
 }: {
     user?: { id: string; email: string } | null;
     currentRole?: string;
     targetRole?: string | null;
     availability?: Array<Record<string, unknown>>;
+    availabilityError?: { code: string } | null;
 } = {}) => {
-    const availabilityQuery = makeThenableChain({ data: availability, error: null });
+    const availabilityQuery = makeThenableChain({ data: availability, error: availabilityError });
     const profileRoleQueue = [currentRole, targetRole];
     const teacherAvailabilityCalls = [availabilityQuery.chain];
 
@@ -200,5 +202,21 @@ describe('/api/teacher/availability', () => {
         expect(availabilityQuery.chain.insert).toHaveBeenCalledWith(expect.objectContaining({
             teacher_id: 'teacher-1',
         }));
+    });
+
+    it.each(['23P01', '23505'])('rejects database-detected overlapping availability (%s)', async (code) => {
+        const { supabase } = makeSupabase({ availabilityError: { code } });
+        await setSupabase(supabase);
+
+        const { POST } = await import('../../src/pages/api/teacher/availability');
+        const response = await POST(makeContext({
+            method: 'POST',
+            body: { teacherId: 'teacher-1', dayOfWeek: 1, startTime: '09:30', endTime: '10:30' },
+        }) as any);
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Availability overlaps an existing active slot',
+        });
     });
 });

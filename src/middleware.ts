@@ -1,10 +1,39 @@
 import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServerClient } from "./lib/supabase-server";
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from "./lib/adult-account";
+import { readRuntimeEnv } from "./lib/runtime-env";
+
+const BOOTSTRAP_DIAGNOSTIC_PATHS = new Set([
+    '/health',
+    '/api/internal/runtime-attestation',
+]);
+
+function inertProductionResponse(errorCode: string): Response {
+    return new Response(JSON.stringify({ errorCode }), {
+        status: 503,
+        headers: {
+            'Cache-Control': 'no-store',
+            'Content-Type': 'application/json; charset=utf-8',
+            'Retry-After': '300',
+            'X-Content-Type-Options': 'nosniff',
+            'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        },
+    });
+}
 
 export const onRequest = defineMiddleware(async (context, next) => {
     const url = new URL(context.request.url);
     const path = url.pathname;
+
+    if (readRuntimeEnv('PUBLIC_APP_ENV', context) === 'production') {
+        const runtimeMode = readRuntimeEnv('WEB_RUNTIME_MODE', context);
+        if (runtimeMode !== 'active') {
+            if (BOOTSTRAP_DIAGNOSTIC_PATHS.has(path)) return next();
+            return inertProductionResponse(
+                runtimeMode === 'bootstrap' ? 'WEB_RUNTIME_BOOTSTRAP' : 'WEB_RUNTIME_INVALID',
+            );
+        }
+    }
 
     // Extract language and path segments
     const pathSegments = path.split('/').filter(Boolean);

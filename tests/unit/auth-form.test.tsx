@@ -18,8 +18,8 @@ vi.mock('../../src/lib/supabase', () => ({
 
 const translations = ui.es;
 
-function renderAuthForm() {
-    return render(<AuthForm lang="es" translations={translations} />);
+function renderAuthForm(initialError: string | null = null, lang: 'es' | 'en' | 'ru' = 'es') {
+    return render(<AuthForm lang={lang} translations={ui[lang]} initialError={initialError} />);
 }
 
 function deferredAuthResult() {
@@ -39,6 +39,31 @@ describe('AuthForm', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         vi.clearAllMocks();
+    });
+
+    it('shows a generic confirmation failure supplied by the localized callback page', () => {
+        renderAuthForm(translations.auth.error.confirmationFailed);
+        expect(screen.getByRole('alert')).toHaveTextContent(translations.auth.error.confirmationFailed);
+    });
+
+    it.each(['es', 'en', 'ru'] as const)('localizes the home link and email placeholder in %s', (lang) => {
+        const localized = ui[lang];
+        renderAuthForm(null, lang);
+
+        expect(screen.getByRole('link', { name: new RegExp(localized.auth.backHome) })).toHaveAttribute('href', `/${lang}`);
+        expect(screen.getByLabelText(localized.auth.email)).toHaveAttribute('placeholder', localized.auth.emailPlaceholder);
+    });
+
+    it('uses localized generic copy instead of exposing an unexpected provider error', async () => {
+        authMock.signInWithPassword.mockRejectedValueOnce(new Error('provider-internal-message'));
+        renderAuthForm(null, 'en');
+
+        fireEvent.change(screen.getByLabelText(ui.en.auth.email), { target: { value: 'student@example.com' } });
+        fireEvent.change(screen.getByLabelText(ui.en.auth.password), { target: { value: 'password123' } });
+        fireEvent.click(screen.getByRole('button', { name: ui.en.auth.submitLogin }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(ui.en.auth.error.generic);
+        expect(screen.getByRole('alert')).not.toHaveTextContent('provider-internal-message');
     });
 
     it('submits trimmed login credentials, locks mode controls while pending and announces invalid credentials', async () => {
@@ -82,6 +107,7 @@ describe('AuthForm', () => {
             email: 'nueva@example.com',
             password: 'secret123',
             options: {
+                emailRedirectTo: `${window.location.origin}/api/auth/confirm?lang=es`,
                 data: {
                     full_name: 'nueva',
                     adult_confirmed: true,

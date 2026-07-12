@@ -1,6 +1,7 @@
 ---
 import { Image } from 'astro:assets';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
+import { ui } from '../i18n/translations';
 import type { LandingPackage } from '../lib/landing-data';
 import PricingSection from './PricingSection';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
@@ -21,17 +22,18 @@ interface Props {
 
 const { lang, packages, isLoggedIn } = Astro.props;
 const t = useTranslations(lang);
+const localizedUi = ui[lang];
 // Public pricing always starts with a reviewed application. Approved checkout
 // is exposed only inside the authenticated campus.
 const checkoutMode = 'application' as const;
 
 // Data structure helper for complex arrays 
-const problemsStatements = t('problems.statements') as unknown as string[];
-const methodColumns = t('method.columns') as unknown as any[];
-const progressLevels = t('progress.levels') as unknown as any[];
-const teamMembers = t('team.members') as unknown as any[];
-const faqItems = t('faq.items') as unknown as any[];
-const leadCaptureTranslations = t('leadCapture') as unknown as any;
+const problemsStatements = localizedUi.problems.statements;
+const methodColumns = localizedUi.method.columns;
+const progressLevels = localizedUi.progress.levels;
+const teamMembers = localizedUi.team.members;
+const faqItems = localizedUi.faq.items;
+const leadCaptureTranslations = localizedUi.leadCapture;
 
 const launchPricingPlans = {
     es: {
@@ -103,7 +105,7 @@ const launchPricingPlans = {
 }[lang];
 
 const pricingTranslations = {
-    ...(t('pricing') as unknown as any),
+    ...localizedUi.pricing,
     plans: launchPricingPlans,
 };
 
@@ -130,6 +132,35 @@ const ireneMemberByLang = {
 
 const teamMembersWithIrene = [...teamMembers, ireneMemberByLang];
 const teamImages = [avatarAlejandro, avatarAlin, avatarIrene];
+const accessibilityCopy = {
+    es: {
+        skip: 'Saltar al contenido principal',
+        primaryNav: 'Navegación principal',
+        openMenu: 'Abrir menú',
+        closeMenu: 'Cerrar menú',
+        mobileMenu: 'Menú principal',
+        heroAlt: 'Estudiante practicando español',
+        atmosphereAlt: 'Vista urbana de Madrid',
+    },
+    en: {
+        skip: 'Skip to main content',
+        primaryNav: 'Primary navigation',
+        openMenu: 'Open menu',
+        closeMenu: 'Close menu',
+        mobileMenu: 'Main menu',
+        heroAlt: 'Student practising Spanish',
+        atmosphereAlt: 'Urban view of Madrid',
+    },
+    ru: {
+        skip: 'Перейти к основному содержанию',
+        primaryNav: 'Основная навигация',
+        openMenu: 'Открыть меню',
+        closeMenu: 'Закрыть меню',
+        mobileMenu: 'Главное меню',
+        heroAlt: 'Ученик практикует испанский язык',
+        atmosphereAlt: 'Городской вид Мадрида',
+    },
+}[lang];
 
 const courseDetails = {
     es: {
@@ -316,15 +347,18 @@ const s = {
 };
 
 // Language switcher link builder
-const supportedLanguages = ['es', 'en', 'ru'];
-const getLangLink = (targetLang) => `/${targetLang}`;
+const supportedLanguages: Props['lang'][] = ['es', 'en', 'ru'];
+const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
 
 ---
 
-<div class={`min-h-screen ${s.bg} ${s.text} transition-colors duration-300 font-sans selection:bg-black selection:text-white`}>
+<div class={`min-h-screen overflow-x-clip ${s.bg} ${s.text} transition-colors duration-300 font-sans selection:bg-black selection:text-white`}>
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
+        {accessibilityCopy.skip}
+    </a>
     
     {/* Navbar */}
-    <nav class={`h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky top-0 z-[70] ${s.bg}`}>
+    <nav aria-label={accessibilityCopy.primaryNav} class={`h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky top-0 z-[70] ${s.bg}`}>
         <div class="font-display text-lg md:text-xl tracking-tighter mr-2 w-full md:w-auto whitespace-nowrap overflow-visible leading-tight py-1">{t('nav.brand')}</div>
 
         {/* Desktop Navigation Links (Hidden on Mobile) */}
@@ -344,6 +378,9 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 {supportedLanguages.map((lng) => (
                     <a
                         href={getLangLink(lng)}
+                        hreflang={lng}
+                        lang={lng}
+                        aria-current={lang === lng ? 'page' : undefined}
                         class={`px-2 py-1 border ${s.border} uppercase transition-colors inline-block no-underline ${lang === lng ? `${s.accent} ${s.accentText}` : 'text-[#006064] hover:bg-[#006064]/10'}`}
                     >
                         {lng}
@@ -357,7 +394,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
         </div>
 
         {/* Hamburger Icon (Mobile Only) */}
-        <button id="mobile-menu-btn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="mobile-overlay" class="md:hidden flex flex-col justify-center items-center w-10 h-10 border-2 border-[#006064] bg-[#E0F7FA] active:bg-[#006064] active:text-[#E0F7FA] transition-colors focus:outline-none z-[80] relative group">
+        <button id="mobile-menu-btn" type="button" aria-label={accessibilityCopy.openMenu} data-open-label={accessibilityCopy.openMenu} data-close-label={accessibilityCopy.closeMenu} aria-expanded="false" aria-controls="mobile-overlay" class="md:hidden flex flex-col justify-center items-center w-10 h-10 border-2 border-[#006064] bg-[#E0F7FA] active:bg-[#006064] active:text-[#E0F7FA] transition-colors focus:outline-none focus-visible:ring-4 focus-visible:ring-[#006064] focus-visible:ring-offset-2 z-[80] relative group">
             <span class="block w-5 h-0.5 bg-current mb-1 transition-transform origin-center group-[.is-open]:rotate-45 group-[.is-open]:translate-y-[6px]"></span>
             <span class="block w-5 h-0.5 bg-current mb-1 transition-opacity group-[.is-open]:opacity-0"></span>
             <span class="block w-5 h-0.5 bg-current transition-transform origin-center group-[.is-open]:-rotate-45 group-[.is-open]:-translate-y-[6px]"></span>
@@ -365,7 +402,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     </nav>
 
     {/* Mobile Overlay Menu */}
-    <div id="mobile-overlay" class="fixed inset-0 bg-[#006064] z-[60] transform translate-x-full transition-transform duration-300 ease-in-out md:hidden flex flex-col" aria-hidden="true" hidden inert>
+    <div id="mobile-overlay" role="navigation" aria-label={accessibilityCopy.mobileMenu} class="fixed inset-0 bg-[#006064] z-[60] transform translate-x-full transition-transform duration-300 ease-in-out md:hidden flex flex-col" aria-hidden="true" hidden inert>
         {/* Menu Content */}
         <div class="flex flex-col flex-1 p-8 mt-16 overflow-y-auto">
             <div class="flex flex-col gap-6 text-2xl font-display text-white mb-12">
@@ -383,6 +420,9 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                     {supportedLanguages.map((lng) => (
                         <a
                             href={getLangLink(lng)}
+                            hreflang={lng}
+                            lang={lng}
+                            aria-current={lang === lng ? 'page' : undefined}
                             class={`flex-1 py-3 text-center border-2 border-[#E0F7FA] uppercase transition-colors no-underline ${lang === lng ? 'bg-[#E0F7FA] text-[#006064]' : 'text-[#E0F7FA] hover:bg-[#E0F7FA]/10'}`}
                         >
                             {lng}
@@ -398,6 +438,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
         </div>
     </div>
 
+    <main id="main-content">
     {/* Hero */}
     <HeroSection 
         headline1={t('hero.headline1')}
@@ -407,6 +448,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
         subtitle={t('hero.subtitle')}
         ready={t('hero.ready')}
         ctaText={t('hero.cta')}
+        imageAlt={accessibilityCopy.heroAlt}
     />
 
     {/* Ticker - Full Width */}
@@ -437,7 +479,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     <div class={`w-full h-64 md:h-96 overflow-hidden border-b-2 ${s.border} relative`}>
         <img
             src={madridAtmosphere.src}
-            alt="Vista atmosférica" 
+            alt={accessibilityCopy.atmosphereAlt}
             class="w-full h-full object-cover grayscale"
             loading="lazy"
             decoding="async"
@@ -513,7 +555,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                 </div>
                 <div class="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
                     {seoEntryRoutes.map((route) => (
-                        <a href={route.href} class="group border-2 border-[#006064] bg-[#E0F7FA] p-5 shadow-[4px_4px_0px_0px_#006064] transition-transform hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-[#006064]/20">
+                        <a href={route.href} class="group border-2 border-[#006064] bg-[#E0F7FA] p-5 shadow-[4px_4px_0px_0px_#006064] transition-transform hover:-translate-y-1 focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2">
                             <p class="font-mono text-xs uppercase tracking-widest text-[#006064]">{route.label}</p>
                             <h3 class="mt-3 font-display text-2xl text-[#006064]">{route.title}</h3>
                             <p class="mt-3 font-sans text-base font-bold leading-7 text-[#006064]">{route.description}</p>
@@ -581,7 +623,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                         <h3 class="font-display text-2xl text-[#006064] mb-1">{member.name}</h3>
                         <p class="font-sans text-sm uppercase tracking-wide text-[#006064] mb-4">{member.role}</p>
                         <div class="flex flex-wrap gap-2 mb-4">
-                            {member.languages.map((langString) => (
+                            {member.languages.map((langString: string) => (
                                 <span class="bg-[#006064]/10 text-[#006064] text-xs px-2 py-1 rounded font-bold">
                                     {langString}
                                 </span>
@@ -611,7 +653,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
                             id={`faq-button-${index}`}
                             type="button"
                             data-faq-button={index}
-                            class="w-full flex justify-between items-center py-6 text-left focus:outline-none group"
+                            class="w-full flex justify-between items-center py-6 text-left focus:outline-none focus-visible:ring-4 focus-visible:ring-[#006064] focus-visible:ring-offset-2 group"
                             aria-expanded="false"
                             aria-controls={`faq-content-${index}`}
                         >
@@ -664,6 +706,7 @@ const getLangLink = (targetLang) => `/${targetLang}`;
             </div>
         </div>
     </section>
+    </main>
 
     {/* Footer */}
     <footer class={`${s.accent} ${s.accentText} py-24 px-6 border-t-2 ${s.border}`}>
@@ -689,12 +732,12 @@ const getLangLink = (targetLang) => `/${targetLang}`;
 
 <script>
     const faqCloseDelayMs = 300;
-    const faqButtons = document.querySelectorAll('[data-faq-button]');
+    const faqButtons = document.querySelectorAll<HTMLButtonElement>('[data-faq-button]');
 
-    const setFaqOpen = (button, isOpen) => {
+    const setFaqOpen = (button: HTMLButtonElement, isOpen: boolean) => {
         const index = button.getAttribute('data-faq-button');
         const content = document.getElementById(`faq-content-${index}`);
-        const icon = button.querySelector('.faq-icon');
+        const icon = button.querySelector<HTMLElement>('.faq-icon');
 
         if (!content) return;
 
@@ -742,9 +785,13 @@ const getLangLink = (targetLang) => `/${targetLang}`;
     let menuCloseTimer = 0;
     let isMenuOpen = false;
 
-    const setMenuOpen = (nextOpen) => {
+    const setMenuOpen = (nextOpen: boolean) => {
         isMenuOpen = nextOpen;
         menuBtn?.setAttribute('aria-expanded', String(isMenuOpen));
+        if (menuBtn) {
+            const nextLabel = isMenuOpen ? menuBtn.dataset.closeLabel : menuBtn.dataset.openLabel;
+            if (nextLabel) menuBtn.setAttribute('aria-label', nextLabel);
+        }
 
         if (isMenuOpen) {
             window.clearTimeout(menuCloseTimer);

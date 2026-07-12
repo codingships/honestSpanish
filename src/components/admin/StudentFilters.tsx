@@ -5,8 +5,8 @@ interface Student {
     full_name: string | null;
     email: string;
     phone: string | null;
-    created_at: string;
-    preferred_language: string;
+    created_at: string | null;
+    preferred_language: string | null;
     subscription_status: string | null;
     subscription_ends: string | null;
     package_name: string | null;
@@ -73,7 +73,8 @@ export default function StudentFilters({ students, lang, translations: t, packag
         });
     }, [students, search, statusFilter, planFilter]);
 
-    const formatDate = (dateStr: string) => {
+    const formatDate = (dateStr: string | null) => {
+        if (!dateStr) return '—';
         const date = new Date(dateStr);
         return date.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
             day: 'numeric',

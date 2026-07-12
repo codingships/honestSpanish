@@ -61,6 +61,7 @@ test.describe('LevelCheckForm diagnostic public page', () => {
             'Hola, soy una persona que necesita hablar espanol con mas seguridad en reuniones, tramites y conversaciones reales de cada dia.',
         );
         await page.locator('input[name="canSendAudioLater"]').check();
+        await page.locator('input[name="adultConfirmed"]').check();
         await page.locator('input[name="consent"]').check();
 
         await page.waitForTimeout(300);
@@ -74,6 +75,7 @@ test.describe('LevelCheckForm diagnostic public page', () => {
             comprehensionComfort: 'depends_context',
             speakingBlocker: 'culture',
             canSendAudioLater: true,
+            adultConfirmed: true,
             consent: true,
             lang: 'es',
             sourcePath: '/es/diagnostico',
@@ -88,6 +90,7 @@ test.describe('LevelCheckForm diagnostic public page', () => {
         await page.locator('#level-check-written-sample').fill(
             'Necesito hablar espanol con mas seguridad en reuniones, tramites y conversaciones reales de cada dia.',
         );
+        await page.locator('input[name="adultConfirmed"]').check();
         await page.waitForTimeout(300);
         await page.locator('form button[type="submit"]').click();
 

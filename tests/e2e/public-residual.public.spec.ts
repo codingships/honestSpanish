@@ -67,15 +67,15 @@ test.describe('Residual public routes', () => {
         const success = await page.goto('/es/success');
         expect(success?.status()).toBe(200);
         await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
-        await expect(page.locator('h1')).toContainText(/Pago Exitoso/i);
-        await expect(page.locator('a[href="/es/campus"]')).toBeVisible();
+        await expect(page.getByRole('heading', { level: 1, name: 'Pago completado' })).toBeVisible();
+        await expect(page.getByRole('link', { name: 'Ir al campus' })).toHaveAttribute('href', '/es/campus');
         await expectPageHasNoMojibake(page);
 
         const cancel = await page.goto('/es/cancel');
         expect(cancel?.status()).toBe(200);
         await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
-        await expect(page.locator('h1')).toContainText(/Pago Cancelado/i);
-        await expect(page.locator('a[href="/es/#pricing"]')).toBeVisible();
+        await expect(page.getByRole('heading', { level: 1, name: 'Pago cancelado' })).toBeVisible();
+        await expect(page.getByRole('link', { name: 'Volver a precios' })).toHaveAttribute('href', '/es/#pricing');
         await expectPageHasNoMojibake(page);
     });
 

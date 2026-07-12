@@ -1,4 +1,4 @@
-export const RUNTIME_ATTESTATION_SCHEMA = 2;
+export const RUNTIME_ATTESTATION_SCHEMA = 4;
 
 export type RuntimeAttestationRole = 'web' | 'fulfillment';
 
@@ -6,6 +6,7 @@ export type RuntimeAttestationConfig = {
     appEnvironment: string;
     checkoutEnabled: string;
     checkoutOverride: string;
+    cronSecretFingerprint: string;
     fulfillmentRuntimeMode: string;
     fulfillmentUrlFingerprint: string;
     googleAdminFingerprint: string;
@@ -15,6 +16,7 @@ export type RuntimeAttestationConfig = {
     googleServiceAccountFingerprint: string;
     googleTemplateFingerprint: string;
     internalSecretFingerprint: string;
+    levelCheckSecretFingerprint: string;
     resendAllowlistFingerprint: string;
     resendApiKeyFingerprint: string;
     resendDailyLimit: string;
@@ -31,6 +33,9 @@ export type RuntimeAttestationConfig = {
     supabaseExpectedProjectRef: string;
     supabaseServiceRoleFingerprint: string;
     supabaseUrlFingerprint: string;
+    turnstileSecretFingerprint: string;
+    turnstileSiteKeyFingerprint: string;
+    webRuntimeMode: string;
     workerIdentity: string;
     workerVersionId: string;
 };
@@ -80,12 +85,27 @@ export async function buildRuntimeAttestationConfig(
     role: RuntimeAttestationRole,
     env: Record<string, string | undefined>,
 ): Promise<RuntimeAttestationConfig> {
-    const googleConfigured = role === 'fulfillment';
-    const stripeConfigured = role === 'web';
+    const googleConfigured = role === 'fulfillment' && [
+        'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+        'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+        'GOOGLE_ADMIN_EMAIL',
+        'GOOGLE_DRIVE_ROOT_FOLDER_ID',
+        'GOOGLE_TEMPLATE_DOC_ID',
+    ].some((key) => Boolean(value(env, key)));
+    const webRuntimeMode = role === 'web' ? value(env, 'WEB_RUNTIME_MODE') : 'absent';
+    const webRole = role === 'web';
+    const stripeConfigured = webRole && [
+        'PUBLIC_STRIPE_PUBLISHABLE_KEY',
+        'STRIPE_SECRET_KEY',
+        'STRIPE_WEBHOOK_SECRET',
+        'STRIPE_EXPECTED_ACCOUNT_ID',
+        'STRIPE_PORTAL_CONFIGURATION_ID',
+    ].some((key) => Boolean(value(env, key)));
     return {
         appEnvironment: value(env, 'PUBLIC_APP_ENV'),
         checkoutEnabled: value(env, 'CHECKOUT_ENABLED'),
         checkoutOverride: value(env, 'CHECKOUT_ENABLED_OVERRIDE'),
+        cronSecretFingerprint: await runtimeFingerprint(value(env, 'CRON_SECRET')),
         fulfillmentRuntimeMode: role === 'fulfillment' ? value(env, 'FULFILLMENT_RUNTIME_MODE') : 'absent',
         fulfillmentUrlFingerprint: await runtimeFingerprint(role === 'web' ? value(env, 'FULFILLMENT_WORKER_URL') : ''),
         googleAdminFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_ADMIN_EMAIL') : ''),
@@ -95,6 +115,7 @@ export async function buildRuntimeAttestationConfig(
         googleServiceAccountFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_SERVICE_ACCOUNT_EMAIL') : ''),
         googleTemplateFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_TEMPLATE_DOC_ID') : ''),
         internalSecretFingerprint: await runtimeFingerprint(value(env, 'INTERNAL_JOB_SECRET')),
+        levelCheckSecretFingerprint: await runtimeFingerprint(value(env, 'LEVEL_CHECK_TOKEN_SECRET')),
         resendAllowlistFingerprint: await runtimeFingerprint(value(env, 'EMAIL_RECIPIENT_ALLOWLIST')),
         resendApiKeyFingerprint: await runtimeFingerprint(value(env, 'RESEND_API_KEY')),
         resendDailyLimit: value(env, 'EMAIL_DAILY_RECIPIENT_LIMIT'),
@@ -102,15 +123,18 @@ export async function buildRuntimeAttestationConfig(
         resendMonthlyLimit: value(env, 'EMAIL_MONTHLY_RECIPIENT_LIMIT'),
         resendSenderFingerprint: await runtimeFingerprint(sender(env)),
         stripeBoundary: stripeConfigured ? 'configured' : 'absent',
-        stripeExpectedAccountId: stripeConfigured ? value(env, 'STRIPE_EXPECTED_ACCOUNT_ID') : '',
-        stripePortalConfigurationId: stripeConfigured ? value(env, 'STRIPE_PORTAL_CONFIGURATION_ID') : '',
-        stripePublishableKeyFingerprint: await runtimeFingerprint(stripeConfigured ? value(env, 'PUBLIC_STRIPE_PUBLISHABLE_KEY') : ''),
-        stripeSecretKeyFingerprint: await runtimeFingerprint(stripeConfigured ? value(env, 'STRIPE_SECRET_KEY') : ''),
-        stripeWebhookSecretFingerprint: await runtimeFingerprint(stripeConfigured ? value(env, 'STRIPE_WEBHOOK_SECRET') : ''),
+        stripeExpectedAccountId: webRole ? value(env, 'STRIPE_EXPECTED_ACCOUNT_ID') : '',
+        stripePortalConfigurationId: webRole ? value(env, 'STRIPE_PORTAL_CONFIGURATION_ID') : '',
+        stripePublishableKeyFingerprint: await runtimeFingerprint(webRole ? value(env, 'PUBLIC_STRIPE_PUBLISHABLE_KEY') : ''),
+        stripeSecretKeyFingerprint: await runtimeFingerprint(webRole ? value(env, 'STRIPE_SECRET_KEY') : ''),
+        stripeWebhookSecretFingerprint: await runtimeFingerprint(webRole ? value(env, 'STRIPE_WEBHOOK_SECRET') : ''),
         supabaseAnonFingerprint: await runtimeFingerprint(role === 'web' ? value(env, 'PUBLIC_SUPABASE_ANON_KEY') : ''),
         supabaseExpectedProjectRef: value(env, 'SUPABASE_EXPECTED_PROJECT_REF'),
         supabaseServiceRoleFingerprint: await runtimeFingerprint(value(env, 'SUPABASE_SERVICE_ROLE_KEY')),
         supabaseUrlFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_SUPABASE_URL')),
+        turnstileSecretFingerprint: await runtimeFingerprint(value(env, 'TURNSTILE_SECRET_KEY')),
+        turnstileSiteKeyFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_TURNSTILE_SITE_KEY')),
+        webRuntimeMode,
         workerIdentity: value(env, 'WORKER_IDENTITY'),
         workerVersionId: value(env, 'WORKER_VERSION_ID'),
     };

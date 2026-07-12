@@ -29,6 +29,7 @@ function runtimeEnv() {
         STRIPE_WEBHOOK_SECRET: 'whsec_attested',
         SUPABASE_EXPECTED_PROJECT_REF: 'staging',
         SUPABASE_SERVICE_ROLE_KEY: 'service',
+        WEB_RUNTIME_MODE: 'active',
         WORKER_IDENTITY: 'espanolhonesto-staging',
         WORKER_VERSION_ID: '11111111-1111-4111-8111-111111111111',
     };
@@ -84,6 +85,126 @@ describe('runtime attestation', () => {
         expect(fulfillment.stripeBoundary).toBe('absent');
         expect(fulfillment.stripeExpectedAccountId).toBe('');
         expect(fulfillment.stripeSecretKeyFingerprint).toBe('absent');
+    });
+
+    it('attests Google as absent on a minimal fulfillment bootstrap', async () => {
+        const minimal = {
+            ...runtimeEnv(),
+            FULFILLMENT_RUNTIME_MODE: 'bootstrap',
+            GOOGLE_SERVICE_ACCOUNT_EMAIL: '',
+            GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: '',
+            GOOGLE_ADMIN_EMAIL: '',
+            GOOGLE_DRIVE_ROOT_FOLDER_ID: '',
+            GOOGLE_TEMPLATE_DOC_ID: '',
+            PUBLIC_SUPABASE_URL: '',
+            SUPABASE_SERVICE_ROLE_KEY: '',
+            RESEND_API_KEY: '',
+            EMAIL_FROM: '',
+            EMAIL_RECIPIENT_ALLOWLIST: '',
+            CRON_SECRET: '',
+        };
+        const config = await buildRuntimeAttestationConfig('fulfillment', minimal);
+
+        expect(config.fulfillmentRuntimeMode).toBe('bootstrap');
+        expect(config.googleBoundary).toBe('absent');
+        expect(config.googleServiceAccountFingerprint).toBe('absent');
+        expect(config.googlePrivateKeyFingerprint).toBe('absent');
+        expect(config.supabaseUrlFingerprint).toBe('absent');
+        expect(config.supabaseServiceRoleFingerprint).toBe('absent');
+        expect(config.resendApiKeyFingerprint).toBe('absent');
+        expect(config.resendAllowlistFingerprint).toBe('absent');
+        expect(config.resendSenderFingerprint).toBe('absent');
+        expect(config.cronSecretFingerprint).toBe('absent');
+    });
+
+    it('detects Stripe credentials in bootstrap and rejects an expected-absent HMAC gate', async () => {
+        const remoteEnv = {
+            ...runtimeEnv(),
+            WEB_RUNTIME_MODE: 'bootstrap',
+        };
+        const bootstrap = await buildRuntimeAttestationConfig('web', remoteEnv);
+
+        expect(bootstrap.webRuntimeMode).toBe('bootstrap');
+        expect(bootstrap.stripeBoundary).toBe('configured');
+        expect(bootstrap.stripeExpectedAccountId).toBe(remoteEnv.STRIPE_EXPECTED_ACCOUNT_ID);
+        expect(bootstrap.stripeSecretKeyFingerprint).toMatch(/^sha256:/u);
+
+        const nonce = 'bootstrap_nonce_123456789';
+        const envelope = await createRuntimeAttestation('web', remoteEnv, nonce);
+        const expectedAbsent = await buildRuntimeAttestationConfig('web', {
+            ...remoteEnv,
+            PUBLIC_STRIPE_PUBLISHABLE_KEY: '',
+            STRIPE_SECRET_KEY: '',
+            STRIPE_WEBHOOK_SECRET: '',
+            STRIPE_EXPECTED_ACCOUNT_ID: '',
+            STRIPE_PORTAL_CONFIGURATION_ID: '',
+        });
+        expect(expectedAbsent.stripeBoundary).toBe('absent');
+        await expect(verifyRuntimeAttestation(envelope, {
+            config: expectedAbsent,
+            nonce,
+            role: 'web',
+            schema: RUNTIME_ATTESTATION_SCHEMA,
+        }, remoteEnv.INTERNAL_JOB_SECRET)).resolves.toBe(false);
+    });
+
+    it('rejects bootstrap HMAC when Supabase runtime, Resend, Turnstile, cron or level-check material is present', async () => {
+        const minimalBootstrap = {
+            ...runtimeEnv(),
+            WEB_RUNTIME_MODE: 'bootstrap',
+            EMAIL_DELIVERY_MODE: 'disabled',
+            EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+            EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+            EMAIL_FROM: '',
+            EMAIL_RECIPIENT_ALLOWLIST: '',
+            PUBLIC_SUPABASE_URL: '',
+            PUBLIC_SUPABASE_ANON_KEY: '',
+            SUPABASE_SERVICE_ROLE_KEY: '',
+            PUBLIC_STRIPE_PUBLISHABLE_KEY: '',
+            STRIPE_SECRET_KEY: '',
+            STRIPE_WEBHOOK_SECRET: '',
+            STRIPE_EXPECTED_ACCOUNT_ID: '',
+            STRIPE_PORTAL_CONFIGURATION_ID: '',
+            RESEND_API_KEY: '',
+            PUBLIC_TURNSTILE_SITE_KEY: '',
+            TURNSTILE_SECRET_KEY: '',
+            CRON_SECRET: '',
+            LEVEL_CHECK_TOKEN_SECRET: '',
+        };
+        const leakedBootstrap = {
+            ...minimalBootstrap,
+            PUBLIC_SUPABASE_URL: 'https://production.supabase.co',
+            PUBLIC_SUPABASE_ANON_KEY: 'anon-leak',
+            SUPABASE_SERVICE_ROLE_KEY: 'service-leak',
+            RESEND_API_KEY: 'resend-leak',
+            PUBLIC_TURNSTILE_SITE_KEY: 'turnstile-site-leak',
+            TURNSTILE_SECRET_KEY: 'turnstile-secret-leak',
+            CRON_SECRET: 'cron-leak',
+            LEVEL_CHECK_TOKEN_SECRET: 'level-leak',
+        };
+        const expected = await buildRuntimeAttestationConfig('web', minimalBootstrap);
+        expect(expected.supabaseUrlFingerprint).toBe('absent');
+        expect(expected.supabaseAnonFingerprint).toBe('absent');
+        expect(expected.supabaseServiceRoleFingerprint).toBe('absent');
+        expect(expected.resendApiKeyFingerprint).toBe('absent');
+        expect(expected.turnstileSiteKeyFingerprint).toBe('absent');
+        expect(expected.turnstileSecretFingerprint).toBe('absent');
+        expect(expected.cronSecretFingerprint).toBe('absent');
+        expect(expected.levelCheckSecretFingerprint).toBe('absent');
+
+        const leaked = await buildRuntimeAttestationConfig('web', leakedBootstrap);
+        expect(leaked.supabaseUrlFingerprint).toMatch(/^sha256:/u);
+        expect(leaked.turnstileSecretFingerprint).toMatch(/^sha256:/u);
+        expect(leaked.cronSecretFingerprint).toMatch(/^sha256:/u);
+
+        const nonce = 'bootstrap_provider_leak_123456';
+        const envelope = await createRuntimeAttestation('web', leakedBootstrap, nonce);
+        await expect(verifyRuntimeAttestation(envelope, {
+            config: expected,
+            nonce,
+            role: 'web',
+            schema: RUNTIME_ATTESTATION_SCHEMA,
+        }, leakedBootstrap.INTERNAL_JOB_SECRET)).resolves.toBe(false);
     });
 
     it('rejects malformed nonces and a tampered proof', async () => {

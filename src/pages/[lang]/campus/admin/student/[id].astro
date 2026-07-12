@@ -1,6 +1,6 @@
 ---
 import CampusLayout from '../../../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../../../../i18n/utils';
 import { emptyCrmContactDetail, getCrmContactDetail } from '../../../../../lib/crm/contact-detail';
 import { getPrivateProfile } from '../../../../../lib/profiles-private';
 import { createSupabaseAdminClient } from '../../../../../lib/supabase-admin';
@@ -11,10 +11,17 @@ import CrmContactActions from '../../../../../components/admin/CrmContactActions
 import CrmConsentManager from '../../../../../components/admin/CrmConsentManager';
 import CrmOpportunityList from '../../../../../components/admin/CrmOpportunityList';
 import CrmTaskList from '../../../../../components/admin/CrmTaskList';
+import type { Json } from '../../../../../types/database.types';
 
 export const prerender = false;
 
-const { lang, id: studentId } = Astro.params as { lang: 'es' | 'en' | 'ru'; id: string };
+const lang = getLangFromParam(Astro.params.lang);
+const studentId = Astro.params.id;
+
+if (!studentId) {
+    return Astro.redirect(`/${lang}/campus/admin/students`);
+}
+
 const t = useTranslations(lang);
 
 // Get Supabase client and verify user
@@ -130,13 +137,27 @@ try {
 }
 
 // Helper functions
-const getPackageName = (sub: any) => {
-    if (!sub?.packages?.display_name) return '—';
-    const displayName = sub.packages.display_name;
-    return displayName[lang] || displayName['es'] || sub.packages.name;
+type SubscriptionPackage = {
+    packages: {
+        name: string;
+        display_name: Json;
+    } | null;
 };
 
-const formatDate = (dateStr: string) => {
+const localizedPackageName = (displayName: Json): string | null => {
+    if (!displayName || typeof displayName !== 'object' || Array.isArray(displayName)) return null;
+    const localized = displayName[lang];
+    if (typeof localized === 'string') return localized;
+    const spanish = displayName.es;
+    return typeof spanish === 'string' ? spanish : null;
+};
+
+const getPackageName = (sub: SubscriptionPackage | null | undefined) => {
+    if (!sub?.packages?.display_name) return '—';
+    return localizedPackageName(sub.packages.display_name) || sub.packages.name;
+};
+
+const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '—';
     return new Date(dateStr).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
         day: 'numeric',
@@ -216,11 +237,13 @@ const timelineItems = [
     }] : []),
 ].sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()).slice(0, 15);
 
-const progressPercent = subscription 
-    ? Math.round((subscription.sessions_used / subscription.sessions_total) * 100) 
+const sessionsUsed = subscription?.sessions_used ?? 0;
+const sessionsTotal = subscription?.sessions_total ?? 0;
+const progressPercent = subscription && sessionsTotal > 0
+    ? Math.round((sessionsUsed / sessionsTotal) * 100)
     : 0;
 
-const teacher = (teacherAssignment as any)?.profiles;
+const teacher = teacherAssignment?.profiles ?? null;
 
 // Modal translations
 const assignModalTranslations = {

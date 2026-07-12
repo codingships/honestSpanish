@@ -1,14 +1,21 @@
 import { ui, defaultLang } from './translations';
 
+export type SupportedLang = keyof typeof ui;
 
+export function isSupportedLang(value: unknown): value is SupportedLang {
+    return value === 'es' || value === 'en' || value === 'ru';
+}
+
+export function getLangFromParam(value: string | undefined): SupportedLang {
+    return isSupportedLang(value) ? value : defaultLang;
+}
 
 export function getLangFromUrl(url: URL) {
     const [, lang] = url.pathname.split('/');
-    if (lang in ui) return lang as keyof typeof ui;
-    return defaultLang;
+    return getLangFromParam(lang);
 }
 
-export function useTranslations(lang: keyof typeof ui) {
+export function useTranslations(lang: SupportedLang) {
     return function t(key: string) {
         const keys = key.split('.');
         let value: unknown = ui[lang];

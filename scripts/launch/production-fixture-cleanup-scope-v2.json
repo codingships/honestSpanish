@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 2,
+  "operation": "production_public_fixture_cleanup_before_schema_rollout",
+  "targetProjectRef": "vkkahxsybhbutszerawz",
+  "aggregateSnapshotSha256": "dbd25299db5562a01a65ad3d2d64689fc0871d9a64d5d3378e074c06e20cf5ab",
+  "deleteFixtureRows": [
+    "public.jobs",
+    "public.fulfillment_jobs",
+    "public.processed_webhook_events",
+    "public.admin_audit_log",
+    "public.support_tickets",
+    "public.payments",
+    "public.sessions",
+    "public.student_teachers",
+    "public.teacher_availability",
+    "public.subscriptions",
+    "public.leads",
+    "public.profiles_private",
+    "public.profiles",
+    "public.packages[name=essential,is_active=false]"
+  ],
+  "dropAfterVerifiedDelete": ["public.jobs"],
+  "preservePackages": ["group", "standard", "hybrid", "bootcamp"],
+  "clearLocalPackageFields": [
+    "stripe_product_id",
+    "stripe_price_1m",
+    "stripe_price_3m",
+    "stripe_price_6m"
+  ],
+  "authBoundary": "138 auth.users remain untouched for the separately approved Auth cleanup",
+  "externalExclusions": ["Stripe", "Google Workspace", "Supabase Storage"],
+  "backup": {
+    "requiredSchemas": ["public", "auth"],
+    "atRestProtectionRequired": true,
+    "restoreOrSwitchNotAuthorized": true
+  },
+  "forbidden": [
+    "CASCADE",
+    "TRUNCATE",
+    "supabase db push",
+    "supabase migration repair",
+    "automatic restore",
+    "external-provider deletion"
+  ]
+}

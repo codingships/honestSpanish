@@ -1,6 +1,6 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../../i18n/utils';
 import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import NextClassCard from '../../../components/calendar/NextClassCard';
@@ -22,7 +22,17 @@ type OnboardingItem = {
     alwaysShowAction?: boolean;
 };
 
-const { lang } = Astro.params;
+type DashboardSession = {
+    id: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    status: string;
+    meet_link: string | null;
+    drive_doc_url: string | null;
+    teacher: { full_name: string | null; email: string } | null;
+};
+
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 const supabase = createSupabaseServerClient(Astro);
@@ -77,7 +87,7 @@ try {
 }
 
 // 3. Fetch Next Scheduled Session
-let nextSession = null;
+let nextSession: DashboardSession | null = null;
 try {
     const { data: sessionData } = await supabase
         .from('sessions')
@@ -92,7 +102,17 @@ try {
         .limit(1)
         .single();
 
-    if (sessionData) nextSession = sessionData;
+    if (sessionData?.scheduled_at) {
+        nextSession = {
+            id: sessionData.id,
+            scheduled_at: sessionData.scheduled_at,
+            duration_minutes: sessionData.duration_minutes ?? 50,
+            status: sessionData.status ?? 'scheduled',
+            meet_link: sessionData.meet_link,
+            drive_doc_url: sessionData.drive_doc_url,
+            teacher: sessionData.teacher,
+        };
+    }
 } catch (e) {
     // No upcoming session
 }
@@ -135,9 +155,14 @@ const formatDate = (dateString: string) => {
     });
 };
 
-const packageName = subscription?.packages?.display_name ? 
-    subscription.packages.display_name[lang] || subscription.packages.display_name['es'] || subscription.packages.name 
-    : 'Plan';
+const packageDisplayName = subscription?.packages?.display_name;
+const packageName = packageDisplayName && typeof packageDisplayName === 'object' && !Array.isArray(packageDisplayName)
+    ? (typeof packageDisplayName[lang] === 'string'
+        ? packageDisplayName[lang]
+        : typeof packageDisplayName.es === 'string'
+            ? packageDisplayName.es
+            : subscription?.packages?.name ?? 'Plan')
+    : subscription?.packages?.name ?? 'Plan';
 
 const sessionsTotal = subscription?.sessions_total || subscription?.packages?.sessions_per_month || 8;
 const sessionsUsed = subscription?.sessions_used || 0;
@@ -421,25 +446,13 @@ const onboardingItems: OnboardingItem[] = [
 </CampusLayout>
 
 <script>
+    import { openBillingPortal } from '../../../lib/billing-portal-client';
+
     // Stripe Customer Portal — manage subscription
-    const manageSubBtn = document.getElementById('manage-sub-btn');
-    manageSubBtn?.addEventListener('click', async () => {
-        const originalText = manageSubBtn.textContent;
-        try {
-            manageSubBtn.textContent = '...';
-            const response = await fetch('/api/account/create-portal-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-            });
-            if (response.ok) {
-                const data = await response.json();
-                if (data.url) {
-                    window.location.href = data.url;
-                }
-            }
-        } catch (error) {
+    const manageSubBtn = document.getElementById('manage-sub-btn') as HTMLButtonElement | null;
+    manageSubBtn?.addEventListener('click', () => {
+        void openBillingPortal({ button: manageSubBtn }).catch((error) => {
             console.error('Error opening Stripe portal:', error);
-            manageSubBtn.textContent = originalText;
-        }
+        });
     });
 </script>

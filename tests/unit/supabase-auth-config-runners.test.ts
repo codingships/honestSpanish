@@ -1,0 +1,304 @@
+import { readFileSync } from 'node:fs';
+import { describe, expect, it, vi } from 'vitest';
+import {
+    allowListExactlyMatches,
+    applyVerifiedAuthConfigChange,
+    exactApprovalMatched,
+    mergeUriAllowList,
+    PRODUCTION_AUTH_APPROVALS,
+    productionDesiredPatch,
+    redactedPreflight,
+    safeErrorMessage,
+    selectSafeAuthConfig,
+    STAGING_AUTH_CALLBACKS,
+    STAGING_CALLBACKS_APPROVAL,
+    SUPABASE_AUTH_TARGETS,
+    verifyExactSafePatch,
+    getSafeAuthConfig,
+    type Fetcher,
+    type SafeAuthConfig,
+} from '../../scripts/launch/supabase-auth-config-shared';
+
+const productionRunner = readFileSync(
+    'scripts/launch/supabase-auth-production-gate.ts',
+    'utf8',
+);
+const stagingRunner = readFileSync(
+    'scripts/launch/supabase-auth-staging-callbacks-gate.ts',
+    'utf8',
+);
+const preflightRunner = readFileSync(
+    'scripts/launch/supabase-auth-config-preflight.ts',
+    'utf8',
+);
+
+const baseConfig: SafeAuthConfig = {
+    disable_signup: false,
+    mailer_autoconfirm: true,
+    site_url: 'https://example.com',
+    uri_allow_list: 'https://example.com/auth/callback',
+};
+
+function jsonResponse(payload: unknown, status = 200): Response {
+    return new Response(JSON.stringify(payload), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+    });
+}
+
+function sequenceFetcher(responses: Response[]) {
+    const fetcher = vi.fn(async () => {
+        const response = responses.shift();
+        if (!response) throw new Error('Unexpected fetch');
+        return response;
+    }) as unknown as Fetcher;
+    return fetcher;
+}
+
+describe('Supabase Auth config runners', () => {
+    it('selects only the four approved preflight fields and drops secret-bearing config', () => {
+        const safe = selectSafeAuthConfig({
+            ...baseConfig,
+            smtp_pass: 'must-not-appear',
+            jwt_secret: 'must-not-appear',
+            hook_send_email_secrets: 'must-not-appear',
+        });
+        const artifact = JSON.stringify(redactedPreflight(
+            SUPABASE_AUTH_TARGETS.production,
+            safe,
+        ));
+
+        expect(Object.keys(safe).sort()).toEqual([
+            'disable_signup',
+            'mailer_autoconfirm',
+            'site_url',
+            'uri_allow_list',
+        ]);
+        expect(artifact).not.toContain('smtp_pass');
+        expect(artifact).not.toContain('jwt_secret');
+        expect(artifact).not.toContain('must-not-appear');
+    });
+
+    it('preserves existing staging allowlist entries and adds every exact callback once', () => {
+        const existing = [
+            'https://existing.example/callback',
+            STAGING_AUTH_CALLBACKS[0],
+            'https://another.example/**',
+        ].join(', ');
+        const merged = mergeUriAllowList(existing, STAGING_AUTH_CALLBACKS);
+        const entries = merged.split(',');
+
+        expect(entries).toContain('https://existing.example/callback');
+        expect(entries).toContain('https://another.example/**');
+        for (const callback of STAGING_AUTH_CALLBACKS) {
+            expect(entries.filter((entry) => entry === callback)).toHaveLength(1);
+        }
+        expect(allowListExactlyMatches(merged, merged)).toBe(true);
+        expect(allowListExactlyMatches(`${merged},${STAGING_AUTH_CALLBACKS[0]}`, merged)).toBe(false);
+    });
+
+    it('requires both the execute flag and the exact phase-specific approval sentence', () => {
+        const inert = PRODUCTION_AUTH_APPROVALS.inert;
+
+        expect(exactApprovalMatched(inert, ['--execute-approved'], {
+            [inert.approvalEnvVar]: inert.exactApprovalSentence,
+        })).toBe(true);
+        expect(exactApprovalMatched(inert, [], {
+            [inert.approvalEnvVar]: inert.exactApprovalSentence,
+        })).toBe(false);
+        expect(exactApprovalMatched(inert, ['--execute-approved'], {
+            [inert.approvalEnvVar]: `${inert.exactApprovalSentence} extra`,
+        })).toBe(false);
+        expect(exactApprovalMatched(STAGING_CALLBACKS_APPROVAL, ['--execute-approved'], {
+            [inert.approvalEnvVar]: inert.exactApprovalSentence,
+        })).toBe(false);
+    });
+
+    it('encodes the reversible final production target as signup enabled with confirmation required', () => {
+        expect(productionDesiredPatch('final')).toEqual({
+            disable_signup: false,
+            mailer_autoconfirm: false,
+        });
+    });
+
+    it('patches only inert production flags, then verifies with a second GET', async () => {
+        const after = {
+            ...baseConfig,
+            disable_signup: true,
+            mailer_autoconfirm: false,
+        };
+        const fetcher = sequenceFetcher([
+            jsonResponse(baseConfig),
+            new Response(null, { status: 200 }),
+            jsonResponse(after),
+        ]);
+
+        const result = await applyVerifiedAuthConfigChange({
+            projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
+            token: 'test-management-token',
+            buildDesiredPatch: () => productionDesiredPatch('inert'),
+            verifyDesired: verifyExactSafePatch,
+            fetcher,
+        });
+
+        expect(result.status).toBe('applied');
+        expect(fetcher).toHaveBeenCalledTimes(3);
+        expect(fetcher).toHaveBeenNthCalledWith(
+            1,
+            `https://api.supabase.com/v1/projects/${SUPABASE_AUTH_TARGETS.production.projectRef}/config/auth`,
+            expect.objectContaining({ method: 'GET' }),
+        );
+        expect(fetcher).toHaveBeenNthCalledWith(
+            2,
+            expect.any(String),
+            expect.objectContaining({
+                method: 'PATCH',
+                body: JSON.stringify({
+                    disable_signup: true,
+                    mailer_autoconfirm: false,
+                }),
+            }),
+        );
+        expect(fetcher).toHaveBeenNthCalledWith(
+            3,
+            expect.any(String),
+            expect.objectContaining({ method: 'GET' }),
+        );
+    });
+
+    it('restores only previous production flag values when verification fails', async () => {
+        const before = { ...baseConfig };
+        const invalidAfter = {
+            ...before,
+            disable_signup: true,
+            mailer_autoconfirm: true,
+        };
+        const fetcher = sequenceFetcher([
+            jsonResponse(before),
+            new Response(null, { status: 200 }),
+            jsonResponse(invalidAfter),
+            new Response(null, { status: 200 }),
+            jsonResponse(before),
+        ]);
+
+        const result = await applyVerifiedAuthConfigChange({
+            projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
+            token: 'test-management-token',
+            buildDesiredPatch: () => productionDesiredPatch('inert'),
+            verifyDesired: verifyExactSafePatch,
+            fetcher,
+        });
+
+        expect(result.status).toBe('failed_rolled_back');
+        expect(result.rollback).toMatchObject({
+            attempted: true,
+            verified: true,
+            patch: {
+                disable_signup: false,
+                mailer_autoconfirm: true,
+            },
+        });
+        expect(fetcher).toHaveBeenNthCalledWith(
+            4,
+            expect.any(String),
+            expect.objectContaining({
+                method: 'PATCH',
+                body: JSON.stringify({
+                    disable_signup: false,
+                    mailer_autoconfirm: true,
+                }),
+            }),
+        );
+    });
+
+    it('does not compensate when a failed PATCH is proven to have changed nothing', async () => {
+        const fetcher = sequenceFetcher([
+            jsonResponse(baseConfig),
+            new Response(null, { status: 403 }),
+            jsonResponse(baseConfig),
+        ]);
+
+        const result = await applyVerifiedAuthConfigChange({
+            projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
+            token: 'test-management-token',
+            buildDesiredPatch: () => productionDesiredPatch('inert'),
+            verifyDesired: verifyExactSafePatch,
+            fetcher,
+        });
+
+        expect(result.status).toBe('failed_no_change');
+        expect(result.rollback.attempted).toBe(false);
+        expect(fetcher).toHaveBeenCalledTimes(3);
+    });
+
+    it('patches only the staging allowlist and preserves every other safe field', async () => {
+        const mergedAllowList = mergeUriAllowList(baseConfig.uri_allow_list, STAGING_AUTH_CALLBACKS);
+        const after = { ...baseConfig, uri_allow_list: mergedAllowList };
+        const fetcher = sequenceFetcher([
+            jsonResponse(baseConfig),
+            new Response(null, { status: 200 }),
+            jsonResponse(after),
+        ]);
+
+        const result = await applyVerifiedAuthConfigChange({
+            projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
+            token: 'test-management-token',
+            buildDesiredPatch: (before) => ({
+                uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_CALLBACKS),
+            }),
+            verifyDesired: (before, observed, patch) => (
+                observed.disable_signup === before.disable_signup
+                && observed.mailer_autoconfirm === before.mailer_autoconfirm
+                && observed.site_url === before.site_url
+                && typeof patch.uri_allow_list === 'string'
+                && allowListExactlyMatches(observed.uri_allow_list, patch.uri_allow_list)
+            ),
+            fetcher,
+        });
+
+        expect(result.status).toBe('applied');
+        expect(fetcher).toHaveBeenNthCalledWith(
+            2,
+            expect.any(String),
+            expect.objectContaining({
+                method: 'PATCH',
+                body: JSON.stringify({ uri_allow_list: mergedAllowList }),
+            }),
+        );
+    });
+
+    it('keeps plan and blocked branches before the only write-capable call sites', () => {
+        for (const source of [productionRunner, stagingRunner]) {
+            const planBranch = source.indexOf('if (!executeRequested)');
+            const blockedBranch = source.indexOf('else if (!approvalMatched || !token)');
+            const applyCall = source.indexOf('await applyVerifiedAuthConfigChange');
+
+            expect(planBranch).toBeGreaterThan(-1);
+            expect(blockedBranch).toBeGreaterThan(planBranch);
+            expect(applyCall).toBeGreaterThan(blockedBranch);
+            expect(source).not.toMatch(/console\.log\([^\n]*(?:token|Authorization)/u);
+        }
+        expect(preflightRunner).toContain('getSafeAuthConfig');
+        expect(preflightRunner).not.toContain('patchAuthConfig');
+        expect(preflightRunner).not.toContain("method: 'PATCH'");
+    });
+
+    it('rejects any project ref outside the staging/production allowlist before fetch', async () => {
+        const fetcher = vi.fn() as unknown as Fetcher;
+        await expect(getSafeAuthConfig({
+            projectRef: 'attacker-controlled-ref',
+            token: 'test-management-token',
+            fetcher,
+        })).rejects.toThrow('target is not allowlisted');
+        expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    it('redacts management tokens from controlled error text', () => {
+        const safe = safeErrorMessage(new Error(
+            'Bearer sbp_super-secret SUPABASE_ACCESS_TOKEN=sbp_other-secret',
+        ));
+        expect(safe).not.toContain('super-secret');
+        expect(safe).not.toContain('other-secret');
+        expect(safe).toContain('[redacted]');
+    });
+});

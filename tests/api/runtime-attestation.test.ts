@@ -46,6 +46,7 @@ describe('web runtime attestation API', () => {
 
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
             WORKER_IDENTITY: 'espanolhonesto-staging',
             INTERNAL_JOB_SECRET: 'internal-secret',
         });
@@ -58,6 +59,7 @@ describe('web runtime attestation API', () => {
     it('rejects oversized or malformed bodies before attesting', async () => {
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
             WORKER_IDENTITY: 'espanolhonesto-staging',
             INTERNAL_JOB_SECRET: 'internal-secret',
         });
@@ -75,6 +77,7 @@ describe('web runtime attestation API', () => {
     it('binds the opaque proof to the deployed Cloudflare version metadata', async () => {
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
             WORKER_IDENTITY: 'espanolhonesto-staging',
             INTERNAL_JOB_SECRET: 'internal-secret',
             PUBLIC_SUPABASE_URL: 'https://staging.supabase.co',
@@ -116,6 +119,7 @@ describe('web runtime attestation API', () => {
     it('allows only the exact production identity in production', async () => {
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'bootstrap',
             WORKER_IDENTITY: 'espanolhonesto',
             INTERNAL_JOB_SECRET: 'internal-secret',
             SUPABASE_EXPECTED_PROJECT_REF: 'production-ref',
@@ -130,6 +134,22 @@ describe('web runtime attestation API', () => {
         const hidden = await POST(context('{"nonce":"valid_nonce_123456789"}', {
             authorization: 'Bearer internal-secret',
         }));
+        expect(hidden.status).toBe(404);
+    });
+
+    it('hides a production runtime with an unknown web mode', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'unknown',
+            WORKER_IDENTITY: 'espanolhonesto',
+            INTERNAL_JOB_SECRET: 'internal-secret',
+        });
+        versionMetadata.CF_VERSION_METADATA = { id: '33333333-3333-4333-8333-333333333333' };
+
+        const hidden = await POST(context('{"nonce":"valid_nonce_123456789"}', {
+            authorization: 'Bearer internal-secret',
+        }));
+
         expect(hidden.status).toBe(404);
     });
 });

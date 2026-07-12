@@ -9,8 +9,8 @@ describe('admin students page query shape', () => {
         expect(source).toContain(".from('subscriptions')");
         expect(source).toContain(".in('student_id', studentIds)");
         expect(source).toContain(".from('student_teachers')");
-        expect(source).toContain('const subscriptionByStudent = new Map()');
-        expect(source).toContain('const teacherByStudent = new Map()');
+        expect(source).toContain('const subscriptionByStudent = new Map<string, SubscriptionSummary>()');
+        expect(source).toContain('const teacherByStudent = new Map<string, string | null>()');
 
         expect(source).not.toContain('Promise.all(');
         expect(source).not.toContain('map(async (student)');

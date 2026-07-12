@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
@@ -19,6 +19,7 @@ const runtimeBindingKeys = [
     'E2E_DISABLE_EXTERNAL_INTEGRATIONS',
     'E2E_RUNTIME_ISOLATED',
     'E2E_TARGET_SUPABASE_REF',
+    'SUPABASE_EXPECTED_PROJECT_REF',
 ];
 const externalProviderKeys = [
     'CRON_SECRET',
@@ -53,6 +54,7 @@ if (
     process.env.E2E_DISABLE_EXTERNAL_INTEGRATIONS !== 'true' ||
     process.env.CHECKOUT_ENABLED !== 'false' ||
     process.env.E2E_TARGET_SUPABASE_REF !== expectedRef ||
+    process.env.SUPABASE_EXPECTED_PROJECT_REF !== expectedRef ||
     projectRef(requireValue('PUBLIC_SUPABASE_URL')) !== expectedRef
 ) {
     throw new Error('[e2e-env] Server owner refused an inconsistent runtime identity');
@@ -76,6 +78,19 @@ const cleanup = () => rmSync(runtimeVarsPath, { force: true });
 process.once('exit', cleanup);
 
 const astroCli = resolve(cwd, 'node_modules', 'astro', 'bin', 'astro.mjs');
+// Prime every explicitly allowlisted dependency before the HTTP server can
+// accept a request. Re-optimizing React while an SSR request is in flight can
+// otherwise mix two Vite browser hashes and produce a false invalid-hook-call.
+const sync = spawnSync(process.execPath, [astroCli, 'sync'], {
+    cwd,
+    env: process.env,
+    stdio: 'inherit',
+});
+if (sync.error || sync.status !== 0) {
+    cleanup();
+    throw new Error(`[e2e-env] Astro sync failed with exit code ${String(sync.status)}.`);
+}
+
 const server = spawn(process.execPath, [astroCli, 'dev'], {
     cwd,
     env: process.env,

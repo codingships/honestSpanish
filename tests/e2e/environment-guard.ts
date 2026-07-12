@@ -133,6 +133,7 @@ export function buildLocalStagingEnvironment(
     values.E2E_DISABLE_EXTERNAL_INTEGRATIONS = 'true';
     values.E2E_RUNTIME_ISOLATED = 'true';
     values.E2E_TARGET_SUPABASE_REF = stagingRef;
+    values.SUPABASE_EXPECTED_PROJECT_REF = stagingRef;
 
     return { values, stagingRef };
 }
@@ -166,6 +167,7 @@ export function configurePlaywrightEnvironment(
         processEnv.E2E_DISABLE_EXTERNAL_INTEGRATIONS = 'true';
         processEnv.E2E_RUNTIME_ISOLATED = 'true';
         processEnv.E2E_TARGET_SUPABASE_REF = 'placeholder';
+        processEnv.SUPABASE_EXPECTED_PROJECT_REF = 'placeholder';
         return {
             target: 'ci',
             supabaseRef: 'placeholder',

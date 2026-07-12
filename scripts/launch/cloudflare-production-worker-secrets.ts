@@ -909,6 +909,7 @@ async function runWebRuntimeAttestation(
                 const config = await buildRuntimeAttestationConfig('web', {
                     ...env.secretValues,
                     PUBLIC_APP_ENV: 'production',
+                    WEB_RUNTIME_MODE: 'active',
                     SUPABASE_EXPECTED_PROJECT_REF: productionSupabaseRef,
                     WORKER_IDENTITY: productionWorkerIdentity,
                     WORKER_VERSION_ID: expectedVersionId,

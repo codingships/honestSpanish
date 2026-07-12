@@ -573,6 +573,19 @@ CREATE TABLE teacher_availability (
     CONSTRAINT valid_time_range CHECK (start_time < end_time)
 );
 
+ALTER TABLE teacher_availability
+ADD CONSTRAINT teacher_availability_no_active_overlap
+EXCLUDE USING gist (
+    teacher_id WITH =,
+    day_of_week WITH =,
+    (numrange(
+        EXTRACT(EPOCH FROM start_time),
+        EXTRACT(EPOCH FROM end_time),
+        '[)'
+    )) WITH &&
+)
+WHERE (is_active = TRUE);
+
 -- =============================================
 -- INDEXES
 -- =============================================
@@ -2539,10 +2552,19 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 DECLARE
+    v_current_age_policy_version CONSTANT TEXT := '2026-07-10';
+    v_requested_age_policy_version TEXT;
     v_adult_confirmed BOOLEAN;
 BEGIN
+    v_requested_age_policy_version := NULLIF(
+        btrim(NEW.raw_user_meta_data->>'age_policy_version'),
+        ''
+    );
     v_adult_confirmed := COALESCE(
         NEW.raw_user_meta_data->'adult_confirmed' = 'true'::jsonb,
+        FALSE
+    ) AND COALESCE(
+        v_requested_age_policy_version = v_current_age_policy_version,
         FALSE
     );
 
@@ -2560,13 +2582,7 @@ BEGIN
         COALESCE(NEW.raw_user_meta_data->>'full_name', ''),
         v_adult_confirmed,
         CASE WHEN v_adult_confirmed THEN clock_timestamp() ELSE NULL END,
-        CASE
-            WHEN v_adult_confirmed THEN COALESCE(
-                NULLIF(NEW.raw_user_meta_data->>'age_policy_version', ''),
-                'unversioned-auth-attestation'
-            )
-            ELSE NULL
-        END
+        CASE WHEN v_adult_confirmed THEN v_current_age_policy_version ELSE NULL END
     )
     ON CONFLICT (id) DO NOTHING;
     INSERT INTO profiles_private (profile_id)

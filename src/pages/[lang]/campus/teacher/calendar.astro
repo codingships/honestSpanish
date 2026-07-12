@@ -1,14 +1,31 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../../i18n/utils';
+import { getLangFromParam, useTranslations, type SupportedLang } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 import TeacherCalendar from '../../../../components/calendar/TeacherCalendar';
 import AvailabilityManager from '../../../../components/calendar/AvailabilityManager';
 
 export const prerender = false;
 
-const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
+
+interface CalendarStudent {
+    id: string;
+    full_name: string | null;
+    email: string;
+}
+
+interface CalendarSession {
+    id: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    status: string;
+    meet_link: string | null;
+    teacher_notes: string | null;
+    drive_doc_url: string | null;
+    student: CalendarStudent;
+}
 
 const supabase = createSupabaseServerClient(Astro);
 const { data: { user } } = await supabase.auth.getUser();
@@ -70,10 +87,26 @@ const { data: assignedStudents } = await supabase
     `)
     .eq('teacher_id', user.id);
 
-const students = (assignedStudents || []).map((s: any) => s.profiles).filter(Boolean);
+const students = (assignedStudents || []).flatMap(({ profiles }): CalendarStudent[] => (
+    profiles ? [profiles] : []
+));
+
+const calendarSessions = (sessions || []).flatMap((session): CalendarSession[] => {
+    if (!session.scheduled_at || !session.student) return [];
+    return [{
+        id: session.id,
+        scheduled_at: session.scheduled_at,
+        duration_minutes: session.duration_minutes ?? 50,
+        status: session.status ?? 'scheduled',
+        meet_link: session.meet_link,
+        teacher_notes: session.teacher_notes,
+        drive_doc_url: session.drive_doc_url,
+        student: session.student,
+    }];
+});
 
 // Nombres de días en el idioma actual
-const dayNames: Record<string, string[]> = {
+const dayNames: Record<SupportedLang, string[]> = {
     es: ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'],
     en: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
     ru: ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота']
@@ -115,13 +148,14 @@ const calendarTranslations = {
     errorAdding: t('campus.teacher.calendar.errorAdding'),
     errorRemoving: t('campus.teacher.calendar.errorRemoving'),
     invalidTimeRange: t('campus.teacher.calendar.invalidTimeRange'),
+    timezoneNotice: t('campus.teacher.calendar.timezoneNotice'),
     status: t('campus.teacher.calendar.status'),
     dateTime: t('campus.teacher.calendar.dateTime'),
     meetLink: t('campus.teacher.calendar.meetLink'),
     saveNotes: t('campus.teacher.calendar.saveNotes'),
     updated: t('campus.teacher.calendar.updated'),
     sessionNotesPlaceholder: t('campus.teacher.calendar.sessionNotesPlaceholder'),
-    dayNames: dayNames[lang] || dayNames['es'],
+    dayNames: dayNames[lang],
     continue: t('campus.teacher.calendar.continue'),
     back: t('campus.teacher.calendar.back'),
     loading: t('campus.teacher.calendar.loading'),
@@ -180,7 +214,7 @@ const calendarTranslations = {
     <div id="view-calendar" role="tabpanel" aria-labelledby="tab-calendar">
         <TeacherCalendar 
             client:load
-            sessions={sessions || []}
+            sessions={calendarSessions}
             students={students}
             teacherId={user.id}
             lang={lang}
