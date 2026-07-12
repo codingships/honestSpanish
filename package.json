@@ -108,6 +108,7 @@
     "launch:security": "tsx scripts/launch/security-audit.ts",
     "launch:operations": "tsx scripts/launch/operations-audit.ts",
     "launch:staging-operations": "tsx scripts/launch/staging-operations-preflight.ts",
+    "launch:cloudflare-staging-fulfillment-rollback-drill": "tsx scripts/launch/cloudflare-staging-fulfillment-rollback-drill.ts",
     "launch:operations-external-closure": "tsx scripts/launch/operations-external-closure.ts",
     "launch:admin-jobs-staging-runtime": "tsx scripts/launch/admin-jobs-staging-runtime.ts",
     "launch:resend-readonly": "tsx scripts/launch/resend-readonly-evidence.ts",

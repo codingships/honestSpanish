@@ -309,6 +309,30 @@ Antes de provisionar, ejecutar `wrangler whoami`, `wrangler queues list` y
 declarar la cuenta, comprobar que los dos nombres no existen y capturar la versión activa.
 No crear, enlazar ni desplegar recursos Queue de production dentro de este procedimiento.
 
+Simulacro controlado de rollback del Fulfillment Worker staging:
+
+```bash
+# Por defecto: Wrangler + API Cloudflare GET + /health; cero writes.
+# Requiere CLOUDFLARE_API_TOKEN solo en memoria; nunca se guarda en outputs.
+pnpm launch:cloudflare-staging-fulfillment-rollback-drill
+
+# Solo con la frase exacta generada en exact-approval-required.txt.
+pnpm launch:cloudflare-staging-fulfillment-rollback-drill -- --execute-approved
+```
+
+El runner fija cuenta, Worker, Queue, Queue ID y URL directa; exige backlog cero, productor y
+consumidor exactos, Cron horario exacto, versiones actual/anterior al 100 %, handlers, bindings y
+las once variables plaintext staging con sus valores contractuales. Wrangler no expone
+`delivery_paused`, por lo que ese estado se lee por API y su ausencia nunca equivale a `false`.
+Antes del primer write repite todo el preflight y la aprobación queda ligada al hash semántico,
+ambas versiones y los siete writes exactos. La secuencia desactiva primero el Cron, normaliza y
+pausa la Queue, prueba el rollback y, en `finally`, restaura versión, Cron y Queue. Cada write tiene
+receipt write-ahead; un lock durable sobrevive a un corte y solo desaparece tras verificar los
+tres estados finales. Si la versión original no queda probada, Cron permanece desactivado y Queue
+pausada. Nunca llama endpoints de jobs, purga/borra/reconfigura consumidores, toca secretos,
+dominios, DNS, Pages o production. El checklist sigue abierto hasta una ejecución aprobada con
+estado `DRILL_EXECUTED_AND_CURRENT_RESTORED`.
+
 Rollback compuesto de Queue staging:
 
 1. Pausar delivery con `pnpm exec wrangler queues pause-delivery espanol-honesto-fulfillment-staging-queue` para conservar los mensajes sin entregarlos al código anterior.
