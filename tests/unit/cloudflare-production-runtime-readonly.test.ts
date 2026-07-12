@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { newestWorkerDeployment } from '../../scripts/launch/cloudflare-deployment-order';
 
 const source = readFileSync('scripts/launch/cloudflare-production-runtime-readonly.ts', 'utf8');
 const packageJson = readFileSync('package.json', 'utf8');
@@ -13,6 +14,26 @@ const manualEvidenceDoc = readFileSync('docs/launch/MANUAL_EVIDENCE.md', 'utf8')
 const manualExample = readFileSync('docs/launch/MANUAL_EVIDENCE.example.json', 'utf8');
 
 describe('Cloudflare production runtime read-only evidence', () => {
+    it('selects the newest Worker deployment by created_on regardless of API ordering', () => {
+        const oldestToNewest = [
+            { id: 'old', created_on: '2026-07-11T09:57:34.551804Z' },
+            { id: 'middle', created_on: '2026-07-11T23:21:57.712161Z' },
+            { id: 'new', created_on: '2026-07-12T19:23:06.921581Z' },
+        ];
+
+        expect(newestWorkerDeployment(oldestToNewest)?.id).toBe('new');
+        expect(newestWorkerDeployment([...oldestToNewest].reverse())?.id).toBe('new');
+        expect(oldestToNewest.map(({ id }) => id)).toEqual(['old', 'middle', 'new']);
+    });
+
+    it('falls back deterministically when Cloudflare omits usable timestamps', () => {
+        expect(newestWorkerDeployment([
+            { id: 'first', created_on: 'not-a-date' },
+            { id: 'second' },
+        ])?.id).toBe('first');
+        expect(newestWorkerDeployment([])).toBeUndefined();
+    });
+
     it('is wired into pnpm scripts, final queue, integration package and launch status', () => {
         expect(packageJson).toContain('"launch:cloudflare-production-runtime-readonly": "tsx scripts/launch/cloudflare-production-runtime-readonly.ts"');
         expect(finalApprovalQueue).toContain('launch:cloudflare-production-runtime-readonly');

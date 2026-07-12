@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { newestWorkerDeployment } from './cloudflare-deployment-order';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -545,7 +546,7 @@ function summarizePagesDeployments(value: unknown): Record<string, unknown> {
 
 function summarizeWorkerDeployments(value: unknown, stderr: string, exitCode: number | null): Record<string, unknown> {
     const deployments = asArray(value).map(asRecord);
-    const latest = deployments[0] ?? {};
+    const latest = newestWorkerDeployment(deployments) ?? {};
     const versions = asArray(latest.versions).map(asRecord);
     return {
         count: exitCode === 0 ? deployments.length : 0,
