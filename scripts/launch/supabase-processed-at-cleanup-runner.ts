@@ -675,7 +675,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         '## Execution Retirement',
         '',
         '- Do not execute this legacy runner. Passing `--execute-approved` fails before any network or SQL command.',
-        '- Generate a fresh production read-only preflight, then use the source-bound `processed_at_small_fix` wave either alone or as the first wave of the complete 22-migration rollout.',
+        '- Generate a fresh production read-only preflight, then use the source-bound `processed_at_small_fix` wave either alone or as the first wave of the complete 23-migration rollout.',
         `- Replacement plan command: \`${replacementPlanCommand}\`.`,
         '- The replacement runner generates a scope-bound approval sentence, records exact migration history and verifies source SHA-256 plus schema effect.',
         '',

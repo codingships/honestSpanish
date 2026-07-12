@@ -88,6 +88,18 @@ Contras:
 - Las policies admin dependen del schema `private` y de grants correctos para `authenticated`.
 - Cualquier nueva tabla admin debe seguir este patron y probarse en staging/production.
 
+Decision: reconciliar el contrato base del modelo con `20260712112000_reconcile_database_model_contract.sql` antes de las olas de esquema de aplicacion y del hardening RC.
+
+Pros:
+- Fija `leads.updated_at`, `lead_status`, defaults y grants con el mismo contrato en staging y production.
+- Elimina el helper residual `public.is_admin()` sin `CASCADE` y conserva exclusivamente `private.is_admin()`.
+- Retira columnas legacy de sesiones solo despues de preservar sus valores en las columnas canonicas.
+- Permite que el rollout verifique por efectos el modelo base antes de crear CRM, billing y los indices finales.
+
+Contras:
+- Staging debe aplicar y verificar juntas, en orden, `20260712112000`, `20260712114000` y `20260712114500` antes de autorizar production.
+- Production incorpora una séptima ola `base_model_reconciliation`; su hash y receipt deben regenerarse si cambia el SQL.
+
 Decision: la base de datos actua como ultima barrera semantica para relaciones alumno/profesor en operaciones de campus.
 
 Pros:

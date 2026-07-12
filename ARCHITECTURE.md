@@ -56,7 +56,9 @@ con batch y concurrencia limitados a uno para proteger Google, Resend y la base.
 
 ## Base De Datos
 
-Fuente oficial: `db/schema.sql`.
+Fuente oficial: `db/schema.sql`. Es un superset desplegable: contiene las 22 tablas comunes de la aplicación y las 2 tablas de smoke que solo existen en staging. Production excluye expresamente `20260710150000_staging_integration_smoke_runs.sql`; ninguna ruta production puede depender de esas tablas o de sus RPC.
+
+La única cadena de despliegue es `supabase/migrations/`. `src/types/database.types.ts` se regenera desde staging porque es el entorno más avanzado y conserva ese superset; las ampliaciones manuales se limitan a la nulabilidad de argumentos/resultados PL/pgSQL que el generador de Supabase no puede inferir.
 
 Tablas clave:
 

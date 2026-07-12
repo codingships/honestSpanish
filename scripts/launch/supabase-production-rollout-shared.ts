@@ -11,6 +11,7 @@ export const PRODUCTION_PROJECT = {
 };
 
 export const PROCESSED_AT_VERSION = '20260703211451';
+export const MODEL_RECONCILIATION_VERSION = '20260712112000';
 export const STAGING_ONLY_VERSION = '20260710150000';
 
 export const KNOWN_MIGRATION_WAVES = [
@@ -20,6 +21,14 @@ export const KNOWN_MIGRATION_WAVES = [
         versions: [PROCESSED_AT_VERSION],
         destructive: false,
         requiresBackupEvidence: false,
+        requiresPreservationPolicy: false,
+    },
+    {
+        id: 'base_model_reconciliation',
+        label: 'Reconciliacion del contrato base del modelo',
+        versions: [MODEL_RECONCILIATION_VERSION],
+        destructive: false,
+        requiresBackupEvidence: true,
         requiresPreservationPolicy: false,
     },
     {

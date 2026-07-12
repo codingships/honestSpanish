@@ -98,6 +98,7 @@ describe('Supabase production rollout safety', () => {
             "regexp_replace(coalesce(remote.name, ''), '^[0-9]+_', '')",
             'remote_versions',
             'processed_at_small_fix',
+            'base_model_reconciliation',
             'destructiveFixtureCleanup',
             'billing_contract',
             'supabase db push',

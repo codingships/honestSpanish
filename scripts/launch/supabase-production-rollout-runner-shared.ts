@@ -24,6 +24,7 @@ export const PRODUCTION_AUTH_QUARANTINE_MIN_REMAINING_MS = 15 * 60 * 1_000;
 
 export type ProductionRolloutWaveId =
     | 'processed_at_small_fix'
+    | 'base_model_reconciliation'
     | 'application_schema'
     | 'runtime_and_policy'
     | 'billing_contract'
@@ -56,6 +57,12 @@ export const PRODUCTION_ROLLOUT_WAVES: readonly ProductionRolloutWave[] = [
         id: 'processed_at_small_fix',
         migrations: [
             migration('20260703211451', 'drop_processed_webhook_processed_at_default', '56bc53a202ad494a6b227986be0364d777b511ab6db90e0df7ff7585191e7a99'),
+        ],
+    },
+    {
+        id: 'base_model_reconciliation',
+        migrations: [
+            migration('20260712112000', 'reconcile_database_model_contract', 'a5c65d8fc02bc38d1bc55df1d5c6e25af4ab092fcc976384306238a0590f4126'),
         ],
     },
     {
@@ -100,7 +107,7 @@ export const PRODUCTION_ROLLOUT_WAVES: readonly ProductionRolloutWave[] = [
     {
         id: 'deferred_rc_hardening',
         migrations: [
-            migration('20260712114000', 'harden_teacher_availability_overlap', '16f695b6377281f3dd5105802c7c9991cf213746acc5a881efe78626aa9bc00a'),
+            migration('20260712114000', 'harden_teacher_availability_overlap', '271786dda04f3f0735c856a6f7774e482a660e3fc9044962a1284670895a9884'),
             migration('20260712114500', 'require_current_adult_policy_on_signup', '5f01e7e0a2854174cab59002bea4ee01987782846f8a2266bd2dba5c897b7cfb'),
         ],
     },
@@ -252,8 +259,8 @@ export function validateProductionRolloutAllowlist(root = process.cwd()): Allowl
     const sources = new Map<string, string>();
     const versions = new Set<string>();
 
-    if (PRODUCTION_ROLLOUT_MIGRATIONS.length !== 22) {
-        errors.push(`Allowlist must contain exactly 22 migrations, observed ${PRODUCTION_ROLLOUT_MIGRATIONS.length}.`);
+    if (PRODUCTION_ROLLOUT_MIGRATIONS.length !== 23) {
+        errors.push(`Allowlist must contain exactly 23 migrations, observed ${PRODUCTION_ROLLOUT_MIGRATIONS.length}.`);
     }
     for (const migrationEntry of PRODUCTION_ROLLOUT_MIGRATIONS) {
         if (versions.has(migrationEntry.version)) errors.push(`Duplicate version ${migrationEntry.version}.`);
@@ -478,7 +485,9 @@ export function readStagingHardeningEvidence(
         || value.checks.some((check) => check.status !== 'ok')) {
         errors.push('Staging evidence must contain only completed ok checks.');
     }
-    const expected = PRODUCTION_ROLLOUT_WAVES.find((wave) => wave.id === 'deferred_rc_hardening')?.migrations ?? [];
+    const expected = PRODUCTION_ROLLOUT_WAVES
+        .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
+        .flatMap((wave) => wave.migrations);
     const suppliedMigrations = Array.isArray(value.migrations) ? value.migrations : [];
     if (!Array.isArray(value.migrations)) errors.push('Staging evidence migrations are missing or invalid.');
     const supplied = new Map(suppliedMigrations.map((entry) => [entry.version, entry]));
@@ -875,6 +884,53 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
                 FROM information_schema.columns
                 WHERE table_schema='public' AND table_name='processed_webhook_events' AND column_name='processed_at'
             )`)];
+        case 'base_model_reconciliation':
+            return [
+                fact('model_leads_updated_at_contract', 'true', `(SELECT EXISTS(
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='leads' AND column_name='updated_at'
+                      AND data_type='timestamp with time zone' AND column_default ILIKE '%now()%'
+                ))`),
+                fact('model_leads_status_contract', 'true', `(
+                    EXISTS(
+                        SELECT 1 FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='leads' AND column_name='status'
+                          AND udt_schema='public' AND udt_name='lead_status' AND column_default ILIKE '%new%'
+                    ) AND (
+                        SELECT string_agg(enum_value.enumlabel, ',' ORDER BY enum_value.enumsortorder) = 'new,contacted,discarded'
+                        FROM pg_enum enum_value
+                        WHERE enum_value.enumtypid=to_regtype('public.lead_status')
+                    )
+                )`),
+                fact('model_leads_defaults_contract', 'true', `((
+                    SELECT count(*)=3 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='leads' AND (
+                        (column_name='lang' AND column_default='''es''::text')
+                        OR (column_name='consent_given' AND column_default='false')
+                        OR (column_name='created_at' AND is_nullable='YES')
+                    )
+                ))`),
+                fact('model_leads_acl_valid', 'true', `(
+                    NOT EXISTS(
+                        SELECT 1 FROM information_schema.table_privileges
+                        WHERE table_schema='public' AND table_name='leads'
+                          AND grantee IN ('PUBLIC','anon')
+                          AND privilege_type IN ('SELECT','INSERT','UPDATE','DELETE')
+                    )
+                    AND (SELECT count(DISTINCT privilege_type)=4 FROM information_schema.table_privileges
+                         WHERE table_schema='public' AND table_name='leads' AND grantee='authenticated'
+                           AND privilege_type IN ('SELECT','INSERT','UPDATE','DELETE'))
+                    AND (SELECT count(DISTINCT privilege_type)=4 FROM information_schema.table_privileges
+                         WHERE table_schema='public' AND table_name='leads' AND grantee='service_role'
+                           AND privilege_type IN ('SELECT','INSERT','UPDATE','DELETE'))
+                )`),
+                fact('model_public_is_admin_absent', 'true', `(to_regprocedure('public.is_admin()') IS NULL)`),
+                fact('model_legacy_session_columns_absent', 'true', `((
+                    SELECT count(*)=0 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name='sessions'
+                      AND column_name IN ('drive_doc_link','google_calendar_event_id','google_meet_link')
+                ))`),
+            ];
         case 'application_schema':
             return [
                 fact('application_crm_tables', '5', `(SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('crm_contacts','crm_opportunities','crm_tasks','crm_activities','crm_consents'))`),
@@ -909,6 +965,32 @@ function waveVerificationFacts(wave: ProductionRolloutWaveId): Array<{ key: stri
             return [
                 fact('hardening_overlap_constraint', 'true', `(SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.teacher_availability'::regclass AND conname='teacher_availability_no_active_overlap' AND contype='x'))`),
                 fact('hardening_legacy_unique_absent', 'true', `(SELECT NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='public.teacher_availability'::regclass AND conname='teacher_availability_teacher_id_day_of_week_start_time_key'))`),
+                fact('hardening_availability_updated_at_trigger', 'true', `(SELECT EXISTS(
+                    SELECT 1 FROM pg_trigger trigger_row
+                    WHERE trigger_row.tgname='update_teacher_availability_updated_at'
+                      AND trigger_row.tgrelid='public.teacher_availability'::regclass
+                      AND trigger_row.tgfoid=to_regprocedure('public.update_updated_at()')
+                      AND NOT trigger_row.tgisinternal
+                      AND (trigger_row.tgtype & 1)=1
+                      AND (trigger_row.tgtype & 2)=2
+                      AND (trigger_row.tgtype & 16)=16
+                      AND (trigger_row.tgtype & 108)=0
+                ))`),
+                fact('hardening_required_indexes', '13', `(SELECT count(*) FROM (VALUES
+                    (to_regclass('public.idx_teacher_availability_teacher')),
+                    (to_regclass('public.idx_teacher_availability_day')),
+                    (to_regclass('public.idx_sessions_status')),
+                    (to_regclass('public.payments_stripe_payment_intent_idx')),
+                    (to_regclass('public.checkout_intents_contact_idx')),
+                    (to_regclass('public.idx_fulfillment_jobs_student')),
+                    (to_regclass('public.idx_fulfillment_jobs_subscription')),
+                    (to_regclass('public.package_prices_created_by_idx')),
+                    (to_regclass('public.payments_subscription_idx')),
+                    (to_regclass('public.sessions_cancelled_by_idx')),
+                    (to_regclass('public.sessions_subscription_idx')),
+                    (to_regclass('public.student_teachers_teacher_idx')),
+                    (to_regclass('public.subscriptions_package_idx'))
+                ) required(index_oid) WHERE index_oid IS NOT NULL)`),
                 fact('hardening_handle_new_user_policy', 'true', `(SELECT EXISTS(SELECT 1 FROM pg_proc WHERE oid=to_regprocedure('public.handle_new_user()') AND pg_get_functiondef(oid) LIKE '%2026-07-10%' AND pg_get_functiondef(oid) LIKE '%v_requested_age_policy_version = v_current_age_policy_version%'))`),
             ];
     }

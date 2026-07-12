@@ -946,7 +946,7 @@ function remediationPlanForSource(source: EvidenceSource): WarningRemediation[] 
     if (source.id === 'supabase_processed_at_cleanup_runner') {
         return [{
             ...base,
-            allowedNextStep: 'Generate a fresh production read-only preflight, then run pnpm launch:supabase-production-rollout -- --through processed_at_small_fix --preflight <fresh-summary.json> in plan mode. Execute that source-bound wave only under its generated exact approval, or include it as the first wave of the exact 22-migration rollout.',
+            allowedNextStep: 'Generate a fresh production read-only preflight, then run pnpm launch:supabase-production-rollout -- --through processed_at_small_fix --preflight <fresh-summary.json> in plan mode. Execute that source-bound wave only under its generated exact approval, or include it as the first wave of the exact 23-migration rollout.',
             readOnlyVerification: 'Confirm PLAN_ONLY_READY and externalWritePerformed=false before approval. After execution, require exact migration history/hash, processed_at without default and a fresh processed_at preflight with clean webhook aggregates in staging and production.',
             evidenceToRecord: 'Record the production rollout summary/manifest, wave apply and read-only verification artifacts, plus the fresh processed_at read-only summary; never record database URLs or secret values.',
             rollbackOrRisk: 'No rollback for plan mode. If the production wave fails, keep checkout disabled, stop subsequent waves and follow rollback-and-switch-plan.md; do not use the retired legacy cleanup runner.',

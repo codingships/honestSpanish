@@ -60,6 +60,7 @@ interface StagingHardeningEvidence {
     stagingProjectRef: string;
     appliedAt: string;
     migrations: Array<{ version: string; sha256: string }>;
+    modelContractVerified: boolean;
     activeOverlapPreflightPassed: boolean;
     availabilityTestsPassed: boolean;
     signupTestsPassed: boolean;
@@ -162,6 +163,7 @@ const cleanupGate: GateStatus = backupReceipt.valid && preservationPolicy.valid
     ? 'ready'
     : 'blocked';
 const billingDataReady = stripeLinkedWithoutPackagePrice === 0;
+const baseModelReconciliationPresent = waveIsPresent('base_model_reconciliation');
 const applicationSchemaPresent = waveIsPresent('application_schema');
 const runtimeAndPolicyPresent = waveIsPresent('runtime_and_policy');
 
@@ -177,6 +179,12 @@ const waves = KNOWN_MIGRATION_WAVES.map((wave) => {
     if (wave.id !== 'processed_at_small_fix') {
         prerequisites.push('processed_at small fix verified or already closed');
         prerequisites.push('baseline alias/version-name schema effects verified read-only');
+    }
+    if (wave.id === 'base_model_reconciliation') {
+        prerequisites.push('exact model reconciliation migration applied and verified in staging first');
+    }
+    if (['application_schema', 'runtime_and_policy', 'billing_contract', 'fulfillment_ledger', 'deferred_rc_hardening'].includes(wave.id)) {
+        prerequisites.push('base_model_reconciliation wave verified or already closed');
     }
     if (['runtime_and_policy', 'billing_contract', 'fulfillment_ledger', 'deferred_rc_hardening'].includes(wave.id)) {
         prerequisites.push('application_schema wave verified or already closed');
@@ -198,6 +206,8 @@ const waves = KNOWN_MIGRATION_WAVES.map((wave) => {
         && (!wave.requiresPreservationPolicy || preservationPolicy.valid)
         && (wave.id === 'processed_at_small_fix' || processedAlreadyClosed)
         && (wave.id === 'processed_at_small_fix' || baselineEffectsVerified)
+        && (wave.id !== 'base_model_reconciliation' || stagingHardeningEvidence.valid)
+        && (!['application_schema', 'runtime_and_policy', 'billing_contract', 'fulfillment_ledger', 'deferred_rc_hardening'].includes(wave.id) || baseModelReconciliationPresent)
         && (!['runtime_and_policy', 'billing_contract', 'fulfillment_ledger', 'deferred_rc_hardening'].includes(wave.id) || applicationSchemaPresent)
         && (wave.id !== 'billing_contract' || runtimeAndPolicyPresent)
         && (wave.id !== 'deferred_rc_hardening' || (runtimeAndPolicyPresent && stagingHardeningEvidence.valid))
@@ -508,6 +518,7 @@ function readStagingHardeningEvidence(
         if (value.stagingProjectRef !== STAGING_PROJECT_REF) errors.push('stagingProjectRef mismatch');
         if (!Number.isFinite(new Date(value.appliedAt).getTime())) errors.push('appliedAt must be an ISO timestamp');
         for (const [field, passed] of Object.entries({
+            modelContractVerified: value.modelContractVerified,
             activeOverlapPreflightPassed: value.activeOverlapPreflightPassed,
             availabilityTestsPassed: value.availabilityTestsPassed,
             signupTestsPassed: value.signupTestsPassed,
@@ -517,8 +528,8 @@ function readStagingHardeningEvidence(
         }
 
         const expectedVersions = KNOWN_MIGRATION_WAVES
-            .find((wave) => wave.id === 'deferred_rc_hardening')
-            ?.versions ?? [];
+            .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
+            .flatMap((wave) => [...wave.versions]);
         const supplied = new Map(value.migrations?.map((migration) => [migration.version, migration.sha256]) ?? []);
         for (const version of expectedVersions) {
             const expected = localMigrations.find((migration) => migration.version === version)?.sha256;
@@ -572,8 +583,8 @@ function renderPreservationTemplate(): PreservationPolicy {
 
 function renderStagingHardeningTemplate(): StagingHardeningEvidence {
     const versions = KNOWN_MIGRATION_WAVES
-        .find((wave) => wave.id === 'deferred_rc_hardening')
-        ?.versions ?? [];
+        .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
+        .flatMap((wave) => [...wave.versions]);
     return {
         schemaVersion: 1,
         stagingProjectRef: STAGING_PROJECT_REF,
@@ -582,6 +593,7 @@ function renderStagingHardeningTemplate(): StagingHardeningEvidence {
             version,
             sha256: localMigrations.find((migration) => migration.version === version)?.sha256 ?? '<missing>',
         })),
+        modelContractVerified: false,
         activeOverlapPreflightPassed: false,
         availabilityTestsPassed: false,
         signupTestsPassed: false,

@@ -105,7 +105,7 @@ const checks: Check[] = [
         status: migrationValidation.valid ? 'ok' : 'failed',
         name: 'exact_migration_allowlist_and_sha256',
         message: migrationValidation.valid
-            ? 'Both and only the allowlisted staging hardening migrations match their pinned SHA-256 values.'
+            ? 'All and only the allowlisted staging hardening migrations match their pinned SHA-256 values.'
             : 'A staging hardening migration is missing, outside scope or does not match its pinned SHA-256.',
         details: migrationValidation.details,
     },
@@ -501,7 +501,7 @@ function renderExecutionPlan(report: RunnerReport): string {
         'pnpm launch:supabase-staging-hardening -- --execute-approved',
         '```',
         '',
-        'Execution order is fixed: local hash allowlist → endpoint allowlist → read-only preflight → one atomic transaction containing exactly both migrations and both history inserts → read-only post-verification.',
+        'Execution order is fixed: local hash allowlist → endpoint allowlist → read-only preflight → one atomic transaction containing exactly all three migrations and history inserts → read-only post-verification.',
         '',
         '## Stop conditions',
         '',
@@ -509,7 +509,7 @@ function renderExecutionPlan(report: RunnerReport): string {
         '- Stop before connecting if exact approval is absent for execute mode.',
         '- Stop before SQL if the endpoint is not exactly staging `mzjyvmlxfpzdfdjzxxyj`.',
         '- Stop before write if either target migration alone appears in history, active overlaps exist, dependencies are missing or the existing named constraint has another definition.',
-        '- If both target versions already exist, do not reapply; run only the exact post-verification.',
+        '- If all target versions already exist, do not reapply; run only the exact post-verification.',
         '- Never run a general migration push, migration repair, production action, Auth setting change or provider write from this runner.',
         '',
     ].join('\n')}\n`;
@@ -534,7 +534,7 @@ function renderApprovalGate(report: RunnerReport): string {
         '## Explicitly excluded',
         '',
         '- Production and every Supabase project other than `mzjyvmlxfpzdfdjzxxyj`.',
-        '- Any migration other than the two pinned files/hashes.',
+        '- Any migration other than the three pinned files/hashes.',
         '- General database push, migration repair, row cleanup, Auth/configuration changes, Storage changes and secret rotation.',
         '- Cloudflare, Stripe, Resend, Google, Sentry, DNS, domain, email and payment actions.',
         '',
@@ -547,7 +547,7 @@ function renderRollbackPlan(report: RunnerReport): string {
         '',
         `- External write performed in this run: ${String(report.externalWritePerformed)}.`,
         '- Plan and read-only preflight modes require no rollback.',
-        '- The apply file is one transaction with `ON_ERROR_STOP`; any SQL error before `COMMIT` rolls back both schema effects and both migration-history inserts together.',
+        '- The apply file is one transaction with `ON_ERROR_STOP`; any SQL error before `COMMIT` rolls back all schema effects and migration-history inserts together.',
         '',
         '## After a committed apply',
         '',
@@ -559,7 +559,7 @@ function renderRollbackPlan(report: RunnerReport): string {
         '2. Obtain a separate exact approval naming staging, the incident and the precise reversal SQL.',
         '3. In a read-only transaction, prove there are no duplicate active slots before considering restoration of the former unique constraint; otherwise do not drop the exclusion constraint.',
         '4. Restore the prior `handle_new_user()` definition from the committed migration immediately preceding this hardening, not from an ad-hoc reconstruction.',
-        '5. Remove the two migration-history rows only in the same transaction that completely restores both prior schema effects. Never use migration repair as a shortcut.',
+        '5. Remove the three migration-history rows only in the same transaction that completely restores all prior schema effects. Never use migration repair as a shortcut.',
         '6. Re-run the read-only preflight/verification appropriate to the restored state and record a non-secret incident receipt.',
         '',
         'If post-verification fails after a successful commit, do not retry or roll back automatically. Inspect metadata read-only and prepare a reviewed forward fix or separately approved reversal.',
@@ -584,7 +584,7 @@ function renderManifest(report: RunnerReport): string {
         execution: {
             generalDbPush: false,
             migrationRepair: false,
-            transaction: 'both migrations and both supabase_migrations.schema_migrations inserts in one transaction',
+            transaction: 'all three migrations and supabase_migrations.schema_migrations inserts in one transaction',
             preflight: 'read-only',
             postVerification: 'read-only',
         },

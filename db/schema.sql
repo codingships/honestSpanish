@@ -1,6 +1,11 @@
 -- =============================================
 -- ESPAÑOL HONESTO - DATABASE SCHEMA
 -- =============================================
+-- Canonical deployable superset: 22 application tables shared with production
+-- plus 2 staging-only integration-smoke tables. Production must never apply
+-- migration 20260710150000 or call its staging-only RPCs.
+-- All deployable changes belong in supabase/migrations; do not maintain loose
+-- dashboard SQL as a parallel schema source.
 
 -- 1. ENUM TYPES
 CREATE TYPE user_role AS ENUM ('student', 'teacher', 'admin');
@@ -592,6 +597,7 @@ WHERE (is_active = TRUE);
 CREATE INDEX idx_profiles_role ON profiles(role);
 CREATE INDEX idx_subscriptions_student ON subscriptions(student_id);
 CREATE INDEX idx_subscriptions_status ON subscriptions(status);
+CREATE INDEX subscriptions_package_idx ON subscriptions(package_id);
 CREATE INDEX subscriptions_package_price_idx ON subscriptions(package_price_id) WHERE package_price_id IS NOT NULL;
 CREATE UNIQUE INDEX subscriptions_stripe_subscription_unique_idx ON subscriptions(stripe_subscription_id) WHERE stripe_subscription_id IS NOT NULL;
 CREATE UNIQUE INDEX package_prices_one_active_duration_idx ON package_prices(package_id, duration_months) WHERE status = 'active';
@@ -599,10 +605,17 @@ CREATE INDEX package_prices_package_version_idx ON package_prices(package_id, ca
 CREATE INDEX idx_sessions_student ON sessions(student_id);
 CREATE INDEX idx_sessions_teacher ON sessions(teacher_id);
 CREATE INDEX idx_sessions_scheduled ON sessions(scheduled_at);
+CREATE INDEX idx_sessions_status ON sessions(status);
+CREATE INDEX sessions_subscription_idx ON sessions(subscription_id);
+CREATE INDEX sessions_cancelled_by_idx ON sessions(cancelled_by);
 CREATE INDEX idx_payments_student ON payments(student_id);
+CREATE INDEX payments_subscription_idx ON payments(subscription_id);
+CREATE INDEX payments_stripe_payment_intent_idx ON payments(stripe_payment_intent_id) WHERE stripe_payment_intent_id IS NOT NULL;
 CREATE UNIQUE INDEX payments_stripe_invoice_unique_idx ON payments(stripe_invoice_id) WHERE stripe_invoice_id IS NOT NULL;
 CREATE INDEX idx_fulfillment_jobs_due ON fulfillment_jobs(status, run_at) WHERE status IN ('pending', 'failed');
 CREATE INDEX idx_fulfillment_jobs_session ON fulfillment_jobs(session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX idx_fulfillment_jobs_subscription ON fulfillment_jobs(subscription_id);
+CREATE INDEX idx_fulfillment_jobs_student ON fulfillment_jobs(student_id);
 CREATE UNIQUE INDEX idx_fulfillment_jobs_type_dedupe ON fulfillment_jobs(job_type, dedupe_key) WHERE dedupe_key IS NOT NULL;
 CREATE INDEX fulfillment_effects_claimable_lease_idx
     ON fulfillment_effects(status, lease_expires_at, created_at)
@@ -638,6 +651,7 @@ CREATE INDEX crm_activities_related_entity_idx ON crm_activities(related_entity_
 CREATE INDEX crm_consents_contact_idx ON crm_consents(contact_id);
 CREATE INDEX crm_consents_channel_purpose_idx ON crm_consents(channel, purpose, opted_out_at);
 CREATE UNIQUE INDEX crm_consents_one_active_per_contact_channel_purpose ON crm_consents(contact_id, channel, purpose) WHERE opted_out_at IS NULL;
+CREATE INDEX checkout_intents_contact_idx ON checkout_intents(contact_id);
 CREATE INDEX leads_crm_contact_idx ON leads(crm_contact_id) WHERE crm_contact_id IS NOT NULL;
 CREATE INDEX leads_crm_opportunity_idx ON leads(crm_opportunity_id) WHERE crm_opportunity_id IS NOT NULL;
 CREATE INDEX leads_spoken_languages_idx ON leads USING GIN(spoken_languages);
@@ -646,6 +660,10 @@ CREATE INDEX leads_level_check_status_idx ON leads(level_check_status, level_che
 CREATE INDEX leads_level_check_fit_flags_idx ON leads USING GIN(level_check_fit_flags);
 CREATE INDEX idx_admin_audit_log_admin ON admin_audit_log(admin_id);
 CREATE INDEX idx_admin_audit_log_entity ON admin_audit_log(entity_type, entity_id);
+CREATE INDEX package_prices_created_by_idx ON package_prices(created_by);
+CREATE INDEX student_teachers_teacher_idx ON student_teachers(teacher_id);
+CREATE INDEX idx_teacher_availability_teacher ON teacher_availability(teacher_id);
+CREATE INDEX idx_teacher_availability_day ON teacher_availability(day_of_week);
 CREATE UNIQUE INDEX profiles_private_stripe_customer_unique ON profiles_private(stripe_customer_id) WHERE stripe_customer_id IS NOT NULL;
 CREATE UNIQUE INDEX subscriptions_one_active_per_student ON subscriptions(student_id) WHERE status = 'active';
 CREATE UNIQUE INDEX student_teachers_one_primary_teacher_per_student ON student_teachers(student_id) WHERE is_primary = TRUE;
@@ -2699,6 +2717,10 @@ CREATE TRIGGER update_sessions_updated_at
     BEFORE UPDATE ON sessions
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+CREATE TRIGGER update_teacher_availability_updated_at
+    BEFORE UPDATE ON teacher_availability
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
 CREATE TRIGGER update_fulfillment_jobs_updated_at
     BEFORE UPDATE ON fulfillment_jobs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -3328,3 +3350,18 @@ INSERT INTO packages (name, display_name, price_monthly, sessions_per_month, has
 ('standard', '{"es": "Mensual Estándar", "en": "Standard Monthly", "ru": "Стандартный месяц"}', 14500, 4, FALSE, FALSE, TRUE),
 ('hybrid', '{"es": "Híbrido Mensual", "en": "Hybrid Monthly", "ru": "Гибридный месяц"}', 15000, 4, TRUE, TRUE, TRUE),
 ('bootcamp', '{"es": "Intensivo Bootcamp", "en": "Bootcamp Intensive", "ru": "Интенсив Bootcamp"}', 34500, 20, FALSE, FALSE, TRUE);
++
+-- Added by the post-smoke model hardening migration. Keep these outside the
+-- verbatim staging-only migration block above while retaining the final schema.
+CREATE INDEX staging_integration_smoke_runs_student_idx
+    ON public.staging_integration_smoke_runs(student_id);
+CREATE INDEX staging_integration_smoke_runs_teacher_idx
+    ON public.staging_integration_smoke_runs(teacher_id);
+CREATE INDEX staging_integration_smoke_runs_subscription_idx
+    ON public.staging_integration_smoke_runs(subscription_id);
+CREATE INDEX staging_integration_smoke_runs_session_idx
+    ON public.staging_integration_smoke_runs(session_id);
+CREATE INDEX staging_integration_smoke_runs_fulfillment_job_idx
+    ON public.staging_integration_smoke_runs(fulfillment_job_id);
+CREATE INDEX staging_integration_smoke_runs_cancellation_job_idx
+    ON public.staging_integration_smoke_runs(cancellation_job_id);

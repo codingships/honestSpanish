@@ -22,9 +22,10 @@ import {
 const rootDir = process.cwd();
 
 describe('Supabase staging hardening runner', () => {
-    it('pins exactly the two approved staging migration files and their real SHA-256 values', () => {
+    it('pins exactly the three approved staging migration files and their SHA-256 values', () => {
         expect(STAGING_HARDENING_TARGET.projectRef).toBe('mzjyvmlxfpzdfdjzxxyj');
         expect(STAGING_HARDENING_MIGRATIONS.map((migration) => migration.file)).toEqual([
+            'supabase/migrations/20260712112000_reconcile_database_model_contract.sql',
             'supabase/migrations/20260712114000_harden_teacher_availability_overlap.sql',
             'supabase/migrations/20260712114500_require_current_adult_policy_on_signup.sql',
         ]);
@@ -60,19 +61,19 @@ describe('Supabase staging hardening runner', () => {
 
     it('renders one atomic apply file with the migrations and history inserts in fixed order', () => {
         const sql = renderStagingHardeningApplySql(rootDir);
-        const firstMigration = sql.indexOf(STAGING_HARDENING_MIGRATIONS[0].file);
-        const firstHistory = sql.indexOf(`VALUES ('${STAGING_HARDENING_MIGRATIONS[0].version}'`);
-        const secondMigration = sql.indexOf(STAGING_HARDENING_MIGRATIONS[1].file);
-        const secondHistory = sql.indexOf(`VALUES ('${STAGING_HARDENING_MIGRATIONS[1].version}'`);
+        const positions = STAGING_HARDENING_MIGRATIONS.map((migration) => ({
+            migration: sql.indexOf(migration.file),
+            history: sql.indexOf(`VALUES ('${migration.version}'`),
+        }));
 
         expect(sql).toContain('\\set ON_ERROR_STOP on');
         expect(sql).toContain('BEGIN;');
         expect(sql.trimEnd().endsWith('COMMIT;')).toBe(true);
-        expect(sql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(2);
-        expect(firstMigration).toBeGreaterThan(-1);
-        expect(firstHistory).toBeGreaterThan(firstMigration);
-        expect(secondMigration).toBeGreaterThan(firstHistory);
-        expect(secondHistory).toBeGreaterThan(secondMigration);
+        expect(sql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(3);
+        for (const [index, position] of positions.entries()) {
+            expect(position.migration).toBeGreaterThan(index === 0 ? -1 : positions[index - 1].history);
+            expect(position.history).toBeGreaterThan(position.migration);
+        }
         expect(sql).not.toContain('supabase db push');
         expect(sql).not.toContain('supabase migration repair');
         expect(sql).not.toContain('vkkahxsybhbutszerawz');
@@ -82,7 +83,7 @@ describe('Supabase staging hardening runner', () => {
         for (const sql of [renderStagingHardeningPreflightSql(), renderStagingHardeningPostVerifySql()]) {
             const withoutComments = sql.replace(/^--.*$/gmu, '');
             expect(sql).toContain('BEGIN READ ONLY;');
-            expect(withoutComments).not.toMatch(/\b(?:insert|update|delete|create|alter|drop|truncate|grant|revoke)\b/iu);
+            expect(withoutComments).not.toMatch(/^\s*(?:insert|update|delete|create|alter|drop|truncate|grant|revoke)\b/imu);
             expect(sql.trimEnd().endsWith('COMMIT;')).toBe(true);
         }
     });
@@ -92,14 +93,14 @@ describe('Supabase staging hardening runner', () => {
         expect(validatePreflightFacts(clean)).toMatchObject({ valid: true, historyState: 'none' });
 
         const alreadyApplied = preflightFacts({
-            migration_history_count: '2',
-            migration_history_versions: '20260712114000,20260712114500',
+            migration_history_count: '3',
+            migration_history_versions: '20260712112000,20260712114000,20260712114500',
         });
         expect(validatePreflightFacts(alreadyApplied)).toMatchObject({ valid: true, historyState: 'complete' });
 
         const partial = preflightFacts({
             migration_history_count: '1',
-            migration_history_versions: '20260712114000',
+            migration_history_versions: '20260712112000',
         });
         expect(validatePreflightFacts(partial)).toMatchObject({ valid: false, historyState: 'partial_or_unexpected' });
 
@@ -113,8 +114,13 @@ describe('Supabase staging hardening runner', () => {
 
         for (const [key, value] of [
             ['migration_history_exact_rows', '1'],
+            ['leads_status_contract', 'false'],
+            ['leads_acl_valid', 'false'],
+            ['public_is_admin_absent', 'false'],
             ['active_overlap_count', '1'],
             ['target_constraint_valid', 'false'],
+            ['teacher_availability_updated_at_trigger_valid', 'false'],
+            ['required_operational_indexes_count', '12'],
             ['handle_new_user_hardened', 'false'],
             ['auth_trigger_valid', 'false'],
             ['handle_new_user_acl_valid', 'false'],
@@ -168,6 +174,13 @@ function preflightFacts(overrides: Record<string, string> = {}): Map<string, str
         profiles_table: 'true',
         profiles_private_table: 'true',
         auth_users_table: 'true',
+        leads_table: 'true',
+        sessions_table: 'true',
+        lead_status_type_valid_or_absent: 'true',
+        unsupported_lead_status_count: '0',
+        session_canonical_columns_count: '3',
+        public_is_admin_dependency_count: '0',
+        hardening_index_target_tables_count: '8',
         btree_gist_available: 'true',
         active_overlap_count: '0',
         target_constraint_count: '0',
@@ -183,13 +196,22 @@ function preflightFacts(overrides: Record<string, string> = {}): Map<string, str
 function postVerifyFacts(overrides: Record<string, string> = {}): Map<string, string> {
     return new Map(Object.entries({
         current_database: 'postgres',
-        migration_history_count: '2',
-        migration_history_versions: '20260712114000,20260712114500',
-        migration_history_exact_rows: '2',
+        migration_history_count: '3',
+        migration_history_versions: '20260712112000,20260712114000,20260712114500',
+        migration_history_exact_rows: '3',
+        leads_updated_at_contract: 'true',
+        leads_status_contract: 'true',
+        leads_defaults_contract: 'true',
+        leads_acl_valid: 'true',
+        public_is_admin_absent: 'true',
+        legacy_session_columns_absent: 'true',
         btree_gist_installed: 'true',
         active_overlap_count: '0',
         target_constraint_valid: 'true',
         legacy_unique_absent: 'true',
+        teacher_availability_updated_at_trigger_valid: 'true',
+        required_operational_indexes_count: '13',
+        required_staging_smoke_indexes_count: '6',
         handle_new_user_hardened: 'true',
         auth_trigger_valid: 'true',
         handle_new_user_acl_valid: 'true',

@@ -51,3 +51,60 @@ END $$;
 -- now provides the stricter, correctly scoped invariant.
 ALTER TABLE public.teacher_availability
     DROP CONSTRAINT IF EXISTS teacher_availability_teacher_id_day_of_week_start_time_key;
+
+DROP TRIGGER IF EXISTS update_teacher_availability_updated_at
+    ON public.teacher_availability;
+CREATE TRIGGER update_teacher_availability_updated_at
+    BEFORE UPDATE ON public.teacher_availability
+    FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
+
+-- Restore operational indexes from the historical schema and cover every
+-- currently unindexed foreign key reported for the release-candidate model.
+CREATE INDEX IF NOT EXISTS idx_teacher_availability_teacher
+    ON public.teacher_availability(teacher_id);
+CREATE INDEX IF NOT EXISTS idx_teacher_availability_day
+    ON public.teacher_availability(day_of_week);
+CREATE INDEX IF NOT EXISTS idx_sessions_status
+    ON public.sessions(status);
+CREATE INDEX IF NOT EXISTS payments_stripe_payment_intent_idx
+    ON public.payments(stripe_payment_intent_id)
+    WHERE stripe_payment_intent_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS checkout_intents_contact_idx
+    ON public.checkout_intents(contact_id);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_jobs_student
+    ON public.fulfillment_jobs(student_id);
+CREATE INDEX IF NOT EXISTS idx_fulfillment_jobs_subscription
+    ON public.fulfillment_jobs(subscription_id);
+CREATE INDEX IF NOT EXISTS package_prices_created_by_idx
+    ON public.package_prices(created_by);
+CREATE INDEX IF NOT EXISTS payments_subscription_idx
+    ON public.payments(subscription_id);
+CREATE INDEX IF NOT EXISTS sessions_cancelled_by_idx
+    ON public.sessions(cancelled_by);
+CREATE INDEX IF NOT EXISTS sessions_subscription_idx
+    ON public.sessions(subscription_id);
+CREATE INDEX IF NOT EXISTS student_teachers_teacher_idx
+    ON public.student_teachers(teacher_id);
+CREATE INDEX IF NOT EXISTS subscriptions_package_idx
+    ON public.subscriptions(package_id);
+
+-- The smoke tables are deliberately staging-only. Keep this migration usable
+-- in production by creating their FK indexes only where the table exists.
+DO $$
+BEGIN
+    IF to_regclass('public.staging_integration_smoke_runs') IS NOT NULL THEN
+        CREATE INDEX IF NOT EXISTS staging_integration_smoke_runs_student_idx
+            ON public.staging_integration_smoke_runs(student_id);
+        CREATE INDEX IF NOT EXISTS staging_integration_smoke_runs_teacher_idx
+            ON public.staging_integration_smoke_runs(teacher_id);
+        CREATE INDEX IF NOT EXISTS staging_integration_smoke_runs_subscription_idx
+            ON public.staging_integration_smoke_runs(subscription_id);
+        CREATE INDEX IF NOT EXISTS staging_integration_smoke_runs_session_idx
+            ON public.staging_integration_smoke_runs(session_id);
+        CREATE INDEX IF NOT EXISTS staging_integration_smoke_runs_fulfillment_job_idx
+            ON public.staging_integration_smoke_runs(fulfillment_job_id);
+        CREATE INDEX IF NOT EXISTS staging_integration_smoke_runs_cancellation_job_idx
+            ON public.staging_integration_smoke_runs(cancellation_job_id);
+    END IF;
+END $$;

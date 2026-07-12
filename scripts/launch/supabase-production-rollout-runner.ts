@@ -146,7 +146,10 @@ async function main(): Promise<void> {
     const sentryHardening = readSentryProductionHardeningEvidence(args.sentryHardeningEvidence, startedAt);
     const selectedWaves = selectedWavesThrough(args.through);
     const operationalWavesSelected = selectedWaves.some((wave) => wave.id !== 'processed_at_small_fix');
-    const hardeningSelected = selectedWaves.some((wave) => wave.id === 'deferred_rc_hardening');
+    const stagingHardeningSelected = selectedWaves.some((wave) => (
+        wave.id === 'base_model_reconciliation' || wave.id === 'deferred_rc_hardening'
+    ));
+    const finalHardeningSelected = selectedWaves.some((wave) => wave.id === 'deferred_rc_hardening');
     const waveStates = preflight.value ? deriveWaveHistoryStates(preflight.value) : [];
     const stateByWave = new Map(waveStates.map((state) => [state.id, state.state]));
     const pendingWaves = selectedWaves.filter((wave) => stateByWave.get(wave.id) !== 'complete');
@@ -159,8 +162,8 @@ async function main(): Promise<void> {
         publicCleanup: !operationalWavesSelected || cleanup.valid,
         authReducedQuarantined: !operationalWavesSelected || authPolicy.valid,
         googleFixturePolicy: !operationalWavesSelected || googlePolicy.valid,
-        stagingHardeningAppliedAndVerified: !hardeningSelected || stagingHardening.valid,
-        sentryProductionHardenedAndVerified: !hardeningSelected || sentryHardening.valid,
+        stagingHardeningAppliedAndVerified: !stagingHardeningSelected || stagingHardening.valid,
+        sentryProductionHardenedAndVerified: !finalHardeningSelected || sentryHardening.valid,
     };
     const evidenceReady = Object.values(evidenceGates).every(Boolean);
 
@@ -175,8 +178,8 @@ async function main(): Promise<void> {
             cleanupEvidenceSha256: operationalWavesSelected ? cleanup.sha256 : null,
             authPolicyEvidenceSha256: operationalWavesSelected ? authPolicy.sha256 : null,
             googleFixturePolicySha256: operationalWavesSelected ? googlePolicy.sha256 : null,
-            stagingHardeningEvidenceSha256: hardeningSelected ? stagingHardening.sha256 : null,
-            sentryHardeningEvidenceSha256: hardeningSelected ? sentryHardening.sha256 : null,
+            stagingHardeningEvidenceSha256: stagingHardeningSelected ? stagingHardening.sha256 : null,
+            sentryHardeningEvidenceSha256: finalHardeningSelected ? sentryHardening.sha256 : null,
         },
         preflightWaveStates: waveStates,
         pendingMigrations: pendingMigrations.map(migrationIdentity),
@@ -215,9 +218,9 @@ async function main(): Promise<void> {
             backupReceiptSha256: operationalWavesSelected ? backup.sha256 : null,
             cleanupEvidenceSha256: operationalWavesSelected ? cleanup.sha256 : null,
             authPolicyEvidenceSha256: operationalWavesSelected ? authPolicy.sha256 : null,
-            stagingEvidenceSha256: hardeningSelected ? stagingHardening.sha256 : null,
+            stagingEvidenceSha256: stagingHardeningSelected ? stagingHardening.sha256 : null,
             googleFixturePolicySha256: operationalWavesSelected ? googlePolicy.sha256 : null,
-            sentryHardeningEvidenceSha256: hardeningSelected ? sentryHardening.sha256 : null,
+            sentryHardeningEvidenceSha256: finalHardeningSelected ? sentryHardening.sha256 : null,
             pendingMigrations,
             waveSqlSha256: Object.fromEntries(pendingWaves.map((wave) => [wave.id, waveSqlSha256[wave.id]])),
             livePreflightSqlSha256: sha256(livePreflightSql),
@@ -431,7 +434,7 @@ async function main(): Promise<void> {
             scopeSha256,
             allowlistSha256: allowlist.allowlistSha256,
             through: args.through,
-            migrationCount: 22,
+            migrationCount: 23,
             migrationManifestSha256: sha256(stableJson(PRODUCTION_ROLLOUT_MIGRATIONS.map(migrationIdentity))),
             preflightEvidenceSha256: preflight.sha256,
             backupReceiptSha256: backup.sha256,

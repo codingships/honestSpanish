@@ -40,14 +40,15 @@ const runnerSource = readFileSync('scripts/launch/supabase-production-rollout-ru
 const sharedSource = readFileSync('scripts/launch/supabase-production-rollout-runner-shared.ts', 'utf8');
 
 describe('Supabase production wave rollout runner', () => {
-    it('pins the exact 22 migrations in six dependency-ordered waves and excludes staging smoke', () => {
-        expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 7, 7, 4, 1, 2]);
-        expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(22);
-        expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(22);
+    it('pins the exact 23 migrations in seven dependency-ordered waves and excludes staging smoke', () => {
+        expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 1, 7, 7, 4, 1, 2]);
+        expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(23);
+        expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(23);
         expect(PRODUCTION_ROLLOUT_MIGRATIONS.some((entry) => entry.version === STAGING_ONLY_VERSION)).toBe(false);
         expect(validateProductionRolloutAllowlist()).toMatchObject({ valid: true, errors: [] });
         expect(selectedWavesThrough('billing_contract').map((wave) => wave.id)).toEqual([
             'processed_at_small_fix',
+            'base_model_reconciliation',
             'application_schema',
             'runtime_and_policy',
             'billing_contract',
@@ -84,11 +85,11 @@ describe('Supabase production wave rollout runner', () => {
             const preflight = preflightEvidence('2026-07-12T11:30:00.000Z');
             const validPath = writeJson(directory, 'preflight.json', preflight);
             expect(readProductionPreflightEvidence(validPath, now)).toMatchObject({ valid: true, errors: [] });
-            expect(deriveWaveHistoryStates(preflight).map((entry) => entry.state)).toEqual(Array(6).fill('pending'));
+            expect(deriveWaveHistoryStates(preflight).map((entry) => entry.state)).toEqual(Array(7).fill('pending'));
 
             const partial = structuredClone(preflight);
             partial.migrationInventory.localMigrations[1].historyStatus = 'exact';
-            partial.migrationInventory.semanticMissingCountExcludingStagingOnly = 21;
+            partial.migrationInventory.semanticMissingCountExcludingStagingOnly = 22;
             const partialPath = writeJson(directory, 'partial.json', partial);
             expect(readProductionPreflightEvidence(partialPath, now)).toMatchObject({ valid: false });
 
@@ -106,7 +107,7 @@ describe('Supabase production wave rollout runner', () => {
 
             const aliased = structuredClone(preflight);
             aliased.migrationInventory.localMigrations[0].historyStatus = 'alias';
-            aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 21;
+            aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 22;
             expect(readProductionPreflightEvidence(writeJson(directory, 'aliased.json', aliased), now))
                 .toMatchObject({ valid: false });
         });
@@ -179,8 +180,22 @@ describe('Supabase production wave rollout runner', () => {
         expect(sql).toContain("extensions.digest(convert_to(history.statements[1], 'UTF8'), 'sha256')");
         expect(sql).toContain("'billing_fixture_rows_absent'");
         expect(sql).toContain("'fulfillment_effects_empty'");
-        expect(expected.get('history_verified_count')).toBe('20');
+        expect(sql).toContain("'model_leads_status_contract'");
+        expect(sql).toContain("'model_leads_acl_valid'");
+        expect(expected.get('model_public_is_admin_absent')).toBe('true');
+        expect(expected.get('history_verified_count')).toBe('21');
         expect(expected.get('staging_only_absent')).toBe('true');
+    });
+
+    it('verifies the final availability trigger and all required operational indexes', () => {
+        const waves = selectedWavesThrough('deferred_rc_hardening');
+        const sql = renderProductionWaveVerifySql(waves);
+        const expected = expectedProductionWaveVerificationFacts(waves);
+        expect(sql).toContain("'hardening_availability_updated_at_trigger'");
+        expect(sql).toContain("'hardening_required_indexes'");
+        expect(expected.get('hardening_availability_updated_at_trigger')).toBe('true');
+        expect(expected.get('hardening_required_indexes')).toBe('13');
+        expect(expected.get('history_verified_count')).toBe('23');
     });
 
     it('chains encrypted backup, public cleanup, active Auth quarantine, Google policy and staging proof', () => {
@@ -372,11 +387,11 @@ function preflightEvidence(endedAt: string): ProductionPreflightEvidence {
                         name: 'staging_integration_smoke_runs',
                         file: `supabase/migrations/${STAGING_ONLY_VERSION}_staging_integration_smoke_runs.sql`,
                         sha256: 'f'.repeat(64),
-                    }, 22),
+                    }, 23),
                     stagingOnly: true,
                 },
             ],
-            semanticMissingCountExcludingStagingOnly: 22,
+            semanticMissingCountExcludingStagingOnly: 23,
             ambiguousCount: 0,
         },
         aggregates: {},
@@ -428,7 +443,9 @@ function backupReceipt(createdAt: string): Record<string, unknown> {
 }
 
 function stagingEvidence(): Record<string, unknown> {
-    const migrations = PRODUCTION_ROLLOUT_WAVES.find((wave) => wave.id === 'deferred_rc_hardening')!.migrations;
+    const migrations = PRODUCTION_ROLLOUT_WAVES
+        .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
+        .flatMap((wave) => wave.migrations);
     return {
         schemaVersion: 1,
         endedAt: '2026-07-12T11:45:00.000Z',

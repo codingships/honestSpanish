@@ -118,8 +118,9 @@ Para E2E, ejecuta proyectos Playwright de forma secuencial o en una unica invoca
 ## Fuentes De Verdad
 
 - Arquitectura: `ARCHITECTURE.md`
-- Base de datos: `db/schema.sql`
-- Migraciones aplicables: `supabase/migrations/`
+- Base de datos: `db/schema.sql` (superset canónico: 22 tablas comunes y 2 tablas de smoke exclusivas de staging)
+- Migraciones aplicables: únicamente `supabase/migrations/`; no ejecutar SQL suelto heredado
+- Tipos Supabase: `src/types/database.types.ts`, regenerados desde staging y ajustados solo donde PostgreSQL no publica la nulabilidad real de RPC
 - Productos/precios: `packages` (catalogo editable) + `package_prices` (ofertas contractuales inmutables), gestionados desde `/es/campus/admin/packages`
 - Decisiones de lanzamiento: `docs/launch/DECISIONS.md`
 - Secuencia de launch: `docs/launch/LAUNCH_SEQUENCE.md`

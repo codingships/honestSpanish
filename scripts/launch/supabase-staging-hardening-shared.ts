@@ -11,7 +11,7 @@ export const STAGING_HARDENING_TARGET = {
 
 export const STAGING_HARDENING_DB_URL_ENV = 'SUPABASE_STAGING_DB_URL';
 export const STAGING_HARDENING_APPROVAL_ENV = 'SUPABASE_STAGING_HARDENING_APPROVAL';
-export const STAGING_HARDENING_APPROVAL = 'Autorizo aplicar exclusivamente las migraciones `20260712114000_harden_teacher_availability_overlap.sql` y `20260712114500_require_current_adult_policy_on_signup.sql`, con sus hashes fijados por el runner, al proyecto Supabase staging `mzjyvmlxfpzdfdjzxxyj`; ejecutar primero el preflight de solo lectura, aplicarlas y registrarlas juntas en una transaccion, y verificar despues constraint, trigger, funcion, permisos e historial. No autorizo produccion ni ningun otro cambio o servicio externo.';
+export const STAGING_HARDENING_APPROVAL = 'Autorizo aplicar exclusivamente, y en este orden, las migraciones `20260712112000_reconcile_database_model_contract.sql`, `20260712114000_harden_teacher_availability_overlap.sql` y `20260712114500_require_current_adult_policy_on_signup.sql`, con sus hashes fijados por el runner, al proyecto Supabase staging `mzjyvmlxfpzdfdjzxxyj`; ejecutar primero el preflight de solo lectura, aplicarlas y registrarlas juntas en una transaccion, y verificar despues modelo, defaults, enum, grants, helpers, indices, constraint, triggers, funciones, permisos e historial. No autorizo produccion ni ningun otro cambio o servicio externo.';
 
 export interface StagingHardeningMigration {
     version: string;
@@ -22,10 +22,16 @@ export interface StagingHardeningMigration {
 
 export const STAGING_HARDENING_MIGRATIONS: readonly StagingHardeningMigration[] = [
     {
+        version: '20260712112000',
+        name: 'reconcile_database_model_contract',
+        file: 'supabase/migrations/20260712112000_reconcile_database_model_contract.sql',
+        sha256: 'a5c65d8fc02bc38d1bc55df1d5c6e25af4ab092fcc976384306238a0590f4126',
+    },
+    {
         version: '20260712114000',
         name: 'harden_teacher_availability_overlap',
         file: 'supabase/migrations/20260712114000_harden_teacher_availability_overlap.sql',
-        sha256: '16f695b6377281f3dd5105802c7c9991cf213746acc5a881efe78626aa9bc00a',
+        sha256: '271786dda04f3f0735c856a6f7774e482a660e3fc9044962a1284670895a9884',
     },
     {
         version: '20260712114500',
@@ -159,6 +165,34 @@ export function renderStagingHardeningPreflightSql(): string {
         `select 'profiles_table', (to_regclass('public.profiles') is not null)::text;`,
         `select 'profiles_private_table', (to_regclass('public.profiles_private') is not null)::text;`,
         `select 'auth_users_table', (to_regclass('auth.users') is not null)::text;`,
+        `select 'leads_table', (to_regclass('public.leads') is not null)::text;`,
+        `select 'sessions_table', (to_regclass('public.sessions') is not null)::text;`,
+        `select 'lead_status_type_valid_or_absent', (` ,
+        `    to_regtype('public.lead_status') is null or (` ,
+        `        select string_agg(enum_value.enumlabel, ',' order by enum_value.enumsortorder) = 'new,contacted,discarded'`,
+        `        from pg_enum enum_value`,
+        `        where enum_value.enumtypid = to_regtype('public.lead_status')`,
+        `    )`,
+        `)::text;`,
+        `select 'unsupported_lead_status_count', count(*)::text`,
+        `from public.leads where status is not null and status::text not in ('new', 'contacted', 'discarded');`,
+        `select 'session_canonical_columns_count', count(*)::text`,
+        `from information_schema.columns`,
+        `where table_schema = 'public' and table_name = 'sessions'`,
+        `  and column_name in ('drive_doc_url', 'calendar_event_id', 'meet_link');`,
+        `select 'public_is_admin_dependency_count', count(*)::text`,
+        `from pg_depend where refobjid = to_regprocedure('public.is_admin()');`,
+        `select 'hardening_index_target_tables_count', count(*)::text`,
+        `from (values`,
+        `    (to_regclass('public.teacher_availability')),`,
+        `    (to_regclass('public.sessions')),`,
+        `    (to_regclass('public.payments')),`,
+        `    (to_regclass('public.checkout_intents')),`,
+        `    (to_regclass('public.fulfillment_jobs')),`,
+        `    (to_regclass('public.package_prices')),`,
+        `    (to_regclass('public.student_teachers')),`,
+        `    (to_regclass('public.subscriptions'))`,
+        `) target(table_oid) where table_oid is not null;`,
         `select 'btree_gist_available', exists(select 1 from pg_available_extensions where name = 'btree_gist')::text;`,
         `select 'active_overlap_count', count(*)::text`,
         'from public.teacher_availability first_slot',
@@ -273,6 +307,48 @@ export function renderStagingHardeningPostVerifySql(): string {
         `join (values ${expectedHistoryRows}) expected(version, name)`,
         '  on history.version = expected.version and history.name = expected.name',
         'where cardinality(history.statements) > 0;',
+        `select 'leads_updated_at_contract', exists(`,
+        `    select 1 from information_schema.columns`,
+        `    where table_schema = 'public' and table_name = 'leads' and column_name = 'updated_at'`,
+        `      and data_type = 'timestamp with time zone' and column_default ilike '%now()%'`,
+        `)::text;`,
+        `select 'leads_status_contract', (` ,
+        `    exists(`,
+        `        select 1 from information_schema.columns`,
+        `        where table_schema = 'public' and table_name = 'leads' and column_name = 'status'`,
+        `          and udt_schema = 'public' and udt_name = 'lead_status' and column_default ilike '%new%'`,
+        `    ) and (` ,
+        `        select string_agg(enum_value.enumlabel, ',' order by enum_value.enumsortorder) = 'new,contacted,discarded'`,
+        `        from pg_enum enum_value`,
+        `        where enum_value.enumtypid = to_regtype('public.lead_status')`,
+        `    )`,
+        `)::text;`,
+        `select 'leads_defaults_contract', (count(*) = 3)::text`,
+        `from information_schema.columns`,
+        `where table_schema = 'public' and table_name = 'leads' and (`,
+        `    (column_name = 'lang' and column_default = '''es''::text')`,
+        `    or (column_name = 'consent_given' and column_default = 'false')`,
+        `    or (column_name = 'created_at' and is_nullable = 'YES')`,
+        `);`,
+        `select 'leads_acl_valid', (` ,
+        `    not exists(`,
+        `        select 1 from information_schema.table_privileges`,
+        `        where table_schema = 'public' and table_name = 'leads'`,
+        `          and grantee in ('PUBLIC', 'anon')`,
+        `          and privilege_type in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')`,
+        `    )`,
+        `    and (select count(distinct privilege_type) = 4 from information_schema.table_privileges`,
+        `         where table_schema = 'public' and table_name = 'leads' and grantee = 'authenticated'`,
+        `           and privilege_type in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'))`,
+        `    and (select count(distinct privilege_type) = 4 from information_schema.table_privileges`,
+        `         where table_schema = 'public' and table_name = 'leads' and grantee = 'service_role'`,
+        `           and privilege_type in ('SELECT', 'INSERT', 'UPDATE', 'DELETE'))`,
+        `)::text;`,
+        `select 'public_is_admin_absent', (to_regprocedure('public.is_admin()') is null)::text;`,
+        `select 'legacy_session_columns_absent', (count(*) = 0)::text`,
+        `from information_schema.columns`,
+        `where table_schema = 'public' and table_name = 'sessions'`,
+        `  and column_name in ('drive_doc_link', 'google_calendar_event_id', 'google_meet_link');`,
         `select 'btree_gist_installed', exists(select 1 from pg_extension where extname = 'btree_gist')::text;`,
         `select 'active_overlap_count', count(*)::text`,
         'from public.teacher_availability first_slot',
@@ -299,6 +375,40 @@ export function renderStagingHardeningPostVerifySql(): string {
         `    where conrelid = 'public.teacher_availability'::regclass`,
         `      and conname = 'teacher_availability_teacher_id_day_of_week_start_time_key'`,
         ')::text;',
+        `select 'teacher_availability_updated_at_trigger_valid', exists(`,
+        `    select 1 from pg_trigger trigger_row`,
+        `    where trigger_row.tgname = 'update_teacher_availability_updated_at'`,
+        `      and trigger_row.tgrelid = 'public.teacher_availability'::regclass`,
+        `      and trigger_row.tgfoid = to_regprocedure('public.update_updated_at()')`,
+        `      and not trigger_row.tgisinternal`,
+        `      and (trigger_row.tgtype & 1) = 1`,
+        `      and (trigger_row.tgtype & 2) = 2`,
+        `      and (trigger_row.tgtype & 16) = 16`,
+        `      and (trigger_row.tgtype & 108) = 0`,
+        `)::text;`,
+        `select 'required_operational_indexes_count', count(*)::text from (values`,
+        `    (to_regclass('public.idx_teacher_availability_teacher')),`,
+        `    (to_regclass('public.idx_teacher_availability_day')),`,
+        `    (to_regclass('public.idx_sessions_status')),`,
+        `    (to_regclass('public.payments_stripe_payment_intent_idx')),`,
+        `    (to_regclass('public.checkout_intents_contact_idx')),`,
+        `    (to_regclass('public.idx_fulfillment_jobs_student')),`,
+        `    (to_regclass('public.idx_fulfillment_jobs_subscription')),`,
+        `    (to_regclass('public.package_prices_created_by_idx')),`,
+        `    (to_regclass('public.payments_subscription_idx')),`,
+        `    (to_regclass('public.sessions_cancelled_by_idx')),`,
+        `    (to_regclass('public.sessions_subscription_idx')),`,
+        `    (to_regclass('public.student_teachers_teacher_idx')),`,
+        `    (to_regclass('public.subscriptions_package_idx'))`,
+        `) required(index_oid) where index_oid is not null;`,
+        `select 'required_staging_smoke_indexes_count', count(*)::text from (values`,
+        `    (to_regclass('public.staging_integration_smoke_runs_student_idx')),`,
+        `    (to_regclass('public.staging_integration_smoke_runs_teacher_idx')),`,
+        `    (to_regclass('public.staging_integration_smoke_runs_subscription_idx')),`,
+        `    (to_regclass('public.staging_integration_smoke_runs_session_idx')),`,
+        `    (to_regclass('public.staging_integration_smoke_runs_fulfillment_job_idx')),`,
+        `    (to_regclass('public.staging_integration_smoke_runs_cancellation_job_idx'))`,
+        `) required(index_oid) where index_oid is not null;`,
         `select 'handle_new_user_hardened', exists(`,
         '    select 1 from pg_proc function_row',
         `    where function_row.oid = to_regprocedure('public.handle_new_user()')`,
@@ -346,7 +456,7 @@ export function validatePreflightFacts(facts: SqlFacts): FactValidation {
     const historyVersions = facts.get('migration_history_versions') ?? '';
     const historyState = historyCount === 0 && historyVersions === ''
         ? 'none'
-        : historyCount === 2 && historyVersions === expectedVersions
+        : historyCount === STAGING_HARDENING_MIGRATIONS.length && historyVersions === expectedVersions
             ? 'complete'
             : 'partial_or_unexpected';
 
@@ -356,13 +466,16 @@ export function validatePreflightFacts(facts: SqlFacts): FactValidation {
         if (!historyColumns.has(column)) details.push(`migration_history_columns missing ${column}`);
     }
     if (historyState === 'partial_or_unexpected') {
-        details.push(`migration history must contain neither or both exact versions (count=${String(historyCount)}, versions=${historyVersions})`);
+        details.push(`migration history must contain none or all exact versions (count=${String(historyCount)}, versions=${historyVersions})`);
     }
     for (const key of [
         'teacher_availability_table',
         'profiles_table',
         'profiles_private_table',
         'auth_users_table',
+        'leads_table',
+        'sessions_table',
+        'lead_status_type_valid_or_absent',
         'btree_gist_available',
         'target_constraint_valid_or_absent',
         'handle_new_user_exists',
@@ -371,6 +484,10 @@ export function validatePreflightFacts(facts: SqlFacts): FactValidation {
         requireFact(facts, key, 'true', details);
     }
     requireFact(facts, 'active_overlap_count', '0', details);
+    requireFact(facts, 'unsupported_lead_status_count', '0', details);
+    requireFact(facts, 'session_canonical_columns_count', '3', details);
+    requireFact(facts, 'public_is_admin_dependency_count', '0', details);
+    requireFact(facts, 'hardening_index_target_tables_count', '8', details);
     requireFact(facts, 'attestation_columns_count', '3', details);
     const constraintCount = Number(facts.get('target_constraint_count'));
     if (![0, 1].includes(constraintCount)) details.push(`target_constraint_count expected 0 or 1, observed ${String(constraintCount)}`);
@@ -384,20 +501,29 @@ export function validatePostVerifyFacts(facts: SqlFacts): FactValidation {
     const details: string[] = [];
     const expectedVersions = STAGING_HARDENING_MIGRATIONS.map((migration) => migration.version).join(',');
     requireFact(facts, 'current_database', STAGING_HARDENING_TARGET.databaseName, details);
-    requireFact(facts, 'migration_history_count', '2', details);
+    requireFact(facts, 'migration_history_count', String(STAGING_HARDENING_MIGRATIONS.length), details);
     requireFact(facts, 'migration_history_versions', expectedVersions, details);
-    requireFact(facts, 'migration_history_exact_rows', '2', details);
+    requireFact(facts, 'migration_history_exact_rows', String(STAGING_HARDENING_MIGRATIONS.length), details);
     requireFact(facts, 'btree_gist_installed', 'true', details);
     requireFact(facts, 'active_overlap_count', '0', details);
     for (const key of [
+        'leads_updated_at_contract',
+        'leads_status_contract',
+        'leads_defaults_contract',
+        'leads_acl_valid',
+        'public_is_admin_absent',
+        'legacy_session_columns_absent',
         'target_constraint_valid',
         'legacy_unique_absent',
+        'teacher_availability_updated_at_trigger_valid',
         'handle_new_user_hardened',
         'auth_trigger_valid',
         'handle_new_user_acl_valid',
     ]) {
         requireFact(facts, key, 'true', details);
     }
+    requireFact(facts, 'required_operational_indexes_count', '13', details);
+    requireFact(facts, 'required_staging_smoke_indexes_count', '6', details);
     return { valid: details.length === 0, details, historyState: 'complete' };
 }
 
