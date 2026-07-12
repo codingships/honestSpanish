@@ -74,6 +74,7 @@ describe('Cloudflare production web bootstrap safety', () => {
 
     it('deploys only the resolved production_bootstrap package after fresh inert fulfillment proof', () => {
         const runner = read('scripts/launch/cloudflare-production-worker-phase1.ts');
+        const preflight = read('scripts/launch/cloudflare-production-runtime-cutover-preflight.ts');
 
         for (const snippet of [
             'validateFulfillmentBootstrapEvidence()',
@@ -105,6 +106,13 @@ describe('Cloudflare production web bootstrap safety', () => {
             'externalWriteAttempted = true',
         ]) expect(runner).toContain(snippet);
         expect(runner).not.toContain("args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:release']");
+        expect(preflight).toContain("args: pnpmArgs('run', 'build:production:bootstrap')");
+        expect(preflight).not.toContain("args: pnpmArgs('run', 'build:production:release')");
+        expect(preflight).toContain('Astro 6 selects `production_bootstrap` during the build');
+        expect(preflight).toContain('The active `build:production:release` remains a separate final-window gate');
+        expect(preflight).toContain('readResolvedWorkerConfig()');
+        expect(preflight).toContain('resolvedWorkerConfigHasCustomDomainAttachment(resolvedWorkerConfig)');
+        expect(preflight).not.toContain('target.customDomains.every((domain) => !dryRunOutput.includes(domain))');
     });
 
     it('loads only the shared HMAC secret into the fulfillment bootstrap', () => {

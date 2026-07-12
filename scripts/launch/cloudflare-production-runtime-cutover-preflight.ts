@@ -137,8 +137,8 @@ captures.push(runCapture({
 }));
 captures.push(runCapture({
     id: 'pnpm-build',
-    label: 'Explicit local production release build',
-    args: pnpmArgs('run', 'build:production:release'),
+    label: 'Explicit local production bootstrap build',
+    args: pnpmArgs('run', 'build:production:bootstrap'),
     timeoutMs: 240_000,
 }));
 
@@ -152,6 +152,7 @@ captures.push(runCapture({
     skipReason: 'Skipped because the local build did not complete successfully.',
 }));
 
+const resolvedWorkerConfig = readResolvedWorkerConfig();
 const cleanupCapture = cleanupDistAfterDryRun();
 captures.push(cleanupCapture);
 
@@ -165,7 +166,7 @@ const dryRunAfterBuildLooksSuccessful = Boolean(
     && /--dry-run: exiting now|--dry-run/iu.test(dryRunOutput),
 );
 const dryRunMentionsCheckoutFalse = /CHECKOUT_ENABLED[\s\S]{0,80}(?:false|"false")/iu.test(dryRunOutput);
-const dryRunMentionsNoCustomDomains = target.customDomains.every((domain) => !dryRunOutput.includes(domain));
+const dryRunMentionsNoCustomDomains = !resolvedWorkerConfigHasCustomDomainAttachment(resolvedWorkerConfig);
 const productionSecretList = captureById('wrangler-secret-list-production');
 const stagingSecretList = captureById('wrangler-secret-list-staging');
 const productionSecretListOutputShape = secretListShape(productionSecretList);
@@ -461,7 +462,7 @@ function buildChecks(matrix: MatrixEntry[]): Check[] {
         {
             status: buildCapture?.exitCode === 0 ? 'ok' : 'failed',
             name: 'local_build_passed',
-            message: buildCapture?.exitCode === 0 ? 'Explicit production release build completed before dry-run.' : 'Explicit production release build failed or was not executed.',
+            message: buildCapture?.exitCode === 0 ? 'Explicit inert production bootstrap build completed before dry-run.' : 'Explicit inert production bootstrap build failed or was not executed.',
             details: [`capture=${toRelative(buildCapture?.outputPath ?? '')}`, `exitCode=${buildCapture?.exitCode ?? 'unknown'}`],
         },
         {
@@ -608,7 +609,7 @@ function renderVariableMatrix(matrix: MatrixEntry[]): string {
         'Generated from local runtime env readers, launch docs, latest preflight commands, `.env` names and current `wrangler.toml`. Values are intentionally not stored.',
         '',
         `- Production Worker observed state: \`${productionSecretListOutputShape}\`.`,
-        '- Phase 1 deploy config currently provides only `NODE_ENV=production` and `CHECKOUT_ENABLED=false` from `wrangler.toml`.',
+        '- Phase 1 uses the resolved `production_bootstrap` package: bootstrap runtime, checkout and email disabled, quotas zero and the inert fulfillment service binding. Active provider secrets remain withheld.',
         '- Google service-account variables belong to the Fulfillment Worker, not the Astro Worker, under the current runtime boundary.',
         '- This file stores names and posture only. It must not contain API keys, private keys, webhook secrets or token values.',
         '',
@@ -654,7 +655,7 @@ function renderSummary(report: Report): string {
         `- Variable matrix: ${toRelative(report.variableMatrixPath)}`,
         `- Manifest: ${toRelative(report.manifestPath)}`,
         '',
-        'This preflight does not write to Cloudflare, does not deploy, does not upload, does not move domains, does not change DNS and does not write secrets. Astro 6 selects production during the build; the preflight then runs `wrangler deploy --config dist/server/wrangler.json --dry-run` against that resolved package and keeps `CHECKOUT_ENABLED=false` as the required state claim.',
+        'This preflight does not write to Cloudflare, does not deploy, does not upload, does not move domains, does not change DNS and does not write secrets. Astro 6 selects `production_bootstrap` during the build; the preflight then runs `wrangler deploy --config dist/server/wrangler.json --dry-run` against that resolved inert package and keeps `WEB_RUNTIME_MODE=bootstrap`, checkout disabled and email disabled as the required state claim. The active `build:production:release` remains a separate final-window gate for real legal identity and Stripe Live.',
         '',
         '## Checks',
         '',
@@ -889,6 +890,25 @@ function checkoutFalseCount(value: string): number {
 
 function readIfExists(file: string): string {
     return existsSync(file) ? readFileSync(file, 'utf8') : '';
+}
+
+function readResolvedWorkerConfig(): Record<string, unknown> | null {
+    const file = path.join('dist', 'server', 'wrangler.json');
+    const content = readIfExists(file);
+    if (!content) return null;
+    try {
+        return asRecord(JSON.parse(content));
+    } catch {
+        return null;
+    }
+}
+
+function resolvedWorkerConfigHasCustomDomainAttachment(config: Record<string, unknown> | null): boolean {
+    if (!config) return true;
+    const routeValues = [config.route, ...asArray(config.routes)]
+        .filter((value) => value !== null && typeof value !== 'undefined');
+    const serializedRoutes = JSON.stringify(routeValues);
+    return target.customDomains.some((domain) => serializedRoutes.includes(domain));
 }
 
 function statusFor(checkList: Check[]): Report['status'] {

@@ -450,6 +450,7 @@ function validatePackageScripts(): CutoverCheck {
     const scripts = packageJson.scripts ?? {};
     const required: Array<[string, string]> = [
         ['build', 'tsx scripts/dev/staging.ts --build'],
+        ['build:production:bootstrap', 'tsx scripts/dev/build-production-bootstrap.ts'],
         ['build:production:release', 'tsx scripts/dev/build-production-release.ts'],
         ['deploy', 'tsx scripts/dev/deploy-built-worker.ts --environment staging --execute'],
         ['deploy:production', 'tsx scripts/dev/deploy-built-worker.ts --environment production --dry-run'],
