@@ -16,6 +16,12 @@
 
 ## Incidentes
 
+### Receipt ambiguo tras una escritura externa
+
+Los runners de Turnstile domains y Stripe webhook escriben `external-write-receipt.json` antes de iniciar el PUT/update. Si la llamada expira, pierde la conexion o lanza una excepcion despues de empezar, el receipt debe quedar con `externalWriteAttempted=true`, `externalWritePerformed=unknown`, `externalWriteOutcome=ambiguous_needs_readonly_reconciliation` y el comando debe fallar.
+
+No reintentar la escritura. Hacer primero una lectura remota fresca del mismo widget/endpoint, comparar el estado con la captura anterior y el objetivo aprobado, y decidir si se acepta el cambio ya aplicado o si hace falta un rollback con aprobacion independiente. Solo despues de cerrar esa reconciliacion se puede generar un nuevo intento y una nueva aprobacion exacta.
+
 ### Pago completado sin suscripcion
 
 Revisar:

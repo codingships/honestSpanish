@@ -277,6 +277,8 @@ El preflight read-only de 2026-07-12 encontro 44 migraciones locales actuales y 
 
 No usar `supabase db push` contra este historial divergente ni `supabase migration repair` para igualarlo visualmente. Los aliases y el choque de nombre se verifican por efectos de esquema; no se reaplican a ciegas. La primera ola contiene solo `20260703211451_drop_processed_webhook_processed_at_default.sql`; las otras cinco exigen backup y cierre de fixtures previo. El runner verifica cada ola y emite el recibo final solo tras las 22 migraciones. La migracion staging-only permanece ausente y checkout permanece desactivado durante todo el rollout.
 
+El runner historico `pnpm launch:supabase-processed-at-cleanup-runner` esta retirado para escrituras y falla antes de red/SQL aunque se pase `--execute-approved`. Staging ya registra `20260703211451`; el cierre pendiente es exclusivamente production y se hace con `pnpm launch:supabase-production-rollout -- --through processed_at_small_fix --preflight <summary.json>`, o dentro del rollout completo de 22 migraciones. Solo se marca el P3 como `Fixed` despues del receipt de la ola y de un preflight read-only fresco con ambos defaults `NULL` y agregados webhook limpios.
+
 La pasarela de email requiere aplicar `supabase/migrations/20260710083915_enforce_resend_recipient_budget.sql` primero en staging y despues en production. La tabla solo contiene contadores agregados, tiene RLS y la funcion de reserva es ejecutable exclusivamente por `service_role`.
 
 ## Stripe

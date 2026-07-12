@@ -159,7 +159,7 @@
       "owner": "Alin",
       "verifiedAt": "2026-06-05T00:00:00.000Z",
       "environment": "staging and production",
-      "summary": "Falta verificar el modo de pagos elegido, Stripe webhook test-mode con pnpm launch:stripe-webhook-cutover-runner, Turnstile dominios con pnpm launch:turnstile-domain-closure-runner, Sentry issue triage con pnpm launch:sentry-issue-triage-runner, Cloudflare Pages-vs-Worker/domain ownership, pnpm launch:cloudflare-production-runtime-readonly, pnpm launch:cloudflare-production-runtime-cutover-preflight, cloudflare-production-worker-variable-matrix.md, production Worker secret-name posture, pnpm launch:cloudflare-production-runtime-cutover, pnpm launch:cloudflare-production-worker-phase1, pnpm launch:cloudflare-production-worker-secrets, pnpm launch:supabase-processed-at-cleanup-runner, Google folders/templates, Resend y fulfillment/reminder worker.",
+      "summary": "Falta verificar el modo de pagos elegido, Stripe webhook test-mode con pnpm launch:stripe-webhook-cutover-runner, Turnstile dominios con pnpm launch:turnstile-domain-closure-runner, Sentry issue triage con pnpm launch:sentry-issue-triage-runner, Cloudflare Pages-vs-Worker/domain ownership, pnpm launch:cloudflare-production-runtime-readonly, pnpm launch:cloudflare-production-runtime-cutover-preflight, cloudflare-production-worker-variable-matrix.md, production Worker secret-name posture, pnpm launch:cloudflare-production-runtime-cutover, pnpm launch:cloudflare-production-worker-phase1, pnpm launch:cloudflare-production-worker-secrets, Supabase processed_at mediante la ola production processed_at_small_fix, Google folders/templates, Resend y fulfillment/reminder worker.",
       "evidence": [
         {
           "type": "manual_note",
@@ -218,8 +218,8 @@
         },
         {
           "type": "command_output",
-          "value": "../../outputs/launch-supabase-processed-at-cleanup-runner/<timestamp>/summary.md",
-          "note": "Runner gated de Supabase processed_at cleanup; en modo plan debe mostrar externalWritePerformed=false."
+          "value": "../../outputs/launch-supabase-production-rollout-runner/<timestamp>/summary.json",
+          "note": "Ola source-bound de Supabase production processed_at_small_fix; en modo plan debe mostrar PLAN_ONLY_READY y externalWritePerformed=false."
         },
         {
           "type": "command_output",

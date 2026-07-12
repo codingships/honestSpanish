@@ -657,7 +657,7 @@ describe('operations runbook launch readiness', () => {
         expect(verify).toContain('Strict-QA Open');
     });
 
-    it('keeps the Supabase processed_at cleanup pack single-migration and approval-gated', () => {
+    it('keeps the Supabase processed_at audit single-migration and retires the legacy write runner', () => {
         const packageJson = read('package.json');
         const cleanup = read('scripts/launch/supabase-processed-at-cleanup.ts');
         const cleanupRunner = read('scripts/launch/supabase-processed-at-cleanup-runner.ts');
@@ -688,6 +688,9 @@ describe('operations runbook launch readiness', () => {
             'claim_processed_at_null=true',
             'success_sets_processed_at=true',
             'failure_clears_processed_at=true',
+            'processed_at_small_fix',
+            'legacy staging-first approval is retired',
+            'source-bound production',
             'Exact Accepted-Risk Sentence',
             'This local file is not acceptance.',
             'status: Accepted Risk',
@@ -704,42 +707,24 @@ describe('operations runbook launch readiness', () => {
         }
 
         for (const snippet of [
-            'pnpm launch:supabase-processed-at-cleanup',
-            "latestGeneratedPath('launch-supabase-processed-at-cleanup', 'approval-request.md')",
-            "latestGeneratedPath('launch-supabase-processed-at-cleanup', 'supabase-processed-at-cleanup-manifest.json')",
-            "latestGeneratedPath('launch-supabase-processed-at-cleanup', 'preflight.sql')",
-            "latestGeneratedPath('launch-supabase-processed-at-cleanup', 'post-apply-verification.sql')",
             "latestGeneratedPath('launch-supabase-processed-at-cleanup', 'accepted-risk-package.md')",
             "latestGeneratedPath('launch-supabase-processed-at-cleanup', 'strict-qa-accepted-risk-dry-run.txt')",
             "latestGeneratedPath('supabase-processed-at-readonly-preflight', 'summary.md')",
-            "latestGeneratedPath('launch-supabase-processed-at-cleanup-runner', 'summary.md')",
-            "latestGeneratedPath('launch-supabase-processed-at-cleanup-runner', 'approval-gate.md')",
-            'findLatestEvidenceDir(folderName, fileName)',
-            'Supabase Processed At Cleanup Approval',
-            'Supabase Processed At Cleanup Manifest',
-            'Supabase Processed At Cleanup Preflight',
-            'Supabase Processed At Cleanup Verification',
+            'outputs/launch-supabase-production-rollout-runner/<timestamp>/summary.json',
+            'outputs/launch-supabase-production-rollout-runner/<timestamp>/wave-processed_at_small_fix-verify-readonly.sql',
             'Supabase Processed At Accepted Risk Package',
             'Supabase Processed At Accepted Risk Dry Run',
             'Supabase Processed At Read-Only Preflight',
-            'Supabase Processed At Cleanup Runner',
             "sourceLabel: 'supabase processed_at read-only preflight'",
-            'supabase processed_at cleanup runner',
             'supabaseProcessedAtReadonlyPreflight',
-            'supabaseProcessedAtCleanupRunner',
-            'outputs/launch-supabase-processed-at-cleanup/<timestamp>/approval-request.md',
-            'outputs/launch-supabase-processed-at-cleanup/<timestamp>/supabase-processed-at-cleanup-manifest.json',
-            'outputs/launch-supabase-processed-at-cleanup/<timestamp>/preflight.sql',
-            'outputs/launch-supabase-processed-at-cleanup/<timestamp>/post-apply-verification.sql',
             'outputs/launch-supabase-processed-at-cleanup/<timestamp>/accepted-risk-package.md',
             'outputs/launch-supabase-processed-at-cleanup/<timestamp>/strict-qa-accepted-risk-dry-run.txt',
             'outputs/supabase-processed-at-readonly-preflight/<timestamp>/summary.md',
-            'outputs/launch-supabase-processed-at-cleanup-runner/<timestamp>/summary.md',
-            'outputs/launch-supabase-processed-at-cleanup-runner/<timestamp>/approval-gate.md',
             'supabase-processed-at-default-approval-package.md',
             '20260703211451_drop_processed_webhook_processed_at_default.sql',
-            'Run pnpm launch:supabase-processed-at-cleanup',
-            'pnpm launch:supabase-processed-at-cleanup-runner',
+            'pnpm launch:supabase-production-readonly-preflight',
+            'pnpm launch:supabase-production-rollout -- --through processed_at_small_fix',
+            'Do not execute the retired legacy cleanup runner',
         ]) {
             expect(statusScript).toContain(snippet);
         }
@@ -748,10 +733,12 @@ describe('operations runbook launch readiness', () => {
             'SUPABASE_PROCESSED_AT_CLEANUP_APPROVAL',
             '--execute-approved',
             'externalWritePerformed=false',
-            'PLAN_ONLY_READY',
-            'staging_verify_after_apply',
-            'production_apply_after_staging_verified',
-            'production_verify_after_apply',
+            'PLAN_ONLY_RETIRED',
+            'const legacyExecutionRetired = true',
+            'if (executeRequested && legacyExecutionRetired)',
+            'This legacy runner is permanently fail-closed for external writes.',
+            'pnpm launch:supabase-production-rollout -- --through processed_at_small_fix',
+            'staging already has migration 20260703211451',
             'SUPABASE_DB_URL',
             '20260703211451_drop_processed_webhook_processed_at_default.sql',
             'ALTER TABLE public.processed_webhook_events ALTER COLUMN processed_at DROP DEFAULT;',
@@ -768,6 +755,9 @@ describe('operations runbook launch readiness', () => {
         ]) {
             expect(cleanupRunner).toContain(snippet);
         }
+        expect(cleanupRunner.indexOf('if (executeRequested && legacyExecutionRetired)')).toBeLessThan(
+            cleanupRunner.indexOf('checks.push(...runApprovedExecution(captures))'),
+        );
 
         const readonlyPreflight = read('scripts/launch/supabase-processed-at-readonly-preflight.ts');
         for (const snippet of [

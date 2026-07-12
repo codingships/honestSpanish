@@ -145,20 +145,20 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [x] Typecheck app pasa; revalidado localmente el 2026-07-12.
 - [x] Typecheck fulfillment Worker pasa; revalidado localmente el 2026-07-12.
 - [x] `pnpm lint` pasa. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-lint.log`; revalidado localmente el 2026-07-12.
-- [x] `pnpm test:run` pasa. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-test-run.log`; revalidado localmente el 2026-07-12 con 140 archivos y 987 tests.
-- [x] `pnpm build` pasa. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-build.log`; revalidado localmente el 2026-06-11 con warnings no bloqueantes de Sentry sourcemaps.
+- [x] `pnpm test:run` pasa. Evidencia fresca: `outputs/launch-verification/2026-07-12T12-44-05-796Z/pnpm-test-run.log`; 160 archivos y 1.134 tests pasan.
+- [x] `pnpm build` pasa. Evidencia fresca: `outputs/launch-verification/2026-07-12T12-44-05-796Z/pnpm-build.log`; revalidado localmente el 2026-07-12.
 - [x] Build local no sube sourcemaps a Sentry salvo CI o bandera explicita. Evidencia: `astro.config.mjs`, `.env.example`, `docs/launch/ENVIRONMENT.md`; `pnpm build` local 2026-06-11 pasa sin upload Sentry tras exigir `CI=true` o `SENTRY_UPLOAD_SOURCEMAPS=true`.
 - [x] `pnpm launch:sequence` pasa sin fallos ni warnings. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-launch-sequence.log` y `outputs/launch-sequence/2026-06-05T21-58-30-838Z/summary.md`.
-- [x] `pnpm launch:cleanup` pasa sin fallos ni warnings. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-launch-cleanup.log`, `outputs/launch-cleanup/2026-06-05T21-58-31-269Z/summary.md` y `outputs/launch-cleanup/2026-06-05T21-58-31-269Z/agent-tooling-decision-worksheet.md`.
-- [x] `pnpm launch:content` pasa sin fallos ni warnings. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-launch-content.log` y `outputs/launch-content/2026-06-05T21-58-31-819Z/summary.md`.
-- [x] `pnpm launch:seo` pasa sin fallos ni warnings y genera worksheet final SEO/LLM. Evidencia: `outputs/launch-seo/<timestamp>/summary.md` y `outputs/launch-seo/<timestamp>/seo-llm-final-worksheet.md`; rerun antes de Go/No-Go con dominio/copy/legal definitivos.
-- [x] `pnpm launch:public-visual` pasa sin fallos y genera capturas desktop/mobile de la home ES y landings SEO prioritarias. Evidencia: `outputs/launch-public-visual/<timestamp>/summary.md`; rerun antes de Go/No-Go con copy final congelado.
-- [ ] `pnpm launch:legal` pasa. Ultima evidencia: `outputs/launch-legal/2026-06-05T21-58-32-287Z/summary.md` falla por datos legales reales pendientes.
-- [x] `pnpm launch:security` pasa sin fallos ni warnings. Evidencia actual: `outputs/launch-security/2026-07-12T08-52-35-142Z/summary.md`.
-- [x] `pnpm launch:operations` pasa sin fallos ni warnings. Evidencia actual: `outputs/launch-operations/2026-07-12T08-52-35-157Z/summary.md`.
-- [x] `pnpm launch:payments` pasa sin fallos ni warnings. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-launch-payments.log` y `outputs/launch-payments/2026-06-05T21-58-33-837Z/summary.md`.
-- [x] `pnpm launch:final-readiness` pasa sin fallos ni warnings. Evidencia: `outputs/launch-verification/2026-06-05T21-58-04-246Z/pnpm-launch-final-readiness.log` y `outputs/launch-final-readiness/2026-06-05T21-58-34-283Z/summary.md`.
-- [x] `pnpm launch:accessibility` pasa. Evidencia vigente via `pnpm launch:status` -> `Current Evidence`; ultima revalidacion local conocida: `outputs/launch-accessibility/2026-06-12T14-20-42-919Z/summary.md`.
+- [x] `pnpm launch:cleanup` pasa sin fallos ni warnings. Evidencia fresca: `outputs/launch-cleanup/2026-07-12T12-54-13-484Z/summary.md`; `dist/` local fue retirado despues de la verificacion y cualquier deploy debe reconstruirlo con el entorno objetivo explicito.
+- [x] `pnpm launch:content` pasa sin fallos ni warnings. Evidencia fresca: `outputs/launch-content/2026-07-12T12-45-08-888Z/summary.md`.
+- [x] `pnpm launch:seo` pasa sin fallos ni warnings y genera worksheet final SEO/LLM. Evidencia fresca: `outputs/launch-seo/2026-07-12T12-45-09-434Z/summary.md`; rerun antes de Go/No-Go con dominio/copy/legal definitivos.
+- [x] `pnpm launch:public-visual` pasa sin fallos y genera capturas desktop/mobile de la home ES y landings SEO prioritarias. Evidencia fresca: `outputs/launch-public-visual/2026-07-12T12-45-10-647Z/summary.md`; rerun antes de Go/No-Go con copy final congelado.
+- [ ] `pnpm launch:legal` pasa. Evidencia fresca: `outputs/launch-legal/2026-07-12T12-47-04-333Z/summary.md`; el unico fallo es el modo de ejemplo de titular/controlador, reservado para el cierre legal final.
+- [x] `pnpm launch:security` pasa sin fallos ni warnings. Evidencia actual: `outputs/launch-security/2026-07-12T12-47-05-093Z/summary.md`.
+- [x] `pnpm launch:operations` pasa sin fallos ni warnings. Evidencia actual: `outputs/launch-operations/2026-07-12T12-47-06-079Z/summary.md`.
+- [x] `pnpm launch:payments` pasa sin fallos ni warnings. Evidencia actual: `outputs/launch-payments/2026-07-12T12-47-06-532Z/summary.md`.
+- [x] `pnpm launch:final-readiness` pasa sin fallos ni warnings. Evidencia actual: `outputs/launch-final-readiness/2026-07-12T12-47-07-014Z/summary.md`.
+- [x] `pnpm launch:accessibility` pasa. Evidencia vigente via `pnpm launch:status` -> `Current Evidence`; ultima revalidacion automatica: `outputs/launch-accessibility/2026-07-12T12-47-08-273Z/summary.md`. La evidencia humana de lector real y movil sigue siendo un gate separado.
 - [ ] `pnpm launch:manual-evidence` pasa. Evidencia vigente via `pnpm launch:status` -> `Current Evidence` -> `Manual Evidence Audit`; debe seguir fallando mientras queden checks humanos/final-only en `pending`. No usar conteos antiguos como fuente de verdad: revisar `manual-evidence-index.md`, `next-actions.md`, `phase-1-closure-pack.md` y `final-closure-pack.md` enlazados por el ultimo `pnpm launch:status`.
 - [x] `pnpm secrets:check` pasa; revalidado localmente el 2026-07-12 sin secretos obvios en archivos tracked/unignored.
 - [x] Deploy Pages staging legado verificado en `https://espanol-honesto-staging.pages.dev` y deployment `https://a2e6f14b.espanol-honesto-staging.pages.dev`; no es el target SSR vigente.
@@ -183,7 +183,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 
 ## Database
 
-- [x] `database_readiness` staging reconciliado con el schema actual. Evidencia 2026-07-10: las migraciones billing `20260710205031`, `20260710215712`, `20260710221846` y `20260710223900` se validaron primero en transaccion con `ROLLBACK`, cada dry-run propuso solo la siguiente migracion, se aplicaron a `mzjyvmlxfpzdfdjzxxyj` y `supabase db lint --schema public --level error` termino sin hallazgos. Production no se ha tocado.
+- [x] Baseline billing de `database_readiness` reconciliado en staging. Evidencia 2026-07-10: las migraciones `20260710205031`, `20260710215712`, `20260710221846` y `20260710223900` se validaron primero en transaccion con `ROLLBACK`, cada dry-run propuso solo la siguiente migracion, se aplicaron a `mzjyvmlxfpzdfdjzxxyj` y `supabase db lint --schema public --level error` termino sin hallazgos. El cierre vigente de `database_readiness` sigue pendiente de las dos migraciones hardening de la fila 207; production no se ha tocado.
 - [x] Historial de migraciones staging reconciliado hasta `20260711192817`; no se uso `migration repair` ni se marcaron versiones manualmente.
 - [x] Ledger durable de efectos de fulfillment aplicado y verificado en staging mediante `20260711192817_fulfillment_effect_ledger.sql`: tabla vacia, RLS activo, trigger y RPC presentes, sin permisos para `anon`/`authenticated` y acceso exclusivo de `service_role`.
 - [x] Supabase staging inicializado con `db/schema.sql`.
@@ -206,7 +206,7 @@ Rollback source: `docs/launch/RUNBOOK.md`, section `Rollback`. Rollback must be 
 - [ ] Cerrar los 110 folders fixture de Drive production mediante traslado recuperable a papelera y verificacion, o registrar una deferencia explicita aprobada. Cero borrados permanentes; no tocar raiz, plantilla, permisos, Calendar ni staging.
 - [ ] Aplicar realmente y verificar las dos migraciones hardening en Supabase staging; production exige cierre `APPLIED_AND_VERIFIED`, no plan ni `ALREADY_APPLIED`.
 - [ ] Ejecutar y verificar Sentry production hardening: `honestspanish/espanol-honesto-astro`, scrubbing IP y dos workflows exactos, con summary fresco `HARDENED_AND_VERIFIED`. El rollout final vincula el hash de esa evidencia.
-- [ ] Aplicar production con `pnpm launch:supabase-production-rollout` y todos sus receipts: `processed_at_small_fix` (1), `application_schema` (7), `runtime_and_policy` (7), `billing_contract` (4), `fulfillment_ledger` (1) y `deferred_rc_hardening` (2). Verificar cada ola y el recibo final manteniendo checkout desactivado.
+- [ ] Aplicar production con `pnpm launch:supabase-production-rollout` y todos sus receipts: `processed_at_small_fix` (1), `application_schema` (7), `runtime_and_policy` (7), `billing_contract` (4), `fulfillment_ledger` (1) y `deferred_rc_hardening` (2). Verificar cada ola y el recibo final manteniendo checkout desactivado. No usar el runner legacy `launch:supabase-processed-at-cleanup-runner`: staging ya esta cerrado y ese runner permanece fail-closed para escrituras.
 - [ ] Tras las 22 olas y el vencimiento de la cuarentena, finalizar Auth: crear solo los perfiles/private de admin y profesor y obtener `auth-policy-receipt.json`. No abrir trafico antes.
 - [ ] Tras Auth final, ejecutar `pnpm launch:production-availability`: target production exacto, mismo profesor preservado, L-V 09:00-18:00 `Europe/Madrid`, cinco filas verificadas y `production-availability-receipt.json`. Mantener signup/checkout inertes.
 

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
-type ClosureStatus = 'PLAN_ONLY_READY' | 'EXECUTED_AND_NEEDS_REVIEW' | 'BLOCKED_BY_GATE_OR_ARTIFACTS';
+type ClosureStatus = 'PLAN_ONLY_RETIRED' | 'BLOCKED_BY_GATE_OR_ARTIFACTS';
 
 interface Check {
     status: CheckStatus;
@@ -88,6 +88,8 @@ const approvalEnvVar = 'SUPABASE_PROCESSED_AT_CLEANUP_APPROVAL';
 const exactApprovalSentence = 'Apruebo aplicar la migracion `20260703211451_drop_processed_webhook_processed_at_default` a Supabase staging `mzjyvmlxfpzdfdjzxxyj` primero, verificar read-only que `processed_webhook_events.processed_at` no tiene default y que los estados webhook siguen limpios, y si staging pasa, aplicarla a produccion `vkkahxsybhbutszerawz` y verificar read-only. No autorizo ningun otro cambio de Supabase ni servicios externos.';
 const migrationFile = 'supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql';
 const expectedSql = 'ALTER TABLE public.processed_webhook_events ALTER COLUMN processed_at DROP DEFAULT;';
+const legacyExecutionRetired = true;
+const replacementPlanCommand = 'pnpm launch:supabase-production-rollout -- --through processed_at_small_fix --preflight outputs/launch-supabase-production-readonly-preflight/<timestamp>/summary.json';
 const executeRequested = process.argv.includes('--execute-approved');
 const approvalMatched = process.env[approvalEnvVar] === exactApprovalSentence;
 
@@ -110,7 +112,18 @@ const checks: Check[] = [
     validateForbiddenScopeSource(),
 ];
 
-if (executeRequested && !approvalMatched) {
+if (executeRequested && legacyExecutionRetired) {
+    checks.push({
+        status: 'failed',
+        name: 'legacy_execution_retired',
+        message: 'This legacy runner is permanently fail-closed for external writes. Use the source-bound production rollout wave instead.',
+        details: [
+            'externalWritePerformed=false',
+            `replacement=${replacementPlanCommand}`,
+            'staging already has migration 20260703211451 and must not be reapplied by this runner',
+        ],
+    });
+} else if (executeRequested && !approvalMatched) {
     checks.push({
         status: 'failed',
         name: 'exact_approval_gate',
@@ -177,9 +190,7 @@ function createReport(reportChecks: Check[], reportCaptures: CommandCapture[]): 
         status: reportStatus,
         closureStatus: reportStatus === 'FAILED'
             ? 'BLOCKED_BY_GATE_OR_ARTIFACTS'
-            : executeRequested
-                ? 'EXECUTED_AND_NEEDS_REVIEW'
-                : 'PLAN_ONLY_READY',
+            : 'PLAN_ONLY_RETIRED',
         outputDir,
         targetProjects,
         approvalEnvVar,
@@ -273,11 +284,12 @@ function validateCleanupPackage(): Check {
     const approval = readFileSync(latestCleanupApprovalPath, 'utf8');
     const manifest = readFileSync(latestCleanupManifestPath, 'utf8');
     const required = [
-        exactApprovalSentence,
         migrationFile,
         'mzjyvmlxfpzdfdjzxxyj',
         'vkkahxsybhbutszerawz',
         expectedSql,
+        'processed_at_small_fix',
+        'legacy staging-first approval is retired',
         'No Cloudflare, Stripe, Google, Resend, Sentry, DNS, Pages or Worker writes.',
     ];
     const missing = required.filter((snippet) => !approval.includes(snippet) && !manifest.includes(snippet));
@@ -286,8 +298,8 @@ function validateCleanupPackage(): Check {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'cleanup_package_exists',
         message: missing.length === 0
-            ? 'Latest cleanup package contains the exact migration, target projects, approval sentence and forbidden scope.'
-            : 'Latest cleanup package is missing required scope or approval facts.',
+            ? 'Latest cleanup package contains the exact migration, target projects, source-bound replacement and forbidden scope.'
+            : 'Latest cleanup package is missing required scope or retirement/replacement facts.',
         details: missing.length === 0
             ? [`summary=${latestCleanupSummaryPath}`, `manifest=${latestCleanupManifestPath}`, `approval=${latestCleanupApprovalPath}`]
             : missing.map((snippet) => `missing=${snippet}`),
@@ -346,6 +358,9 @@ function validateApprovalGateSource(): Check {
         approvalEnvVar,
         '--execute-approved',
         'const exactApprovalSentence =',
+        'const legacyExecutionRetired = true',
+        'const replacementPlanCommand =',
+        'if (executeRequested && legacyExecutionRetired)',
         'executeRequested && !approvalMatched',
         'externalWritePerformed=false',
         'runApprovedExecution',
@@ -361,8 +376,8 @@ function validateApprovalGateSource(): Check {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'approval_gate_source',
         message: missing.length === 0
-            ? 'Runner source contains exact approval gate, staging-first execution branch and production-after-staging verification branch.'
-            : 'Runner source is missing required approval gate or execution sequencing facts.',
+            ? 'Runner source places the permanent retirement guard before its historical approval/execution code and points to the source-bound replacement.'
+            : 'Runner source is missing the permanent retirement guard or source-bound replacement facts.',
         details: missing.length === 0 ? [sourcePath] : missing.map((snippet) => `missing=${snippet}`),
     };
 }
@@ -630,7 +645,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
     const executionPlan = `${[
         '# Supabase processed_at Cleanup Execution Plan',
         '',
-        'This is a gated runner package for applying only migration `20260703211451_drop_processed_webhook_processed_at_default` staging-first, verifying staging read-only, and only then applying/verifying production.',
+        'This is a historical compatibility package. Its external-write path is retired and permanently fail-closed because staging already contains migration `20260703211451` and the source-bound production rollout now owns the remaining production change.',
         '',
         '## Current Mode',
         '',
@@ -651,20 +666,18 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         `- Approval request: ${toRelativeOrFallback(report.latestCleanupApprovalPath, 'outputs/launch-supabase-processed-at-cleanup/<timestamp>/approval-request.md')}`,
         `- Read-only preflight: ${toRelativeOrFallback(report.latestReadonlyPreflightPath, 'outputs/supabase-processed-at-readonly-preflight/<timestamp>/summary.md')}`,
         '',
-        '## Commands Encoded In This Runner',
+        '## Safe Replacement Commands',
         '',
         '```bash',
         ...commandManifestDisplays(),
         '```',
         '',
-        '## How To Execute Later',
+        '## Execution Retirement',
         '',
-        'Only after the exact approval is provided for the exact target/resource/scope:',
-        '',
-        '```powershell',
-        `$env:${approvalEnvVar}='${exactApprovalSentence.replace(/'/g, "''")}'`,
-        'corepack pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-cleanup-runner -- --execute-approved',
-        '```',
+        '- Do not execute this legacy runner. Passing `--execute-approved` fails before any network or SQL command.',
+        '- Generate a fresh production read-only preflight, then use the source-bound `processed_at_small_fix` wave either alone or as the first wave of the complete 22-migration rollout.',
+        `- Replacement plan command: \`${replacementPlanCommand}\`.`,
+        '- The replacement runner generates a scope-bound approval sentence, records exact migration history and verifies source SHA-256 plus schema effect.',
         '',
         '## Stop Conditions',
         '',
@@ -676,9 +689,9 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
     ].join('\n')}\n`;
 
     const approvalGate = `${[
-        '# Supabase processed_at Cleanup Approval Gate',
+        '# Supabase processed_at Legacy Runner Retirement Gate',
         '',
-        'This file is not approval. It documents the exact gate that the runner requires before it can apply the cleanup SQL.',
+        'This file is not approval. No approval sentence can make this legacy runner write to Supabase; its execute path is retired and fail-closed.',
         '',
         `- Environment variable: \`${approvalEnvVar}\`.`,
         '- Required flag: `--execute-approved`.',
@@ -686,17 +699,15 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         `- Approval matched in this run: ${String(report.approvalMatched)}.`,
         `- External write performed in this run: ${String(report.externalWritePerformed)}.`,
         '',
-        '## Exact Approval Sentence',
+        '## Historical Approval Sentence (Not Executable)',
         '',
         exactApprovalSentence,
         '',
-        '## Allowed Scope After Match',
+        '## Allowed Scope',
         '',
-        '- Refresh local cleanup package and read-only preflight.',
-        '- Apply only `supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql` to staging `mzjyvmlxfpzdfdjzxxyj`.',
-        '- Verify staging read-only using generated post-apply verification SQL.',
-        '- Apply the same migration to production `vkkahxsybhbutszerawz` only if staging verification passes.',
-        '- Verify production read-only and keep all evidence non-secret.',
+        '- Generate local/read-only evidence only.',
+        `- Use \`${replacementPlanCommand}\` to prepare the current production-only wave.`,
+        '- Execute only the replacement production rollout runner under its fresh, hash-bound exact approval.',
         '',
         '## Forbidden Scope',
         '',
@@ -707,27 +718,21 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
     const rollbackAfterCleanup = `${[
         '# Supabase processed_at Cleanup Rollback',
         '',
-        'This rollback plan applies only after the cleanup migration has actually been applied. It does not authorize rollback writes by itself.',
+        'This legacy runner cannot apply the cleanup migration. It does not authorize rollback writes.',
         '',
         '## If Plan Mode Was Used',
         '',
         '- No rollback is required; this package generated local evidence only.',
         '',
-        '## If Staging Apply Fails',
+        '## If Legacy Execution Is Requested',
         '',
-        '- Stop before production.',
-        '- Inspect sanitized command capture and regenerate cleanup/preflight artifacts before a new approval.',
-        '',
-        '## If Staging Verification Fails',
-        '',
-        '- Stop before production.',
-        '- Do not mark ERR-QA-SUPABASE-PROCESSED-AT-DEFAULT-149 fixed.',
-        '- Use `outputs/launch-supabase-processed-at-cleanup/<timestamp>/rollback.sql` only with separate exact approval if a verified incident requires restoring the default.',
+        '- The runner fails before network access or SQL; no rollback is required.',
+        '- Generate a fresh production preflight and use the replacement rollout wave.',
         '',
         '## If Production Apply Or Verification Fails',
         '',
         '- Keep the strict-QA finding open.',
-        '- Inspect sanitized captures and run read-only aggregate checks.',
+        '- Use the replacement rollout receipt/captures and run fresh read-only aggregate checks.',
         '- If a verified incident requires restoring the prior default, use the generated rollback SQL with separate exact approval naming production `vkkahxsybhbutszerawz`.',
         '',
     ].join('\n')}\n`;
@@ -736,12 +741,13 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         'corepack pnpm launch:manual-evidence:record --',
         '  --id database_readiness',
         '  --status pass',
-        '  --summary "Supabase processed_at cleanup applied staging-first and production-second under exact approval; read-only verification confirms no processed_at default and clean webhook aggregate counts."',
-        '  --environment "Supabase staging mzjyvmlxfpzdfdjzxxyj and production vkkahxsybhbutszerawz"',
+        '  --summary "Supabase production processed_at rollout wave applied under exact source-bound approval; fresh read-only verification confirms no default and clean webhook aggregate counts."',
+        '  --environment "Supabase production vkkahxsybhbutszerawz; staging mzjyvmlxfpzdfdjzxxyj already verified"',
         '  --owner Alin',
-        `  --evidence "command_output=../../${toRelative(report.summaryPath)}::cleanup runner summary reviewed; replace placeholder after actual approved execution"`,
-        `  --evidence "command_output=../../${toRelative(report.commandManifestPath)}::command manifest reviewed; no secret values stored"`,
-        '  --evidence "manual_note=Replace this note with actual non-secret verification: staging apply capture, staging verification capture, production apply capture, production verification capture and strict-QA tracker/status refresh."',
+        `  --evidence "command_output=../../${toRelative(report.summaryPath)}::legacy runner retirement verified; externalWritePerformed=false"`,
+        '  --evidence "command_output=../../outputs/launch-supabase-production-rollout-runner/<timestamp>/summary.json::replacement rollout receipt reviewed"',
+        '  --evidence "command_output=../../outputs/supabase-processed-at-readonly-preflight/<timestamp>/summary.md::post-rollout staging/production defaults and webhook aggregates verified"',
+        '  --evidence "manual_note=Replace with actual non-secret replacement rollout and tracker/status refresh evidence."',
         '',
         '# Add --write only after the approved cleanup actually runs and placeholder evidence is replaced.',
         '',
@@ -775,7 +781,7 @@ function renderSummary(report: RunnerReport): string {
         `- Rollback: ${toRelative(report.rollbackAfterCleanupPath)}`,
         `- Manual evidence template: ${toRelative(report.manualEvidenceAfterCleanupPath)}`,
         '',
-        'This runner is plan-only unless both the exact approval environment variable and the `--execute-approved` flag are present. In plan mode it does not connect to Supabase, does not apply SQL, does not mutate data/settings and does not write secrets.',
+        'This legacy runner is permanently fail-closed for external writes. `--execute-approved` fails before network or SQL. Use the source-bound production rollout `processed_at_small_fix` wave; plan mode here only produces compatibility evidence.',
         '',
         '## Checks',
         '',
@@ -806,7 +812,8 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         approvalEnvVar,
         exactApprovalSentence,
         expectedSql,
-        'PLAN_ONLY_READY',
+        'fail-closed',
+        replacementPlanCommand,
         'No supabase db push',
         'No service key or database URL evidence',
         'No Cloudflare, Stripe, Google, Resend, Sentry, Turnstile, DNS, Pages or Worker writes',
@@ -834,18 +841,17 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
 
 function commandManifestDisplays(): string[] {
     return [
-        'corepack pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-cleanup',
-        'corepack pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-readonly-preflight',
-        'psql staging mzjyvmlxfpzdfdjzxxyj -f supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql',
-        'psql staging mzjyvmlxfpzdfdjzxxyj -f outputs/launch-supabase-processed-at-cleanup/<timestamp>/post-apply-verification.sql',
-        'psql production vkkahxsybhbutszerawz -f supabase/migrations/20260703211451_drop_processed_webhook_processed_at_default.sql',
-        'psql production vkkahxsybhbutszerawz -f outputs/launch-supabase-processed-at-cleanup/<timestamp>/post-apply-verification.sql',
+        'pnpm launch:supabase-processed-at-cleanup',
+        'pnpm launch:supabase-processed-at-readonly-preflight',
+        'pnpm launch:supabase-production-readonly-preflight',
+        replacementPlanCommand,
     ];
 }
 
 function forbiddenScopeLines(): string[] {
     return [
         'No supabase db push.',
+        'No external write through this retired legacy runner.',
         'No migration outside `20260703211451_drop_processed_webhook_processed_at_default`.',
         'No row/user/Auth/Storage/API-setting changes.',
         'No service key or database URL evidence.',

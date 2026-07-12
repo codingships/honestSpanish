@@ -2,10 +2,23 @@ import * as dotenv from 'dotenv';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Stripe from 'stripe';
+import {
+    createExternalWriteReceipt,
+    markExternalWriteAmbiguous,
+    markExternalWriteAttemptStarted,
+    markExternalWriteConfirmed,
+    requireReadonlyReconciliation,
+    type ExternalWriteOutcome,
+    type ExternalWritePerformed,
+} from './external-write-receipt';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
-type ClosureStatus = 'PLAN_ONLY_READY' | 'EXECUTED_AND_NEEDS_REVIEW' | 'BLOCKED_BY_GATE_OR_ARTIFACTS';
+type ClosureStatus =
+    | 'PLAN_ONLY_READY'
+    | 'EXECUTED_AND_NEEDS_REVIEW'
+    | 'BLOCKED_BY_GATE_OR_ARTIFACTS'
+    | 'NEEDS_READONLY_RECONCILIATION_OR_ROLLBACK';
 
 interface Check {
     status: CheckStatus;
@@ -40,7 +53,7 @@ interface ExecutionCapture {
 }
 
 interface RunnerReport {
-    schemaVersion: 1;
+    schemaVersion: 2;
     startedAt: string;
     endedAt: string;
     status: ReportStatus;
@@ -50,7 +63,11 @@ interface RunnerReport {
     approvalEnvVar: string;
     executeRequested: boolean;
     approvalMatched: boolean;
-    externalWritePerformed: boolean;
+    externalWriteAttempted: boolean;
+    externalWritePerformed: ExternalWritePerformed;
+    externalWriteOutcome: ExternalWriteOutcome;
+    readonlyReconciliationRequired: boolean;
+    externalWriteReceiptPath: string;
     targetWebhookPath: string;
     allowedTargetHosts: string[];
     requiredEnv: string[];
@@ -94,6 +111,8 @@ const executeRequested = process.argv.includes('--execute-approved');
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-stripe-webhook-cutover-runner', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
+const externalWriteReceiptPath = path.join(outputDir, 'external-write-receipt.json');
+let externalWriteReceipt = createExternalWriteReceipt();
 
 const latestCutoverPackSummaryPath = latestGeneratedPath('launch-stripe-webhook-cutover-pack', 'summary.md');
 const latestCutoverPackApprovalPath = latestGeneratedPath('launch-stripe-webhook-cutover-pack', 'approval-request.md');
@@ -140,6 +159,8 @@ async function main(): Promise<void> {
         });
     }
 
+    persistExternalWriteReceipt('run_checks_complete');
+
     let report = createReport(checks, captures);
     let rendered = renderArtifacts(report);
     checks.push(validateGeneratedArtifactPosture(rendered));
@@ -161,7 +182,10 @@ async function main(): Promise<void> {
     console.log(`[launch:stripe-webhook-cutover-runner] Closure: ${report.closureStatus}`);
     console.log(`[launch:stripe-webhook-cutover-runner] Failed: ${failed.length}`);
     console.log(`[launch:stripe-webhook-cutover-runner] Warnings: ${warnings.length}`);
+    console.log(`[launch:stripe-webhook-cutover-runner] External write attempted: ${report.externalWriteAttempted}`);
     console.log(`[launch:stripe-webhook-cutover-runner] External write performed: ${report.externalWritePerformed}`);
+    console.log(`[launch:stripe-webhook-cutover-runner] External write outcome: ${report.externalWriteOutcome}`);
+    console.log(`[launch:stripe-webhook-cutover-runner] Read-only reconciliation required: ${report.readonlyReconciliationRequired}`);
     console.log(`[launch:stripe-webhook-cutover-runner] Summary: ${report.summaryPath}`);
     console.log(`[launch:stripe-webhook-cutover-runner] Execution plan: ${report.executionPlanPath}`);
     console.log(`[launch:stripe-webhook-cutover-runner] Approval gate: ${report.approvalGatePath}`);
@@ -172,14 +196,15 @@ async function main(): Promise<void> {
 
 function createReport(reportChecks: Check[], reportCaptures: ExecutionCapture[]): RunnerReport {
     const reportStatus = statusFor(reportChecks);
-    const externalWritePerformed = reportCaptures.some((capture) => capture.writesStripe && capture.status === 'ok');
 
     return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         startedAt: startedAt.toISOString(),
         endedAt: new Date().toISOString(),
         status: reportStatus,
-        closureStatus: reportStatus === 'FAILED'
+        closureStatus: externalWriteReceipt.readonlyReconciliationRequired
+            ? 'NEEDS_READONLY_RECONCILIATION_OR_ROLLBACK'
+            : reportStatus === 'FAILED'
             ? 'BLOCKED_BY_GATE_OR_ARTIFACTS'
             : executeRequested
                 ? 'EXECUTED_AND_NEEDS_REVIEW'
@@ -189,7 +214,8 @@ function createReport(reportChecks: Check[], reportCaptures: ExecutionCapture[])
         approvalEnvVar,
         executeRequested,
         approvalMatched,
-        externalWritePerformed,
+        ...externalWriteReceipt,
+        externalWriteReceiptPath,
         targetWebhookPath,
         allowedTargetHosts,
         requiredEnv,
@@ -347,6 +373,12 @@ function validateApprovalGateSource(): Check {
         "stripeSecretKey.startsWith('sk_test_')",
         "stripeSecretKey.startsWith('sk_live_')",
         'endpoint.livemode === false',
+        'markExternalWriteAttemptStarted',
+        'persistExternalWriteReceipt',
+        'externalWriteAttempted',
+        'externalWriteOutcome',
+        'ambiguous_needs_readonly_reconciliation',
+        'readonlyReconciliationRequired',
         'externalWritePerformed=false',
     ];
     const missing = required.filter((snippet) => !source.includes(snippet));
@@ -484,8 +516,13 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         return executionChecks;
     }
 
+    externalWriteReceipt = markExternalWriteAttemptStarted(externalWriteReceipt);
+    persistExternalWriteReceipt('update_started_awaiting_provider_confirmation');
+
     try {
         const updated = await stripe.webhookEndpoints.update(env.endpointId, { url: env.targetUrl });
+        externalWriteReceipt = markExternalWriteConfirmed(externalWriteReceipt, true);
+        persistExternalWriteReceipt('update_provider_success_confirmed');
         const snapshot = snapshotEndpoint(updated);
         const capture = writeExecutionCapture(
             'stripe_endpoint_url_update',
@@ -501,32 +538,56 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
             message: 'Stripe test-mode webhook endpoint URL was updated and captured without secret values.',
             details: [
                 `capture=${capture.path}`,
+                `receipt=${externalWriteReceiptPath}`,
+                `externalWriteAttempted=${String(externalWriteReceipt.externalWriteAttempted)}`,
+                `externalWritePerformed=${String(externalWriteReceipt.externalWritePerformed)}`,
+                `externalWriteOutcome=${externalWriteReceipt.externalWriteOutcome}`,
                 `endpointId=${snapshot.id}`,
                 `targetUrl=${safeUrl(snapshot.url)}`,
                 `events=${snapshot.enabledEvents.join('|')}`,
             ],
         });
     } catch (error) {
+        externalWriteReceipt = markExternalWriteAmbiguous(externalWriteReceipt);
+        persistExternalWriteReceipt('update_error_or_timeout_outcome_ambiguous');
         const capture = writeExecutionCapture(
             'stripe_endpoint_url_update',
             'failed',
             true,
-            'Stripe webhook endpoint URL update failed; no secret values stored.',
-            { error: safeErrorMessage(error) },
+            'Stripe webhook endpoint URL update returned an error after the update started; outcome is ambiguous until read-only reconciliation.',
+            {
+                error: safeErrorMessage(error),
+                externalWriteAttempted: true,
+                externalWritePerformed: 'unknown',
+                externalWriteOutcome: externalWriteReceipt.externalWriteOutcome,
+                readonlyReconciliationRequired: true,
+            },
         );
         reportCaptures.push(capture);
         executionChecks.push({
             status: 'failed',
             name: 'stripe_webhook_endpoint_url_updated',
-            message: 'Stripe test-mode webhook endpoint URL update failed.',
-            details: [`capture=${capture.path}`, safeErrorMessage(error)],
+            message: 'Stripe test-mode webhook endpoint update errored after the write started; it may have landed and must be reconciled read-only before rollback or retry.',
+            details: [
+                `capture=${capture.path}`,
+                `receipt=${externalWriteReceiptPath}`,
+                'externalWriteAttempted=true',
+                'externalWritePerformed=unknown',
+                `externalWriteOutcome=${externalWriteReceipt.externalWriteOutcome}`,
+                'required=read-only endpoint reconciliation and rollback decision before retry',
+                safeErrorMessage(error),
+            ],
         });
         return executionChecks;
     }
 
     const after = await retrieveEndpoint(stripe, env.endpointId, 'stripe_endpoint_after_update_readonly', reportCaptures);
     executionChecks.push(after.check);
-    if (!after.snapshot || after.check.status === 'failed') return executionChecks;
+    if (!after.snapshot || after.check.status === 'failed') {
+        externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
+        persistExternalWriteReceipt('post_update_readonly_reconciliation_failed');
+        return executionChecks;
+    }
 
     const afterChecks = [
         normalizeUrl(after.snapshot.url) === normalizeUrl(env.targetUrl),
@@ -534,8 +595,9 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         after.snapshot.status === 'enabled',
         sameStringSet(after.snapshot.enabledEvents, before.snapshot.enabledEvents),
     ];
+    const verificationPassed = afterChecks.every(Boolean);
     executionChecks.push({
-        status: afterChecks.every(Boolean) ? 'ok' : 'failed',
+        status: verificationPassed ? 'ok' : 'failed',
         name: 'post_update_readonly_verification',
         message: afterChecks.every(Boolean)
             ? 'Read-only verification shows the target URL, test mode, enabled status and original event set after the update.'
@@ -547,6 +609,12 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
             `eventsPreserved=${String(sameStringSet(after.snapshot.enabledEvents, before.snapshot.enabledEvents))}`,
         ],
     });
+    if (!verificationPassed) {
+        externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
+        persistExternalWriteReceipt('post_update_readonly_invariants_failed');
+    } else {
+        persistExternalWriteReceipt('post_update_readonly_verified');
+    }
 
     return executionChecks;
 }
@@ -717,6 +785,19 @@ function writeExecutionCapture(
     };
 }
 
+function persistExternalWriteReceipt(stage: string): void {
+    writeFileSync(externalWriteReceiptPath, `${JSON.stringify({
+        schemaVersion: 1,
+        provider: 'stripe_test_webhook_endpoint',
+        updatedAt: new Date().toISOString(),
+        stage,
+        ...externalWriteReceipt,
+        retryPolicy: externalWriteReceipt.readonlyReconciliationRequired
+            ? 'blocked_until_readonly_reconciliation_and_rollback_decision'
+            : 'normal_exact_approval_gate',
+    }, null, 2)}\n`, 'utf8');
+}
+
 function renderArtifacts(report: RunnerReport): RenderedArtifacts {
     const commandManifest = renderCommandManifest(report);
     const executionPlan = renderExecutionPlan(report);
@@ -736,7 +817,11 @@ function renderCommandManifest(report: RunnerReport): string {
         closureStatus: report.closureStatus,
         executeRequested: report.executeRequested,
         approvalMatched: report.approvalMatched,
+        externalWriteAttempted: report.externalWriteAttempted,
         externalWritePerformed: report.externalWritePerformed,
+        externalWriteOutcome: report.externalWriteOutcome,
+        readonlyReconciliationRequired: report.readonlyReconciliationRequired,
+        externalWriteReceiptPath: toRelative(report.externalWriteReceiptPath),
         stripeModePolicy: report.stripeModePolicy,
         targetWebhookPath: report.targetWebhookPath,
         allowedTargetHosts: report.allowedTargetHosts,
@@ -777,7 +862,11 @@ function renderExecutionPlan(report: RunnerReport): string {
         `- Generated: ${report.endedAt}`,
         `- Status: ${report.status}`,
         `- Closure: ${report.closureStatus}`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}`,
         `- External write performed: ${String(report.externalWritePerformed)}`,
+        `- External write outcome: ${report.externalWriteOutcome}`,
+        `- Read-only reconciliation required: ${String(report.readonlyReconciliationRequired)}`,
+        `- Durable write receipt: ${toRelative(report.externalWriteReceiptPath)}`,
         `- Approval env var: ${approvalEnvVar}`,
         '',
         '## Scope',
@@ -794,6 +883,7 @@ function renderExecutionPlan(report: RunnerReport): string {
         '3. Export `STRIPE_WEBHOOK_ENDPOINT_ID`, `STRIPE_WEBHOOK_TARGET_URL` and `STRIPE_WEBHOOK_CUTOVER_APPROVAL` outside repo files.',
         '4. Execute only after exact approval: `corepack pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`.',
         '5. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and confirm `stripe_webhook_endpoints_readonly` is OK.',
+        '6. If the receipt says `ambiguous_needs_readonly_reconciliation`, do not retry the update: retrieve the endpoint read-only, compare it with both the before-capture and intended URL, then either record that the target landed or obtain separate approval to roll back.',
         '',
         '## Before And After Ledger',
         '',
@@ -851,7 +941,7 @@ function renderApprovalGate(report: RunnerReport): string {
         '',
         'Do not write the full approval sentence, secret key, webhook signing secret, raw event payloads or customer/payment data into repo files, `.codex-ops`, screenshots, summaries or chat.',
         '',
-        `Current runner status: ${report.closureStatus}. External write performed: ${String(report.externalWritePerformed)}.`,
+        `Current runner status: ${report.closureStatus}. External write attempted: ${String(report.externalWriteAttempted)}. External write performed: ${String(report.externalWritePerformed)}. Outcome: ${report.externalWriteOutcome}.`,
         '',
     ].join('\n')}\n`;
 }
@@ -869,6 +959,11 @@ function renderRollbackAfterCutover(report: RunnerReport): string {
         '3. Run `corepack pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`.',
         '4. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and confirm the intended host posture.',
         '5. If checkout/webhook traffic was exercised, reconcile Supabase `payments`, `subscriptions` and `processed_webhook_events` with redacted evidence only.',
+        '',
+        '## Ambiguous Write Receipt',
+        '',
+        '- A timeout, network error or provider exception after the update starts is recorded as `externalWriteAttempted=true`, `externalWritePerformed=unknown` and `externalWriteOutcome=ambiguous_needs_readonly_reconciliation`.',
+        '- That outcome is a hard failure. Do not repeat the update until a fresh read-only endpoint reconciliation proves whether the intended URL landed and an operator has chosen either acceptance or separately approved rollback.',
         '',
         '## Stop Conditions',
         '',
@@ -912,7 +1007,11 @@ function renderSummary(report: RunnerReport): string {
         `- Closure: ${report.closureStatus}`,
         `- Execute requested: ${String(report.executeRequested)}`,
         `- Approval matched: ${String(report.approvalMatched)}`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}`,
         `- External write performed: ${String(report.externalWritePerformed)}`,
+        `- External write outcome: ${report.externalWriteOutcome}`,
+        `- Read-only reconciliation required: ${String(report.readonlyReconciliationRequired)}`,
+        `- Durable write receipt: ${toRelative(report.externalWriteReceiptPath)}`,
         `- Latest cutover pack: ${toRelativeOrFallback(report.latestCutoverPackSummaryPath, 'missing')}`,
         `- Latest Stripe read-only evidence: ${toRelativeOrFallback(report.latestStripeReadonlySummaryPath, 'missing')}`,
         `- Command manifest: ${toRelative(report.commandManifestPath)}`,
@@ -945,7 +1044,12 @@ function renderSummary(report: RunnerReport): string {
 function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts): Check {
     const combined = Object.values(renderedArtifacts).join('\n');
     const required = [
+        'External write attempted',
         'External write performed',
+        'External write outcome',
+        'ambiguous_needs_readonly_reconciliation',
+        'externalWritePerformed=unknown',
+        'read-only endpoint reconciliation',
         approvalEnvVar,
         endpointIdEnvVar,
         targetUrlEnvVar,

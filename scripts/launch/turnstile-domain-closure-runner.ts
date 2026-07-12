@@ -1,10 +1,23 @@
 import * as dotenv from 'dotenv';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    createExternalWriteReceipt,
+    markExternalWriteAmbiguous,
+    markExternalWriteAttemptStarted,
+    markExternalWriteConfirmed,
+    requireReadonlyReconciliation,
+    type ExternalWriteOutcome,
+    type ExternalWritePerformed,
+} from './external-write-receipt';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
-type ClosureStatus = 'PLAN_ONLY_READY' | 'EXECUTED_AND_NEEDS_REVIEW' | 'BLOCKED_BY_GATE_OR_ARTIFACTS';
+type ClosureStatus =
+    | 'PLAN_ONLY_READY'
+    | 'EXECUTED_AND_NEEDS_REVIEW'
+    | 'BLOCKED_BY_GATE_OR_ARTIFACTS'
+    | 'NEEDS_READONLY_RECONCILIATION_OR_ROLLBACK';
 
 interface Check {
     status: CheckStatus;
@@ -63,7 +76,7 @@ interface ExecutionEnv {
 }
 
 interface RunnerReport {
-    schemaVersion: 1;
+    schemaVersion: 2;
     startedAt: string;
     endedAt: string;
     status: ReportStatus;
@@ -73,7 +86,11 @@ interface RunnerReport {
     approvalEnvVar: string;
     executeRequested: boolean;
     approvalMatched: boolean;
-    externalWritePerformed: boolean;
+    externalWriteAttempted: boolean;
+    externalWritePerformed: ExternalWritePerformed;
+    externalWriteOutcome: ExternalWriteOutcome;
+    readonlyReconciliationRequired: boolean;
+    externalWriteReceiptPath: string;
     allowedDomains: string[];
     requiredEnv: string[];
     latestClosurePackSummaryPath: string | null;
@@ -107,6 +124,8 @@ const executeRequested = process.argv.includes('--execute-approved');
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-turnstile-domain-closure-runner', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
+const externalWriteReceiptPath = path.join(outputDir, 'external-write-receipt.json');
+let externalWriteReceipt = createExternalWriteReceipt();
 
 const latestClosurePackSummaryPath = latestGeneratedPath('launch-turnstile-domain-closure-pack', 'summary.md');
 const latestClosurePackApprovalPath = latestGeneratedPath('launch-turnstile-domain-closure-pack', 'approval-request.md');
@@ -154,6 +173,8 @@ async function main(): Promise<void> {
         });
     }
 
+    persistExternalWriteReceipt('run_checks_complete');
+
     let report = createReport(checks, captures);
     let rendered = renderArtifacts(report);
     checks.push(validateGeneratedArtifactPosture(rendered));
@@ -175,7 +196,10 @@ async function main(): Promise<void> {
     console.log(`[launch:turnstile-domain-closure-runner] Closure: ${report.closureStatus}`);
     console.log(`[launch:turnstile-domain-closure-runner] Failed: ${failed.length}`);
     console.log(`[launch:turnstile-domain-closure-runner] Warnings: ${warnings.length}`);
+    console.log(`[launch:turnstile-domain-closure-runner] External write attempted: ${report.externalWriteAttempted}`);
     console.log(`[launch:turnstile-domain-closure-runner] External write performed: ${report.externalWritePerformed}`);
+    console.log(`[launch:turnstile-domain-closure-runner] External write outcome: ${report.externalWriteOutcome}`);
+    console.log(`[launch:turnstile-domain-closure-runner] Read-only reconciliation required: ${report.readonlyReconciliationRequired}`);
     console.log(`[launch:turnstile-domain-closure-runner] Summary: ${report.summaryPath}`);
     console.log(`[launch:turnstile-domain-closure-runner] Execution plan: ${report.executionPlanPath}`);
     console.log(`[launch:turnstile-domain-closure-runner] Approval gate: ${report.approvalGatePath}`);
@@ -186,14 +210,15 @@ async function main(): Promise<void> {
 
 function createReport(reportChecks: Check[], reportCaptures: ExecutionCapture[]): RunnerReport {
     const reportStatus = statusFor(reportChecks);
-    const externalWritePerformed = reportCaptures.some((capture) => capture.writesCloudflare && capture.status === 'ok');
 
     return {
-        schemaVersion: 1,
+        schemaVersion: 2,
         startedAt: startedAt.toISOString(),
         endedAt: new Date().toISOString(),
         status: reportStatus,
-        closureStatus: reportStatus === 'FAILED'
+        closureStatus: externalWriteReceipt.readonlyReconciliationRequired
+            ? 'NEEDS_READONLY_RECONCILIATION_OR_ROLLBACK'
+            : reportStatus === 'FAILED'
             ? 'BLOCKED_BY_GATE_OR_ARTIFACTS'
             : executeRequested
                 ? 'EXECUTED_AND_NEEDS_REVIEW'
@@ -203,7 +228,8 @@ function createReport(reportChecks: Check[], reportCaptures: ExecutionCapture[])
         approvalEnvVar,
         executeRequested,
         approvalMatched,
-        externalWritePerformed,
+        ...externalWriteReceipt,
+        externalWriteReceiptPath,
         allowedDomains,
         requiredEnv,
         latestClosurePackSummaryPath,
@@ -356,6 +382,12 @@ function validateApprovalGateSource(): Check {
         'PUT',
         '/challenges/widgets/',
         'validateWidgetBeforeUpdate',
+        'markExternalWriteAttemptStarted',
+        'persistExternalWriteReceipt',
+        'externalWriteAttempted',
+        'externalWriteOutcome',
+        'ambiguous_needs_readonly_reconciliation',
+        'readonlyReconciliationRequired',
         'externalWritePerformed=false',
     ];
     const missing = required.filter((snippet) => !source.includes(snippet));
@@ -490,6 +522,9 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         return executionChecks;
     }
 
+    externalWriteReceipt = markExternalWriteAttemptStarted(externalWriteReceipt);
+    persistExternalWriteReceipt('put_started_awaiting_provider_confirmation');
+
     try {
         const payload = await cloudflareRequest<TurnstileWidget>(
             env,
@@ -502,6 +537,12 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
                 domains: env.expectedDomains,
             },
         );
+        externalWriteReceipt = payload.success === true
+            ? markExternalWriteConfirmed(externalWriteReceipt, true)
+            : payload.success === false
+                ? markExternalWriteConfirmed(externalWriteReceipt, false)
+                : markExternalWriteAmbiguous(externalWriteReceipt);
+        persistExternalWriteReceipt('put_provider_response_classified');
         const snapshot = snapshotWidget(payload.result ?? before.widget);
         const capture = writeExecutionCapture(
             'turnstile_widget_domains_update',
@@ -523,6 +564,10 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
                 : 'Cloudflare Turnstile widget domain update failed.',
             details: [
                 `capture=${capture.path}`,
+                `receipt=${externalWriteReceiptPath}`,
+                `externalWriteAttempted=${String(externalWriteReceipt.externalWriteAttempted)}`,
+                `externalWritePerformed=${String(externalWriteReceipt.externalWritePerformed)}`,
+                `externalWriteOutcome=${externalWriteReceipt.externalWriteOutcome}`,
                 `siteKey=${snapshot.siteKeyPrefix}`,
                 `domains=${snapshot.domains.join('|') || 'none'}`,
                 `errors=${formatApiErrors(payload)}`,
@@ -530,26 +575,46 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         });
         if (payload.success !== true) return executionChecks;
     } catch (error) {
+        externalWriteReceipt = markExternalWriteAmbiguous(externalWriteReceipt);
+        persistExternalWriteReceipt('put_error_or_timeout_outcome_ambiguous');
         const capture = writeExecutionCapture(
             'turnstile_widget_domains_update',
             'failed',
             true,
-            'Cloudflare Turnstile widget domains update failed; no secret values stored.',
-            { error: safeErrorMessage(error) },
+            'Cloudflare Turnstile widget domains update returned an error after the PUT started; outcome is ambiguous until read-only reconciliation.',
+            {
+                error: safeErrorMessage(error),
+                externalWriteAttempted: true,
+                externalWritePerformed: 'unknown',
+                externalWriteOutcome: externalWriteReceipt.externalWriteOutcome,
+                readonlyReconciliationRequired: true,
+            },
         );
         reportCaptures.push(capture);
         executionChecks.push({
             status: 'failed',
             name: 'turnstile_widget_domains_updated',
-            message: 'Cloudflare Turnstile widget domain update failed.',
-            details: [`capture=${capture.path}`, safeErrorMessage(error)],
+            message: 'Cloudflare Turnstile widget domain update errored after the PUT started; the write may have landed and must be reconciled read-only before rollback or retry.',
+            details: [
+                `capture=${capture.path}`,
+                `receipt=${externalWriteReceiptPath}`,
+                'externalWriteAttempted=true',
+                'externalWritePerformed=unknown',
+                `externalWriteOutcome=${externalWriteReceipt.externalWriteOutcome}`,
+                'required=read-only widget reconciliation and rollback decision before retry',
+                safeErrorMessage(error),
+            ],
         });
         return executionChecks;
     }
 
     const after = await retrieveWidget(env, 'turnstile_widget_after_update_readonly', reportCaptures);
     executionChecks.push(after.check);
-    if (!after.widget || after.check.status === 'failed') return executionChecks;
+    if (!after.widget || after.check.status === 'failed') {
+        externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
+        persistExternalWriteReceipt('post_put_readonly_reconciliation_failed');
+        return executionChecks;
+    }
 
     const domainsOk = sameStringSet(normalizeDomains(after.widget.domains ?? []), env.expectedDomains);
     const invariantsPreserved = after.widget.name === before.widget.name
@@ -569,6 +634,12 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
             `clearancePreserved=${String(after.widget.clearance_level === before.widget.clearance_level)}`,
         ],
     });
+    if (!domainsOk || !invariantsPreserved) {
+        externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
+        persistExternalWriteReceipt('post_put_readonly_invariants_failed');
+    } else {
+        persistExternalWriteReceipt('post_put_readonly_verified');
+    }
 
     return executionChecks;
 }
@@ -765,6 +836,19 @@ function writeExecutionCapture(
     };
 }
 
+function persistExternalWriteReceipt(stage: string): void {
+    writeFileSync(externalWriteReceiptPath, `${JSON.stringify({
+        schemaVersion: 1,
+        provider: 'cloudflare_turnstile',
+        updatedAt: new Date().toISOString(),
+        stage,
+        ...externalWriteReceipt,
+        retryPolicy: externalWriteReceipt.readonlyReconciliationRequired
+            ? 'blocked_until_readonly_reconciliation_and_rollback_decision'
+            : 'normal_exact_approval_gate',
+    }, null, 2)}\n`, 'utf8');
+}
+
 function renderArtifacts(report: RunnerReport): RenderedArtifacts {
     const commandManifest = renderCommandManifest(report);
     const executionPlan = renderExecutionPlan(report);
@@ -784,7 +868,11 @@ function renderCommandManifest(report: RunnerReport): string {
         closureStatus: report.closureStatus,
         executeRequested: report.executeRequested,
         approvalMatched: report.approvalMatched,
+        externalWriteAttempted: report.externalWriteAttempted,
         externalWritePerformed: report.externalWritePerformed,
+        externalWriteOutcome: report.externalWriteOutcome,
+        readonlyReconciliationRequired: report.readonlyReconciliationRequired,
+        externalWriteReceiptPath: toRelative(report.externalWriteReceiptPath),
         targetProvider: report.targetProvider,
         allowedDomains: report.allowedDomains,
         requiredEnv: report.requiredEnv,
@@ -825,7 +913,11 @@ function renderExecutionPlan(report: RunnerReport): string {
         `- Generated: ${report.endedAt}`,
         `- Status: ${report.status}`,
         `- Closure: ${report.closureStatus}`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}`,
         `- External write performed: ${String(report.externalWritePerformed)}`,
+        `- External write outcome: ${report.externalWriteOutcome}`,
+        `- Read-only reconciliation required: ${String(report.readonlyReconciliationRequired)}`,
+        `- Durable write receipt: ${toRelative(report.externalWriteReceiptPath)}`,
         `- Approval env var: ${approvalEnvVar}`,
         '',
         '## Scope',
@@ -843,6 +935,7 @@ function renderExecutionPlan(report: RunnerReport): string {
         '3. Export `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_DOMAIN_CLOSURE_APPROVAL` outside repo files.',
         '4. Execute only after exact approval: `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`.',
         '5. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and confirm `turnstile_widgets_readonly` is OK.',
+        '6. If the receipt says `ambiguous_needs_readonly_reconciliation`, do not retry the PUT: retrieve the widget read-only, compare it with both the before-capture and intended domains, then either record that the target landed or obtain separate approval to roll back.',
         '',
         '## Before And After Ledger',
         '',
@@ -901,7 +994,7 @@ function renderApprovalGate(report: RunnerReport): string {
         '',
         'Do not write the full API token, Turnstile secret key, dashboard screenshots containing secrets, private user data, analytics exports or logs into repo files, `.codex-ops`, summaries or chat.',
         '',
-        `Current runner status: ${report.closureStatus}. External write performed: ${String(report.externalWritePerformed)}.`,
+        `Current runner status: ${report.closureStatus}. External write attempted: ${String(report.externalWriteAttempted)}. External write performed: ${String(report.externalWritePerformed)}. Outcome: ${report.externalWriteOutcome}.`,
         '',
     ].join('\n')}\n`;
 }
@@ -919,6 +1012,11 @@ function renderRollbackAfterClosure(report: RunnerReport): string {
         '3. Run `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`.',
         '4. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and confirm the intended widget/domain posture.',
         '5. If public forms were affected, keep launch traffic on the previous verified runtime or keep form submission disabled until a browser-token smoke passes.',
+        '',
+        '## Ambiguous Write Receipt',
+        '',
+        '- A timeout, network error or unclassifiable response after the PUT starts is recorded as `externalWriteAttempted=true`, `externalWritePerformed=unknown` and `externalWriteOutcome=ambiguous_needs_readonly_reconciliation`.',
+        '- That outcome is a hard failure. Do not repeat the PUT until a fresh read-only widget reconciliation proves whether the intended domains landed and an operator has chosen either acceptance or separately approved rollback.',
         '',
         '## Stop Conditions',
         '',
@@ -962,7 +1060,11 @@ function renderSummary(report: RunnerReport): string {
         `- Closure: ${report.closureStatus}`,
         `- Execute requested: ${String(report.executeRequested)}`,
         `- Approval matched: ${String(report.approvalMatched)}`,
+        `- External write attempted: ${String(report.externalWriteAttempted)}`,
         `- External write performed: ${String(report.externalWritePerformed)}`,
+        `- External write outcome: ${report.externalWriteOutcome}`,
+        `- Read-only reconciliation required: ${String(report.readonlyReconciliationRequired)}`,
+        `- Durable write receipt: ${toRelative(report.externalWriteReceiptPath)}`,
         `- Latest closure pack: ${toRelativeOrFallback(report.latestClosurePackSummaryPath, 'missing')}`,
         `- Latest Turnstile read-only evidence: ${toRelativeOrFallback(report.latestTurnstileReadonlySummaryPath, 'missing')}`,
         `- Command manifest: ${toRelative(report.commandManifestPath)}`,
@@ -995,7 +1097,12 @@ function renderSummary(report: RunnerReport): string {
 function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts): Check {
     const combined = Object.values(renderedArtifacts).join('\n');
     const required = [
+        'External write attempted',
         'External write performed',
+        'External write outcome',
+        'ambiguous_needs_readonly_reconciliation',
+        'externalWritePerformed=unknown',
+        'read-only widget reconciliation',
         approvalEnvVar,
         'CLOUDFLARE_ACCOUNT_ID',
         'PUBLIC_TURNSTILE_SITE_KEY',

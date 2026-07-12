@@ -166,11 +166,11 @@ const evidenceSources: EvidenceSource[] = [
     },
     {
         id: 'supabase_processed_at_cleanup_runner',
-        label: 'Supabase processed_at cleanup gated runner',
-        path: latestGeneratedPath('launch-supabase-processed-at-cleanup-runner', 'summary.md'),
-        expectedStatus: 'OK',
+        label: 'Supabase processed_at source-bound production rollout wave',
+        path: latestGeneratedPath('launch-supabase-production-rollout-runner', 'summary.json'),
+        expectedStatus: 'PLAN_ONLY_READY',
         requiredForPass: true,
-        role: 'Plan-only runner that requires exact approval before applying the processed_at cleanup staging-first and production-second.',
+        role: 'Plan-only source-bound production rollout runner for processed_at_small_fix; the legacy staging-first cleanup runner is retired and fail-closed.',
     },
     {
         id: 'payments',
@@ -446,7 +446,7 @@ function validateDocsAndStatusWiring(): PackageCheck {
         [manualExamplePath, 'outputs/launch-stripe-webhook-cutover-runner/<timestamp>/summary.md'],
         [manualExamplePath, 'outputs/launch-turnstile-domain-closure-runner/<timestamp>/summary.md'],
         [manualExamplePath, 'outputs/launch-sentry-issue-triage-runner/<timestamp>/summary.md'],
-        [manualExamplePath, 'outputs/launch-supabase-processed-at-cleanup-runner/<timestamp>/summary.md'],
+        [manualExamplePath, 'outputs/launch-supabase-production-rollout-runner/<timestamp>/summary.json'],
         [manualExamplePath, 'outputs/launch-integration-final-package/<timestamp>/integration-final-manifest.json'],
         [operationsRunbookTestPath, 'launch:integration-final-package'],
         [operationsRunbookTestPath, 'launch:cloudflare-production-runtime-readonly'],
@@ -946,11 +946,11 @@ function remediationPlanForSource(source: EvidenceSource): WarningRemediation[] 
     if (source.id === 'supabase_processed_at_cleanup_runner') {
         return [{
             ...base,
-            allowedNextStep: 'Run corepack pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-cleanup and corepack pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-cleanup-runner in plan mode. Only later, after exact approval, use SUPABASE_PROCESSED_AT_CLEANUP_APPROVAL plus --execute-approved for the staging-first/production-second cleanup.',
-            readOnlyVerification: 'Open the generated runner summary and confirm status OK, closureStatus PLAN_ONLY_READY, externalWritePerformed=false, and approval-gate.md contains the exact staging/production project refs and forbidden scope.',
-            evidenceToRecord: 'Record summary.md, processed-at-cleanup-command-manifest.json, processed-at-cleanup-execution-plan.md, approval-gate.md and rollback-after-cleanup.md paths without database URLs or secret values.',
-            rollbackOrRisk: 'No rollback for plan mode. If an approved apply later fails, stop before production if staging failed and follow rollback-after-cleanup.md plus the cleanup package rollback SQL only under separate exact approval.',
-            externalWriteGate: 'Requires exact SUPABASE_PROCESSED_AT_CLEANUP_APPROVAL value and --execute-approved; no db push, no unrelated migration, no row/user/Auth/Storage/API-setting changes and no other provider writes.',
+            allowedNextStep: 'Generate a fresh production read-only preflight, then run pnpm launch:supabase-production-rollout -- --through processed_at_small_fix --preflight <fresh-summary.json> in plan mode. Execute that source-bound wave only under its generated exact approval, or include it as the first wave of the exact 22-migration rollout.',
+            readOnlyVerification: 'Confirm PLAN_ONLY_READY and externalWritePerformed=false before approval. After execution, require exact migration history/hash, processed_at without default and a fresh processed_at preflight with clean webhook aggregates in staging and production.',
+            evidenceToRecord: 'Record the production rollout summary/manifest, wave apply and read-only verification artifacts, plus the fresh processed_at read-only summary; never record database URLs or secret values.',
+            rollbackOrRisk: 'No rollback for plan mode. If the production wave fails, keep checkout disabled, stop subsequent waves and follow rollback-and-switch-plan.md; do not use the retired legacy cleanup runner.',
+            externalWriteGate: 'Requires the fresh SUPABASE_PRODUCTION_ROLLOUT_APPROVAL value, --execute-approved, --checkout-disabled-confirmed and --through processed_at_small_fix; no db push, migration repair, unrelated migration, data/Auth/Storage/provider write or automatic restore/switch.',
         }];
     }
 

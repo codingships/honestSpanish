@@ -1,5 +1,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    canSupersedeStaleOperationsExternalCheck,
+    readOperationsExternalEvidence,
+    type OperationsExternalRecognition,
+} from './operations-external-evidence';
 
 type FindingStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -81,6 +86,10 @@ interface ManualEvidenceReport {
     phaseOneClosurePackPath: string;
     manualEvidencePhaseSummary: ManualEvidencePhaseSummary[];
     manualEvidenceByPhase: Record<ManualEvidencePhase, PhaseManualCheck[]>;
+    machineEvidenceRecognition: {
+        operationsExternal: OperationsExternalRecognition;
+        databaseReadinessAutoClosed: false;
+    };
     findings: Finding[];
     outputDir: string;
 }
@@ -346,6 +355,10 @@ const allowedEvidenceTypes = new Set([
 const startedAt = new Date();
 const evidenceFile = path.resolve(process.cwd(), parseEvidenceFileArg());
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-manual-evidence', stamp(startedAt));
+const operationsExternalRecognition = readOperationsExternalEvidence(
+    path.join(process.cwd(), 'outputs'),
+    startedAt,
+);
 mkdirSync(outputDir, { recursive: true });
 
 const findings = [
@@ -374,6 +387,10 @@ const report: ManualEvidenceReport = {
     phaseOneClosurePackPath,
     manualEvidencePhaseSummary,
     manualEvidenceByPhase,
+    machineEvidenceRecognition: {
+        operationsExternal: operationsExternalRecognition,
+        databaseReadinessAutoClosed: false,
+    },
     findings,
     outputDir,
 };
@@ -660,6 +677,45 @@ function reviewLaunchDecisionConsistency(parsed: ManualEvidenceFile): Finding {
 }
 
 function reviewSingleCheck(required: RequiredCheck, check: ManualCheck, file: string): Finding {
+    if (
+        required.id === 'operations_external'
+        && canSupersedeStaleOperationsExternalCheck(check, operationsExternalRecognition)
+    ) {
+        const recognizedCheck: ManualCheck = {
+            ...check,
+            status: 'pass',
+            verifiedAt: operationsExternalRecognition.verifiedAt ?? check.verifiedAt,
+            summary: 'Fresh exact staging execution proves the RC operations baseline with checkout closed, complete cleanup and no production scope.',
+            evidence: operationsExternalRecognition.evidencePaths.map((evidencePath) => ({
+                type: 'command_output',
+                value: path.relative(path.dirname(file), evidencePath),
+                note: 'Machine-recognized exact staging evidence; no external action was performed by this audit.',
+            })),
+        };
+        const recognizedFinding = reviewSingleCheckFields(required, recognizedCheck, file);
+        if (recognizedFinding.status === 'ok') {
+            return {
+                status: 'ok',
+                area: required.area,
+                message: 'Fresh exact staging evidence supersedes the older blocked operations_external row for this audit.',
+                details: [
+                    `manualStatus=${check.status ?? 'missing'}`,
+                    `manualVerifiedAt=${check.verifiedAt ?? 'missing'}`,
+                    `machineVerifiedAt=${operationsExternalRecognition.verifiedAt}`,
+                    'manualEvidenceFileWritten=false',
+                    'databaseReadinessAutoClosed=false',
+                    ...operationsExternalRecognition.evidencePaths.map((evidencePath) => (
+                        `evidence=${path.relative(process.cwd(), evidencePath).replace(/\\/g, '/')}`
+                    )),
+                ],
+            };
+        }
+    }
+
+    return reviewSingleCheckFields(required, check, file);
+}
+
+function reviewSingleCheckFields(required: RequiredCheck, check: ManualCheck, file: string): Finding {
     const details: string[] = [];
     const status = check.status;
 
@@ -835,6 +891,9 @@ function renderMarkdown(report: ManualEvidenceReport): string {
         `- Next actions: ${report.nextActionsPath}`,
         `- Phase 1 worksheet: ${report.phaseOneWorksheetPath}`,
         `- Phase 1 closure pack: ${report.phaseOneClosurePackPath}`,
+        `- Machine-recognized operations_external: ${report.machineEvidenceRecognition.operationsExternal.status}`,
+        `- Machine recognition verified at: ${report.machineEvidenceRecognition.operationsExternal.verifiedAt ?? 'not proven'}`,
+        '- database_readiness auto-closed: false',
         '',
         '| Status | Area | Message |',
         '| --- | --- | --- |',
