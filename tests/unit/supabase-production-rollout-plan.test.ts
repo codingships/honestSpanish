@@ -103,8 +103,13 @@ describe('Supabase production rollout safety', () => {
             'billing_contract',
             'assessProcessedAtPosture',
             'assessBillingPackagePriceLinks',
+            'readStrictStagingHardeningEvidence',
+            'STAGING_HARDENING_CONNECTOR_QUERY_PATH',
             "values[0] === '--' ? values.slice(1) : values",
             'missing or incomplete processed_at_posture and billing_package_price_links aggregates as hard blockers',
+            "wave.id !== 'processed_at_small_fix' || processedReady || processedAlreadyClosed",
+            "processed?.gateStatus === 'ready'",
+            'BLOQUEADO: no existe una autorizacion ejecutable para processed_at',
             'supabase db push',
             'supabase migration repair',
         ]) {
@@ -117,6 +122,9 @@ describe('Supabase production rollout safety', () => {
         expect(planSource).not.toContain('execSync(');
         expect(planSource).not.toContain('DELETE FROM public.');
         expect(planSource).not.toContain('TRUNCATE TABLE public.');
+        expect(planSource).not.toContain('staging-hardening-evidence.template.json');
+        expect(planSource).not.toContain('modelContractVerified');
+        expect(planSource).not.toContain('stagingCleanupVerified');
     });
 
     it('exposes planning and executable gates through pnpm-only package scripts', () => {

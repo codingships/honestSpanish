@@ -17,6 +17,7 @@ import {
 } from '../../scripts/launch/cloudflare-staging-fulfillment-rollback-drill-shared';
 
 const runnerSource = readFileSync('scripts/launch/cloudflare-staging-fulfillment-rollback-drill.ts', 'utf8');
+const orchestratorSource = readFileSync('scripts/launch/cloudflare-staging-fulfillment-rollback-drill-orchestrator.ts', 'utf8');
 const packageJson = readFileSync('package.json', 'utf8');
 const runbook = readFileSync('docs/launch/RUNBOOK.md', 'utf8');
 const checklist = readFileSync('docs/launch/CHECKLIST.md', 'utf8');
@@ -174,6 +175,21 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
         expect(approval).toContain('production_and_other_resources=FORBIDDEN');
         expect(approval).toContain('disable_cron_before_rollback=true');
         expect(approval).toContain('restore_hourly_cron=true');
+        expect(approval).toContain('verify_isolation_after_restore_current_failure=true');
+        expect(approval).toContain('compensate_incomplete_cron_or_queue_restore=cron_off_and_queue_paused');
+        expect(approval).toContain('compensation_readback=cron_off_queue_paused_backlog_zero');
+        expect(snapshot).toMatchObject({
+            drill: {
+                conditionalCompensationWritesInOrder: [
+                    expect.stringContaining('disable exact staging Worker cron'),
+                    'pause exact staging Queue',
+                ],
+                failClosedReadbacks: [
+                    expect.stringContaining('restore_current failure'),
+                    expect.stringContaining('after compensation'),
+                ],
+            },
+        });
 
         const laterCapture = buildApprovalSnapshot({
             versions,
@@ -231,28 +247,46 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
         const initial = runnerSource.indexOf("runLivePreflight('preflight_initial')");
         const approval = runnerSource.indexOf('report.approvalMatched =');
         const second = runnerSource.indexOf("runLivePreflight('preflight_before_write')");
-        const disable = runnerSource.indexOf("executeScheduleWrite('disable_cron'");
-        const normalize = runnerSource.indexOf("executeQueueDeliveryWrite('normalize_queue_active'");
-        const pause = runnerSource.indexOf("executeQueueDeliveryWrite('pause_queue'");
-        const rollback = runnerSource.indexOf("executeWranglerWrite(\n                'rollback_previous'", pause);
-        const finallyBlock = runnerSource.indexOf('} finally {', rollback);
-        const restore = runnerSource.indexOf("executeWranglerWrite(\n                    'restore_current'", finallyBlock);
-        const restoreVerification = runnerSource.indexOf("'after_restore_current'", finallyBlock);
-        const restoreCron = runnerSource.indexOf("executeScheduleWrite('restore_cron'", finallyBlock);
-        const resume = runnerSource.indexOf("executeQueueDeliveryWrite('resume_queue'", finallyBlock);
+        const acquireLock = runnerSource.indexOf('acquireExecutionLock(initial.versions, initial.snapshotSha256)');
+        const armManualReconciliation = runnerSource.indexOf('report.manualReconciliationRequired = true;', acquireLock);
+        const orchestrationCall = runnerSource.indexOf('orchestrateRollbackDrill({');
+        const releaseGuard = runnerSource.indexOf('if (executionLockMayBeReleased(orchestration))', orchestrationCall);
+        const releaseCall = runnerSource.indexOf('releaseExecutionLock();', releaseGuard);
+        const forwardList = orchestratorSource.indexOf('const FORWARD_PHASES');
+        const disable = orchestratorSource.indexOf("'disable_cron'", forwardList);
+        const normalize = orchestratorSource.indexOf("'normalize_queue_active'", disable);
+        const pause = orchestratorSource.indexOf("'pause_queue'", normalize);
+        const isolation = orchestratorSource.indexOf("'verify_isolation'", pause);
+        const rollback = orchestratorSource.indexOf("'rollback_previous'", isolation);
+        const recovery = orchestratorSource.indexOf('if (aWriteMayHaveStarted)');
+        const restore = orchestratorSource.indexOf("runSafely(driver, 'restore_current')", recovery);
+        const restoreCron = orchestratorSource.indexOf("runSafely(driver, 'restore_cron')", restore);
+        const resume = orchestratorSource.indexOf("runSafely(driver, 'resume_queue')", restoreCron);
+        const compensate = orchestratorSource.indexOf('compensateAndVerifyIsolation(driver, outcomes)', resume);
+        const compensateDisable = orchestratorSource.indexOf("runSafely(driver, 'compensate_disable_cron')");
+        const compensatePause = orchestratorSource.indexOf("runSafely(driver, 'compensate_pause_queue')", compensateDisable);
+        const compensateVerify = orchestratorSource.indexOf("runSafely(driver, 'verify_compensated_isolation')", compensatePause);
 
         expect(initial).toBeGreaterThan(-1);
         expect(initial).toBeLessThan(approval);
         expect(approval).toBeLessThan(second);
-        expect(second).toBeLessThan(disable);
+        expect(second).toBeLessThan(acquireLock);
+        expect(acquireLock).toBeLessThan(armManualReconciliation);
+        expect(armManualReconciliation).toBeLessThan(orchestrationCall);
+        expect(orchestrationCall).toBeLessThan(releaseGuard);
+        expect(releaseGuard).toBeLessThan(releaseCall);
+        expect(runnerSource.indexOf('releaseExecutionLock();', releaseCall + 1)).toBe(-1);
         expect(disable).toBeLessThan(normalize);
         expect(normalize).toBeLessThan(pause);
-        expect(pause).toBeLessThan(rollback);
-        expect(rollback).toBeLessThan(finallyBlock);
-        expect(finallyBlock).toBeLessThan(restore);
-        expect(restore).toBeLessThan(restoreVerification);
-        expect(restoreVerification).toBeLessThan(restoreCron);
+        expect(pause).toBeLessThan(isolation);
+        expect(isolation).toBeLessThan(rollback);
+        expect(recovery).toBeLessThan(restore);
+        expect(restore).toBeLessThan(restoreCron);
         expect(restoreCron).toBeLessThan(resume);
+        expect(resume).toBeLessThan(compensate);
+        expect(compensateDisable).toBeLessThan(compensatePause);
+        expect(compensatePause).toBeLessThan(compensateVerify);
+        expect(orchestrationCall).toBeGreaterThan(-1);
     });
 
     it('stores sanitized metadata only and exposes the plan through pnpm and launch docs without closing it', () => {
@@ -267,6 +301,8 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
             '--install-skills=false',
             'markExternalWriteAttemptStarted',
             'requireReadonlyReconciliation',
+            'manualReconciliationRequired',
+            'executionLockMayBeReleased(orchestration)',
             'minimalWranglerEnvironment()',
         ]) {
             expect(runnerSource).toContain(snippet);

@@ -15,6 +15,11 @@ import {
     assessBillingPackagePriceLinks,
     assessProcessedAtPosture,
 } from './supabase-production-rollout-evidence';
+import {
+    STAGING_HARDENING_CONNECTOR_QUERY_PATH,
+    readStagingHardeningEvidence as readStrictStagingHardeningEvidence,
+    type StagingHardeningEvidence,
+} from './supabase-production-rollout-runner-shared';
 
 type GateStatus = 'ready' | 'blocked' | 'already_closed';
 
@@ -59,18 +64,6 @@ interface PreservationPolicy {
     decisions: Record<string, string>;
 }
 
-interface StagingHardeningEvidence {
-    schemaVersion: number;
-    stagingProjectRef: string;
-    appliedAt: string;
-    migrations: Array<{ version: string; sha256: string }>;
-    modelContractVerified: boolean;
-    activeOverlapPreflightPassed: boolean;
-    availabilityTestsPassed: boolean;
-    signupTestsPassed: boolean;
-    stagingCleanupVerified: boolean;
-}
-
 interface InputGate<T> {
     provided: boolean;
     valid: boolean;
@@ -78,8 +71,6 @@ interface InputGate<T> {
     value: T | null;
     errors: string[];
 }
-
-const STAGING_PROJECT_REF = 'mzjyvmlxfpzdfdjzxxyj';
 
 const args = parseArgs(process.argv.slice(2));
 const startedAt = new Date();
@@ -138,7 +129,7 @@ const preservationPolicy = readPreservationPolicy(
     aggregateSnapshotSha256,
     Object.keys(fixtureCounts),
 );
-const stagingHardeningEvidence = readStagingHardeningEvidence(args.stagingHardeningEvidence);
+const stagingHardeningEvidence = readStagingHardeningEvidenceForPlan(args.stagingHardeningEvidence);
 
 const preflightAgeHours = (startedAt.getTime() - new Date(preflight.endedAt).getTime()) / 3_600_000;
 const preflightFresh = Number.isFinite(preflightAgeHours) && preflightAgeHours >= 0 && preflightAgeHours <= 24;
@@ -217,6 +208,7 @@ const waves = KNOWN_MIGRATION_WAVES.map((wave) => {
         && missingLocalVersion.length === 0
         && (!wave.requiresBackupEvidence || backupReceipt.valid)
         && (!wave.requiresPreservationPolicy || preservationPolicy.valid)
+        && (wave.id !== 'processed_at_small_fix' || processedReady || processedAlreadyClosed)
         && (wave.id === 'processed_at_small_fix' || processedAlreadyClosed)
         && (wave.id === 'processed_at_small_fix' || baselineEffectsVerified)
         && (wave.id !== 'base_model_reconciliation' || stagingHardeningEvidence.valid)
@@ -292,7 +284,7 @@ const artifacts = {
     approvalSentences: path.join(outputDir, 'approval-sentences.md'),
     backupTemplate: path.join(outputDir, 'backup-evidence-receipt.template.json'),
     preservationTemplate: path.join(outputDir, 'fixture-preservation-policy.template.json'),
-    stagingHardeningTemplate: path.join(outputDir, 'staging-hardening-evidence.template.json'),
+    stagingHardeningConnectorQuery: path.join(process.cwd(), STAGING_HARDENING_CONNECTOR_QUERY_PATH),
     verificationRollback: path.join(outputDir, 'verification-and-rollback.md'),
     verificationSql: path.join(outputDir, 'production-readonly-verification.sql'),
 };
@@ -397,7 +389,6 @@ writeFileSync(artifacts.summaryMarkdown, renderSummary(report), 'utf8');
 writeFileSync(artifacts.approvalSentences, renderApprovalSentences(report), 'utf8');
 writeFileSync(artifacts.backupTemplate, stableJson(renderBackupTemplate()), 'utf8');
 writeFileSync(artifacts.preservationTemplate, stableJson(renderPreservationTemplate()), 'utf8');
-writeFileSync(artifacts.stagingHardeningTemplate, stableJson(renderStagingHardeningTemplate()), 'utf8');
 writeFileSync(artifacts.verificationRollback, renderVerificationAndRollback(report), 'utf8');
 writeFileSync(artifacts.verificationSql, renderVerificationSql(report), 'utf8');
 
@@ -530,48 +521,16 @@ function readPreservationPolicy(
     };
 }
 
-function readStagingHardeningEvidence(
+function readStagingHardeningEvidenceForPlan(
     evidencePath: string | null,
 ): InputGate<StagingHardeningEvidence> {
-    if (!evidencePath) return { provided: false, valid: false, label: null, value: null, errors: ['not provided'] };
-    if (!existsSync(evidencePath)) return { provided: true, valid: false, label: path.basename(evidencePath), value: null, errors: ['file does not exist'] };
-
-    const errors: string[] = [];
-    let value: StagingHardeningEvidence | null = null;
-    try {
-        value = JSON.parse(readFileSync(evidencePath, 'utf8')) as StagingHardeningEvidence;
-        if (value.schemaVersion !== 1) errors.push('schemaVersion must be 1');
-        if (value.stagingProjectRef !== STAGING_PROJECT_REF) errors.push('stagingProjectRef mismatch');
-        if (!Number.isFinite(new Date(value.appliedAt).getTime())) errors.push('appliedAt must be an ISO timestamp');
-        for (const [field, passed] of Object.entries({
-            modelContractVerified: value.modelContractVerified,
-            activeOverlapPreflightPassed: value.activeOverlapPreflightPassed,
-            availabilityTestsPassed: value.availabilityTestsPassed,
-            signupTestsPassed: value.signupTestsPassed,
-            stagingCleanupVerified: value.stagingCleanupVerified,
-        })) {
-            if (passed !== true) errors.push(`${field} must be true`);
-        }
-
-        const expectedVersions = KNOWN_MIGRATION_WAVES
-            .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
-            .flatMap((wave) => [...wave.versions]);
-        const supplied = new Map(value.migrations?.map((migration) => [migration.version, migration.sha256]) ?? []);
-        for (const version of expectedVersions) {
-            const expected = localMigrations.find((migration) => migration.version === version)?.sha256;
-            if (!expected || supplied.get(version) !== expected) errors.push(`missing or mismatched staging migration evidence for ${version}`);
-        }
-        if (supplied.size !== expectedVersions.length) errors.push('staging migration evidence contains an unexpected version');
-    } catch (error) {
-        errors.push(error instanceof Error ? error.message : String(error));
-    }
-
+    const evidence = readStrictStagingHardeningEvidence(evidencePath, startedAt);
     return {
-        provided: true,
-        valid: errors.length === 0,
-        label: path.basename(evidencePath),
-        value,
-        errors,
+        provided: evidence.provided,
+        valid: evidence.valid,
+        label: evidence.path ? path.basename(evidence.path) : null,
+        value: evidence.value,
+        errors: evidence.errors,
     };
 }
 
@@ -604,26 +563,6 @@ function renderPreservationTemplate(): PreservationPolicy {
         aggregateSnapshotSha256,
         approvedAt: '<ISO-8601 after human review>',
         decisions,
-    };
-}
-
-function renderStagingHardeningTemplate(): StagingHardeningEvidence {
-    const versions = KNOWN_MIGRATION_WAVES
-        .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
-        .flatMap((wave) => [...wave.versions]);
-    return {
-        schemaVersion: 1,
-        stagingProjectRef: STAGING_PROJECT_REF,
-        appliedAt: '<ISO-8601 after staging verification>',
-        migrations: versions.map((version) => ({
-            version,
-            sha256: localMigrations.find((migration) => migration.version === version)?.sha256 ?? '<missing>',
-        })),
-        modelContractVerified: false,
-        activeOverlapPreflightPassed: false,
-        availabilityTestsPassed: false,
-        signupTestsPassed: false,
-        stagingCleanupVerified: false,
     };
 }
 
@@ -705,6 +644,9 @@ function renderSummary(value: typeof report): string {
 
 function renderApprovalSentences(value: typeof report): string {
     const processed = value.gates.migrationWaves.find((wave) => wave.id === 'processed_at_small_fix');
+    const processedApproval = processed?.gateStatus === 'ready' && processed.pending.length === 1
+        ? `Autorizo aplicar unicamente la migracion ${PROCESSED_AT_VERSION}_drop_processed_webhook_processed_at_default.sql, SHA-256 ${processed.pending[0].sha256}, en Supabase production ${PRODUCTION_PROJECT.name} (${PRODUCTION_PROJECT.ref}), con checkout desactivado y alcance ${value.approvalScopeSha256}; despues, autorizo solo la verificacion read-only generada. No autorizo ninguna otra migracion, limpieza de datos, Auth, Storage, Stripe, Cloudflare, supabase db push ni migration repair.`
+        : `BLOQUEADO: no existe una autorizacion ejecutable para processed_at mientras su gate sea ${processed?.gateStatus ?? 'missing'}.`;
     const lines = [
         '# Exact Supabase production approval sentences',
         '',
@@ -712,7 +654,7 @@ function renderApprovalSentences(value: typeof report): string {
         '',
         '## 1. Small processed_at fix',
         '',
-        `Autorizo aplicar unicamente la migracion ${PROCESSED_AT_VERSION}_drop_processed_webhook_processed_at_default.sql, SHA-256 ${processed?.pending[0]?.sha256 ?? processed?.alreadyPresent[0]?.sha256 ?? '<not-found>'}, en Supabase production ${PRODUCTION_PROJECT.name} (${PRODUCTION_PROJECT.ref}), con checkout desactivado y alcance ${value.approvalScopeSha256}; despues, autorizo solo la verificacion read-only generada. No autorizo ninguna otra migracion, limpieza de datos, Auth, Storage, Stripe, Cloudflare, supabase db push ni migration repair.`,
+        processedApproval,
         '',
         '## 2. Backup capture before any destructive cleanup or migration wave',
         '',

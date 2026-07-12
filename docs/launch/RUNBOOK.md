@@ -147,10 +147,24 @@ Objetivo: llevar `espanol-honesto` (`vkkahxsybhbutszerawz`) al esquema RC sin ab
 5. Con el backup y el recibo publico, usar `pnpm launch:supabase-production-auth-cleanup` para el preflight y la fase `delete`. Debe conservar solo admin/profesor, borrar los 136 alumnos fixture, revocar refresh sessions, rotar credenciales sin conservarlas y emitir `auth-reduced-quarantined-receipt.json` con `auth=2`, `profiles=0`. Mantener production sin trafico durante la cuarentena.
 6. Cerrar por separado los 110 folders fixture de la raiz Drive production: `pnpm launch:google-production-fixture-cleanup` solo puede mover a papelera los hijos directos del snapshot exacto y verificar raiz activa vacia; nunca borra permanentemente. Si se difiere deliberadamente, aportar evidencia explicita aprobada con el mismo conteo. Ninguna de las dos rutas autoriza Calendar, permisos, la raiz o staging.
 7. Aplicar y verificar primero en staging, y en este orden, `20260712112000`, `20260712114000`, `20260712114500`, `20260712115000` y `20260712195500` con `pnpm launch:supabase-staging-hardening`. El runner acepta solo un prefijo exacto ya aplicado y escribe exclusivamente la cola pendiente. El post-check debe cerrar `leads` (enum, obligatoriedad y defaults), ausencia de `public.is_admin`, `reminder_sent`, `sessions.status` obligatorio/default/check, las 13 policies de identidad limitadas a `authenticated` con `auth.uid()` cacheable, grants Data API exactos 1/63/0, RLS 18/18 en tablas concedidas y defaults globales/de `public` fail-closed, indices, duraciones 30/40/50, trigger/solapes y politica 18+. Production solo acepta un summary real `APPLIED_AND_VERIFIED`, no plan ni una afirmacion de que ya estaba aplicado. Cerrar tambien `pnpm launch:sentry-production-hardening` con ejecucion aprobada: el summary debe ser fresco, apuntar a `honestspanish/espanol-honesto-astro` production y quedar `HARDENED_AND_VERIFIED` con scrubbing IP y los dos workflows exactos.
-8. Mientras la cuarentena Auth siga activa, con al menos 15 minutos restantes al iniciar, y checkout continúe desactivado, ejecutar `pnpm launch:supabase-production-rollout -- --execute-approved --checkout-disabled-confirmed --through deferred_rc_hardening` con las rutas explicitas de preflight, backup, limpieza publica, Auth reducido, politica Google, hardening staging y `--sentry-hardening-evidence <summary.json>`. El runner aplica las 25 migraciones en siete transacciones/olas: `processed_at_small_fix`, `base_model_reconciliation`, `application_schema`, `runtime_and_policy`, `billing_contract`, `fulfillment_ledger` y `deferred_rc_hardening`. Registra el source exacto en historial, comprueba que la cuarentena no expire entre olas y hace verificacion read-only despues de cada una. `supabase db push` y `supabase migration repair` estan prohibidos.
+8. Mientras la cuarentena Auth siga activa, con al menos 15 minutos restantes al iniciar, y checkout continúe desactivado, ejecutar `pnpm launch:supabase-production-rollout -- --execute-approved --checkout-disabled-confirmed --through deferred_rc_hardening` con las rutas explicitas de preflight, backup, limpieza publica, Auth reducido, politica Google, hardening staging y `--sentry-hardening-evidence <summary.json>`. Para cualquier ola que dependa del hardening staging, `SUPABASE_STAGING_DB_URL` debe identificar exactamente `mzjyvmlxfpzdfdjzxxyj`; antes de abrir el preflight production o ejecutar un write, el runner repite el post-verify completo de staging bajo `BEGIN READ ONLY` y bloquea con `BLOCKED_LIVE_STAGING_HARDENING` ante cualquier deriva. El runner aplica las 25 migraciones en siete transacciones/olas: `processed_at_small_fix`, `base_model_reconciliation`, `application_schema`, `runtime_and_policy`, `billing_contract`, `fulfillment_ledger` y `deferred_rc_hardening`. Registra el source exacto en historial, comprueba que la cuarentena no expire entre olas y hace verificacion read-only despues de cada una. `supabase db push` y `supabase migration repair` estan prohibidos.
 9. Solo tras `production-rollout-receipt.json`, y una vez vencida la cuarentena, ejecutar el preflight y `finalize` de `pnpm launch:supabase-production-auth-cleanup`. Debe crear exclusivamente los dos perfiles minimos admin/profesor y sus dos filas privadas, y emitir `auth-policy-receipt.json`. Hasta entonces production sigue inerte.
 10. Con ese receipt final, ejecutar primero `pnpm launch:production-availability -- --preflight-readonly --auth-policy-receipt <auth-policy-receipt.json>` y despues su ejecucion aprobada. Solo puede crear para el profesor preservado las cinco franjas L-V 09:00-18:00 `Europe/Madrid`, verificar el conjunto exacto y emitir `production-availability-receipt.json`; signup y checkout siguen desactivados.
 11. Si falta el marcador de commit o falla una verificacion, no reintentar. Mantener checkout y fulfillment inertes, generar preflight fresco y elegir un fix-forward revisado. Si hace falta restaurar, hacerlo en un proyecto Supabase aislado, verificarlo y pedir otra aprobacion para cambiar conexiones; ningun runner restaura o conmuta automaticamente. El backup no incluye Storage ni objetos externos Stripe/Google.
+
+#### Recuperacion Del Cleanup Google Drive Production
+
+`pnpm launch:google-production-fixture-cleanup` solo puede iniciar una limpieza nueva cuando la lectura live contiene exactamente los 110 hijos directos canónicos y todos son carpetas. Execute exige `GOOGLE_PRODUCTION_CLEANUP_RECOVERY_DIR` con una ruta absoluta fuera del repositorio; sin ella bloquea antes de Google. Antes del primer `files.update(trashed=true)` y antes de cada write posterior, persiste allí una cadena append-only de estados ligada por checksums. Cada estado contiene únicamente la huella de la raíz, la huella agregada original y 110 huellas de identidad de hijos; nunca nombres, owners, IDs raw, credenciales ni permisos. No borrar, mover ni editar ese directorio mientras el rollout production siga abierto.
+
+Reglas de reanudación fail-closed:
+
+- Si la raíz activa tiene entre 1 y 109 hijos y no existe una cadena durable válida que pruebe el baseline original de 110, el runner termina `PARTIAL_STATE_UNATTESTED`: no genera una aprobación nueva para el subconjunto y no escribe.
+- Si la raíz ya está vacía pero falta esa cadena, termina `ALREADY_CLEAN_UNATTESTED`: cero writes y cero `google-fixture-policy-evidence.json`. Una raíz vacía por sí sola no demuestra qué 110 carpetas se movieron.
+- Si existe la cadena válida, cada hijo activo debe pertenecer exactamente al allowlist original de 110 huellas. Cualquier hijo nuevo, cambio de metadata de identidad, raíz distinta, salto de secuencia, estado manipulado o no-folder bloquea writes y receipts.
+- Una reanudación conserva la frase, count y fingerprint de la aprobación original de 110; nunca solicita aprobar solo los hijos restantes. Ejecutar primero en modo plan y exigir `RECOVERY_PLAN_READY` antes de una nueva aprobación de write.
+- Si el proceso cae después de mover uno o todos los hijos pero antes de actualizar el summary o emitir el receipt, la siguiente ejecución read-only reconcilia el conjunto activo live contra la cadena. Cuando confirma cero activos, persiste `EMPTY_VERIFIED` y emite un `google-fixture-policy-evidence.json` fresco `schemaVersion=2` con `observedActiveRootChildrenBefore=110`, `observedFoldersBefore=110`, `activeRootChildrenAfter=0`, `permanentlyDeleted=0`, `rootIdStored=false`, `baselineFingerprintSha256`, `recoveryStateSha256` y `recoveredAfterInterruptedRun`; ese es el único cierre `TRASHED_AND_VERIFIED` consumible por el rollout Supabase. El formato legado queda reservado a una deferral explícita y nunca prueba una limpieza ejecutada.
+
+El estado durable no es autorización. Toda reanudación que todavía necesite mover carpetas exige de nuevo `--execute-approved` y las tres variables exactas mostradas por el `approval-gate.md`, ligadas siempre al baseline original. El runner no restaura carpetas, no vacía la papelera y no toca raíz, plantilla, permisos, Calendar ni staging.
 
 Subflujo Auth exacto, siempre con rutas explicitas y sin copiar secretos a la linea de comandos:
 
@@ -167,6 +181,20 @@ pnpm launch:supabase-production-auth-cleanup -- preflight \
 pnpm launch:supabase-production-auth-cleanup -- delete \
   --backup-receipt <backup-receipt.json> \
   --public-cleanup-receipt <public-cleanup-receipt.json> \
+  --evidence <preflight-evidence.json> \
+  --execute-approved
+
+# Si la ventana de 65 minutos queda demasiado corta: preflight separado read-only.
+pnpm launch:supabase-production-auth-requarantine:preflight -- \
+  --backup-receipt <backup-receipt.json> \
+  --public-cleanup-receipt <public-cleanup-receipt.json> \
+  --auth-reduced-receipt <auth-reduced-o-auth-requarantined-receipt.json>
+
+# Re-quarantine exact-gated: cero deletes, cero emails y cero otros servicios.
+pnpm launch:supabase-production-auth-requarantine -- \
+  --backup-receipt <backup-receipt.json> \
+  --public-cleanup-receipt <public-cleanup-receipt.json> \
+  --auth-reduced-receipt <auth-reduced-o-auth-requarantined-receipt.json> \
   --evidence <preflight-evidence.json> \
   --execute-approved
 
@@ -187,7 +215,9 @@ pnpm launch:supabase-production-auth-cleanup -- finalize \
   --execute-approved
 ```
 
-El preflight toma `PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_DB_URL` de variables de proceso o `.env`; `SUPABASE_ACCESS_TOKEN` solo de proceso; y resuelve exclusivamente `TEST_ADMIN_EMAIL`/`TEST_TEACHER_EMAIL` desde proceso o `.env.test`. Nunca lee sus passwords. Cada write exige además el valor exacto de `SUPABASE_PRODUCTION_AUTH_INERT_CONFIRMATION` y uno de cuatro envs de aprobacion independientes (`..._DELETE_APPROVAL`, `..._RESUME_DELETE_APPROVAL`, `..._FINALIZE_APPROVAL`, `..._RESUME_FINALIZE_APPROVAL`). Copiar esos valores desde `exact-approval-required.txt`, no reconstruirlos manualmente.
+El preflight toma `PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_DB_URL` de variables de proceso o `.env`; `SUPABASE_ACCESS_TOKEN` solo de proceso; y resuelve exclusivamente `TEST_ADMIN_EMAIL`/`TEST_TEACHER_EMAIL` desde proceso o `.env.test`. Nunca lee sus passwords. Cada write exige además el valor exacto de `SUPABASE_PRODUCTION_AUTH_INERT_CONFIRMATION` y uno de cinco envs de aprobacion independientes (`..._DELETE_APPROVAL`, `..._RESUME_DELETE_APPROVAL`, `..._FINALIZE_APPROVAL`, `..._RESUME_FINALIZE_APPROVAL`, `..._REQUARANTINE_APPROVAL`). Copiar esos valores desde `exact-approval-required.txt`, no reconstruirlos manualmente.
+
+La ruta `re-quarantine` solo es admisible tras validar el receipt Auth anterior contra el mismo backup y cleanup publico y volver a observar live `auth=2`, `candidates=0`, `profiles=0`, `profiles_private=0`, signup desactivado, freeze intacto, cero fixtures y cero ownership Storage. La ejecución exige `SUPABASE_PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR` en variables de proceso: debe ser una ruta absoluta que resuelva físicamente fuera del repositorio. Allí consume de forma atómica y permanente la pareja `evidenceSha256 + priorReceiptSha256`; limpiar `outputs` no reabre la aprobación. Persiste además un checkpoint write-ahead antes de cada una de las dos rotaciones aleatorias no retenidas; `externalWritePerformed=true` nunca vuelve a `unknown` y `pendingWriteAttempt` registra por separado una llamada ambigua. No borra usuarios, no genera links/reset y no toca Storage, Stripe, Google ni otros servicios. Solo emite `auth-requarantined-receipt.json` si el post-check conserva exactamente los dos IDs agregados y demuestra que `auth.sessions=0` y `auth.refresh_tokens=0`; el receipt declara ausencia verificada tras la rotación, no una revocación causal por API. El receipt nuevo incluye el SHA-256 del preflight, del receipt previo, del backup y del cleanup publico y abre otra ventana `JWT TTL + 5 minutos`. Ante fallo parcial no hay autoretry del mismo par: preflight fresco, nueva aprobación exacta y, tras un cierre correcto, el último receipt debe ser el nuevo predecesor.
 
 Un fallo parcial termina el proceso y deja `auth-cleanup-checkpoint.json` solo con conteos y hashes agregados. No reejecutar el mismo comando: generar un preflight nuevo con `--checkpoint`, revisar el estado y usar `resume-delete` o `resume-finalize` con otra aprobacion. Se bloquea si aparece un usuario posterior al freeze, si los dos preservados no son exactos, si hay ownership en Supabase Storage, si signup no esta desactivado, si JWT supera una hora, si queda cualquier fixture o si el receipt de las 25 migraciones en siete olas no coincide. No envia reset ni ningun otro email, no toca Stripe y deja expresamente intactas las 110 carpetas fixture observadas en Google Drive.
 
@@ -325,11 +355,14 @@ consumidor exactos, Cron horario exacto, versiones actual/anterior al 100 %, han
 las once variables plaintext staging con sus valores contractuales. Wrangler no expone
 `delivery_paused`, por lo que ese estado se lee por API y su ausencia nunca equivale a `false`.
 Antes del primer write repite todo el preflight y la aprobación queda ligada al hash semántico,
-ambas versiones y los siete writes exactos. La secuencia desactiva primero el Cron, normaliza y
-pausa la Queue, prueba el rollback y, en `finally`, restaura versión, Cron y Queue. Cada write tiene
-receipt write-ahead; un lock durable sobrevive a un corte y solo desaparece tras verificar los
-tres estados finales. Si la versión original no queda probada, Cron permanece desactivado y Queue
-pausada. Nunca llama endpoints de jobs, purga/borra/reconfigura consumidores, toca secretos,
+ambas versiones, los siete writes normales y los dos writes condicionales de compensación. La
+secuencia desactiva primero el Cron, normaliza y pausa la Queue, prueba el rollback y restaura
+versión, Cron y Queue. Cada write tiene receipt write-ahead; un lock durable sobrevive a un corte y
+solo desaparece si el recorrido completo y los tres estados finales quedan verificados. Cualquier
+fallo conserva el lock y deja reconciliación manual explícita en el receipt. Si falla la restauración de la versión,
+se revalida por GET que Cron siga OFF, Queue pausada y backlog a cero. Si Cron o Queue no quedan
+restaurados, la compensación vuelve a desactivar Cron y pausar Queue, con receipts separados y la
+misma verificación read-only final. Nunca llama endpoints de jobs, purga/borra/reconfigura consumidores, toca secretos,
 dominios, DNS, Pages o production. El checklist sigue abierto hasta una ejecución aprobada con
 estado `DRILL_EXECUTED_AND_CURRENT_RESTORED`.
 

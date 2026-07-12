@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createClient, type SupabaseClient, type User } from '@supabase/supabase-js';
@@ -21,14 +21,18 @@ import {
     PRODUCTION_AUTH_INERT_CONFIRMATION,
     PRODUCTION_AUTH_INERT_CONFIRMATION_ENV,
     PRODUCTION_AUTH_OUTPUT_FILES,
+    PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR_ENV,
     approvalEnvForPhase,
+    beginAuthRequarantineRotation,
     buildAuthCleanupApproval,
     buildQuarantineUntil,
+    confirmAuthRequarantineRotation,
     hashIdentitySet,
     readJsonEvidence,
     sanitizeAuthCleanupOutput,
     selectAuthQuarantineConfig,
     validateAuthPreflightEvidence,
+    validateAuthRequarantineReceipt,
     validateAuthReducedReceipt,
     validateCheckpoint,
     validateCleanupInputs,
@@ -36,13 +40,15 @@ import {
     type AuthCleanupPhase,
     type AuthPreflightEvidence,
     type AuthQuarantineConfig,
+    type AuthRequarantineCheckpoint,
+    type AuthRequarantineReceipt,
     type AuthReducedReceipt,
     type FinalAuthPolicyReceipt,
     type ProductionAuthDatabaseAggregate,
 } from './supabase-production-auth-cleanup-shared';
 import { SUPABASE_ACCESS_TOKEN_ENV, SUPABASE_MANAGEMENT_API_BASE } from './supabase-auth-config-shared';
 
-type Mode = 'plan' | 'preflight' | AuthCleanupPhase;
+type Mode = 'plan' | 'preflight' | 'requarantine-preflight' | AuthCleanupPhase;
 
 interface CliOptions {
     mode: Mode;
@@ -170,8 +176,8 @@ const REQUIRED_FINAL_COLUMNS = [
 
 export function parseProductionAuthCleanupArgs(args: string[]): CliOptions {
     const mode = (args[0] ?? 'plan') as Mode;
-    if (!['plan', 'preflight', 'delete', 'resume-delete', 'finalize', 'resume-finalize'].includes(mode)) {
-        throw new Error('Mode must be plan, preflight, delete, resume-delete, finalize or resume-finalize.');
+    if (!['plan', 'preflight', 'requarantine-preflight', 'delete', 'resume-delete', 'finalize', 'resume-finalize', 're-quarantine'].includes(mode)) {
+        throw new Error('Mode must be plan, preflight, requarantine-preflight, delete, resume-delete, finalize, resume-finalize or re-quarantine.');
     }
     const options: CliOptions = {
         mode,
@@ -212,10 +218,10 @@ export function parseProductionAuthCleanupArgs(args: string[]): CliOptions {
         throw new Error(`Unknown production Auth cleanup argument: ${argument}`);
     }
     if (mode === 'plan' && args.length > 1) throw new Error('Plan mode accepts no additional arguments.');
-    if (mode === 'preflight' && (options.executeApproved || options.evidencePath)) {
+    if ((mode === 'preflight' || mode === 'requarantine-preflight') && (options.executeApproved || options.evidencePath)) {
         throw new Error('Preflight is read-only and does not accept execution gates/evidence.');
     }
-    if (['delete', 'resume-delete', 'finalize', 'resume-finalize'].includes(mode)
+    if (['delete', 'resume-delete', 'finalize', 'resume-finalize', 're-quarantine'].includes(mode)
         && (!options.executeApproved || !options.evidencePath)) {
         throw new Error(`${mode} requires --execute-approved and --evidence.`);
     }
@@ -227,6 +233,13 @@ export function parseProductionAuthCleanupArgs(args: string[]): CliOptions {
     }
     if (mode === 'resume-finalize' && !options.checkpointPath) throw new Error('resume-finalize requires --checkpoint.');
     if (mode === 'finalize' && options.checkpointPath) throw new Error('finalize does not accept --checkpoint; use resume-finalize.');
+    if ((mode === 'requarantine-preflight' || mode === 're-quarantine') && !options.authReducedReceiptPath) {
+        throw new Error(`${mode} requires --auth-reduced-receipt.`);
+    }
+    if ((mode === 'requarantine-preflight' || mode === 're-quarantine')
+        && (options.checkpointPath || options.rolloutReceiptPath)) {
+        throw new Error(`${mode} does not accept --checkpoint or --rollout-receipt.`);
+    }
     if (mode !== 'plan' && (!options.backupReceiptPath || !options.publicCleanupReceiptPath)) {
         throw new Error(`${mode} requires --backup-receipt and --public-cleanup-receipt.`);
     }
@@ -249,7 +262,16 @@ export function classifyReadiness(input: {
     rolloutReceiptProvided: boolean;
     finalSchemaReady: boolean;
     quarantineElapsed: boolean;
+    requarantineRequested?: boolean;
 }): AuthPreflightEvidence['readiness'] | 'BLOCKED' {
+    if (input.requarantineRequested) {
+        return input.users === 2 && input.candidates === 0
+            && input.profiles === 0 && input.profilesPrivate === 0
+            && !input.checkpointProvided && input.authReducedReceiptProvided
+            && !input.rolloutReceiptProvided
+            ? 'REQUARANTINE_READY'
+            : 'BLOCKED';
+    }
     if (input.users === 138 && input.candidates === 136 && input.profiles === 0
         && input.profilesPrivate === 0 && !input.checkpointProvided && !input.authReducedReceiptProvided) {
         return 'INITIAL_DELETE_READY';
@@ -312,12 +334,16 @@ async function main(): Promise<void> {
     }
     const cleanup = cleanupValidation.value;
 
-    if (options.mode === 'preflight') {
+    if (options.mode === 'preflight' || options.mode === 'requarantine-preflight') {
         await runPreflight(outputDir, options, cleanup);
         return;
     }
     if (options.mode === 'delete' || options.mode === 'resume-delete') {
         await runDeletePhase(outputDir, options, cleanup);
+        return;
+    }
+    if (options.mode === 're-quarantine') {
+        await runRequarantinePhase(outputDir, options, cleanup);
         return;
     }
     await runFinalizePhase(outputDir, options, cleanup);
@@ -326,7 +352,7 @@ async function main(): Promise<void> {
 function writePlan(outputDir: string): void {
     const dummy = 'a'.repeat(64);
     const approvalTemplates = Object.fromEntries(
-        (['delete', 'resume-delete', 'finalize', 'resume-finalize'] as AuthCleanupPhase[]).map((phase) => [
+        (['delete', 'resume-delete', 'finalize', 'resume-finalize', 're-quarantine'] as AuthCleanupPhase[]).map((phase) => [
             phase,
             buildAuthCleanupApproval({
                 phase,
@@ -334,12 +360,12 @@ function writePlan(outputDir: string): void {
                 publicCleanupReceiptSha256: dummy,
                 backupReceiptSha256: dummy,
                 preservedSetSha256: dummy,
-                candidateCount: phase.includes('finalize') ? 0 : 136,
+                candidateCount: phase.includes('finalize') || phase === 're-quarantine' ? 0 : 136,
                 candidateSetSha256: dummy,
                 checkpointSha256: phase.startsWith('resume') ? dummy : null,
-                authReducedReceiptSha256: phase.includes('finalize') ? dummy : null,
+                authReducedReceiptSha256: phase.includes('finalize') || phase === 're-quarantine' ? dummy : null,
                 rolloutReceiptSha256: phase.includes('finalize') ? dummy : null,
-                quarantineUntil: phase.includes('finalize') ? '<FROM_AUTH_REDUCED_RECEIPT>' : null,
+                quarantineUntil: phase.includes('finalize') || phase === 're-quarantine' ? '<FROM_AUTH_REDUCED_RECEIPT>' : null,
             }).replaceAll(dummy, '<DYNAMIC_SHA256>'),
         ]),
     );
@@ -367,6 +393,7 @@ function writePlan(outputDir: string): void {
             'Verify the auth-inclusive backup and public-cleanup v2 receipt.',
             'Run preflight; it reads Auth/config/database aggregates and emits no identity values.',
             'Execute initial delete or an explicitly approved resume; stop on any partial failure.',
+            'If the 65-minute credential window becomes too short, run the separate re-quarantine preflight and exact-approved rotation; it deletes no users and emits a fresh chained receipt.',
             `Consume ${PRODUCTION_AUTH_OUTPUT_FILES.reducedReceipt} in the production rollout runner.`,
             'Apply all 25 allowlisted migrations in seven waves while production remains quarantined.',
             'After quarantine expiry, run a fresh preflight with the rollout receipt.',
@@ -413,6 +440,7 @@ async function runPreflight(
         rolloutReceiptProvided: Boolean(rolloutInput),
         finalSchemaReady: live.database.finalSchemaReady,
         quarantineElapsed,
+        requarantineRequested: options.mode === 'requarantine-preflight',
     });
     const errors = validateLiveSafety(live, readiness);
     if (checkpointInput && checkpointInput.value.preservedSetSha256 !== live.identity.preservedSetSha256) {
@@ -560,7 +588,6 @@ async function runDeletePhase(
         checkpointSha256: checkpointInput?.sha256 ?? null,
     });
     assertExecutionApprovals(phase, approval);
-
     const secureInputs = loadSecureInputs();
     const client = buildSupabaseAdminClient(secureInputs);
     const live = await collectLiveState(secureInputs, client);
@@ -735,6 +762,211 @@ async function runDeletePhase(
             storageObjectsTouched: false,
             externalProvidersTouched: false,
             nextAction: 'Do not retry automatically. Run a new read-only preflight with this checkpoint and obtain the exact resume approval.',
+        });
+        throw error;
+    }
+}
+
+async function runRequarantinePhase(
+    outputDir: string,
+    options: CliOptions,
+    cleanup: NonNullable<ReturnType<typeof validateCleanupInputs>['value']>,
+): Promise<void> {
+    const phase = 're-quarantine' as const;
+    const evidenceInput = readJsonEvidence<AuthPreflightEvidence>(options.evidencePath as string);
+    const evidenceValidation = validateAuthPreflightEvidence(evidenceInput.value, phase);
+    if (!evidenceValidation.ok || !evidenceValidation.value) throw new Error(evidenceValidation.errors.join(' '));
+    const evidence = evidenceValidation.value;
+    assertEvidenceCleanupBindings(evidence, cleanup);
+    const prior = loadAndValidateReducedReceipt(options.authReducedReceiptPath as string, cleanup);
+    if (prior.sha256 !== evidence.authReducedReceiptSha256
+        || prior.value.preservedSetSha256 !== evidence.auth.preservedSetSha256) {
+        throw new Error('Re-quarantine prior receipt does not match the fresh evidence/preserved set.');
+    }
+    const approval = buildAuthCleanupApproval({
+        phase,
+        evidenceSha256: evidenceInput.sha256,
+        publicCleanupReceiptSha256: cleanup.publicCleanupReceiptSha256,
+        backupReceiptSha256: cleanup.backupReceiptSha256,
+        preservedSetSha256: evidence.auth.preservedSetSha256,
+        candidateCount: 0,
+        candidateSetSha256: evidence.auth.candidateSetSha256,
+        authReducedReceiptSha256: prior.sha256,
+        quarantineUntil: prior.value.quarantineUntil,
+    });
+    assertExecutionApprovals(phase, approval);
+    const ledgerRoot = validateRequarantineLedgerDirectory(
+        process.env[PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR_ENV] ?? '',
+    );
+
+    const secureInputs = loadSecureInputs();
+    const client = buildSupabaseAdminClient(secureInputs);
+    const live = await collectLiveState(secureInputs, client);
+    assertLiveMatchesEvidence(live, evidence);
+    const safetyErrors = validateLiveSafety(live, evidence.readiness);
+    if (safetyErrors.length > 0) throw new Error(safetyErrors.join(' '));
+    if (live.identity.preservedSetSha256 !== prior.value.preservedSetSha256) {
+        throw new Error('Re-quarantine preserved identities differ from the prior Auth-reduced receipt.');
+    }
+    acquireRequarantineOneShotLock(evidenceInput.sha256, prior.sha256, ledgerRoot);
+
+    const startedAt = new Date().toISOString();
+    const checkpointPath = path.join(outputDir, PRODUCTION_AUTH_OUTPUT_FILES.requarantineCheckpoint);
+    let checkpoint: AuthRequarantineCheckpoint = {
+        schemaVersion: 1,
+        targetProjectRef: PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+        status: 'IN_PROGRESS',
+        startedAt,
+        updatedAt: startedAt,
+        previousAuthReducedReceiptSha256: prior.sha256,
+        publicCleanupReceiptSha256: cleanup.publicCleanupReceiptSha256,
+        backupReceiptSha256: cleanup.backupReceiptSha256,
+        preservedSetSha256: live.identity.preservedSetSha256,
+        passwordRotationsAttempted: 0,
+        passwordRotationsCompleted: 0,
+        externalWritePerformed: false,
+        pendingWriteAttempt: false,
+        lastErrorCategory: null,
+    };
+    writeIdentityFreeJson(checkpointPath, checkpoint, 'Auth re-quarantine checkpoint');
+
+    try {
+        const preserved = [...live.identity.preserved].sort((left, right) => left.id.localeCompare(right.id));
+        for (const user of preserved) {
+            checkpoint = beginAuthRequarantineRotation(checkpoint, new Date().toISOString());
+            writeIdentityFreeJson(checkpointPath, checkpoint, 'Auth re-quarantine checkpoint');
+            let randomPassword = randomBytes(48).toString('base64url');
+            try {
+                await retryAdminCall(async () => {
+                    const { error } = await client.auth.admin.updateUserById(user.id, { password: randomPassword });
+                    if (error) throw error;
+                });
+            } finally {
+                randomPassword = '';
+            }
+            checkpoint = confirmAuthRequarantineRotation(checkpoint, new Date().toISOString());
+            writeIdentityFreeJson(checkpointPath, checkpoint, 'Auth re-quarantine checkpoint');
+            await assertPreservedUsersStillExist(client, live.identity.preserved);
+        }
+
+        const after = await collectLiveState(secureInputs, client);
+        if (after.identity.users.length !== 2 || after.identity.candidates.length !== 0
+            || after.identity.preservedSetSha256 !== prior.value.preservedSetSha256
+            || (after.database.counts['public.profiles'] ?? -1) !== 0
+            || (after.database.counts['public.profiles_private'] ?? -1) !== 0
+            || after.database.fixtureRows !== 0 || after.database.storageOwnedObjects !== 0
+            || after.database.authSessions !== 0 || after.database.authRefreshTokens !== 0
+            || !after.configuration.disableSignup) {
+            throw taggedError('POST_REQUARANTINE_STATE_MISMATCH');
+        }
+        const completedAt = new Date().toISOString();
+        const quarantineUntil = buildQuarantineUntil(completedAt, after.configuration.jwtExpirySeconds);
+        const receipt: AuthRequarantineReceipt = {
+            schemaVersion: 1,
+            status: 'AUTH_REDUCED_QUARANTINED',
+            targetProjectRef: PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+            completedAt,
+            publicCleanupReceiptSha256: cleanup.publicCleanupReceiptSha256,
+            backupReceiptSha256: cleanup.backupReceiptSha256,
+            authUsers: 2,
+            profiles: 0,
+            fixtureStudents: 0,
+            passwordsRotatedUnretained: true,
+            quarantineUntil,
+            storageObjectsTouched: false,
+            externalProvidersTouched: false,
+            preservedSetSha256: after.identity.preservedSetSha256,
+            deletedCandidateSetSha256: prior.value.deletedCandidateSetSha256,
+            freezeCutoff: PRODUCTION_AUTH_FREEZE_CUTOFF,
+            jwtExpirySeconds: after.configuration.jwtExpirySeconds,
+            jwtExpirySource: after.configuration.jwtExpirySource,
+            refreshSessionsRemaining: 0,
+            resetEmailsSent: false,
+            googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED',
+            requarantine: true,
+            preflightEvidenceSha256: evidenceInput.sha256,
+            previousAuthReducedReceiptSha256: prior.sha256,
+            passwordRotationsCompleted: 2,
+            authSessionsObservedBefore: live.database.authSessions,
+            refreshSessionsObservedBefore: live.database.authRefreshTokens,
+            authSessionsRemaining: 0,
+            refreshSessionsAbsentAndVerified: true,
+            refreshSessionVerificationMethod: 'PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK',
+        };
+        const receiptValidation = validateAuthRequarantineReceipt(receipt, {
+            publicCleanupReceiptSha256: cleanup.publicCleanupReceiptSha256,
+            backupReceiptSha256: cleanup.backupReceiptSha256,
+            preservedSetSha256: after.identity.preservedSetSha256,
+            preflightEvidenceSha256: evidenceInput.sha256,
+            previousAuthReducedReceiptSha256: prior.sha256,
+        });
+        if (!receiptValidation.ok || !receiptValidation.value) {
+            throw new Error(`Auth re-quarantine receipt self-validation failed: ${receiptValidation.errors.join(' ')}`);
+        }
+        writeIdentityFreeJson(
+            path.join(outputDir, PRODUCTION_AUTH_OUTPUT_FILES.requarantinedReceipt),
+            receiptValidation.value,
+            'Auth re-quarantine receipt',
+        );
+        checkpoint = {
+            ...checkpoint,
+            status: 'AUTH_REQUARANTINED',
+            updatedAt: completedAt,
+            passwordRotationsAttempted: 2,
+            passwordRotationsCompleted: 2,
+            externalWritePerformed: true,
+            pendingWriteAttempt: false,
+            lastErrorCategory: null,
+        };
+        writeIdentityFreeJson(checkpointPath, checkpoint, 'Auth re-quarantine checkpoint');
+        writeSummary(outputDir, {
+            schemaVersion: 1,
+            status: 'AUTH_REQUARANTINED',
+            targetProjectRef: PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+            completedAt,
+            authUsers: 2,
+            profiles: 0,
+            candidates: 0,
+            passwordRotationsCompleted: 2,
+            authSessionsObservedBefore: live.database.authSessions,
+            refreshSessionsObservedBefore: live.database.authRefreshTokens,
+            authSessionsRemaining: 0,
+            refreshSessionsRemaining: 0,
+            quarantineUntil,
+            previousAuthReducedReceiptSha256: prior.sha256,
+            receiptFile: PRODUCTION_AUTH_OUTPUT_FILES.requarantinedReceipt,
+            checkpointFile: PRODUCTION_AUTH_OUTPUT_FILES.requarantineCheckpoint,
+            externalWritePerformed: true,
+            outboundEmailsSent: false,
+            usersDeleted: 0,
+            storageObjectsTouched: false,
+            externalProvidersTouched: false,
+            nextAction: 'Keep production inert and use the fresh chained receipt for a new rollout preflight/window.',
+        });
+        console.log(`AUTH_REQUARANTINED: ${path.join(outputDir, PRODUCTION_AUTH_OUTPUT_FILES.summary)}`);
+    } catch (error) {
+        checkpoint = {
+            ...checkpoint,
+            status: 'PARTIAL_FAILURE',
+            updatedAt: new Date().toISOString(),
+            lastErrorCategory: errorCategory(error),
+        };
+        writeIdentityFreeJson(checkpointPath, checkpoint, 'Auth re-quarantine checkpoint');
+        writeSummary(outputDir, {
+            schemaVersion: 1,
+            status: 'REQUARANTINE_PARTIAL_FAILURE_STOPPED_NEW_PREFLIGHT_AND_APPROVAL_REQUIRED',
+            targetProjectRef: PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+            passwordRotationsAttempted: checkpoint.passwordRotationsAttempted,
+            passwordRotationsCompleted: checkpoint.passwordRotationsCompleted,
+            checkpointFile: PRODUCTION_AUTH_OUTPUT_FILES.requarantineCheckpoint,
+            errorCategory: checkpoint.lastErrorCategory,
+            externalWritePerformed: checkpoint.externalWritePerformed,
+            pendingWriteAttempt: checkpoint.pendingWriteAttempt,
+            outboundEmailsSent: false,
+            usersDeleted: 0,
+            storageObjectsTouched: false,
+            externalProvidersTouched: false,
+            nextAction: 'Do not auto-retry. Run a fresh re-quarantine preflight against live auth=2/profiles=0/candidates=0 and obtain a new exact approval.',
         });
         throw error;
     }
@@ -1176,6 +1408,11 @@ function validateLiveSafety(
     const privateCount = live.database.counts['public.profiles_private'] ?? -1;
     if (readiness === 'INITIAL_DELETE_READY' || readiness === 'RESUME_DELETE_READY') {
         if (profileCount !== 0 || privateCount !== 0) errors.push('Profiles must remain absent during Auth reduction/quarantine.');
+    } else if (readiness === 'REQUARANTINE_READY') {
+        if (live.identity.users.length !== 2 || live.identity.candidates.length !== 0
+            || profileCount !== 0 || privateCount !== 0) {
+            errors.push('Re-quarantine requires exactly auth=2, candidates=0 and profiles/private=0.');
+        }
     } else {
         if (live.identity.users.length !== 2 || live.identity.candidates.length !== 0) errors.push('Finalize requires exactly the preserved Auth identities.');
         if (live.database.authSessions !== 0 || live.database.authRefreshTokens !== 0) errors.push('Finalize requires zero Auth sessions and refresh tokens.');
@@ -1437,7 +1674,8 @@ function phaseForReadiness(readiness: AuthPreflightEvidence['readiness']): AuthC
     if (readiness === 'INITIAL_DELETE_READY') return 'delete';
     if (readiness === 'RESUME_DELETE_READY') return 'resume-delete';
     if (readiness === 'FINALIZE_READY') return 'finalize';
-    return 'resume-finalize';
+    if (readiness === 'RESUME_FINALIZE_READY') return 'resume-finalize';
+    return 're-quarantine';
 }
 
 function redactedLiveAggregates(live: LiveState): Record<string, unknown> {
@@ -1469,6 +1707,72 @@ function writeIdentityFreeJson(filePath: string, value: unknown, label: string):
         throw new Error(`${label} serialization attempted to persist an email or UUID.`);
     }
     writeFileSync(filePath, serialized, 'utf8');
+}
+
+export function acquireRequarantineOneShotLock(
+    evidenceSha256: string,
+    priorReceiptSha256: string,
+    ledgerRoot: string,
+): string {
+    if (!/^[a-f0-9]{64}$/u.test(evidenceSha256) || !/^[a-f0-9]{64}$/u.test(priorReceiptSha256)) {
+        throw new Error('Re-quarantine one-shot lock requires exact SHA-256 bindings.');
+    }
+    const keySha256 = sha256(stableJson({
+        targetProjectRef: PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+        evidenceSha256,
+        priorReceiptSha256,
+    }));
+    mkdirSync(ledgerRoot, { recursive: true });
+    const lockPath = path.join(ledgerRoot, `${keySha256}.json`);
+    const value = stableJson({
+        schemaVersion: 1,
+        status: 'REQUARANTINE_APPROVAL_CONSUMED_ONE_SHOT',
+        createdAt: new Date().toISOString(),
+        targetProjectRef: PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+        evidenceSha256,
+        priorReceiptSha256,
+        keySha256,
+    });
+    try {
+        writeFileSync(lockPath, value, { encoding: 'utf8', flag: 'wx', flush: true });
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+            throw new Error('This exact re-quarantine evidence/prior-receipt approval was already consumed. Generate a fresh preflight/approval and use the latest receipt predecessor.');
+        }
+        throw error;
+    }
+    return lockPath;
+}
+
+export function validateRequarantineLedgerDirectory(
+    rawPath: string,
+    repositoryRoot = root,
+): string {
+    const trimmed = rawPath.trim();
+    if (!trimmed || !path.isAbsolute(trimmed)) {
+        throw new Error(`${PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR_ENV} must be an absolute path outside the repository.`);
+    }
+    const repositoryPhysical = realpathSync.native(path.resolve(repositoryRoot));
+    const targetPhysical = projectedPhysicalPath(path.resolve(trimmed));
+    const relativeToRepository = path.relative(repositoryPhysical, targetPhysical);
+    if (relativeToRepository === ''
+        || (!relativeToRepository.startsWith(`..${path.sep}`)
+            && relativeToRepository !== '..'
+            && !path.isAbsolute(relativeToRepository))) {
+        throw new Error(`${PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR_ENV} must resolve physically outside the repository.`);
+    }
+    return targetPhysical;
+}
+
+function projectedPhysicalPath(absolutePath: string): string {
+    let existingAncestor = absolutePath;
+    while (!existsSync(existingAncestor)) {
+        const parent = path.dirname(existingAncestor);
+        if (parent === existingAncestor) break;
+        existingAncestor = parent;
+    }
+    const physicalAncestor = realpathSync.native(existingAncestor);
+    return path.resolve(physicalAncestor, path.relative(existingAncestor, absolutePath));
 }
 
 function createOutputDir(startedAt: Date): string {

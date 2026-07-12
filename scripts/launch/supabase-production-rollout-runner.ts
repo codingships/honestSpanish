@@ -40,6 +40,14 @@ import {
     type ProductionRolloutWaveId,
 } from './supabase-production-rollout-runner-shared';
 import { PRODUCTION_PROJECT, STAGING_ONLY_VERSION } from './supabase-production-rollout-shared';
+import {
+    STAGING_HARDENING_DB_URL_ENV,
+    STAGING_HARDENING_TARGET,
+    parseSqlFacts as parseStagingHardeningSqlFacts,
+    renderStagingHardeningPostVerifySql,
+    validatePostVerifyFacts as validateStagingHardeningPostVerifyFacts,
+    validateStagingDatabaseUrl,
+} from './supabase-staging-hardening-shared';
 
 interface RunnerArgs {
     executeApproved: boolean;
@@ -150,6 +158,8 @@ async function main(): Promise<void> {
         wave.id === 'base_model_reconciliation' || wave.id === 'deferred_rc_hardening'
     ));
     const finalHardeningSelected = selectedWaves.some((wave) => wave.id === 'deferred_rc_hardening');
+    const stagingHardeningPostVerifySql = renderStagingHardeningPostVerifySql();
+    const stagingHardeningPostVerifySqlSha256 = sha256(stagingHardeningPostVerifySql);
     const waveStates = preflight.value ? deriveWaveHistoryStates(preflight.value) : [];
     const stateByWave = new Map(waveStates.map((state) => [state.id, state.state]));
     const pendingWaves = selectedWaves.filter((wave) => stateByWave.get(wave.id) !== 'complete');
@@ -190,10 +200,16 @@ async function main(): Promise<void> {
             automaticRestoreOrSwitch: true,
             externalProviderWrites: true,
         },
+        liveStagingHardeningReadback: {
+            required: stagingHardeningSelected,
+            targetProjectRef: stagingHardeningSelected ? STAGING_HARDENING_TARGET.projectRef : null,
+            postVerifySqlSha256: stagingHardeningSelected ? stagingHardeningPostVerifySqlSha256 : null,
+        },
     };
     const scopeSha256 = sha256(stableJson(baseScope));
 
     const artifacts = createArtifacts(outputDir, selectedWaves);
+    writeFileSync(artifacts.stagingHardeningLiveVerifySql, stagingHardeningPostVerifySql, 'utf8');
     const livePreflightSql = renderProductionLivePreflightSql();
     writeFileSync(artifacts.livePreflightSql, livePreflightSql, 'utf8');
     const waveSqlSha256: Record<string, string> = {};
@@ -219,6 +235,7 @@ async function main(): Promise<void> {
             cleanupEvidenceSha256: operationalWavesSelected ? cleanup.sha256 : null,
             authPolicyEvidenceSha256: operationalWavesSelected ? authPolicy.sha256 : null,
             stagingEvidenceSha256: stagingHardeningSelected ? stagingHardening.sha256 : null,
+            stagingLiveVerifySqlSha256: stagingHardeningSelected ? stagingHardeningPostVerifySqlSha256 : null,
             googleFixturePolicySha256: operationalWavesSelected ? googlePolicy.sha256 : null,
             sentryHardeningEvidenceSha256: finalHardeningSelected ? sentryHardening.sha256 : null,
             pendingMigrations,
@@ -256,6 +273,7 @@ async function main(): Promise<void> {
         artifacts: relativeArtifacts(artifacts),
         hashes: {
             livePreflightSqlSha256: sha256(livePreflightSql),
+            stagingHardeningPostVerifySqlSha256,
             waveSqlSha256,
             verifySqlSha256,
             finalVerifySqlSha256: sha256(finalVerifySql),
@@ -266,6 +284,7 @@ async function main(): Promise<void> {
             forbiddenCommands: ['supabase db push', 'supabase migration repair'],
             automaticRollbackOrProjectSwitch: false,
             authFinalizeAfterWavesAndQuarantine: true,
+            liveStagingHardeningReadbackRequired: stagingHardeningSelected,
         },
     };
 
@@ -284,10 +303,16 @@ async function main(): Promise<void> {
     }
 
     const executionErrors: string[] = [];
+    const stagingTarget = stagingHardeningSelected
+        ? validateStagingDatabaseUrl(process.env[STAGING_HARDENING_DB_URL_ENV])
+        : null;
     if (!args.throughExplicit) executionErrors.push('Execute mode requires an explicit --through wave.');
     if (!args.preflight) executionErrors.push('Execute mode requires explicit --preflight evidence.');
     if (!args.checkoutDisabledConfirmed) executionErrors.push('Execute mode requires --checkout-disabled-confirmed.');
     if (!evidenceReady) executionErrors.push('One or more local evidence gates are blocked.');
+    if (stagingHardeningSelected && !stagingTarget?.valid) {
+        executionErrors.push(`Exact staging database target is required: ${stagingTarget?.reason ?? 'validation failed'}.`);
+    }
     if (process.env[PRODUCTION_ROLLOUT_APPROVAL_ENV] !== exactApproval) executionErrors.push(`Exact ${PRODUCTION_ROLLOUT_APPROVAL_ENV} value mismatch.`);
     if (executionErrors.length > 0) {
         writeSummary(artifacts.summaryJson, {
@@ -306,6 +331,37 @@ async function main(): Promise<void> {
     if (!databaseUrl) throw new Error(`${PRODUCTION_ROLLOUT_DB_URL_ENV} is required after all local gates pass.`);
     const connection = buildPsqlEnvironment(databaseUrl);
     const captures: Array<Record<string, unknown>> = [];
+    if (stagingHardeningSelected) {
+        const stagingConnection = stagingTarget?.connectionEnv as ReturnType<typeof buildPsqlEnvironment> | null;
+        if (!stagingConnection) throw new Error('Validated staging connection environment is unavailable.');
+        const stagingLive = runPsql(
+            'live-staging-hardening',
+            artifacts.stagingHardeningLiveVerifySql,
+            stagingConnection,
+            false,
+            {},
+        );
+        persistCapture(outputDir, stagingLive);
+        captures.push(captureSummary(stagingLive));
+        const stagingLiveErrors = stagingLive.ok
+            ? validateStagingHardeningPostVerifyFacts(
+                parseStagingHardeningSqlFacts(stagingLive.stdout),
+            ).details
+            : [stagingLive.error ?? 'Live staging hardening readback failed.'];
+        if (stagingLiveErrors.length > 0) {
+            writeSummary(artifacts.summaryJson, {
+                ...reportBase,
+                endedAt: new Date().toISOString(),
+                status: 'BLOCKED_LIVE_STAGING_HARDENING',
+                errors: stagingLiveErrors,
+                captures,
+                networkAccessPerformed: true,
+                writeCommandInvoked: false,
+                externalWritePerformed: false,
+            });
+            throw new Error(stagingLiveErrors.join(' '));
+        }
+    }
     const live = runPsql('live-preflight', artifacts.livePreflightSql, connection, false, {});
     persistCapture(outputDir, live);
     captures.push(captureSummary(live));
@@ -509,6 +565,7 @@ function createArtifacts(outputDir: string, waves: readonly ProductionRolloutWav
         manifestJson: path.join(outputDir, 'manifest.json'),
         livePreflightSql: path.join(outputDir, 'live-preflight-readonly.sql'),
         finalVerifySql: path.join(outputDir, 'final-verification-readonly.sql'),
+        stagingHardeningLiveVerifySql: path.join(outputDir, 'staging-hardening-live-verification-readonly.sql'),
         exactApproval: path.join(outputDir, 'exact-approval-required.txt'),
         rollbackSwitch: path.join(outputDir, 'rollback-and-switch-plan.md'),
         rolloutReceipt: path.join(outputDir, 'production-rollout-receipt.json'),
@@ -523,6 +580,7 @@ function relativeArtifacts(artifacts: ReturnType<typeof createArtifacts>): Recor
         manifestJson: relative(artifacts.manifestJson),
         livePreflightSql: relative(artifacts.livePreflightSql),
         finalVerifySql: relative(artifacts.finalVerifySql),
+        stagingHardeningLiveVerifySql: relative(artifacts.stagingHardeningLiveVerifySql),
         exactApproval: relative(artifacts.exactApproval),
         rollbackSwitch: relative(artifacts.rollbackSwitch),
         rolloutReceipt: relative(artifacts.rolloutReceipt),

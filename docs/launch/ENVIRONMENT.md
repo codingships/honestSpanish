@@ -261,6 +261,8 @@ Runtime:
 Operativo:
 
 - `SUPABASE_DB_URL`
+- `SUPABASE_STAGING_DB_URL`: URL DB staging explicita, solo en el proceso operador. El rollout production la exige para repetir el post-verify live de staging antes de cualquier ola dependiente; valida el project ref `mzjyvmlxfpzdfdjzxxyj` y nunca cae a la URL production.
+- `SUPABASE_PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR`: ruta absoluta y persistente fuera del repositorio, solo en el proceso operador. El runner de re-cuarentena exige este ledger one-shot antes de cualquier escritura y bloquea para siempre la repeticion del mismo par evidencia/predecesor; no se guarda bajo `outputs/` ni se elimina al limpiar artefactos.
 
 Usar `SUPABASE_DB_URL` solo para migraciones/SQL. No lo usa la app.
 Los runners de navegador y `pnpm dev` validan la identidad staging pero eliminan `SUPABASE_DB_URL`, `SUPABASE_*_DB_URL`, `DATABASE_URL` y `PG*` antes de arrancar Astro o Playwright.
@@ -333,6 +335,7 @@ Mantener documentado fuera del repo:
 - Scopes delegados.
 - Email impersonado.
 - Proceso de rotacion.
+- `GOOGLE_PRODUCTION_CLEANUP_RECOVERY_DIR`: ruta absoluta fuera del repositorio para el journal append-only del cleanup production. Execute bloquea si falta o apunta dentro del worktree.
 
 Riesgo aceptado actual: se mantiene service account con domain-wide delegation para esta fase. Los controles compensatorios son no guardar claves en repo/docs/outputs/logs, guardar secretos solo en KeePassXC y secret managers, aislar Google SDK en el Fulfillment Worker, separar carpetas/templates por entorno, rotar la clave antes del Go/No-Go publico y revisar scopes delegados durante esa rotacion. Si una clave puede haberse filtrado, no se vuelve a una clave vieja: se pausa el flujo afectado, se rota la clave, se revoca la anterior, se redepliega el Worker y se valida Drive/Calendar/Docs/Meet.
 

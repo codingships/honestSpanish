@@ -3,6 +3,14 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+    executionLockMayBeReleased,
+    orchestrateRollbackDrill,
+    type PhaseOutcome,
+    type ProviderOutcome,
+    type ReadbackOutcome,
+    type RollbackDrillPhase,
+} from './cloudflare-staging-fulfillment-rollback-drill-orchestrator';
+import {
     createExternalWriteReceipt,
     markExternalWriteAmbiguous,
     markExternalWriteAttemptStarted,
@@ -44,7 +52,9 @@ type WritePhase =
     | 'rollback_previous'
     | 'restore_current'
     | 'restore_cron'
-    | 'resume_queue';
+    | 'resume_queue'
+    | 'compensate_disable_cron'
+    | 'compensate_pause_queue';
 
 interface CommandCapture {
     id: string;
@@ -110,6 +120,8 @@ interface RunnerReport {
     cronRestoredVerified: boolean;
     queuePauseVerified: boolean;
     queueResumeVerified: boolean;
+    isolationRetainedOnRestoreFailure: boolean;
+    manualReconciliationRequired: boolean;
     approvalEnv: string;
     approvalMatched: boolean;
     exactApproval?: string;
@@ -120,6 +132,7 @@ interface RunnerReport {
     commands: CommandCapture[];
     apiCalls: ApiCapture[];
     writeReceipts: WriteReceipt[];
+    orchestrationOutcomes: PhaseOutcome[];
     artifacts: {
         summaryJson: string;
         summaryMarkdown: string;
@@ -163,6 +176,8 @@ const report: RunnerReport = {
     cronRestoredVerified: false,
     queuePauseVerified: false,
     queueResumeVerified: false,
+    isolationRetainedOnRestoreFailure: false,
+    manualReconciliationRequired: false,
     approvalEnv: STAGING_FULFILLMENT_ROLLBACK_APPROVAL_ENV,
     approvalMatched: false,
     preflights: [],
@@ -170,6 +185,7 @@ const report: RunnerReport = {
     commands: [],
     apiCalls: [],
     writeReceipts: [],
+    orchestrationOutcomes: [],
     artifacts: {
         summaryJson: path.join(outputDir, 'summary.json'),
         summaryMarkdown: path.join(outputDir, 'summary.md'),
@@ -231,99 +247,36 @@ async function run(): Promise<void> {
         }
 
         acquireExecutionLock(initial.versions, initial.snapshotSha256);
-        let drillVerified = false;
-        try {
-            if (!await executeScheduleWrite('disable_cron', [])) {
-                throw new Error('Could not disable the exact staging Worker Cron trigger.');
-            }
-            report.cronDisabledVerified = schedulesEqual(await readSchedules('after_disable_cron'), []);
-            if (!report.cronDisabledVerified) throw new Error('Cron disable is not verified.');
-            confirmWriteByReadback('disable_cron');
+        report.manualReconciliationRequired = true;
+        persistWriteReceipts();
+        const orchestration = await orchestrateRollbackDrill({
+            runPhase: (phase) => runActualPhase(phase, initial.versions as RollbackVersions),
+        });
+        report.originalCurrentRestored = orchestration.currentRestored;
+        report.cronRestoredVerified = orchestration.cronRestored;
+        report.queueResumeVerified = orchestration.queueResumed;
+        report.isolationRetainedOnRestoreFailure = orchestration.isolationRetainedOnRestoreFailure;
+        report.manualReconciliationRequired = orchestration.manualReconciliationRequired;
+        report.orchestrationOutcomes = orchestration.outcomes;
+        report.errors.push(...orchestration.outcomes
+            .filter((outcome) => outcome.error)
+            .map((outcome) => `${outcome.phase}: ${outcome.error}`));
 
-            if (!await executeQueueDeliveryWrite('normalize_queue_active', false)) {
-                throw new Error('Could not normalize exact Queue delivery to active before the drill.');
-            }
-            await verifyQueueRuntime(false, 'after_normalize_queue_active');
-            confirmWriteByReadback('normalize_queue_active');
-
-            if (!await executeQueueDeliveryWrite('pause_queue', true)) {
-                throw new Error('Could not pause the exact staging Queue.');
-            }
-            const pausedQueue = await readQueueState('after_pause_queue');
-            report.queuePauseVerified = pausedQueue.deliveryPaused === true;
-            if (!report.queuePauseVerified) throw new Error('Queue pause is not explicitly verified by Cloudflare API.');
-            confirmWriteByReadback('pause_queue');
-
-            await verifyIsolationBeforeRollback(beforeWrite.versions.currentVersionId);
-
-            const rollback = executeWranglerWrite(
-                'rollback_previous',
-                beforeWrite.versions.previousVersionId,
-                rollbackWranglerArgs(beforeWrite.versions.previousVersionId),
-            );
-            report.rollbackVerification = await verifyActiveVersion('after_rollback_previous', beforeWrite.versions.previousVersionId);
-            if (report.rollbackVerification.deploymentMatched && report.rollbackVerification.healthMatched) {
-                confirmWriteByReadback('rollback_previous');
-            }
-            drillVerified = report.rollbackVerification.deploymentMatched
-                && report.rollbackVerification.healthMatched
-                && report.cronDisabledVerified
-                && report.queuePauseVerified;
-            if (!drillVerified) throw new Error('Previous version, health, disabled Cron or paused Queue was not verified.');
-            if (rollback.exitCode !== 0) report.errors.push('Rollback command exit was ambiguous but readback proved the exact previous version.');
-        } catch (error) {
-            report.errors.push(safeError(error));
-        } finally {
-            if (report.externalWriteAttempted) {
-                const restore = executeWranglerWrite(
-                    'restore_current',
-                    initial.versions.currentVersionId,
-                    rollbackWranglerArgs(initial.versions.currentVersionId),
-                );
-                if (restore.exitCode !== 0) report.errors.push('Mandatory current-version restore command failed or is ambiguous.');
-                report.restorationVerification = await verifyActiveVersion('after_restore_current', initial.versions.currentVersionId);
-                report.originalCurrentRestored = report.restorationVerification.deploymentMatched
-                    && report.restorationVerification.healthMatched;
-                if (report.originalCurrentRestored) confirmWriteByReadback('restore_current');
-
-                if (report.originalCurrentRestored) {
-                    if (!await executeScheduleWrite('restore_cron', [{ cron: EXPECTED_CRON }])) {
-                        report.errors.push('Mandatory exact hourly Cron restore failed or is ambiguous.');
-                    }
-                    report.cronRestoredVerified = schedulesEqual(await readSchedules('after_restore_cron'), [EXPECTED_CRON]);
-                    if (report.cronRestoredVerified) confirmWriteByReadback('restore_cron');
-
-                    if (report.cronRestoredVerified) {
-                        if (!await executeQueueDeliveryWrite('resume_queue', false)) {
-                            report.errors.push('Mandatory exact Queue resume failed or is ambiguous.');
-                        }
-                        try {
-                            await verifyQueueRuntime(false, 'after_resume_queue');
-                            report.queueResumeVerified = true;
-                            confirmWriteByReadback('resume_queue');
-                        } catch (error) {
-                            report.errors.push(safeError(error));
-                        }
-                    } else {
-                        report.errors.push('Queue intentionally left paused because the hourly Cron was not restored.');
-                    }
-                } else {
-                    report.errors.push('Cron remains disabled and Queue remains paused because the original current version was not restored.');
-                }
-            }
-        }
-
-        const restorationProven = report.originalCurrentRestored
-            && report.cronRestoredVerified
-            && report.queueResumeVerified;
-        if (!restorationProven) {
+        if (!orchestration.restorationProven) {
             report.status = 'RESTORATION_UNPROVEN';
             report.errors.push('Original version, hourly Cron and active Queue delivery are not all proven; the durable lock remains.');
-        } else if (drillVerified) {
+            if (!orchestration.isolationRetainedOnRestoreFailure) {
+                report.errors.push('Fault invariant violated: Cron OFF, Queue paused and zero backlog are not proven after incomplete restoration.');
+            } else {
+                report.errors.push('Incomplete restoration was compensated and Cron/Queue isolation is proven; the durable lock remains for reconciliation.');
+            }
+        } else if (orchestration.forwardPathProven) {
             report.status = 'DRILL_EXECUTED_AND_CURRENT_RESTORED';
-            releaseExecutionLock();
         } else {
             report.status = 'DRILL_FAILED_BUT_CURRENT_RESTORED';
+            report.errors.push('The forward rollback path failed after a write. Current version, Cron and Queue are triple-proven restored, but the durable lock remains pending manual reconciliation.');
+        }
+        if (executionLockMayBeReleased(orchestration)) {
             releaseExecutionLock();
         }
     } catch (error) {
@@ -332,6 +285,141 @@ async function run(): Promise<void> {
     } finally {
         finalizeReport();
     }
+}
+
+async function runActualPhase(
+    phase: RollbackDrillPhase,
+    versions: RollbackVersions,
+): Promise<PhaseOutcome> {
+    try {
+        switch (phase) {
+            case 'disable_cron': {
+                await executeScheduleWrite('disable_cron', []);
+                report.cronDisabledVerified = schedulesEqual(await readSchedules('after_disable_cron'), []);
+                if (report.cronDisabledVerified) confirmWriteByReadback('disable_cron');
+                return phaseOutcome(phase, report.cronDisabledVerified ? 'proven' : 'failed');
+            }
+            case 'normalize_queue_active': {
+                await executeQueueDeliveryWrite('normalize_queue_active', false);
+                await verifyQueueRuntime(false, 'after_normalize_queue_active');
+                confirmWriteByReadback('normalize_queue_active');
+                return phaseOutcome(phase, 'proven');
+            }
+            case 'pause_queue': {
+                await executeQueueDeliveryWrite('pause_queue', true);
+                const pausedQueue = await readQueueState('after_pause_queue');
+                const backlog = await readQueueBacklog('after_pause_queue_metrics');
+                report.queuePauseVerified = pausedQueue.deliveryPaused === true && backlog === 0;
+                if (report.queuePauseVerified) confirmWriteByReadback('pause_queue');
+                return phaseOutcome(phase, report.queuePauseVerified ? 'proven' : 'failed');
+            }
+            case 'verify_isolation': {
+                await verifyIsolationBeforeRollback(versions.currentVersionId);
+                return {
+                    phase,
+                    writeAttempted: false,
+                    provider: 'not_applicable',
+                    readback: 'proven',
+                };
+            }
+            case 'rollback_previous': {
+                executeWranglerWrite(
+                    'rollback_previous',
+                    versions.previousVersionId,
+                    rollbackWranglerArgs(versions.previousVersionId),
+                );
+                report.rollbackVerification = await verifyActiveVersion('after_rollback_previous', versions.previousVersionId);
+                const proven = report.rollbackVerification.deploymentMatched
+                    && report.rollbackVerification.healthMatched;
+                if (proven) confirmWriteByReadback('rollback_previous');
+                return phaseOutcome(phase, proven ? 'proven' : 'failed');
+            }
+            case 'restore_current': {
+                executeWranglerWrite(
+                    'restore_current',
+                    versions.currentVersionId,
+                    rollbackWranglerArgs(versions.currentVersionId),
+                );
+                report.restorationVerification = await verifyActiveVersion('after_restore_current', versions.currentVersionId);
+                const proven = report.restorationVerification.deploymentMatched
+                    && report.restorationVerification.healthMatched;
+                if (proven) confirmWriteByReadback('restore_current');
+                return phaseOutcome(phase, proven ? 'proven' : 'failed');
+            }
+            case 'restore_cron': {
+                await executeScheduleWrite('restore_cron', [{ cron: EXPECTED_CRON }]);
+                const proven = schedulesEqual(await readSchedules('after_restore_cron'), [EXPECTED_CRON]);
+                if (proven) confirmWriteByReadback('restore_cron');
+                return phaseOutcome(phase, proven ? 'proven' : 'failed');
+            }
+            case 'resume_queue': {
+                await executeQueueDeliveryWrite('resume_queue', false);
+                await verifyQueueRuntime(false, 'after_resume_queue');
+                confirmWriteByReadback('resume_queue');
+                return phaseOutcome(phase, 'proven');
+            }
+            case 'verify_isolation_after_restore_failure': {
+                await verifyCronQueueIsolation('after_restore_current_failure');
+                return readOnlyPhaseOutcome(phase, 'proven');
+            }
+            case 'compensate_disable_cron': {
+                await executeScheduleWrite('compensate_disable_cron', []);
+                const proven = schedulesEqual(await readSchedules('after_compensate_disable_cron'), []);
+                if (proven) confirmWriteByReadback('compensate_disable_cron');
+                return phaseOutcome(phase, proven ? 'proven' : 'failed');
+            }
+            case 'compensate_pause_queue': {
+                await executeQueueDeliveryWrite('compensate_pause_queue', true);
+                await verifyQueueRuntime(true, 'after_compensate_pause_queue');
+                confirmWriteByReadback('compensate_pause_queue');
+                return phaseOutcome(phase, 'proven');
+            }
+            case 'verify_compensated_isolation': {
+                await verifyCronQueueIsolation('after_compensated_isolation');
+                return readOnlyPhaseOutcome(phase, 'proven');
+            }
+        }
+    } catch (error) {
+        return phaseOutcome(phase, 'ambiguous', safeError(error));
+    }
+}
+
+function readOnlyPhaseOutcome(
+    phase: 'verify_isolation' | 'verify_isolation_after_restore_failure' | 'verify_compensated_isolation',
+    readback: ReadbackOutcome,
+    error?: string,
+): PhaseOutcome {
+    return {
+        phase,
+        writeAttempted: false,
+        provider: 'not_applicable',
+        readback,
+        ...(error ? { error } : {}),
+    };
+}
+
+function phaseOutcome(
+    phase: RollbackDrillPhase,
+    readback: ReadbackOutcome,
+    error?: string,
+): PhaseOutcome {
+    const receipt = [...report.writeReceipts].reverse()
+        .find((candidate) => candidate.phase === phase);
+    const provider = providerOutcome(receipt);
+    return {
+        phase,
+        writeAttempted: Boolean(receipt),
+        provider,
+        readback,
+        ...(error ? { error } : {}),
+    };
+}
+
+function providerOutcome(receipt: WriteReceipt | undefined): ProviderOutcome {
+    if (!receipt) return 'not_applicable';
+    if (receipt.state.readonlyReconciliationRequired
+        || receipt.state.externalWritePerformed === 'unknown') return 'ambiguous';
+    return receipt.state.externalWritePerformed ? 'succeeded' : 'failed';
 }
 
 async function runLivePreflight(label: string): Promise<PreflightEvidence> {
@@ -459,14 +547,20 @@ async function readSchedules(id: string): Promise<string[]> {
         .sort();
 }
 
-async function executeQueueDeliveryWrite(phase: 'normalize_queue_active' | 'pause_queue' | 'resume_queue', paused: boolean): Promise<boolean> {
+async function executeQueueDeliveryWrite(
+    phase: 'normalize_queue_active' | 'pause_queue' | 'resume_queue' | 'compensate_pause_queue',
+    paused: boolean,
+): Promise<boolean> {
     return executeApiWrite(phase, STAGING_FULFILLMENT_ROLLBACK_TARGET.queue, 'PATCH', queuePath(), {
         queue_name: STAGING_FULFILLMENT_ROLLBACK_TARGET.queue,
         settings: { delivery_paused: paused },
     });
 }
 
-async function executeScheduleWrite(phase: 'disable_cron' | 'restore_cron', schedules: Array<{ cron: string }>): Promise<boolean> {
+async function executeScheduleWrite(
+    phase: 'disable_cron' | 'restore_cron' | 'compensate_disable_cron',
+    schedules: Array<{ cron: string }>,
+): Promise<boolean> {
     return executeApiWrite(phase, STAGING_FULFILLMENT_ROLLBACK_TARGET.worker, 'PUT', schedulesPath(), schedules);
 }
 
@@ -605,6 +699,17 @@ async function verifyIsolationBeforeRollback(currentVersionId: string): Promise<
     }
 }
 
+async function verifyCronQueueIsolation(label: string): Promise<void> {
+    const queue = await readQueueState(`${label}_queue`);
+    const backlog = await readQueueBacklog(`${label}_metrics`);
+    const schedules = await readSchedules(`${label}_schedules`);
+    if (queue.deliveryPaused !== true
+        || backlog !== 0
+        || !schedulesEqual(schedules, [])) {
+        throw new Error('Cron OFF, Queue paused and zero backlog isolation is not explicitly proven.');
+    }
+}
+
 function runWranglerJson(id: string, args: string[]): unknown {
     const capture = runWrangler(id, args, true);
     if (capture.exitCode !== 0) throw new Error(`Read-only Wrangler command ${id} failed.`);
@@ -698,7 +803,18 @@ function persistWriteReceipts(): void {
         schemaVersion: 1,
         target: report.target,
         receipts: report.writeReceipts,
-        recoveryOrder: ['restore_current', 'restore_cron', 'resume_queue', 'verify all read-only'],
+        manualReconciliationRequired: report.manualReconciliationRequired,
+        manualReconciliation: report.manualReconciliationRequired
+            ? 'Keep the durable execution lock; review every write receipt and live readback before an explicit, separate lock removal.'
+            : null,
+        recoveryOrder: [
+            'restore_current',
+            'restore_cron',
+            'resume_queue',
+            'if restore is incomplete: compensate_disable_cron',
+            'compensate_pause_queue',
+            'verify Cron OFF + Queue paused + backlog zero read-only',
+        ],
     });
 }
 
@@ -723,7 +839,17 @@ function finalizeReport(): void {
         status: report.status,
         scope: {
             allowedReads: ['Wrangler whoami/deployments/versions', 'Cloudflare Queue GET', 'Queue metrics GET', 'Cron schedules GET', 'direct /health'],
-            onlyAllowedWritesInOrder: ['disable Cron', 'normalize Queue active', 'pause Queue', 'rollback previous', 'restore current', 'restore hourly Cron', 'resume Queue'],
+            onlyAllowedWritesInOrder: [
+                'disable Cron',
+                'normalize Queue active',
+                'pause Queue',
+                'rollback previous',
+                'restore current',
+                'restore hourly Cron',
+                'resume Queue',
+                'conditional compensation: disable Cron',
+                'conditional compensation: pause Queue',
+            ],
             forbidden: ['job endpoints', 'Queue purge/delete/create', 'Queue consumer mutation', 'secrets', 'domains', 'DNS', 'Pages', 'production', 'other Workers or Queues'],
         },
         approval: {
@@ -745,6 +871,8 @@ function finalizeReport(): void {
             originalCurrentRestored: report.originalCurrentRestored,
             cronRestoredVerified: report.cronRestoredVerified,
             queueResumeVerified: report.queueResumeVerified,
+            isolationRetainedOnRestoreFailure: report.isolationRetainedOnRestoreFailure,
+            manualReconciliationRequired: report.manualReconciliationRequired,
         },
         commands: report.commands,
         apiCalls: report.apiCalls,
@@ -782,12 +910,14 @@ function renderSummary(value: RunnerReport): string {
         `- Semantic snapshot SHA-256: ${initial?.snapshotSha256 ?? 'unavailable'}`,
         `- External write attempted/performed: ${value.externalWriteAttempted}/${String(value.externalWritePerformed)}`,
         `- Current/Cron/Queue restored: ${value.originalCurrentRestored}/${value.cronRestoredVerified}/${value.queueResumeVerified}`,
+        `- Fail-closed isolation after incomplete restore: ${value.isolationRetainedOnRestoreFailure}`,
+        `- Manual reconciliation required: ${value.manualReconciliationRequired}`,
         '',
         '## Safety Boundary',
         '',
         'Plan mode uses only GET/health and Wrangler read commands. It requires `CLOUDFLARE_API_TOKEN` in process memory because Wrangler does not expose Queue `delivery_paused`; the token is removed from Wrangler children and never logged or persisted.',
         '',
-        'Approved execution persists a write-ahead receipt before every change, normalizes Queue delivery active, removes the exact hourly Cron, pauses the Queue, rolls back, and then restores current version, Cron and Queue in `finally`. A durable lock survives process termination and is removed only after all three final states are proven.',
+        'Approved execution persists a write-ahead receipt before every change, normalizes Queue delivery active, removes the exact hourly Cron, pauses the Queue, rolls back, and then restores current version, Cron and Queue. If Cron or Queue restoration is not proven, conditional compensation disables Cron and pauses Queue again, then verifies Cron OFF, Queue paused and zero backlog. A durable lock survives process termination and is removed only when the forward drill and all three normal final states are proven; any failed phase keeps it for manual reconciliation.',
         '',
         'Cloudflare may omit default `delivery_paused=false` from GET. Absence is recorded as unknown and never interpreted as false. Every PATCH remains reconciliation-pending until GET returns the explicit intended boolean; if Cloudflare omits it, execution stops fail-closed and keeps the durable lock.',
         '',

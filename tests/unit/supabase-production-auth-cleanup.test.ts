@@ -14,25 +14,33 @@ import {
     PRODUCTION_AUTH_INERT_CONFIRMATION,
     PRODUCTION_AUTH_OUTPUT_FILES,
     approvalEnvForPhase,
+    beginAuthRequarantineRotation,
     buildAuthCleanupApproval,
     buildQuarantineUntil,
+    confirmAuthRequarantineRotation,
     hashIdentitySet,
     sanitizeAuthCleanupOutput,
     selectAuthQuarantineConfig,
     validateAuthPreflightEvidence,
+    validateAuthRequarantineReceipt,
     validateAuthReducedReceipt,
     validateCheckpoint,
     validateCleanupInputs,
     type AuthCleanupCheckpoint,
     type AuthPreflightEvidence,
     type AuthReducedReceipt,
+    type AuthRequarantineReceipt,
+    type AuthRequarantineCheckpoint,
     type ProductionAuthDatabaseAggregate,
 } from '../../scripts/launch/supabase-production-auth-cleanup-shared';
 import {
     classifyReadiness,
+    acquireRequarantineOneShotLock,
     isRetryableSupabaseAdminError,
     parseProductionAuthCleanupArgs,
+    validateRequarantineLedgerDirectory,
 } from '../../scripts/launch/supabase-production-auth-cleanup';
+import { readAuthPolicyEvidence } from '../../scripts/launch/supabase-production-rollout-runner-shared';
 
 const runnerSource = readFileSync('scripts/launch/supabase-production-auth-cleanup.ts', 'utf8');
 const temporaryDirectories: string[] = [];
@@ -58,6 +66,20 @@ describe('Supabase production Auth cleanup runner', () => {
             '--evidence', 'preflight.json',
             '--execute-approved',
         ])).toMatchObject({ mode: 'delete', executeApproved: true });
+        expect(parseProductionAuthCleanupArgs([
+            'requarantine-preflight',
+            '--backup-receipt', 'backup.json',
+            '--public-cleanup-receipt', 'cleanup.json',
+            '--auth-reduced-receipt', 'prior.json',
+        ])).toMatchObject({ mode: 'requarantine-preflight', executeApproved: false });
+        expect(parseProductionAuthCleanupArgs([
+            're-quarantine',
+            '--backup-receipt', 'backup.json',
+            '--public-cleanup-receipt', 'cleanup.json',
+            '--auth-reduced-receipt', 'prior.json',
+            '--evidence', 'preflight.json',
+            '--execute-approved',
+        ])).toMatchObject({ mode: 're-quarantine', executeApproved: true });
         expect(() => parseProductionAuthCleanupArgs([
             'resume-delete',
             '--backup-receipt', 'backup.json',
@@ -73,6 +95,13 @@ describe('Supabase production Auth cleanup runner', () => {
             '--auth-reduced-receipt', 'reduced.json',
             '--execute-approved',
         ])).toThrow('--rollout-receipt');
+        expect(() => parseProductionAuthCleanupArgs([
+            're-quarantine',
+            '--backup-receipt', 'backup.json',
+            '--public-cleanup-receipt', 'cleanup.json',
+            '--evidence', 'preflight.json',
+            '--execute-approved',
+        ])).toThrow('--auth-reduced-receipt');
         expect(() => parseProductionAuthCleanupArgs(['plan', '--execute-approved'])).toThrow();
     });
 
@@ -145,7 +174,7 @@ describe('Supabase production Auth cleanup runner', () => {
         expect(buildQuarantineUntil('2026-07-12T12:00:00.000Z', 3600)).toBe('2026-07-12T13:05:00.000Z');
     });
 
-    it('classifies only the four explicit initial/resume/finalize states', () => {
+    it('classifies only the explicit initial/resume/finalize/re-quarantine states', () => {
         expect(classifyReadiness(state())).toBe('INITIAL_DELETE_READY');
         expect(classifyReadiness(state({ users: 54, candidates: 52, checkpointProvided: true }))).toBe('RESUME_DELETE_READY');
         expect(classifyReadiness(state({
@@ -167,6 +196,18 @@ describe('Supabase production Auth cleanup runner', () => {
             finalSchemaReady: true,
             quarantineElapsed: true,
         }))).toBe('RESUME_FINALIZE_READY');
+        expect(classifyReadiness(state({
+            users: 2,
+            candidates: 0,
+            authReducedReceiptProvided: true,
+            requarantineRequested: true,
+        }))).toBe('REQUARANTINE_READY');
+        expect(classifyReadiness(state({
+            users: 3,
+            candidates: 1,
+            authReducedReceiptProvided: true,
+            requarantineRequested: true,
+        }))).toBe('BLOCKED');
         expect(classifyReadiness(state({ users: 139, candidates: 137 }))).toBe('BLOCKED');
         expect(classifyReadiness(state({
             users: 2,
@@ -211,8 +252,25 @@ describe('Supabase production Auth cleanup runner', () => {
         expect(finalizeApproval).toContain('hard_delete=FORBIDDEN');
         expect(finalizeApproval).toContain('passwords=UNCHANGED_ALREADY_QUARANTINED');
         expect(finalizeApproval).toContain(`production_rollout=${hash}`);
+        const requarantineApproval = buildAuthCleanupApproval({
+            phase: 're-quarantine',
+            evidenceSha256: hash,
+            publicCleanupReceiptSha256: hash,
+            backupReceiptSha256: hash,
+            preservedSetSha256: hash,
+            candidateCount: 0,
+            candidateSetSha256: hash,
+            authReducedReceiptSha256: hash,
+            quarantineUntil: '2026-07-12T13:05:00.000Z',
+        });
+        expect(requarantineApproval).toContain('phase=re-quarantine');
+        expect(requarantineApproval).toContain(`auth_reduced=${hash}`);
+        expect(requarantineApproval).toContain('hard_delete=FORBIDDEN');
+        expect(requarantineApproval).toContain('passwords=random_unretained_again_for_exact_two');
+        expect(requarantineApproval).toContain('refresh_sessions=ASSERT_ABSENT_AFTER_PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK');
         expect(approvalEnvForPhase('delete')).not.toBe(approvalEnvForPhase('resume-delete'));
         expect(approvalEnvForPhase('finalize')).not.toBe(approvalEnvForPhase('resume-finalize'));
+        expect(approvalEnvForPhase('re-quarantine')).not.toBe(approvalEnvForPhase('delete'));
         expect(PRODUCTION_AUTH_INERT_CONFIRMATION).toContain('checkout=DISABLED');
     });
 
@@ -238,6 +296,40 @@ describe('Supabase production Auth cleanup runner', () => {
             publicCleanupReceiptSha256: hash,
             backupReceiptSha256: hash,
         })).toMatchObject({ ok: false });
+
+        const priorHash = 'c'.repeat(64);
+        const completedAt = new Date().toISOString();
+        const requarantined: AuthRequarantineReceipt = {
+            ...reduced,
+            completedAt,
+            quarantineUntil: buildQuarantineUntil(completedAt, 3600),
+            requarantine: true,
+            preflightEvidenceSha256: 'e'.repeat(64),
+            previousAuthReducedReceiptSha256: priorHash,
+            passwordRotationsCompleted: 2,
+            authSessionsObservedBefore: 3,
+            refreshSessionsObservedBefore: 3,
+            authSessionsRemaining: 0,
+            refreshSessionsAbsentAndVerified: true,
+            refreshSessionVerificationMethod: 'PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK',
+        };
+        expect(validateAuthRequarantineReceipt(requarantined, {
+            publicCleanupReceiptSha256: hash,
+            backupReceiptSha256: hash,
+            preservedSetSha256: hash,
+            preflightEvidenceSha256: 'e'.repeat(64),
+            previousAuthReducedReceiptSha256: priorHash,
+        })).toMatchObject({ ok: true, errors: [] });
+        expect(validateAuthRequarantineReceipt({
+            ...requarantined,
+            previousAuthReducedReceiptSha256: 'd'.repeat(64),
+        }, {
+            publicCleanupReceiptSha256: hash,
+            backupReceiptSha256: hash,
+            preservedSetSha256: hash,
+            preflightEvidenceSha256: 'e'.repeat(64),
+            previousAuthReducedReceiptSha256: priorHash,
+        })).toMatchObject({ ok: false });
     });
 
     it('requires fresh aggregate preflight evidence and all rollout/quarantine gates for finalize', () => {
@@ -258,6 +350,21 @@ describe('Supabase production Auth cleanup runner', () => {
         } satisfies AuthPreflightEvidence;
         expect(validateAuthPreflightEvidence(finalize, 'finalize')).toMatchObject({ ok: true, errors: [] });
         expect(validateAuthPreflightEvidence({ ...finalize, rolloutReceiptSha256: null }, 'finalize')).toMatchObject({ ok: false });
+
+        const requarantine = {
+            ...evidence,
+            readiness: 'REQUARANTINE_READY',
+            approvalPhase: 're-quarantine',
+            auth: { ...evidence.auth, users: 2, candidates: 0 },
+            authReducedReceiptSha256: 'e'.repeat(64),
+            quarantineUntil: new Date(Date.now() - 1_000).toISOString(),
+            quarantineElapsed: true,
+        } satisfies AuthPreflightEvidence;
+        expect(validateAuthPreflightEvidence(requarantine, 're-quarantine')).toMatchObject({ ok: true, errors: [] });
+        expect(validateAuthPreflightEvidence({
+            ...requarantine,
+            database: { ...requarantine.database, counts: { ...requarantine.database.counts, 'public.profiles': 1 } },
+        }, 're-quarantine')).toMatchObject({ ok: false });
     });
 
     it('retries only bounded transient Admin API failures', () => {
@@ -296,6 +403,157 @@ describe('Supabase production Auth cleanup runner', () => {
         expect(runnerSource).not.toMatch(/resetPasswordForEmail|generateLink|inviteUserByEmail|signInWithOtp/iu);
         expect(runnerSource).not.toMatch(/googleapis|new\s+Stripe|stripe\.customers|storage\.from\([^)]*\)\.(?:remove|upload|update)/iu);
         expect(runnerSource).not.toMatch(/DELETE\s+FROM\s+auth\.|DELETE\s+FROM\s+storage\./iu);
+    });
+
+    it('re-quarantines only the exact preserved pair with write-ahead state and zero-session readback', () => {
+        const start = runnerSource.indexOf('async function runRequarantinePhase(');
+        const end = runnerSource.indexOf('async function runFinalizePhase(', start);
+        const source = runnerSource.slice(start, end);
+        const oneShot = source.indexOf('acquireRequarantineOneShotLock(evidenceInput.sha256, prior.sha256, ledgerRoot)');
+        const writeAhead = source.indexOf('beginAuthRequarantineRotation(checkpoint');
+        const update = source.indexOf('client.auth.admin.updateUserById(user.id, { password: randomPassword })');
+        const postRead = source.indexOf('const after = await collectLiveState');
+        const receipt = source.indexOf('const receipt: AuthRequarantineReceipt');
+
+        expect(start).toBeGreaterThan(-1);
+        expect(oneShot).toBeLessThan(writeAhead);
+        expect(writeAhead).toBeLessThan(update);
+        expect(update).toBeLessThan(postRead);
+        expect(postRead).toBeLessThan(receipt);
+        expect(source).toContain('after.database.authSessions !== 0');
+        expect(source).toContain('after.database.authRefreshTokens !== 0');
+        expect(source).toContain('previousAuthReducedReceiptSha256: prior.sha256');
+        expect(source).toContain('acquireRequarantineOneShotLock(evidenceInput.sha256, prior.sha256, ledgerRoot)');
+        expect(source).toContain('validateRequarantineLedgerDirectory(');
+        expect(source).toContain('usersDeleted: 0');
+        expect(source).not.toContain('deleteUser(');
+        expect(source).not.toMatch(/resetPasswordForEmail|generateLink|inviteUserByEmail|signInWithOtp/iu);
+        expect(source).not.toMatch(/googleapis|new\s+Stripe|storage\.from/iu);
+    });
+
+    it('keeps confirmed writes monotonic when the second rotation becomes pending or fails', () => {
+        const startedAt = new Date().toISOString();
+        const base: AuthRequarantineCheckpoint = {
+            schemaVersion: 1,
+            targetProjectRef: PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+            status: 'IN_PROGRESS',
+            startedAt,
+            updatedAt: startedAt,
+            previousAuthReducedReceiptSha256: 'a'.repeat(64),
+            publicCleanupReceiptSha256: 'b'.repeat(64),
+            backupReceiptSha256: 'c'.repeat(64),
+            preservedSetSha256: 'd'.repeat(64),
+            passwordRotationsAttempted: 0,
+            passwordRotationsCompleted: 0,
+            externalWritePerformed: false,
+            pendingWriteAttempt: false,
+            lastErrorCategory: null,
+        };
+        const firstPending = beginAuthRequarantineRotation(base, new Date().toISOString());
+        expect(firstPending).toMatchObject({
+            passwordRotationsAttempted: 1,
+            passwordRotationsCompleted: 0,
+            externalWritePerformed: false,
+            pendingWriteAttempt: true,
+        });
+        const firstConfirmed = confirmAuthRequarantineRotation(firstPending, new Date().toISOString());
+        const secondPending = beginAuthRequarantineRotation(firstConfirmed, new Date().toISOString());
+        expect(secondPending).toMatchObject({
+            passwordRotationsAttempted: 2,
+            passwordRotationsCompleted: 1,
+            externalWritePerformed: true,
+            pendingWriteAttempt: true,
+        });
+        expect(() => beginAuthRequarantineRotation(secondPending, new Date().toISOString())).toThrow('pending');
+    });
+
+    it('consumes each exact evidence/prior-receipt pair once in the durable ledger', () => {
+        const ledger = makeTempDir();
+        const validatedLedger = validateRequarantineLedgerDirectory(ledger);
+        expect(() => validateRequarantineLedgerDirectory('relative-ledger')).toThrow('absolute path');
+        expect(() => validateRequarantineLedgerDirectory(path.join(process.cwd(), 'outputs', 'ledger')))
+            .toThrow('outside the repository');
+        const evidence = 'a'.repeat(64);
+        const prior = 'b'.repeat(64);
+        const firstPath = acquireRequarantineOneShotLock(evidence, prior, validatedLedger);
+        expect(JSON.parse(readFileSync(firstPath, 'utf8'))).toMatchObject({
+            status: 'REQUARANTINE_APPROVAL_CONSUMED_ONE_SHOT',
+            evidenceSha256: evidence,
+            priorReceiptSha256: prior,
+        });
+        expect(() => acquireRequarantineOneShotLock(evidence, prior, validatedLedger)).toThrow('already consumed');
+        expect(() => acquireRequarantineOneShotLock('c'.repeat(64), prior, validatedLedger)).not.toThrow();
+        expect(() => acquireRequarantineOneShotLock(evidence, 'd'.repeat(64), validatedLedger)).not.toThrow();
+    });
+
+    it('emits rollout-consumable receipts and chains a second re-quarantine to the first', () => {
+        const directory = makeTempDir();
+        const bindingHash = 'a'.repeat(64);
+        const initialPriorHash = 'b'.repeat(64);
+        const firstCompletedAt = new Date(Date.now() - 60_000).toISOString();
+        const first: AuthRequarantineReceipt = {
+            ...validReducedReceipt(bindingHash),
+            completedAt: firstCompletedAt,
+            quarantineUntil: buildQuarantineUntil(firstCompletedAt, 3600),
+            requarantine: true,
+            preflightEvidenceSha256: 'c'.repeat(64),
+            previousAuthReducedReceiptSha256: initialPriorHash,
+            passwordRotationsCompleted: 2,
+            authSessionsObservedBefore: 0,
+            refreshSessionsObservedBefore: 0,
+            authSessionsRemaining: 0,
+            refreshSessionsAbsentAndVerified: true,
+            refreshSessionVerificationMethod: 'PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK',
+        };
+        const firstPath = path.join(directory, 'first-requarantine.json');
+        writeFileSync(firstPath, stableJson(first), 'utf8');
+        const firstHash = sha256(readFileSync(firstPath));
+        expect(validateAuthRequarantineReceipt(first, {
+            publicCleanupReceiptSha256: bindingHash,
+            backupReceiptSha256: bindingHash,
+            preservedSetSha256: bindingHash,
+            preflightEvidenceSha256: 'c'.repeat(64),
+            previousAuthReducedReceiptSha256: initialPriorHash,
+        })).toMatchObject({ ok: true });
+        expect(readAuthPolicyEvidence(firstPath, bindingHash, new Date(), bindingHash)).toMatchObject({ valid: true });
+        const adversarialMutations: Array<Record<string, unknown>> = [
+            { requarantine: false },
+            { preflightEvidenceSha256: 'not-a-sha' },
+            { previousAuthReducedReceiptSha256: 'not-a-sha' },
+            { passwordRotationsCompleted: 1 },
+            { authSessionsObservedBefore: -1 },
+            { refreshSessionsObservedBefore: 1.5 },
+            { authSessionsRemaining: 1 },
+            { refreshSessionsAbsentAndVerified: false },
+            { refreshSessionVerificationMethod: 'CLAIMED_REVOKED_WITHOUT_API' },
+        ];
+        for (const [index, mutation] of adversarialMutations.entries()) {
+            const invalidPath = path.join(directory, `invalid-requarantine-${index}.json`);
+            writeFileSync(invalidPath, stableJson({ ...first, ...mutation }), 'utf8');
+            expect(readAuthPolicyEvidence(invalidPath, bindingHash, new Date(), bindingHash)).toMatchObject({
+                valid: false,
+                errors: expect.arrayContaining([expect.stringContaining('extended receipt/chaining shape')]),
+            });
+        }
+
+        const secondCompletedAt = new Date().toISOString();
+        const second: AuthRequarantineReceipt = {
+            ...first,
+            completedAt: secondCompletedAt,
+            quarantineUntil: buildQuarantineUntil(secondCompletedAt, 3600),
+            preflightEvidenceSha256: 'd'.repeat(64),
+            previousAuthReducedReceiptSha256: firstHash,
+        };
+        const secondPath = path.join(directory, 'second-requarantine.json');
+        writeFileSync(secondPath, stableJson(second), 'utf8');
+        expect(validateAuthRequarantineReceipt(second, {
+            publicCleanupReceiptSha256: bindingHash,
+            backupReceiptSha256: bindingHash,
+            preservedSetSha256: bindingHash,
+            preflightEvidenceSha256: 'd'.repeat(64),
+            previousAuthReducedReceiptSha256: firstHash,
+        })).toMatchObject({ ok: true });
+        expect(readAuthPolicyEvidence(secondPath, bindingHash, new Date(), bindingHash)).toMatchObject({ valid: true });
     });
 });
 

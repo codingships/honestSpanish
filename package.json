@@ -145,6 +145,8 @@
     "launch:supabase-auth-production-inert": "tsx scripts/launch/supabase-auth-production-gate.ts inert",
     "launch:supabase-auth-production-final": "tsx scripts/launch/supabase-auth-production-gate.ts final",
     "launch:supabase-production-auth-cleanup": "tsx scripts/launch/supabase-production-auth-cleanup.ts",
+    "launch:supabase-production-auth-requarantine:preflight": "tsx scripts/launch/supabase-production-auth-cleanup.ts requarantine-preflight",
+    "launch:supabase-production-auth-requarantine": "tsx scripts/launch/supabase-production-auth-cleanup.ts re-quarantine",
     "launch:supabase-auth-staging-callbacks": "tsx scripts/launch/supabase-auth-staging-callbacks-gate.ts",
     "launch:supabase-staging-hardening": "tsx scripts/launch/supabase-staging-hardening-runner.ts",
     "launch:staging-availability": "tsx scripts/launch/staging-availability-seed.ts",

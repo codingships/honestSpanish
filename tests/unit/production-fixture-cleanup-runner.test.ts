@@ -193,7 +193,7 @@ describe('production fixture-cleanup safety package', () => {
 
     it('hands Auth cleanup to the separate resumable quarantine runner', () => {
         expect(manifestSource).toContain('BLOCKED_SEPARATE_APPROVAL_AND_WORKFLOW');
-        expect(authRunnerSource).toContain("type Mode = 'plan' | 'preflight' | AuthCleanupPhase");
+        expect(authRunnerSource).toContain("type Mode = 'plan' | 'preflight' | 'requarantine-preflight' | AuthCleanupPhase");
         expect(authSharedSource).toContain("'auth-reduced-quarantined-receipt.json'");
         expect(authSharedSource).toContain("'auth-policy-receipt.json'");
         expect(authSharedSource).toContain('refreshSessionsRemaining');

@@ -1,15 +1,21 @@
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
     FIXTURE_CLEANUP_TARGET,
+    sha256,
 } from '../../scripts/launch/production-fixture-cleanup-shared';
 import {
     PRODUCTION_ROLLOUT_APPROVAL_ENV,
     PRODUCTION_ROLLOUT_MIGRATIONS,
     PRODUCTION_ROLLOUT_WAVES,
     PRODUCTION_ROLLOUT_PSQL_GATE,
+    STAGING_HARDENING_CANONICALIZATION,
+    STAGING_HARDENING_CONNECTOR_EVIDENCE_KIND,
+    STAGING_HARDENING_CONNECTOR_MIGRATIONS,
+    STAGING_HARDENING_CONNECTOR_QUERY_PATH,
+    STAGING_HARDENING_CONNECTOR_STATUS,
     buildProductionRolloutApproval,
     deriveWaveHistoryStates,
     expectedProductionWaveVerificationFacts,
@@ -277,6 +283,32 @@ describe('Supabase production wave rollout runner', () => {
                 .toMatchObject({ valid: false });
 
             const googlePath = writeJson(directory, 'google-fixture-policy-evidence.json', {
+                schemaVersion: 2,
+                environment: 'production',
+                status: 'TRASHED_AND_VERIFIED',
+                completedAt: '2026-07-12T11:45:00.000Z',
+                observedActiveRootChildrenBefore: 110,
+                observedFoldersBefore: 110,
+                activeRootChildrenAfter: 0,
+                permanentlyDeleted: 0,
+                rootIdStored: false,
+                baselineFingerprintSha256: '1'.repeat(64),
+                recoveryStateSha256: '2'.repeat(64),
+                recoveredAfterInterruptedRun: false,
+            });
+            expect(readGoogleFixturePolicyEvidence(googlePath, now)).toMatchObject({ valid: true });
+            const validGoogleEvidence = JSON.parse(readFileSync(googlePath, 'utf8')) as Record<string, unknown>;
+            for (const [name, evidence] of [
+                ['bad-baseline-hash', { ...validGoogleEvidence, baselineFingerprintSha256: 'not-a-hash' }],
+                ['bad-recovery-hash', { ...validGoogleEvidence, recoveryStateSha256: 'not-a-hash' }],
+                ['bad-recovery-flag', { ...validGoogleEvidence, recoveredAfterInterruptedRun: 'false' }],
+            ] as const) {
+                expect(readGoogleFixturePolicyEvidence(
+                    writeJson(directory, `google-fixture-policy-${name}.json`, evidence),
+                    now,
+                )).toMatchObject({ valid: false });
+            }
+            expect(readGoogleFixturePolicyEvidence(writeJson(directory, 'google-fixture-policy-legacy.json', {
                 schemaVersion: 1,
                 environment: 'production',
                 status: 'TRASHED_AND_VERIFIED',
@@ -286,8 +318,18 @@ describe('Supabase production wave rollout runner', () => {
                 activeRootChildrenAfter: 0,
                 permanentlyDeleted: 0,
                 rootIdStored: false,
-            });
-            expect(readGoogleFixturePolicyEvidence(googlePath, now)).toMatchObject({ valid: true });
+            }), now)).toMatchObject({ valid: false });
+            expect(readGoogleFixturePolicyEvidence(writeJson(directory, 'google-fixture-policy-deferred.json', {
+                schemaVersion: 1,
+                environment: 'production',
+                status: 'EXPLICITLY_DEFERRED_APPROVED',
+                completedAt: '2026-07-12T11:45:00.000Z',
+                observedActiveRootChildrenBefore: 110,
+                observedFoldersBefore: 110,
+                activeRootChildrenAfter: 110,
+                permanentlyDeleted: 0,
+                rootIdStored: false,
+            }), now)).toMatchObject({ valid: true });
 
             const stagingPath = writeJson(directory, 'staging-hardening.json', stagingEvidence());
             expect(readStagingHardeningEvidence(stagingPath, now)).toMatchObject({ valid: true });
@@ -299,6 +341,91 @@ describe('Supabase production wave rollout runner', () => {
                 'staging-malformed.json',
                 { ...stagingEvidence(), migrations: null },
             ), now)).toMatchObject({ valid: false });
+
+            withGeneratedTypesConnectorEvidence((generatedTypesPath) => {
+                const connectorEvidence = () => connectorStagingEvidence(
+                    generatedTypesPath,
+                    sha256(readFileSync(generatedTypesPath)),
+                );
+                const connectorPath = writeJson(directory, 'staging-connector-consolidated.json', connectorEvidence());
+                expect(readStagingHardeningEvidence(connectorPath, now)).toMatchObject({ valid: true, errors: [] });
+
+                const singleMigrationClaim = {
+                schemaVersion: 1,
+                recordedAt: '2026-07-12T11:45:00.000Z',
+                source: 'authenticated Supabase connector post-apply verification',
+                target: { environment: 'staging', projectRef: 'mzjyvmlxfpzdfdjzxxyj' },
+                migration: {
+                    version: '20260712195500',
+                    sourceAndStoredStatementSha256: STAGING_HARDENING_CONNECTOR_MIGRATIONS.at(-1)!.sourceSha256,
+                    historyPrefixCount: 5,
+                },
+                };
+                expect(readStagingHardeningEvidence(
+                    writeJson(directory, 'staging-single-migration-prefix-claim.json', singleMigrationClaim),
+                    now,
+                )).toMatchObject({ valid: false });
+
+                const generatedTypesValue = JSON.parse(readFileSync(generatedTypesPath, 'utf8')) as Record<string, unknown>;
+                const invalidGeneratedTypesPath = writeJson(path.dirname(generatedTypesPath), 'invalid-summary.json', {
+                    ...generatedTypesValue,
+                    migration: {
+                        ...(generatedTypesValue.migration as Record<string, unknown>),
+                        historyPrefixCount: 4,
+                    },
+                });
+                expect(readStagingHardeningEvidence(writeJson(
+                    directory,
+                    'staging-connector-invalid-local-types.json',
+                    connectorStagingEvidence(invalidGeneratedTypesPath, sha256(readFileSync(invalidGeneratedTypesPath))),
+                ), now)).toMatchObject({ valid: false });
+                const outsideGeneratedTypesPath = writeJson(directory, 'outside-generated-types.json', generatedTypesValue);
+                expect(readStagingHardeningEvidence(writeJson(
+                    directory,
+                    'staging-connector-outside-local-types.json',
+                    connectorStagingEvidence(outsideGeneratedTypesPath, sha256(readFileSync(outsideGeneratedTypesPath))),
+                ), now)).toMatchObject({ valid: false });
+
+                const adversarialConnectorClaims = [
+                { ...connectorEvidence(), target: { environment: 'staging', projectRef: 'wrong' } },
+                { ...connectorEvidence(), collection: { ...connectorEvidence().collection, querySha256: 'a'.repeat(64) } },
+                { ...connectorEvidence(), migrations: connectorEvidence().migrations.slice(1) },
+                {
+                    ...connectorEvidence(),
+                    migrations: connectorEvidence().migrations.map((entry, index) => (
+                        index === 0 ? { ...entry, storedStatementSha256: 'a'.repeat(64) } : entry
+                    )),
+                },
+                {
+                    ...connectorEvidence(),
+                    migrations: connectorEvidence().migrations.map((entry, index) => (
+                        index === 0 ? { ...entry, storedCanonicalSha256: 'b'.repeat(64) } : entry
+                    )),
+                },
+                {
+                    ...connectorEvidence(),
+                    migrations: connectorEvidence().migrations.map((entry, index) => (
+                        index === 0 ? { ...entry, statementCount: 2 } : entry
+                    )),
+                },
+                { ...connectorEvidence(), sessionsStatus: { ...connectorEvidence().sessionsStatus, nullable: true } },
+                { ...connectorEvidence(), posture: { publicTables: 24, rlsDisabledTables: 0, unsafeClientGrants: 0 } },
+                { ...connectorEvidence(), posture: { ...connectorEvidence().posture, requiredClientGrantsMissing: 1, unsafeClientGrants: 1 } },
+                { ...connectorEvidence(), posture: { ...connectorEvidence().posture, unexpectedClientGrants: 1, unsafeClientGrants: 1 } },
+                { ...connectorEvidence(), localVerification: { ...connectorEvidence().localVerification, generatedTypesEvidenceSha256: 'c'.repeat(64) } },
+                { ...connectorEvidence(), scope: { ...connectorEvidence().scope, rawStatementsPersisted: true } },
+                ];
+                for (const [index, claim] of adversarialConnectorClaims.entries()) {
+                    expect(readStagingHardeningEvidence(
+                        writeJson(directory, `staging-connector-adversarial-${index}.json`, claim),
+                        now,
+                    )).toMatchObject({ valid: false });
+                }
+                expect(readStagingHardeningEvidence(
+                    writeJson(directory, 'staging-connector-stale.json', connectorEvidence()),
+                    new Date('2026-07-13T12:00:01.000Z'),
+                )).toMatchObject({ valid: false });
+            });
 
             const sentryPath = writeJson(directory, 'sentry-hardening.json', sentryEvidence());
             expect(readSentryProductionHardeningEvidence(sentryPath, now)).toMatchObject({ valid: true });
@@ -313,6 +440,24 @@ describe('Supabase production wave rollout runner', () => {
         });
     });
 
+    it('pins the connector-consolidation query to read-only, aggregate-only remote proof', () => {
+        const query = readFileSync(STAGING_HARDENING_CONNECTOR_QUERY_PATH, 'utf8');
+        expect(query).toContain('BEGIN READ ONLY;');
+        expect(query).toContain("current_setting('transaction_read_only')");
+        expect(query).toContain("cardinality(history.statements)");
+        expect(query).toContain("btrim(replace(history.statements[1], E'\\r\\n', E'\\n'), E' \\t\\r\\n')");
+        expect(query).toContain('stored_canonical_sha256');
+        expect(query).toContain('sessions_status');
+        expect(query).toContain('posture');
+        expect(query).toContain('expected_grants(grantee, table_name, privilege_type)');
+        expect(query).toContain('missing_grants AS');
+        expect(query).toContain('unexpected_grants AS');
+        expect(query).toContain('SELECT grantee, table_name, privilege_type FROM expected_grants\n        EXCEPT\n        SELECT grantee, table_name, privilege_type FROM observed_client_grants');
+        expect(query).toContain('SELECT grantee, table_name, privilege_type FROM observed_client_grants\n        EXCEPT\n        SELECT grantee, table_name, privilege_type FROM expected_grants');
+        expect(query).not.toMatch(/^\s*(?:INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b/imu);
+        expect(query).not.toContain('history.statements[1] AS');
+    });
+
     it('binds the exact approval to all evidence, migration hashes, SQL hashes and exclusions', () => {
         const approval = buildProductionRolloutApproval({
             scopeSha256: '1'.repeat(64),
@@ -323,6 +468,7 @@ describe('Supabase production wave rollout runner', () => {
             cleanupEvidenceSha256: '5'.repeat(64),
             authPolicyEvidenceSha256: '6'.repeat(64),
             stagingEvidenceSha256: '7'.repeat(64),
+            stagingLiveVerifySqlSha256: 'e'.repeat(64),
             googleFixturePolicySha256: '8'.repeat(64),
             sentryHardeningEvidenceSha256: 'a'.repeat(64),
             pendingMigrations: [PRODUCTION_ROLLOUT_MIGRATIONS[0]],
@@ -339,6 +485,7 @@ describe('Supabase production wave rollout runner', () => {
             'db_push=FORBIDDEN',
             'migration_repair=FORBIDDEN',
             `sentry_hardening=${'a'.repeat(64)}`,
+            `staging_live_verify_sql=${'e'.repeat(64)}`,
             `live_preflight_sql=${'b'.repeat(64)}`,
             `wave_verify_sql=processed_at_small_fix@${'c'.repeat(64)}`,
             `final_verify_sql=${'d'.repeat(64)}`,
@@ -354,6 +501,7 @@ describe('Supabase production wave rollout runner', () => {
             cleanupEvidenceSha256: null,
             authPolicyEvidenceSha256: null,
             stagingEvidenceSha256: null,
+            stagingLiveVerifySqlSha256: null,
             googleFixturePolicySha256: null,
             sentryHardeningEvidenceSha256: null,
             pendingMigrations: [],
@@ -380,6 +528,23 @@ describe('Supabase production wave rollout runner', () => {
         expect(runnerSource).not.toContain("spawnSync('supabase'");
         expect(runnerSource).not.toMatch(/runTool\([^)]*supabase/iu);
         expect(sharedSource).toContain('automatic_down_or_restore=FORBIDDEN');
+    });
+
+    it('requires an exact live staging hardening readback before any production write', () => {
+        const stagingReadback = runnerSource.indexOf("runPsql(\n            'live-staging-hardening'");
+        const productionLivePreflight = runnerSource.indexOf("runPsql('live-preflight'");
+        const firstProductionWrite = runnerSource.indexOf('runPsql(`apply-${wave.id}`');
+        expect(stagingReadback).toBeGreaterThan(-1);
+        expect(productionLivePreflight).toBeGreaterThan(stagingReadback);
+        expect(firstProductionWrite).toBeGreaterThan(productionLivePreflight);
+        expect(runnerSource).toContain('validateStagingDatabaseUrl(process.env[STAGING_HARDENING_DB_URL_ENV])');
+        expect(runnerSource).toContain('renderStagingHardeningPostVerifySql()');
+        expect(runnerSource).toContain('validateStagingHardeningPostVerifyFacts');
+        expect(runnerSource).toContain('liveStagingHardeningReadback');
+        expect(runnerSource).toContain('stagingHardeningPostVerifySqlSha256');
+        expect(runnerSource).toContain('staging-hardening-live-verification-readonly.sql');
+        expect(runnerSource).toContain("status: 'BLOCKED_LIVE_STAGING_HARDENING'");
+        expect(runnerSource).toContain('writeCommandInvoked: false');
     });
 });
 
@@ -468,6 +633,108 @@ function stagingEvidence(): Record<string, unknown> {
         migrations,
         checks: [{ status: 'ok' }],
     };
+}
+
+function connectorStagingEvidence(generatedTypesEvidencePath: string, generatedTypesEvidenceSha256: string) {
+    return {
+        schemaVersion: 1 as const,
+        evidenceKind: STAGING_HARDENING_CONNECTOR_EVIDENCE_KIND,
+        endedAt: '2026-07-12T11:45:00.000Z',
+        status: STAGING_HARDENING_CONNECTOR_STATUS,
+        target: { environment: 'staging' as const, projectRef: 'mzjyvmlxfpzdfdjzxxyj' },
+        collection: {
+            provider: 'authenticated_supabase_connector' as const,
+            operation: 'read_only_query' as const,
+            querySha256: sha256(readFileSync(STAGING_HARDENING_CONNECTOR_QUERY_PATH)),
+            transactionReadOnly: true as const,
+            externalWritePerformed: false as const,
+        },
+        migrations: STAGING_HARDENING_CONNECTOR_MIGRATIONS.map((entry) => ({
+            version: entry.version,
+            name: entry.name,
+            file: entry.file,
+            sourceSha256: entry.sourceSha256,
+            storedStatementSha256: entry.storedStatementSha256,
+            canonicalization: STAGING_HARDENING_CANONICALIZATION,
+            sourceCanonicalSha256: entry.canonicalSha256,
+            storedCanonicalSha256: entry.canonicalSha256,
+            statementCount: 1,
+            historyRowCount: 1,
+        })),
+        sessionsStatus: {
+            dataType: 'text' as const,
+            nullable: false as const,
+            default: 'scheduled' as const,
+            constraint: 'sessions_status_check' as const,
+            constraintValidated: true as const,
+            allowedValues: ['scheduled', 'completed', 'cancelled', 'no_show'],
+            nullOrInvalidRows: 0 as const,
+        },
+        posture: {
+            publicTables: 24 as const,
+            rlsDisabledTables: 0 as const,
+            requiredClientGrantsMissing: 0 as const,
+            unexpectedClientGrants: 0 as const,
+            unsafeDefaultGrants: 0 as const,
+            unsafeClientGrants: 0 as const,
+        },
+        localVerification: {
+            generatedTypesEvidencePath,
+            generatedTypesEvidenceSha256,
+            generatedTypesSemanticDifferences: 0 as const,
+        },
+        scope: {
+            productionWritePerformed: false as const,
+            otherMigrationApplied: false as const,
+            secretValuesRecorded: false as const,
+            rawStatementsPersisted: false as const,
+        },
+    };
+}
+
+function withGeneratedTypesConnectorEvidence(run: (filePath: string) => void): void {
+    const root = path.join(process.cwd(), 'outputs', 'launch-supabase-staging-hardening-connector');
+    mkdirSync(root, { recursive: true });
+    const directory = mkdtempSync(path.join(root, 'unit-test-'));
+    const filePath = writeJson(directory, 'summary.json', {
+        schemaVersion: 1,
+        recordedAt: '2026-07-12T11:40:00.000Z',
+        source: 'authenticated Supabase connector post-apply verification',
+        target: { environment: 'staging', projectRef: 'mzjyvmlxfpzdfdjzxxyj' },
+        migration: {
+            version: '20260712195500',
+            name: 'harden_sessions_status_contract',
+            sourceFile: 'supabase/migrations/20260712195500_harden_sessions_status_contract.sql',
+            sourceAndStoredStatementSha256: STAGING_HARDENING_CONNECTOR_MIGRATIONS.at(-1)!.sourceSha256,
+            statementCount: 1,
+            historyPrefixCount: 5,
+        },
+        sessionsStatus: {
+            dataType: 'text',
+            nullable: false,
+            default: 'scheduled',
+            constraint: 'sessions_status_check',
+            constraintValidated: true,
+            allowedValues: ['scheduled', 'completed', 'cancelled', 'no_show'],
+            nullOrInvalidRows: 0,
+        },
+        posture: {
+            publicTables: 24,
+            rlsDisabledTables: 0,
+            unsafeClientGrants: 0,
+            generatedTypesSemanticDifferences: 0,
+        },
+        scope: {
+            productionWritePerformed: false,
+            otherMigrationApplied: false,
+            secretValuesRecorded: false,
+        },
+    });
+    try {
+        run(filePath);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 }
 
 function sentryEvidence(): Record<string, unknown> {

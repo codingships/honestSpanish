@@ -26,6 +26,7 @@ export const PRODUCTION_AUTH_QUARANTINE_SKEW_SECONDS = 5 * 60;
 export const PRODUCTION_AUTH_DEFAULT_JWT_EXPIRY_SECONDS = 60 * 60;
 export const PRODUCTION_AUTH_MAX_JWT_EXPIRY_SECONDS = 60 * 60;
 export const PRODUCTION_AUTH_INERT_CONFIRMATION_ENV = 'SUPABASE_PRODUCTION_AUTH_INERT_CONFIRMATION';
+export const PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR_ENV = 'SUPABASE_PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR';
 export const PRODUCTION_AUTH_INERT_CONFIRMATION = [
     'target=vkkahxsybhbutszerawz',
     'production_inert=true',
@@ -39,6 +40,7 @@ export const PRODUCTION_AUTH_APPROVAL_ENVS = {
     resumeDelete: 'SUPABASE_PRODUCTION_AUTH_RESUME_DELETE_APPROVAL',
     finalize: 'SUPABASE_PRODUCTION_AUTH_FINALIZE_APPROVAL',
     resumeFinalize: 'SUPABASE_PRODUCTION_AUTH_RESUME_FINALIZE_APPROVAL',
+    requarantine: 'SUPABASE_PRODUCTION_AUTH_REQUARANTINE_APPROVAL',
 } as const;
 
 export const PRODUCTION_AUTH_OUTPUT_FILES = {
@@ -46,6 +48,8 @@ export const PRODUCTION_AUTH_OUTPUT_FILES = {
     approval: 'exact-approval-required.txt',
     checkpoint: 'auth-cleanup-checkpoint.json',
     reducedReceipt: 'auth-reduced-quarantined-receipt.json',
+    requarantinedReceipt: 'auth-requarantined-receipt.json',
+    requarantineCheckpoint: 'auth-requarantine-checkpoint.json',
     finalReceipt: 'auth-policy-receipt.json',
     summary: 'summary.json',
 } as const;
@@ -54,12 +58,13 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const FUTURE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 
-export type AuthCleanupPhase = 'delete' | 'resume-delete' | 'finalize' | 'resume-finalize';
+export type AuthCleanupPhase = 'delete' | 'resume-delete' | 'finalize' | 'resume-finalize' | 're-quarantine';
 export type AuthCleanupReadiness =
     | 'INITIAL_DELETE_READY'
     | 'RESUME_DELETE_READY'
     | 'FINALIZE_READY'
     | 'RESUME_FINALIZE_READY'
+    | 'REQUARANTINE_READY'
     | 'BLOCKED';
 
 export interface PublicCleanupReceipt {
@@ -209,6 +214,69 @@ export interface AuthReducedReceipt {
     refreshSessionsRemaining: 0;
     resetEmailsSent: false;
     googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED';
+}
+
+export interface AuthRequarantineReceipt extends AuthReducedReceipt {
+    requarantine: true;
+    preflightEvidenceSha256: string;
+    previousAuthReducedReceiptSha256: string;
+    passwordRotationsCompleted: 2;
+    authSessionsObservedBefore: number;
+    refreshSessionsObservedBefore: number;
+    authSessionsRemaining: 0;
+    refreshSessionsAbsentAndVerified: true;
+    refreshSessionVerificationMethod: 'PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK';
+}
+
+export interface AuthRequarantineCheckpoint {
+    schemaVersion: 1;
+    targetProjectRef: string;
+    status: 'IN_PROGRESS' | 'PARTIAL_FAILURE' | 'AUTH_REQUARANTINED';
+    startedAt: string;
+    updatedAt: string;
+    previousAuthReducedReceiptSha256: string;
+    publicCleanupReceiptSha256: string;
+    backupReceiptSha256: string;
+    preservedSetSha256: string;
+    passwordRotationsAttempted: number;
+    passwordRotationsCompleted: number;
+    externalWritePerformed: boolean;
+    pendingWriteAttempt: boolean;
+    lastErrorCategory: string | null;
+}
+
+export function beginAuthRequarantineRotation(
+    checkpoint: AuthRequarantineCheckpoint,
+    updatedAt: string,
+): AuthRequarantineCheckpoint {
+    if (checkpoint.pendingWriteAttempt
+        || checkpoint.passwordRotationsAttempted !== checkpoint.passwordRotationsCompleted
+        || checkpoint.passwordRotationsAttempted >= 2) {
+        throw new Error('Auth re-quarantine checkpoint cannot start another rotation while a write is pending or complete.');
+    }
+    return {
+        ...checkpoint,
+        updatedAt,
+        passwordRotationsAttempted: checkpoint.passwordRotationsAttempted + 1,
+        pendingWriteAttempt: true,
+    };
+}
+
+export function confirmAuthRequarantineRotation(
+    checkpoint: AuthRequarantineCheckpoint,
+    updatedAt: string,
+): AuthRequarantineCheckpoint {
+    if (!checkpoint.pendingWriteAttempt
+        || checkpoint.passwordRotationsAttempted !== checkpoint.passwordRotationsCompleted + 1) {
+        throw new Error('Auth re-quarantine checkpoint has no single pending rotation to confirm.');
+    }
+    return {
+        ...checkpoint,
+        updatedAt,
+        passwordRotationsCompleted: checkpoint.passwordRotationsCompleted + 1,
+        externalWritePerformed: true,
+        pendingWriteAttempt: false,
+    };
 }
 
 export interface FinalAuthPolicyReceipt {
@@ -426,6 +494,46 @@ export function validateAuthReducedReceipt(
         && value.quarantineUntil !== buildQuarantineUntil(value.completedAt, value.jwtExpirySeconds)) {
         errors.push('Auth-reduced quarantine expiry does not equal JWT TTL plus safety skew.');
     }
+    if ('requarantine' in raw) {
+        const chained = value as AuthRequarantineReceipt;
+        if (chained.requarantine !== true
+            || !SHA256_PATTERN.test(chained.preflightEvidenceSha256 ?? '')
+            || !SHA256_PATTERN.test(chained.previousAuthReducedReceiptSha256 ?? '')
+            || chained.passwordRotationsCompleted !== 2
+            || !Number.isInteger(chained.authSessionsObservedBefore) || chained.authSessionsObservedBefore < 0
+            || !Number.isInteger(chained.refreshSessionsObservedBefore) || chained.refreshSessionsObservedBefore < 0
+            || chained.authSessionsRemaining !== 0
+            || chained.refreshSessionsAbsentAndVerified !== true
+            || chained.refreshSessionVerificationMethod !== 'PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK') {
+            errors.push('Auth re-quarantine chain/effects are invalid.');
+        }
+    }
+    return { ok: errors.length === 0, errors, value: errors.length === 0 ? value : null };
+}
+
+export function validateAuthRequarantineReceipt(
+    raw: unknown,
+    expected: {
+        publicCleanupReceiptSha256: string;
+        backupReceiptSha256: string;
+        preservedSetSha256: string;
+        preflightEvidenceSha256: string;
+        previousAuthReducedReceiptSha256: string;
+    },
+): ValidationResult<AuthRequarantineReceipt> {
+    const base = validateAuthReducedReceipt(raw, expected);
+    if (!base.ok || !base.value || !isRecord(raw)) {
+        return { ok: false, errors: base.errors, value: null };
+    }
+    const value = raw as unknown as AuthRequarantineReceipt;
+    const errors = [...base.errors];
+    if (value.requarantine !== true) errors.push('Auth re-quarantine marker is missing.');
+    if (value.previousAuthReducedReceiptSha256 !== expected.previousAuthReducedReceiptSha256) {
+        errors.push('Auth re-quarantine prior-receipt binding mismatch.');
+    }
+    if (value.preflightEvidenceSha256 !== expected.preflightEvidenceSha256) {
+        errors.push('Auth re-quarantine preflight-evidence binding mismatch.');
+    }
     return { ok: errors.length === 0, errors, value: errors.length === 0 ? value : null };
 }
 
@@ -475,6 +583,7 @@ export function validateAuthPreflightEvidence(
         'resume-delete': 'RESUME_DELETE_READY',
         finalize: 'FINALIZE_READY',
         'resume-finalize': 'RESUME_FINALIZE_READY',
+        're-quarantine': 'REQUARANTINE_READY',
     };
     if (value.readiness !== expectedReadiness[expectedPhase]) errors.push('Auth preflight readiness mismatch.');
     for (const hash of [
@@ -516,6 +625,14 @@ export function validateAuthPreflightEvidence(
             || !value.rolloutReceiptSha256 || !value.quarantineElapsed)) {
         errors.push('Finalize preflight lacks the completed rollout/quarantine gates.');
     }
+    if (expectedPhase === 're-quarantine'
+        && (value.auth.users !== 2 || value.auth.candidates !== 0
+            || (value.database.counts['public.profiles'] ?? -1) !== 0
+            || (value.database.counts['public.profiles_private'] ?? -1) !== 0
+            || !value.authReducedReceiptSha256 || value.checkpointSha256 !== null
+            || value.rolloutReceiptSha256 !== null)) {
+        errors.push('Re-quarantine preflight requires only auth=2, candidates=0, profiles/private=0 and the prior Auth-reduced receipt.');
+    }
     return { ok: errors.length === 0, errors, value: errors.length === 0 ? value : null };
 }
 
@@ -528,13 +645,19 @@ export function buildAuthCleanupApproval(binding: ApprovalBinding): string {
     if (binding.checkpointSha256) assertSha(binding.checkpointSha256, 'checkpoint');
     if (binding.authReducedReceiptSha256) assertSha(binding.authReducedReceiptSha256, 'auth-reduced receipt');
     if (binding.rolloutReceiptSha256) assertSha(binding.rolloutReceiptSha256, 'production rollout receipt');
+    if (binding.phase === 're-quarantine'
+        && (!binding.authReducedReceiptSha256 || binding.candidateCount !== 0)) {
+        throw new Error('Re-quarantine approval requires the prior Auth-reduced receipt and candidate_count=0.');
+    }
     const phaseLabel: Record<AuthCleanupPhase, string> = {
         delete: 'REDUCIR AUTH PRODUCCION Y CUARENTENAR CREDENCIALES',
         'resume-delete': 'REANUDAR REDUCCION AUTH PRODUCCION Y CUARENTENAR CREDENCIALES',
         finalize: 'FINALIZAR PERFILES AUTH PRODUCCION TRAS CUARENTENA',
         'resume-finalize': 'REANUDAR FINALIZACION DE PERFILES AUTH PRODUCCION',
+        're-quarantine': 'REINICIAR CUARENTENA AUTH PRODUCCION SIN BORRAR USUARIOS',
     };
     const isDeletePhase = binding.phase === 'delete' || binding.phase === 'resume-delete';
+    const isRequarantine = binding.phase === 're-quarantine';
     return [
         `AUTORIZO ${phaseLabel[binding.phase]}`,
         `target=${PRODUCTION_AUTH_CLEANUP_TARGET.projectRef}`,
@@ -552,7 +675,8 @@ export function buildAuthCleanupApproval(binding: ApprovalBinding): string {
         `freeze_cutoff=${PRODUCTION_AUTH_FREEZE_CUTOFF}`,
         'preserve=TEST_ADMIN_EMAIL,TEST_TEACHER_EMAIL',
         `hard_delete=${isDeletePhase ? 'sequential_with_stop_on_partial_failure' : 'FORBIDDEN'}`,
-        `passwords=${isDeletePhase ? 'random_unretained' : 'UNCHANGED_ALREADY_QUARANTINED'}`,
+        `passwords=${isDeletePhase ? 'random_unretained' : isRequarantine ? 'random_unretained_again_for_exact_two' : 'UNCHANGED_ALREADY_QUARANTINED'}`,
+        `refresh_sessions=${isRequarantine ? 'ASSERT_ABSENT_AFTER_PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK' : 'UNCHANGED_PHASE_CONTRACT'}`,
         'signup=DISABLED',
         'checkout=DISABLED',
         'outbound_email=FORBIDDEN',
@@ -568,7 +692,8 @@ export function approvalEnvForPhase(phase: AuthCleanupPhase): string {
     if (phase === 'delete') return PRODUCTION_AUTH_APPROVAL_ENVS.delete;
     if (phase === 'resume-delete') return PRODUCTION_AUTH_APPROVAL_ENVS.resumeDelete;
     if (phase === 'finalize') return PRODUCTION_AUTH_APPROVAL_ENVS.finalize;
-    return PRODUCTION_AUTH_APPROVAL_ENVS.resumeFinalize;
+    if (phase === 'resume-finalize') return PRODUCTION_AUTH_APPROVAL_ENVS.resumeFinalize;
+    return PRODUCTION_AUTH_APPROVAL_ENVS.requarantine;
 }
 
 export function evidenceIsFresh(createdAt: string, now = new Date()): boolean {

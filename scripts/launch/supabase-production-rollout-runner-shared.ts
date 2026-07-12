@@ -193,9 +193,18 @@ export interface AuthPolicyEvidence {
     refreshSessionsRemaining: 0;
     resetEmailsSent: false;
     googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED';
+    requarantine?: true;
+    preflightEvidenceSha256?: string;
+    previousAuthReducedReceiptSha256?: string;
+    passwordRotationsCompleted?: 2;
+    authSessionsObservedBefore?: number;
+    refreshSessionsObservedBefore?: number;
+    authSessionsRemaining?: 0;
+    refreshSessionsAbsentAndVerified?: true;
+    refreshSessionVerificationMethod?: 'PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK';
 }
 
-export interface StagingHardeningEvidence {
+export interface RunnerAppliedStagingHardeningEvidence {
     schemaVersion: number;
     endedAt: string;
     status: string;
@@ -207,17 +216,145 @@ export interface StagingHardeningEvidence {
     checks: Array<{ status: string }>;
 }
 
-export interface GoogleFixturePolicyEvidence {
-    schemaVersion: number;
+export const STAGING_HARDENING_CONNECTOR_EVIDENCE_KIND = 'SUPABASE_CONNECTOR_CONSOLIDATED_STAGING_HARDENING_V1';
+export const STAGING_HARDENING_CONNECTOR_STATUS = 'CONNECTOR_CONSOLIDATED_APPLIED_AND_VERIFIED';
+export const STAGING_HARDENING_CANONICALIZATION = 'crlf_to_lf_and_trim_ascii_whitespace_v1';
+export const STAGING_HARDENING_CONNECTOR_QUERY_PATH = 'scripts/launch/sql/staging-hardening-connector-consolidated-readonly.sql';
+
+export const STAGING_HARDENING_CONNECTOR_MIGRATIONS = [
+    {
+        version: '20260712112000',
+        name: 'reconcile_database_model_contract',
+        file: 'supabase/migrations/20260712112000_reconcile_database_model_contract.sql',
+        sourceSha256: '84b12589850221c71b0f6ac1d9210e1a4c180836c274b6078ab638eca6b343aa',
+        storedStatementSha256: '96a236d4b329375f68059929cdb347f98c8dc571a9f6172e38b68f2c8a08383a',
+        canonicalSha256: 'a1c3f818fbf4492c4febf19fe01d2f9363acf4bff555519451e29eb29bf3af78',
+    },
+    {
+        version: '20260712114000',
+        name: 'harden_teacher_availability_overlap',
+        file: 'supabase/migrations/20260712114000_harden_teacher_availability_overlap.sql',
+        sourceSha256: '03c48790abf657571b43c2170a58f148d6d15e130a93f4de9be3be6a40aaaea3',
+        storedStatementSha256: 'e673b779a45868db3806e10f47cf474f6a5cd0b9b9646fa78fbf5b7a66985bab',
+        canonicalSha256: '993d80620e4e30e09c91d2b4a63e32b910369eda957a250ae0c0138d50f42c11',
+    },
+    {
+        version: '20260712114500',
+        name: 'require_current_adult_policy_on_signup',
+        file: 'supabase/migrations/20260712114500_require_current_adult_policy_on_signup.sql',
+        sourceSha256: '5f01e7e0a2854174cab59002bea4ee01987782846f8a2266bd2dba5c897b7cfb',
+        storedStatementSha256: 'bdbc091149217495ea551347d82d505fb02b5520b83d4f52bc2721f50e6404a7',
+        canonicalSha256: '78653ac55aa4211d90c0abf4295c04b089ded31fa6aa034e7be5c49bf3aa9c01',
+    },
+    {
+        version: '20260712115000',
+        name: 'harden_data_api_table_grants',
+        file: 'supabase/migrations/20260712115000_harden_data_api_table_grants.sql',
+        sourceSha256: '88e26ddd4eed1ba337ab1902fa707de38619f76158b9a46fcbd1b9adf00707b4',
+        storedStatementSha256: 'f306e5ed4de2f44f3cb3dc6ada125f79f0f1b8fad3d4a4ae7e54cf0e65f326ce',
+        canonicalSha256: '5fa2fb1c0f8e27b3e691b108086e66c5e0dbc15f05c951414ba2d8ce569b70c2',
+    },
+    {
+        version: '20260712195500',
+        name: 'harden_sessions_status_contract',
+        file: 'supabase/migrations/20260712195500_harden_sessions_status_contract.sql',
+        sourceSha256: '5106b1f3081f91246682ff9dc02ed1904eac4fc8dae065bfc05ac3136d5d65b1',
+        storedStatementSha256: '5106b1f3081f91246682ff9dc02ed1904eac4fc8dae065bfc05ac3136d5d65b1',
+        canonicalSha256: '2ad999b40e02f09ff89ea1ae1796381c42ae6668da74f095857a8ad9dd8fe251',
+    },
+] as const;
+
+export interface ConnectorConsolidatedStagingMigrationEvidence {
+    version: string;
+    name: string;
+    file: string;
+    sourceSha256: string;
+    storedStatementSha256: string;
+    canonicalization: typeof STAGING_HARDENING_CANONICALIZATION;
+    sourceCanonicalSha256: string;
+    storedCanonicalSha256: string;
+    statementCount: number;
+    historyRowCount: number;
+}
+
+export interface ConnectorConsolidatedStagingHardeningEvidence {
+    schemaVersion: 1;
+    evidenceKind: typeof STAGING_HARDENING_CONNECTOR_EVIDENCE_KIND;
+    endedAt: string;
+    status: typeof STAGING_HARDENING_CONNECTOR_STATUS;
+    target: { environment: 'staging'; projectRef: string };
+    collection: {
+        provider: 'authenticated_supabase_connector';
+        operation: 'read_only_query';
+        querySha256: string;
+        transactionReadOnly: true;
+        externalWritePerformed: false;
+    };
+    migrations: ConnectorConsolidatedStagingMigrationEvidence[];
+    sessionsStatus: {
+        dataType: 'text';
+        nullable: false;
+        default: 'scheduled';
+        constraint: 'sessions_status_check';
+        constraintValidated: true;
+        allowedValues: string[];
+        nullOrInvalidRows: 0;
+    };
+    posture: {
+        publicTables: 24;
+        rlsDisabledTables: 0;
+        requiredClientGrantsMissing: 0;
+        unexpectedClientGrants: 0;
+        unsafeDefaultGrants: 0;
+        unsafeClientGrants: 0;
+    };
+    localVerification: {
+        generatedTypesEvidencePath: string;
+        generatedTypesEvidenceSha256: string;
+        generatedTypesSemanticDifferences: 0;
+    };
+    scope: {
+        productionWritePerformed: false;
+        otherMigrationApplied: false;
+        secretValuesRecorded: false;
+        rawStatementsPersisted: false;
+    };
+}
+
+export type StagingHardeningEvidence =
+    | RunnerAppliedStagingHardeningEvidence
+    | ConnectorConsolidatedStagingHardeningEvidence;
+
+export interface GoogleTrashedFixturePolicyEvidence {
+    schemaVersion: 2;
     environment: 'production';
-    status: 'TRASHED_AND_VERIFIED' | 'EXPLICITLY_DEFERRED_APPROVED';
+    status: 'TRASHED_AND_VERIFIED';
     completedAt: string;
     observedActiveRootChildrenBefore: 110;
     observedFoldersBefore: 110;
-    activeRootChildrenAfter: number;
+    activeRootChildrenAfter: 0;
+    permanentlyDeleted: 0;
+    rootIdStored: false;
+    baselineFingerprintSha256: string;
+    recoveryStateSha256: string;
+    recoveredAfterInterruptedRun: boolean;
+}
+
+export interface GoogleDeferredFixturePolicyEvidence {
+    schemaVersion: 1;
+    environment: 'production';
+    status: 'EXPLICITLY_DEFERRED_APPROVED';
+    completedAt: string;
+    observedActiveRootChildrenBefore: 110;
+    observedFoldersBefore: 110;
+    activeRootChildrenAfter: 110;
     permanentlyDeleted: 0;
     rootIdStored: false;
 }
+
+export type GoogleFixturePolicyEvidence =
+    | GoogleTrashedFixturePolicyEvidence
+    | GoogleDeferredFixturePolicyEvidence;
 
 export interface SentryProductionHardeningEvidence {
     schemaVersion: number;
@@ -457,6 +594,23 @@ export function readAuthPolicyEvidence(
         || !['management_api', 'conservative_default'].includes(value.jwtExpirySource)) {
         errors.push('Auth JWT quarantine configuration is invalid.');
     }
+    if (Object.prototype.hasOwnProperty.call(value, 'requarantine')) {
+        if (value.requarantine !== true
+            || !/^[a-f0-9]{64}$/u.test(value.preflightEvidenceSha256 ?? '')
+            || !/^[a-f0-9]{64}$/u.test(value.previousAuthReducedReceiptSha256 ?? '')
+            || value.passwordRotationsCompleted !== 2
+            || typeof value.authSessionsObservedBefore !== 'number'
+            || !Number.isSafeInteger(value.authSessionsObservedBefore)
+            || value.authSessionsObservedBefore < 0
+            || typeof value.refreshSessionsObservedBefore !== 'number'
+            || !Number.isSafeInteger(value.refreshSessionsObservedBefore)
+            || value.refreshSessionsObservedBefore < 0
+            || value.authSessionsRemaining !== 0
+            || value.refreshSessionsAbsentAndVerified !== true
+            || value.refreshSessionVerificationMethod !== 'PASSWORD_ROTATION_WITH_ZERO_SESSION_READBACK') {
+            errors.push('Auth re-quarantine extended receipt/chaining shape is invalid.');
+        }
+    }
     requireFreshTimestamp(value.completedAt, now, PRODUCTION_EVIDENCE_MAX_AGE_MS, 'Auth quarantine', errors);
     const quarantineUntil = Date.parse(value.quarantineUntil);
     if (!Number.isFinite(quarantineUntil) || quarantineUntil <= Date.parse(value.completedAt)) {
@@ -477,31 +631,187 @@ export function readStagingHardeningEvidence(
     if (!loaded.value) return loaded;
     const value = loaded.value;
     const errors = [...loaded.errors];
+    if (isRecord(value) && value.evidenceKind === STAGING_HARDENING_CONNECTOR_EVIDENCE_KIND) {
+        validateConnectorConsolidatedStagingEvidence(value, now, errors);
+    } else {
+        validateRunnerAppliedStagingEvidence(value, errors);
+    }
+    const endedAt = isRecord(value) && typeof value.endedAt === 'string' ? value.endedAt : '';
+    requireFreshTimestamp(endedAt, now, PRODUCTION_EVIDENCE_MAX_AGE_MS, 'Staging hardening', errors);
+    return { ...loaded, valid: errors.length === 0, errors };
+}
+
+function validateRunnerAppliedStagingEvidence(value: unknown, errors: string[]): void {
+    if (!isRecord(value)) {
+        errors.push('Staging evidence must be an object.');
+        return;
+    }
     if (value.schemaVersion !== 1) errors.push('Staging evidence schemaVersion must be 1.');
-    if (value.target?.projectRef !== PRODUCTION_ROLLOUT_STAGING_REF) errors.push('Staging evidence project ref mismatch.');
+    if (!isRecord(value.target) || value.target.projectRef !== PRODUCTION_ROLLOUT_STAGING_REF) {
+        errors.push('Staging evidence project ref mismatch.');
+    }
     if (value.status !== 'OK' || value.closureStatus !== 'APPLIED_AND_VERIFIED') {
-        errors.push('Staging hardening must be APPLIED_AND_VERIFIED, not merely planned, preflighted or already claimed.');
+        errors.push('Staging hardening must be an exact runner apply receipt or strict connector-consolidated proof.');
     }
-    if (!value.writeCommandInvoked || !value.externalWritePerformed) errors.push('Staging evidence does not prove the exact apply run.');
-    if (!Array.isArray(value.checks) || value.checks.length === 0
-        || value.checks.some((check) => check.status !== 'ok')) {
-        errors.push('Staging evidence must contain only completed ok checks.');
+    if (value.writeCommandInvoked !== true || value.externalWritePerformed !== true) {
+        errors.push('Runner staging evidence does not prove the exact apply run.');
     }
-    const expected = PRODUCTION_ROLLOUT_WAVES
-        .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
-        .flatMap((wave) => wave.migrations);
+    const checks = Array.isArray(value.checks) ? value.checks : [];
+    if (checks.length === 0 || checks.some((check) => !isRecord(check) || check.status !== 'ok')) {
+        errors.push('Runner staging evidence must contain only completed ok checks.');
+    }
+    const expected = expectedStagingHardeningMigrations();
     const suppliedMigrations = Array.isArray(value.migrations) ? value.migrations : [];
-    if (!Array.isArray(value.migrations)) errors.push('Staging evidence migrations are missing or invalid.');
-    const supplied = new Map(suppliedMigrations.map((entry) => [entry.version, entry]));
-    if (supplied.size !== expected.length) errors.push('Staging evidence migration count mismatch.');
+    if (!Array.isArray(value.migrations)) errors.push('Runner staging evidence migrations are missing or invalid.');
+    const supplied = new Map(suppliedMigrations
+        .filter(isRecord)
+        .map((entry) => [String(entry.version), entry]));
+    if (supplied.size !== expected.length || suppliedMigrations.length !== expected.length) {
+        errors.push('Runner staging evidence migration count mismatch.');
+    }
     for (const migrationEntry of expected) {
         const observed = supplied.get(migrationEntry.version);
-        if (!observed || observed.name !== migrationEntry.name || observed.sha256 !== migrationEntry.sha256) {
-            errors.push(`Staging evidence mismatch for ${migrationEntry.version}.`);
+        if (!observed || observed.name !== migrationEntry.name || observed.file !== migrationEntry.file
+            || observed.sha256 !== migrationEntry.sha256) {
+            errors.push(`Runner staging evidence mismatch for ${migrationEntry.version}.`);
         }
     }
-    requireFreshTimestamp(value.endedAt, now, PRODUCTION_EVIDENCE_MAX_AGE_MS, 'Staging hardening', errors);
-    return { ...loaded, valid: errors.length === 0, errors };
+}
+
+function validateConnectorConsolidatedStagingEvidence(value: Record<string, unknown>, now: Date, errors: string[]): void {
+    if (value.schemaVersion !== 1) errors.push('Connector staging evidence schemaVersion must be 1.');
+    if (value.status !== STAGING_HARDENING_CONNECTOR_STATUS) errors.push('Connector staging evidence status mismatch.');
+    if (!isRecord(value.target) || value.target.environment !== 'staging'
+        || value.target.projectRef !== PRODUCTION_ROLLOUT_STAGING_REF) {
+        errors.push('Connector staging evidence target mismatch.');
+    }
+
+    const collection = isRecord(value.collection) ? value.collection : {};
+    let expectedQuerySha256 = '';
+    try {
+        expectedQuerySha256 = sha256(readFileSync(path.join(process.cwd(), STAGING_HARDENING_CONNECTOR_QUERY_PATH)));
+    } catch {
+        errors.push('Connector staging read-only query artifact is missing.');
+    }
+    if (collection.provider !== 'authenticated_supabase_connector'
+        || collection.operation !== 'read_only_query'
+        || collection.transactionReadOnly !== true
+        || collection.externalWritePerformed !== false
+        || collection.querySha256 !== expectedQuerySha256) {
+        errors.push('Connector staging collection/query binding is invalid.');
+    }
+
+    const migrations = Array.isArray(value.migrations) ? value.migrations : [];
+    const records = migrations.filter(isRecord);
+    if (records.length !== STAGING_HARDENING_CONNECTOR_MIGRATIONS.length
+        || migrations.length !== STAGING_HARDENING_CONNECTOR_MIGRATIONS.length) {
+        errors.push('Connector staging evidence must enumerate exactly five migration records.');
+    }
+    const supplied = new Map(records.map((entry) => [String(entry.version), entry]));
+    if (supplied.size !== STAGING_HARDENING_CONNECTOR_MIGRATIONS.length) {
+        errors.push('Connector staging migration versions must be unique and complete.');
+    }
+    for (const expected of STAGING_HARDENING_CONNECTOR_MIGRATIONS) {
+        const observed = supplied.get(expected.version);
+        if (!observed
+            || observed.name !== expected.name
+            || observed.file !== expected.file
+            || observed.sourceSha256 !== expected.sourceSha256
+            || observed.storedStatementSha256 !== expected.storedStatementSha256
+            || observed.canonicalization !== STAGING_HARDENING_CANONICALIZATION
+            || observed.sourceCanonicalSha256 !== expected.canonicalSha256
+            || observed.storedCanonicalSha256 !== expected.canonicalSha256
+            || observed.statementCount !== 1
+            || observed.historyRowCount !== 1) {
+            errors.push(`Connector staging migration proof mismatch for ${expected.version}.`);
+        }
+    }
+
+    const sessions = isRecord(value.sessionsStatus) ? value.sessionsStatus : {};
+    const allowedValues = Array.isArray(sessions.allowedValues)
+        ? sessions.allowedValues.filter((entry): entry is string => typeof entry === 'string').sort()
+        : [];
+    if (sessions.dataType !== 'text' || sessions.nullable !== false || sessions.default !== 'scheduled'
+        || sessions.constraint !== 'sessions_status_check' || sessions.constraintValidated !== true
+        || sessions.nullOrInvalidRows !== 0
+        || stableJson([...new Set(allowedValues)]) !== stableJson(['cancelled', 'completed', 'no_show', 'scheduled'])) {
+        errors.push('Connector staging sessions.status contract is incomplete.');
+    }
+
+    const posture = isRecord(value.posture) ? value.posture : {};
+    if (posture.publicTables !== 24 || posture.rlsDisabledTables !== 0
+        || posture.requiredClientGrantsMissing !== 0
+        || posture.unexpectedClientGrants !== 0
+        || posture.unsafeDefaultGrants !== 0
+        || posture.unsafeClientGrants !== 0) {
+        errors.push('Connector staging database posture mismatch.');
+    }
+    validateConnectorLocalTypeEvidence(value.localVerification, now, errors);
+    const scope = isRecord(value.scope) ? value.scope : {};
+    if (scope.productionWritePerformed !== false || scope.otherMigrationApplied !== false
+        || scope.secretValuesRecorded !== false || scope.rawStatementsPersisted !== false) {
+        errors.push('Connector staging scope/safety attestation mismatch.');
+    }
+}
+
+function validateConnectorLocalTypeEvidence(value: unknown, now: Date, errors: string[]): void {
+    if (!isRecord(value)
+        || typeof value.generatedTypesEvidencePath !== 'string'
+        || typeof value.generatedTypesEvidenceSha256 !== 'string'
+        || value.generatedTypesSemanticDifferences !== 0) {
+        errors.push('Connector staging local generated-types verification is missing or invalid.');
+        return;
+    }
+    const root = path.resolve(process.cwd());
+    const evidencePath = path.resolve(root, value.generatedTypesEvidencePath);
+    const relative = path.relative(root, evidencePath).replaceAll('\\', '/');
+    if (relative.startsWith('../') || path.isAbsolute(relative)
+        || !relative.startsWith('outputs/launch-supabase-staging-hardening-connector/')) {
+        errors.push('Generated-types evidence path is outside the exact connector evidence folder.');
+        return;
+    }
+    try {
+        const bytes = readFileSync(evidencePath);
+        const evidence = JSON.parse(bytes.toString('utf8')) as unknown;
+        const migration = isRecord(evidence) && isRecord(evidence.migration) ? evidence.migration : {};
+        const sessions = isRecord(evidence) && isRecord(evidence.sessionsStatus) ? evidence.sessionsStatus : {};
+        const allowedValues = Array.isArray(sessions.allowedValues)
+            ? sessions.allowedValues.filter((entry): entry is string => typeof entry === 'string').sort()
+            : [];
+        const posture = isRecord(evidence) && isRecord(evidence.posture) ? evidence.posture : {};
+        const scope = isRecord(evidence) && isRecord(evidence.scope) ? evidence.scope : {};
+        if (sha256(bytes) !== value.generatedTypesEvidenceSha256 || !isRecord(evidence)
+            || evidence.schemaVersion !== 1
+            || evidence.source !== 'authenticated Supabase connector post-apply verification'
+            || !isRecord(evidence.target) || evidence.target.environment !== 'staging'
+            || evidence.target.projectRef !== PRODUCTION_ROLLOUT_STAGING_REF
+            || migration.version !== '20260712195500'
+            || migration.name !== 'harden_sessions_status_contract'
+            || migration.sourceFile !== 'supabase/migrations/20260712195500_harden_sessions_status_contract.sql'
+            || migration.sourceAndStoredStatementSha256 !== STAGING_HARDENING_CONNECTOR_MIGRATIONS.at(-1)?.sourceSha256
+            || migration.statementCount !== 1 || migration.historyPrefixCount !== 5
+            || sessions.dataType !== 'text' || sessions.nullable !== false || sessions.default !== 'scheduled'
+            || sessions.constraint !== 'sessions_status_check' || sessions.constraintValidated !== true
+            || sessions.nullOrInvalidRows !== 0
+            || stableJson([...new Set(allowedValues)]) !== stableJson(['cancelled', 'completed', 'no_show', 'scheduled'])
+            || posture.publicTables !== 24 || posture.rlsDisabledTables !== 0
+            || posture.unsafeClientGrants !== 0 || posture.generatedTypesSemanticDifferences !== 0
+            || scope.productionWritePerformed !== false || scope.otherMigrationApplied !== false
+            || scope.secretValuesRecorded !== false
+            || typeof evidence.recordedAt !== 'string') {
+            errors.push('Generated-types connector evidence content/hash mismatch.');
+            return;
+        }
+        requireFreshTimestamp(evidence.recordedAt, now, PRODUCTION_EVIDENCE_MAX_AGE_MS, 'Generated types', errors);
+    } catch {
+        errors.push('Generated-types connector evidence is missing or invalid JSON.');
+    }
+}
+
+function expectedStagingHardeningMigrations(): readonly ProductionRolloutMigration[] {
+    return PRODUCTION_ROLLOUT_WAVES
+        .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
+        .flatMap((wave) => wave.migrations);
 }
 
 export function readGoogleFixturePolicyEvidence(
@@ -512,11 +822,22 @@ export function readGoogleFixturePolicyEvidence(
     if (!loaded.value) return loaded;
     const value = loaded.value;
     const errors = [...loaded.errors];
-    if (value.schemaVersion !== 1 || value.environment !== 'production') errors.push('Google fixture evidence identity mismatch.');
+    if (value.environment !== 'production') errors.push('Google fixture evidence identity mismatch.');
     if (!['TRASHED_AND_VERIFIED', 'EXPLICITLY_DEFERRED_APPROVED'].includes(value.status)) errors.push('Google fixture policy is not closed or explicitly deferred.');
     if (value.observedActiveRootChildrenBefore !== 110 || value.observedFoldersBefore !== 110) errors.push('Google fixture baseline mismatch.');
-    if (value.status === 'TRASHED_AND_VERIFIED' && value.activeRootChildrenAfter !== 0) errors.push('Google root cleanup is not verified empty.');
-    if (value.status === 'EXPLICITLY_DEFERRED_APPROVED' && value.activeRootChildrenAfter !== 110) errors.push('Google deferral count mismatch.');
+    if (value.status === 'TRASHED_AND_VERIFIED') {
+        if (value.schemaVersion !== 2) errors.push('Google trashed evidence must use recovery-bound schemaVersion 2.');
+        if (value.activeRootChildrenAfter !== 0) errors.push('Google root cleanup is not verified empty.');
+        if (!/^[a-f0-9]{64}$/u.test(value.baselineFingerprintSha256 ?? '')
+            || !/^[a-f0-9]{64}$/u.test(value.recoveryStateSha256 ?? '')
+            || typeof value.recoveredAfterInterruptedRun !== 'boolean') {
+            errors.push('Google trashed evidence is not bound to a valid terminal recovery state.');
+        }
+    }
+    if (value.status === 'EXPLICITLY_DEFERRED_APPROVED') {
+        if (value.schemaVersion !== 1) errors.push('Google deferred evidence must use the explicit legacy schemaVersion 1 contract.');
+        if (value.activeRootChildrenAfter !== 110) errors.push('Google deferral count mismatch.');
+    }
     if (value.permanentlyDeleted !== 0 || value.rootIdStored !== false) errors.push('Google evidence violates recoverability/privacy constraints.');
     requireFreshTimestamp(value.completedAt, now, PRODUCTION_EVIDENCE_MAX_AGE_MS, 'Google fixture policy', errors);
     return { ...loaded, valid: errors.length === 0, errors };
@@ -813,6 +1134,7 @@ export function buildProductionRolloutApproval(scope: {
     cleanupEvidenceSha256: string | null;
     authPolicyEvidenceSha256: string | null;
     stagingEvidenceSha256: string | null;
+    stagingLiveVerifySqlSha256: string | null;
     googleFixturePolicySha256: string | null;
     sentryHardeningEvidenceSha256: string | null;
     pendingMigrations: readonly ProductionRolloutMigration[];
@@ -836,6 +1158,7 @@ export function buildProductionRolloutApproval(scope: {
         scope.cleanupEvidenceSha256,
         scope.authPolicyEvidenceSha256,
         scope.stagingEvidenceSha256,
+        scope.stagingLiveVerifySqlSha256,
         scope.googleFixturePolicySha256,
         scope.sentryHardeningEvidenceSha256,
     ].filter((value): value is string => value !== null);
@@ -862,6 +1185,7 @@ export function buildProductionRolloutApproval(scope: {
         `cleanup=${scope.cleanupEvidenceSha256 ?? '<not-required>'}`,
         `auth_policy=${scope.authPolicyEvidenceSha256 ?? '<not-required>'}`,
         `staging_hardening=${scope.stagingEvidenceSha256 ?? '<not-required>'}`,
+        `staging_live_verify_sql=${scope.stagingLiveVerifySqlSha256 ?? '<not-required>'}`,
         `google_fixture_policy=${scope.googleFixturePolicySha256 ?? '<not-required>'}`,
         `sentry_hardening=${scope.sentryHardeningEvidenceSha256 ?? '<not-required>'}`,
         `migrations=${migrationScope}`,
@@ -1203,4 +1527,8 @@ function validateWavePrefix(states: WaveHistoryState[], errors: string[]): void 
 
 function sqlLiteral(value: string): string {
     return value.replace(/'/gu, "''");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

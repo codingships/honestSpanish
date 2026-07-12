@@ -260,6 +260,14 @@ export function buildApprovalSnapshot(input: ApprovalSnapshotInput): Record<stri
                 'restore exact hourly cron',
                 'resume exact staging Queue',
             ],
+            conditionalCompensationWritesInOrder: [
+                'if cron or queue restoration is unproven: disable exact staging Worker cron',
+                'pause exact staging Queue',
+            ],
+            failClosedReadbacks: [
+                'after restore_current failure: verify cron off, queue paused and backlog zero',
+                'after compensation: verify cron off, queue paused and backlog zero',
+            ],
         },
     };
 }
@@ -283,6 +291,9 @@ export function exactRollbackApproval(versions: RollbackVersions, snapshotHash: 
         'rollback_previous_then_restore_current=true',
         'restore_hourly_cron=true',
         'resume_after_restore=true',
+        'verify_isolation_after_restore_current_failure=true',
+        'compensate_incomplete_cron_or_queue_restore=cron_off_and_queue_paused',
+        'compensation_readback=cron_off_queue_paused_backlog_zero',
         'checkout_must_remain_false=true',
         'production_and_other_resources=FORBIDDEN',
     ].join(' | ');
