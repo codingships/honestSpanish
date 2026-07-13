@@ -49,6 +49,7 @@ describe('Cloudflare launch environment safety', () => {
         expect(productionBuild).toContain("SUPABASE_EXPECTED_PROJECT_REF=${productionRef}");
         expect(productionBuild).toContain('PUBLIC_SITE_URL=${productionSite}');
         expect(productionBuild).toContain("process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV = 'false'");
+        expect(productionBuild).toContain('disableProductionReleaseSentryUpload(process.env)');
         expect(productionBuild).toContain("entry === '.dev.vars'");
 
         expect(ci).toContain('if: github.ref_name == \'main\'');
@@ -61,6 +62,38 @@ describe('Cloudflare launch environment safety', () => {
         expect(ci).toContain('run: pnpm run deploy');
         expect(ci).not.toContain('wrangler deploy --config workers/fulfillment/wrangler.toml --env production --keep-vars');
         expect(ci).not.toContain('run deploy -- --env');
+    });
+
+    it('hardens CI identity, repository credentials and staging deploy ordering', () => {
+        const ci = read('.github/workflows/ci.yml');
+        const deployJob = ci.slice(ci.indexOf('  deploy-cloudflare:'));
+
+        expect(ci).toMatch(/^permissions:\r?\n {2}contents: read$/mu);
+        expect(ci).toContain('group: ci-${{ github.workflow }}-${{ github.ref }}');
+        expect(ci).toContain("cancel-in-progress: ${{ github.ref != 'refs/heads/staging' }}");
+        expect(ci).toContain("if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')");
+
+        const checkoutUses = ci.match(/uses: actions\/checkout@v4/gu) ?? [];
+        const hardenedCheckouts = ci.match(/uses: actions\/checkout@v4\r?\n {8}with:\r?\n {10}persist-credentials: false/gu) ?? [];
+        expect(checkoutUses).toHaveLength(2);
+        expect(hardenedCheckouts).toHaveLength(checkoutUses.length);
+
+        const stagingHeadGate = deployJob.indexOf('Reject a superseded staging deploy');
+        const identityPreflight = deployJob.indexOf('Verify exact Cloudflare identity before deploy validation');
+        const firstDryRun = deployJob.indexOf('--dry-run');
+        expect(stagingHeadGate).toBeGreaterThan(-1);
+        expect(stagingHeadGate).toBeLessThan(identityPreflight);
+        expect(identityPreflight).toBeGreaterThan(-1);
+        expect(identityPreflight).toBeLessThan(firstDryRun);
+        expect(deployJob).toContain("if: github.ref == 'refs/heads/staging'");
+        expect(deployJob).toContain('$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/staging');
+        expect(deployJob).toContain('branchRef?.object?.sha !== expectedSha');
+        expect(deployJob).toContain('Refusing superseded staging deploy; a newer branch head exists.');
+        expect(deployJob).toContain('EXPECTED_CLOUDFLARE_ACCOUNT_ID: d1a22bcf6477ff2ff31d2bfb83084e44');
+        expect(deployJob).toContain('pnpm exec wrangler whoami --json --install-skills=false');
+        expect(deployJob).toContain('pnpm exec tsx scripts/ci/verify-cloudflare-identity.ts');
+        expect(deployJob).toContain('--expected-account-id "$EXPECTED_CLOUDFLARE_ACCOUNT_ID"');
+        expect(deployJob).toContain('CLOUDFLARE_ACCOUNT_ID does not match the exact approved account.');
     });
 
     it('defines an exact-name inert bootstrap and a separate active fulfillment environment', () => {
@@ -102,12 +135,58 @@ describe('Cloudflare launch environment safety', () => {
             'verifyRuntimeAttestation',
             'fresh_stripe_live_readiness_pre_write_gate',
             'inspectStripeLiveReadiness',
+            'build:production:release',
+            'activeDeployDryRun',
+            'activeDeploy',
+            'validateBuiltActiveConfig',
+            "runWebRuntimeAttestation(baseUrl, expectedVersionId, env, 'active'",
+            'compensateToWebBootstrap',
+            'compensating_web_bootstrap_proven',
+            'initialApprovalSentence',
+            'initialReconciliationApprovalSentence',
+            '--reconcile-approved',
+            'exact_reconciliation_approval_gate',
+            'exclusive_reconciliation_lock_acquired',
+            'recovery_bootstrap_compensation_required',
+            'reconcilePriorCheckpointToSafeState',
+            'canonical_write_state_restart_gate',
+            'requireRecoverableWorkerWriteExecutionLock',
+            'assertRecoveryWriteLockOwnership',
+            'acquireNormalWorkerWriteExecutionLock',
+            'reconciliationLockExists',
+            'EXECUTED_AND_NEEDS_REVIEW',
+            'exact_bootstrap_secret_inventory_pre_write',
+            'remote_google_bindings_absent_pre_write',
+            'remote_google_bindings_absent_after_active_deploy',
+            'remote_google_bindings_absent_after_bootstrap_compensation',
+            'persistWorkerWriteCheckpointAtomically',
+            'readonlyReconciliationRequired',
+            'verifyCloudflareWhoamiOutput',
+            'wrangler versions view',
             'initial_validation_gate',
             'externalWriteAttempted',
         ]) expect(runner).toContain(snippet);
 
         expect(runner.indexOf('remoteTargetCheck.status')).toBeLessThan(runner.indexOf('for (const name of requiredSecretNames)'));
         expect(runner.indexOf('validateFreshStripeLiveReadiness(env)')).toBeLessThan(runner.indexOf('for (const name of requiredSecretNames)'));
+        expect(runner.indexOf('staticCommands.activeBuild')).toBeLessThan(runner.indexOf('for (const name of requiredSecretNames)'));
+        expect(runner.indexOf('const immediateBootstrapChecks')).toBeLessThan(runner.indexOf('for (const name of requiredSecretNames)'));
+        expect(runner.indexOf('exact_bootstrap_secret_inventory_pre_write')).toBeLessThan(runner.indexOf('for (const name of requiredSecretNames)'));
+        expect(runner.indexOf('remote_google_bindings_absent_pre_write')).toBeLessThan(runner.indexOf('for (const name of requiredSecretNames)'));
+        expect(runner.indexOf('for (const name of requiredSecretNames)')).toBeLessThan(runner.indexOf('runCommand(staticCommands.activeDeploy)'));
+        expect(runner.indexOf('runCommand(staticCommands.activeDeploy)')).toBeLessThan(runner.indexOf('runDirectWorkerProbes(env.directWorkerUrl'));
+
+        const recovery = runner.slice(
+            runner.indexOf('async function runApprovedReconciliation'),
+            runner.indexOf('function asRecoveryObservation'),
+        );
+        expect(recovery).toContain('commands.whoami');
+        expect(recovery).toContain('commands.deploymentsList');
+        expect(recovery).toContain('commands.secretListBefore');
+        expect(recovery).toContain('buildVersionViewCommand');
+        expect(recovery).toContain('compensateToWebBootstrap');
+        expect(recovery).not.toContain('buildSecretPutCommand');
+        expect(recovery.indexOf('commands.whoami')).toBeLessThan(recovery.indexOf('compensateToWebBootstrap'));
     });
 
     it('keeps fulfillment production config/secrets/email on a separate exact-approval path', () => {
@@ -154,6 +233,10 @@ describe('Cloudflare launch environment safety', () => {
             'await compensateToBootstrap(directUrl)',
             'fresh_dual_worker_version_gate',
             'fresh_web_runtime_attestation_pre_enable',
+            'fresh_production_queue_inventory_pre_enable',
+            'fresh_production_queue_info_pre_enable',
+            'fresh_stripe_live_readiness_immediately_before_enable',
+            'structured_enable_prewrite_evidence',
             "cronScheduleProbe('bootstrap')",
             'compensating_bootstrap_rollback_proven',
         ]) expect(lifecycle).toContain(snippet);
@@ -163,11 +246,13 @@ describe('Cloudflare launch environment safety', () => {
             'phase_2_fulfillment_bootstrap_hmac_only',
             'phase_3_fresh_bootstrap_attestation_before_web',
             'phase_4_web_worker_create_deploy',
-            'phase_5_web_worker_secret_names',
-            'phase_6_fresh_dual_worker_attestation',
-            'phase_7_fulfillment_explicit_enable',
-            'phase_8_direct_worker_attestation',
-            'phase_9_domain_move',
+            'phase_5_web_bootstrap_hmac_only',
+            'phase_6_fulfillment_final_secrets_while_inert',
+            'phase_7_web_final_secrets_and_active_deploy',
+            'phase_8_fresh_dual_worker_attestation',
+            'phase_9_fulfillment_explicit_enable',
+            'phase_10_direct_worker_attestation',
+            'phase_11_domain_move',
         ];
         for (let index = 1; index < orderedPhases.length; index += 1) {
             expect(manifest.indexOf(orderedPhases[index - 1])).toBeLessThan(manifest.indexOf(orderedPhases[index]));

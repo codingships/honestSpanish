@@ -76,7 +76,9 @@ describe('web runtime attestation API', () => {
 
     it('binds the opaque proof to the deployed Cloudflare version metadata', async () => {
         Object.assign(mocks.env, {
+            ADMIN_EMAIL: 'admin@example.com',
             PUBLIC_APP_ENV: 'staging',
+            PUBLIC_SENTRY_DSN: 'https://public@example.invalid/123',
             WEB_RUNTIME_MODE: 'active',
             WORKER_IDENTITY: 'espanolhonesto-staging',
             INTERNAL_JOB_SECRET: 'internal-secret',
@@ -91,6 +93,8 @@ describe('web runtime attestation API', () => {
             EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
             EMAIL_FROM: 'Sender <sender@example.com>',
             RESEND_API_KEY: 'resend',
+            RESEND_FROM_EMAIL: 'Fallback <fallback@example.com>',
+            SUPPORT_ALERT_EMAIL: 'support@example.com',
             CHECKOUT_ENABLED: 'false',
             CHECKOUT_ENABLED_OVERRIDE: 'false',
         });
@@ -114,6 +118,25 @@ describe('web runtime attestation API', () => {
             role: 'web',
             schema: RUNTIME_ATTESTATION_SCHEMA,
         }, 'internal-secret')).resolves.toBe(true);
+
+        for (const [envKey, changedValue] of [
+            ['PUBLIC_SENTRY_DSN', 'https://public@example.invalid/changed'],
+            ['ADMIN_EMAIL', 'changed-admin@example.com'],
+            ['SUPPORT_ALERT_EMAIL', 'changed-support@example.com'],
+            ['RESEND_FROM_EMAIL', 'Changed fallback <changed-fallback@example.com>'],
+        ] as const) {
+            const changedConfig = await buildRuntimeAttestationConfig('web', {
+                ...mocks.env,
+                [envKey]: changedValue,
+                WORKER_VERSION_ID: workerVersionId,
+            });
+            await expect(verifyRuntimeAttestation(envelope, {
+                config: changedConfig,
+                nonce,
+                role: 'web',
+                schema: RUNTIME_ATTESTATION_SCHEMA,
+            }, 'internal-secret'), `${envKey} must be part of the endpoint readback`).resolves.toBe(false);
+        }
     });
 
     it('allows only the exact production identity in production', async () => {

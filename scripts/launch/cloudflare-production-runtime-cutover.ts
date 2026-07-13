@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_SENTENCE } from './cloudflare-production-fulfillment-lifecycle-shared';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -260,42 +261,38 @@ function validateStrictQaPreflight(): CutoverCheck {
 }
 
 function validateLocalBuildParityEvidence(): CutoverCheck {
-    if (!existsSync(strictQaResultsPath)) {
-        return {
-            status: 'failed',
-            name: 'local_build_parity_evidence_exists',
-            message: 'The strict-QA tracker is missing, so the latest local build/preview parity proof cannot be verified.',
-            details: [`path=${strictQaResultsPath}`],
-        };
-    }
-
-    const results = readFileSync(strictQaResultsPath, 'utf8');
+    const packageJson = readFileSync('package.json', 'utf8');
+    const activeBuild = readFileSync(path.join('scripts', 'dev', 'build-production-release.ts'), 'utf8');
+    const activeRunner = readFileSync(path.join('scripts', 'launch', 'cloudflare-production-worker-secrets.ts'), 'utf8');
+    const launchSafetyTest = readFileSync(path.join('tests', 'unit', 'cloudflare-launch-safety.test.ts'), 'utf8');
+    const activeOrchestratorTest = readFileSync(path.join('tests', 'unit', 'cloudflare-production-web-active-orchestrator.test.ts'), 'utf8');
+    const sources = `${packageJson}\n${activeBuild}\n${activeRunner}\n${launchSafetyTest}\n${activeOrchestratorTest}`;
     const required = [
-        'BASE-1074',
-        'Local public SEO surface parity proof',
-        'dist/client/llms.txt has',
-        'dist/client/sitemap-0.xml includes all three segment URLs',
-        'RETEST-285',
-        'live-domain SEO blocker remains open by design',
-        'BASE-1075',
-        'Cloudflare Worker dry-run deploy proof',
-        'wrangler deploy --config dist/server/wrangler.json --dry-run',
-        'env.CHECKOUT_ENABLED (false)',
-        'RETEST-286',
-        'no external write occurred',
-        'Test-Path dist returned False',
-        ...modernParityRoutes,
+        '"build:production:release": "tsx scripts/dev/build-production-release.ts"',
+        "process.env.CLOUDFLARE_ENV = 'production'",
+        "process.env.WEB_RUNTIME_MODE = 'active'",
+        "process.env.CHECKOUT_ENABLED = 'false'",
+        'rmSync(distRoot, { force: true, recursive: true })',
+        'validateGeneratedActiveConfig',
+        'activeDeployDryRun',
+        'orchestrateWebActiveTransition',
+        'compensateToWebBootstrap',
+        'REMOTE_STATE_AMBIGUOUS',
     ];
-    const missing = required.filter((snippet) => !results.includes(snippet));
+    const missing = required.filter((snippet) => !sources.includes(snippet));
 
     return {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'local_build_parity_evidence_exists',
         message: missing.length === 0
-            ? 'Strict-QA tracker proves the current local production build/preview serves the modern SEO surface and was cleaned up afterward.'
-            : 'Strict-QA tracker is missing the latest local production build/preview parity evidence required before Cloudflare cutover approval.',
+            ? 'Current source and executable tests define a clean, validated active build plus fail-closed web transition and compensation path.'
+            : 'Current source is missing active-build, transition or compensation safeguards required before Cloudflare cutover approval.',
         details: missing.length === 0
-            ? [`path=${strictQaResultsPath}`, 'localSeoBuild=BASE-1074/RETEST-285', 'wranglerDryRun=BASE-1075/RETEST-286', 'cleanup=dist_absent_after_build_and_dry_run']
+            ? [
+                'build=scripts/dev/build-production-release.ts',
+                'runner=scripts/launch/cloudflare-production-worker-secrets.ts',
+                'test=tests/unit/cloudflare-production-web-active-orchestrator.test.ts',
+            ]
             : missing.map((snippet) => `missing=${snippet}`),
     };
 }
@@ -356,28 +353,36 @@ function validateCloudflareRuntimeCutoverPreflightEvidence(): CutoverCheck {
         'Dry-run after build looked successful: True',
         'Dry-run mentions CHECKOUT_ENABLED=false: True',
         'Dry-run avoids custom domains: True',
-        'dist removed after dry-run: True',
         'Variable matrix:',
         'wrangler_production_dry_run_passed',
         'command_scope_no_external_write',
     ];
     const missing = required.filter((snippet) => !evidence.includes(snippet));
     const matrixMissing = !cloudflareRuntimeVariableMatrixPath || !existsSync(cloudflareRuntimeVariableMatrixPath);
+    const cleanupProven = evidence.includes('dist removed after dry-run: True')
+        || (
+            evidence.includes('dist existed before preflight: True')
+            && evidence.includes('dist removed after dry-run: False')
+            && evidence.includes('dist_cleanup_posture')
+            && evidence.includes('was kept to avoid deleting user-owned artifacts')
+        );
 
     return {
-        status: missing.length === 0 && !matrixMissing ? 'ok' : 'failed',
+        status: missing.length === 0 && !matrixMissing && cleanupProven ? 'ok' : 'failed',
         name: 'cloudflare_runtime_cutover_preflight_exists',
-        message: missing.length === 0 && !matrixMissing
-            ? 'Fresh cutover preflight proves local build, guarded Wrangler production dry-run, fail-closed checkout, custom-domain separation and cleanup posture.'
+        message: missing.length === 0 && !matrixMissing && cleanupProven
+            ? 'Fresh cutover preflight proves local build, guarded Wrangler production dry-run, fail-closed checkout, custom-domain separation and guarded dist ownership posture.'
             : 'Fresh cutover preflight is missing required no-write build/dry-run evidence.',
-        details: missing.length === 0 && !matrixMissing
+        details: missing.length === 0 && !matrixMissing && cleanupProven
             ? [
                 `path=${cloudflareRuntimeCutoverPreflightPath}`,
                 `variableMatrix=${cloudflareRuntimeVariableMatrixPath}`,
+                `cleanupProven=${String(cleanupProven)}`,
             ]
             : [
                 ...missing.map((snippet) => `missing=${snippet}`),
                 ...(matrixMissing ? ['missing=cloudflare-production-worker-variable-matrix.md'] : []),
+                ...(!cleanupProven ? ['missing=guarded dist cleanup/retention posture'] : []),
             ],
     };
 }
@@ -594,11 +599,12 @@ function renderArtifacts(reportToRender: CutoverReport): RenderedArtifacts {
             cloudflareRuntimeReadonly: cloudflareRuntimeReadonlyPath,
             cloudflareRuntimeCutoverPreflight: cloudflareRuntimeCutoverPreflightPath,
             cloudflareRuntimeVariableMatrix: cloudflareRuntimeVariableMatrixPath,
-            strictQaResults: strictQaResultsPath,
-            localPublicSeoBuildParity: 'BASE-1074/RETEST-285',
-            wranglerProductionDryRun: 'BASE-1075/RETEST-286',
+            strictQaResultsHistoricalReference: strictQaResultsPath,
+            currentActiveBuildSource: 'scripts/dev/build-production-release.ts',
+            currentWebTransitionRunner: 'scripts/launch/cloudflare-production-worker-secrets.ts',
+            currentWebTransitionFaultTests: 'tests/unit/cloudflare-production-web-active-orchestrator.test.ts',
             commandizedWranglerProductionDryRun: 'launch:cloudflare-production-runtime-cutover-preflight',
-            postBuildCleanup: 'dist absent after BASE-1074 and BASE-1075',
+            postBuildCleanup: 'clean build deletes only the verified workspace dist root; no user-owned pre-existing dist is removed by the read-only preflight',
             wranglerConfig: 'wrangler.toml',
             packageJson: 'package.json',
             modernParityRoutes,
@@ -641,37 +647,55 @@ function renderArtifacts(reportToRender: CutoverReport): RenderedArtifacts {
                 forbidden: ['custom domain move', 'DNS changes', 'Pages deletion', 'CHECKOUT_ENABLED=true', 'real payments'],
             },
             {
-                id: 'phase_5_web_worker_secret_names',
+                id: 'phase_5_web_bootstrap_hmac_only',
                 writesCloudflare: true,
                 requiresSeparateApproval: true,
                 targetResource: `Cloudflare web Worker ${target.productionWorker}`,
-                forbidden: ['printing secret values', 'domain move', 'key rotation outside final window'],
+                requiredState: ['WEB_RUNTIME_MODE=bootstrap', 'secret names exactly INTERNAL_JOB_SECRET', 'active provider fingerprints absent'],
+                forbidden: ['active provider secrets', 'printing secret values', 'domain move'],
             },
             {
-                id: 'phase_6_fresh_dual_worker_attestation',
+                id: 'phase_6_fulfillment_final_secrets_while_inert',
+                writesCloudflare: true,
+                requiresSeparateApproval: true,
+                targetResource: 'Cloudflare Worker espanol-honesto-fulfillment-production via production_bootstrap',
+                requiredState: ['FULFILLMENT_RUNTIME_MODE=bootstrap', 'EMAIL_DELIVERY_MODE=disabled', 'crons=[]'],
+                forbidden: ['job processing', 'email sends', 'Google mutations', 'active cron', 'web Worker writes'],
+            },
+            {
+                id: 'phase_7_web_final_secrets_and_active_deploy',
+                writesCloudflare: true,
+                requiresSeparateApproval: true,
+                targetResource: `Cloudflare web Worker ${target.productionWorker}`,
+                requiredState: ['WEB_RUNTIME_MODE=active', 'CHECKOUT_ENABLED=false', 'fulfillment remains production_bootstrap', 'no custom-domain attachment'],
+                rollback: ['clean production_bootstrap rebuild', 'resolved bootstrap config deploy --keep-vars', 'version + health + 503 + HMAC verification'],
+                forbidden: ['domain move', 'DNS changes', 'Pages deletion', 'checkout enable', 'Fulfillment Worker enable'],
+            },
+            {
+                id: 'phase_8_fresh_dual_worker_attestation',
                 writesCloudflare: false,
                 requiresSeparateApproval: false,
-                targetResource: 'Fresh version-bound HMAC attestations for web and fulfillment bootstrap',
+                targetResource: 'Fresh version-bound HMAC attestations for active web and fulfillment bootstrap plus exact Queue/DLQ and Stripe Live read-only evidence',
                 forbidden: ['cached/local-only evidence', 'active write on version mismatch'],
             },
             {
-                id: 'phase_7_fulfillment_explicit_enable',
+                id: 'phase_9_fulfillment_explicit_enable',
                 writesCloudflare: true,
                 requiresSeparateApproval: true,
                 targetResource: 'Cloudflare Worker espanol-honesto-fulfillment-production via production',
-                requiredState: ['web Worker deployed', 'all fulfillment secret names present', 'bootstrap attestation verified'],
+                requiredState: ['active web Worker attested', 'all fulfillment secret names present', 'bootstrap attestation verified', 'Queue/DLQ exact', 'Stripe Live readiness fresh'],
                 activates: ['FULFILLMENT_RUNTIME_MODE=active', 'EMAIL_DELIVERY_MODE=live', 'cron 0 * * * *'],
-                forbidden: ['domain move', 'checkout enable', 'Stripe writes'],
+                forbidden: ['domain move', 'checkout enable', 'Stripe writes', 'Queue writes'],
             },
             {
-                id: 'phase_8_direct_worker_attestation',
+                id: 'phase_10_direct_worker_attestation',
                 writesCloudflare: false,
                 requiresSeparateApproval: false,
                 targetResource: `Direct workers.dev URLs for ${target.productionWorker} and espanol-honesto-fulfillment-production`,
                 forbidden: ['final smoke write paths', 'real payment session creation'],
             },
             {
-                id: 'phase_9_domain_move',
+                id: 'phase_11_domain_move',
                 writesCloudflare: true,
                 requiresSeparateApproval: true,
                 targetResource: `${target.customDomains.join(', ')} from Pages ${target.pagesProject} to Worker ${target.productionWorker}`,
@@ -822,11 +846,11 @@ function renderPhaseOneApproval(reportToRender: CutoverReport): string {
 
 function renderSecretsApproval(reportToRender: CutoverReport): string {
     return `${[
-        '# Cloudflare Web Worker Secrets Approval Request',
+        '# Cloudflare Web Worker Secrets And Active Deploy Approval Request',
         '',
-        'This local file is not permission. It narrows the second Cloudflare write phase after the production Worker exists.',
+        'This local file is not permission. It narrows the final web secrets plus active-code transition after the inert production Worker exists.',
         '',
-        'This package does not write to Cloudflare, does not deploy and lists secret names only. Values must come from the approved secure source and must never be pasted into repo files, logs, screenshots or outputs.',
+        'This generated package does not itself write to Cloudflare. The gated runner lists names only, builds the active package from a clean dist root, dry-runs it, loads the approved values, deploys with checkout disabled and compensates automatically to the web bootstrap if active state is not proven.',
         '',
         '## Exact Target',
         '',
@@ -848,18 +872,22 @@ function renderSecretsApproval(reportToRender: CutoverReport): string {
         '```bash',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
         'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production',
+        'corepack pnpm --config.verify-deps-before-run=false run build:production:release',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
         '```',
         '',
         '## Exact Approval Sentence',
         '',
-        'Apruebo configurar/verificar solo los secrets/vars necesarios del Cloudflare Worker web production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, despues de validar cuenta, Worker, Supabase production `vkkahxsybhbutszerawz`, Stripe live, `PUBLIC_SITE_URL=https://espanolhonesto.com`, `PUBLIC_APP_ENV=production` y URL directa exacta, usando valores desde el origen seguro aprobado, sin imprimir valores, sin guardar valores en outputs, con `CHECKOUT_ENABLED=false`, sin tocar el Fulfillment Worker, sin mover dominios, sin borrar Pages y sin cambiar DNS.',
+        'Apruebo configurar/verificar solo los secrets/vars necesarios y desplegar el paquete web activo del Cloudflare Worker production `espanolhonesto` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44`, despues de validar cuenta, Worker bootstrap, Supabase production `vkkahxsybhbutszerawz`, Stripe live, `PUBLIC_SITE_URL=https://espanolhonesto.com`, `PUBLIC_APP_ENV=production`, URL directa exacta, build activo limpio y dry-run, usando valores desde el origen seguro aprobado, sin imprimir valores ni guardarlos en outputs, con `CHECKOUT_ENABLED=false`, fulfillment todavia inerte, sin mover dominios, borrar Pages ni cambiar DNS, y con redeploy compensatorio automatico del bootstrap web si el deploy activo o su verificacion quedan fallidos o ambiguos.',
         '',
         '## Forbidden Scope',
         '',
         '- No domain move, DNS change, Pages deletion, Worker deletion or route change.',
-        '- No key rotation unless it is the explicitly approved final rotation window.',
+        '- No key rotation outside the exact values approved for this final runner.',
         '- No printing, logging, screenshotting or committing secret values.',
         '- No real checkout session, Supabase write, Google mutation or Resend send test.',
+        '- No Fulfillment Worker enable; it remains in `production_bootstrap` until the next separately approved phase.',
         '',
     ].join('\n')}\n`;
 }
@@ -925,7 +953,7 @@ function renderFulfillmentEnableApproval(reportToRender: CutoverReport): string 
         '',
         '## Exact Approval Sentence',
         '',
-        'Apruebo habilitar finalmente el Cloudflare Fulfillment Worker production `espanol-honesto-fulfillment-production` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el entorno Wrangler `production`, despues de verificar el bootstrap inerte, el Worker web production, todos los secrets requeridos y la atestacion autenticada; este deploy activa jobs, email live y el cron horario, sin tocar dominios, DNS, Pages ni Stripe.',
+        PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_SENTENCE,
         '',
         '## Explicitly Activated',
         '',
@@ -1005,19 +1033,29 @@ function renderVerificationChecklist(reportToRender: CutoverReport): string {
         '- Web Worker approval and commands must not touch the fulfillment Worker.',
         '- Confirm no secret values appear in terminal history, repo files, screenshots or output artifacts.',
         '',
-        '## Phase 6: Fresh Dual Worker Attestation',
+        '## Phase 6: Fulfillment Final Secrets While Inert',
         '',
-        '- Freshly list both remote version IDs and verify exact HMAC/config/version with active-provider fingerprints absent for web and fulfillment bootstrap.',
-        '- Reconfirm fulfillment health bootstrap, operational 503 and zero schedules; local summaries alone are insufficient.',
+        '- Run `pnpm launch:cloudflare-production-fulfillment-secrets` under its separate approval while code/runtime remain `production_bootstrap`.',
+        '- Require bootstrap health, operational 503, HMAC for the new version and zero schedules after the secret writes.',
         '',
-        '## Phase 7: Final Provider Loading And Explicit Fulfillment Enable',
+        '## Phase 7: Web Final Secrets And Active Deploy',
         '',
-        '- In the final window, run the separate full web and fulfillment secret runners; do not reuse their approvals for bootstrap.',
+        '- Run `pnpm launch:cloudflare-production-worker-secrets` under its distinct approval.',
+        '- Require clean active build, exact resolved config, dry-run, bootstrap HMAC immediately before write, new active version and active HMAC with checkout false.',
+        '- On failure or ambiguous readback, require automatic clean bootstrap rebuild/deploy and proof of version + health + 503 + HMAC; otherwise stop for manual reconciliation.',
+        '',
+        '## Phase 8: Fresh Dual Worker And Provider Pre-Write Evidence',
+        '',
+        '- Freshly list both remote version IDs and verify active web + bootstrap fulfillment HMAC/config/version in the same process.',
+        '- Require full Queue/DLQ inventory + info and fresh Stripe Live read-only readiness; validate the schema-bound evidence before any enable write.',
+        '',
+        '## Phase 9: Explicit Fulfillment Enable',
+        '',
         '- Run `pnpm launch:cloudflare-production-fulfillment-enable` in plan mode and review its distinct approval gate.',
-        '- The approved runner must prove bootstrap + web + secret prerequisites before deploying `--env production`.',
+        '- The approved runner must prove bootstrap + active web + secret + Queue/DLQ + Stripe prerequisites before deploying `--env production`.',
         '- Confirm post-deploy health/attestation and remote schedule say active. On timeout or any failed post-check, redeploy `production_bootstrap` and prove HMAC bootstrap + 503 + zero schedules; otherwise state is ambiguous and launch stops.',
         '',
-        '## Phase 8: Direct Worker URL And Runtime Attestation',
+        '## Phase 10: Direct Worker URL And Runtime Attestation',
         '',
         '- Probe public pages read-only from the direct Worker URL.',
         '- Probe these exact modern parity routes from the direct Worker URL:',
@@ -1025,7 +1063,7 @@ function renderVerificationChecklist(reportToRender: CutoverReport): string {
         '- Do not create checkout sessions, emails, Google files/events or Supabase data during direct URL verification.',
         '- Require authenticated attestation of exact Worker identity, Cloudflare version ID and Supabase production ref for both web and fulfillment Workers.',
         '',
-        '## Phase 9: Domain Move',
+        '## Phase 11: Domain Move',
         '',
         `- Confirm ${reportToRender.target.customDomains.join(' and ')} are no longer served by the old Pages project after the approved move.`,
         '- Confirm the same exact modern parity routes pass on `https://espanolhonesto.com` and, where applicable, `https://www.espanolhonesto.com`.',

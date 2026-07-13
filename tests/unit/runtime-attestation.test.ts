@@ -9,6 +9,7 @@ import {
 
 function runtimeEnv() {
     return {
+        ADMIN_EMAIL: 'admin@example.com',
         CHECKOUT_ENABLED: 'false',
         CHECKOUT_ENABLED_OVERRIDE: 'false',
         EMAIL_DAILY_RECIPIENT_LIMIT: '10',
@@ -19,16 +20,19 @@ function runtimeEnv() {
         FULFILLMENT_WORKER_URL: 'https://fulfillment.example.com',
         INTERNAL_JOB_SECRET: 'attestation-secret',
         PUBLIC_APP_ENV: 'staging',
+        PUBLIC_SENTRY_DSN: 'https://public@example.invalid/123',
         PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_attested',
         PUBLIC_SUPABASE_ANON_KEY: 'anon',
         PUBLIC_SUPABASE_URL: 'https://staging.supabase.co',
         RESEND_API_KEY: 'resend',
+        RESEND_FROM_EMAIL: 'Fallback <fallback@example.com>',
         STRIPE_EXPECTED_ACCOUNT_ID: 'acct_attested',
         STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_attested',
         STRIPE_SECRET_KEY: 'sk_test_attested',
         STRIPE_WEBHOOK_SECRET: 'whsec_attested',
         SUPABASE_EXPECTED_PROJECT_REF: 'staging',
         SUPABASE_SERVICE_ROLE_KEY: 'service',
+        SUPPORT_ALERT_EMAIL: 'support@example.com',
         WEB_RUNTIME_MODE: 'active',
         WORKER_IDENTITY: 'espanolhonesto-staging',
         WORKER_VERSION_ID: '11111111-1111-4111-8111-111111111111',
@@ -87,6 +91,39 @@ describe('runtime attestation', () => {
         expect(fulfillment.stripeSecretKeyFingerprint).toBe('absent');
     });
 
+    it.each([
+        ['PUBLIC_SENTRY_DSN', 'publicSentryDsnFingerprint', 'https://public@example.invalid/changed'],
+        ['ADMIN_EMAIL', 'adminEmailFingerprint', 'changed-admin@example.com'],
+        ['SUPPORT_ALERT_EMAIL', 'supportAlertEmailFingerprint', 'changed-support@example.com'],
+        ['RESEND_FROM_EMAIL', 'resendFromEmailFingerprint', 'Changed fallback <changed-fallback@example.com>'],
+    ] as const)('HMAC-binds an independent non-reversible %s fingerprint', async (
+        envKey,
+        fingerprintKey,
+        changedValue,
+    ) => {
+        const env = runtimeEnv();
+        const nonce = `independent_${envKey.toLowerCase()}_123456`;
+        const envelope = await createRuntimeAttestation('web', env, nonce);
+        const config = await buildRuntimeAttestationConfig('web', env);
+        const changedConfig = await buildRuntimeAttestationConfig('web', {
+            ...env,
+            [envKey]: changedValue,
+        });
+
+        expect(config[fingerprintKey]).toMatch(/^sha256:[a-f0-9]{64}$/u);
+        expect(config[fingerprintKey]).not.toContain(env[envKey]);
+        expect(changedConfig[fingerprintKey]).not.toBe(config[fingerprintKey]);
+        if (envKey === 'RESEND_FROM_EMAIL') {
+            expect(changedConfig.resendSenderFingerprint).toBe(config.resendSenderFingerprint);
+        }
+        await expect(verifyRuntimeAttestation(envelope, {
+            config: changedConfig,
+            nonce,
+            role: 'web',
+            schema: RUNTIME_ATTESTATION_SCHEMA,
+        }, env.INTERNAL_JOB_SECRET)).resolves.toBe(false);
+    });
+
     it('attests Google as absent on a minimal fulfillment bootstrap', async () => {
         const minimal = {
             ...runtimeEnv(),
@@ -100,6 +137,7 @@ describe('runtime attestation', () => {
             SUPABASE_SERVICE_ROLE_KEY: '',
             RESEND_API_KEY: '',
             EMAIL_FROM: '',
+            RESEND_FROM_EMAIL: '',
             EMAIL_RECIPIENT_ALLOWLIST: '',
             CRON_SECRET: '',
         };
@@ -156,6 +194,7 @@ describe('runtime attestation', () => {
             EMAIL_DAILY_RECIPIENT_LIMIT: '0',
             EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
             EMAIL_FROM: '',
+            RESEND_FROM_EMAIL: '',
             EMAIL_RECIPIENT_ALLOWLIST: '',
             PUBLIC_SUPABASE_URL: '',
             PUBLIC_SUPABASE_ANON_KEY: '',

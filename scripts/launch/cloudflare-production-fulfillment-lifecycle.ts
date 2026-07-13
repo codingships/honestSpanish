@@ -1,20 +1,59 @@
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as dotenv from 'dotenv';
+import Stripe from 'stripe';
 import {
     buildRuntimeAttestationConfig,
     RUNTIME_ATTESTATION_SCHEMA,
     verifyRuntimeAttestation,
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
+import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
+import {
+    PRODUCTION_QUEUE_TARGET,
+    classifyQueueInventory,
+    queueRowsInPage,
+} from './cloudflare-production-queue-shared';
+import {
+    PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_ENV,
+    PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_SENTENCE,
+    buildProductionEnablePrewriteEvidence,
+    createProductionEnablePendingCheckpoint,
+    markProductionEnableCheckpointAmbiguous,
+    markProductionEnableCheckpointCompensated,
+    markProductionEnableCheckpointCompensationStarted,
+    markProductionEnableCheckpointProven,
+    productionEnableStartupAction,
+    runGuardedEnableMutation,
+    validateProductionEnablePrewriteEvidence,
+    type ProductionEnableCheckpoint,
+    type ProductionEnableQueueReadiness,
+    type ProductionEnableStripeReadiness,
+} from './cloudflare-production-fulfillment-lifecycle-shared';
+import {
+    acquireProductionEnableLock,
+    assertProductionEnableLockOwnership,
+    persistProductionEnableCheckpointCas,
+    readProductionEnableCheckpoint,
+    releaseProductionEnableLock,
+} from './cloudflare-production-fulfillment-enable-state';
+import { inspectStripeLiveReadiness } from './stripe-live-readiness';
 
 type Phase = 'bootstrap' | 'enable';
 type CheckStatus = 'ok' | 'failed';
 type Check = { status: CheckStatus; name: string; message: string; details: string[] };
 type CommandSpec = { id: string; display: string; args: string[]; writesCloudflare: boolean };
-type CommandCapture = CommandSpec & { status: CheckStatus; exitCode: number | null; outputPath: string };
+type CommandCapture = CommandSpec & {
+    status: CheckStatus;
+    exitCode: number | null;
+    outputPath: string;
+    stdout: string;
+    stderr: string;
+};
+type QueueReadinessResult = { checks: Check[]; readiness: ProductionEnableQueueReadiness | null };
+type StripeReadinessResult = { check: Check; readiness: ProductionEnableStripeReadiness | null };
 
 const target = {
     accountId: 'd1a22bcf6477ff2ff31d2bfb83084e44',
@@ -70,25 +109,41 @@ if (phase !== 'bootstrap' && phase !== 'enable') {
 const executeRequested = process.argv.includes('--execute-approved');
 const approvalEnvVar = phase === 'bootstrap'
     ? 'CLOUDFLARE_FULFILLMENT_BOOTSTRAP_APPROVAL'
-    : 'CLOUDFLARE_FULFILLMENT_ENABLE_APPROVAL';
+    : PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_ENV;
 const directUrlEnvVar = 'CLOUDFLARE_FULFILLMENT_DIRECT_URL';
 const envFileEnvVar = 'CLOUDFLARE_FULFILLMENT_ENV_FILE';
 const exactApprovalSentence = phase === 'bootstrap'
     ? 'Apruebo crear o reemplazar solo el Cloudflare Fulfillment Worker production `espanol-honesto-fulfillment-production` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el entorno Wrangler `production_bootstrap`, con jobs, email y cron desactivados, antes de desplegar el Worker web, sin ejecutar jobs, sin enviar emails, sin tocar dominios, DNS, Pages, Supabase, Google, Resend ni Stripe.'
-    : 'Apruebo habilitar finalmente el Cloudflare Fulfillment Worker production `espanol-honesto-fulfillment-production` en la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` usando el entorno Wrangler `production`, despues de verificar el bootstrap inerte, el Worker web production, todos los secrets requeridos y la atestacion autenticada; este deploy activa jobs, email live y el cron horario, sin tocar dominios, DNS, Pages ni Stripe.';
+    : PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_SENTENCE;
+const initialApprovalValue = process.env[approvalEnvVar]?.trim() ?? '';
 
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', `launch-cloudflare-production-fulfillment-${phase}`, stamp(startedAt));
+const enablePrewriteEvidencePath = path.join(outputDir, 'enable-prewrite-evidence.json');
+const enableCheckpointPath = path.join(
+    process.cwd(),
+    'outputs',
+    'launch-cloudflare-production-fulfillment-enable',
+    'checkpoint.json',
+);
+const enableLockPath = path.join(
+    process.cwd(),
+    'outputs',
+    'launch-cloudflare-production-fulfillment-enable',
+    'execution.lock',
+);
+const enableLockOwnerId = randomUUID();
 mkdirSync(outputDir, { recursive: true });
 
 const checks: Check[] = [
     validatePackageScripts(),
     validateWranglerConfig(),
-    ...(phase === 'enable' ? [validateWebSecretsEvidence()] : []),
 ];
 const captures: CommandCapture[] = [];
 let externalWriteAttempted = false;
-let externalWritePerformed = false;
+let externalWritePerformed: boolean | 'unknown' = false;
+let enableCheckpoint: ProductionEnableCheckpoint | null = null;
+let enableLockHeld = false;
 
 if (!executeRequested) {
     checks.push(ok('plan_mode_no_external_write', 'Plan mode generated the gated lifecycle package without calling Cloudflare.', [
@@ -119,6 +174,14 @@ writeFileSync(path.join(outputDir, 'command-manifest.json'), JSON.stringify({
     externalWritePerformed,
     approvalEnvVar,
     directUrlEnvVar,
+    enablePrewriteEvidencePath: existsSync(enablePrewriteEvidencePath)
+        ? relative(enablePrewriteEvidencePath)
+        : null,
+    enableCheckpointPath: relative(enableCheckpointPath),
+    enableCheckpointStatus: enableCheckpoint?.status ?? null,
+    enableCheckpointRevision: enableCheckpoint?.revision ?? null,
+    enableLockPath: relative(enableLockPath),
+    enableLockHeld,
     captures: captures.map((capture) => ({
         id: capture.id,
         command: capture.display,
@@ -146,14 +209,65 @@ async function executeApproved(): Promise<void> {
     checks.push(commandCheck(whoami));
     if (whoami.status === 'failed') return;
 
-    const accountMatched = captureText(whoami).includes(target.accountId);
-    checks.push(accountMatched
-        ? ok('remote_account_pre_write_gate', 'Wrangler is authenticated to the exact approved Cloudflare account.', [`accountId=${target.accountId}`])
-        : failed('remote_account_pre_write_gate', 'Wrangler account does not match; no write may start.', ['externalWriteAttempted=false']));
-    if (!accountMatched) return;
+    try {
+        const identity = verifyCloudflareWhoamiOutput(whoami.stdout, target.accountId);
+        checks.push(ok('remote_account_pre_write_gate', 'Structured Wrangler identity proves exactly one match for the approved Cloudflare account.', [
+            `accountId=${identity.expectedAccountId}`,
+            `matchedAccountCount=${identity.matchedAccountCount}`,
+        ]));
+    } catch (error) {
+        checks.push(failed('remote_account_pre_write_gate', 'Wrangler identity does not prove exactly one match for the approved account; no write may start.', [
+            `error=${safeError(error)}`,
+            'externalWriteAttempted=false',
+        ]));
+        return;
+    }
 
-    if (phase === 'bootstrap') await executeBootstrap();
-    else await executeEnable();
+    if (phase === 'bootstrap') {
+        await executeBootstrap();
+        return;
+    }
+    let lockAcquisition: ReturnType<typeof acquireProductionEnableLock>;
+    try {
+        lockAcquisition = acquireProductionEnableLock({
+            lockPath: enableLockPath,
+            ownerId: enableLockOwnerId,
+        });
+    } catch (error) {
+        checks.push(failed('enable_execution_lock', 'Canonical production enable lifecycle lock is invalid or could not be acquired safely; no checkpoint or Cloudflare write may start.', [
+            `error=${safeError(error)}`,
+            'externalWriteAttempted=false',
+        ]));
+        return;
+    }
+    if (!lockAcquisition.acquired) {
+        checks.push(failed('enable_execution_lock', 'Another production fulfillment enable owner holds the canonical lifecycle lock; no checkpoint or Cloudflare write may start.', [
+            `reason=${lockAcquisition.reason}`,
+            `ownerPid=${lockAcquisition.existing.pid}`,
+            `ownerHost=${lockAcquisition.existing.hostname}`,
+            'externalWriteAttempted=false',
+        ]));
+        return;
+    }
+    enableLockHeld = true;
+    checks.push(ok('enable_execution_lock', 'This process exclusively owns the canonical production enable lifecycle lock.', [
+        `lock=${relative(enableLockPath)}`,
+        `staleOwnerRecovered=${String(lockAcquisition.staleOwnerRecovered)}`,
+    ]));
+    try {
+        if (!await reconcileEnableCheckpointAtStartup()) return;
+        await executeEnable();
+    } finally {
+        try {
+            releaseProductionEnableLock(enableLockPath, enableLockOwnerId);
+            checks.push(ok('enable_execution_lock_released', 'Canonical production enable lifecycle lock was released by its exact owner.', []));
+        } catch (error) {
+            checks.push(failed('enable_execution_lock_release', 'Canonical production enable lifecycle lock could not be released safely; later runs must fail closed or recover the stale owner.', [
+                `error=${safeError(error)}`,
+            ]));
+        }
+        enableLockHeld = false;
+    }
 }
 
 async function executeBootstrap(): Promise<void> {
@@ -234,6 +348,14 @@ async function executeEnable(): Promise<void> {
     checks.push(commandCheck(dryRun));
     if (dryRun.status === 'failed') return;
 
+    const queueReadiness = readFreshProductionQueueReadiness();
+    checks.push(...queueReadiness.checks);
+    if (!queueReadiness.readiness) return;
+
+    const stripeReadiness = await readFreshStripeLiveReadiness();
+    checks.push(stripeReadiness.check);
+    if (!stripeReadiness.readiness) return;
+
     // Re-read and attest both remote Workers after every other preflight, so
     // the versions proven here are the ones immediately preceding the write.
     const freshFulfillment = runCommand(deploymentsCommand('fulfillment-bootstrap-version-immediately-before-enable'));
@@ -259,36 +381,346 @@ async function executeEnable(): Promise<void> {
     checks.push(await webRuntimeAttestation(freshWebVersion));
     if (checks.at(-1)?.status === 'failed') return;
 
+    const prewriteEvidence = buildProductionEnablePrewriteEvidence({
+        generatedAt: new Date().toISOString(),
+        queue: queueReadiness.readiness,
+        stripe: stripeReadiness.readiness,
+        stripeAccountId: secretValue('STRIPE_EXPECTED_ACCOUNT_ID'),
+        stripePortalConfigurationId: secretValue('STRIPE_PORTAL_CONFIGURATION_ID'),
+        fulfillmentBootstrapVersion: freshFulfillmentVersion,
+        webVersion: freshWebVersion,
+    });
+    const evidenceValidation = validateProductionEnablePrewriteEvidence(prewriteEvidence, {
+        now: new Date(),
+        stripeAccountId: secretValue('STRIPE_EXPECTED_ACCOUNT_ID'),
+        stripePortalConfigurationId: secretValue('STRIPE_PORTAL_CONFIGURATION_ID'),
+    });
+    checks.push(evidenceValidation.ok
+        ? ok('structured_enable_prewrite_evidence', 'Fresh Queue, Stripe and version evidence is strictly validated and approval-bound immediately before enable.', [
+            `evidence=${relative(enablePrewriteEvidencePath)}`,
+            `queue=${PRODUCTION_QUEUE_TARGET.queue}`,
+            `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}`,
+            'externalWriteAttempted=false',
+        ])
+        : failed('structured_enable_prewrite_evidence', 'Fresh Queue/Stripe evidence did not pass strict approval-bound validation; active deploy is blocked.', evidenceValidation.errors));
+    if (!evidenceValidation.ok) return;
+    const evidenceJson = `${JSON.stringify(prewriteEvidence, null, 2)}\n`;
+    writeFileSync(enablePrewriteEvidencePath, evidenceJson, 'utf8');
+    const pendingCheckpoint = createProductionEnablePendingCheckpoint({
+        attemptId: randomUUID(),
+        now: new Date().toISOString(),
+        prewriteEvidenceSha256: createHash('sha256').update(evidenceJson).digest('hex'),
+        previousRevision: enableCheckpoint?.revision,
+    });
+
+    try {
+        await runGuardedEnableMutation<string, string>({
+            persistPending: () => {
+                persistEnableCheckpoint(pendingCheckpoint, enableCheckpoint);
+                enableCheckpoint = pendingCheckpoint;
+                externalWriteAttempted = true;
+                externalWritePerformed = 'unknown';
+                checks.push(ok('active_enable_write_ahead_checkpoint', 'Durable pending checkpoint was persisted before the active deploy command.', [
+                    `checkpoint=${relative(enableCheckpointPath)}`,
+                    `evidenceSha256=${pendingCheckpoint.prewriteEvidenceSha256}`,
+                ]));
+            },
+            deployAndVerifyActive: async () => {
+                assertEnableMutationOwnership('active deploy');
+                const deploy = runCommand(deployCommand('fulfillment-active-deploy', 'production', false));
+                captures.push(deploy);
+                checks.push(commandCheck(deploy));
+                if (deploy.status !== 'ok') return null;
+                externalWritePerformed = true;
+                const afterDeployments = runCommand(deploymentsCommand('fulfillment-active-deployments-after'));
+                captures.push(afterDeployments);
+                checks.push(commandCheck(afterDeployments));
+                const afterVersionId = deploymentVersionId(afterDeployments);
+                const versionCheck = afterDeployments.status === 'ok' && Boolean(afterVersionId && afterVersionId !== freshFulfillmentVersion)
+                    ? ok('active_version_gate', 'A distinct active fulfillment version is deployed.', ['versionChanged=true'])
+                    : failed('active_version_gate', 'A distinct active fulfillment version could not be proven after deploy.', [
+                        `versionPresent=${String(Boolean(afterVersionId))}`,
+                        `versionChanged=${String(Boolean(afterVersionId && afterVersionId !== freshFulfillmentVersion))}`,
+                    ]);
+                checks.push(versionCheck);
+                if (versionCheck.status !== 'ok' || !afterVersionId) return null;
+                const activeHealth = await healthProbe(directUrl, 'active');
+                const activeAttestation = await runtimeAttestation(directUrl, afterVersionId, 'active');
+                const activeCron = await cronScheduleProbe('active');
+                checks.push(activeHealth, activeAttestation, activeCron);
+                return [activeHealth, activeAttestation, activeCron].every((check) => check.status === 'ok')
+                    ? afterVersionId
+                    : null;
+            },
+            markProven: (activeVersionId) => {
+                const current = requireEnableCheckpoint();
+                const next = markProductionEnableCheckpointProven(
+                    current,
+                    activeVersionId,
+                    new Date().toISOString(),
+                );
+                persistEnableCheckpoint(next, current);
+                enableCheckpoint = next;
+                externalWritePerformed = true;
+            },
+            compensateAndVerify: () => compensateToBootstrap(directUrl),
+            markCompensated: (bootstrapVersionId) => {
+                const current = requireEnableCheckpoint();
+                const next = markProductionEnableCheckpointCompensated(
+                    current,
+                    bootstrapVersionId,
+                    new Date().toISOString(),
+                );
+                persistEnableCheckpoint(next, current);
+                enableCheckpoint = next;
+                externalWritePerformed = true;
+            },
+            markAmbiguous: (errorCategory) => {
+                const current = requireEnableCheckpoint();
+                const next = markProductionEnableCheckpointAmbiguous(
+                    current,
+                    errorCategory,
+                    new Date().toISOString(),
+                );
+                persistEnableCheckpoint(next, current);
+                enableCheckpoint = next;
+                externalWritePerformed = 'unknown';
+                checks.push(failed('active_deploy_state_ambiguous', 'Active deploy and compensating bootstrap could not be proven; durable checkpoint requires reconciliation.', [
+                    `checkpoint=${relative(enableCheckpointPath)}`,
+                    `errorCategory=${errorCategory}`,
+                ]));
+            },
+        });
+    } catch (error) {
+        if (enableCheckpoint && enableCheckpoint.status !== 'proven' && enableCheckpoint.status !== 'compensated') {
+            if (enableCheckpoint.status === 'pending') {
+                const current = enableCheckpoint;
+                const next = markProductionEnableCheckpointAmbiguous(
+                    current,
+                    'CHECKPOINT_OR_GUARD_PERSISTENCE_EXCEPTION',
+                    new Date().toISOString(),
+                );
+                try {
+                    persistEnableCheckpoint(next, current);
+                    enableCheckpoint = next;
+                } catch {
+                    // The current durable checkpoint remains the recovery gate.
+                }
+            }
+            externalWriteAttempted = true;
+            externalWritePerformed = 'unknown';
+        }
+        checks.push(failed('guarded_enable_mutation_exception', 'Guarded enable mutation raised unexpectedly; launch remains blocked and checkpoint reconciliation is required.', [
+            `error=${safeError(error)}`,
+            `checkpoint=${relative(enableCheckpointPath)}`,
+        ]));
+    }
+}
+
+async function reconcileEnableCheckpointAtStartup(): Promise<boolean> {
+    let checkpoint: ProductionEnableCheckpoint | null;
+    try {
+        checkpoint = readProductionEnableCheckpoint(enableCheckpointPath);
+    } catch (error) {
+        externalWriteAttempted = true;
+        externalWritePerformed = 'unknown';
+        checks.push(failed('enable_checkpoint_validation', 'Existing enable checkpoint is invalid; no new write or no-write claim is allowed.', [
+            `checkpoint=${relative(enableCheckpointPath)}`,
+            `error=${safeError(error)}`,
+        ]));
+        return false;
+    }
+    if (!checkpoint) return true;
+    enableCheckpoint = checkpoint;
+    const startupAction = productionEnableStartupAction(checkpoint);
+
+    if (startupAction === 'allow_new_attempt') {
+        checks.push(ok('enable_checkpoint_reconciled', 'Previous enable attempt has a proven compensated bootstrap; a fresh approved attempt may run.', [
+            `checkpoint=${relative(enableCheckpointPath)}`,
+            `bootstrapVersion=${checkpoint.compensatedBootstrapVersionId}`,
+            `revision=${checkpoint.revision}`,
+        ]));
+        return true;
+    }
+
     externalWriteAttempted = true;
-    const deploy = runCommand(deployCommand('fulfillment-active-deploy', 'production', false));
-    captures.push(deploy);
-    checks.push(commandCheck(deploy));
-    let activeStateProven = false;
-    if (deploy.status === 'ok') {
-        externalWritePerformed = true;
-        const afterDeployments = runCommand(deploymentsCommand('fulfillment-active-deployments-after'));
-        captures.push(afterDeployments);
-        checks.push(commandCheck(afterDeployments));
-        const afterVersionId = deploymentVersionId(afterDeployments);
-        const versionCheck = afterDeployments.status === 'ok' && Boolean(afterVersionId && afterVersionId !== freshFulfillmentVersion)
-            ? ok('active_version_gate', 'A distinct active fulfillment version is deployed.', [`versionChanged=true`])
-            : failed('active_version_gate', 'A distinct active fulfillment version could not be proven after deploy.', [
-                `versionPresent=${String(Boolean(afterVersionId))}`,
-                `versionChanged=${String(Boolean(afterVersionId && afterVersionId !== freshFulfillmentVersion))}`,
-            ]);
-        checks.push(versionCheck);
-        if (versionCheck.status === 'ok' && afterVersionId) {
-            const activeHealth = await healthProbe(directUrl, 'active');
-            const activeAttestation = await runtimeAttestation(directUrl, afterVersionId, 'active');
-            const activeCron = await cronScheduleProbe('active');
-            checks.push(activeHealth, activeAttestation, activeCron);
-            activeStateProven = [activeHealth, activeAttestation, activeCron].every((check) => check.status === 'ok');
+    externalWritePerformed = 'unknown';
+    checks.push(ok('enable_checkpoint_reconciliation_required', 'Unfinished enable checkpoint found; remote state is reconciled before any new active attempt.', [
+        `status=${checkpoint.status}`,
+        `startupAction=${startupAction}`,
+        `compensationAttempted=${String(checkpoint.compensationAttempted)}`,
+        `checkpoint=${relative(enableCheckpointPath)}`,
+        'externalWritePerformed=unknown',
+    ]));
+    const directUrl = normalizeDirectUrl(process.env[directUrlEnvVar]);
+    if (!directUrl) {
+        const next = markProductionEnableCheckpointAmbiguous(checkpoint, 'RECONCILIATION_DIRECT_URL_INVALID', new Date().toISOString());
+        let persistenceError: string | null = null;
+        try {
+            persistEnableCheckpoint(next, checkpoint);
+            enableCheckpoint = next;
+        } catch (error) {
+            persistenceError = safeError(error);
+        }
+        checks.push(failed('enable_checkpoint_reconciliation', 'Pending enable cannot be reconciled without the exact direct URL.', [
+            ...(persistenceError ? [`checkpointPersistenceError=${persistenceError}`] : []),
+        ]));
+        return false;
+    }
+
+    if (startupAction === 'verify_proven_active') {
+        const deployments = runCommand(deploymentsCommand('fulfillment-proven-version-fresh-readback'));
+        captures.push(deployments);
+        checks.push(commandCheck(deployments));
+        const versionId = deployments.status === 'ok' ? deploymentVersionId(deployments) : null;
+        const versionReadback = deployments.status === 'ok'
+            && Boolean(versionId)
+            && versionId === checkpoint.activeVersionId;
+        const activeHealth = await healthProbe(directUrl, 'active');
+        const activeAttestation = await runtimeAttestation(directUrl, checkpoint.activeVersionId!, 'active');
+        const activeCron = await cronScheduleProbe('active');
+        checks.push(
+            versionReadback
+                ? ok('proven_checkpoint_version_readback', 'Fresh Cloudflare readback matches the exact version stored by the proven checkpoint.', [
+                    `activeVersion=${checkpoint.activeVersionId}`,
+                ])
+                : failed('proven_checkpoint_version_readback', 'Fresh Cloudflare readback diverges from the proven checkpoint version.', [
+                    `storedVersion=${checkpoint.activeVersionId}`,
+                    `remoteVersion=${versionId ?? 'unproven'}`,
+                ]),
+            activeHealth,
+            activeAttestation,
+            activeCron,
+        );
+        if (versionReadback && [activeHealth, activeAttestation, activeCron].every((check) => check.status === 'ok')) {
+            externalWritePerformed = true;
+            checks.push(ok('enable_checkpoint_already_proven', 'Fresh version, health, HMAC and Cron readback still prove the exact active checkpoint; duplicate deployment is blocked.', [
+                `activeVersion=${checkpoint.activeVersionId}`,
+                `checkpoint=${relative(enableCheckpointPath)}`,
+            ]));
+            return false;
+        }
+
+        const ambiguous = markProductionEnableCheckpointAmbiguous(
+            checkpoint,
+            'PROVEN_REMOTE_READBACK_DIVERGED',
+            new Date().toISOString(),
+        );
+        try {
+            persistEnableCheckpoint(ambiguous, checkpoint);
+            enableCheckpoint = ambiguous;
+            checkpoint = ambiguous;
+        } catch (error) {
+            checks.push(failed('proven_checkpoint_divergence_persistence', 'Remote proven-state divergence could not be committed as ambiguous; compensation is blocked by checkpoint CAS.', [
+                `error=${safeError(error)}`,
+            ]));
+            return false;
+        }
+        checks.push(failed('proven_checkpoint_remote_divergence', 'Historical proven state diverged from fresh remote readback; checkpoint is ambiguous and compensation requires this exact approved execution.', [
+            `checkpointRevision=${checkpoint.revision}`,
+        ]));
+    }
+
+    if (startupAction === 'compensate_only') {
+        checks.push(ok('enable_checkpoint_compensation_is_monotonic', 'A prior compensation attempt exists; startup skips every active-proven path and continues only toward bootstrap compensation.', [
+            `checkpointRevision=${checkpoint.revision}`,
+        ]));
+    } else if (startupAction === 'reconcile_active_then_compensate') {
+        try {
+            const deployments = runCommand(deploymentsCommand('fulfillment-deployments-startup-reconciliation'));
+            captures.push(deployments);
+            checks.push(commandCheck(deployments));
+            const versionId = deployments.status === 'ok' ? deploymentVersionId(deployments) : null;
+            if (versionId) {
+                const activeHealth = await healthProbe(directUrl, 'active');
+                const activeAttestation = await runtimeAttestation(directUrl, versionId, 'active');
+                const activeCron = await cronScheduleProbe('active');
+                checks.push(activeHealth, activeAttestation, activeCron);
+                if ([activeHealth, activeAttestation, activeCron].every((check) => check.status === 'ok')) {
+                    const proven = markProductionEnableCheckpointProven(checkpoint, versionId, new Date().toISOString());
+                    persistEnableCheckpoint(proven, checkpoint);
+                    enableCheckpoint = proven;
+                    externalWritePerformed = true;
+                    checks.push(ok('enable_checkpoint_reconciled_active', 'Startup reconciliation proves the prior active deployment; duplicate write is blocked.', [
+                        `activeVersion=${versionId}`,
+                    ]));
+                    return false;
+                }
+            }
+        } catch (error) {
+            checks.push(failed('enable_checkpoint_active_reconciliation_exception', 'Active-state reconciliation raised unexpectedly; compensating bootstrap is still attempted.', [
+                `error=${safeError(error)}`,
+            ]));
         }
     }
 
-    if (!activeStateProven) {
-        await compensateToBootstrap(directUrl);
+    try {
+        const bootstrapVersionId = await compensateToBootstrap(directUrl);
+        if (bootstrapVersionId) {
+            const current = requireEnableCheckpoint();
+            const compensated = markProductionEnableCheckpointCompensated(
+                current,
+                bootstrapVersionId,
+                new Date().toISOString(),
+            );
+            persistEnableCheckpoint(compensated, current);
+            enableCheckpoint = compensated;
+            externalWritePerformed = true;
+            checks.push(ok('enable_checkpoint_reconciled_compensated', 'Startup reconciliation restored and proved bootstrap; this recovery run stops before a new active attempt.', [
+                `bootstrapVersion=${bootstrapVersionId}`,
+            ]));
+            return false;
+        }
+        const current = requireEnableCheckpoint();
+        const ambiguous = markProductionEnableCheckpointAmbiguous(
+            current,
+            'STARTUP_RECONCILIATION_AND_COMPENSATION_NOT_PROVEN',
+            new Date().toISOString(),
+        );
+        persistEnableCheckpoint(ambiguous, current);
+        enableCheckpoint = ambiguous;
+    } catch (error) {
+        const current = requireEnableCheckpoint();
+        const ambiguous = markProductionEnableCheckpointAmbiguous(
+            current,
+            'STARTUP_RECONCILIATION_EXCEPTION',
+            new Date().toISOString(),
+        );
+        try {
+            persistEnableCheckpoint(ambiguous, current);
+            enableCheckpoint = ambiguous;
+        } catch {
+            // Preserve the previously durable pending/ambiguous checkpoint.
+        }
+        checks.push(failed('enable_checkpoint_reconciliation_exception', 'Startup reconciliation failed unexpectedly; no new active deploy is allowed.', [
+            `error=${safeError(error)}`,
+        ]));
     }
+    externalWritePerformed = 'unknown';
+    return false;
+}
+
+function persistEnableCheckpoint(
+    checkpoint: ProductionEnableCheckpoint,
+    expected: ProductionEnableCheckpoint | null,
+): void {
+    persistProductionEnableCheckpointCas({
+        checkpointPath: enableCheckpointPath,
+        lockPath: enableLockPath,
+        ownerId: enableLockOwnerId,
+        expected,
+        next: checkpoint,
+    });
+}
+
+function assertEnableMutationOwnership(operation: string): void {
+    if (!enableLockHeld) throw new Error(`Production enable lock is not held before ${operation}`);
+    assertProductionEnableLockOwnership(enableLockPath, enableLockOwnerId);
+}
+
+function requireEnableCheckpoint(): ProductionEnableCheckpoint {
+    if (!enableCheckpoint) throw new Error('Enable checkpoint is missing after write intent');
+    return enableCheckpoint;
 }
 
 function validatePackageScripts(): Check {
@@ -345,30 +777,9 @@ function validateWranglerConfig(): Check {
         : failed('wrangler_lifecycle_config', 'Wrangler lifecycle configuration is incomplete.', missing.map((item) => `missing=${item}`));
 }
 
-function validateWebSecretsEvidence(): Check {
-    const summaryPath = latestGeneratedPath('launch-cloudflare-production-worker-secrets', 'summary.md');
-    if (!summaryPath) {
-        return failed('web_secrets_before_fulfillment_enable', 'Executed web secret/attestation evidence is required before fulfillment enable.', [
-            'run=pnpm launch:cloudflare-production-worker-secrets -- --execute-approved',
-        ]);
-    }
-    const summary = readFileSync(summaryPath, 'utf8');
-    const required = [
-        '- Status: OK',
-        '- Execute requested: true',
-        '- External write performed: true',
-        '| ok | fresh_stripe_live_readiness_pre_write_gate |',
-        '| ok | direct_worker_runtime_attestation |',
-    ];
-    const missing = required.filter((snippet) => !summary.includes(snippet));
-    return missing.length === 0
-        ? ok('web_secrets_before_fulfillment_enable', 'Latest web evidence proves secrets, fresh Stripe gate and runtime attestation before fulfillment enable.', [`summary=${summaryPath}`])
-        : failed('web_secrets_before_fulfillment_enable', 'Web secret/attestation evidence is incomplete; fulfillment enable remains blocked.', missing.map((snippet) => `missing=${snippet}`));
-}
-
 function validateExecutionEnvironment(): Check {
     const mismatches = [
-        process.env[approvalEnvVar]?.trim() === exactApprovalSentence ? null : approvalEnvVar,
+        initialApprovalValue === exactApprovalSentence ? null : `${approvalEnvVar} (initial process environment only)`,
         process.env.CLOUDFLARE_ACCOUNT_ID?.trim() === target.accountId ? null : 'CLOUDFLARE_ACCOUNT_ID',
         process.env.CLOUDFLARE_API_TOKEN?.trim() ? null : 'CLOUDFLARE_API_TOKEN',
         normalizeDirectUrl(process.env[directUrlEnvVar]) ? null : directUrlEnvVar,
@@ -386,6 +797,10 @@ function validateExecutionEnvironment(): Check {
             Number.isSafeInteger(dailyLimit) && dailyLimit > 0 && dailyLimit <= 80 ? null : 'EMAIL_DAILY_RECIPIENT_LIMIT',
             Number.isSafeInteger(monthlyLimit) && monthlyLimit > 0 && monthlyLimit <= 2400 ? null : 'EMAIL_MONTHLY_RECIPIENT_LIMIT',
             supabaseProjectRef(secretValue('PUBLIC_SUPABASE_URL')) === target.supabaseRef ? null : 'PUBLIC_SUPABASE_URL',
+            /^sk_live_[A-Za-z0-9]+$/u.test(secretValue('STRIPE_SECRET_KEY')) ? null : 'STRIPE_SECRET_KEY must be live',
+            /^pk_live_[A-Za-z0-9]+$/u.test(secretValue('PUBLIC_STRIPE_PUBLISHABLE_KEY')) ? null : 'PUBLIC_STRIPE_PUBLISHABLE_KEY must be live',
+            /^acct_[A-Za-z0-9]+$/u.test(secretValue('STRIPE_EXPECTED_ACCOUNT_ID')) ? null : 'STRIPE_EXPECTED_ACCOUNT_ID',
+            /^bpc_[A-Za-z0-9]+$/u.test(secretValue('STRIPE_PORTAL_CONFIGURATION_ID')) ? null : 'STRIPE_PORTAL_CONFIGURATION_ID',
             mailbox(secretValue('EMAIL_FROM')) === mailbox(secretValue('RESEND_FROM_EMAIL'))
                 && mailbox(secretValue('EMAIL_FROM'))?.endsWith('@espanolhonesto.com')
                 ? null
@@ -398,12 +813,137 @@ function validateExecutionEnvironment(): Check {
     return failures.length === 0
         ? ok('execution_environment_gate', 'Exact approval, target and phase inputs match before any Cloudflare command.', [
             `phase=${phase}`,
+            'approvalSource=initial_process_environment_only',
             'externalWriteAttempted=false',
         ])
         : failed('execution_environment_gate', 'Approval or exact target inputs do not match; no Cloudflare write may start.', [
             `mismatches=${failures.join(', ')}`,
             'externalWriteAttempted=false',
         ]);
+}
+
+function readFreshProductionQueueReadiness(): QueueReadinessResult {
+    const resultChecks: Check[] = [];
+    const inventoryOutputs: string[] = [];
+    let pagesRead = 0;
+    let paginationCompleted = false;
+
+    for (let page = 1; page <= 500; page += 1) {
+        const capture = runCommand(command(
+            `production-queue-inventory-immediately-before-enable-page-${page}`,
+            ['queues', 'list', '--page', String(page)],
+            false,
+        ));
+        captures.push(capture);
+        resultChecks.push(commandCheck(capture));
+        pagesRead = page;
+        if (capture.status === 'failed') return { checks: resultChecks, readiness: null };
+        inventoryOutputs.push(capture.stdout, capture.stderr);
+        if (queueRowsInPage(capture.stdout) === 0) {
+            paginationCompleted = true;
+            break;
+        }
+    }
+
+    if (!paginationCompleted) {
+        resultChecks.push(failed('fresh_production_queue_inventory_pre_enable', 'Queue inventory pagination did not terminate safely; active deploy is blocked.', [
+            `pagesRead=${pagesRead}`,
+            'externalWriteAttempted=false',
+        ]));
+        return { checks: resultChecks, readiness: null };
+    }
+
+    const inventory = classifyQueueInventory(inventoryOutputs.join('\n'));
+    const exactInventory = inventory.queueCount === 1 && inventory.deadLetterQueueCount === 1;
+    resultChecks.push(exactInventory
+        ? ok('fresh_production_queue_inventory_pre_enable', 'Fresh full inventory contains exactly one production Queue and one DLQ.', [
+            `queue=${PRODUCTION_QUEUE_TARGET.queue}`,
+            `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}`,
+            `pagesRead=${pagesRead}`,
+        ])
+        : failed('fresh_production_queue_inventory_pre_enable', 'Fresh full inventory does not contain each exact production Queue name once; active deploy is blocked.', [
+            `queueCount=${inventory.queueCount}`,
+            `dlqCount=${inventory.deadLetterQueueCount}`,
+            `pagesRead=${pagesRead}`,
+            'externalWriteAttempted=false',
+        ]));
+    if (!exactInventory) return { checks: resultChecks, readiness: null };
+
+    const queueInfo = runCommand(command(
+        'production-queue-info-immediately-before-enable',
+        ['queues', 'info', PRODUCTION_QUEUE_TARGET.queue],
+        false,
+    ));
+    const deadLetterQueueInfo = runCommand(command(
+        'production-dlq-info-immediately-before-enable',
+        ['queues', 'info', PRODUCTION_QUEUE_TARGET.deadLetterQueue],
+        false,
+    ));
+    captures.push(queueInfo, deadLetterQueueInfo);
+    resultChecks.push(commandCheck(queueInfo), commandCheck(deadLetterQueueInfo));
+    const infoVerified = queueInfo.status === 'ok' && deadLetterQueueInfo.status === 'ok';
+    resultChecks.push(infoVerified
+        ? ok('fresh_production_queue_info_pre_enable', 'Fresh exact-name Queue and DLQ info reads succeeded immediately before enable.', [
+            `queue=${PRODUCTION_QUEUE_TARGET.queue}`,
+            `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}`,
+            'writesCloudflare=false',
+        ])
+        : failed('fresh_production_queue_info_pre_enable', 'Exact-name Queue or DLQ info could not be proven; active deploy is blocked.', [
+            `queueInfo=${queueInfo.status}`,
+            `dlqInfo=${deadLetterQueueInfo.status}`,
+            'externalWriteAttempted=false',
+        ]));
+    if (!infoVerified) return { checks: resultChecks, readiness: null };
+
+    return {
+        checks: resultChecks,
+        readiness: {
+            observedAt: new Date().toISOString(),
+            pagesRead,
+            queueCount: 1,
+            deadLetterQueueCount: 1,
+            queueInfoVerified: true,
+            deadLetterQueueInfoVerified: true,
+        },
+    };
+}
+
+async function readFreshStripeLiveReadiness(): Promise<StripeReadinessResult> {
+    try {
+        const stripe = new Stripe(secretValue('STRIPE_SECRET_KEY'), {
+            maxNetworkRetries: 0,
+            timeout: 20_000,
+        });
+        const readiness = await inspectStripeLiveReadiness(
+            stripe,
+            secretValue('STRIPE_EXPECTED_ACCOUNT_ID'),
+            secretValue('STRIPE_PORTAL_CONFIGURATION_ID'),
+        );
+        const observedAt = new Date().toISOString();
+        return {
+            check: readiness.ok
+                ? ok('fresh_stripe_live_readiness_immediately_before_enable', 'Fresh read-only Stripe Live proof matches the exact account, ES/EUR readiness, Portal and webhook immediately before enable.', [
+                    `accountMatched=${String(readiness.facts.accountMatched)}`,
+                    `accountReady=${String(readiness.facts.accountReady)}`,
+                    `country=${readiness.facts.country}`,
+                    `currency=${readiness.facts.currency}`,
+                    `portalMatched=${String(readiness.facts.portalMatched)}`,
+                    `webhookMatched=${String(readiness.facts.webhookMatched)}`,
+                    `enabledWebhookCount=${readiness.facts.enabledWebhookCount}`,
+                    'writesStripe=false',
+                ])
+                : failed('fresh_stripe_live_readiness_immediately_before_enable', 'Fresh Stripe Live readiness did not match; active fulfillment deploy is blocked.', readiness.failures.map((failure) => `failure=${failure}`)),
+            readiness: readiness.ok ? { observedAt, readiness } : null,
+        };
+    } catch {
+        return {
+            check: failed('fresh_stripe_live_readiness_immediately_before_enable', 'Fresh Stripe Live readiness could not be proven; active fulfillment deploy is blocked.', [
+                'failure=stripe_readonly_probe_unavailable',
+                'externalWriteAttempted=false',
+            ]),
+            readiness: null,
+        };
+    }
 }
 
 async function healthProbe(baseUrl: string, expectedMode: 'bootstrap' | 'active'): Promise<Check> {
@@ -582,9 +1122,25 @@ async function cronScheduleProbe(expectedMode: 'bootstrap' | 'active'): Promise<
     }
 }
 
-async function compensateToBootstrap(directUrl: string): Promise<void> {
+async function compensateToBootstrap(directUrl: string): Promise<string | null> {
     checks.push(failed('active_enable_not_proven', 'Active deployment failed or its final state is ambiguous; compensating bootstrap rollback is mandatory.', []));
+    const current = requireEnableCheckpoint();
+    const compensationStarted = markProductionEnableCheckpointCompensationStarted(
+        current,
+        new Date().toISOString(),
+    );
+    try {
+        persistEnableCheckpoint(compensationStarted, current);
+        enableCheckpoint = compensationStarted;
+    } catch (error) {
+        checks.push(failed('compensation_checkpoint_transition', 'Could not persist the compensation-started transition; rollback is not launched because a restart must never mistake an in-flight compensation for active proven.', [
+            `error=${safeError(error)}`,
+        ]));
+        throw error;
+    }
     externalWriteAttempted = true;
+    externalWritePerformed = 'unknown';
+    assertEnableMutationOwnership('compensating bootstrap rollback');
     const rollback = runCommand(deployCommand('fulfillment-compensating-bootstrap-rollback', 'production_bootstrap', false));
     captures.push(rollback);
     checks.push(commandCheck(rollback));
@@ -592,7 +1148,7 @@ async function compensateToBootstrap(directUrl: string): Promise<void> {
         checks.push(failed('active_deploy_state_ambiguous', 'Compensating bootstrap rollback failed or timed out; remote fulfillment state is ambiguous.', [
             'manualStopRequired=true',
         ]));
-        return;
+        return null;
     }
     externalWritePerformed = true;
 
@@ -604,7 +1160,7 @@ async function compensateToBootstrap(directUrl: string): Promise<void> {
         checks.push(failed('active_deploy_state_ambiguous', 'Rollback command returned but its deployed bootstrap version is not proven.', [
             'manualStopRequired=true',
         ]));
-        return;
+        return null;
     }
 
     const health = await healthProbe(directUrl, 'bootstrap');
@@ -623,6 +1179,7 @@ async function compensateToBootstrap(directUrl: string): Promise<void> {
         : failed('active_deploy_state_ambiguous', 'Compensating rollback ran but bootstrap/503/HMAC/no-cron state is not fully proven.', [
             'manualStopRequired=true',
         ]));
+    return proven ? versionId : null;
 }
 
 function command(id: string, wranglerArgs: string[], writesCloudflare: boolean): CommandSpec {
@@ -663,7 +1220,14 @@ function runCommand(spec: CommandSpec): CommandCapture {
         `status=${status}`,
         '', '# stdout', sanitize(result.stdout ?? ''), '', '# stderr', sanitize(result.stderr ?? ''),
     ].join('\n'), 'utf8');
-    return { ...spec, status, exitCode: result.status, outputPath };
+    return {
+        ...spec,
+        status,
+        exitCode: result.status,
+        outputPath,
+        stdout: result.stdout ?? '',
+        stderr: result.stderr ?? '',
+    };
 }
 
 function commandCheck(capture: CommandCapture): Check {
@@ -727,20 +1291,6 @@ function mailbox(value: string): string | null {
     return /^[^@\s]+@[^@\s]+$/u.test(normalized) ? normalized : null;
 }
 
-function latestGeneratedPath(folderName: string, fileName: string): string | null {
-    const root = path.join(process.cwd(), 'outputs', folderName);
-    if (!existsSync(root)) return null;
-    const candidates = readdirSync(root, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => entry.name)
-        .sort((left, right) => right.localeCompare(left));
-    for (const candidate of candidates) {
-        const filePath = path.join(root, candidate, fileName);
-        if (existsSync(filePath)) return filePath;
-    }
-    return null;
-}
-
 function section(source: string, start: string, end: string): string {
     const startIndex = source.indexOf(start);
     const endIndex = source.indexOf(end, startIndex + start.length);
@@ -794,6 +1344,7 @@ function renderApprovalGate(): string {
         '## Forbidden Scope',
         '',
         '- No domain, DNS, Pages or Stripe write.',
+        '- Queue inventory and info are read-only; no Queue create, delete, purge, pause, resume or consumer command is allowed.',
         '- No job, email or Google operation is invoked by this runner.',
         '- No secret value is stored in outputs.',
         '',
@@ -810,6 +1361,11 @@ function renderSummary(status: string): string {
         `- External write performed: ${String(externalWritePerformed)}`,
         `- Target account: ${target.accountId}`,
         `- Target Worker: ${target.worker}`,
+        `- Structured enable prewrite evidence: ${existsSync(enablePrewriteEvidencePath) ? relative(enablePrewriteEvidencePath) : 'not generated'}`,
+        `- Durable enable checkpoint: ${relative(enableCheckpointPath)}`,
+        `- Enable checkpoint status: ${enableCheckpoint?.status ?? 'none'}`,
+        `- Enable checkpoint revision: ${enableCheckpoint?.revision ?? 'none'}`,
+        `- Canonical enable lock: ${relative(enableLockPath)}`,
         '',
         '| Status | Check | Message | Details |',
         '| --- | --- | --- | --- |',

@@ -150,8 +150,9 @@ describe('Cloudflare production Queue provisioning', () => {
         expect(productionRunbook).toContain('pnpm launch:cloudflare-production-queues -- --verify-existing');
         expect(productionRunbook).toContain('no despliega Workers ni añade consumidores manualmente');
         expect(productionRunbook).toContain('`production_bootstrap` no declara bindings');
-        expect(productionRunbook).toContain('Es un prerrequisito externo separado');
-        expect(productionRunbook).toContain('el runner de enable no crea, borra, adopta ni valida el inventario de Queues');
-        expect(productionRunbook).toContain('la existencia de Queues procede del preflight separado');
+        expect(productionRunbook).toContain('evidencia operativa temprana');
+        expect(productionRunbook).toContain('ya no confía solo en ese summary');
+        expect(productionRunbook).toContain('inmediatamente antes del write pagina el inventario remoto completo');
+        expect(productionRunbook).toContain('enable-prewrite-evidence.json');
     });
 });

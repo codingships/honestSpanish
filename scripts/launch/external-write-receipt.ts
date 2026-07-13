@@ -5,6 +5,7 @@ export type ExternalWriteOutcome =
     | 'confirmed_succeeded'
     | 'confirmed_failed'
     | 'ambiguous_needs_readonly_reconciliation'
+    | 'historical_outcome_unknown_safe_state_proven'
     | 'confirmed_succeeded_needs_readonly_reconciliation';
 
 export interface ExternalWriteReceiptState {
@@ -80,6 +81,22 @@ export function requireReadonlyReconciliation(
             ? 'confirmed_succeeded_needs_readonly_reconciliation'
             : current.externalWriteOutcome,
         readonlyReconciliationRequired: true,
+    };
+}
+
+export function markExternalWriteSafeStateProven(
+    current: ExternalWriteReceiptState,
+): ExternalWriteReceiptState {
+    assertWriteAttempted(current);
+    return {
+        externalWriteAttempted: true,
+        externalWritePerformed: current.externalWritePerformed,
+        externalWriteOutcome: current.externalWritePerformed === 'unknown'
+            ? 'historical_outcome_unknown_safe_state_proven'
+            : current.externalWritePerformed
+                ? 'confirmed_succeeded'
+                : 'confirmed_failed',
+        readonlyReconciliationRequired: false,
     };
 }
 

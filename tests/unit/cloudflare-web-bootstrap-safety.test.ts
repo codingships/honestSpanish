@@ -1,5 +1,13 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import {
+    googleRuntimeVariableNames,
+    scrubBootstrapEnvironment,
+    validateBootstrapBundle,
+    validateGeneratedBootstrap,
+} from '../../scripts/dev/build-production-bootstrap';
 
 const read = (file: string) => readFileSync(file, 'utf8');
 
@@ -46,15 +54,123 @@ describe('Cloudflare production web bootstrap safety', () => {
             "'TURNSTILE_SECRET_KEY'",
             "'CRON_SECRET'",
             "'LEVEL_CHECK_TOKEN_SECRET'",
+            "'GOOGLE_SERVICE_ACCOUNT_EMAIL'",
+            "'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY'",
+            "'GOOGLE_ADMIN_EMAIL'",
+            "'GOOGLE_DRIVE_ROOT_FOLDER_ID'",
+            "'GOOGLE_TEMPLATE_DOC_ID'",
+            'scrubBootstrapEnvironment(process.env)',
             'delete process.env[key]',
             'installBootstrapEntry(generatedConfigPath)',
             "const ALLOWED_PATHS = new Set(['/health', '/api/internal/runtime-attestation'])",
             'config.main = wrapperName',
+            'validateGeneratedBootstrap(generatedConfigPath)',
             'validateBootstrapBundle(distRoot, sourceCredentialValues)',
+            'forbidden Google names in generated config=',
             'assets.run_worker_first=true',
         ]) expect(bootstrap).toContain(snippet);
         expect(astro).toContain('legalIdentityIsExample && !productionBootstrap');
         expect(active).toContain("process.env.WEB_RUNTIME_MODE = 'active'");
+    });
+
+    it('scrubs Google env, rejects resolved bindings and rejects provider values without rejecting attestation contract names', () => {
+        expect(googleRuntimeVariableNames).toEqual([
+            'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+            'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+            'GOOGLE_ADMIN_EMAIL',
+            'GOOGLE_DRIVE_ROOT_FOLDER_ID',
+            'GOOGLE_TEMPLATE_DOC_ID',
+        ]);
+
+        const adversarialEnvironment: NodeJS.ProcessEnv = { SAFE_BOOTSTRAP_VALUE: 'preserved' };
+        for (const key of googleRuntimeVariableNames) adversarialEnvironment[key] = `adversarial-${key}`;
+        scrubBootstrapEnvironment(adversarialEnvironment);
+        expect(adversarialEnvironment.SAFE_BOOTSTRAP_VALUE).toBe('preserved');
+        for (const key of googleRuntimeVariableNames) {
+            expect(Object.prototype.hasOwnProperty.call(adversarialEnvironment, key)).toBe(false);
+        }
+
+        const fixtureRoot = mkdtempSync(path.join(tmpdir(), 'cloudflare-web-bootstrap-safety-'));
+        try {
+            const configDirectory = path.join(fixtureRoot, 'server');
+            const configPath = path.join(configDirectory, 'wrangler.json');
+            mkdirSync(configDirectory, { recursive: true });
+            const cleanConfig = {
+                main: 'bootstrap-entry.mjs',
+                name: 'espanolhonesto',
+                vars: {
+                    PUBLIC_APP_ENV: 'production',
+                    WEB_RUNTIME_MODE: 'bootstrap',
+                    SUPABASE_EXPECTED_PROJECT_REF: 'vkkahxsybhbutszerawz',
+                    CHECKOUT_ENABLED: 'false',
+                    CHECKOUT_ENABLED_OVERRIDE: 'false',
+                    EMAIL_DELIVERY_MODE: 'disabled',
+                    EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+                    EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+                },
+                assets: { run_worker_first: true },
+                kv_namespaces: [],
+                routes: [],
+                services: [
+                    {
+                        binding: 'FULFILLMENT_SERVICE',
+                        service: 'espanol-honesto-fulfillment-production',
+                    },
+                ],
+            };
+            const writeConfig = (value: unknown) => writeFileSync(configPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+
+            writeConfig(cleanConfig);
+            expect(() => validateGeneratedBootstrap(configPath)).not.toThrow();
+
+            for (const key of googleRuntimeVariableNames) {
+                writeConfig({
+                    ...cleanConfig,
+                    vars: { ...cleanConfig.vars, [key]: 'adversarial-google-binding' },
+                });
+                expect(() => validateGeneratedBootstrap(configPath)).toThrow(`forbidden bootstrap vars=${key}`);
+
+                writeConfig({
+                    ...cleanConfig,
+                    adversarial_nested_config: { provider_variable_name: key },
+                });
+                expect(() => validateGeneratedBootstrap(configPath)).toThrow(
+                    `forbidden Google names in generated config=${key}`,
+                );
+            }
+
+            const bundleDirectory = path.join(fixtureRoot, 'bundle');
+            const bundlePath = path.join(bundleDirectory, 'entry.mjs');
+            mkdirSync(bundleDirectory, { recursive: true });
+            writeFileSync(bundlePath, 'export default { fetch() { return new Response("bootstrap"); } };\n', 'utf8');
+            expect(() => validateBootstrapBundle(bundleDirectory, new Map())).not.toThrow();
+
+            writeFileSync(
+                bundlePath,
+                `${googleRuntimeVariableNames.map((key) => `const ${key} = '${key}';`).join('\n')}\n`,
+                'utf8',
+            );
+            expect(() => validateBootstrapBundle(bundleDirectory, new Map())).not.toThrow();
+
+            for (const key of googleRuntimeVariableNames) {
+                const providerValue = `unique-provider-value-${key}`;
+                writeFileSync(bundlePath, `export default ${JSON.stringify(providerValue)};\n`, 'utf8');
+                expect(() => validateBootstrapBundle(bundleDirectory, new Map([[key, providerValue]]))).toThrow(key);
+            }
+
+            const multilinePrivateKey = [
+                '-----BEGIN ' + 'PRIVATE KEY-----',
+                'unique-private-key-material',
+                '-----END ' + 'PRIVATE KEY-----',
+            ].join('\n');
+            writeFileSync(bundlePath, `export default ${JSON.stringify(multilinePrivateKey)};\n`, 'utf8');
+            expect(readFileSync(bundlePath, 'utf8')).not.toContain(multilinePrivateKey);
+            expect(() => validateBootstrapBundle(bundleDirectory, new Map([
+                ['GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY', multilinePrivateKey],
+            ]))).toThrow('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');
+        } finally {
+            rmSync(fixtureRoot, { force: true, recursive: true });
+        }
     });
 
     it('allows only diagnostics and blocks representative application routes in bootstrap mode', () => {

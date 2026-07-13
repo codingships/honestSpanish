@@ -1,8 +1,9 @@
-export const RUNTIME_ATTESTATION_SCHEMA = 4;
+export const RUNTIME_ATTESTATION_SCHEMA = 5;
 
 export type RuntimeAttestationRole = 'web' | 'fulfillment';
 
 export type RuntimeAttestationConfig = {
+    adminEmailFingerprint: string;
     appEnvironment: string;
     checkoutEnabled: string;
     checkoutOverride: string;
@@ -17,11 +18,13 @@ export type RuntimeAttestationConfig = {
     googleTemplateFingerprint: string;
     internalSecretFingerprint: string;
     levelCheckSecretFingerprint: string;
+    publicSentryDsnFingerprint: string;
     resendAllowlistFingerprint: string;
     resendApiKeyFingerprint: string;
     resendDailyLimit: string;
     resendMode: string;
     resendMonthlyLimit: string;
+    resendFromEmailFingerprint: string;
     resendSenderFingerprint: string;
     stripeBoundary: 'absent' | 'configured';
     stripeExpectedAccountId: string;
@@ -33,6 +36,7 @@ export type RuntimeAttestationConfig = {
     supabaseExpectedProjectRef: string;
     supabaseServiceRoleFingerprint: string;
     supabaseUrlFingerprint: string;
+    supportAlertEmailFingerprint: string;
     turnstileSecretFingerprint: string;
     turnstileSiteKeyFingerprint: string;
     webRuntimeMode: string;
@@ -102,6 +106,7 @@ export async function buildRuntimeAttestationConfig(
         'STRIPE_PORTAL_CONFIGURATION_ID',
     ].some((key) => Boolean(value(env, key)));
     return {
+        adminEmailFingerprint: await runtimeFingerprint(value(env, 'ADMIN_EMAIL')),
         appEnvironment: value(env, 'PUBLIC_APP_ENV'),
         checkoutEnabled: value(env, 'CHECKOUT_ENABLED'),
         checkoutOverride: value(env, 'CHECKOUT_ENABLED_OVERRIDE'),
@@ -116,11 +121,13 @@ export async function buildRuntimeAttestationConfig(
         googleTemplateFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_TEMPLATE_DOC_ID') : ''),
         internalSecretFingerprint: await runtimeFingerprint(value(env, 'INTERNAL_JOB_SECRET')),
         levelCheckSecretFingerprint: await runtimeFingerprint(value(env, 'LEVEL_CHECK_TOKEN_SECRET')),
+        publicSentryDsnFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_SENTRY_DSN')),
         resendAllowlistFingerprint: await runtimeFingerprint(value(env, 'EMAIL_RECIPIENT_ALLOWLIST')),
         resendApiKeyFingerprint: await runtimeFingerprint(value(env, 'RESEND_API_KEY')),
         resendDailyLimit: value(env, 'EMAIL_DAILY_RECIPIENT_LIMIT'),
         resendMode: value(env, 'EMAIL_DELIVERY_MODE'),
         resendMonthlyLimit: value(env, 'EMAIL_MONTHLY_RECIPIENT_LIMIT'),
+        resendFromEmailFingerprint: await runtimeFingerprint(value(env, 'RESEND_FROM_EMAIL')),
         resendSenderFingerprint: await runtimeFingerprint(sender(env)),
         stripeBoundary: stripeConfigured ? 'configured' : 'absent',
         stripeExpectedAccountId: webRole ? value(env, 'STRIPE_EXPECTED_ACCOUNT_ID') : '',
@@ -132,6 +139,7 @@ export async function buildRuntimeAttestationConfig(
         supabaseExpectedProjectRef: value(env, 'SUPABASE_EXPECTED_PROJECT_REF'),
         supabaseServiceRoleFingerprint: await runtimeFingerprint(value(env, 'SUPABASE_SERVICE_ROLE_KEY')),
         supabaseUrlFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_SUPABASE_URL')),
+        supportAlertEmailFingerprint: await runtimeFingerprint(value(env, 'SUPPORT_ALERT_EMAIL')),
         turnstileSecretFingerprint: await runtimeFingerprint(value(env, 'TURNSTILE_SECRET_KEY')),
         turnstileSiteKeyFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_TURNSTILE_SITE_KEY')),
         webRuntimeMode,

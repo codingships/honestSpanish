@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [ main, staging ]
 
+permissions:
+  contents: read
+
+# Serialize the whole staging workflow, not only its deploy job. A head-SHA
+# gate below also rejects any older run that GitHub schedules after a newer one.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/staging' }}
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -13,6 +22,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
@@ -89,13 +100,15 @@ jobs:
 
   deploy-cloudflare:
     needs: build-and-test
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'Production' || 'staging' }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Install pnpm
         uses: pnpm/action-setup@v3
@@ -110,6 +123,55 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Reject a superseded staging deploy
+        if: github.ref == 'refs/heads/staging'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPECTED_DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ref_file="$RUNNER_TEMP/github-staging-ref.json"
+          trap 'rm -f "$ref_file"' EXIT
+          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/staging" > "$ref_file"
+          node -e '
+            const fs = require("node:fs");
+            const [file, expectedSha] = process.argv.slice(1);
+            const branchRef = JSON.parse(fs.readFileSync(file, "utf8"));
+            if (branchRef?.object?.sha !== expectedSha) {
+              throw new Error("Refusing superseded staging deploy; a newer branch head exists.");
+            }
+          ' "$ref_file" "$EXPECTED_DEPLOY_SHA"
+
+      - name: Verify exact Cloudflare identity before deploy validation
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          EXPECTED_CLOUDFLARE_ACCOUNT_ID: d1a22bcf6477ff2ff31d2bfb83084e44
+          WRANGLER_SEND_METRICS: "false"
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "CLOUDFLARE_API_TOKEN is required for Cloudflare validation."
+            exit 1
+          fi
+          if [ "${CLOUDFLARE_ACCOUNT_ID:-}" != "$EXPECTED_CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "CLOUDFLARE_ACCOUNT_ID does not match the exact approved account."
+            exit 1
+          fi
+
+          identity_file="$RUNNER_TEMP/cloudflare-whoami.json"
+          trap 'rm -f "$identity_file"' EXIT
+          pnpm exec wrangler whoami --json --install-skills=false > "$identity_file"
+          pnpm exec tsx scripts/ci/verify-cloudflare-identity.ts \
+            --input "$identity_file" \
+            --expected-account-id "$EXPECTED_CLOUDFLARE_ACCOUNT_ID"
 
       - name: Resolve exact runtime URLs
         shell: bash

@@ -60,9 +60,9 @@ CI ejecuta ambos dry-runs en `main`, pero no despliega ningún Worker de producc
 6. Cargar únicamente `INTERNAL_JOB_SECRET` con `pnpm launch:cloudflare-production-worker-bootstrap-secrets`; solo autentica y firma la atestación HMAC. El wrapper no necesita Supabase URL/anon para salud ni atestación, así que esos valores también se reservan para el gate activo final. El runner rechaza cualquier otro nombre y vuelve a probar todas las rutas 503.
 7. Atestiguar por HMAC la versión web recién leída con `WEB_RUNTIME_MODE=bootstrap` y fingerprints ausentes para Supabase URL/anon/service role, Stripe, Resend, Turnstile, cron y level-check.
 8. Dejar para la ventana final el build activo `pnpm build:production:release` y los runners completos `pnpm launch:cloudflare-production-worker-secrets` y `pnpm launch:cloudflare-production-fulfillment-secrets`; estas rutas distintas cargan los providers finales y siguen exigiendo identidad legal final, Stripe Live y aprobaciones exactas.
-9. Justo antes de la habilitación, ejecutar por separado `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only y confirmar que las dos Queues production exactas existen una sola vez. Después, ya dentro del proceso de enable, volver a listar las versiones remotas exactas de fulfillment y web activo y atestiguar por HMAC ambas configuraciones. Los resúmenes locales son evidencia auxiliar, nunca sustituyen estas lecturas frescas.
+9. Antes de la habilitación, ejecutar por separado `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only y confirmar que las dos Queues production exactas existen una sola vez. Después, ya dentro del proceso de enable e inmediatamente antes del write, volver a paginar el inventario completo, ejecutar `queues info` para Queue y DLQ, consultar Stripe Live read-only, listar las versiones remotas exactas de fulfillment y web activo y atestiguar por HMAC ambas configuraciones. Los resúmenes locales son evidencia auxiliar, nunca sustituyen estas lecturas frescas.
 10. Habilitar fulfillment únicamente con la aprobación distinta de `pnpm launch:cloudflare-production-fulfillment-enable`. Solo este runner despliega `--env production`, conecta productor/consumidor a las Queues ya creadas y activa runtime, email live y cron.
-11. Exigir la comprobación directa posterior de identidad, nueva versión Cloudflare, modo activo, HMAC y cron remoto para fulfillment; la existencia de Queues procede del preflight separado del paso 9, no de esta atestación.
+11. Exigir la comprobación directa posterior de identidad, nueva versión Cloudflare, modo activo, HMAC y cron remoto para fulfillment; el inventario de Queues queda probado por el doble gate read-only temprano y fresco del paso 9, separado de la atestación runtime.
 12. Solo después, solicitar una aprobación distinta para mover los dominios.
 13. El smoke con emails, Google, jobs, Supabase o pagos es otra fase y necesita su propia aprobación.
 
@@ -109,9 +109,9 @@ La ejecución aprobada valida cuenta, Worker, versión remota, salud bootstrap y
 
 La lista posterior debe contener exactamente ese nombre. Quedan explícitamente fuera: `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, todas las claves Stripe y Resend, remitentes/allowlists, Turnstile, cron y level-check. Después de la carga se obtiene una versión nueva, se repiten las pruebas 503 y se verifica por HMAC `WEB_RUNTIME_MODE=bootstrap`, checkout/email inertes y fingerprints ausentes para todos esos valores.
 
-## Gate Web Activo Final Antes Del Primer Secret Put
+## Gate Web Final: Secrets Y Transición Activa
 
-El runner final `pnpm launch:cloudflare-production-worker-secrets` permanece separado y no se llama durante el bootstrap. Con `--execute-approved`, antes del primer `wrangler secret put` final debe validar:
+El runner final `pnpm launch:cloudflare-production-worker-secrets` permanece separado y no se llama durante el bootstrap. Con `--execute-approved`, la aprobación exacta solo se acepta desde el entorno inicial del proceso: el fichero dotenv seguro aporta valores, pero nunca consentimiento. Además, un gate canónico estable bloquea cualquier reinicio si existe un lock o checkpoint pendiente de una ejecución anterior. Antes del primer `wrangler secret put` final debe validar:
 
 - aprobación exacta y cuenta Cloudflare `d1a22bcf6477ff2ff31d2bfb83084e44` tanto localmente como mediante `wrangler whoami --json`;
 - Worker exacto `espanolhonesto` y una versión desplegada obtenida read-only;
@@ -120,8 +120,20 @@ El runner final `pnpm launch:cloudflare-production-worker-secrets` permanece sep
 - claves Stripe `sk_live_`/`pk_live_`, cuenta `acct_` explícita y checkout todavía cerrado;
 - modo email `live` con topes máximos 80 destinatarios/día y 2400/mes;
 - URL directa exacta `https://espanolhonesto.alindev95.workers.dev`.
+- evidencia phase-1 realmente ejecutada y probada, no un plan;
+- inventario remoto bootstrap exactamente `INTERNAL_JOB_SECRET`, la versión remota exacta sin ninguno de los cinco bindings Google y bootstrap probado por salud + 503 + HMAC.
 
 Si falla cualquier comparación, no empieza ninguna escritura.
+
+Antes del primer secret write, el mismo runner ejecuta `build:production:release` desde un `dist` vacío con la subida de sourcemaps a Sentry desactivada, valida el `dist/server/wrangler.json` resuelto (`production`, `WEB_RUNTIME_MODE=active`, service binding exacto, checkout falso, sin routes/crons) y hace `wrangler deploy --config dist/server/wrangler.json --dry-run`. Justo antes de mutar adquiere un lock exclusivo estable. Cada `secret put`, deploy activo y deploy compensatorio registra y fuerza a disco un checkpoint write-ahead atómico antes de invocar al provider. Timeout, error de spawn y salida no cero quedan como resultado desconocido, nunca como `false`, y prohíben reintentar hasta una conciliación read-only.
+
+Después de los secrets se exige el inventario exacto completo, `versions view` de la versión exacta sin ningún binding Google y bootstrap probado de nuevo antes del deploy activo. La atestación schema 5 liga por HMAC fingerprints SHA-256 no reversibles e independientes de `PUBLIC_SENTRY_DSN`, `ADMIN_EMAIL`, `SUPPORT_ALERT_EMAIL` y `RESEND_FROM_EMAIL`; este último se prueba aunque `EMAIL_FROM` domine como remitente efectivo. El mismo inventario exacto, inspección de versión sin Google y atestación se repiten tras el deploy activo y tras cualquier compensación. Solo la prueba exacta mueve los checkpoints canónicos de `pending` a `resolved`; solo cuando no queda ninguno se libera el lock.
+
+Si el proceso se interrumpe, el modo normal queda bloqueado y no se borran archivos a mano. La recuperación se ejecuta en el mismo runner con `--reconcile-approved` y la frase exacta separada que muestra su plan. Esa aprobación debe llegar en `CLOUDFLARE_WORKER_SECRETS_RECONCILIATION_APPROVAL` desde el entorno inicial. Los locks son directorios con owner canónico (`lockId`, `runId`, host y PID): solo su owner exacto puede liberarlos mediante rename atómico, y el modo normal también queda bloqueado mientras exista el lock secundario. Recovery solo adopta el lock primario original si pertenece al mismo host y su PID está definitivamente muerto; revalida ambos owners antes de cualquier write compensatorio y antes de liberarlos. Un lock exclusivo impide dos recuperaciones concurrentes.
+
+La recuperación no hace `secret put`: primero repite `whoami`, deployment/version, inventario allowlisted, ausencia total de bindings Google y salud/HMAC; clasifica `active` o `bootstrap`. Si ya había empezado una compensación o el runtime no queda probado, solo puede generar y desplegar el bootstrap inerte. Tras probar el estado seguro, mueve los checkpoints pendientes a `resolved` conservando como desconocido cualquier resultado histórico que no pueda demostrarse, y libera primero el lock primario mientras el secundario sigue bloqueando entradas normales; después libera el secundario por owner-CAS.
+
+El cierre exige una versión nueva, rutas modernas accesibles en la URL `workers.dev` y atestación HMAC `WEB_RUNTIME_MODE=active` con `CHECKOUT_ENABLED=false`. Si el deploy activo falla, expira o su readback queda ambiguo, la misma autorización cubre únicamente la compensación automática: build limpio `production_bootstrap`, deploy de su config resuelta y prueba de nueva versión + salud bootstrap + 503 + HMAC. Si tampoco puede probarse la compensación, el estado remoto queda ambiguo y el lanzamiento se detiene.
 
 Los valores se cargan desde el fichero seguro ignorado seleccionado por `CLOUDFLARE_WORKER_ENV_FILE` (por defecto `.env.production`), con las variables de proceso como override deliberado. El runner de fulfillment usa su selector separado, pero ambos deben recibir el mismo `INTERNAL_JOB_SECRET` de producción para conservar el canal interno.
 
@@ -170,7 +182,7 @@ La ejecución aprobada usa un fichero seguro ignorado seleccionado por `CLOUDFLA
 
 ## Habilitación Final Separada
 
-Antes de invocarla, el operador debe ejecutar `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only y confirmar que las dos Queues exactas ya existen una sola vez. Es un prerrequisito externo separado: el runner de enable no crea, borra, adopta ni valida el inventario de Queues.
+Antes de invocarla, el operador debe ejecutar `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only como evidencia operativa temprana. El runner de enable no crea, borra ni adopta Queues, pero ya no confía solo en ese summary: inmediatamente antes del write pagina el inventario remoto completo, exige una única Queue y DLQ con los nombres exactos y ejecuta `queues info` para ambas.
 
 `pnpm launch:cloudflare-production-fulfillment-enable` es el único camino que despliega `--env production`. En modo plan no llama a Cloudflare. La ejecución aprobada se niega a escribir si falta cualquiera de estas pruebas:
 
@@ -178,12 +190,24 @@ Antes de invocarla, el operador debe ejecutar `pnpm launch:cloudflare-production
 - una nueva lectura de la versión bootstrap, con salud `bootstrap`, bloqueo operativo `503`, HMAC exacta y cero Cron Triggers;
 - una nueva lectura de la versión desplegada del Worker web `espanolhonesto`, con HMAC exacta de su configuración;
 - todos los secret names requeridos;
+- inventario e `info` frescos de `espanol-honesto-fulfillment-production-queue` y `espanol-honesto-fulfillment-production-dlq`;
+- una consulta Stripe Live fresca y read-only que pruebe cuenta ES/EUR, charges+payouts, Portal y webhook exactos;
 - ambas atestaciones ejecutadas en este mismo proceso inmediatamente antes del write; ningún summary local basta por sí solo;
 - dry-run activo correcto.
 
-Solo entonces el deploy final activa `FULFILLMENT_RUNTIME_MODE=active`, `EMAIL_DELIVERY_MODE=live`, límites 80/día y 2400/mes, y cron `0 * * * *`. La salida registra `externalWriteAttempted=true` antes de invocar Wrangler para que un timeout no se confunda con «no hubo intento».
+Estas pruebas se guardan en `enable-prewrite-evidence.json`, sin secretos, con schema/target/timestamps/versiones y SHA-256 de la aprobación exacta. Debe tener menos de cinco minutos y validarse de nuevo antes de fijar `externalWriteAttempted=true`.
 
-Si el comando activo falla, expira o devuelve una respuesta que no permite saber si Cloudflare aplicó el write, o si falla cualquier verificación posterior de versión, salud, HMAC o cron, el runner ejecuta automáticamente un deploy compensatorio de `production_bootstrap`. El rollback solo se considera probado si una versión nueva recién listada demuestra a la vez modo `bootstrap`, bloqueo operativo `503`, HMAC/configuración exacta y lista remota de schedules vacía. Si no puede probar las cuatro condiciones, registra `active_deploy_state_ambiguous=true`, mantiene el lanzamiento bloqueado y exige intervención manual.
+La aprobación exacta `CLOUDFLARE_FULFILLMENT_ENABLE_APPROVAL` debe llegar en el entorno inicial del proceso. Se captura antes de cargar `.env.production`; el fichero puede aportar configuración y secretos, pero nunca autoriza el enable. La identidad se acepta únicamente si el JSON estructurado de `wrangler whoami --json` contiene exactamente una coincidencia con la cuenta aprobada.
+
+Solo entonces el runner persiste atómicamente el checkpoint durable `outputs/launch-cloudflare-production-fulfillment-enable/checkpoint.json` con estado `pending`, revisión monotónica, hash de la aprobación y hash de la evidencia. Cada transición usa CAS: relee la revisión y el contenido esperado antes del rename y no permite que un intento nuevo reemplace un checkpoint `pending`, `ambiguous` o `proven`. Después fija `externalWriteAttempted=true` y lanza el deploy que activa `FULFILLMENT_RUNTIME_MODE=active`, `EMAIL_DELIVERY_MODE=live`, límites 80/día y 2400/mes, y cron `0 * * * *`. Desde `pending`, `externalWritePerformed` se considera `unknown` hasta demostrar una versión activa (`proven`) o un bootstrap compensado (`compensated`).
+
+Toda la reconciliación y el enable se ejecutan bajo el lock canónico `outputs/launch-cloudflare-production-fulfillment-enable/execution.lock`, creado de forma exclusiva con owner UUID, PID, hostname y target exacto. Otro proceso del mismo checkout no puede leer-modificar-escribir el lifecycle ni llamar a Wrangler. El lock solo se recupera automáticamente si su owner es válido, pertenece al mismo host, ha superado el umbral de seguridad y el PID está definitivamente muerto; owner corrupto, host distinto o liveness inconclusa bloquean el proceso. Ownership se revalida antes de cada CAS, deploy activo y compensación. El lock es deliberadamente local al checkout compartido: no sustituye coordinación remota entre máquinas distintas.
+
+Si el comando activo falla, expira o devuelve una respuesta que no permite saber si Cloudflare aplicó el write, o si falla cualquier verificación posterior de versión, salud, HMAC o cron, el runner ejecuta automáticamente un deploy compensatorio de `production_bootstrap`. El rollback solo se considera probado si una versión nueva recién listada demuestra a la vez modo `bootstrap`, bloqueo operativo `503`, HMAC/configuración exacta y lista remota de schedules vacía. Si no puede probar las cuatro condiciones, persiste `ambiguous`, mantiene el lanzamiento bloqueado y exige intervención manual.
+
+Al arrancar, un checkpoint `pending` o `ambiguous` bloquea cualquier intento nuevo. Bajo una aprobación exacta nueva, el runner reconcilia primero el estado remoto: si `compensationAttempted=false` todavía puede probar activo y marcar `proven`; si la compensación ya empezó, nunca acepta active y avanza exclusivamente hasta desplegar y probar bootstrap `compensated`. No se debe borrar ni editar el checkpoint para saltarse la reconciliación; tras una compensación probada, una ejecución aprobada posterior puede iniciar un intento nuevo.
+
+Un checkpoint histórico `proven` tampoco se acepta por sí solo. Cada ejecución vuelve a listar la versión remota y exige coincidencia exacta con `activeVersionId`, salud active, atestación HMAC ligada a esa versión y Cron horario. Cualquier divergencia se persiste primero como `ambiguous`, bloquea el éxito y solo permite la compensación porque esta misma ejecución ya superó la aprobación exacta y la identidad Cloudflare. Si el CAS de `ambiguous` falla, no comienza la compensación.
 
 ## Prueba Directa Obligatoria
 
@@ -203,7 +227,7 @@ Los artefactos guardan únicamente el resultado, identidad, coincidencia de vers
 - Parar antes del primer secret mínimo si la lista remota contiene algo distinto de `INTERNAL_JOB_SECRET`; este runner no elimina ni reutiliza secretos activos inesperados.
 - Parar después de la carga mínima si HMAC no demuestra la nueva versión, `WEB_RUNTIME_MODE=bootstrap` y ausencia de Supabase URL/anon/service role, Stripe, Resend, Turnstile, cron y level-check.
 - Parar la habilitación final si las versiones recién listadas de fulfillment y web no superan ambas atestaciones HMAC en el mismo proceso, o falta cualquier secret name.
-- El operador debe parar antes de invocar el runner de enable si el preflight separado detecta una Queue ausente, colisión/duplicado de nombre o inventario distinto del productor, consumidor y DLQ declarados. El runner de enable no sustituye esta comprobación y no crea, borra ni reutiliza Queues.
+- Parar el enable si el preflight temprano o la comprobación fresca interna detectan Queue/DLQ ausente, duplicada, con nombre distinto o `info` ilegible. El runner no crea, borra ni reutiliza Queues.
 - Parar antes de dominios si falla cualquier atestación.
 - Mantener los dominios en Pages y `CHECKOUT_ENABLED=false` durante toda la preparación.
 - Si falla una carga de secreto, corregir solo ese nombre bajo una nueva aprobación exacta; no borrar Workers ni Pages.
