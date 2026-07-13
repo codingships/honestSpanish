@@ -71,8 +71,8 @@ describe('focused staging integration safety gates', () => {
         expect(() => parseRunnerArgs(['--execute', '--dry-run'])).toThrow('cannot be combined');
     });
 
-    it('allows a staging preview alias only with an exact write confirmation', () => {
-        const previewHost = `rc-20260710-${STAGING_SITE_HOST}`;
+    it('rejects legacy preview aliases now that staging uses one canonical custom domain', () => {
+        const previewHost = 'rc-20260710-espanolhonesto-staging.alindev95.workers.dev';
         const args = approvedArgs([
             '--base-url', `https://${previewHost}`,
             '--execute',
@@ -80,12 +80,9 @@ describe('focused staging integration safety gates', () => {
             '--confirmation', `writes-ok:${previewHost}`,
         ]);
 
-        expect(validateStagingGates({ args, env: stagingEnv(), workspaceRoot }).baseHost).toBe(previewHost);
-        expect(() => validateStagingGates({
-            args: { ...args, confirmation: `writes-ok:${STAGING_SITE_HOST}` },
-            env: stagingEnv(),
-            workspaceRoot,
-        })).toThrow('exactly match');
+        expect(() => validateStagingGates({ args, env: stagingEnv(), workspaceRoot })).toThrow(
+            'approved staging Worker host',
+        );
     });
 
     it('rejects production-like service targets and unsafe email posture', () => {

@@ -7,14 +7,14 @@ No commitear valores reales. Los archivos `.env*` reales estan ignorados por Git
 | Entorno | Uso | URL | Rama | Datos |
 | --- | --- | --- | --- | --- |
 | dev | Trabajo local | `http://localhost:4321` | ramas locales | Puede apuntar a staging o a servicios de prueba |
-| staging | Pruebas reales antes de publicar | `https://espanolhonesto-staging.alindev95.workers.dev` | `staging` | Datos y servicios de prueba |
+| staging | Pruebas reales antes de publicar | `https://staging.espanolhonesto.com` | `staging` | Datos y servicios de prueba |
 | production | Servicio real | `https://espanolhonesto.com` | `main` | Datos, pagos y alumnos reales |
 
-## Mapa Operativo Actual (2026-07-10)
+## Mapa Operativo Actual (2026-07-13)
 
 | Capa | Staging confirmado | Production confirmado | Estado/accion |
 | --- | --- | --- | --- |
-| Web Cloudflare objetivo | Worker `espanolhonesto-staging` en `https://espanolhonesto-staging.alindev95.workers.dev` | Worker objetivo `espanolhonesto` | Staging existe. El Worker production aun no existe. |
+| Web Cloudflare objetivo | Worker `espanolhonesto-staging`; destino canónico preparado `https://staging.espanolhonesto.com`; URL directa transitoria `https://espanolhonesto-staging.alindev95.workers.dev` | Worker objetivo `espanolhonesto` | Staging existe. El custom domain está libre y preparado en código, pero su alta externa, certificado y verificación siguen pendientes. El Worker production aun no existe. |
 | Web Cloudflare legado | Pages `espanol-honesto-staging` | Pages `espanolhonesto`, todavia asociado a los dominios finales | No borrar ni mover dominios hasta probar el Worker production por URL directa y aprobar el cutover. |
 | Fulfillment | Worker `espanol-honesto-fulfillment-staging`, conectado al web por `FULFILLMENT_SERVICE` | Worker objetivo `espanol-honesto-fulfillment-production` y binding production pendiente | Staging existe, tiene cron/secrets y pasó el smoke integral. Production aun no existe. |
 | Supabase | Proyecto `mzjyvmlxfpzdfdjzxxyj` | Proyecto `vkkahxsybhbutszerawz` | Proyectos separados. Aplicar y verificar migraciones staging primero; la nueva atestacion 18+ requiere `20260710120000_enforce_adult_lead_attestation.sql`. |
@@ -91,15 +91,15 @@ El nombre base es deliberadamente `espanolhonesto-env-required`; nunca es produc
 
 - `espanolhonesto-staging`
   - `CLOUDFLARE_ENV=staging`
-  - URL estable del Worker: `https://espanolhonesto-staging.alindev95.workers.dev`
-  - Custom domain futuro opcional: `staging.espanolhonesto.com` (no configurado)
+  - URL pública canónica: `https://staging.espanolhonesto.com`
+  - URL directa transitoria de diagnóstico/rollback: `https://espanolhonesto-staging.alindev95.workers.dev`; retirarla solo después de migrar y verificar Stripe test, Supabase Auth y los smokes.
 - `espanolhonesto`
   - `CLOUDFLARE_ENV=production`
   - Custom domain: `espanolhonesto.com`
 
 Variables por entorno:
 
-- `PUBLIC_SITE_URL`: el paso CI `Resolve exact runtime URLs` exige en `main` exactamente `https://espanolhonesto.com` y falla si falta o difiere; solo en `staging` fija directamente el Worker canónico.
+- `PUBLIC_SITE_URL`: el paso CI `Resolve exact runtime URLs` exige en `main` exactamente `https://espanolhonesto.com` y falla si falta o difiere; en `staging` fija directamente `https://staging.espanolhonesto.com`.
 - `PUBLIC_APP_ENV`
 - `PUBLIC_SUPABASE_URL`
 - `PUBLIC_SUPABASE_ANON_KEY`
@@ -110,7 +110,7 @@ Variables por entorno:
 - `PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_EXPECTED_ACCOUNT_ID`
 - `STRIPE_PORTAL_CONFIGURATION_ID`
-- `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para sobrescribir el host esperado. Sin override, el auditor exige `espanolhonesto-staging.alindev95.workers.dev` en staging y el canonico `espanolhonesto.com` en production; no se configura un webhook duplicado en `www`.
+- `STRIPE_EXPECTED_WEBHOOK_HOSTS` opcional para sobrescribir el host esperado. Tras el cutover, el auditor exige `staging.espanolhonesto.com` en staging y el canonico `espanolhonesto.com` en production; no se configura un webhook duplicado en `www`. Mientras el webhook test siga en la URL directa, no desactivar `workers.dev`.
 - `CHECKOUT_ENABLED=false` hasta decidir pagos reales o checkout test deliberado.
 - `CHECKOUT_ENABLED_OVERRIDE=false` o ausente hasta la activacion exacta; `true` solo despues del Go/No-Go y `false` como rollback inmediato.
 - `PUBLIC_TURNSTILE_SITE_KEY`
@@ -232,16 +232,16 @@ Variables por environment:
 - `PUBLIC_APP_ENV`
 - `CHECKOUT_ENABLED=false` hasta cierre deliberado de pagos.
 - `CHECKOUT_ENABLED_OVERRIDE=false` o ausente hasta la ventana de activacion.
-- `CLOUDFLARE_STAGING_URL` y `CLOUDFLARE_WORKERS_STAGING_URL` quedan solo como overrides opcionales de runners locales. CI no los consume mientras el staging canónico sea el Worker directo.
+- `CLOUDFLARE_STAGING_URL` y `CLOUDFLARE_WORKERS_STAGING_URL` quedan solo como overrides opcionales de runners locales. CI usa el dominio canónico de staging fijado en código.
 
 Valores actuales:
 
 - Worker staging: `espanolhonesto-staging`
 - Worker production: `espanolhonesto`
-- URL staging preferida para probes RC/no-real-payments: `https://espanolhonesto-staging.alindev95.workers.dev`
+- URL staging canónica para probes RC/no-real-payments: `https://staging.espanolhonesto.com`
 - URL fulfillment staging fijada por CI: `https://espanol-honesto-fulfillment-staging.alindev95.workers.dev`; no necesita almacenarse como secret porque es pública.
 - CI escribe ambas URLs en `GITHUB_ENV` después de validar la rama. `main` exige además `FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-production.alindev95.workers.dev`; nunca cae a una URL staging si falta una variable/secret production.
-- Dominio custom staging opcional futuro: `https://staging.espanolhonesto.com`. No esta configurado y no debe usarse en probes ni comandos hasta verificar DNS, SSL y routing.
+- Estado de transición: el preflight Cloudflare del 2026-07-13 confirmó que `staging.espanolhonesto.com` está libre, sin DNS, Custom Domain, wildcard ni Route. El código ya lo trata como destino canónico; no ejecutar probes externos contra él hasta crear el Custom Domain y verificar DNS, TLS y routing. La URL `workers.dev` permanece solo como rollback hasta migrar Stripe test y cerrar el cutover.
 
 ## Supabase
 
@@ -267,7 +267,7 @@ Operativo:
 Usar `SUPABASE_DB_URL` solo para migraciones/SQL. No lo usa la app.
 Los runners de navegador y `pnpm dev` validan la identidad staging pero eliminan `SUPABASE_DB_URL`, `SUPABASE_*_DB_URL`, `DATABASE_URL` y `PG*` antes de arrancar Astro o Playwright.
 
-Auth staging usa un allowlist exacto y separado del rollout SQL. `pnpm launch:supabase-auth-staging-callbacks` es plan-only por defecto y prepara seis destinos en `es`, `en` y `ru`: confirmación en `/api/auth/confirm?lang=<lang>` y recuperación en `/<lang>/reset-password`. La ejecución exige aprobación literal y `SUPABASE_ACCESS_TOKEN`; conserva únicamente entradas exactas existentes y falla antes del PATCH si detecta `*`, `**`, clases, llaves, escapes o equivalentes codificados. El summary debe quedar `OK`, `wildcardPolicy=exact_only` y contener los seis destinos antes de validar alta nueva o recuperación en staging.
+Auth staging usa `site_url` canónico y un allowlist exacto, separados del rollout SQL. `pnpm launch:supabase-auth-staging-callbacks` es plan-only por defecto y fija `site_url=https://staging.espanolhonesto.com` junto con seis destinos en `es`, `en` y `ru`: confirmación en `/api/auth/confirm?lang=<lang>` y recuperación en `/<lang>/reset-password`. La ejecución exige aprobación literal y `SUPABASE_ACCESS_TOKEN`; conserva únicamente entradas exactas existentes y falla antes del PATCH si detecta `*`, `**`, clases, llaves, escapes o equivalentes codificados. El summary debe quedar `OK`, `wildcardPolicy=exact_only`, contener el `site_url` canónico y los seis destinos antes de validar alta nueva o recuperación en staging.
 
 Production Supabase se prepara con runners separados y fail-closed:
 

@@ -4,7 +4,10 @@ import { getLocalizedPath } from '../../i18n/utils';
 export const prerender = false;
 
 const { lang } = Astro.params;
+const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase() === 'staging';
 ---
+
+{stagingNoindex && <meta name="robots" content="noindex, nofollow" />}
 
 <script>
     import { supabase } from '../../lib/supabase';

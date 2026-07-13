@@ -18,7 +18,7 @@ export const EXPECTED_STAGING_PLAIN_TEXT = Object.freeze({
     PUBLIC_APP_ENV: 'staging',
     SUPABASE_EXPECTED_PROJECT_REF: 'mzjyvmlxfpzdfdjzxxyj',
     WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
-    PUBLIC_SITE_URL: 'https://espanolhonesto-staging.alindev95.workers.dev',
+    PUBLIC_SITE_URL: 'https://staging.espanolhonesto.com',
     FULFILLMENT_RUNTIME_MODE: 'active',
     EMAIL_DELIVERY_MODE: 'allowlist',
     EMAIL_DAILY_RECIPIENT_LIMIT: '10',

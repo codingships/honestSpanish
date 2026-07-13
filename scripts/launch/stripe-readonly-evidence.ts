@@ -561,7 +561,7 @@ function expectedStripeWebhookHosts(): string[] {
     const raw = explicit
         ? explicit.split(',')
         : targetEnvironment === 'staging'
-            ? ['espanolhonesto-staging.alindev95.workers.dev']
+            ? ['staging.espanolhonesto.com']
             : ['espanolhonesto.com'];
     return [...new Set(raw.map(normalizeHost).filter(Boolean))].sort();
 }

@@ -39,6 +39,7 @@ const accessibilityText = {
     ru: { skip: 'Перейти к основному содержанию', breadcrumb: 'Навигационная цепочка', legal: 'Юридические документы' },
 };
 const accessibility = accessibilityText[lang as keyof typeof accessibilityText] || accessibilityText.es;
+const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase() === 'staging';
 ---
 
 <!DOCTYPE html>
@@ -48,7 +49,7 @@ const accessibility = accessibilityText[lang as keyof typeof accessibilityText] 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title} | Español Honesto</title>
     <meta name="description" content={description}>
-    <meta name="robots" content="noindex, follow">
+    <meta name="robots" content={stagingNoindex ? 'noindex, nofollow' : 'noindex, follow'}>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
     <style>

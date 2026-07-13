@@ -8,7 +8,7 @@ export const INVOICE_UPCOMING_NOTICE_DAYS = 15;
 export const INVOICE_UPCOMING_NOTICE_SECONDS = INVOICE_UPCOMING_NOTICE_DAYS * 24 * 60 * 60;
 export const INVOICE_UPCOMING_BOUNDARY_MARGIN_SECONDS = 60;
 export const RENEWAL_FINALIZATION_OFFSET_SECONDS = 7_200;
-export const STAGING_STRIPE_WEBHOOK_ENDPOINT_URL = 'https://espanolhonesto-staging.alindev95.workers.dev/api/stripe-webhook';
+export const STAGING_STRIPE_WEBHOOK_ENDPOINT_URL = 'https://staging.espanolhonesto.com/api/stripe-webhook';
 export const LIFECYCLE_WEBHOOK_EVENT_TYPES = [
     'checkout.session.completed',
     'invoice.upcoming',

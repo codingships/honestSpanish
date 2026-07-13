@@ -108,7 +108,7 @@ En Cloudflare, el Astro Worker llama al Fulfillment Worker mediante el service b
 ## Entornos Y Deploy
 
 - `dev`: local, `http://localhost:4321`.
-- `staging`: rama `staging`, `https://espanolhonesto-staging.alindev95.workers.dev`. El dominio custom `staging.espanolhonesto.com` no esta configurado; queda como opcion futura.
+- `staging`: rama `staging`, dominio canónico `https://staging.espanolhonesto.com` sobre el Worker `espanolhonesto-staging`.
 - `production`: rama `main`, `https://espanolhonesto.com`.
 
 CI valida typecheck, lint, tests, build, E2E público y secrets-check. Un `push` a `staging` despliega primero fulfillment y después el Astro Worker. Un `push` a `main` solo construye y ejecuta dry-runs production: los writes production requieren los gates manuales y ordenados de `docs/launch/CLOUDFLARE_PRODUCTION.md`.

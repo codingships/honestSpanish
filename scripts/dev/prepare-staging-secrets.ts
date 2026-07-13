@@ -11,7 +11,7 @@ type SentryClientKey = {
 const stagingPath = '.env.staging';
 const basePath = '.env';
 const stagingRef = 'mzjyvmlxfpzdfdjzxxyj';
-const webUrl = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const webUrl = 'https://staging.espanolhonesto.com';
 const fulfillmentUrl = 'https://espanol-honesto-fulfillment-staging.alindev95.workers.dev';
 
 const staging = dotenv.parse(readFileSync(stagingPath, 'utf8'));

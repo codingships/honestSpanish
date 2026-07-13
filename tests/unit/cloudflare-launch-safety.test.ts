@@ -15,6 +15,10 @@ describe('Cloudflare launch environment safety', () => {
             "configValue.main === 'entry.mjs'",
             "vars.CHECKOUT_ENABLED === 'false'",
             "vars.CHECKOUT_ENABLED_OVERRIDE === 'false'",
+            "configValue.routes[0]?.pattern === 'staging.espanolhonesto.com'",
+            "configValue.routes[0]?.custom_domain === true",
+            "configValue.workers_dev === true",
+            "configValue.preview_urls === false",
             "Generic production writes are forbidden",
             "'whoami'",
             'd1a22bcf6477ff2ff31d2bfb83084e44',
@@ -33,6 +37,9 @@ describe('Cloudflare launch environment safety', () => {
         expect(web).toMatch(/^name = "espanolhonesto-env-required"/mu);
         expect(web).toContain('[env.production]');
         expect(web).toContain('name = "espanolhonesto"');
+        expect(web).toContain('pattern = "staging.espanolhonesto.com"');
+        expect(web).toContain('custom_domain = true');
+        expect(web).toContain('preview_urls = false');
         expect(fulfillment).toMatch(/^name = "espanol-honesto-fulfillment-env-required"/mu);
         expect(fulfillment).toContain('name = "espanol-honesto-fulfillment-production"');
     });

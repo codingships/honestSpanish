@@ -191,7 +191,7 @@ jobs:
             printf '%s\n' "PUBLIC_SITE_URL=$PRODUCTION_PUBLIC_SITE_URL" >> "$GITHUB_ENV"
             printf '%s\n' "FULFILLMENT_WORKER_URL=$PRODUCTION_FULFILLMENT_WORKER_URL" >> "$GITHUB_ENV"
           elif [ "$GITHUB_REF_NAME" = "staging" ]; then
-            printf '%s\n' "PUBLIC_SITE_URL=https://espanolhonesto-staging.alindev95.workers.dev" >> "$GITHUB_ENV"
+            printf '%s\n' "PUBLIC_SITE_URL=https://staging.espanolhonesto.com" >> "$GITHUB_ENV"
             printf '%s\n' "FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-staging.alindev95.workers.dev" >> "$GITHUB_ENV"
           else
             echo "Unsupported deploy branch: $GITHUB_REF_NAME"
@@ -276,5 +276,5 @@ jobs:
       - name: Verify staging checkout is disabled
         if: github.ref_name == 'staging'
         env:
-          STAGING_WORKER_URL: https://espanolhonesto-staging.alindev95.workers.dev
+          STAGING_WORKER_URL: https://staging.espanolhonesto.com
         run: pnpm run launch:no-real-payments -- --deployed-url "$STAGING_WORKER_URL"

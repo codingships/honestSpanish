@@ -27,17 +27,17 @@ Estado: apoyo para operar sin cobros reales hasta el cierre final de Stripe.
 corepack pnpm launch:no-real-payments
 ```
 
-CI ejecuta `pnpm run launch:no-real-payments` en build/test y fuerza `CHECKOUT_ENABLED=false` durante el build. Tras desplegar la rama `staging`, GitHub Actions ejecuta el probe read-only contra el Worker canónico `https://espanolhonesto-staging.alindev95.workers.dev`; no usa `staging.espanolhonesto.com` ni depende de una variable externa mientras ese dominio custom siga sin configurar. El deploy de staging no debe considerarse apto para RC si ese probe no devuelve 403 `Checkout is disabled`.
+CI ejecuta `pnpm run launch:no-real-payments` en build/test y fuerza `CHECKOUT_ENABLED=false` durante el build. Tras desplegar la rama `staging`, GitHub Actions ejecuta el probe read-only contra `https://staging.espanolhonesto.com`. El cutover no debe considerarse apto para RC si DNS/TLS/routing no están verificados o si el probe no devuelve 403 `Checkout is disabled`.
 
-Para RC local, si no se pasa URL explicita, los scripts usan como fallback el Worker staging directo `https://espanolhonesto-staging.alindev95.workers.dev`. `https://staging.espanolhonesto.com` sigue siendo evidencia de dominio custom/final, pero no debe ser el fallback silencioso de no-real-payments mientras DNS/SSL/routing no esten verificados.
+Para RC local, si no se pasa URL explícita, los scripts usan como fallback el dominio canónico `https://staging.espanolhonesto.com`. Antes del cutover externo, pasar deliberadamente la URL directa solo para diagnóstico transitorio; no registrar ese resultado como evidencia final del dominio.
 
 Para staging:
 
 ```bash
-corepack pnpm launch:no-real-payments -- --deployed-url https://espanolhonesto-staging.alindev95.workers.dev
+corepack pnpm launch:no-real-payments -- --deployed-url https://staging.espanolhonesto.com
 ```
 
-Cuando el dominio custom de staging este verificado, repetir el mismo comando con `--deployed-url https://staging.espanolhonesto.com` y archivar ese resultado como evidencia de integracion/dominio, no como sustituto del probe Worker RC.
+Durante la transición puede repetirse el probe contra `https://espanolhonesto-staging.alindev95.workers.dev` como diagnóstico de rollback, pero la evidencia de cierre debe proceder del dominio canónico.
 
 La prueba desplegada hace `POST /api/create-checkout` con body `{}`. Si checkout esta desactivado, debe devolver 403 antes de leer Supabase o Stripe. Si checkout estuviera activado, ese mismo body devolveria 400 por faltar `priceId` antes de Supabase o Stripe, sin crear Checkout Session.
 
@@ -63,7 +63,7 @@ Si el build local pudo ver `.dev.vars` o `.env*`, no conservar `dist/` como evid
 
 Usar el `approval-request.md` antes de tocar Cloudflare: limita el scope al Worker staging, exige preflight de cuenta/Worker/entorno, exige revisar el `worker-staging-build-manifest.json` si se despliega un build local, permite solo `CHECKOUT_ENABLED=false` cuando el guard ya esta desplegado o redeploy de config/codigo actual cuando falta el guard, y deja fuera production Worker, Stripe live, pagos reales, secretos finales y dominio/Search Console.
 
-Usar `manual-evidence-dry-run.txt` solo despues de que el post-fix probe desplegado pase. Primero ejecutar `corepack pnpm launch:no-real-payments -- --deployed-url https://espanolhonesto-staging.alindev95.workers.dev`; si devuelve 403 `Checkout is disabled`, sustituir la nota generica por evidencia concreta y anadir `--write`. Si el dominio custom se esta cerrando tambien, repetir con `https://staging.espanolhonesto.com`. Si sigue devolviendo `400 priceId is required`, no registrar `payments_staging` como cerrado.
+Usar `manual-evidence-dry-run.txt` solo después de que el post-fix probe desplegado pase. Ejecutar `corepack pnpm launch:no-real-payments -- --deployed-url https://staging.espanolhonesto.com`; si devuelve 403 `Checkout is disabled`, sustituir la nota genérica por evidencia concreta y añadir `--write`. Si devuelve `400 priceId is required`, no registrar `payments_staging` como cerrado.
 
 El comando escribe:
 

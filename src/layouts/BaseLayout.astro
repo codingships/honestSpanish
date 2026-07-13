@@ -25,6 +25,8 @@ const {
 } = Astro.props;
 
 const siteUrl = 'https://espanolhonesto.com';
+const appEnvironment = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase();
+const shouldNoindex = noindex || appEnvironment === 'staging';
 const brandName = `Espa${String.fromCodePoint(0x00F1)}ol Honesto`;
 const demoGuideEnabled = import.meta.env.DEMO_GUIDE_ENABLED === 'true';
 const enabledAlternateLangs = new Set(alternateLangs);
@@ -66,7 +68,7 @@ const getAlternateUrl = (targetLang: string): string => {
     <meta name="description" content={description} />
     
     <!-- Robots: noindex for private pages -->
-    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    {shouldNoindex && <meta name="robots" content="noindex, nofollow" />}
     
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
@@ -111,4 +113,3 @@ const getAlternateUrl = (targetLang: string): string => {
     <CookieBanner lang={lang} />
   </body>
 </html>
-

@@ -39,7 +39,7 @@ describe('operations runbook launch readiness', () => {
         expect(ci).toContain('PRODUCTION_FULFILLMENT_WORKER_URL: ${{ secrets.FULFILLMENT_WORKER_URL }}');
         expect(ci).toContain('Production PUBLIC_SITE_URL is missing or does not match the canonical production URL.');
         expect(ci).toContain('Production FULFILLMENT_WORKER_URL is missing or does not match the exact production Worker.');
-        expect(ci).toContain('PUBLIC_SITE_URL=https://espanolhonesto-staging.alindev95.workers.dev');
+        expect(ci).toContain('PUBLIC_SITE_URL=https://staging.espanolhonesto.com');
         expect(ci).toContain('FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-staging.alindev95.workers.dev');
         expect(ci).toContain('>> "$GITHUB_ENV"');
         expect(ci).not.toContain("github.ref_name == 'main' && vars.PUBLIC_SITE_URL ||");
@@ -49,7 +49,7 @@ describe('operations runbook launch readiness', () => {
         expect(resolveRuntimeUrlsIndex).toBeGreaterThan(-1);
         expect(deployBuildIndex).toBeGreaterThan(-1);
         expect(resolveRuntimeUrlsIndex).toBeLessThan(deployBuildIndex);
-        expect(ci).toContain('STAGING_WORKER_URL: https://espanolhonesto-staging.alindev95.workers.dev');
+        expect(ci).toContain('STAGING_WORKER_URL: https://staging.espanolhonesto.com');
         expect(ci).not.toContain('vars.CLOUDFLARE_STAGING_URL');
         expect(ci).not.toContain('vars.CLOUDFLARE_WORKERS_STAGING_URL');
         expect(ci).toContain('--deployed-url "$STAGING_WORKER_URL"');
@@ -243,7 +243,7 @@ describe('operations runbook launch readiness', () => {
         expect(read('scripts/launch/status.ts')).toContain('Operations External Evidence Manifest');
         expect(adminJobsRuntime).toContain('DEFAULT_WORKER_STAGING_URL');
         expect(adminJobsRuntime).toContain('CLOUDFLARE_WORKERS_STAGING_URL');
-        expect(adminJobsRuntime).toContain('https://espanolhonesto-staging.alindev95.workers.dev');
+        expect(adminJobsRuntime).toContain('https://staging.espanolhonesto.com');
         expect(closure).toContain('defaults to the direct Worker staging URL');
         expect(closure).toContain('only when closing custom-domain staging evidence deliberately');
 
@@ -2004,9 +2004,9 @@ describe('operations runbook launch readiness', () => {
             '--execute-approved',
             'externalWriteCommandStarted',
             'SMOKE_BASE_URL',
-            'https://espanolhonesto-staging.alindev95.workers.dev',
+            'https://staging.espanolhonesto.com',
             'SMOKE_EXTERNAL_WRITES_CONFIRMATION',
-            'writes-ok:espanolhonesto-staging.alindev95.workers.dev',
+            'writes-ok:staging.espanolhonesto.com',
             'STRIPE_SECRET_KEY',
             'sk_live_',
             'Stripe live',
@@ -2039,7 +2039,7 @@ describe('operations runbook launch readiness', () => {
             'launch-staging-smoke-rehearsal-runner',
             'staging-smoke-command-manifest.json',
             'rollback-after-staging-smoke.md',
-            'SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev',
+            'SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com',
             'launch-staging-billing-lifecycle',
             'CHECKOUT_ENABLED_OVERRIDE remains false throughout',
         ]) {

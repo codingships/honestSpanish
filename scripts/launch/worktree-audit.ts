@@ -582,7 +582,7 @@ function renderCommitPackagePlan(): string {
         'Validation:',
         '- `corepack pnpm exec vitest run --coverage=false tests/api/create-checkout.test.ts tests/unit/no-real-payments-runbook.test.ts`',
         '- `corepack pnpm launch:no-real-payments`',
-        '- After staging deploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://espanolhonesto-staging.alindev95.workers.dev`',
+        '- After staging deploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://staging.espanolhonesto.com`',
         '- If staging still fails: `corepack pnpm launch:staging-no-real-payments-remediation`',
         '',
         '| Required for staging deploy | Status | Package | Path | Role |',
@@ -716,7 +716,7 @@ function renderRcStagingPackage(): string {
         '',
         '- `corepack pnpm exec vitest run --coverage=false tests/api/create-checkout.test.ts tests/unit/no-real-payments-runbook.test.ts`',
         '- `corepack pnpm launch:no-real-payments`',
-        '- After approved staging redeploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://espanolhonesto-staging.alindev95.workers.dev`',
+        '- After approved staging redeploy/config fix: `corepack pnpm launch:no-real-payments -- --deployed-url https://staging.espanolhonesto.com`',
         '- If staging still returns `400 priceId is required`: `corepack pnpm launch:staging-no-real-payments-remediation`',
         '',
     );

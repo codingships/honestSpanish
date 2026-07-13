@@ -12,7 +12,8 @@ import {
     safeErrorMessage,
     selectSafeAuthConfig,
     STAGING_AUTH_REDIRECTS,
-    STAGING_REDIRECTS_APPROVAL,
+    STAGING_AUTH_URLS_APPROVAL,
+    STAGING_SITE_URL,
     SUPABASE_AUTH_TARGETS,
     verifyExactSafePatch,
     getSafeAuthConfig,
@@ -99,13 +100,15 @@ describe('Supabase Auth config runners', () => {
     });
 
     it('pins six exact staging redirects and rejects broad Supabase Auth wildcard syntax before merge', () => {
+        expect(STAGING_SITE_URL)
+            .toBe('https://staging.espanolhonesto.com');
         expect(STAGING_AUTH_REDIRECTS).toEqual([
-            'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=es',
-            'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=en',
-            'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=ru',
-            'https://espanolhonesto-staging.alindev95.workers.dev/es/reset-password',
-            'https://espanolhonesto-staging.alindev95.workers.dev/en/reset-password',
-            'https://espanolhonesto-staging.alindev95.workers.dev/ru/reset-password',
+            'https://staging.espanolhonesto.com/api/auth/confirm?lang=es',
+            'https://staging.espanolhonesto.com/api/auth/confirm?lang=en',
+            'https://staging.espanolhonesto.com/api/auth/confirm?lang=ru',
+            'https://staging.espanolhonesto.com/es/reset-password',
+            'https://staging.espanolhonesto.com/en/reset-password',
+            'https://staging.espanolhonesto.com/ru/reset-password',
         ]);
         expect(STAGING_AUTH_REDIRECTS.every((entry) => !hasBroadAuthRedirectWildcard(entry))).toBe(true);
 
@@ -134,9 +137,20 @@ describe('Supabase Auth config runners', () => {
         expect(exactApprovalMatched(inert, ['--execute-approved'], {
             [inert.approvalEnvVar]: `${inert.exactApprovalSentence} extra`,
         })).toBe(false);
-        expect(exactApprovalMatched(STAGING_REDIRECTS_APPROVAL, ['--execute-approved'], {
+        expect(exactApprovalMatched(STAGING_AUTH_URLS_APPROVAL, ['--execute-approved'], {
             [inert.approvalEnvVar]: inert.exactApprovalSentence,
         })).toBe(false);
+    });
+
+    it('binds the staging approval to both the canonical site URL and exact allowlist', () => {
+        expect(STAGING_AUTH_URLS_APPROVAL.approvalEnvVar)
+            .toBe('SUPABASE_AUTH_STAGING_URLS_APPROVAL');
+        expect(STAGING_AUTH_URLS_APPROVAL.exactApprovalSentence)
+            .toContain(`site_url=${STAGING_SITE_URL}`);
+        expect(STAGING_AUTH_URLS_APPROVAL.exactApprovalSentence)
+            .toContain('site_url y uri_allow_list');
+        expect(STAGING_AUTH_URLS_APPROVAL.exactApprovalSentence)
+            .toContain('No autorizo producción ni otros campos o recursos.');
     });
 
     it('encodes the reversible final production target as signup enabled with confirmation required', () => {
@@ -256,9 +270,13 @@ describe('Supabase Auth config runners', () => {
         expect(fetcher).toHaveBeenCalledTimes(3);
     });
 
-    it('patches only the staging allowlist and preserves every other safe field', async () => {
+    it('pins the staging site URL, merges the allowlist and preserves auth flags', async () => {
         const mergedAllowList = mergeUriAllowList(baseConfig.uri_allow_list, STAGING_AUTH_REDIRECTS);
-        const after = { ...baseConfig, uri_allow_list: mergedAllowList };
+        const after = {
+            ...baseConfig,
+            site_url: STAGING_SITE_URL,
+            uri_allow_list: mergedAllowList,
+        };
         const fetcher = sequenceFetcher([
             jsonResponse(baseConfig),
             new Response(null, { status: 200 }),
@@ -269,12 +287,14 @@ describe('Supabase Auth config runners', () => {
             projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
             token: 'test-management-token',
             buildDesiredPatch: (before) => ({
+                site_url: STAGING_SITE_URL,
                 uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_REDIRECTS),
             }),
             verifyDesired: (before, observed, patch) => (
                 observed.disable_signup === before.disable_signup
                 && observed.mailer_autoconfirm === before.mailer_autoconfirm
-                && observed.site_url === before.site_url
+                && patch.site_url === STAGING_SITE_URL
+                && observed.site_url === STAGING_SITE_URL
                 && typeof patch.uri_allow_list === 'string'
                 && allowListExactlyMatches(observed.uri_allow_list, patch.uri_allow_list)
             ),
@@ -287,7 +307,80 @@ describe('Supabase Auth config runners', () => {
             expect.any(String),
             expect.objectContaining({
                 method: 'PATCH',
-                body: JSON.stringify({ uri_allow_list: mergedAllowList }),
+                body: JSON.stringify({
+                    site_url: STAGING_SITE_URL,
+                    uri_allow_list: mergedAllowList,
+                }),
+            }),
+        );
+    });
+
+    it('restores both prior staging URL fields when verification fails', async () => {
+        const before: SafeAuthConfig = {
+            disable_signup: false,
+            mailer_autoconfirm: false,
+            site_url: 'http://localhost:3000',
+            uri_allow_list: '',
+        };
+        const desiredAllowList = mergeUriAllowList(
+            before.uri_allow_list,
+            STAGING_AUTH_REDIRECTS,
+        );
+        const invalidAfter: SafeAuthConfig = {
+            ...before,
+            site_url: STAGING_SITE_URL,
+            uri_allow_list: STAGING_AUTH_REDIRECTS[0],
+        };
+        const fetcher = sequenceFetcher([
+            jsonResponse(before),
+            new Response(null, { status: 200 }),
+            jsonResponse(invalidAfter),
+            new Response(null, { status: 200 }),
+            jsonResponse(before),
+        ]);
+
+        const result = await applyVerifiedAuthConfigChange({
+            projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
+            token: 'test-management-token',
+            buildDesiredPatch: () => ({
+                site_url: STAGING_SITE_URL,
+                uri_allow_list: desiredAllowList,
+            }),
+            verifyDesired: (baseline, observed, patch) => (
+                observed.disable_signup === baseline.disable_signup
+                && observed.mailer_autoconfirm === baseline.mailer_autoconfirm
+                && patch.site_url === STAGING_SITE_URL
+                && observed.site_url === STAGING_SITE_URL
+                && typeof patch.uri_allow_list === 'string'
+                && allowListExactlyMatches(observed.uri_allow_list, patch.uri_allow_list)
+            ),
+            verifyRollback: (baseline, observed) => (
+                observed.disable_signup === baseline.disable_signup
+                && observed.mailer_autoconfirm === baseline.mailer_autoconfirm
+                && observed.site_url === baseline.site_url
+                && allowListExactlyMatches(observed.uri_allow_list, baseline.uri_allow_list)
+            ),
+            fetcher,
+        });
+
+        expect(result.status).toBe('failed_rolled_back');
+        expect(result.rollback).toMatchObject({
+            attempted: true,
+            verified: true,
+            patch: {
+                site_url: before.site_url,
+                uri_allow_list: before.uri_allow_list,
+            },
+        });
+        expect(fetcher).toHaveBeenNthCalledWith(
+            4,
+            expect.any(String),
+            expect.objectContaining({
+                method: 'PATCH',
+                body: JSON.stringify({
+                    site_url: before.site_url,
+                    uri_allow_list: before.uri_allow_list,
+                }),
             }),
         );
     });

@@ -21,7 +21,7 @@ const versionMetadata = cloudflareEnv as { CF_VERSION_METADATA?: { id?: string }
 
 function context(body: string, options: { authorization?: string; contentLength?: string } = {}) {
     return {
-        request: new Request('https://espanolhonesto-staging.alindev95.workers.dev/api/internal/runtime-attestation', {
+        request: new Request('https://staging.espanolhonesto.com/api/internal/runtime-attestation', {
             method: 'POST',
             headers: {
                 ...(options.authorization ? { Authorization: options.authorization } : {}),

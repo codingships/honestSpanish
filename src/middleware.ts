@@ -21,7 +21,7 @@ function inertProductionResponse(errorCode: string): Response {
     });
 }
 
-export const onRequest = defineMiddleware(async (context, next) => {
+const handleApplicationRequest = defineMiddleware(async (context, next) => {
     const url = new URL(context.request.url);
     const path = url.pathname;
 
@@ -136,4 +136,18 @@ export const onRequest = defineMiddleware(async (context, next) => {
     }
 
     return next();
+});
+
+export const onRequest = defineMiddleware(async (context, next) => {
+    const response = await handleApplicationRequest(context, next);
+    if (!response) {
+        throw new Error('Application middleware returned no response');
+    }
+    const appEnvironment = readRuntimeEnv('PUBLIC_APP_ENV', context)?.trim().toLowerCase();
+
+    if (appEnvironment === 'staging') {
+        response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
+    }
+
+    return response;
 });

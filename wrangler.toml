@@ -18,6 +18,11 @@ CHECKOUT_ENABLED_OVERRIDE = "false"
 
 [env.staging]
 name = "espanolhonesto-staging"
+workers_dev = true
+preview_urls = false
+routes = [
+  { pattern = "staging.espanolhonesto.com", custom_domain = true }
+]
 
 [[env.staging.services]]
 binding = "FULFILLMENT_SERVICE"
@@ -29,7 +34,7 @@ PUBLIC_APP_ENV = "staging"
 WEB_RUNTIME_MODE = "active"
 SUPABASE_EXPECTED_PROJECT_REF = "mzjyvmlxfpzdfdjzxxyj"
 WORKER_IDENTITY = "espanolhonesto-staging"
-PUBLIC_SITE_URL = "https://espanolhonesto-staging.alindev95.workers.dev"
+PUBLIC_SITE_URL = "https://staging.espanolhonesto.com"
 FULFILLMENT_WORKER_URL = "https://espanol-honesto-fulfillment-staging.alindev95.workers.dev"
 CHECKOUT_ENABLED = "false"
 CHECKOUT_ENABLED_OVERRIDE = "false"

@@ -44,7 +44,7 @@ const requestBody = {
 };
 
 function context(body: string, options: { authorization?: string; contentLength?: string; host?: string } = {}) {
-    const host = options.host ?? 'espanolhonesto-staging.alindev95.workers.dev';
+    const host = options.host ?? 'staging.espanolhonesto.com';
     return {
         request: new Request(`https://${host}/api/internal/staging-integration-email`, {
             method: 'POST',
@@ -113,6 +113,11 @@ describe('staging integration email API', () => {
         validRuntime();
         const hidden = await POST(context(JSON.stringify(requestBody), { host: 'espanolhonesto.com' }));
         expect(hidden.status).toBe(404);
+        const legacyDirectHost = await POST(context(JSON.stringify(requestBody), {
+            authorization: 'Bearer wrong-secret',
+            host: 'espanolhonesto-staging.alindev95.workers.dev',
+        }));
+        expect(legacyDirectHost.status).toBe(401);
         const unauthorized = await POST(context(JSON.stringify(requestBody), {
             authorization: 'Bearer wrong-secret',
         }));

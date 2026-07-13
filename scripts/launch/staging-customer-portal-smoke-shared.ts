@@ -3,14 +3,14 @@ import { createHash } from 'node:crypto';
 export const STAGING_PORTAL_SMOKE = {
     supabaseProjectRef: 'mzjyvmlxfpzdfdjzxxyj',
     stripeAccountId: 'acct_1TruqOC22M3erP0j',
-    webOrigin: 'https://espanolhonesto-staging.alindev95.workers.dev',
+    webOrigin: 'https://staging.espanolhonesto.com',
     workerIdentity: 'espanolhonesto-staging',
     source: 'espanol-honesto-staging-portal-smoke',
     trialDays: 14,
 } as const;
 
 export const STAGING_PORTAL_SMOKE_APPROVAL_ENV = 'STAGING_PORTAL_SMOKE_APPROVAL';
-export const STAGING_PORTAL_SMOKE_APPROVAL = 'Autorizo ejecutar una unica prueba real del Stripe Customer Portal contra `https://espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente Supabase staging `mzjyvmlxfpzdfdjzxxyj`, Stripe test `acct_1TruqOC22M3erP0j`, la configuracion Portal fijada en `.env.staging` y la cuenta existente `TEST_STUDENT_*`. Autorizo crear un Customer test temporal y una Subscription test en trial sin metodo de pago ni cobro, enlazar temporalmente solo `profiles_private` y una fila minima de `subscriptions`, iniciar sesion mediante Playwright, abrir el Portal desde el boton real, cancelar la renovacion desde la interfaz hospedada, verificar la fecha de cancelacion y el retorno seguro, y limpiar exactamente los recursos temporales de Stripe y Supabase incluso si falla la prueba. Acepto solo los webhooks reales producidos por esas acciones y su limpieza exacta; no autorizo webhooks sinteticos, Resend ni otros emails, Checkout, pagos, Stripe live, produccion, Cloudflare, deploys, DNS, dominios ni ningun otro cambio externo.';
+export const STAGING_PORTAL_SMOKE_APPROVAL = 'Autorizo ejecutar una unica prueba real del Stripe Customer Portal contra `https://staging.espanolhonesto.com`, usando exclusivamente Supabase staging `mzjyvmlxfpzdfdjzxxyj`, Stripe test `acct_1TruqOC22M3erP0j`, la configuracion Portal fijada en `.env.staging` y la cuenta existente `TEST_STUDENT_*`. Autorizo crear un Customer test temporal y una Subscription test en trial sin metodo de pago ni cobro, enlazar temporalmente solo `profiles_private` y una fila minima de `subscriptions`, iniciar sesion mediante Playwright, abrir el Portal desde el boton real, cancelar la renovacion desde la interfaz hospedada, verificar la fecha de cancelacion y el retorno seguro, y limpiar exactamente los recursos temporales de Stripe y Supabase incluso si falla la prueba. Acepto solo los webhooks reales producidos por esas acciones y su limpieza exacta; no autorizo webhooks sinteticos, Resend ni otros emails, Checkout, pagos, Stripe live, produccion, Cloudflare, deploys, DNS, dominios ni ningun otro cambio externo.';
 
 export const STAGING_PORTAL_SMOKE_REQUIRED_ENV = [
     'PUBLIC_APP_ENV',

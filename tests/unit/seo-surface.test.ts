@@ -375,6 +375,19 @@ describe('SEO and LLM public surface', () => {
         expect(layout).toContain('Content-Type\', \'text/html; charset=utf-8');
     });
 
+    it('forces noindex metadata for staging HTML without changing public production indexing', () => {
+        const layout = read('src/layouts/BaseLayout.astro');
+        const legalLayout = read('src/layouts/LegalLayout.astro');
+        const logout = read('src/pages/[lang]/logout.astro');
+
+        expect(layout).toContain("const appEnvironment = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase()");
+        expect(layout).toContain("const shouldNoindex = noindex || appEnvironment === 'staging'");
+        expect(layout).toContain('{shouldNoindex && <meta name="robots" content="noindex, nofollow" />}');
+        expect(legalLayout).toContain("stagingNoindex ? 'noindex, nofollow' : 'noindex, follow'");
+        expect(logout).toContain("=== 'staging'");
+        expect(logout).toContain('{stagingNoindex && <meta name="robots" content="noindex, nofollow" />}');
+    });
+
     it('keeps private and demo route noindex guards in place', () => {
         const privateSources = [
             read('src/layouts/CampusLayout.astro'),

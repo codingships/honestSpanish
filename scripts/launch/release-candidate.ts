@@ -56,7 +56,7 @@ const readyStatuses = new Set<ReleaseCandidateStatus>([
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-rc', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
-const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const DEFAULT_WORKER_STAGING_URL = 'https://staging.espanolhonesto.com';
 const stagingUrl = readArgValue('--staging-url')
     ?? readArgValue('--staging-worker-url')
     ?? readArgValue('--staging-pages-url')

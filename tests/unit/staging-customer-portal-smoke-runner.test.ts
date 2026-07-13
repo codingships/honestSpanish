@@ -23,7 +23,7 @@ describe('staging Customer Portal smoke runner', () => {
         expect(STAGING_PORTAL_SMOKE).toMatchObject({
             supabaseProjectRef: 'mzjyvmlxfpzdfdjzxxyj',
             stripeAccountId: 'acct_1TruqOC22M3erP0j',
-            webOrigin: 'https://espanolhonesto-staging.alindev95.workers.dev',
+            webOrigin: 'https://staging.espanolhonesto.com',
             trialDays: 14,
         });
         expect(STAGING_PORTAL_SMOKE_APPROVAL_ENV).toBe('STAGING_PORTAL_SMOKE_APPROVAL');

@@ -46,7 +46,7 @@ describe('Stripe read-only launch evidence', () => {
 
         expect(source).toContain('espanolhonesto.com');
         expect(source).not.toContain("['espanolhonesto.com', 'www.espanolhonesto.com']");
-        expect(source).toContain('espanolhonesto-staging.alindev95.workers.dev');
+        expect(source).toContain('staging.espanolhonesto.com');
         expect(source).toContain("../../src/lib/stripe-webhook-events");
         expect(webhookEvents).toContain("'invoice.upcoming'");
         expect(source).not.toContain('espanol-honesto-staging.pages.dev');
@@ -82,7 +82,7 @@ describe('Stripe read-only launch evidence', () => {
 
     it('documents the optional expected webhook host list without storing secrets', () => {
         expect(envExample).toContain('STRIPE_EXPECTED_WEBHOOK_HOSTS=espanolhonesto.com');
-        expect(environmentDoc).toContain('espanolhonesto-staging.alindev95.workers.dev');
+        expect(environmentDoc).toContain('staging.espanolhonesto.com');
         expect(environmentDoc).toContain('STRIPE_EXPECTED_WEBHOOK_HOSTS');
         expect(environmentDoc).toContain('un host antiguo o eventos incompletos dejan el auditor en `FAILED`');
         expect(environmentDoc).toContain('Una cuenta test sin cobros/payouts puede quedar en `WARNING`, pero en production tambien deja el auditor en `FAILED`');

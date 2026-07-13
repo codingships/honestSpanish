@@ -64,7 +64,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                     locale: welcomeLocale,
                     studentName: 'Test User',
                     packageName: previewPackageNames[welcomeLocale].welcome,
-                    loginUrl: `https://espanolhonesto-staging.alindev95.workers.dev/${welcomeLocale}/login`,
+                    loginUrl: `https://staging.espanolhonesto.com/${welcomeLocale}/login`,
                     driveFolderUrl: 'https://drive.google.com/example',
                     durationMonths: 3,
                     startsAt: '2026-10-10',
@@ -74,8 +74,8 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                     currency: 'eur',
                     legalPolicyVersion: '2026-07-10',
                     policyAcceptedAt: '2026-10-10T12:00:00.000Z',
-                    termsUrl: `https://espanolhonesto-staging.alindev95.workers.dev/${welcomeLocale}/legal/terminos`,
-                    supportUrl: `https://espanolhonesto-staging.alindev95.workers.dev/${welcomeLocale}/campus/support`,
+                    termsUrl: `https://staging.espanolhonesto.com/${welcomeLocale}/legal/terminos`,
+                    supportUrl: `https://staging.espanolhonesto.com/${welcomeLocale}/campus/support`,
                 }),
             };
         }
@@ -93,9 +93,9 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                     durationMonths: 1,
                     amountTotal: 14500,
                     currency: 'eur',
-                    accountUrl: `https://espanolhonesto-staging.alindev95.workers.dev/${renewalLocale}/campus/account`,
-                    supportUrl: `https://espanolhonesto-staging.alindev95.workers.dev/${renewalLocale}/campus/support`,
-                    termsUrl: `https://espanolhonesto-staging.alindev95.workers.dev/${renewalLocale}/legal/terminos`,
+                    accountUrl: `https://staging.espanolhonesto.com/${renewalLocale}/campus/account`,
+                    supportUrl: `https://staging.espanolhonesto.com/${renewalLocale}/campus/support`,
+                    termsUrl: `https://staging.espanolhonesto.com/${renewalLocale}/legal/terminos`,
                 }),
             };
         }
@@ -153,7 +153,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                 subject: 'A few level questions - Espanol Honesto',
                 html: levelCheckInviteTemplate({
                     recipientName: 'Test User',
-                    diagnosticUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/diagnostico?email=test%40example.com',
+                    diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=test%40example.com',
                 }),
             };
         case 'missing-info':
@@ -162,7 +162,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                 subject: 'A little more context - Espanol Honesto',
                 html: missingInfoEmailTemplate({
                     recipientName: 'Test User',
-                    diagnosticUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/diagnostico?email=test%40example.com',
+                    diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=test%40example.com',
                 }),
             };
         case 'proposal-next-step':
@@ -182,7 +182,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                     recipientName: 'Test User',
                     issueTitle: 'Missing Meet link',
                     ticketId: 'ticket-preview',
-                    supportUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/campus/support',
+                    supportUrl: 'https://staging.espanolhonesto.com/en/campus/support',
                 }),
             };
         case 'support-updated':
@@ -195,7 +195,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                     ticketId: 'ticket-preview',
                     status: 'closed',
                     adminNote: 'We checked the class and restored the Meet link in your campus.',
-                    supportUrl: 'https://espanolhonesto-staging.alindev95.workers.dev/en/campus/support',
+                    supportUrl: 'https://staging.espanolhonesto.com/en/campus/support',
                 }),
             };
     }

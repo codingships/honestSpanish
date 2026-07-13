@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 export const STAGING_SUPABASE_REF = 'mzjyvmlxfpzdfdjzxxyj';
-export const STAGING_SITE_HOST = 'espanolhonesto-staging.alindev95.workers.dev';
+export const STAGING_SITE_HOST = 'staging.espanolhonesto.com';
 export const STAGING_FULFILLMENT_HOST = 'espanol-honesto-fulfillment-staging.alindev95.workers.dev';
 export const STAGING_WEB_IDENTITY = 'espanolhonesto-staging';
 export const STAGING_FULFILLMENT_IDENTITY = 'espanol-honesto-fulfillment-staging';
@@ -119,8 +119,7 @@ function normalizeEmail(value: string): string {
 }
 
 export function isAllowedStagingWebHost(host: string): boolean {
-    return host === STAGING_SITE_HOST
-        || /^[a-z0-9]+(?:-[a-z0-9]+)*-espanolhonesto-staging\.alindev95\.workers\.dev$/.test(host);
+    return host === STAGING_SITE_HOST;
 }
 
 function requireVersionId(value: string | undefined, option: string): string {

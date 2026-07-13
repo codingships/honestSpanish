@@ -29,7 +29,7 @@ interface RuntimeReport {
 
 const startedAt = new Date();
 const args = process.argv.slice(2);
-const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const DEFAULT_WORKER_STAGING_URL = 'https://staging.espanolhonesto.com';
 const baseUrl = readArg('--base-url')
     ?? process.env.CLOUDFLARE_WORKERS_STAGING_URL
     ?? process.env.CLOUDFLARE_STAGING_URL

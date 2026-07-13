@@ -2796,8 +2796,9 @@ CREATE TABLE public.staging_integration_smoke_runs (
     marker TEXT NOT NULL UNIQUE CHECK (marker ~ '^SMOKE-INTEGRATION-[A-Za-z0-9-]{20,160}$'),
     status TEXT NOT NULL CHECK (status IN ('running', 'cleaning', 'cleanup_required', 'cleaned')),
     phase TEXT NOT NULL CHECK (phase ~ '^[a-z0-9_]{2,80}$'),
-    base_host TEXT NOT NULL CHECK (
+    base_host TEXT NOT NULL CONSTRAINT staging_integration_smoke_runs_base_host_check CHECK (
         base_host = 'espanolhonesto-staging.alindev95.workers.dev'
+        OR base_host = 'staging.espanolhonesto.com'
         OR base_host ~ '^[a-z0-9]+(?:-[a-z0-9]+)*-espanolhonesto-staging[.]alindev95[.]workers[.]dev$'
     ),
     student_id UUID NOT NULL REFERENCES public.profiles(id),

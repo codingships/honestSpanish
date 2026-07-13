@@ -319,7 +319,7 @@ function buildQueueItems(): QueueItem[] {
             id: 'staging_write_capable_smoke_rehearsal',
             title: 'Staging write-capable lifecycle smoke rehearsal',
             kind: 'external_write_approval',
-            target: 'Staging SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev only, guarded by SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev',
+            target: 'Staging SMOKE_BASE_URL=https://staging.espanolhonesto.com only, guarded by SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com',
             approvalPath: latestGeneratedPath('launch-final-smoke-execution-pack', 'approval-request-staging-smoke.md'),
             supportPaths: existingOrExpected([
                 latestGeneratedPath('launch-final-smoke-execution-pack', 'final-smoke-execution-manifest.json'),
@@ -680,7 +680,7 @@ function buildCriticalPath(queueItems: QueueItem[]): CriticalPathStep[] {
             phase: 'Before final launch window',
             itemIds: [requireItem('staging_write_capable_smoke_rehearsal')],
             prerequisites: [
-                'Exact staging writes-ok approval exists for espanolhonesto-staging.alindev95.workers.dev',
+                'Exact staging writes-ok approval exists for staging.espanolhonesto.com',
                 'Stripe test mode and smoke credential source are confirmed',
                 'Canonical outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json is OK/complete for the exact Checkout and its terminal state passes live revalidation',
             ],

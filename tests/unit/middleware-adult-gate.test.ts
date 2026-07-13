@@ -168,4 +168,60 @@ describe('campus adult-account middleware gate', () => {
             expect(mocks.getUser).not.toHaveBeenCalled();
         },
     );
+
+    it('adds the global robots header to a public staging response', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es');
+        const next = vi.fn().mockResolvedValue(new Response('<html></html>', {
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }));
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive');
+        expect(next).toHaveBeenCalledOnce();
+        expect(mocks.getUser).not.toHaveBeenCalled();
+    });
+
+    it('adds the global robots header to a staging redirect created by the auth gate', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es/campus');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/es/login');
+        expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive');
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('does not add the staging robots header to active production responses', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es');
+        const next = vi.fn().mockResolvedValue(new Response('<html></html>', {
+            headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        }));
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(200);
+        expect(response.headers.has('X-Robots-Tag')).toBe(false);
+        expect(next).toHaveBeenCalledOnce();
+        expect(mocks.getUser).not.toHaveBeenCalled();
+    });
 });

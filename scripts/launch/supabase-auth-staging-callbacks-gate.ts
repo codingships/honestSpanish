@@ -7,14 +7,15 @@ import {
     mergeUriAllowList,
     safeErrorMessage,
     STAGING_AUTH_REDIRECTS,
-    STAGING_REDIRECTS_APPROVAL,
+    STAGING_AUTH_URLS_APPROVAL,
+    STAGING_SITE_URL,
     SUPABASE_ACCESS_TOKEN_ENV,
 } from './supabase-auth-config-shared';
 
 const startedAt = new Date();
 const executeRequested = process.argv.includes('--execute-approved');
 const unknownArgs = process.argv.slice(2).filter((arg) => arg !== '--execute-approved');
-const approval = STAGING_REDIRECTS_APPROVAL;
+const approval = STAGING_AUTH_URLS_APPROVAL;
 const outputDir = path.join(
     process.cwd(),
     'outputs',
@@ -45,6 +46,7 @@ if (unknownArgs.length > 0) {
             endedAt: new Date().toISOString(),
             externalWritePerformed: false,
             target: { environment: approval.environment, projectRef: approval.projectRef },
+            siteUrl: STAGING_SITE_URL,
             redirects: STAGING_AUTH_REDIRECTS,
             approvalGate: {
                 envVar: approval.approvalEnvVar,
@@ -53,9 +55,9 @@ if (unknownArgs.length > 0) {
                 matched: false,
             },
             tokenAvailable: Boolean(token),
-            preservation: 'Every existing exact uri_allow_list entry is retained; the six exact confirmation and reset-password redirects are added once.',
+            preservation: 'site_url is pinned to the canonical staging origin. Every existing exact uri_allow_list entry is retained; the six exact confirmation and reset-password redirects are added once.',
             wildcardPolicy: 'Execution fails before PATCH if any existing or required redirect contains broad Supabase glob syntax.',
-            rollback: 'The exact prior uri_allow_list string from the redacted GET baseline is restored on failure.',
+            rollback: 'The exact prior site_url and uri_allow_list values from the redacted GET baseline are restored on failure.',
         }, 0);
     } else if (!approvalMatched || !token) {
         finish({
@@ -79,12 +81,14 @@ if (unknownArgs.length > 0) {
                 projectRef: approval.projectRef,
                 token,
                 buildDesiredPatch: (before) => ({
+                    site_url: STAGING_SITE_URL,
                     uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_REDIRECTS),
                 }),
                 verifyDesired: (before, after, desiredPatch) => (
                     after.disable_signup === before.disable_signup
                     && after.mailer_autoconfirm === before.mailer_autoconfirm
-                    && after.site_url === before.site_url
+                    && desiredPatch.site_url === STAGING_SITE_URL
+                    && after.site_url === STAGING_SITE_URL
                     && typeof desiredPatch.uri_allow_list === 'string'
                     && allowListExactlyMatches(after.uri_allow_list, desiredPatch.uri_allow_list)
                 ),
@@ -105,6 +109,7 @@ if (unknownArgs.length > 0) {
                 externalWritePerformed: result.status !== 'already_applied',
                 target: { environment: approval.environment, projectRef: approval.projectRef },
                 approvalMatched: true,
+                siteUrl: STAGING_SITE_URL,
                 redirects: STAGING_AUTH_REDIRECTS,
                 wildcardPolicy: 'exact_only',
                 change: result,

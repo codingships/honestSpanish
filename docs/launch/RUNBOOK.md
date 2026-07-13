@@ -382,6 +382,19 @@ Admin > Jobs > Reintentar solo cuando se haya descartado o corregido un efecto d
 
 La secuencia completa está en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Bootstrap, HMAC mínimo de fulfillment, web, HMAC mínimo web, secrets activos finales y enable fulfillment son aprobaciones distintas. El runner de web se niega a desplegar sin un bootstrap ejecutado, con exactamente el HMAC compartido y providers ausentes, verificado de nuevo contra su versión remota actual. El runner completo de secrets fulfillment se reserva para la ventana final y mantiene `production_bootstrap`; no envía emails ni procesa jobs. El runner enable es el único que despliega `--env production` y activa runtime/email/cron; si el resultado es fallido o ambiguo, restaura y verifica el bootstrap inerte. Las fases deben terminar con atestación autenticada de identidad, versión Cloudflare, modo operativo y ref Supabase exactos.
 
+## Cutover Del Dominio Staging
+
+`https://staging.espanolhonesto.com` es el origen público canónico. La secuencia, con aprobaciones externas explícitas y checkout desactivado, es:
+
+1. Confirmar por GET la cuenta Cloudflare `d1a22bcf6477ff2ff31d2bfb83084e44`, la zona `137264d6df2c82a7ccaf3f2d2e2464e4`, la ausencia de DNS/Custom Domain/Route en conflicto y el Worker `espanolhonesto-staging`.
+2. Crear únicamente el Custom Domain `staging.espanolhonesto.com` para ese Worker y verificar DNS, TLS y respuesta del mismo runtime. No renombrar el subdominio global `workers.dev`.
+3. Aplicar en Supabase staging la migración de compatibilidad de hostname y, en una aprobación separada, fijar Auth `site_url` y las seis redirecciones exactas al dominio custom.
+4. Desplegar únicamente los Workers web y fulfillment de staging con `PUBLIC_SITE_URL=https://staging.espanolhonesto.com`, checkout desactivado y Preview URLs web desactivadas; comprobar atestación y probe 403.
+5. Migrar el webhook Stripe test y validar firma/entrega, Turnstile, correos, alta, recuperación y smokes sobre el dominio canónico.
+6. Solo después, desactivar `workers.dev` del Worker web. El host directo permanece disponible durante la transición para rollback y para no interrumpir el webhook test vigente.
+
+No proteger todo staging con Cloudflare Access sin políticas de bypass diseñadas: bloquearía callbacks de Auth y el webhook de Stripe. La URL predecible no es un secreto ni un control de acceso.
+
 ## Rotacion Final De Claves
 
 La rotacion final se hace solo en la ventana previa al lanzamiento real, despues de cerrar copy/legal y antes del smoke final. No es requisito para congelar el Release Candidate mientras Stripe siga en test y no haya trafico real.
@@ -399,7 +412,7 @@ Orden recomendado:
 1. Preparar entradas KeePassXC por entorno: Dev, Staging, Production y GitHub CI. Registrar fecha de rotacion, origen, permisos y responsable, sin pegar valores en docs.
 2. Generar o rotar secretos en el proveedor original: Supabase, Stripe, Cloudflare, Google, Resend, Turnstile, Sentry y GitHub.
 3. Actualizar consumidores de staging: Cloudflare Astro Worker, Cloudflare Fulfillment Worker y GitHub environment `staging`.
-4. Antes del smoke Auth, ejecutar `pnpm launch:supabase-auth-staging-callbacks` en modo plan. Con una aprobación externa separada, su ejecución debe añadir exactamente las confirmaciones `/api/auth/confirm?lang=es|en|ru` y las recuperaciones `/{es|en|ru}/reset-password`, conservar solo entradas exactas existentes, quedar `OK` con `wildcardPolicy=exact_only` y bloquear antes de escribir si el baseline contiene comodines amplios. No usar un wildcard de dominio o ruta para simplificar staging.
+4. Antes del smoke Auth, ejecutar `pnpm launch:supabase-auth-staging-callbacks` en modo plan. Con una aprobación externa separada, su ejecución debe fijar `site_url=https://staging.espanolhonesto.com`, añadir exactamente las confirmaciones `/api/auth/confirm?lang=es|en|ru` y las recuperaciones `/{es|en|ru}/reset-password`, conservar solo entradas exactas existentes, quedar `OK` con `wildcardPolicy=exact_only` y bloquear antes de escribir si el baseline contiene comodines amplios. La verificación y el rollback abarcan tanto `site_url` como `uri_allow_list`. No usar un wildcard de dominio o ruta para simplificar staging.
 5. Ejecutar smoke staging: alta nueva con confirmación, recuperación de contraseña, login, checkout test si aplica, webhook test, Worker `/health`, job seguro, Resend test, Turnstile y logs. La alta y la recuperación usan una cuenta controlada y cleanup explícito; no reutilizar ni borrar las cuentas operativas de admin/profesor/alumno sin un plan aprobado.
 6. Actualizar consumidores de production: Cloudflare Astro Worker, Cloudflare Fulfillment Worker y GitHub environment `Production`.
 7. Ejecutar comprobaciones locales y de cierre:

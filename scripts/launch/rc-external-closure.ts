@@ -63,7 +63,7 @@ const approvalRequestPath = path.join(outputDir, 'approval-request.md');
 const nextApprovalPath = path.join(outputDir, 'next-approval.md');
 mkdirSync(outputDir, { recursive: true });
 
-const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const DEFAULT_WORKER_STAGING_URL = 'https://staging.espanolhonesto.com';
 const stagingDatabaseRollout = latestJson<SourceSummary>('launch-staging-database-rollout', 'summary.json');
 const operationsExternalClosure = latestJson<SourceSummary>('launch-operations-external-closure', 'summary.json');
 const noRealPaymentsRemediation = latestJson<SourceSummary>('launch-staging-no-real-payments-remediation', 'summary.json');

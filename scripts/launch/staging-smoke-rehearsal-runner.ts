@@ -85,8 +85,8 @@ interface RenderedArtifacts {
 const smokeApprovalEnvVar = 'STAGING_SMOKE_REHEARSAL_APPROVAL';
 const cloudflareAccountId = 'd1a22bcf6477ff2ff31d2bfb83084e44';
 const stagingWorkerName = 'espanolhonesto-staging';
-const baseUrl = 'https://espanolhonesto-staging.alindev95.workers.dev';
-const confirmation = 'writes-ok:espanolhonesto-staging.alindev95.workers.dev';
+const baseUrl = 'https://staging.espanolhonesto.com';
+const confirmation = 'writes-ok:staging.espanolhonesto.com';
 const realEnvSmokeNodePrefix = [
     '--import',
     'tsx',
@@ -94,7 +94,7 @@ const realEnvSmokeNodePrefix = [
     './scripts/smoke/astro-env-node-register.mjs',
     'scripts/smoke/real-env-smoke.ts',
 ];
-const exactSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode, evidencia de Checkout/webhooks reales ya completada y evidencia canonica `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH` del mismo ciclo billing terminada y prevalidada read-only, manteniendo `CHECKOUT_ENABLED_OVERRIDE=false` durante toda la ejecucion, permitiendo unicamente writes de smoke necesarios en Supabase staging, Google, Resend y Admin Jobs, sin crear ni expirar nuevas Checkout Sessions, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de jobs, sesiones y artefactos temporales. No autorizo ningun otro cambio externo.';
+const exactSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://staging.espanolhonesto.com`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode, evidencia de Checkout/webhooks reales ya completada y evidencia canonica `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH` del mismo ciclo billing terminada y prevalidada read-only, manteniendo `CHECKOUT_ENABLED_OVERRIDE=false` durante toda la ejecucion, permitiendo unicamente writes de smoke necesarios en Supabase staging, Google, Resend y Admin Jobs, sin crear ni expirar nuevas Checkout Sessions, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de jobs, sesiones y artefactos temporales. No autorizo ningun otro cambio externo.';
 const fullSmokeRequested = process.argv.includes('--execute-approved');
 const executeRequested = fullSmokeRequested;
 const executionFlag = '--execute-approved';

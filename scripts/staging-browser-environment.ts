@@ -6,7 +6,7 @@ type EnvironmentMap = Record<string, string | undefined>;
 
 export const STAGING_BROWSER_SUPABASE_REF = 'mzjyvmlxfpzdfdjzxxyj';
 export const PRODUCTION_BROWSER_SUPABASE_REF = 'vkkahxsybhbutszerawz';
-export const STAGING_BROWSER_ORIGIN = 'https://espanolhonesto-staging.alindev95.workers.dev';
+export const STAGING_BROWSER_ORIGIN = 'https://staging.espanolhonesto.com';
 
 const supabaseRuntimeKeys = [
     'PUBLIC_SUPABASE_URL',

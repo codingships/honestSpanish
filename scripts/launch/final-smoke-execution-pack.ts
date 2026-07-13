@@ -63,7 +63,7 @@ const manualEvidencePath = path.join('docs', 'launch', 'MANUAL_EVIDENCE.md');
 const manualRunbookPath = path.join('docs', 'launch', 'MANUAL_EVIDENCE_RUNBOOK.md');
 const manualExamplePath = path.join('docs', 'launch', 'MANUAL_EVIDENCE.example.json');
 const operationsRunbookTestPath = path.join('tests', 'unit', 'operations-runbook.test.ts');
-const exactStagingSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode, evidencia de Checkout/webhooks reales ya completada y evidencia canonica `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH` del mismo ciclo billing terminada y prevalidada read-only, manteniendo `CHECKOUT_ENABLED_OVERRIDE=false` durante toda la ejecucion, permitiendo unicamente writes de smoke necesarios en Supabase staging, Google, Resend y Admin Jobs, sin crear ni expirar nuevas Checkout Sessions, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de jobs, sesiones y artefactos temporales. No autorizo ningun otro cambio externo.';
+const exactStagingSmokeApprovalSentence = 'Apruebo ejecutar un smoke rehearsal de staging con writes externos contra `SMOKE_BASE_URL=https://staging.espanolhonesto.com`, con `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com`, usando exclusivamente las cuentas allowlisted existentes de alumno, admin y profesor, con Stripe test mode, evidencia de Checkout/webhooks reales ya completada y evidencia canonica `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH` del mismo ciclo billing terminada y prevalidada read-only, manteniendo `CHECKOUT_ENABLED_OVERRIDE=false` durante toda la ejecucion, permitiendo unicamente writes de smoke necesarios en Supabase staging, Google, Resend y Admin Jobs, sin crear ni expirar nuevas Checkout Sessions, sin crear usuarios Auth, sin necesitar acceso al buzon del alumno, sin imprimir secretos, sin guardar datos privados en evidencia, sin resetear contrasenas, sin fabricar eventos Stripe, sin activar pagos reales, sin cambiar Cloudflare/DNS/dominios y con cleanup automatico de jobs, sesiones y artefactos temporales. No autorizo ningun otro cambio externo.';
 
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-final-smoke-execution-pack', stamp(startedAt));
@@ -639,7 +639,7 @@ function renderStagingApprovalRequest(reportToRender: FinalSmokeExecutionReport)
         '## Required Decisions Before Approval',
         '',
         '- Environment: staging only.',
-        '- Exact `SMOKE_BASE_URL`: normally `https://espanolhonesto-staging.alindev95.workers.dev`; it must be an origin only.',
+        '- Exact `SMOKE_BASE_URL`: normally `https://staging.espanolhonesto.com`; it must be an origin only.',
         '- Exact `SMOKE_EXTERNAL_WRITES_CONFIRMATION`: `writes-ok:<host>`, where `<host>` matches `SMOKE_BASE_URL` exactly.',
         '- Payment posture: Stripe test mode rehearsal only; no Stripe live mode and no real public checkout.',
         '- Accounts: reuse exactly `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` and `TEST_STUDENT_EMAIL` from the secure source; all three must equal the Resend allowlist, no `example.com` address is allowed, and the smoke never needs inbox access for the student.',
@@ -754,8 +754,8 @@ function renderStagingPreflightChecklist(reportToRender: FinalSmokeExecutionRepo
         '',
         '## Environment And Writes',
         '',
-        '- `SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev` unless a different staging origin is explicitly approved.',
-        '- `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:espanolhonesto-staging.alindev95.workers.dev` for the default staging origin.',
+        '- `SMOKE_BASE_URL=https://staging.espanolhonesto.com` unless a different staging origin is explicitly approved.',
+        '- `SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com` for the default staging origin.',
         '- `SMOKE_ADMIN_*`, `SMOKE_TEACHER_*` and `SMOKE_STUDENT_*` map only to the three existing `TEST_*` accounts; `EMAIL_RECIPIENT_ALLOWLIST` contains exactly those three and no `example.com` recipient.',
         '- The student inbox is not part of the acceptance procedure; API/provider delivery state is used.',
         '- Stripe keys are test-mode keys, not live-mode keys.',

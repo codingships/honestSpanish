@@ -4,17 +4,17 @@
  *
  * Preflight:
  *   pnpm exec tsx scripts/smoke/staging-integrations.ts \
- *     --base-url https://rc-20260710-espanolhonesto-staging.alindev95.workers.dev \
+ *     --base-url https://staging.espanolhonesto.com \
  *     --expected-web-version-id <wrangler-version-uuid> \
  *     --expected-fulfillment-version-id <wrangler-version-uuid>
  *
  * Execute only after explicit staging-write approval:
  *   pnpm exec tsx scripts/smoke/staging-integrations.ts \
- *     --base-url https://rc-20260710-espanolhonesto-staging.alindev95.workers.dev \
+ *     --base-url https://staging.espanolhonesto.com \
  *     --expected-web-version-id <wrangler-version-uuid> \
  *     --expected-fulfillment-version-id <wrangler-version-uuid> \
  *     --execute --send-one-email \
- *     --confirmation writes-ok:rc-20260710-espanolhonesto-staging.alindev95.workers.dev
+ *     --confirmation writes-ok:staging.espanolhonesto.com
  */
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';

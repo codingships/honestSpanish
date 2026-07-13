@@ -46,7 +46,7 @@ describe('no-real-payments launch mode', () => {
 
         for (const snippet of [
             'corepack pnpm launch:no-real-payments',
-            '--deployed-url https://espanolhonesto-staging.alindev95.workers.dev',
+            '--deployed-url https://staging.espanolhonesto.com',
             'corepack pnpm launch:staging-no-real-payments-remediation',
             'CHECKOUT_ENABLED=false',
             'CHECKOUT_ENABLED = "false"',
@@ -63,13 +63,13 @@ describe('no-real-payments launch mode', () => {
             'working tree',
             'codigo/config anterior',
             'No tratar una variable sola como cierre suficiente',
-            'Usar `manual-evidence-dry-run.txt` solo despues de que el post-fix probe desplegado pase',
+            'Usar `manual-evidence-dry-run.txt` solo después de que el post-fix probe desplegado pase',
             'no registrar `payments_staging` como cerrado',
             'CI ejecuta `pnpm run launch:no-real-payments`',
-            'Worker canónico `https://espanolhonesto-staging.alindev95.workers.dev`',
-            'ni depende de una variable externa',
+            'GitHub Actions ejecuta el probe read-only contra `https://staging.espanolhonesto.com`',
+            'DNS/TLS/routing',
             'https://staging.espanolhonesto.com',
-            'deploy de staging no debe considerarse apto para RC',
+            'cutover no debe considerarse apto para RC',
         ]) {
             expect(guide).toContain(snippet);
         }
@@ -78,7 +78,7 @@ describe('no-real-payments launch mode', () => {
             'pnpm run launch:no-real-payments',
             'CHECKOUT_ENABLED: "false"',
             'Verify staging checkout is disabled',
-            'STAGING_WORKER_URL: https://espanolhonesto-staging.alindev95.workers.dev',
+            'STAGING_WORKER_URL: https://staging.espanolhonesto.com',
             '--deployed-url "$STAGING_WORKER_URL"',
         ]) {
             expect(ci).toContain(snippet);
@@ -89,7 +89,7 @@ describe('no-real-payments launch mode', () => {
         expect(releaseCandidate).toContain('CLOUDFLARE_STAGING_URL');
         expect(releaseCandidate).toContain('CLOUDFLARE_WORKERS_STAGING_URL');
         expect(releaseCandidate).toContain('DEFAULT_WORKER_STAGING_URL');
-        expect(releaseCandidate).toContain('https://espanolhonesto-staging.alindev95.workers.dev');
+        expect(releaseCandidate).toContain('https://staging.espanolhonesto.com');
         expect(releaseCandidate).toContain('stagingUrl');
         expect(releaseCandidate).toContain("runStep('launch:no-real-payments', ['--', '--deployed-url', stagingUrl])");
         expect(releaseCandidate).toContain("runStep('launch:staging-no-real-payments-remediation', ['--', '--deployed-url', stagingUrl])");
@@ -106,7 +106,7 @@ describe('no-real-payments launch mode', () => {
         for (const snippet of [
             'espanolhonesto-staging',
             'DEFAULT_WORKER_STAGING_URL',
-            'https://espanolhonesto-staging.alindev95.workers.dev',
+            'https://staging.espanolhonesto.com',
             'CLOUDFLARE_WORKERS_STAGING_URL',
             'wrangler_worker_deployments_status',
             'wrangler_worker_deployments_list',

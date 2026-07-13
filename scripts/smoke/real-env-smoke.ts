@@ -3139,7 +3139,7 @@ function normalizeAndConfirmSmokeBaseUrl(rawBaseUrl: string, confirmation: strin
     }
 
     const allowedHosts = new Set([
-        'espanolhonesto-staging.alindev95.workers.dev',
+        'staging.espanolhonesto.com',
     ]);
     if (!allowedHosts.has(parsedUrl.host)) {
         throw new Error('Real environment smoke only accepts the exact deployed staging Worker host.');

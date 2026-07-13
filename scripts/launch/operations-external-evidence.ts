@@ -93,7 +93,7 @@ export interface OperationsExternalManualCheck {
     environment?: string;
 }
 
-const STAGING_WEB_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const STAGING_WEB_URL = 'https://staging.espanolhonesto.com';
 const STAGING_FULFILLMENT_URL = 'https://espanol-honesto-fulfillment-staging.alindev95.workers.dev';
 const STAGING_SUPABASE_PROJECT = 'mzjyvmlxfpzdfdjzxxyj';
 const STAGING_STRIPE_ACCOUNT = 'acct_1TruqOC22M3erP0j';

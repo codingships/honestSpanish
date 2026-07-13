@@ -12,13 +12,16 @@ export const SUPABASE_AUTH_TARGETS = {
     },
 } as const;
 
+export const STAGING_SITE_URL =
+    'https://staging.espanolhonesto.com';
+
 export const STAGING_AUTH_REDIRECTS = [
-    'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=es',
-    'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=en',
-    'https://espanolhonesto-staging.alindev95.workers.dev/api/auth/confirm?lang=ru',
-    'https://espanolhonesto-staging.alindev95.workers.dev/es/reset-password',
-    'https://espanolhonesto-staging.alindev95.workers.dev/en/reset-password',
-    'https://espanolhonesto-staging.alindev95.workers.dev/ru/reset-password',
+    'https://staging.espanolhonesto.com/api/auth/confirm?lang=es',
+    'https://staging.espanolhonesto.com/api/auth/confirm?lang=en',
+    'https://staging.espanolhonesto.com/api/auth/confirm?lang=ru',
+    'https://staging.espanolhonesto.com/es/reset-password',
+    'https://staging.espanolhonesto.com/en/reset-password',
+    'https://staging.espanolhonesto.com/ru/reset-password',
 ] as const;
 
 export type SafeAuthConfig = {
@@ -58,11 +61,11 @@ export const PRODUCTION_AUTH_APPROVALS = {
     },
 } as const satisfies Record<string, ApprovalSpec>;
 
-export const STAGING_REDIRECTS_APPROVAL = {
+export const STAGING_AUTH_URLS_APPROVAL = {
     environment: 'staging',
     projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
-    approvalEnvVar: 'SUPABASE_AUTH_STAGING_REDIRECTS_APPROVAL',
-    exactApprovalSentence: `Autorizo actualizar únicamente uri_allow_list de Supabase staging mzjyvmlxfpzdfdjzxxyj para añadir ${STAGING_AUTH_REDIRECTS.join(', ')}, preservando todas las entradas exactas existentes, bloqueando antes de escribir si existe cualquier comodín amplio, verificando el resultado y restaurando el valor previo si falla. No autorizo producción ni otros campos o recursos.`,
+    approvalEnvVar: 'SUPABASE_AUTH_STAGING_URLS_APPROVAL',
+    exactApprovalSentence: `Autorizo actualizar únicamente site_url y uri_allow_list de Supabase staging mzjyvmlxfpzdfdjzxxyj, fijando site_url=${STAGING_SITE_URL} y añadiendo ${STAGING_AUTH_REDIRECTS.join(', ')}, preservando todas las entradas exactas existentes, bloqueando antes de escribir si existe cualquier comodín amplio, verificando ambos campos y restaurando sus valores previos si falla. No autorizo producción ni otros campos o recursos.`,
 } as const satisfies ApprovalSpec;
 
 export type ChangeResult = {

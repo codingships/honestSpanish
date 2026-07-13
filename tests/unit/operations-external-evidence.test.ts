@@ -131,7 +131,7 @@ function runnerSummary() {
         startedAt: '2026-07-12T08:49:24.788Z',
         endedAt: '2026-07-12T08:50:41.286Z',
         closureStatus: 'EXECUTED_AND_NEEDS_REVIEW',
-        baseUrl: 'https://espanolhonesto-staging.alindev95.workers.dev',
+        baseUrl: 'https://staging.espanolhonesto.com',
         executeRequested: true,
         approvalMatched: true,
         externalWriteCommandStarted: true,
@@ -143,7 +143,7 @@ function runnerSummary() {
                 'emailMonthlyLimitAtOrBelowResendFreeCap=true',
             ]),
             check('exact_approval_gate', [
-                'SMOKE_BASE_URL=https://espanolhonesto-staging.alindev95.workers.dev',
+                'SMOKE_BASE_URL=https://staging.espanolhonesto.com',
                 'CHECKOUT_ENABLED_OVERRIDE=false-throughout',
             ]),
             check('cloudflare_staging_account_worker_preflight', [

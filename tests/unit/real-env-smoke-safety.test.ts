@@ -208,7 +208,7 @@ describe('real environment smoke safety', () => {
         expect(source).toContain('function normalizeAndConfirmSmokeBaseUrl');
         expect(source).toContain('writes-ok:${parsedUrl.host}');
         expect(source).toContain('SMOKE_BASE_URL must be an origin only');
-        expect(source).toContain('espanolhonesto-staging.alindev95.workers.dev');
+        expect(source).toContain('staging.espanolhonesto.com');
         expect(source).toContain('Real environment smoke only accepts the exact deployed staging Worker host.');
         expect(source).not.toContain("'localhost:4321'");
         expect(source).toContain('This staging-only smoke reuses the three existing allowlisted role accounts');
@@ -454,7 +454,7 @@ describe('narrow checkout smoke safety', () => {
         expect(checkoutSource).toContain('test-mode only and refuses live Stripe writes');
         expect(checkoutSource).toContain("dotenv.config({ path: '.env.staging', override: false");
         expect(checkoutSource).toContain('mzjyvmlxfpzdfdjzxxyj');
-        expect(checkoutSource).toContain('espanolhonesto-staging.alindev95.workers.dev');
+        expect(checkoutSource).toContain('staging.espanolhonesto.com');
         expect(checkoutSource).toContain("requireEnv('SMOKE_STUDENT_EMAIL')");
         expect(checkoutSource).toContain("requireEnv('SMOKE_STUDENT_PASSWORD')");
         expect(checkoutSource).toContain("requireEnv('EMAIL_RECIPIENT_ALLOWLIST')");

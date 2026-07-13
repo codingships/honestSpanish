@@ -13,7 +13,9 @@ type BuiltWranglerConfig = {
     keep_vars?: unknown;
     name?: unknown;
     main?: unknown;
-    routes?: unknown;
+    preview_urls?: unknown;
+    routes?: Array<{ custom_domain?: unknown; pattern?: unknown }>;
+    workers_dev?: unknown;
     assets?: { binding?: unknown; directory?: unknown };
     vars?: Record<string, unknown>;
     services?: Array<{ binding?: unknown; service?: unknown }>;
@@ -75,7 +77,7 @@ function validateBuiltConfig(configValue: BuiltWranglerConfig, selectedEnvironme
         ? {
             name: 'espanolhonesto-staging',
             supabaseRef: 'mzjyvmlxfpzdfdjzxxyj',
-            site: 'https://espanolhonesto-staging.alindev95.workers.dev',
+            site: 'https://staging.espanolhonesto.com',
             fulfillment: 'espanol-honesto-fulfillment-staging',
         }
         : {
@@ -110,9 +112,25 @@ function validateBuiltConfig(configValue: BuiltWranglerConfig, selectedEnvironme
             && configValue.services[0]?.service === expected.fulfillment
             ? null
             : `FULFILLMENT_SERVICE=${expected.fulfillment}`,
-        configValue.routes === undefined || (Array.isArray(configValue.routes) && configValue.routes.length === 0)
+        selectedEnvironment === 'staging'
+            ? (
+                configValue.routes?.length === 1
+                && configValue.routes[0]?.pattern === 'staging.espanolhonesto.com'
+                && configValue.routes[0]?.custom_domain === true
+                    ? null
+                    : 'exact staging custom domain route'
+            )
+            : (
+                configValue.routes === undefined || configValue.routes.length === 0
+                    ? null
+                    : 'no production custom routes'
+            ),
+        selectedEnvironment !== 'staging' || configValue.workers_dev === true
             ? null
-            : 'no custom routes',
+            : 'staging workers_dev=true during transition',
+        selectedEnvironment !== 'staging' || configValue.preview_urls === false
+            ? null
+            : 'staging preview_urls=false',
     ].filter((value): value is string => Boolean(value));
 
     const mainPath = path.resolve(path.dirname(builtConfigPath), String(configValue.main ?? ''));

@@ -41,7 +41,8 @@ function response(status: number, body: Record<string, unknown>): Response {
 }
 
 function isApprovedHost(hostname: string): boolean {
-    return hostname === 'espanolhonesto-staging.alindev95.workers.dev'
+    return hostname === 'staging.espanolhonesto.com'
+        || hostname === 'espanolhonesto-staging.alindev95.workers.dev'
         || /^[a-z0-9]+(?:-[a-z0-9]+)*-espanolhonesto-staging[.]alindev95[.]workers[.]dev$/.test(hostname);
 }
 

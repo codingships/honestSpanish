@@ -79,7 +79,7 @@ const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-staging-no-real-payments-remediation', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
 
-const DEFAULT_WORKER_STAGING_URL = 'https://espanolhonesto-staging.alindev95.workers.dev';
+const DEFAULT_WORKER_STAGING_URL = 'https://staging.espanolhonesto.com';
 const projectName = readArgValue('--worker-name') ?? readArgValue('--project-name') ?? 'espanolhonesto-staging';
 const deployedUrl = normalizeBaseUrl(
     readArgValue('--deployed-url')

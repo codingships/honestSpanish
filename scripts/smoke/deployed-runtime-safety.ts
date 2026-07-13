@@ -9,7 +9,7 @@ import {
 
 export const STAGING_SUPABASE_REF = 'mzjyvmlxfpzdfdjzxxyj';
 export const STAGING_WEB_IDENTITY = 'espanolhonesto-staging';
-export const STAGING_WEB_ORIGIN = 'https://espanolhonesto-staging.alindev95.workers.dev';
+export const STAGING_WEB_ORIGIN = 'https://staging.espanolhonesto.com';
 export const STAGING_FULFILLMENT_IDENTITY = 'espanol-honesto-fulfillment-staging';
 export const STAGING_FULFILLMENT_ORIGIN = 'https://espanol-honesto-fulfillment-staging.alindev95.workers.dev';
 

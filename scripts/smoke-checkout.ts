@@ -65,7 +65,7 @@ const baseUrl = normalizeAndConfirmSmokeBaseUrl(
     process.env.SMOKE_BASE_URL || process.env.TEST_BASE_URL || '',
     requireEnv('SMOKE_EXTERNAL_WRITES_CONFIRMATION')
 );
-if (BOOTSTRAP_MODE && new URL(baseUrl).host !== 'espanolhonesto-staging.alindev95.workers.dev') {
+if (BOOTSTRAP_MODE && new URL(baseUrl).host !== 'staging.espanolhonesto.com') {
     throw new Error('Checkout bootstrap only accepts the exact deployed staging Worker host.');
 }
 const smokeEmail = requireEnv('SMOKE_STUDENT_EMAIL');
@@ -1036,7 +1036,7 @@ function normalizeAndConfirmSmokeBaseUrl(rawBaseUrl: string, confirmation: strin
     const allowedHosts = new Set([
         'localhost:4321',
         '127.0.0.1:4321',
-        'espanolhonesto-staging.alindev95.workers.dev',
+        'staging.espanolhonesto.com',
     ]);
     if (!allowedHosts.has(parsedUrl.host)) {
         throw new Error('The checkout smoke only accepts localhost or the exact staging Worker host.');
