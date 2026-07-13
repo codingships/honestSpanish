@@ -1,6 +1,47 @@
 import { expect, test } from '@playwright/test';
 
 test.describe('Residual student campus pages', () => {
+    test('campus shell exposes keyboard-safe navigation and user disclosures', async ({ page }) => {
+        await page.setViewportSize({ width: 375, height: 667 });
+        const response = await page.goto('/es/campus');
+
+        expect(response?.status()).toBe(200);
+
+        const skipLink = page.getByRole('link', { name: 'Saltar al contenido principal' });
+        await page.locator('body').press('Tab');
+        await expect(skipLink).toBeFocused();
+        await skipLink.press('Enter');
+        await expect(page.locator('#main-content')).toBeFocused();
+
+        const sidebar = page.locator('#sidebar');
+        const openSidebar = page.locator('#mobile-menu-btn');
+        await expect(openSidebar).toHaveAccessibleName('Abrir navegación del campus');
+        await expect(openSidebar).toHaveAttribute('aria-expanded', 'false');
+        await expect(sidebar).toHaveAttribute('aria-hidden', 'true');
+        await expect(sidebar).toHaveAttribute('inert', '');
+
+        await openSidebar.press('Enter');
+        await expect(openSidebar).toHaveAttribute('aria-expanded', 'true');
+        await expect(openSidebar).toHaveAccessibleName('Cerrar navegación del campus');
+        await expect(sidebar).not.toHaveAttribute('aria-hidden', 'true');
+        await expect(sidebar).not.toHaveAttribute('inert', '');
+        await expect(page.locator('#mobile-menu-close-btn')).toBeFocused();
+
+        await page.keyboard.press('Escape');
+        await expect(openSidebar).toHaveAttribute('aria-expanded', 'false');
+        await expect(openSidebar).toBeFocused();
+
+        const userMenuButton = page.getByRole('button', { name: /Abrir menú de usuario:/ });
+        await userMenuButton.click();
+        await expect(userMenuButton).toHaveAttribute('aria-expanded', 'true');
+        await expect(page.getByRole('navigation', { name: 'Menú de usuario' })).toBeVisible();
+        await expect(page.getByRole('navigation', { name: 'Menú de usuario' }).getByRole('link', { name: 'Mi cuenta' })).toBeFocused();
+
+        await page.keyboard.press('Escape');
+        await expect(userMenuButton).toHaveAttribute('aria-expanded', 'false');
+        await expect(userMenuButton).toBeFocused();
+    });
+
     test('student account exposes profile, security, billing and logout controls', async ({ page }) => {
         const response = await page.goto('/es/campus/account');
 
