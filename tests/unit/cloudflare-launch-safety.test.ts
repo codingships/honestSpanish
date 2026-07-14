@@ -117,7 +117,19 @@ describe('Cloudflare launch environment safety', () => {
 
     it('hardens CI identity, repository credentials and staging deploy ordering', () => {
         const ci = read('.github/workflows/ci.yml');
+        const buildAndTestJob = ci.slice(
+            ci.indexOf('  build-and-test:'),
+            ci.indexOf('  deploy-cloudflare:'),
+        );
         const deployJob = ci.slice(ci.indexOf('  deploy-cloudflare:'));
+        const buildCheckout = buildAndTestJob.slice(
+            buildAndTestJob.indexOf('      - name: Checkout code'),
+            buildAndTestJob.indexOf('      - name: Install pnpm'),
+        );
+        const deployCheckout = deployJob.slice(
+            deployJob.indexOf('      - name: Checkout code'),
+            deployJob.indexOf('      - name: Install pnpm'),
+        );
 
         expect(ci).toMatch(/^permissions:\r?\n {2}contents: read$/mu);
         expect(ci).toContain('group: ci-${{ github.workflow }}-${{ github.ref }}');
@@ -128,6 +140,10 @@ describe('Cloudflare launch environment safety', () => {
         const hardenedCheckouts = ci.match(/uses: actions\/checkout@v4\r?\n {8}with:\r?\n {10}persist-credentials: false/gu) ?? [];
         expect(checkoutUses).toHaveLength(2);
         expect(hardenedCheckouts).toHaveLength(checkoutUses.length);
+        expect(buildCheckout).toContain('persist-credentials: false');
+        expect(buildCheckout).toContain('fetch-depth: 0');
+        expect(deployCheckout).toContain('persist-credentials: false');
+        expect(deployCheckout).not.toContain('fetch-depth:');
 
         const stagingHeadGate = deployJob.indexOf('Reject a superseded staging deploy');
         const identityPreflight = deployJob.indexOf('Verify exact Cloudflare identity before deploy validation');
