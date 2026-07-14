@@ -127,8 +127,8 @@ function runVitestGroup(): CheckResult {
         };
     }
 
-    const args = ['pnpm', 'exec', 'vitest', 'run', '--coverage=false', '--reporter=dot', ...tests];
-    const result = spawnSync(corepackCommand(), args, {
+    const args = ['exec', 'vitest', 'run', '--coverage=false', '--reporter=dot', ...tests];
+    const result = spawnSync(pnpmCommand(), args, {
         cwd: process.cwd(),
         encoding: 'utf8',
         shell: process.platform === 'win32',
@@ -136,7 +136,7 @@ function runVitestGroup(): CheckResult {
     });
 
     writeFileSync(logPath, [
-        `$ ${corepackCommand()} ${args.join(' ')}`,
+        `$ ${pnpmCommand()} ${args.join(' ')}`,
         `exitCode=${result.status ?? 'null'}`,
         '',
         result.stdout ?? '',
@@ -159,8 +159,8 @@ function runVitestGroup(): CheckResult {
 
 function runPaymentsAudit(): CheckResult {
     const logPath = path.join(outputDir, 'launch-payments.log');
-    const args = ['pnpm', 'launch:payments'];
-    const result = spawnSync(corepackCommand(), args, {
+    const args = ['run', 'launch:payments'];
+    const result = spawnSync(pnpmCommand(), args, {
         cwd: process.cwd(),
         encoding: 'utf8',
         shell: process.platform === 'win32',
@@ -168,7 +168,7 @@ function runPaymentsAudit(): CheckResult {
     });
 
     writeFileSync(logPath, [
-        `$ ${corepackCommand()} ${args.join(' ')}`,
+        `$ ${pnpmCommand()} ${args.join(' ')}`,
         `exitCode=${result.status ?? 'null'}`,
         '',
         result.stdout ?? '',
@@ -422,8 +422,8 @@ function readIfExists(file: string): string {
     return existsSync(file) ? readFileSync(file, 'utf8') : '';
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

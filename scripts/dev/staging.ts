@@ -125,12 +125,12 @@ if (useLocalStaging) {
     childEnv.CLOUDFLARE_ENV = 'staging';
     childEnv.CLOUDFLARE_INCLUDE_PROCESS_ENV = 'true';
 }
-const command = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const forwardedArgs = process.argv.slice(2)
     .filter((arg) => arg !== '--' && arg !== '--sync-only' && arg !== '--build');
 const args = buildMode
-    ? ['pnpm', 'exec', 'astro', 'build', ...forwardedArgs]
-    : ['pnpm', 'exec', 'astro', 'dev', '--mode', 'staging', ...forwardedArgs];
+    ? ['exec', 'astro', 'build', ...forwardedArgs]
+    : ['exec', 'astro', 'dev', '--mode', 'staging', ...forwardedArgs];
 const child = spawn(command, args, {
     env: childEnv,
     stdio: 'inherit',
