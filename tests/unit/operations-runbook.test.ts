@@ -1731,7 +1731,6 @@ describe('operations runbook launch readiness', () => {
         const manualRunbook = read('docs/launch/MANUAL_EVIDENCE_RUNBOOK.md');
         const manualExample = read('docs/launch/MANUAL_EVIDENCE.example.json');
         const statusScript = read('scripts/launch/status.ts');
-        const cloudflarePackage = read('outputs/019f1a5e-2745-7c43-870d-544e6ba4e0b1/strict-qa-v2/cloudflare-domain-worker-preflight.md');
 
         for (const snippet of [
             'cloudflare-domain-worker-preflight.md',
@@ -1930,7 +1929,7 @@ describe('operations runbook launch readiness', () => {
             'Approval Sentence For Domain Move Later',
             'CHECKOUT_ENABLED=false',
         ]) {
-            expect(cloudflarePackage).toContain(snippet);
+            expect(cloudflareCutover).toContain(snippet);
         }
     });
 
