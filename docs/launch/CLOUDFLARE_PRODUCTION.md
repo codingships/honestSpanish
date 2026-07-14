@@ -182,7 +182,7 @@ La ejecución aprobada usa un fichero seguro ignorado seleccionado por `CLOUDFLA
 
 ## Habilitación Final Separada
 
-Antes de invocarla, el operador debe ejecutar `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only como evidencia operativa temprana. El runner de enable no crea, borra ni adopta Queues, pero ya no confía solo en ese summary: inmediatamente antes del write pagina el inventario remoto completo, exige una única Queue y DLQ con los nombres exactos y ejecuta `queues info` para ambas.
+Antes de invocarla, el operador debe ejecutar `pnpm launch:cloudflare-production-queues -- --verify-existing` en modo read-only como evidencia operativa temprana. Como límite de mutación, el runner de enable no crea, borra, adopta ni valida el inventario de Queues mediante operaciones mutantes; su validación propia es estrictamente read-only y ya no confía solo en ese summary: inmediatamente antes del write pagina el inventario remoto completo, exige una única Queue y DLQ con los nombres exactos y ejecuta `queues info` para ambas.
 
 `pnpm launch:cloudflare-production-fulfillment-enable` es el único camino que despliega `--env production`. En modo plan no llama a Cloudflare. La ejecución aprobada se niega a escribir si falta cualquiera de estas pruebas:
 
