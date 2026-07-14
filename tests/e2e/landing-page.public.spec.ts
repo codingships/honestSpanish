@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.use({ bypassCSP: false });
+
 // Component coverage for src/components/LandingPage.astro.
 test.describe('LandingPage', () => {
     test('FAQ behaves as an accessible single-open accordion', async ({ page }) => {
@@ -57,16 +59,16 @@ test.describe('LandingPage', () => {
         await expect(overlay).toHaveAttribute('aria-hidden', 'false');
         await expect(overlay).toHaveJSProperty('hidden', false);
         await expect
-            .poll(() => page.evaluate(() => document.body.style.overflow))
-            .toBe('hidden');
+            .poll(() => page.evaluate(() => document.body.classList.contains('overflow-hidden')))
+            .toBe(true);
 
         await page.keyboard.press('Escape');
         await expect(menuButton).toHaveAttribute('aria-expanded', 'false');
         await expect(overlay).toHaveAttribute('aria-hidden', 'true');
         await expect(overlay).toHaveJSProperty('hidden', true);
         await expect
-            .poll(() => page.evaluate(() => document.body.style.overflow))
-            .toBe('');
+            .poll(() => page.evaluate(() => document.body.classList.contains('overflow-hidden')))
+            .toBe(false);
 
         await menuButton.click();
         await page.locator('#mobile-overlay a[href="#faq"]').click();

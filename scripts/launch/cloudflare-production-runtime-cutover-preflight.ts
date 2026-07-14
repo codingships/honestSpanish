@@ -2,6 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    captureCloudflareProductionSourceIdentity,
+    validateCloudflareProductionSourceIdentity,
+    type CloudflareProductionSourceIdentity,
+} from './cloudflare-production-evidence';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -69,6 +74,7 @@ interface Report {
     externalScope: string;
     targetAccountId: string;
     targetWorker: string;
+    sourceIdentity: CloudflareProductionSourceIdentity;
     checkoutEnabledFalseInConfig: boolean;
     dryRunAfterBuildLooksSuccessful: boolean;
     dryRunMentionsCheckoutFalse: boolean;
@@ -91,7 +97,7 @@ interface Report {
 
 const target: Target = {
     accountId: 'd1a22bcf6477ff2ff31d2bfb83084e44',
-    accountLabel: "Alindev95@gmail.com's Account",
+    accountLabel: 'Español Honesto Cloudflare account',
     productionWorker: 'espanolhonesto',
     stagingWorker: 'espanolhonesto-staging',
     pagesProject: 'espanolhonesto',
@@ -105,6 +111,7 @@ const distExistedBefore = existsSync(distPath);
 
 mkdirSync(outputDir, { recursive: true });
 
+const sourceIdentity = captureCloudflareProductionSourceIdentity();
 const captures: Capture[] = [];
 captures.push(runCapture({
     id: 'wrangler-version',
@@ -190,6 +197,7 @@ const report: Report = {
     externalScope: 'Cloudflare read-only whoami/secret-list plus Wrangler deploy dry-run; no deploy/upload/domain/DNS/secret write',
     targetAccountId: target.accountId,
     targetWorker: target.productionWorker,
+    sourceIdentity,
     checkoutEnabledFalseInConfig,
     dryRunAfterBuildLooksSuccessful,
     dryRunMentionsCheckoutFalse,
@@ -271,7 +279,7 @@ function runCapture(config: CaptureConfig): Capture {
         };
     }
 
-    const result = spawnSync(corepackCommand(), config.args, {
+    const result = spawnSync(pnpmCommand(), config.args, {
         env: {
             ...process.env,
             CI: 'true',
@@ -398,8 +406,9 @@ function writeSyntheticCapture(
 
 function buildChecks(matrix: MatrixEntry[]): Check[] {
     const whoami = captureById('wrangler-whoami');
-    const authSummary = whoami?.summary as { loggedIn?: boolean; targetAccountFound?: boolean; email?: string; accountName?: string } | undefined;
+    const authSummary = whoami?.summary as { loggedIn?: boolean; targetAccountFound?: boolean; emailRedacted?: boolean; accountName?: string } | undefined;
     const commandScopeOk = captures.every((capture) => commandScopeAllows(capture.command));
+    const sourceIdentityErrors = validateCloudflareProductionSourceIdentity(sourceIdentity);
     const generatedOutputSecretPosture = validateGeneratedOutputPosture();
     const requiredMatrixNames = [
         'CHECKOUT_ENABLED',
@@ -432,13 +441,27 @@ function buildChecks(matrix: MatrixEntry[]): Check[] {
             details: captures.map((capture) => `${capture.id}=${capture.command}`),
         },
         {
+            status: sourceIdentityErrors.length === 0 ? 'ok' : 'failed',
+            name: 'evidence_source_identity',
+            message: sourceIdentityErrors.length === 0
+                ? 'Preflight evidence is bound to the current Git HEAD, canonical runner/config hashes and exact tracked dirty paths.'
+                : 'Preflight source identity is incomplete or drifted while the package was generated.',
+            details: sourceIdentityErrors.length === 0
+                ? [
+                    `gitHead=${sourceIdentity.gitHead}`,
+                    `sourceSha256=${sourceIdentity.sourceSha256}`,
+                    `dirtyPaths=${sourceIdentity.dirtyPaths.join(',') || 'none'}`,
+                ]
+                : sourceIdentityErrors.map((error) => `invalid=${error}`),
+        },
+        {
             status: authSummary?.loggedIn && authSummary.targetAccountFound ? 'ok' : 'failed',
             name: 'cloudflare_account_auth',
             message: authSummary?.loggedIn && authSummary.targetAccountFound
                 ? 'Wrangler is logged into the intended Cloudflare account.'
                 : 'Wrangler did not prove access to the intended Cloudflare account.',
             details: [
-                `email=${authSummary?.email ?? 'unknown'}`,
+                'email=redacted',
                 `account=${authSummary?.accountName ?? 'missing'}`,
                 `targetAccountId=${target.accountId}`,
             ],
@@ -474,7 +497,7 @@ function buildChecks(matrix: MatrixEntry[]): Check[] {
             details: [
                 `capture=${toRelative(dryRunCapture?.outputPath ?? '')}`,
                 `exitCode=${dryRunCapture?.exitCode ?? 'unknown'}`,
-                'requiredCommand=corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+                'requiredCommand=pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
             ],
         },
         {
@@ -644,6 +667,8 @@ function renderSummary(report: Report): string {
         `- Remote write performed: ${report.remoteWritePerformed ? 'true' : 'false'}.`,
         `- Target account: ${report.targetAccountId}`,
         `- Target Worker: ${report.targetWorker}`,
+        `- Source Git HEAD: ${report.sourceIdentity.gitHead ?? 'missing'}`,
+        `- Source SHA-256: ${report.sourceIdentity.sourceSha256}`,
         `- CHECKOUT_ENABLED=false in config: ${boolLabel(report.checkoutEnabledFalseInConfig)}`,
         `- Dry-run after build looked successful: ${boolLabel(report.dryRunAfterBuildLooksSuccessful)}`,
         `- Dry-run mentions CHECKOUT_ENABLED=false: ${boolLabel(report.dryRunMentionsCheckoutFalse)}`,
@@ -738,8 +763,8 @@ function summarizeWhoami(value: unknown): Record<string, unknown> {
     return {
         loggedIn: Boolean(object.loggedIn),
         authType: stringValue(object.authType),
-        email: stringValue(object.email),
-        accountName: stringValue(targetAccount?.name),
+        emailRedacted: Boolean(stringValue(object.email)),
+        accountName: targetAccount ? target.accountLabel : '',
         targetAccountFound: Boolean(targetAccount),
         accountCount: accounts.length,
     };
@@ -777,15 +802,15 @@ function captureText(capture: Capture): string {
 }
 
 function pnpmArgs(...args: string[]): string[] {
-    return ['pnpm', '--config.verify-deps-before-run=false', ...args];
+    return ['--config.verify-deps-before-run=false', ...args];
 }
 
 function renderCommand(args: string[]): string {
-    return `corepack ${args.join(' ')}`;
+    return `pnpm ${args.join(' ')}`;
 }
 
 function commandScopeAllows(command: string): boolean {
-    if (/corepack\s+pnpm\s+run\s+deploy/iu.test(command)) return false;
+    if (/pnpm\s+(?:--config\.verify-deps-before-run=false\s+)?run\s+deploy/iu.test(command)) return false;
     if (/\bwrangler\s+deploy\b/iu.test(command) && !/\s--dry-run(?:\s|$)/iu.test(command)) return false;
     const forbiddenPatterns = [
         /\bwrangler\s+delete\b/iu,
@@ -929,12 +954,13 @@ function stringValue(value: unknown): string {
     return typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 }
 
-function corepackCommand(): string {
-    return 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function sanitizeOutput(value: string): string {
     return stripAnsi(value)
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, '[redacted-email]')
         .replace(/-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g, '[redacted-private-key]')
         .replace(/sk_(live|test)_[A-Za-z0-9]{20,}/g, 'sk_$1_[redacted]')
         .replace(/whsec_[A-Za-z0-9]{20,}/g, 'whsec_[redacted]')

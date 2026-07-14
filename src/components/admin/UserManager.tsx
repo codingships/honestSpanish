@@ -136,7 +136,7 @@ export default function UserManager() {
                             <th className="p-4 font-medium">Alumno</th>
                             <th className="p-4 font-medium">Plan Activo</th>
                             <th className="p-4 font-medium">Progreso Mensual</th>
-                            <th className="p-4 font-medium" style={{ width: '250px' }}>Tutor Asignado</th>
+                            <th className="w-[250px] p-4 font-medium">Tutor Asignado</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100 text-sm">

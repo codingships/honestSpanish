@@ -4,6 +4,7 @@ import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import type { CollectionEntry } from 'astro:content';
 import TableOfContents from '../components/blog/TableOfContents.astro';
 import { getBlogEntrySlug } from '../lib/blog-routes';
+import { serializeJsonForHtml, sha256CspHash } from '../lib/csp';
 
 interface Heading {
   depth: number;
@@ -48,6 +49,8 @@ const articleSchema = {
 };
 const postSlug = getBlogEntrySlug(post);
 const canonicalPath = `/blog/${postSlug}`;
+const articleSchemaJson = serializeJsonForHtml(articleSchema);
+Astro.csp?.insertScriptHash(await sha256CspHash(articleSchemaJson));
 
 const blogCta = {
   es: {
@@ -81,7 +84,7 @@ const accessibilityCopy = {
   ogImage={image?.src || `/og/${postSlug}.png`}
   canonicalPath={canonicalPath}
 >
-    <script is:inline type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
+    <script is:inline type="application/ld+json" set:html={articleSchemaJson} />
 
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
         {accessibilityCopy.skip}

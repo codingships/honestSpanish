@@ -1,13 +1,18 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
     allowListExactlyMatches,
     applyVerifiedAuthConfigChange,
+    createProductionAuthInertReceipt,
     exactApprovalMatched,
     hasBroadAuthRedirectWildcard,
     mergeUriAllowList,
     PRODUCTION_AUTH_APPROVALS,
     productionDesiredPatch,
+    PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS,
+    readProductionAuthInertEvidence,
     redactedPreflight,
     safeErrorMessage,
     selectSafeAuthConfig,
@@ -16,6 +21,8 @@ import {
     STAGING_SITE_URL,
     SUPABASE_AUTH_TARGETS,
     verifyExactSafePatch,
+    verifyLiveProductionAuthInert,
+    validateProductionAuthInertReceipt,
     getSafeAuthConfig,
     type Fetcher,
     type SafeAuthConfig,
@@ -58,6 +65,76 @@ function sequenceFetcher(responses: Response[]) {
 }
 
 describe('Supabase Auth config runners', () => {
+    it('issues and validates an exact GET-only production Auth inert receipt for at most 15 minutes', () => {
+        const observedAt = new Date('2026-07-14T20:00:00.000Z');
+        const receipt = createProductionAuthInertReceipt({
+            disable_signup: true,
+            mailer_autoconfirm: false,
+        }, observedAt);
+
+        expect(validateProductionAuthInertReceipt(
+            receipt,
+            new Date(observedAt.getTime() + PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS),
+        )).toMatchObject({ ok: true, errors: [] });
+        expect(validateProductionAuthInertReceipt(
+            receipt,
+            new Date(observedAt.getTime() + PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS + 1),
+        )).toMatchObject({ ok: false });
+        expect(validateProductionAuthInertReceipt(
+            receipt,
+            new Date(observedAt.getTime() - 1),
+        )).toMatchObject({ ok: false });
+        expect(receipt).toMatchObject({
+            schemaVersion: 1,
+            receiptKind: 'supabase_production_auth_inert_readonly',
+            status: 'AUTH_INERT_VERIFIED',
+            target: { environment: 'production', projectRef: 'vkkahxsybhbutszerawz' },
+            flags: { disable_signup: true, mailer_autoconfirm: false },
+            source: 'supabase_management_api',
+            requestMethod: 'GET',
+            externalWritePerformed: false,
+        });
+    });
+
+    it('rejects a tampered, wrong-target or non-inert receipt and hashes the exact file bytes', () => {
+        const now = new Date('2026-07-14T20:00:00.000Z');
+        const receipt = createProductionAuthInertReceipt({
+            disable_signup: true,
+            mailer_autoconfirm: false,
+        }, now);
+        for (const mutation of [
+            { ...receipt, target: { ...receipt.target, projectRef: 'mzjyvmlxfpzdfdjzxxyj' } },
+            { ...receipt, flags: { ...receipt.flags, disable_signup: false } },
+            { ...receipt, externalWritePerformed: true },
+            { ...receipt, unexpected: 'field' },
+        ]) {
+            expect(validateProductionAuthInertReceipt(mutation, now).ok).toBe(false);
+        }
+
+        const directory = mkdtempSync(path.join(os.tmpdir(), 'eh-auth-inert-receipt-'));
+        const receiptPath = path.join(directory, 'auth-inert-receipt.json');
+        try {
+            writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+            const evidence = readProductionAuthInertEvidence(receiptPath, now);
+            expect(evidence).toMatchObject({ provided: true, valid: true, path: receiptPath });
+            expect(evidence.sha256).toMatch(/^[a-f0-9]{64}$/u);
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    it('re-reads live production Auth and rejects drift before an operation', async () => {
+        const inert = { ...baseConfig, disable_signup: true, mailer_autoconfirm: false };
+        await expect(verifyLiveProductionAuthInert(
+            'test-management-token',
+            sequenceFetcher([jsonResponse(inert)]),
+        )).resolves.toEqual(inert);
+        await expect(verifyLiveProductionAuthInert(
+            'test-management-token',
+            sequenceFetcher([jsonResponse({ ...inert, disable_signup: false })]),
+        )).rejects.toThrow('Supabase production Auth is not inert');
+    });
+
     it('selects only the four approved preflight fields and drops secret-bearing config', () => {
         const safe = selectSafeAuthConfig({
             ...baseConfig,

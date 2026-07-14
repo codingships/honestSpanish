@@ -448,7 +448,7 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
         expect(orchestrationCall).toBeGreaterThan(-1);
     });
 
-    it('stores sanitized metadata only and exposes the plan through pnpm and launch docs without closing it', () => {
+    it('stores sanitized metadata only and keeps the executed, restored drill evidenced in launch docs', () => {
         for (const snippet of [
             'noRawProviderOutputStored: true',
             'noSecretValuesStored: true',
@@ -472,8 +472,9 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
         expect(runnerSource).not.toContain("'consumer'");
         expect(packageJson).toContain('"launch:cloudflare-staging-fulfillment-rollback-drill"');
         expect(runbook).toContain('pnpm launch:cloudflare-staging-fulfillment-rollback-drill');
-        expect(checklist).toContain('launch:cloudflare-staging-fulfillment-rollback-drill');
-        expect(checklist).toContain('- [ ] Proceso de rollback probado.');
+        expect(checklist).toContain('DRILL_EXECUTED_AND_CURRENT_RESTORED');
+        expect(checklist).toContain('- [x] Proceso de rollback probado.');
+        expect(checklist).toContain('2026-07-14T17-11-15-752Z/write-receipts.json');
     });
 
     it('initializes all top-level mutable command state before starting the runner', () => {

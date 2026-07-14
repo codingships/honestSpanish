@@ -38,7 +38,8 @@ import {
 import { parseProductionRolloutArgs } from '../../scripts/launch/supabase-production-rollout-runner';
 import {
     PRODUCTION_PROJECT,
-    STAGING_ONLY_VERSION,
+    STAGING_ONLY_MIGRATIONS,
+    STAGING_ONLY_VERSIONS,
     type MigrationHistoryMapping,
 } from '../../scripts/launch/supabase-production-rollout-shared';
 
@@ -50,7 +51,10 @@ describe('Supabase production wave rollout runner', () => {
         expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 1, 7, 7, 4, 1, 4]);
         expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(25);
         expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(25);
-        expect(PRODUCTION_ROLLOUT_MIGRATIONS.some((entry) => entry.version === STAGING_ONLY_VERSION)).toBe(false);
+        expect(STAGING_ONLY_MIGRATIONS).toHaveLength(2);
+        for (const version of STAGING_ONLY_VERSIONS) {
+            expect(PRODUCTION_ROLLOUT_MIGRATIONS.some((entry) => entry.version === version)).toBe(false);
+        }
         expect(validateProductionRolloutAllowlist()).toMatchObject({ valid: true, errors: [] });
         expect(selectedWavesThrough('billing_contract').map((wave) => wave.id)).toEqual([
             'processed_at_small_fix',
@@ -75,11 +79,17 @@ describe('Supabase production wave rollout runner', () => {
             'billing_contract',
             '--preflight',
             'preflight.json',
+            '--auth-inert-evidence',
+            'auth-inert-receipt.json',
+            '--backup-artifact',
+            'production.dump',
         ])).toMatchObject({
             executeApproved: true,
             checkoutDisabledConfirmed: true,
             through: 'billing_contract',
             throughExplicit: true,
+            backupArtifact: path.resolve('production.dump'),
+            authInertEvidence: path.resolve('auth-inert-receipt.json'),
         });
         expect(() => parseProductionRolloutArgs(['--checkout-disabled-confirmed'])).toThrow();
         expect(() => parseProductionRolloutArgs(['--through', 'unknown'])).toThrow();
@@ -99,10 +109,21 @@ describe('Supabase production wave rollout runner', () => {
             const partialPath = writeJson(directory, 'partial.json', partial);
             expect(readProductionPreflightEvidence(partialPath, now)).toMatchObject({ valid: false });
 
-            const stagingPresent = structuredClone(preflight);
-            stagingPresent.migrationInventory.localMigrations.at(-1)!.historyStatus = 'exact';
-            const stagingPath = writeJson(directory, 'staging-present.json', stagingPresent);
-            expect(readProductionPreflightEvidence(stagingPath, now)).toMatchObject({ valid: false });
+            for (const version of STAGING_ONLY_VERSIONS) {
+                const stagingPresent = structuredClone(preflight);
+                stagingPresent.migrationInventory.localMigrations
+                    .find((migration) => migration.version === version)!.historyStatus = 'exact';
+                const stagingPath = writeJson(directory, `staging-present-${version}.json`, stagingPresent);
+                expect(readProductionPreflightEvidence(stagingPath, now)).toMatchObject({ valid: false });
+            }
+
+            const stagingMisclassified = structuredClone(preflight);
+            stagingMisclassified.migrationInventory.localMigrations
+                .find((migration) => migration.version === STAGING_ONLY_VERSIONS[1])!.stagingOnly = false;
+            expect(readProductionPreflightEvidence(
+                writeJson(directory, 'staging-misclassified.json', stagingMisclassified),
+                now,
+            )).toMatchObject({ valid: false });
 
             const malformed = structuredClone(preflight) as unknown as {
                 migrationInventory: Record<string, unknown>;
@@ -116,6 +137,22 @@ describe('Supabase production wave rollout runner', () => {
             aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 24;
             expect(readProductionPreflightEvidence(writeJson(directory, 'aliased.json', aliased), now))
                 .toMatchObject({ valid: false });
+
+            const mismatchedHistory = structuredClone(preflight);
+            mismatchedHistory.migrationInventory.versionNameMismatchCount = 1;
+            mismatchedHistory.migrationInventory.localMigrations[0].versionNameMismatch = true;
+            expect(readProductionPreflightEvidence(
+                writeJson(directory, 'version-name-drift.json', mismatchedHistory),
+                now,
+            )).toMatchObject({ valid: false });
+
+            const duplicateHistory = structuredClone(preflight);
+            duplicateHistory.migrationInventory.duplicateSemanticHistoryCount = 1;
+            duplicateHistory.migrationInventory.localMigrations[0].duplicateSemanticHistory = true;
+            expect(readProductionPreflightEvidence(
+                writeJson(directory, 'duplicate-semantic-history.json', duplicateHistory),
+                now,
+            )).toMatchObject({ valid: false });
         });
     });
 
@@ -138,6 +175,11 @@ describe('Supabase production wave rollout runner', () => {
             expect(sql.indexOf(entry.file)).toBeLessThan(sql.indexOf(`VALUES ('${entry.version}'`));
         }
         expect(sql).not.toContain('staging_integration_smoke_runs.sql');
+        expect(sql).not.toContain('allow_staging_custom_hostname.sql');
+        for (const { version, name } of STAGING_ONLY_MIGRATIONS) {
+            expect(sql).toContain(version);
+            expect(sql).toContain(name);
+        }
         expect(sql).not.toContain('supabase db push');
         expect(sql).not.toContain('supabase migration repair');
     });
@@ -145,6 +187,10 @@ describe('Supabase production wave rollout runner', () => {
     it('rechecks the current inert database state immediately before any operational wave', () => {
         const preflight = preflightEvidence('2026-07-12T11:30:00.000Z');
         const sql = renderProductionLivePreflightSql();
+        for (const { version, name } of STAGING_ONLY_MIGRATIONS) {
+            expect(sql).toContain(version);
+            expect(sql).toContain(name);
+        }
         for (const key of [
             'inert_auth_users',
             'inert_auth_sessions',
@@ -205,6 +251,10 @@ describe('Supabase production wave rollout runner', () => {
         expect(sql).toContain("'hardening_session_status_contract'");
         expect(sql).toContain("'hardening_required_indexes'");
         expect(sql).toContain("'hardening_data_api_grants_exact'");
+        for (const { version, name } of STAGING_ONLY_MIGRATIONS) {
+            expect(sql).toContain(version);
+            expect(sql).toContain(name);
+        }
         expect(sql).toContain('table_row.relrowsecurity');
         expect(sql).toContain('defaults.defaclnamespace=0');
         expect(expected.get('hardening_availability_updated_at_trigger')).toBe('true');
@@ -234,6 +284,7 @@ describe('Supabase production wave rollout runner', () => {
                 approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
                 executeSqlSha256: manifest.sql.execute.sha256,
                 backupReceiptSha256: backup.sha256,
+                authInertEvidenceSha256: 'e'.repeat(64),
                 packageStripeReferenceSha256: 'c'.repeat(64),
                 freezeCutoff: '2026-07-02T18:29:27.580Z',
                 postconditions: {
@@ -437,6 +488,35 @@ describe('Supabase production wave rollout runner', () => {
                 writeJson(directory, 'sentry-malformed.json', { ...sentryEvidence(), expectedChanges: null }),
                 now,
             )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-ambiguous.json', { ...sentryEvidence(), externalWriteOutcomeAmbiguous: true }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-lock-retained.json', { ...sentryEvidence(), executionLockRetainedForRecovery: true }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-summary-not-receipt.json', {
+                    ...sentryEvidence(),
+                    artifactKind: 'sentry_production_hardening_report',
+                }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-wrong-actions.json', {
+                    ...sentryEvidence(),
+                    expectedChanges: { ...sentryExpectedChanges(), actions: 'email to a different target' },
+                }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-wrong-spike.json', {
+                    ...sentryEvidence(),
+                    expectedChanges: { ...sentryExpectedChanges(), spikeThreshold: '11 events in 5 minutes' },
+                }),
+                now,
+            )).toMatchObject({ valid: false });
         });
     });
 
@@ -464,7 +544,11 @@ describe('Supabase production wave rollout runner', () => {
             allowlistSha256: '2'.repeat(64),
             through: 'deferred_rc_hardening',
             preflightSha256: '3'.repeat(64),
+            historyReconciliationSha256: '0'.repeat(64),
+            liveHistoryReconciliationSqlSha256: '1'.repeat(64),
+            authInertEvidenceSha256: 'e'.repeat(64),
             backupReceiptSha256: '4'.repeat(64),
+            backupArtifactSha256: 'f'.repeat(64),
             cleanupEvidenceSha256: '5'.repeat(64),
             authPolicyEvidenceSha256: '6'.repeat(64),
             stagingEvidenceSha256: '7'.repeat(64),
@@ -480,12 +564,16 @@ describe('Supabase production wave rollout runner', () => {
         for (const token of [
             `target=${PRODUCTION_PROJECT.ref}`,
             'through=deferred_rc_hardening',
-            `exclude=${STAGING_ONLY_VERSION}`,
+            `exclude=${STAGING_ONLY_VERSIONS.join(',')}`,
             'checkout=DISABLED',
             'db_push=FORBIDDEN',
             'migration_repair=FORBIDDEN',
             `sentry_hardening=${'a'.repeat(64)}`,
+            `backup_artifact=${'f'.repeat(64)}`,
             `staging_live_verify_sql=${'e'.repeat(64)}`,
+            `history_reconciliation=${'0'.repeat(64)}`,
+            `live_history_reconciliation_sql=${'1'.repeat(64)}`,
+            `auth_inert_evidence=${'e'.repeat(64)}`,
             `live_preflight_sql=${'b'.repeat(64)}`,
             `wave_verify_sql=processed_at_small_fix@${'c'.repeat(64)}`,
             `final_verify_sql=${'d'.repeat(64)}`,
@@ -497,7 +585,11 @@ describe('Supabase production wave rollout runner', () => {
             allowlistSha256: '2'.repeat(64),
             through: 'processed_at_small_fix',
             preflightSha256: '3'.repeat(64),
+            historyReconciliationSha256: '0'.repeat(64),
+            liveHistoryReconciliationSqlSha256: '1'.repeat(64),
+            authInertEvidenceSha256: 'e'.repeat(64),
             backupReceiptSha256: null,
+            backupArtifactSha256: null,
             cleanupEvidenceSha256: null,
             authPolicyEvidenceSha256: null,
             stagingEvidenceSha256: null,
@@ -520,6 +612,16 @@ describe('Supabase production wave rollout runner', () => {
         expect(databaseCredentialRead).toBeGreaterThan(localGate);
         expect(psqlCall).toBeGreaterThan(databaseCredentialRead);
         expect(runnerSource).toContain("status: 'BLOCKED_BEFORE_CONNECTION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_BACKUP_ARTIFACT_REVALIDATION'");
+        expect(runnerSource.indexOf('const immediateBackupArtifact = await revalidateProductionBackupArtifact'))
+            .toBeLessThan(runnerSource.indexOf('let writeCommandInvoked = false'));
+        const liveAuthReadback = runnerSource.indexOf('await verifyLiveProductionAuthInert(');
+        const firstProductionWrite = runnerSource.indexOf('runPsql(`apply-${wave.id}`');
+        expect(liveAuthReadback).toBeGreaterThan(-1);
+        expect(firstProductionWrite).toBeGreaterThan(liveAuthReadback);
+        expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_LIVE_AUTH_NOT_INERT'");
+        expect(runnerSource).toContain('backupArtifactPathPersisted: false');
         expect(runnerSource).toContain("status: 'STOPPED_AMBIGUOUS_WAVE_RESULT'");
         expect(runnerSource).toContain("status: 'STOPPED_AUTH_QUARANTINE_EXPIRED'");
         expect(runnerSource).toContain('authFinalizeRequired: true');
@@ -557,18 +659,19 @@ function preflightEvidence(endedAt: string): ProductionPreflightEvidence {
         migrationInventory: {
             localMigrations: [
                 ...PRODUCTION_ROLLOUT_MIGRATIONS.map((entry, index) => mappedMigration(entry, index)),
-                {
+                ...STAGING_ONLY_MIGRATIONS.map((entry, index) => ({
                     ...mappedMigration({
-                        version: STAGING_ONLY_VERSION,
-                        name: 'staging_integration_smoke_runs',
-                        file: `supabase/migrations/${STAGING_ONLY_VERSION}_staging_integration_smoke_runs.sql`,
-                        sha256: 'f'.repeat(64),
-                    }, 25),
+                        ...entry,
+                        file: `supabase/migrations/${entry.version}_${entry.name}.sql`,
+                        sha256: String(index + 1).repeat(64),
+                    }, 25 + index),
                     stagingOnly: true,
-                },
+                })),
             ],
             semanticMissingCountExcludingStagingOnly: 25,
             ambiguousCount: 0,
+            versionNameMismatchCount: 0,
+            duplicateSemanticHistoryCount: 0,
         },
         aggregates: {},
         safety: {
@@ -599,10 +702,13 @@ function mappedMigration(entry: ProductionRolloutMigration, index: number): Migr
 function backupReceipt(createdAt: string): Record<string, unknown> {
     return {
         schemaVersion: 1,
+        receiptKind: 'supabase_production_logical_backup',
         targetProjectRef: PRODUCTION_PROJECT.ref,
+        authInertEvidenceSha256: 'e'.repeat(64),
         aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
         approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         createdAt,
+        method: 'logical_dump',
         backupCompleted: true,
         artifactStoredOutsideRepository: true,
         atRestProtection: 'windows_efs',
@@ -613,8 +719,17 @@ function backupReceipt(createdAt: string): Record<string, unknown> {
         restoreProcedureReviewed: true,
         limitationsAcknowledged: [
             'storage_objects_not_included',
+            'custom_role_passwords_not_included',
             'external_stripe_google_not_included',
+            'selected_schemas_only',
         ],
+        backupFormat: 'pg_dump_custom',
+        archiveListVerified: true,
+        archiveRequiredTableDataVerified: true,
+        archiveTocEntryCount: 42,
+        artifactBytes: 1_024,
+        artifactPathRecorded: false,
+        toolVersions: { pgDump: 'pg_dump 17', pgRestore: 'pg_restore 17' },
     };
 }
 
@@ -740,6 +855,8 @@ function withGeneratedTypesConnectorEvidence(run: (filePath: string) => void): v
 function sentryEvidence(): Record<string, unknown> {
     return {
         schemaVersion: 1,
+        evidenceContractVersion: 2,
+        artifactKind: 'sentry_production_hardening_receipt',
         endedAt: '2026-07-12T11:50:00.000Z',
         status: 'OK',
         closureStatus: 'HARDENED_AND_VERIFIED',
@@ -751,20 +868,44 @@ function sentryEvidence(): Record<string, unknown> {
         executeRequested: true,
         externalWriteAttempted: true,
         externalWritePerformed: true,
+        externalWriteOutcomeAmbiguous: false,
+        executionLockRetainedForRecovery: false,
         rollbackAttempted: false,
         rollbackComplete: false,
         createdWorkflowCount: 2,
         detectorFingerprint: 'd'.repeat(64),
         ownerFingerprint: 'e'.repeat(64),
-        expectedChanges: {
+        rawIdentifiersPersistedInReports: false,
+        terminalProof: {
+            stableReadbacks: 2,
+            exactWorkflowDefinitionsVerified: true,
+            workflowCount: 2,
+            legacyIssueRuleCount: 0,
             scrubIPAddresses: true,
-            workflows: [
-                'EH Production - New and regressed errors',
-                'EH Production - Error spike 10 events in 5 minutes',
-            ],
-            environment: 'production',
+            executionLockAbsent: true,
+            ambiguousOutcomeOutstanding: false,
+            rawIdentifiersPersistedInReports: false,
         },
+        evidenceContract: {
+            rolloutEligible: true,
+            requiredArtifactKind: 'sentry_production_hardening_receipt',
+            rawIdentifiersPersistedInReports: false,
+        },
+        expectedChanges: sentryExpectedChanges(),
         checks: [{ status: 'ok' }],
+    };
+}
+
+function sentryExpectedChanges(): Record<string, unknown> {
+    return {
+        scrubIPAddresses: true,
+        workflows: [
+            'EH Production - New and regressed errors',
+            'EH Production - Error spike 10 events in 5 minutes',
+        ],
+        environment: 'production',
+        actions: 'email to exact organization owner',
+        spikeThreshold: '10 events in 5 minutes',
     };
 }
 

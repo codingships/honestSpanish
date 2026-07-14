@@ -2724,7 +2724,7 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
                     'Use cloudflare-domain-worker-preflight.md, pnpm launch:cloudflare-production-runtime-readonly, pnpm launch:cloudflare-production-runtime-cutover-preflight, pnpm launch:cloudflare-production-runtime-cutover, pnpm launch:cloudflare-production-worker-phase1, pnpm launch:cloudflare-production-worker-secrets and pnpm launch:cloudflare-production-fulfillment-secrets before any domain write: web deploy, web secrets, fulfillment config/secrets/email, direct attestations and domain move are separate approval phases.',
                     'Run pnpm launch:staging-smoke-rehearsal-runner in plan mode before any staging lifecycle smoke; execute it only with exact STAGING_SMOKE_REHEARSAL_APPROVAL and --execute-approved.',
                     'Do not mark integration_readiness pass while espanolhonesto.com/www are still attached to the old Pages project or production Worker espanolhonesto is absent.',
-                    'Decide whether Cloudflare legacy Worker espanol-honesto-reminders is disabled/deleted or documented as non-interfering.',
+                    'Reconfirm that preserved Cloudflare legacy Worker espanol-honesto-reminders remains fully neutralized: no Cron, workers.dev or Preview URLs, no invocation surfaces, and no tracked deployment path that can recreate it.',
                     'Review Supabase Advisor findings: leaked password protection, btree_gist in public, production public.jobs legacy table and staging migration history.',
                     'Stripe evidence source must use dashboard/checkout/webhook evidence if MCP listing remains unavailable.',
                 ],

@@ -68,7 +68,7 @@ test.describe('LevelCheckForm diagnostic public page', () => {
         await page.locator('form button[type="submit"]').click();
 
         await expect(page.locator('form')).toHaveCount(0);
-        await expect(page.getByRole('status')).toContainText('Gracias.');
+        await expect(page.getByRole('status').filter({ hasText: 'Gracias.' })).toContainText('Gracias.');
         expect(submittedPayload).toMatchObject({
             email: 'qa.diagnostic@example.com',
             currentLevel: 'b1',

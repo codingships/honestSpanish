@@ -66,20 +66,67 @@ export interface FixtureCleanupPreview {
 
 export interface BackupReceipt {
     schemaVersion: number;
+    receiptKind: 'supabase_production_logical_backup';
     targetProjectRef: string;
+    authInertEvidenceSha256: string;
     aggregateSnapshotSha256: string;
     approvalScopeSha256: string;
     createdAt: string;
+    method: 'logical_dump';
     backupCompleted: boolean;
     artifactStoredOutsideRepository: boolean;
     atRestProtection: 'windows_efs';
     atRestProtectionVerified: boolean;
     artifactSha256: string;
     includedSchemas: string[];
-    verification: string;
+    verification: 'dump_hash_recorded';
     restoreProcedureReviewed: boolean;
     limitationsAcknowledged: string[];
+    backupFormat: 'pg_dump_custom';
+    archiveListVerified: boolean;
+    archiveRequiredTableDataVerified: boolean;
+    archiveTocEntryCount: number;
+    artifactBytes: number;
+    artifactPathRecorded: false;
+    toolVersions: {
+        pgDump: string;
+        pgRestore: string;
+    };
 }
+
+export const PRODUCTION_BACKUP_REQUIRED_LIMITATIONS = Object.freeze([
+    'storage_objects_not_included',
+    'custom_role_passwords_not_included',
+    'external_stripe_google_not_included',
+    'selected_schemas_only',
+] as const);
+
+const PRODUCTION_BACKUP_RECEIPT_KEYS = new Set<keyof BackupReceipt>([
+    'schemaVersion',
+    'receiptKind',
+    'targetProjectRef',
+    'authInertEvidenceSha256',
+    'aggregateSnapshotSha256',
+    'approvalScopeSha256',
+    'createdAt',
+    'method',
+    'backupCompleted',
+    'artifactStoredOutsideRepository',
+    'atRestProtection',
+    'atRestProtectionVerified',
+    'artifactSha256',
+    'includedSchemas',
+    'verification',
+    'restoreProcedureReviewed',
+    'limitationsAcknowledged',
+    'backupFormat',
+    'archiveListVerified',
+    'archiveRequiredTableDataVerified',
+    'archiveTocEntryCount',
+    'artifactBytes',
+    'artifactPathRecorded',
+    'toolVersions',
+]);
 
 export interface ValidationResult<T> {
     ok: boolean;
@@ -228,8 +275,17 @@ export function validateBackupReceipt(
 
     const receipt = raw as unknown as BackupReceipt;
     const errors: string[] = [];
+    const unexpectedKeys = Object.keys(raw).filter((key) => !PRODUCTION_BACKUP_RECEIPT_KEYS.has(key as keyof BackupReceipt));
+    if (unexpectedKeys.length > 0) errors.push('Backup receipt contains unexpected fields.');
     if (receipt.schemaVersion !== 1) errors.push('Backup receipt schemaVersion must be 1.');
+    if (receipt.receiptKind !== 'supabase_production_logical_backup') {
+        errors.push('Backup receipt kind mismatch.');
+    }
     if (receipt.targetProjectRef !== FIXTURE_CLEANUP_TARGET.projectRef) errors.push('Backup receipt project ref mismatch.');
+    if (typeof receipt.authInertEvidenceSha256 !== 'string'
+        || !SHA256_PATTERN.test(receipt.authInertEvidenceSha256)) {
+        errors.push('Backup receipt Auth inert evidence SHA-256 is invalid.');
+    }
     if (receipt.aggregateSnapshotSha256 !== FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256) {
         errors.push('Backup receipt aggregate snapshot mismatch.');
     }
@@ -237,6 +293,9 @@ export function validateBackupReceipt(
         errors.push('Backup receipt approval scope mismatch.');
     }
     if (receipt.backupCompleted !== true) errors.push('Backup receipt must confirm backupCompleted=true.');
+    if (receipt.method !== 'logical_dump' || receipt.backupFormat !== 'pg_dump_custom') {
+        errors.push('Backup receipt must describe a pg_dump custom logical archive.');
+    }
     if (receipt.artifactStoredOutsideRepository !== true) {
         errors.push('Backup artifact must be stored outside the repository.');
     }
@@ -247,9 +306,8 @@ export function validateBackupReceipt(
         errors.push('Backup artifact SHA-256 must be 64 lowercase hexadecimal characters.');
     }
     if (!Array.isArray(receipt.includedSchemas)
-        || !receipt.includedSchemas.includes('public')
-        || !receipt.includedSchemas.includes('auth')) {
-        errors.push('Backup receipt must include both public and auth schemas.');
+        || stableJson([...receipt.includedSchemas].sort()) !== stableJson(['auth', 'public'])) {
+        errors.push('Backup receipt must include exactly the public and auth schemas.');
     }
     if (receipt.verification !== 'dump_hash_recorded') {
         errors.push('Backup receipt verification must be dump_hash_recorded.');
@@ -257,10 +315,31 @@ export function validateBackupReceipt(
     if (receipt.restoreProcedureReviewed !== true) {
         errors.push('Backup restore procedure must be reviewed.');
     }
-    const requiredLimitations = ['storage_objects_not_included', 'external_stripe_google_not_included'];
     if (!Array.isArray(receipt.limitationsAcknowledged)
-        || requiredLimitations.some((entry) => !receipt.limitationsAcknowledged.includes(entry))) {
-        errors.push('Backup receipt must acknowledge the Storage and external-provider limitations.');
+        || PRODUCTION_BACKUP_REQUIRED_LIMITATIONS.some((entry) => !receipt.limitationsAcknowledged.includes(entry))) {
+        errors.push('Backup receipt must acknowledge all logical-backup limitations.');
+    }
+    if (receipt.archiveListVerified !== true || receipt.archiveRequiredTableDataVerified !== true) {
+        errors.push('Backup receipt must prove pg_restore TOC and required TABLE DATA verification.');
+    }
+    if (!Number.isSafeInteger(receipt.archiveTocEntryCount) || receipt.archiveTocEntryCount <= 0) {
+        errors.push('Backup receipt archiveTocEntryCount must be a positive safe integer.');
+    }
+    if (!Number.isSafeInteger(receipt.artifactBytes) || receipt.artifactBytes <= 0) {
+        errors.push('Backup receipt artifactBytes must be a positive safe integer.');
+    }
+    if (receipt.artifactPathRecorded !== false
+        || 'artifactPath' in raw
+        || 'destination' in raw
+        || 'backupArtifactPath' in raw) {
+        errors.push('Backup receipt must not contain an artifact path.');
+    }
+    if (!isRecord(receipt.toolVersions)
+        || typeof receipt.toolVersions.pgDump !== 'string'
+        || receipt.toolVersions.pgDump.trim().length === 0
+        || typeof receipt.toolVersions.pgRestore !== 'string'
+        || receipt.toolVersions.pgRestore.trim().length === 0) {
+        errors.push('Backup receipt must record non-secret pg_dump and pg_restore versions.');
     }
 
     const createdAt = typeof receipt.createdAt === 'string'
@@ -281,6 +360,7 @@ export function validateBackupReceipt(
 export function buildFixtureCleanupApproval(input: {
     executeSqlSha256: string;
     backupReceiptSha256: string;
+    authInertEvidenceSha256: string;
     packageStripeReferenceSha256: string;
 }): string {
     for (const [name, value] of Object.entries(input)) {
@@ -294,6 +374,7 @@ export function buildFixtureCleanupApproval(input: {
         `scope=${FIXTURE_CLEANUP_TARGET.approvalScopeSha256}`,
         `execute_sql=${input.executeSqlSha256}`,
         `backup_receipt=${input.backupReceiptSha256}`,
+        `auth_inert_evidence=${input.authInertEvidenceSha256}`,
         `package_stripe_references=${input.packageStripeReferenceSha256}`,
         'preserve_packages=group,standard,hybrid,bootcamp',
         'clear_local_package_stripe_fields=true',
@@ -390,16 +471,20 @@ export function resolveNewBackupDestination(destination: string, repositoryRoot 
     return path.join(parentRealPath, path.basename(destination));
 }
 
-export function buildProductionLogicalBackupApproval(destinationBindingSha256: string): string {
-    if (!SHA256_PATTERN.test(destinationBindingSha256)) {
-        throw new Error('Backup destination binding must be a lowercase SHA-256 hash.');
+export function buildProductionLogicalBackupApproval(input: {
+    destinationBindingSha256: string;
+    authInertEvidenceSha256: string;
+}): string {
+    for (const [name, value] of Object.entries(input)) {
+        if (!SHA256_PATTERN.test(value)) throw new Error(`${name} must be a lowercase SHA-256 hash.`);
     }
     return [
         'AUTORIZO EL BACKUP LOGICO DE SUPABASE PRODUCCION',
         `target=${FIXTURE_CLEANUP_TARGET.projectRef}`,
         `snapshot=${FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256}`,
         `scope=${FIXTURE_CLEANUP_TARGET.approvalScopeSha256}`,
-        `destination_binding=${destinationBindingSha256}`,
+        `destination_binding=${input.destinationBindingSha256}`,
+        `auth_inert_evidence=${input.authInertEvidenceSha256}`,
         'format=pg_dump_custom',
         'schemas=public,auth',
         'destination_outside_repository=true',

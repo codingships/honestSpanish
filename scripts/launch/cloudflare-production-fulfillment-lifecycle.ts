@@ -10,12 +10,18 @@ import {
     verifyRuntimeAttestation,
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
-import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
+import { parseMixedJsonOutput, verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
 import {
     PRODUCTION_QUEUE_TARGET,
     classifyQueueInventory,
     queueRowsInPage,
 } from './cloudflare-production-queue-shared';
+import {
+    classifyExistingCloudflareWorkerState,
+    validateProductionQueueRuntimeReadback,
+    validateProductionQueueVersionBinding,
+    type ProductionQueueRuntimeMode,
+} from './cloudflare-production-queue-runtime';
 import {
     PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_ENV,
     PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_SENTENCE,
@@ -39,6 +45,13 @@ import {
     readProductionEnableCheckpoint,
     releaseProductionEnableLock,
 } from './cloudflare-production-fulfillment-enable-state';
+import {
+    beginOneShotCloudflareWrite,
+    closeOneShotCloudflareWriteGuard,
+    openOneShotCloudflareWriteGuard,
+    recordOneShotCloudflareProviderResult,
+    recordOneShotCloudflareReadback,
+} from './cloudflare-production-one-shot-write';
 import { inspectStripeLiveReadiness } from './stripe-live-readiness';
 
 type Phase = 'bootstrap' | 'enable';
@@ -271,17 +284,38 @@ async function executeApproved(): Promise<void> {
 }
 
 async function executeBootstrap(): Promise<void> {
+    const existingState = await verifyExistingFulfillmentBootstrapBeforeDeploy();
+    checks.push(...existingState);
+    if (existingState.some((check) => check.status === 'failed')) return;
+
     const dryRun = runCommand(deployCommand('fulfillment-bootstrap-dry-run', 'production_bootstrap', true));
     captures.push(dryRun);
     checks.push(commandCheck(dryRun));
     if (dryRun.status === 'failed') return;
 
+    let writeGuard: ReturnType<typeof openOneShotCloudflareWriteGuard>;
+    try {
+        writeGuard = openOneShotCloudflareWriteGuard('fulfillment-bootstrap-deploy', outputDir);
+        checks.push(ok('bootstrap_write_lock', 'Durable one-shot write guard is held and no unresolved bootstrap deploy checkpoint exists.', []));
+    } catch (error) {
+        checks.push(failed('bootstrap_write_lock', 'An unresolved bootstrap write or lock blocks a new deploy until read-only reconciliation.', [
+            safeError(error),
+            'externalWriteAttempted=false',
+        ]));
+        return;
+    }
+    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'fulfillment-bootstrap-deploy');
     externalWriteAttempted = true;
+    externalWritePerformed = 'unknown';
     const deploy = runCommand(deployCommand('fulfillment-bootstrap-deploy', 'production_bootstrap', false));
+    writeCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, writeCheckpoint, {
+        exitCode: deploy.exitCode,
+        timedOut: deploy.exitCode === null,
+        errorPresent: deploy.status === 'failed',
+    });
     captures.push(deploy);
     checks.push(commandCheck(deploy));
     if (deploy.status === 'failed') return;
-    externalWritePerformed = true;
 
     const deployments = runCommand(deploymentsCommand('fulfillment-bootstrap-deployments-after'));
     captures.push(deployments);
@@ -294,11 +328,191 @@ async function executeBootstrap(): Promise<void> {
 
     const directUrl = normalizeDirectUrl(process.env[directUrlEnvVar]);
     if (!directUrl) return;
-    checks.push(await healthProbe(directUrl, 'bootstrap'));
-    if (checks.at(-1)?.status === 'failed') return;
-    checks.push(await disabledOperationProbe(directUrl));
-    if (checks.at(-1)?.status === 'failed') return;
-    checks.push(await cronScheduleProbe('bootstrap'));
+    const health = await healthProbe(directUrl, 'bootstrap');
+    const blocked = await disabledOperationProbe(directUrl);
+    const cron = await cronScheduleProbe('bootstrap');
+    const queueBinding = queueVersionBindingProbe(versionId, 'bootstrap', 'after-bootstrap-deploy');
+    const queueRuntime = await productionQueueRuntimeProbe('bootstrap');
+    checks.push(health, blocked, cron, queueBinding, queueRuntime);
+    const proven = [health, blocked, cron, queueBinding, queueRuntime].every((check) => check.status === 'ok');
+    writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, proven);
+    if (!proven) {
+        checks.push(failed('bootstrap_deploy_readback', 'Bootstrap deploy returned but exact inert version/Cron/Queue state is not proven; checkpoint and lock remain unresolved.', [
+            `checkpointStage=${writeCheckpoint.stage}`,
+            'externalWritePerformed=unknown',
+        ]));
+        return;
+    }
+    closeOneShotCloudflareWriteGuard(writeGuard);
+    externalWritePerformed = true;
+    checks.push(ok('bootstrap_deploy_readback', 'Bootstrap deployment is proven inert and its durable write checkpoint is resolved.', [
+        `versionId=${versionId}`,
+        'queueBindings=absent',
+        'cronCount=0',
+    ]));
+}
+
+async function verifyExistingFulfillmentBootstrapBeforeDeploy(): Promise<Check[]> {
+    const result: Check[] = [];
+    const deployments = runCommand(deploymentsCommand('fulfillment-bootstrap-existing-deployments-preflight'));
+    const secretList = runCommand(command(
+        'fulfillment-bootstrap-existing-secret-list-preflight',
+        ['secret', 'list', '--config', target.config, '--env', 'production_bootstrap', '--format', 'json'],
+        false,
+    ));
+    captures.push(deployments, secretList);
+    const existingWorkerState = classifyExistingCloudflareWorkerState(
+        { succeeded: deployments.status === 'ok', explicitlyNotFound: captureIsWorkerNotFound(deployments) },
+        { succeeded: secretList.status === 'ok', explicitlyNotFound: captureIsWorkerNotFound(secretList) },
+    );
+    if (existingWorkerState === 'unknown') {
+        result.push(commandCheck(deployments), commandCheck(secretList));
+        result.push(failed('bootstrap_existing_state_pre_write_gate', 'Existing fulfillment Worker state is absent only partially, unreadable or ambiguous; deploy is blocked.', [
+            'existingState=unknown',
+            'externalWriteAttempted=false',
+        ]));
+        return result;
+    }
+
+    const inertQueue = await productionQueueRuntimeProbe('bootstrap');
+    result.push(inertQueue);
+    if (inertQueue.status === 'failed') {
+        result.push(failed('bootstrap_existing_state_pre_write_gate', 'Production Queue resources are missing, attached, paused, backlogged or unreadable; bootstrap deploy is blocked before any write.', [
+            `existingState=${existingWorkerState}`,
+            'externalWriteAttempted=false',
+        ]));
+        return result;
+    }
+
+    if (existingWorkerState === 'absent') {
+        result.push(ok('bootstrap_existing_state_pre_write_gate', 'Fresh reads prove the exact fulfillment Worker is absent, so bootstrap cannot preserve prior remote vars or secrets.', [
+            `worker=${target.worker}`,
+            'existingState=absent',
+            'queueRuntime=bootstrap-inert',
+        ]));
+        return result;
+    }
+    result.push(commandCheck(deployments), commandCheck(secretList));
+
+    const versionId = deploymentVersionId(deployments);
+    const inventory = exactBootstrapSecretInventory(secretList.stdout);
+    const providerBindings = versionId
+        ? bootstrapProviderBindingProbe(versionId)
+        : failed('bootstrap_existing_provider_binding_inventory', 'Existing Worker version ID is missing.', []);
+    result.push(inventory.check, providerBindings);
+    if (!versionId || inventory.check.status === 'failed' || providerBindings.status === 'failed') {
+        result.push(failed('bootstrap_existing_state_pre_write_gate', 'Existing fulfillment Worker is not proven to be provider-free HMAC-only bootstrap; deploy is blocked.', [
+            'externalWriteAttempted=false',
+        ]));
+        return result;
+    }
+
+    const directUrl = normalizeDirectUrl(process.env[directUrlEnvVar]);
+    if (!directUrl) {
+        result.push(failed('bootstrap_existing_state_pre_write_gate', 'Exact direct URL is unavailable for existing-state attestation.', []));
+        return result;
+    }
+    const health = await healthProbe(directUrl, 'bootstrap');
+    const blocked = await disabledOperationProbe(directUrl);
+    const cron = await cronScheduleProbe('bootstrap');
+    const queueBinding = queueVersionBindingProbe(versionId, 'bootstrap', 'existing-bootstrap-preflight');
+    result.push(health, blocked, cron, queueBinding);
+    if (inventory.hasHmac) result.push(await runtimeAttestation(directUrl, versionId, 'bootstrap'));
+    const proven = result.every((check) => check.status === 'ok');
+    result.push(proven
+        ? ok('bootstrap_existing_state_pre_write_gate', 'Existing Worker is freshly proven as inert provider-free bootstrap, so --keep-vars cannot retain unknown provider state.', [
+            `versionId=${versionId}`,
+            `secretInventory=${inventory.hasHmac ? 'INTERNAL_JOB_SECRET' : 'empty'}`,
+            'providerBindings=absent',
+            'queueBindings=absent',
+        ])
+        : failed('bootstrap_existing_state_pre_write_gate', 'Existing Worker failed fresh bootstrap/503/Cron/Queue/HMAC proof; deploy is blocked.', [
+            'externalWriteAttempted=false',
+        ]));
+    return result;
+}
+
+function exactBootstrapSecretInventory(source: string): { check: Check; hasHmac: boolean } {
+    try {
+        const parsed = parseMixedJsonOutput(source);
+        if (!Array.isArray(parsed)) throw new Error('Secret inventory is not an array.');
+        const names = parsed.map((entry) => {
+            const name = asRecord(entry).name;
+            if (typeof name !== 'string' || !name) throw new Error('Secret inventory contains a malformed entry.');
+            return name;
+        });
+        if (new Set(names).size !== names.length) throw new Error('Secret inventory contains duplicates.');
+        const unexpected = names.filter((name) => name !== 'INTERNAL_JOB_SECRET');
+        const valid = unexpected.length === 0 && names.length <= 1;
+        return {
+            hasHmac: names.includes('INTERNAL_JOB_SECRET'),
+            check: valid
+                ? ok('bootstrap_existing_exact_secret_inventory', 'Existing remote secret inventory is empty or exactly HMAC-only.', [
+                    `names=${names.join(',') || 'none'}`,
+                ])
+                : failed('bootstrap_existing_exact_secret_inventory', 'Existing remote secret inventory contains a provider or unexpected name.', [
+                    `unexpected=${unexpected.join(',') || 'none'}`,
+                ]),
+        };
+    } catch (error) {
+        return {
+            hasHmac: false,
+            check: failed('bootstrap_existing_exact_secret_inventory', 'Existing remote secret inventory is unparseable or ambiguous.', [safeError(error)]),
+        };
+    }
+}
+
+function bootstrapProviderBindingProbe(expectedVersionId: string): Check {
+    const capture = runCommand(command(
+        'fulfillment-bootstrap-existing-version-bindings-preflight',
+        ['versions', 'view', expectedVersionId, '--name', target.worker, '--json'],
+        false,
+    ));
+    captures.push(capture);
+    if (capture.status === 'failed') {
+        return failed('bootstrap_existing_provider_binding_inventory', 'Existing Worker version bindings could not be read.', [
+            `capture=${relative(capture.outputPath)}`,
+        ]);
+    }
+    try {
+        const version = asRecord(parseMixedJsonOutput(capture.stdout));
+        if (version.id !== expectedVersionId) throw new Error('Version view ID mismatch.');
+        const resources = asRecord(version.resources);
+        if (!Array.isArray(resources.bindings)) throw new Error('Version view binding inventory is missing.');
+        const allowed = new Set([
+            'CF_VERSION_METADATA',
+            'NODE_ENV',
+            'PUBLIC_APP_ENV',
+            'SUPABASE_EXPECTED_PROJECT_REF',
+            'WORKER_IDENTITY',
+            'PUBLIC_SITE_URL',
+            'CHECKOUT_ENABLED',
+            'CHECKOUT_ENABLED_OVERRIDE',
+            'FULFILLMENT_RUNTIME_MODE',
+            'EMAIL_DELIVERY_MODE',
+            'EMAIL_DAILY_RECIPIENT_LIMIT',
+            'EMAIL_MONTHLY_RECIPIENT_LIMIT',
+            'INTERNAL_JOB_SECRET',
+        ]);
+        const names = resources.bindings.map((binding) => asRecord(binding).name);
+        if (names.some((name) => typeof name !== 'string')) throw new Error('Version view contains a malformed binding name.');
+        const unexpected = (names as string[]).filter((name) => !allowed.has(name));
+        return unexpected.length === 0
+            ? ok('bootstrap_existing_provider_binding_inventory', 'Existing version binding inventory contains only the exact inert bootstrap allowlist.', [
+                `bindingCount=${names.length}`,
+            ])
+            : failed('bootstrap_existing_provider_binding_inventory', 'Existing version binding inventory contains a provider or unknown binding.', [
+                `unexpected=${unexpected.join(',')}`,
+            ]);
+    } catch (error) {
+        return failed('bootstrap_existing_provider_binding_inventory', 'Existing Worker version binding inventory is unparseable or ambiguous.', [safeError(error)]);
+    }
+}
+
+function captureIsWorkerNotFound(capture: CommandCapture): boolean {
+    return capture.status === 'failed'
+        && /code:\s*10007|script_not_found|worker[^\n]*(?:not found|does not exist)|does not exist on your account/iu
+            .test(`${capture.stdout}\n${capture.stderr}`);
 }
 
 async function executeEnable(): Promise<void> {
@@ -351,6 +565,9 @@ async function executeEnable(): Promise<void> {
     const queueReadiness = readFreshProductionQueueReadiness();
     checks.push(...queueReadiness.checks);
     if (!queueReadiness.readiness) return;
+    const inertQueueBeforeEnable = await productionQueueRuntimeProbe('bootstrap');
+    checks.push(inertQueueBeforeEnable);
+    if (inertQueueBeforeEnable.status === 'failed') return;
 
     const stripeReadiness = await readFreshStripeLiveReadiness();
     checks.push(stripeReadiness.check);
@@ -378,6 +595,9 @@ async function executeEnable(): Promise<void> {
     }
     checks.push(await runtimeAttestation(directUrl, freshFulfillmentVersion, 'bootstrap'));
     if (checks.at(-1)?.status === 'failed') return;
+    const bootstrapQueueBinding = queueVersionBindingProbe(freshFulfillmentVersion, 'bootstrap', 'immediately-before-enable');
+    checks.push(bootstrapQueueBinding);
+    if (bootstrapQueueBinding.status === 'failed') return;
     checks.push(await webRuntimeAttestation(freshWebVersion));
     if (checks.at(-1)?.status === 'failed') return;
 
@@ -447,8 +667,11 @@ async function executeEnable(): Promise<void> {
                 const activeHealth = await healthProbe(directUrl, 'active');
                 const activeAttestation = await runtimeAttestation(directUrl, afterVersionId, 'active');
                 const activeCron = await cronScheduleProbe('active');
-                checks.push(activeHealth, activeAttestation, activeCron);
-                return [activeHealth, activeAttestation, activeCron].every((check) => check.status === 'ok')
+                const activeQueueBinding = queueVersionBindingProbe(afterVersionId, 'active', 'after-enable');
+                const activeQueueRuntime = await productionQueueRuntimeProbe('active');
+                checks.push(activeHealth, activeAttestation, activeCron, activeQueueBinding, activeQueueRuntime);
+                return [activeHealth, activeAttestation, activeCron, activeQueueBinding, activeQueueRuntime]
+                    .every((check) => check.status === 'ok')
                     ? afterVersionId
                     : null;
             },
@@ -579,6 +802,8 @@ async function reconcileEnableCheckpointAtStartup(): Promise<boolean> {
         const activeHealth = await healthProbe(directUrl, 'active');
         const activeAttestation = await runtimeAttestation(directUrl, checkpoint.activeVersionId!, 'active');
         const activeCron = await cronScheduleProbe('active');
+        const activeQueueBinding = queueVersionBindingProbe(checkpoint.activeVersionId!, 'active', 'proven-checkpoint-readback');
+        const activeQueueRuntime = await productionQueueRuntimeProbe('active');
         checks.push(
             versionReadback
                 ? ok('proven_checkpoint_version_readback', 'Fresh Cloudflare readback matches the exact version stored by the proven checkpoint.', [
@@ -591,8 +816,11 @@ async function reconcileEnableCheckpointAtStartup(): Promise<boolean> {
             activeHealth,
             activeAttestation,
             activeCron,
+            activeQueueBinding,
+            activeQueueRuntime,
         );
-        if (versionReadback && [activeHealth, activeAttestation, activeCron].every((check) => check.status === 'ok')) {
+        if (versionReadback && [activeHealth, activeAttestation, activeCron, activeQueueBinding, activeQueueRuntime]
+            .every((check) => check.status === 'ok')) {
             externalWritePerformed = true;
             checks.push(ok('enable_checkpoint_already_proven', 'Fresh version, health, HMAC and Cron readback still prove the exact active checkpoint; duplicate deployment is blocked.', [
                 `activeVersion=${checkpoint.activeVersionId}`,
@@ -635,8 +863,11 @@ async function reconcileEnableCheckpointAtStartup(): Promise<boolean> {
                 const activeHealth = await healthProbe(directUrl, 'active');
                 const activeAttestation = await runtimeAttestation(directUrl, versionId, 'active');
                 const activeCron = await cronScheduleProbe('active');
-                checks.push(activeHealth, activeAttestation, activeCron);
-                if ([activeHealth, activeAttestation, activeCron].every((check) => check.status === 'ok')) {
+                const activeQueueBinding = queueVersionBindingProbe(versionId, 'active', 'startup-reconciliation');
+                const activeQueueRuntime = await productionQueueRuntimeProbe('active');
+                checks.push(activeHealth, activeAttestation, activeCron, activeQueueBinding, activeQueueRuntime);
+                if ([activeHealth, activeAttestation, activeCron, activeQueueBinding, activeQueueRuntime]
+                    .every((check) => check.status === 'ok')) {
                     const proven = markProductionEnableCheckpointProven(checkpoint, versionId, new Date().toISOString());
                     persistEnableCheckpoint(proven, checkpoint);
                     enableCheckpoint = proven;
@@ -908,6 +1139,134 @@ function readFreshProductionQueueReadiness(): QueueReadinessResult {
     };
 }
 
+function queueVersionBindingProbe(
+    expectedVersionId: string,
+    expectedMode: ProductionQueueRuntimeMode,
+    label: string,
+): Check {
+    const capture = runCommand(command(
+        `fulfillment-${label}-queue-binding-version-view`,
+        ['versions', 'view', expectedVersionId, '--name', target.worker, '--json'],
+        false,
+    ));
+    captures.push(capture);
+    if (capture.status === 'failed') {
+        return failed(`queue_version_binding_${expectedMode}_${label}`, 'The exact Worker version binding inventory could not be read.', [
+            `capture=${relative(capture.outputPath)}`,
+        ]);
+    }
+    const validation = validateProductionQueueVersionBinding(capture.stdout, expectedVersionId, expectedMode);
+    return validation.ok
+        ? ok(`queue_version_binding_${expectedMode}_${label}`, `The exact ${expectedMode} Worker version has the required Queue binding posture.`, [
+            `versionId=${expectedVersionId}`,
+            `expectedQueueBinding=${expectedMode === 'active' ? PRODUCTION_QUEUE_TARGET.queue : 'absent'}`,
+        ])
+        : failed(`queue_version_binding_${expectedMode}_${label}`, `The exact ${expectedMode} Worker version does not have the required Queue binding posture.`, validation.errors);
+}
+
+async function productionQueueRuntimeProbe(expectedMode: ProductionQueueRuntimeMode): Promise<Check> {
+    try {
+        const rows: unknown[] = [];
+        let paginationComplete = false;
+        for (let page = 1; page <= 500; page += 1) {
+            const result = await cloudflareApiGetResult(`/accounts/${target.accountId}/queues?page=${page}&per_page=100`);
+            if (!Array.isArray(result)) throw new Error('Cloudflare Queue inventory result is not an array.');
+            rows.push(...result);
+            if (result.length < 100) {
+                paginationComplete = true;
+                break;
+            }
+        }
+        if (!paginationComplete) throw new Error('Cloudflare Queue inventory pagination did not terminate.');
+
+        const records = rows.map(asRecord);
+        const primaryMatches = records.filter((row) => queueResourceName(row) === PRODUCTION_QUEUE_TARGET.queue);
+        const dlqMatches = records.filter((row) => queueResourceName(row) === PRODUCTION_QUEUE_TARGET.deadLetterQueue);
+        if (primaryMatches.length !== 1 || dlqMatches.length !== 1) {
+            throw new Error(`Exact Queue inventory mismatch: primary=${primaryMatches.length}, dlq=${dlqMatches.length}.`);
+        }
+        const primaryId = queueResourceId(primaryMatches[0]);
+        const dlqId = queueResourceId(dlqMatches[0]);
+        if (!primaryId || !dlqId) throw new Error('Exact Queue or DLQ ID is missing or invalid.');
+
+        const [queueDetail, queueMetrics, dlqDetail, dlqMetrics] = await Promise.all([
+            cloudflareApiGetResult(`/accounts/${target.accountId}/queues/${primaryId}`),
+            cloudflareApiGetResult(`/accounts/${target.accountId}/queues/${primaryId}/metrics`),
+            cloudflareApiGetResult(`/accounts/${target.accountId}/queues/${dlqId}`),
+            cloudflareApiGetResult(`/accounts/${target.accountId}/queues/${dlqId}/metrics`),
+        ]);
+        const validation = validateProductionQueueRuntimeReadback({
+            inventoryRows: rows,
+            queueDetail,
+            queueMetrics,
+            deadLetterQueueDetail: dlqDetail,
+            deadLetterQueueMetrics: dlqMetrics,
+            expectedMode,
+        });
+        return validation.ok
+            ? ok(`production_queue_runtime_${expectedMode}`, `Fresh Cloudflare API readback proves the exact ${expectedMode} Queue/DLQ/paused posture.`, [
+                `queue=${PRODUCTION_QUEUE_TARGET.queue}`,
+                `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}`,
+                `queueId=${validation.queueId}`,
+                `dlqId=${validation.deadLetterQueueId}`,
+                'deliveryPaused=false',
+                `attachments=${expectedMode === 'active' ? 'producer=1,consumer=1' : 'producer=0,consumer=0'}`,
+                'backlog=0',
+            ])
+            : failed(`production_queue_runtime_${expectedMode}`, `Fresh Cloudflare API readback does not prove the exact ${expectedMode} Queue/DLQ/paused posture.`, validation.errors);
+    } catch (error) {
+        return failed(`production_queue_runtime_${expectedMode}`, 'Fresh Cloudflare Queue runtime readback failed closed.', [safeError(error)]);
+    }
+}
+
+async function cloudflareApiGetResult(apiPath: string): Promise<unknown> {
+    const token = secretValue('CLOUDFLARE_API_TOKEN');
+    if (!token) throw new Error('CLOUDFLARE_API_TOKEN is required for exact remote Queue readback.');
+    if (!isAllowlistedQueueGetPath(apiPath)) throw new Error('Cloudflare Queue GET path is outside the exact allowlist.');
+    const response = await fetch(`https://api.cloudflare.com/client/v4${apiPath}`, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        redirect: 'error',
+        signal: AbortSignal.timeout(20_000),
+    });
+    const body = await response.json() as { success?: unknown; result?: unknown };
+    if (response.status !== 200 || body.success !== true) throw new Error(`Cloudflare Queue GET failed with HTTP ${response.status}.`);
+    return body.result;
+}
+
+function isAllowlistedQueueGetPath(apiPath: string): boolean {
+    const accountPrefix = `/accounts/${target.accountId}`;
+    return new RegExp(`^${escapeRegExp(accountPrefix)}/queues\\?page=\\d+&per_page=100$`, 'u').test(apiPath)
+        || new RegExp(`^${escapeRegExp(accountPrefix)}/queues/[0-9a-f]{32}(?:/metrics)?$`, 'iu').test(apiPath);
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : {};
+}
+
+function queueResourceName(value: Record<string, unknown>): string {
+    return typeof value.queue_name === 'string'
+        ? value.queue_name
+        : typeof value.name === 'string'
+            ? value.name
+            : '';
+}
+
+function queueResourceId(value: Record<string, unknown>): string | null {
+    const candidate = typeof value.queue_id === 'string'
+        ? value.queue_id
+        : typeof value.id === 'string'
+            ? value.id
+            : '';
+    return /^[0-9a-f]{32}$/iu.test(candidate) ? candidate : null;
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
 async function readFreshStripeLiveReadiness(): Promise<StripeReadinessResult> {
     try {
         const stripe = new Stripe(secretValue('STRIPE_SECRET_KEY'), {
@@ -1167,14 +1526,19 @@ async function compensateToBootstrap(directUrl: string): Promise<string | null> 
     const blocked = await disabledOperationProbe(directUrl);
     const attestation = await runtimeAttestation(directUrl, versionId, 'bootstrap');
     const cron = await cronScheduleProbe('bootstrap');
-    checks.push(health, blocked, attestation, cron);
-    const proven = [health, blocked, attestation, cron].every((check) => check.status === 'ok');
+    const queueBinding = queueVersionBindingProbe(versionId, 'bootstrap', 'after-compensation');
+    const queueRuntime = await productionQueueRuntimeProbe('bootstrap');
+    checks.push(health, blocked, attestation, cron, queueBinding, queueRuntime);
+    const proven = [health, blocked, attestation, cron, queueBinding, queueRuntime]
+        .every((check) => check.status === 'ok');
     checks.push(proven
-        ? ok('compensating_bootstrap_rollback_proven', 'Compensating rollback restored a version-bound bootstrap with operations blocked and no Cron Trigger.', [
+        ? ok('compensating_bootstrap_rollback_proven', 'Compensating rollback restored a version-bound bootstrap with operations blocked, no Cron Trigger and all Queue attachments detached.', [
             `versionId=${versionId}`,
             'operationMode=bootstrap',
             'operationalHttpStatus=503',
             'cronCount=0',
+            'queueProducerCount=0',
+            'queueConsumerCount=0',
         ])
         : failed('active_deploy_state_ambiguous', 'Compensating rollback ran but bootstrap/503/HMAC/no-cron state is not fully proven.', [
             'manualStopRequired=true',
@@ -1185,8 +1549,8 @@ async function compensateToBootstrap(directUrl: string): Promise<string | null> 
 function command(id: string, wranglerArgs: string[], writesCloudflare: boolean): CommandSpec {
     return {
         id,
-        display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler ${wranglerArgs.join(' ')}`,
-        args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', ...wranglerArgs],
+        display: `pnpm --config.verify-deps-before-run=false exec wrangler ${wranglerArgs.join(' ')}`,
+        args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', ...wranglerArgs],
         writesCloudflare,
     };
 }
@@ -1203,7 +1567,7 @@ function deploymentsCommand(id: string): CommandSpec {
 }
 
 function runCommand(spec: CommandSpec): CommandCapture {
-    const result = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', spec.args, {
+    const result = spawnSync(pnpmCommand(), spec.args, {
         cwd: process.cwd(),
         encoding: 'utf8',
         env: process.env,
@@ -1228,6 +1592,10 @@ function runCommand(spec: CommandSpec): CommandCapture {
         stdout: result.stdout ?? '',
         stderr: result.stderr ?? '',
     };
+}
+
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function commandCheck(capture: CommandCapture): Check {

@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
 
+test.use({ bypassCSP: false });
+
 // Component coverage for src/components/CookieBanner.astro.
 const bannerAppearTimeoutMs = 5000;
 

@@ -103,14 +103,14 @@ export function runProductionBootstrapBuild(): void {
     const isolatedEnvDirectory = mkdtempSync(path.join(tmpdir(), 'espanol-honesto-bootstrap-env-'));
     process.env.ESPANOL_RUNTIME_ENV_DIR = isolatedEnvDirectory;
 
-    const command = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+    const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
     let result: ReturnType<typeof spawnSync>;
     try {
         // Astro/Cloudflare can leave old content-addressed chunks behind when a
         // build changes modes. A clean, verified build root is required before
         // scanning the bootstrap bundle for provider material.
         rmSync(distRoot, { force: true, recursive: true });
-        result = spawnSync(command, ['pnpm', 'exec', 'astro', 'build', '--mode', 'production_bootstrap'], {
+        result = spawnSync(command, ['exec', 'astro', 'build', '--mode', 'production_bootstrap'], {
             env: process.env,
             stdio: 'inherit',
             shell: process.platform === 'win32',

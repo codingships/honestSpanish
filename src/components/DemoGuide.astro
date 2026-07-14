@@ -1,4 +1,4 @@
-<script is:inline>
+<script>
 (() => {
     const STORAGE_ENABLED = 'ehDemoGuideEnabled';
     const STORAGE_INDEX = 'ehDemoGuideIndex';
@@ -29,6 +29,52 @@
             }
         },
     };
+
+    let dynamicPositionRule;
+
+    function getDynamicPositionRule() {
+        if (dynamicPositionRule !== undefined) return dynamicPositionRule;
+
+        dynamicPositionRule = null;
+        for (const styleSheet of Array.from(document.styleSheets)) {
+            try {
+                for (const rule of Array.from(styleSheet.cssRules)) {
+                    if (
+                        rule instanceof CSSStyleRule &&
+                        rule.selectorText === '#eh-guide-overlay.eh-guide-dragged'
+                    ) {
+                        dynamicPositionRule = rule;
+                        return dynamicPositionRule;
+                    }
+                }
+            } catch {
+                // Cross-origin font stylesheets do not expose cssRules.
+            }
+        }
+
+        return dynamicPositionRule;
+    }
+
+    function clearDynamicPosition(overlay) {
+        overlay.classList.remove('eh-guide-dragged');
+        const rule = getDynamicPositionRule();
+        rule?.style.removeProperty('left');
+        rule?.style.removeProperty('right');
+        rule?.style.removeProperty('top');
+        rule?.style.removeProperty('bottom');
+    }
+
+    function setDynamicPosition(overlay, left, top) {
+        const rule = getDynamicPositionRule();
+        if (!rule) return false;
+
+        rule.style.setProperty('left', `${left}px`);
+        rule.style.setProperty('top', `${top}px`);
+        rule.style.setProperty('right', 'auto');
+        rule.style.setProperty('bottom', 'auto');
+        overlay.classList.add('eh-guide-dragged');
+        return true;
+    }
 
     const params = new URLSearchParams(window.location.search);
     const demoParam = params.get('demo');
@@ -67,46 +113,6 @@
 
     function renderLauncher() {
         if (document.getElementById('eh-guide-launcher')) return;
-
-        const style = document.createElement('style');
-        style.id = 'eh-guide-launcher-style';
-        style.textContent = `
-            #eh-guide-launcher {
-                position: fixed;
-                right: 18px;
-                bottom: 18px;
-                z-index: 2147483000;
-                display: flex;
-                align-items: center;
-                gap: 10px;
-                max-width: min(420px, calc(100vw - 36px));
-                border: 2px solid #006064;
-                background: #ffffff;
-                color: #053f3f;
-                box-shadow: 8px 8px 0 #006064;
-                padding: 12px;
-                font: 14px/1.35 Arial, sans-serif;
-            }
-            #eh-guide-launcher strong {
-                color: #006064;
-                text-transform: uppercase;
-            }
-            #eh-guide-launcher button {
-                min-height: 36px;
-                border: 1px solid #006064;
-                background: #006064;
-                color: #ffffff;
-                padding: 8px 12px;
-                font: 700 12px/1 Arial, sans-serif;
-                text-transform: uppercase;
-                cursor: pointer;
-                white-space: nowrap;
-            }
-            #eh-guide-launcher button:hover {
-                background: #004d40;
-            }
-        `;
-        document.head.append(style);
 
         const launcher = document.createElement('section');
         launcher.id = 'eh-guide-launcher';
@@ -580,10 +586,7 @@
         safeStorage.removeItem(STORAGE_COORDS);
         overlay.classList.remove('eh-guide-right', 'eh-guide-left', 'eh-guide-top');
         overlay.classList.add(`eh-guide-${next}`);
-        overlay.style.left = '';
-        overlay.style.right = '';
-        overlay.style.top = '';
-        overlay.style.bottom = '';
+        clearDynamicPosition(overlay);
     }
 
     function toggleCompact(overlay, button) {
@@ -591,79 +594,6 @@
         safeStorage.setItem(STORAGE_COMPACT, compact);
         overlay.classList.toggle('eh-guide-compact', compact === '1');
         button.textContent = compact === '1' ? 'Expandir' : 'Compacto';
-    }
-
-    function ensureStyle() {
-        if (document.getElementById('eh-guide-style')) return;
-        const style = document.createElement('style');
-        style.id = 'eh-guide-style';
-        style.textContent = `
-            #eh-guide-overlay, #eh-guide-overlay * { box-sizing: border-box; letter-spacing: 0; }
-            #eh-guide-overlay {
-                position: fixed;
-                right: 18px;
-                bottom: 18px;
-                z-index: 2147483000;
-                width: min(420px, calc(100vw - 36px));
-                max-height: min(74vh, 700px);
-                overflow: auto;
-                border: 2px solid #006064;
-                background: #fff;
-                color: #053f3f;
-                box-shadow: 8px 8px 0 #006064;
-                padding: 14px;
-                font: 14px/1.35 Arial, sans-serif;
-            }
-            #eh-guide-overlay.eh-guide-dragging {
-                user-select: none;
-            }
-            #eh-guide-overlay.eh-guide-left { left: 18px; right: auto; bottom: 18px; top: auto; }
-            #eh-guide-overlay.eh-guide-right { right: 18px; left: auto; bottom: 18px; top: auto; }
-            #eh-guide-overlay.eh-guide-top { right: 18px; left: auto; top: 18px; bottom: auto; }
-            #eh-guide-overlay.eh-guide-compact .eh-guide-copy { display: none; }
-            #eh-guide-overlay h2 { margin: 8px 0; color: #006064; font-size: 22px; line-height: 1.1; }
-            #eh-guide-overlay p { margin: 0; color: #164f4d; }
-            #eh-guide-overlay .eh-guide-topline,
-            #eh-guide-overlay .eh-guide-tools,
-            #eh-guide-overlay .eh-guide-actions { display: flex; gap: 8px; align-items: center; }
-            #eh-guide-overlay .eh-guide-actions { flex-wrap: wrap; }
-            #eh-guide-overlay .eh-guide-topline {
-                justify-content: space-between;
-                font-size: 11px;
-                font-weight: 700;
-                text-transform: uppercase;
-                color: #006064;
-                cursor: move;
-                touch-action: none;
-            }
-            #eh-guide-overlay .eh-guide-badge { border: 1px solid #006064; background: #e0f7fa; padding: 2px 6px; }
-            #eh-guide-overlay .eh-guide-copy { display: grid; gap: 8px; margin: 10px 0 12px; }
-            #eh-guide-overlay .eh-guide-label { display: block; margin-bottom: 2px; font-size: 11px; font-weight: 700; text-transform: uppercase; color: #006064; }
-            #eh-guide-overlay button {
-                min-height: 32px;
-                border: 1px solid #006064;
-                background: #fff;
-                color: #006064;
-                padding: 7px 9px;
-                font: 700 11px/1.15 Arial, sans-serif;
-                text-transform: uppercase;
-                cursor: pointer;
-            }
-            #eh-guide-overlay button:hover { background: #e0f7fa; }
-            #eh-guide-overlay button:disabled { opacity: 0.55; cursor: wait; }
-            #eh-guide-overlay .eh-guide-primary { flex: 1 1 140px; background: #006064; color: #fff; }
-            #eh-guide-overlay .eh-guide-primary:hover { background: #004d40; color: #fff; }
-            #eh-guide-overlay .eh-guide-danger { border-color: #b42318; color: #b42318; }
-            #eh-guide-overlay .eh-guide-status {
-                margin: 8px 0 0;
-                border: 1px solid #006064;
-                background: #e0f7fa;
-                padding: 7px 8px;
-                color: #053f3f;
-                font-weight: 700;
-            }
-        `;
-        document.head.append(style);
     }
 
     function makeButton(label, onClick, className = '') {
@@ -702,10 +632,7 @@
 
         const next = clampCoords(coords.left, coords.top, overlay);
         overlay.classList.remove('eh-guide-right', 'eh-guide-left', 'eh-guide-top');
-        overlay.style.left = `${next.left}px`;
-        overlay.style.top = `${next.top}px`;
-        overlay.style.right = 'auto';
-        overlay.style.bottom = 'auto';
+        if (!setDynamicPosition(overlay, next.left, next.top)) return;
         safeStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
     }
 
@@ -720,11 +647,9 @@
         const move = (event) => {
             if (!dragging) return;
             const next = clampCoords(event.clientX - offsetX, event.clientY - offsetY, overlay);
-            overlay.style.left = `${next.left}px`;
-            overlay.style.top = `${next.top}px`;
-            overlay.style.right = 'auto';
-            overlay.style.bottom = 'auto';
-            safeStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
+            if (setDynamicPosition(overlay, next.left, next.top)) {
+                safeStorage.setItem(STORAGE_COORDS, JSON.stringify(next));
+            }
         };
 
         const stop = (event) => {
@@ -781,7 +706,6 @@
     }
 
     function render() {
-        ensureStyle();
         const step = steps[index];
         let overlay = document.getElementById('eh-guide-overlay');
         if (!overlay) {
@@ -795,11 +719,8 @@
         overlay.setAttribute('aria-label', 'Guia de demo');
         const position = safeStorage.getItem(STORAGE_POSITION) || 'right';
         const compact = safeStorage.getItem(STORAGE_COMPACT) === '1';
+        clearDynamicPosition(overlay);
         overlay.className = `eh-guide-${position}${compact ? ' eh-guide-compact' : ''}`;
-        overlay.style.left = '';
-        overlay.style.right = '';
-        overlay.style.top = '';
-        overlay.style.bottom = '';
         overlay.replaceChildren();
 
         const top = document.createElement('div');
@@ -875,3 +796,192 @@
     render();
 })();
 </script>
+
+<style is:global>
+    #eh-guide-launcher {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 2147483000;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        max-width: min(420px, calc(100vw - 36px));
+        border: 2px solid #006064;
+        background: #ffffff;
+        color: #053f3f;
+        box-shadow: 8px 8px 0 #006064;
+        padding: 12px;
+        font: 14px/1.35 Arial, sans-serif;
+    }
+
+    #eh-guide-launcher strong {
+        color: #006064;
+        text-transform: uppercase;
+    }
+
+    #eh-guide-launcher button {
+        min-height: 36px;
+        border: 1px solid #006064;
+        background: #006064;
+        color: #ffffff;
+        padding: 8px 12px;
+        font: 700 12px/1 Arial, sans-serif;
+        text-transform: uppercase;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+
+    #eh-guide-launcher button:hover {
+        background: #004d40;
+    }
+
+    #eh-guide-overlay,
+    #eh-guide-overlay * {
+        box-sizing: border-box;
+        letter-spacing: 0;
+    }
+
+    #eh-guide-overlay {
+        position: fixed;
+        right: 18px;
+        bottom: 18px;
+        z-index: 2147483000;
+        width: min(420px, calc(100vw - 36px));
+        max-height: min(74vh, 700px);
+        overflow: auto;
+        border: 2px solid #006064;
+        background: #fff;
+        color: #053f3f;
+        box-shadow: 8px 8px 0 #006064;
+        padding: 14px;
+        font: 14px/1.35 Arial, sans-serif;
+    }
+
+    #eh-guide-overlay.eh-guide-dragging {
+        user-select: none;
+    }
+
+    #eh-guide-overlay.eh-guide-dragged {
+        left: 0;
+        right: auto;
+        top: 0;
+        bottom: auto;
+    }
+
+    #eh-guide-overlay.eh-guide-left {
+        inset: auto auto 18px 18px;
+    }
+
+    #eh-guide-overlay.eh-guide-right {
+        inset: auto 18px 18px auto;
+    }
+
+    #eh-guide-overlay.eh-guide-top {
+        inset: 18px 18px auto auto;
+    }
+
+    #eh-guide-overlay.eh-guide-compact .eh-guide-copy {
+        display: none;
+    }
+
+    #eh-guide-overlay h2 {
+        margin: 8px 0;
+        color: #006064;
+        font-size: 22px;
+        line-height: 1.1;
+    }
+
+    #eh-guide-overlay p {
+        margin: 0;
+        color: #164f4d;
+    }
+
+    #eh-guide-overlay .eh-guide-topline,
+    #eh-guide-overlay .eh-guide-tools,
+    #eh-guide-overlay .eh-guide-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+    }
+
+    #eh-guide-overlay .eh-guide-actions {
+        flex-wrap: wrap;
+    }
+
+    #eh-guide-overlay .eh-guide-topline {
+        justify-content: space-between;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #006064;
+        cursor: move;
+        touch-action: none;
+    }
+
+    #eh-guide-overlay .eh-guide-badge {
+        border: 1px solid #006064;
+        background: #e0f7fa;
+        padding: 2px 6px;
+    }
+
+    #eh-guide-overlay .eh-guide-copy {
+        display: grid;
+        gap: 8px;
+        margin: 10px 0 12px;
+    }
+
+    #eh-guide-overlay .eh-guide-label {
+        display: block;
+        margin-bottom: 2px;
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        color: #006064;
+    }
+
+    #eh-guide-overlay button {
+        min-height: 32px;
+        border: 1px solid #006064;
+        background: #fff;
+        color: #006064;
+        padding: 7px 9px;
+        font: 700 11px/1.15 Arial, sans-serif;
+        text-transform: uppercase;
+        cursor: pointer;
+    }
+
+    #eh-guide-overlay button:hover {
+        background: #e0f7fa;
+    }
+
+    #eh-guide-overlay button:disabled {
+        opacity: 0.55;
+        cursor: wait;
+    }
+
+    #eh-guide-overlay .eh-guide-primary {
+        flex: 1 1 140px;
+        background: #006064;
+        color: #fff;
+    }
+
+    #eh-guide-overlay .eh-guide-primary:hover {
+        background: #004d40;
+        color: #fff;
+    }
+
+    #eh-guide-overlay .eh-guide-danger {
+        border-color: #b42318;
+        color: #b42318;
+    }
+
+    #eh-guide-overlay .eh-guide-status {
+        margin: 8px 0 0;
+        border: 1px solid #006064;
+        background: #e0f7fa;
+        padding: 7px 8px;
+        color: #053f3f;
+        font-weight: 700;
+    }
+</style>

@@ -51,6 +51,8 @@ binding = "CF_VERSION_METADATA"
 # routes. Only /health and the authenticated runtime attestation are reachable.
 [env.production_bootstrap]
 name = "espanolhonesto"
+workers_dev = true
+preview_urls = false
 
 [env.production_bootstrap.assets]
 # Required for inertness: prerendered HTML must not bypass the Worker guard.
@@ -80,6 +82,8 @@ binding = "CF_VERSION_METADATA"
 
 [env.production]
 name = "espanolhonesto"
+workers_dev = true
+preview_urls = false
 
 [[env.production.services]]
 binding = "FULFILLMENT_SERVICE"

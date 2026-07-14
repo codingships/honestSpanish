@@ -98,8 +98,8 @@ const checks: CheckResult[] = [
     checkLocalDeploymentGap(),
     checkLocalBuildPackageGuard(buildPackageManifestPath),
     deployedCheckoutProbe,
-    runWranglerWorkerReadOnly('wrangler_worker_deployments_status', ['pnpm', 'exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], ['version_id', 'created_on']),
-    runWranglerWorkerReadOnly('wrangler_worker_deployments_list', ['pnpm', 'exec', 'wrangler', 'deployments', 'list', '--env', 'staging', '--json'], ['version_id', 'created_on']),
+    runWranglerWorkerReadOnly('wrangler_worker_deployments_status', ['exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], ['version_id', 'created_on']),
+    runWranglerWorkerReadOnly('wrangler_worker_deployments_list', ['exec', 'wrangler', 'deployments', 'list', '--env', 'staging', '--json'], ['version_id', 'created_on']),
     markExternalWriteRequired(deployedCheckoutProbe.status === 'ok'),
 ];
 
@@ -541,7 +541,7 @@ async function checkDeployedCheckoutProbe(baseUrl: string): Promise<CheckResult>
 
 function runWranglerWorkerReadOnly(name: string, args: string[], expectedSnippets: string[]): CheckResult {
     const logPath = path.join(outputDir, `${name}.log`);
-    const result = spawnSync(corepackCommand(), args, {
+    const result = spawnSync(pnpmCommand(), args, {
         cwd: process.cwd(),
         encoding: 'utf8',
         shell: process.platform === 'win32',
@@ -551,7 +551,7 @@ function runWranglerWorkerReadOnly(name: string, args: string[], expectedSnippet
     const missing = expectedSnippets.filter((snippet) => !output.includes(snippet));
 
     writeFileSync(logPath, [
-        `$ ${corepackCommand()} ${args.join(' ')}`,
+        `$ ${pnpmCommand()} ${args.join(' ')}`,
         `exitCode=${result.status ?? 'null'}`,
         '',
         redactOutput(output),
@@ -840,8 +840,8 @@ function sha256(value: string): string {
     return createHash('sha256').update(value).digest('hex');
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

@@ -1,5 +1,11 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
 export const SUPABASE_MANAGEMENT_API_BASE = 'https://api.supabase.com';
 export const SUPABASE_ACCESS_TOKEN_ENV = 'SUPABASE_ACCESS_TOKEN';
+export const PRODUCTION_AUTH_INERT_RECEIPT_KIND = 'supabase_production_auth_inert_readonly';
+export const PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS = 15 * 60 * 1_000;
 
 export const SUPABASE_AUTH_TARGETS = {
     staging: {
@@ -33,6 +39,39 @@ export type SafeAuthConfig = {
 
 export type SafeAuthConfigKey = keyof SafeAuthConfig;
 export type AuthConfigPatch = Partial<SafeAuthConfig>;
+
+export interface ProductionAuthInertReceipt {
+    schemaVersion: 1;
+    receiptKind: typeof PRODUCTION_AUTH_INERT_RECEIPT_KIND;
+    status: 'AUTH_INERT_VERIFIED';
+    target: {
+        environment: 'production';
+        projectRef: typeof SUPABASE_AUTH_TARGETS.production.projectRef;
+    };
+    flags: {
+        disable_signup: true;
+        mailer_autoconfirm: false;
+    };
+    observedAt: string;
+    source: 'supabase_management_api';
+    requestMethod: 'GET';
+    externalWritePerformed: false;
+}
+
+export interface ProductionAuthInertEvidence {
+    provided: boolean;
+    valid: boolean;
+    path: string | null;
+    sha256: string | null;
+    value: ProductionAuthInertReceipt | null;
+    errors: string[];
+}
+
+export interface ProductionAuthInertValidation {
+    ok: boolean;
+    errors: string[];
+    value: ProductionAuthInertReceipt | null;
+}
 
 export type Fetcher = (
     input: string | URL | Request,
@@ -128,6 +167,156 @@ export function redactedPreflight(
         },
         config: { ...config },
     };
+}
+
+export function productionAuthConfigIsInert(config: Pick<SafeAuthConfig, 'disable_signup' | 'mailer_autoconfirm'>): boolean {
+    return config.disable_signup === true && config.mailer_autoconfirm === false;
+}
+
+export function createProductionAuthInertReceipt(
+    config: Pick<SafeAuthConfig, 'disable_signup' | 'mailer_autoconfirm'>,
+    observedAt = new Date(),
+): ProductionAuthInertReceipt {
+    assertProductionAuthConfigInert(config);
+    return {
+        schemaVersion: 1,
+        receiptKind: PRODUCTION_AUTH_INERT_RECEIPT_KIND,
+        status: 'AUTH_INERT_VERIFIED',
+        target: {
+            environment: SUPABASE_AUTH_TARGETS.production.environment,
+            projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
+        },
+        flags: {
+            disable_signup: true,
+            mailer_autoconfirm: false,
+        },
+        observedAt: observedAt.toISOString(),
+        source: 'supabase_management_api',
+        requestMethod: 'GET',
+        externalWritePerformed: false,
+    };
+}
+
+export function validateProductionAuthInertReceipt(
+    raw: unknown,
+    now = new Date(),
+): ProductionAuthInertValidation {
+    if (!isRecord(raw)) {
+        return { ok: false, errors: ['Production Auth inert receipt must be a JSON object.'], value: null };
+    }
+
+    const errors: string[] = [];
+    requireExactKeys(raw, [
+        'schemaVersion',
+        'receiptKind',
+        'status',
+        'target',
+        'flags',
+        'observedAt',
+        'source',
+        'requestMethod',
+        'externalWritePerformed',
+    ], 'Production Auth inert receipt', errors);
+    if (raw.schemaVersion !== 1) errors.push('Production Auth inert receipt schemaVersion must be 1.');
+    if (raw.receiptKind !== PRODUCTION_AUTH_INERT_RECEIPT_KIND) errors.push('Production Auth inert receipt kind mismatch.');
+    if (raw.status !== 'AUTH_INERT_VERIFIED') errors.push('Production Auth inert receipt status mismatch.');
+    if (raw.source !== 'supabase_management_api' || raw.requestMethod !== 'GET') {
+        errors.push('Production Auth inert receipt must come from a Supabase Management API GET.');
+    }
+    if (raw.externalWritePerformed !== false) {
+        errors.push('Production Auth inert receipt must prove externalWritePerformed=false.');
+    }
+
+    if (!isRecord(raw.target)) {
+        errors.push('Production Auth inert receipt target is missing.');
+    } else {
+        requireExactKeys(raw.target, ['environment', 'projectRef'], 'Production Auth inert target', errors);
+        if (raw.target.environment !== SUPABASE_AUTH_TARGETS.production.environment
+            || raw.target.projectRef !== SUPABASE_AUTH_TARGETS.production.projectRef) {
+            errors.push('Production Auth inert receipt target mismatch.');
+        }
+    }
+
+    if (!isRecord(raw.flags)) {
+        errors.push('Production Auth inert receipt flags are missing.');
+    } else {
+        requireExactKeys(raw.flags, ['disable_signup', 'mailer_autoconfirm'], 'Production Auth inert flags', errors);
+        if (raw.flags.disable_signup !== true || raw.flags.mailer_autoconfirm !== false) {
+            errors.push('Production Auth inert receipt flags must be disable_signup=true and mailer_autoconfirm=false.');
+        }
+    }
+
+    const observedAt = typeof raw.observedAt === 'string' ? Date.parse(raw.observedAt) : Number.NaN;
+    const age = now.getTime() - observedAt;
+    if (!Number.isFinite(observedAt)) {
+        errors.push('Production Auth inert receipt observedAt must be a valid timestamp.');
+    } else if (age < 0) {
+        errors.push('Production Auth inert receipt timestamp is in the future.');
+    } else if (age > PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS) {
+        errors.push('Production Auth inert receipt is older than 15 minutes.');
+    }
+
+    return {
+        ok: errors.length === 0,
+        errors,
+        value: errors.length === 0 ? raw as unknown as ProductionAuthInertReceipt : null,
+    };
+}
+
+export function readProductionAuthInertEvidence(
+    evidencePath: string | null,
+    now = new Date(),
+): ProductionAuthInertEvidence {
+    if (!evidencePath) {
+        return {
+            provided: false,
+            valid: false,
+            path: null,
+            sha256: null,
+            value: null,
+            errors: ['Production Auth inert receipt path is required.'],
+        };
+    }
+
+    const resolvedPath = path.resolve(evidencePath);
+    let bytes: Buffer;
+    let raw: unknown;
+    try {
+        bytes = readFileSync(resolvedPath);
+        raw = JSON.parse(bytes.toString('utf8'));
+    } catch {
+        return {
+            provided: true,
+            valid: false,
+            path: resolvedPath,
+            sha256: null,
+            value: null,
+            errors: ['Production Auth inert receipt could not be read as JSON.'],
+        };
+    }
+
+    const validation = validateProductionAuthInertReceipt(raw, now);
+    return {
+        provided: true,
+        valid: validation.ok,
+        path: resolvedPath,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+        value: validation.value,
+        errors: validation.errors,
+    };
+}
+
+export async function verifyLiveProductionAuthInert(
+    token: string,
+    fetcher: Fetcher = fetch,
+): Promise<SafeAuthConfig> {
+    const config = await getSafeAuthConfig({
+        projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
+        token,
+        fetcher,
+    });
+    assertProductionAuthConfigInert(config);
+    return config;
 }
 
 export function parseUriAllowList(value: string): string[] {
@@ -372,6 +561,27 @@ const safeAuthConfigKeys: SafeAuthConfigKey[] = [
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function requireExactKeys(
+    value: Record<string, unknown>,
+    expectedKeys: readonly string[],
+    label: string,
+    errors: string[],
+): void {
+    const actual = Object.keys(value).sort();
+    const expected = [...expectedKeys].sort();
+    if (actual.length !== expected.length || actual.some((key, index) => key !== expected[index])) {
+        errors.push(`${label} fields do not match the exact contract.`);
+    }
+}
+
+function assertProductionAuthConfigInert(
+    config: Pick<SafeAuthConfig, 'disable_signup' | 'mailer_autoconfirm'>,
+): void {
+    if (!productionAuthConfigIsInert(config)) {
+        throw new Error('Supabase production Auth is not inert: disable_signup=true and mailer_autoconfirm=false are required.');
+    }
 }
 
 function assertKnownProjectRef(projectRef: string): void {

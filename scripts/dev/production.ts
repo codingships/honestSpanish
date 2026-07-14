@@ -2,9 +2,8 @@ import { spawn } from 'node:child_process';
 
 process.env.CLOUDFLARE_ENV = 'production';
 
-const command = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const args = [
-    'pnpm',
     'exec',
     'astro',
     'dev',

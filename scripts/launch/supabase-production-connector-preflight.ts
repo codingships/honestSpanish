@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import {
     PRODUCTION_PROJECT,
-    STAGING_ONLY_VERSION,
+    STAGING_ONLY_MIGRATIONS,
     collectLocalMigrations,
     mapMigrationHistory,
     sha256,
@@ -326,6 +326,12 @@ export function buildProductionConnectorPreflightEvidence(
     const errors: string[] = [];
 
     if (ambiguous.length > 0) errors.push('Remote migration history contains ambiguous semantic mappings.');
+    if (versionNameMismatches.length > 0) {
+        errors.push('Remote migration history contains version/name drift.');
+    }
+    if (duplicateSemanticHistory.length > 0) {
+        errors.push('Remote migration history contains duplicate semantic entries.');
+    }
     const localByVersion = new Map(migrationMappings.map((migration) => [migration.version, migration]));
     for (const rolloutMigration of PRODUCTION_ROLLOUT_MIGRATIONS) {
         const observed = localByVersion.get(rolloutMigration.version);
@@ -336,9 +342,14 @@ export function buildProductionConnectorPreflightEvidence(
         }
     }
 
-    const stagingOnly = localByVersion.get(STAGING_ONLY_VERSION);
-    if (!stagingOnly || stagingOnly.historyStatus !== 'missing') {
-        errors.push(`Staging-only migration ${STAGING_ONLY_VERSION} is not absent from production.`);
+    for (const expected of STAGING_ONLY_MIGRATIONS) {
+        const stagingOnly = localByVersion.get(expected.version);
+        if (!stagingOnly
+            || stagingOnly.name !== expected.name
+            || stagingOnly.stagingOnly !== true
+            || stagingOnly.historyStatus !== 'missing') {
+            errors.push(`Staging-only migration ${expected.version}_${expected.name} is missing, misclassified or not absent from production.`);
+        }
     }
 
     const rolloutVersions = new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((migration) => migration.version));

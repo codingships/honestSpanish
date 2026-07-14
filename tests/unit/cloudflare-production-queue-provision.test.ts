@@ -91,6 +91,13 @@ describe('Cloudflare production Queue provisioning', () => {
             'PARTIAL_WRITE_STOP',
             'externalWritePerformed',
             'manualReviewRequired=true',
+            'verifyCloudflareWhoamiOutput(whoami.stdout, PRODUCTION_QUEUE_TARGET.accountId)',
+            "openOneShotCloudflareWriteGuard('production-queue-provision', outputDir)",
+            "beginOneShotCloudflareWrite(writeGuard, 'create-production-dlq')",
+            "beginOneShotCloudflareWrite(writeGuard, 'create-production-queue')",
+            'recordOneShotCloudflareProviderResult',
+            'recordOneShotCloudflareReadback',
+            'closeOneShotCloudflareWriteGuard(writeGuard)',
         ]) {
             expect(runner).toContain(snippet);
         }
@@ -105,6 +112,12 @@ describe('Cloudflare production Queue provisioning', () => {
         }
 
         expect(runner.indexOf("const createDlq = runCommand")).toBeLessThan(runner.indexOf("const createQueue = runCommand"));
+        expect(runner.indexOf("beginOneShotCloudflareWrite(writeGuard, 'create-production-dlq')"))
+            .toBeLessThan(runner.indexOf('const createDlq = runCommand'));
+        expect(runner.indexOf("beginOneShotCloudflareWrite(writeGuard, 'create-production-queue')"))
+            .toBeLessThan(runner.indexOf('const createQueue = runCommand'));
+        expect(runner.indexOf('const createQueue = runCommand'))
+            .toBeLessThan(runner.indexOf('closeOneShotCloudflareWriteGuard(writeGuard)'));
         expect(runner.indexOf('if (verifyExistingRequested)')).toBeLessThan(runner.indexOf('exact_name_collision_gate'));
         expect(PRODUCTION_QUEUE_APPROVAL_SENTENCE).toContain(PRODUCTION_QUEUE_TARGET.accountId);
         expect(PRODUCTION_QUEUE_APPROVAL_SENTENCE.indexOf(PRODUCTION_QUEUE_TARGET.deadLetterQueue))
@@ -131,6 +144,8 @@ describe('Cloudflare production Queue provisioning', () => {
         expect(runner).not.toContain("['queues', 'delete'");
         expect(runner).not.toContain("['queues', 'consumer'");
         expect(runner).not.toContain('dotenv.config');
+        expect(runner).not.toContain('captureText(whoami).includes');
+        expect(runner).toContain("const valid = executeRequested\n        ? configured === PRODUCTION_QUEUE_TARGET.accountId");
     });
 
     it('keeps package wiring for the parent integration step', () => {

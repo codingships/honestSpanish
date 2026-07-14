@@ -211,17 +211,21 @@ describe('production fixture-cleanup safety package', () => {
             backupCompleted: false,
             createdAt: '2026-07-10T11:30:00.000Z',
         }, now)).toMatchObject({ ok: false });
+        expect(validateBackupReceipt({ ...valid, artifactPath: 'C:\\secret\\production.dump' }, now))
+            .toMatchObject({ ok: false });
     });
 
-    it('binds the exact approval to SQL, backup receipt and fresh package-reference hashes', () => {
+    it('binds the exact approval to SQL, backup, Auth inert and fresh package-reference hashes', () => {
         const approval = buildFixtureCleanupApproval({
             executeSqlSha256: manifest.sql.execute.sha256,
             backupReceiptSha256: 'b'.repeat(64),
+            authInertEvidenceSha256: 'd'.repeat(64),
             packageStripeReferenceSha256: 'c'.repeat(64),
         });
         expect(approval).toContain(`target=${FIXTURE_CLEANUP_TARGET.projectRef}`);
         expect(approval).toContain(`execute_sql=${manifest.sql.execute.sha256}`);
         expect(approval).toContain(`backup_receipt=${'b'.repeat(64)}`);
+        expect(approval).toContain(`auth_inert_evidence=${'d'.repeat(64)}`);
         expect(approval).toContain(`package_stripe_references=${'c'.repeat(64)}`);
         expect(approval).toContain('auth_users=BLOCKED_UNTOUCHED');
         expect(approval).toContain('post_commit_rollback=VERIFIED_BACKUP_ONLY');
@@ -251,12 +255,14 @@ describe('production fixture-cleanup safety package', () => {
         expect(runnerSource).not.toContain("args.push(process.env[FIXTURE_CLEANUP_DATABASE_ENV]");
     });
 
-    it('requires both independent CLI gates before any execute-mode preview', () => {
+    it('requires approval, backup and fresh Auth inert evidence before execute-mode preview', () => {
         expect(executeGateRequested(parseFixtureCleanupArgs([
             'execute',
             '--execute-approved',
             '--backup-receipt',
             'receipt.json',
+            '--auth-inert-evidence',
+            'auth-inert-receipt.json',
         ]))).toBe(true);
         expect(executeGateRequested(parseFixtureCleanupArgs(['execute']))).toBe(false);
         expect(() => parseFixtureCleanupArgs(['preview', '--execute-approved'])).toThrow();
@@ -267,9 +273,12 @@ describe('production fixture-cleanup safety package', () => {
             gateIndex,
         );
         const executePsqlIndex = runnerSource.indexOf('sqlPath: path.join(root, FIXTURE_CLEANUP_PATHS.executeSql)');
+        const liveAuthIndex = runnerSource.indexOf('await verifyLiveProductionAuthInert(accessToken)', executePreviewIndex);
         expect(gateIndex).toBeGreaterThan(-1);
         expect(executePreviewIndex).toBeGreaterThan(gateIndex);
-        expect(executePsqlIndex).toBeGreaterThan(executePreviewIndex);
+        expect(liveAuthIndex).toBeGreaterThan(executePreviewIndex);
+        expect(executePsqlIndex).toBeGreaterThan(liveAuthIndex);
+        expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
     });
 
     it('parses only one exactly bound aggregate preview and preserves mismatch as a block signal', () => {
@@ -316,10 +325,13 @@ function fixtureDatabaseUrl(host: string): string {
 function validReceipt(createdAt: string): Record<string, unknown> {
     return {
         schemaVersion: 1,
+        receiptKind: 'supabase_production_logical_backup',
         targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+        authInertEvidenceSha256: 'e'.repeat(64),
         aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
         approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         createdAt,
+        method: 'logical_dump',
         backupCompleted: true,
         artifactStoredOutsideRepository: true,
         atRestProtection: 'windows_efs',
@@ -330,8 +342,17 @@ function validReceipt(createdAt: string): Record<string, unknown> {
         restoreProcedureReviewed: true,
         limitationsAcknowledged: [
             'storage_objects_not_included',
+            'custom_role_passwords_not_included',
             'external_stripe_google_not_included',
+            'selected_schemas_only',
         ],
+        backupFormat: 'pg_dump_custom',
+        archiveListVerified: true,
+        archiveRequiredTableDataVerified: true,
+        archiveTocEntryCount: 42,
+        artifactBytes: 1_024,
+        artifactPathRecorded: false,
+        toolVersions: { pgDump: 'pg_dump 17', pgRestore: 'pg_restore 17' },
     };
 }
 

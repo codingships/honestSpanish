@@ -423,8 +423,8 @@ function renderIntegrationReadinessWorksheet(report: FinalReadinessReport): stri
     lines.push('| Google Calendar/Meet | Confirm calendar access, Meet creation, teacher/admin impersonation and cancellation permissions. | `dashboard` or `manual_note`. |');
     lines.push('| Resend | Confirm sender/domain, DNS records, delivery visibility, bounce/suppression handling and support reply route. | `dashboard`, redacted `screenshot` or `manual_note`. |');
     lines.push('| Turnstile | Confirm production and staging domains, site key/secret per environment and lead form enforcement. Use `pnpm launch:turnstile-readonly -- --env-file <env-file>` only as runtime support; widget/domain closure still needs Cloudflare dashboard/API evidence. | `dashboard`, redacted `screenshot`, `manual_note` or `command_output`; no secret values. |');
-    lines.push('| fulfillment/reminder worker | Confirm the production scheduled trigger, Cloudflare Worker `/internal/reminders/send`, staging-only `/internal/reminders/send-exact`, `INTERNAL_JOB_SECRET`, `FULFILLMENT_WORKER_URL` and `PUBLIC_SITE_URL` align by environment. The smoke must call only the exact route. | `dashboard`, `path` or `manual_note`. |');
-    lines.push('| Cloudflare legacy Workers | Confirm no legacy Worker with cron can interfere with `workers/fulfillment`. Preflight found `espanol-honesto-reminders`; decide to disable/delete it in a controlled window or document why it is non-interfering. | `dashboard` or `manual_note` with resource name, decision and rollback path. |');
+    lines.push('| fulfillment/reminder worker | Confirm the production scheduled trigger, Cloudflare Worker `/internal/reminders/send`, staging-only `/internal/reminders/send-exact`, `INTERNAL_JOB_SECRET`, `CRON_SECRET`, `FULFILLMENT_WORKER_URL` and `PUBLIC_SITE_URL` align by environment. The smoke must call only the exact route. | `dashboard`, `path` or `manual_note`. |');
+    lines.push('| Cloudflare legacy Workers | Reconfirm that preserved Worker `espanol-honesto-reminders` remains fully neutralized: no Cron, `workers.dev` or Preview URLs, no custom domains, Worker Routes, Queue consumers, inbound service/tail bindings or email routes, and no tracked deployment path that can recreate it. | Fresh read-only `command_output`, `dashboard` or `manual_note` with the exact resource name and neutralization state. |');
     lines.push('| Stripe evidence source | If the Codex Stripe connector cannot list products/prices, use Stripe dashboard, checkout test/live evidence, webhook delivery and Supabase reconciliation instead of MCP output. | `dashboard`, `url` to Stripe event, or `manual_note`; no keys or payloads. |');
     lines.push('| final key rotation | Confirm API keys and webhook secrets have been rotated after launch preparation and stored in KeePassXC/dashboard systems. | `manual_note` with systems and dates; never key values. |');
     lines.push('');
@@ -446,7 +446,7 @@ function renderFinalSmokeWorksheet(report: FinalReadinessReport): string {
         '',
         '## Rule',
         '',
-        'Use this worksheet while filling `final_smoke` in `docs/launch/MANUAL_EVIDENCE.local.json`. The exhaustive technical lifecycle harness is staging-only; Production uses a separate minimal manual smoke at the final launch decision. Do not paste secrets, full user records, payment/card details, webhook payloads, private Drive URLs with sensitive data or unredacted screenshots.',
+        'Use this worksheet while filling `final_smoke` in `docs/launch/MANUAL_EVIDENCE.local.json`. The exhaustive technical lifecycle harness is staging-only; the production smoke is a separate minimal manual check at the final launch decision. Do not paste secrets, full user records, payment/card details, webhook payloads, private Drive URLs with sensitive data or unredacted screenshots.',
         '',
         '## Supporting Commands',
         '',

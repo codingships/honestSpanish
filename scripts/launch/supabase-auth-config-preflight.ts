@@ -1,7 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+    createProductionAuthInertReceipt,
     getSafeAuthConfig,
+    productionAuthConfigIsInert,
     redactedPreflight,
     safeErrorMessage,
     SUPABASE_ACCESS_TOKEN_ENV,
@@ -46,13 +48,29 @@ if (!target || !['staging', 'production'].includes(targetName ?? '') || process.
     } else {
         try {
             const config = await getSafeAuthConfig({ projectRef: target.projectRef, token });
+            const observedAt = new Date();
+            const productionAuthInert = targetName === 'production' && productionAuthConfigIsInert(config);
+            const receiptPath = productionAuthInert
+                ? path.join(outputDir, 'auth-inert-receipt.json')
+                : null;
+            if (receiptPath) {
+                writeFileSync(
+                    receiptPath,
+                    `${JSON.stringify(createProductionAuthInertReceipt(config, observedAt), null, 2)}\n`,
+                    'utf8',
+                );
+            }
             finish({
                 ...redactedPreflight(target, config),
-                status: 'OK',
+                status: targetName === 'production'
+                    ? productionAuthInert ? 'AUTH_INERT_VERIFIED' : 'AUTH_NOT_INERT'
+                    : 'OK',
                 startedAt: startedAt.toISOString(),
-                endedAt: new Date().toISOString(),
+                endedAt: observedAt.toISOString(),
+                authInertReceiptIssued: productionAuthInert,
+                authInertReceiptFile: receiptPath ? path.basename(receiptPath) : null,
                 externalWritePerformed: false,
-            }, 0);
+            }, targetName === 'production' && !productionAuthInert ? 2 : 0);
         } catch (error) {
             finish({
                 schemaVersion: 1,

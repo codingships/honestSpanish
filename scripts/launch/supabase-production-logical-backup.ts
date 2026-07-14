@@ -15,12 +15,25 @@ import {
     sha256,
     stableJson,
 } from './production-fixture-cleanup-shared';
+import {
+    archiveContainsRequiredTableData,
+    cipherOutputShowsEncrypted,
+} from './supabase-production-backup-artifact';
+import {
+    readProductionAuthInertEvidence,
+    safeErrorMessage,
+    SUPABASE_ACCESS_TOKEN_ENV,
+    verifyLiveProductionAuthInert,
+} from './supabase-auth-config-shared';
+
+export { archiveContainsRequiredTableData, cipherOutputShowsEncrypted } from './supabase-production-backup-artifact';
 
 type BackupMode = 'plan' | 'execute';
 
 interface BackupOptions {
     mode: BackupMode;
     destination: string | null;
+    authInertEvidencePath: string | null;
     executeApproved: boolean;
     restoreProcedureReviewed: boolean;
 }
@@ -38,24 +51,6 @@ interface AtRestValidation {
     reason: string;
 }
 
-const REQUIRED_ARCHIVE_TABLE_DATA = [
-    ['auth', 'users'],
-    ['public', 'profiles'],
-    ['public', 'profiles_private'],
-    ['public', 'packages'],
-    ['public', 'subscriptions'],
-    ['public', 'student_teachers'],
-    ['public', 'sessions'],
-    ['public', 'payments'],
-    ['public', 'leads'],
-    ['public', 'processed_webhook_events'],
-    ['public', 'fulfillment_jobs'],
-    ['public', 'jobs'],
-    ['public', 'support_tickets'],
-    ['public', 'admin_audit_log'],
-    ['public', 'teacher_availability'],
-] as const;
-
 const root = process.cwd();
 
 export function parseProductionBackupArgs(args: string[]): BackupOptions {
@@ -65,6 +60,7 @@ export function parseProductionBackupArgs(args: string[]): BackupOptions {
     }
 
     let destination: string | null = null;
+    let authInertEvidencePath: string | null = null;
     let executeApproved = false;
     let restoreProcedureReviewed = false;
     for (let index = 1; index < args.length; index += 1) {
@@ -74,6 +70,14 @@ export function parseProductionBackupArgs(args: string[]): BackupOptions {
             if (!value || value.startsWith('--')) throw new Error('--destination requires an absolute .dump path.');
             if (destination) throw new Error('--destination may only be supplied once.');
             destination = value;
+            index += 1;
+            continue;
+        }
+        if (argument === '--auth-inert-evidence') {
+            const value = args[index + 1];
+            if (!value || value.startsWith('--')) throw new Error('--auth-inert-evidence requires a JSON file path.');
+            if (authInertEvidencePath) throw new Error('--auth-inert-evidence may only be supplied once.');
+            authInertEvidencePath = value;
             index += 1;
             continue;
         }
@@ -94,32 +98,14 @@ export function parseProductionBackupArgs(args: string[]): BackupOptions {
     if (mode === 'plan' && (executeApproved || restoreProcedureReviewed)) {
         throw new Error('Execution attestations are accepted only in execute mode.');
     }
-    return { mode, destination, executeApproved, restoreProcedureReviewed };
-}
-
-export function archiveContainsRequiredTableData(archiveList: string): {
-    ok: boolean;
-    missing: string[];
-    tocEntryCount: number;
-} {
-    const missing = REQUIRED_ARCHIVE_TABLE_DATA
-        .filter(([schema, table]) => !new RegExp(
-            `\\bTABLE DATA\\s+${escapeRegExp(schema)}\\s+${escapeRegExp(table)}\\b`,
-            'u',
-        ).test(archiveList))
-        .map(([schema, table]) => `${schema}.${table}`);
-    const tocEntryCount = archiveList
-        .split(/\r?\n/u)
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0 && !line.startsWith(';'))
-        .length;
-    return { ok: missing.length === 0 && tocEntryCount > 0, missing, tocEntryCount };
+    return { mode, destination, authInertEvidencePath, executeApproved, restoreProcedureReviewed };
 }
 
 async function main(): Promise<void> {
     const startedAt = new Date();
     const outputDir = createOutputDir(startedAt);
     const options = parseProductionBackupArgs(process.argv.slice(2));
+    const authInert = readProductionAuthInertEvidence(options.authInertEvidencePath, startedAt);
 
     let destination: string | null = null;
     let destinationBindingSha256: string | null = null;
@@ -131,14 +117,20 @@ async function main(): Promise<void> {
     }
 
     if (options.mode === 'plan') {
-        const approval = destinationBindingSha256 && atRestValidation?.valid
-            ? buildProductionLogicalBackupApproval(destinationBindingSha256)
+        const approval = destinationBindingSha256 && atRestValidation?.valid && authInert.valid && authInert.sha256
+            ? buildProductionLogicalBackupApproval({
+                destinationBindingSha256,
+                authInertEvidenceSha256: authInert.sha256,
+            })
             : '<supply an absolute, new .dump destination in a verifiably Windows-EFS encrypted directory outside the repository>';
         writeFileSync(path.join(outputDir, 'approval-template.txt'), `${approval}\n`, 'utf8');
-        writeSummary(outputDir, {
-            status: destination && !atRestValidation?.valid
+        const status = !authInert.valid
+            ? 'PLAN_ONLY_BLOCKED_BY_AUTH_INERT_EVIDENCE'
+            : destination && !atRestValidation?.valid
                 ? 'BLOCKED_DESTINATION_NOT_EFS'
-                : 'PLAN_ONLY_READY',
+                : 'PLAN_ONLY_READY';
+        writeSummary(outputDir, {
+            status,
             targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
             aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
             approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
@@ -150,19 +142,33 @@ async function main(): Promise<void> {
             archiveVerification: 'pg_restore --list plus required TABLE DATA entries',
             executeRequirements: [
                 '--destination <absolute-new-path-outside-repository.dump>',
+                '--auth-inert-evidence <fresh-auth-inert-receipt.json>',
                 '--execute-approved',
                 '--restore-procedure-reviewed',
                 'destination parent verified encrypted by cipher.exe /c (Windows EFS)',
                 `${PRODUCTION_LOGICAL_BACKUP_APPROVAL_ENV}=<exact approval from this plan>`,
                 `${FIXTURE_CLEANUP_DATABASE_ENV}=<exact ${FIXTURE_CLEANUP_TARGET.projectRef} database URL>`,
+                `${SUPABASE_ACCESS_TOKEN_ENV}=<token with auth_config_read>`,
             ],
+            authInertEvidence: evidenceSummary(authInert),
             receiptContainsArtifactPath: false,
             networkAccessPerformed: false,
             databaseWritePerformed: false,
             localBackupWritten: false,
         });
-        console.log(`${destination && !atRestValidation?.valid ? 'BLOCKED_DESTINATION_NOT_EFS' : 'PLAN_ONLY_READY'}: ${path.join(outputDir, 'summary.json')}`);
+        console.log(`${status}: ${path.join(outputDir, 'summary.json')}`);
         return;
+    }
+
+    if (!authInert.valid || !authInert.sha256) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_AUTH_INERT_EVIDENCE_INVALID',
+            authInertEvidence: evidenceSummary(authInert),
+            networkAccessPerformed: false,
+            databaseWritePerformed: false,
+            localBackupWritten: false,
+        });
+        throw new Error(authInert.errors.join(' '));
     }
 
     if (!destination || !destinationBindingSha256) {
@@ -197,7 +203,10 @@ async function main(): Promise<void> {
         throw new Error('Execute mode requires --execute-approved and --restore-procedure-reviewed.');
     }
 
-    const exactApproval = buildProductionLogicalBackupApproval(destinationBindingSha256);
+    const exactApproval = buildProductionLogicalBackupApproval({
+        destinationBindingSha256,
+        authInertEvidenceSha256: authInert.sha256,
+    });
     writeFileSync(path.join(outputDir, 'exact-approval-required.txt'), `${exactApproval}\n`, 'utf8');
     if (process.env[PRODUCTION_LOGICAL_BACKUP_APPROVAL_ENV] !== exactApproval) {
         writeSummary(outputDir, {
@@ -213,6 +222,8 @@ async function main(): Promise<void> {
 
     const databaseUrl = process.env[FIXTURE_CLEANUP_DATABASE_ENV];
     if (!databaseUrl) throw new Error(`${FIXTURE_CLEANUP_DATABASE_ENV} is required for execute mode.`);
+    const accessToken = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
+    if (!accessToken) throw new Error(`${SUPABASE_ACCESS_TOKEN_ENV} is required for the final read-only Auth inert verification.`);
     const connection = buildPsqlEnvironment(databaseUrl);
     const databaseToolEnvironment = buildDatabaseToolProcessEnvironment(connection, {
         PGOPTIONS: '-c default_transaction_read_only=on -c statement_timeout=120000 -c lock_timeout=10000',
@@ -226,6 +237,33 @@ async function main(): Promise<void> {
     if (existsSync(destination)) throw new Error('Backup destination appeared after approval; overwrite remains forbidden.');
     if (!verifyWindowsEfsDirectory(destination).valid) {
         throw new Error('Windows EFS protection could not be re-verified immediately before pg_dump.');
+    }
+
+    const immediateAuthInert = readProductionAuthInertEvidence(options.authInertEvidencePath, new Date());
+    if (!immediateAuthInert.valid || immediateAuthInert.sha256 !== authInert.sha256) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION',
+            targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+            authInertEvidence: evidenceSummary(immediateAuthInert),
+            networkAccessPerformed: false,
+            databaseWritePerformed: false,
+            localBackupWritten: false,
+        });
+        throw new Error('Production Auth inert receipt expired, changed or failed immediate revalidation.');
+    }
+    try {
+        await verifyLiveProductionAuthInert(accessToken);
+    } catch (error) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_LIVE_AUTH_NOT_INERT',
+            targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+            authInertEvidenceSha256: authInert.sha256,
+            error: safeErrorMessage(error),
+            networkAccessPerformed: true,
+            databaseWritePerformed: false,
+            localBackupWritten: false,
+        });
+        throw error;
     }
 
     const dumpResult = runTool('pg_dump', [
@@ -289,10 +327,13 @@ async function main(): Promise<void> {
     const completedAt = new Date();
     const receipt = {
         schemaVersion: 1,
+        receiptKind: 'supabase_production_logical_backup',
         targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+        authInertEvidenceSha256: authInert.sha256,
         aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
         approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         createdAt: completedAt.toISOString(),
+        method: 'logical_dump',
         backupCompleted: true,
         artifactStoredOutsideRepository: true,
         atRestProtection: 'windows_efs',
@@ -303,6 +344,7 @@ async function main(): Promise<void> {
         restoreProcedureReviewed: true,
         limitationsAcknowledged: [
             'storage_objects_not_included',
+            'custom_role_passwords_not_included',
             'external_stripe_google_not_included',
             'selected_schemas_only',
         ],
@@ -324,6 +366,7 @@ async function main(): Promise<void> {
     writeSummary(outputDir, {
         status: 'BACKUP_CREATED_AND_ARCHIVE_VERIFIED',
         targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+        authInertEvidenceSha256: authInert.sha256,
         aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
         approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         destinationBindingSha256,
@@ -360,12 +403,6 @@ function runTool(
         stderr: sanitizeOutput(result.stderr ?? ''),
         error: result.error ? sanitizeOutput(result.error.message) : null,
     };
-}
-
-export function cipherOutputShowsEncrypted(output: string): boolean {
-    return output
-        .split(/\r?\n/u)
-        .some((line) => /^\s*E\s+\S/iu.test(line));
 }
 
 function verifyWindowsEfsDirectory(destination: string): AtRestValidation {
@@ -455,8 +492,13 @@ function writeSummary(outputDir: string, summary: Record<string, unknown>): void
     writeFileSync(path.join(outputDir, 'summary.json'), stableJson(summary), 'utf8');
 }
 
-function escapeRegExp(value: string): string {
-    return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+function evidenceSummary(evidence: ReturnType<typeof readProductionAuthInertEvidence>): Record<string, unknown> {
+    return {
+        provided: evidence.provided,
+        valid: evidence.valid,
+        sha256: evidence.sha256,
+        errors: evidence.errors,
+    };
 }
 
 const isMain = process.argv[1]

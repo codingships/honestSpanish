@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
 import {
     PRODUCTION_QUEUE_APPROVAL_ENV,
     PRODUCTION_QUEUE_APPROVAL_SENTENCE,
@@ -11,6 +12,13 @@ import {
     validateProductionQueueConfig,
     type QueueInventory,
 } from './cloudflare-production-queue-shared';
+import {
+    beginOneShotCloudflareWrite,
+    closeOneShotCloudflareWriteGuard,
+    openOneShotCloudflareWriteGuard,
+    recordOneShotCloudflareProviderResult,
+    recordOneShotCloudflareReadback,
+} from './cloudflare-production-one-shot-write';
 
 type CheckStatus = 'ok' | 'failed';
 type ClosureStatus = 'PLAN_READY' | 'VERIFIED_EXISTING' | 'PROVISIONED' | 'BLOCKED' | 'PARTIAL_WRITE_STOP';
@@ -69,7 +77,7 @@ const captures: CommandCapture[] = [];
 const createdQueues: string[] = [];
 let remoteReadPerformed = false;
 let externalWriteAttempted = false;
-let externalWritePerformed = false;
+let externalWritePerformed: boolean | 'unknown' = false;
 let closureStatus: ClosureStatus = 'BLOCKED';
 
 checks.push(validateLocalConfig());
@@ -155,13 +163,21 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     checks.push(commandCheck(whoami));
     if (whoami.status === 'failed') return;
 
-    const accountMatches = stripAnsi(whoami.stdout).includes(PRODUCTION_QUEUE_TARGET.accountId);
+    let accountMatches = false;
+    let identityError = 'none';
+    try {
+        verifyCloudflareWhoamiOutput(whoami.stdout, PRODUCTION_QUEUE_TARGET.accountId);
+        accountMatches = true;
+    } catch (error) {
+        identityError = error instanceof Error ? error.message : 'Cloudflare identity verification failed.';
+    }
     checks.push(accountMatches
         ? ok('exact_cloudflare_account', 'Wrangler authentication includes the exact approved Cloudflare account.', [
             `accountId=${PRODUCTION_QUEUE_TARGET.accountId}`,
         ])
         : failed('exact_cloudflare_account', 'Wrangler authentication does not prove the exact approved account.', [
             `expectedAccountId=${PRODUCTION_QUEUE_TARGET.accountId}`,
+            `error=${identityError}`,
             'externalWriteAttempted=false',
         ]));
     if (!accountMatches) return;
@@ -250,16 +266,32 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
         ]));
     if (!approvalMatches) return;
 
+    let writeGuard: ReturnType<typeof openOneShotCloudflareWriteGuard>;
+    try {
+        writeGuard = openOneShotCloudflareWriteGuard('production-queue-provision', outputDir);
+    } catch (error) {
+        checks.push(failed('queue_provision_write_lock', 'An unresolved Queue create or lock blocks retry until read-only reconciliation.', [
+            `error=${error instanceof Error ? error.message : String(error)}`,
+            'externalWriteAttempted=false',
+        ]));
+        return;
+    }
+    let dlqCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'create-production-dlq');
     externalWriteAttempted = true;
+    externalWritePerformed = 'unknown';
     const createDlq = runCommand(writeCommand('create-production-dlq', [
         'queues',
         'create',
         PRODUCTION_QUEUE_TARGET.deadLetterQueue,
     ]));
+    dlqCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, dlqCheckpoint, {
+        exitCode: createDlq.exitCode,
+        timedOut: createDlq.exitCode === null,
+        errorPresent: createDlq.status === 'failed',
+    });
     captures.push(createDlq);
     checks.push(commandCheck(createDlq));
     if (createDlq.status === 'failed') return;
-    externalWritePerformed = true;
     createdQueues.push(PRODUCTION_QUEUE_TARGET.deadLetterQueue);
 
     const dlqInfo = runCommand(readCommand('production-dlq-info-after-create', [
@@ -269,11 +301,17 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     ]));
     captures.push(dlqInfo);
     checks.push(commandCheck(dlqInfo));
-    if (dlqInfo.status === 'failed') return;
+    if (dlqInfo.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, false);
+        return;
+    }
 
     const between = readQueueInventory('queues-after-dlq');
     checks.push(inventoryCommandCheck('queue_inventory_after_dlq', between));
-    if (between.status === 'failed') return;
+    if (between.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, false);
+        return;
+    }
     const exactIntermediateState = between.inventory.deadLetterQueueCount === 1
         && between.inventory.queueCount === 0;
     checks.push(exactIntermediateState
@@ -286,13 +324,22 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
             `dlqCount=${between.inventory.deadLetterQueueCount}`,
             'partialWrite=true',
         ]));
+    dlqCheckpoint = recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, exactIntermediateState);
     if (!exactIntermediateState) return;
+    externalWritePerformed = true;
 
+    let queueCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'create-production-queue');
+    externalWritePerformed = 'unknown';
     const createQueue = runCommand(writeCommand('create-production-queue', [
         'queues',
         'create',
         PRODUCTION_QUEUE_TARGET.queue,
     ]));
+    queueCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, queueCheckpoint, {
+        exitCode: createQueue.exitCode,
+        timedOut: createQueue.exitCode === null,
+        errorPresent: createQueue.status === 'failed',
+    });
     captures.push(createQueue);
     checks.push(commandCheck(createQueue));
     if (createQueue.status === 'failed') return;
@@ -310,11 +357,17 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     ]));
     captures.push(queueInfo, finalDlqInfo);
     checks.push(commandCheck(queueInfo), commandCheck(finalDlqInfo));
-    if (queueInfo.status === 'failed' || finalDlqInfo.status === 'failed') return;
+    if (queueInfo.status === 'failed' || finalDlqInfo.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, queueCheckpoint, false);
+        return;
+    }
 
     const after = readQueueInventory('queues-after-both');
     checks.push(inventoryCommandCheck('queue_inventory_after_both', after));
-    if (after.status === 'failed') return;
+    if (after.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, queueCheckpoint, false);
+        return;
+    }
     const exactFinalState = after.inventory.queueCount === 1
         && after.inventory.deadLetterQueueCount === 1
         && createdQueues.join('|') === `${PRODUCTION_QUEUE_TARGET.deadLetterQueue}|${PRODUCTION_QUEUE_TARGET.queue}`;
@@ -329,6 +382,14 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
             `dlqCount=${after.inventory.deadLetterQueueCount}`,
             `created=${createdQueues.join(' -> ') || '<none>'}`,
         ]));
+    queueCheckpoint = recordOneShotCloudflareReadback(writeGuard, queueCheckpoint, exactFinalState);
+    if (!exactFinalState) return;
+    closeOneShotCloudflareWriteGuard(writeGuard);
+    externalWritePerformed = true;
+    checks.push(ok('queue_provision_write_checkpoints_resolved', 'Both Queue creates are remotely proven and all durable write checkpoints are resolved.', [
+        `dlqCheckpoint=${dlqCheckpoint.stage}`,
+        `queueCheckpoint=${queueCheckpoint.stage}`,
+    ]));
 }
 
 function readQueueInventory(idPrefix: string): InventoryResult {
@@ -395,9 +456,13 @@ function validateLocalConfig(): Check {
 
 function validateLocalAccountEnvironment(): Check {
     const configured = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
-    const valid = !configured || configured === PRODUCTION_QUEUE_TARGET.accountId;
+    const valid = executeRequested
+        ? configured === PRODUCTION_QUEUE_TARGET.accountId
+        : !configured || configured === PRODUCTION_QUEUE_TARGET.accountId;
     return valid
-        ? ok('local_account_environment', 'Local account override is absent or matches the exact production account.', [
+        ? ok('local_account_environment', executeRequested
+            ? 'The write-capable run explicitly selects the exact production account.'
+            : 'Local account override is absent or matches the exact production account.', [
             `expected=${PRODUCTION_QUEUE_TARGET.accountId}`,
         ])
         : failed('local_account_environment', 'CLOUDFLARE_ACCOUNT_ID points at a different account; no remote command may run.', [
@@ -417,9 +482,8 @@ function writeCommand(id: string, args: string[]): CommandSpec {
 function runCommand(spec: CommandSpec): CommandCapture {
     assertCommandScope(spec);
     const wranglerArgs = [...spec.args, '--install-skills=false'];
-    const display = `corepack pnpm --config.verify-deps-before-run=false exec wrangler ${wranglerArgs.join(' ')}`;
-    const result = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', [
-        'pnpm',
+    const display = `pnpm --config.verify-deps-before-run=false exec wrangler ${wranglerArgs.join(' ')}`;
+    const result = spawnSync(pnpmCommand(), [
         '--config.verify-deps-before-run=false',
         'exec',
         'wrangler',
@@ -583,6 +647,10 @@ function failed(name: string, message: string, details: string[]): Check {
 
 function relative(filePath: string): string {
     return path.relative(process.cwd(), filePath).split(path.sep).join('/');
+}
+
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

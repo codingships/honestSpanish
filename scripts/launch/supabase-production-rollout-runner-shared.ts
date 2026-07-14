@@ -6,13 +6,19 @@ import {
     sha256,
     stableJson,
     validateBackupReceipt,
+    type BackupReceipt,
 } from './production-fixture-cleanup-shared';
 import {
     PRODUCTION_PROJECT,
-    STAGING_ONLY_VERSION,
-    normalizeMigrationName,
+    STAGING_ONLY_MIGRATIONS,
+    STAGING_ONLY_VERSIONS,
+    isStagingOnlyMigration,
     type MigrationHistoryMapping,
 } from './supabase-production-rollout-shared';
+import {
+    validateAllowlistedHistoryDrift,
+    type HistoryReconciliationManifestEvidence,
+} from './supabase-production-history-reconciliation-consumer';
 
 export const PRODUCTION_ROLLOUT_APPROVAL_ENV = 'SUPABASE_PRODUCTION_ROLLOUT_APPROVAL';
 export const PRODUCTION_ROLLOUT_DB_URL_ENV = 'SUPABASE_DB_URL';
@@ -136,6 +142,8 @@ export interface ProductionPreflightEvidence {
         localMigrations: MigrationHistoryMapping[];
         semanticMissingCountExcludingStagingOnly: number;
         ambiguousCount: number;
+        versionNameMismatchCount: number;
+        duplicateSemanticHistoryCount: number;
     };
     aggregates: Record<string, unknown>;
     safety: {
@@ -154,6 +162,7 @@ export interface FixtureCleanupEvidence {
     approvalScopeSha256: string;
     executeSqlSha256: string;
     backupReceiptSha256: string;
+    authInertEvidenceSha256: string;
     packageStripeReferenceSha256: string;
     freezeCutoff: string;
     postconditions: {
@@ -358,6 +367,8 @@ export type GoogleFixturePolicyEvidence =
 
 export interface SentryProductionHardeningEvidence {
     schemaVersion: number;
+    evidenceContractVersion: 2;
+    artifactKind: 'sentry_production_hardening_receipt';
     endedAt: string;
     status: string;
     closureStatus: string;
@@ -365,14 +376,34 @@ export interface SentryProductionHardeningEvidence {
     executeRequested: boolean;
     externalWriteAttempted: boolean;
     externalWritePerformed: boolean;
+    externalWriteOutcomeAmbiguous: boolean;
+    executionLockRetainedForRecovery: boolean;
     rollbackAttempted: boolean;
     createdWorkflowCount: number;
     detectorFingerprint: string;
     ownerFingerprint: string;
+    rawIdentifiersPersistedInReports: false;
+    terminalProof: {
+        stableReadbacks: number;
+        exactWorkflowDefinitionsVerified: boolean;
+        workflowCount: number;
+        legacyIssueRuleCount: number;
+        scrubIPAddresses: boolean;
+        executionLockAbsent: boolean;
+        ambiguousOutcomeOutstanding: boolean;
+        rawIdentifiersPersistedInReports: false;
+    };
+    evidenceContract: {
+        rolloutEligible: boolean;
+        requiredArtifactKind: string;
+        rawIdentifiersPersistedInReports: boolean;
+    };
     expectedChanges: {
         scrubIPAddresses: boolean;
         workflows: string[];
         environment: string;
+        actions: string;
+        spikeThreshold: string;
     };
     checks: Array<{ status: string }>;
 }
@@ -404,7 +435,9 @@ export function validateProductionRolloutAllowlist(root = process.cwd()): Allowl
     for (const migrationEntry of PRODUCTION_ROLLOUT_MIGRATIONS) {
         if (versions.has(migrationEntry.version)) errors.push(`Duplicate version ${migrationEntry.version}.`);
         versions.add(migrationEntry.version);
-        if (migrationEntry.version === STAGING_ONLY_VERSION) errors.push(`Staging-only version ${STAGING_ONLY_VERSION} is forbidden.`);
+        if (isStagingOnlyMigration(migrationEntry.version)) {
+            errors.push(`Staging-only version ${migrationEntry.version} is forbidden.`);
+        }
 
         const absolutePath = path.resolve(root, migrationEntry.file);
         const relative = path.relative(path.resolve(root), absolutePath);
@@ -443,6 +476,7 @@ export function readProductionPreflightEvidence(
     evidencePath: string | null,
     now = new Date(),
     root = process.cwd(),
+    historyReconciliation: HistoryReconciliationManifestEvidence | null = null,
 ): EvidenceValidation<ProductionPreflightEvidence> {
     const loaded = readJsonEvidence<ProductionPreflightEvidence>(evidencePath);
     if (!loaded.value) return loaded;
@@ -455,6 +489,12 @@ export function readProductionPreflightEvidence(
         errors.push('Preflight safety assertions are incomplete.');
     }
     if (value.migrationInventory?.ambiguousCount !== 0) errors.push('Preflight contains ambiguous migration mappings.');
+    const knownHistoryDriftPresent = value.migrationInventory?.versionNameMismatchCount !== 0
+        || value.migrationInventory?.duplicateSemanticHistoryCount !== 0;
+    const historyExceptionErrors = knownHistoryDriftPresent
+        ? validateAllowlistedHistoryDrift(value, historyReconciliation ?? missingHistoryReconciliationEvidence())
+        : [];
+    errors.push(...historyExceptionErrors);
     requireFreshTimestamp(value.endedAt, now, PRODUCTION_PREFLIGHT_MAX_AGE_MS, 'Preflight', errors);
 
     const localMigrations = Array.isArray(value.migrationInventory?.localMigrations)
@@ -477,14 +517,29 @@ export function readProductionPreflightEvidence(
             errors.push(`Preflight migration state is unsafe for ${migrationEntry.version}: ${observed.historyStatus}.`);
         }
     }
-    const stagingOnly = localByVersion.get(STAGING_ONLY_VERSION);
-    if (!stagingOnly || stagingOnly.historyStatus !== 'missing') {
-        errors.push(`Staging-only migration ${STAGING_ONLY_VERSION} must remain absent.`);
+    for (const entry of localMigrations) {
+        if (entry.versionNameMismatch === true || entry.duplicateSemanticHistory === true) {
+            if (!knownHistoryDriftPresent || historyExceptionErrors.length > 0) {
+                errors.push(`Preflight migration history drift is unsafe for ${entry.version}.`);
+            }
+        }
+        if (entry.stagingOnly !== isStagingOnlyMigration(entry.version)) {
+            errors.push(`Preflight staging-only classification mismatch for ${entry.version}.`);
+        }
+    }
+    for (const expected of STAGING_ONLY_MIGRATIONS) {
+        const stagingOnly = localByVersion.get(expected.version);
+        if (!stagingOnly
+            || stagingOnly.name !== expected.name
+            || stagingOnly.stagingOnly !== true
+            || stagingOnly.historyStatus !== 'missing') {
+            errors.push(`Staging-only migration ${expected.version}_${expected.name} must remain present locally, classified and absent from production.`);
+        }
     }
     const allowlistedVersions = new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version));
     const unplanned = localMigrations.filter((entry) => (
         entry.historyStatus === 'missing'
-        && !entry.stagingOnly
+        && !isStagingOnlyMigration(entry.version)
         && !allowlistedVersions.has(entry.version)
     ));
     if (unplanned.length > 0) errors.push(`Preflight has unplanned semantic migrations: ${unplanned.map((entry) => entry.version).join(',')}.`);
@@ -500,11 +555,26 @@ export function readProductionPreflightEvidence(
     return { ...loaded, valid: errors.length === 0, errors };
 }
 
+function missingHistoryReconciliationEvidence(): HistoryReconciliationManifestEvidence {
+    return {
+        provided: false,
+        valid: false,
+        path: null,
+        sha256: null,
+        manifestCoreSha256: null,
+        snapshotSha256: null,
+        capturedAt: null,
+        value: null,
+        exactActivationApproval: null,
+        errors: ['not provided'],
+    };
+}
+
 export function readBackupReceiptEvidence(
     evidencePath: string | null,
     now = new Date(),
-): EvidenceValidation<Record<string, unknown>> {
-    const loaded = readJsonEvidence<Record<string, unknown>>(evidencePath);
+): EvidenceValidation<BackupReceipt> {
+    const loaded = readJsonEvidence<BackupReceipt>(evidencePath);
     if (!loaded.value) return loaded;
     const validation = validateBackupReceipt(loaded.value, now);
     return {
@@ -537,6 +607,9 @@ export function readFixtureCleanupEvidence(
     if (value.approvalScopeSha256 !== FIXTURE_CLEANUP_TARGET.approvalScopeSha256) errors.push('Fixture cleanup approval scope mismatch.');
     if (value.executeSqlSha256 !== manifest.sql?.execute?.sha256) errors.push('Fixture cleanup SQL hash mismatch.');
     if (!backupReceiptSha256 || value.backupReceiptSha256 !== backupReceiptSha256) errors.push('Fixture cleanup is not bound to the supplied backup receipt.');
+    if (!/^[a-f0-9]{64}$/u.test(value.authInertEvidenceSha256 ?? '')) {
+        errors.push('Fixture cleanup is not bound to valid Auth inert evidence.');
+    }
     if (stableJson([...(value.packagesPreserved ?? [])].sort()) !== stableJson(['bootcamp', 'group', 'hybrid', 'standard'])) {
         errors.push('Fixture cleanup did not preserve the exact canonical package set.');
     }
@@ -854,6 +927,12 @@ export function readSentryProductionHardeningEvidence(
     if (value.schemaVersion !== 1 || value.status !== 'OK' || value.closureStatus !== 'HARDENED_AND_VERIFIED') {
         errors.push('Sentry production hardening is not HARDENED_AND_VERIFIED.');
     }
+    if (value.evidenceContractVersion !== 2
+        || value.artifactKind !== 'sentry_production_hardening_receipt'
+        || value.evidenceContract?.rolloutEligible !== true
+        || value.evidenceContract?.requiredArtifactKind !== 'sentry_production_hardening_receipt') {
+        errors.push('Sentry evidence is not the rollout-eligible v2 receipt artifact.');
+    }
     if (value.target?.organization !== 'honestspanish'
         || value.target?.project !== 'espanol-honesto-astro'
         || value.target?.environment !== 'production') {
@@ -861,6 +940,27 @@ export function readSentryProductionHardeningEvidence(
     }
     if (!value.executeRequested || !value.externalWriteAttempted || !value.externalWritePerformed) {
         errors.push('Sentry evidence does not prove an executed hardening run.');
+    }
+    if (value.externalWriteOutcomeAmbiguous !== false) {
+        errors.push('Sentry hardening evidence has an ambiguous external-write outcome.');
+    }
+    if (value.executionLockRetainedForRecovery !== false) {
+        errors.push('Sentry hardening evidence still retains its recovery lock.');
+    }
+    const terminalProof = value.terminalProof;
+    if (!terminalProof
+        || !Number.isSafeInteger(terminalProof.stableReadbacks)
+        || terminalProof.stableReadbacks < 2
+        || terminalProof.exactWorkflowDefinitionsVerified !== true
+        || terminalProof.workflowCount !== 2
+        || terminalProof.legacyIssueRuleCount !== 0
+        || terminalProof.scrubIPAddresses !== true
+        || terminalProof.executionLockAbsent !== true
+        || terminalProof.ambiguousOutcomeOutstanding !== false
+        || terminalProof.rawIdentifiersPersistedInReports !== false
+        || value.rawIdentifiersPersistedInReports !== false
+        || value.evidenceContract?.rawIdentifiersPersistedInReports !== false) {
+        errors.push('Sentry receipt terminal proof is incomplete or unsafe for rollout.');
     }
     if (value.rollbackAttempted) errors.push('Sentry hardening evidence includes a rollback attempt.');
     if (value.createdWorkflowCount !== 2) errors.push('Sentry hardening did not create the exact two workflows.');
@@ -873,7 +973,9 @@ export function readSentryProductionHardeningEvidence(
             'EH Production - New and regressed errors',
             'EH Production - Error spike 10 events in 5 minutes',
         ]) || value.expectedChanges?.scrubIPAddresses !== true
-        || value.expectedChanges?.environment !== 'production') {
+        || value.expectedChanges?.environment !== 'production'
+        || value.expectedChanges?.actions !== 'email to exact organization owner'
+        || value.expectedChanges?.spikeThreshold !== '10 events in 5 minutes') {
         errors.push('Sentry hardening final workflow/privacy contract mismatch.');
     }
     if (!Array.isArray(value.checks) || value.checks.length === 0
@@ -911,6 +1013,7 @@ export function renderProductionWaveApplySql(input: {
     const semanticGate = input.wave.migrations.map((entry) => (
         `(history.version = '${sqlLiteral(entry.version)}' OR regexp_replace(coalesce(history.name, ''), '^[0-9]+_', '') = '${sqlLiteral(entry.name)}')`
     )).join('\n            OR ');
+    const stagingOnlyGate = stagingOnlyHistoryPredicate('history');
     const lines = [
         '\\set ON_ERROR_STOP on',
         'BEGIN;',
@@ -938,8 +1041,8 @@ export function renderProductionWaveApplySql(input: {
         '    ) THEN',
         `        RAISE EXCEPTION 'Wave ${input.wave.id} already has semantic history; refusing duplicate apply';`,
         '    END IF;',
-        `    IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '${STAGING_ONLY_VERSION}') THEN`,
-        `        RAISE EXCEPTION 'Staging-only migration ${STAGING_ONLY_VERSION} is forbidden in production';`,
+        `    IF EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations AS history WHERE ${stagingOnlyGate}) THEN`,
+        `        RAISE EXCEPTION 'Staging-only migrations ${STAGING_ONLY_VERSIONS.join(',')} are forbidden in production';`,
         '    END IF;',
         'END',
         '$production_rollout_history_gate$;',
@@ -979,7 +1082,7 @@ export function renderProductionLivePreflightSql(): string {
         `SELECT 'history_columns', coalesce(string_agg(column_name, ',' ORDER BY column_name), '')`,
         'FROM information_schema.columns',
         "WHERE table_schema = 'supabase_migrations' AND table_name = 'schema_migrations';",
-        `SELECT 'staging_only_count', count(*)::text FROM supabase_migrations.schema_migrations WHERE version = '${STAGING_ONLY_VERSION}';`,
+        `SELECT 'staging_only_count', count(*)::text FROM supabase_migrations.schema_migrations AS history WHERE ${stagingOnlyHistoryPredicate('history')};`,
         `SELECT 'inert_auth_users', count(*)::text FROM auth.users;`,
         `SELECT 'inert_auth_sessions', count(*)::text FROM auth.sessions;`,
         `SELECT 'inert_auth_refresh_tokens', count(*)::text FROM auth.refresh_tokens;`,
@@ -1033,7 +1136,7 @@ export function renderProductionWaveVerifySql(appliedWaves: readonly ProductionR
         "SET LOCAL statement_timeout = '30s';",
         "SET LOCAL lock_timeout = '5s';",
         `SELECT 'current_database', current_database();`,
-        `SELECT 'staging_only_absent', (NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations WHERE version = '${STAGING_ONLY_VERSION}'))::text;`,
+        `SELECT 'staging_only_absent', (NOT EXISTS (SELECT 1 FROM supabase_migrations.schema_migrations AS history WHERE ${stagingOnlyHistoryPredicate('history')}))::text;`,
         'WITH expected(version, name, source_sha256) AS (',
         `    VALUES ${historyValues || "('<none>','<none>','<none>')"}`,
         ')',
@@ -1081,7 +1184,9 @@ export function validateLiveHistoryFacts(
 ): string[] {
     const errors: string[] = [];
     if (facts.get('current_database') !== 'postgres') errors.push('Live preflight current database mismatch.');
-    if (facts.get('staging_only_count') !== '0') errors.push(`Staging-only migration ${STAGING_ONLY_VERSION} is present.`);
+    if (facts.get('staging_only_count') !== '0') {
+        errors.push(`A staging-only migration (${STAGING_ONLY_VERSIONS.join(',')}) is present.`);
+    }
     const columns = new Set((facts.get('history_columns') ?? '').split(','));
     for (const column of ['name', 'statements', 'version']) {
         if (!columns.has(column)) errors.push(`Migration history is missing ${column}.`);
@@ -1130,7 +1235,11 @@ export function buildProductionRolloutApproval(scope: {
     allowlistSha256: string;
     through: ProductionRolloutWaveId;
     preflightSha256: string;
+    historyReconciliationSha256: string;
+    liveHistoryReconciliationSqlSha256: string;
+    authInertEvidenceSha256: string;
     backupReceiptSha256: string | null;
+    backupArtifactSha256: string | null;
     cleanupEvidenceSha256: string | null;
     authPolicyEvidenceSha256: string | null;
     stagingEvidenceSha256: string | null;
@@ -1147,6 +1256,9 @@ export function buildProductionRolloutApproval(scope: {
         scope.scopeSha256,
         scope.allowlistSha256,
         scope.preflightSha256,
+        scope.historyReconciliationSha256,
+        scope.liveHistoryReconciliationSqlSha256,
+        scope.authInertEvidenceSha256,
         scope.livePreflightSqlSha256,
         scope.finalVerifySqlSha256,
         ...scope.pendingMigrations.map((entry) => entry.sha256),
@@ -1155,6 +1267,7 @@ export function buildProductionRolloutApproval(scope: {
     ];
     const optionalHashes = [
         scope.backupReceiptSha256,
+        scope.backupArtifactSha256,
         scope.cleanupEvidenceSha256,
         scope.authPolicyEvidenceSha256,
         scope.stagingEvidenceSha256,
@@ -1181,7 +1294,11 @@ export function buildProductionRolloutApproval(scope: {
         `scope=${scope.scopeSha256}`,
         `allowlist=${scope.allowlistSha256}`,
         `preflight=${scope.preflightSha256}`,
+        `history_reconciliation=${scope.historyReconciliationSha256}`,
+        `live_history_reconciliation_sql=${scope.liveHistoryReconciliationSqlSha256}`,
+        `auth_inert_evidence=${scope.authInertEvidenceSha256}`,
         `backup=${scope.backupReceiptSha256 ?? '<not-required>'}`,
+        `backup_artifact=${scope.backupArtifactSha256 ?? '<not-required>'}`,
         `cleanup=${scope.cleanupEvidenceSha256 ?? '<not-required>'}`,
         `auth_policy=${scope.authPolicyEvidenceSha256 ?? '<not-required>'}`,
         `staging_hardening=${scope.stagingEvidenceSha256 ?? '<not-required>'}`,
@@ -1193,7 +1310,7 @@ export function buildProductionRolloutApproval(scope: {
         `live_preflight_sql=${scope.livePreflightSqlSha256}`,
         `wave_verify_sql=${waveVerifyScope}`,
         `final_verify_sql=${scope.finalVerifySqlSha256}`,
-        `exclude=${STAGING_ONLY_VERSION}`,
+        `exclude=${STAGING_ONLY_VERSIONS.join(',')}`,
         'checkout=DISABLED',
         'db_push=FORBIDDEN',
         'migration_repair=FORBIDDEN',
@@ -1527,6 +1644,17 @@ function validateWavePrefix(states: WaveHistoryState[], errors: string[]): void 
 
 function sqlLiteral(value: string): string {
     return value.replace(/'/gu, "''");
+}
+
+function stagingOnlyHistoryPredicate(alias: string): string {
+    const prefix = alias ? `${alias}.` : '';
+    const versions = STAGING_ONLY_MIGRATIONS
+        .map((migration) => `'${sqlLiteral(migration.version)}'`)
+        .join(',');
+    const names = STAGING_ONLY_MIGRATIONS
+        .map((migration) => `'${sqlLiteral(migration.name)}'`)
+        .join(',');
+    return `(${prefix}version IN (${versions}) OR regexp_replace(coalesce(${prefix}name, ''), '^[0-9]+_', '') IN (${names}))`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

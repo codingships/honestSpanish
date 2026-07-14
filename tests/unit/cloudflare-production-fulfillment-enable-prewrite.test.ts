@@ -158,6 +158,44 @@ describe('Cloudflare production fulfillment enable prewrite gate', () => {
         expect(runnerSource).not.toContain('captureText(whoami).includes(target.accountId)');
     });
 
+    it('blocks bootstrap before writes on unknown Worker or non-inert Queue state', () => {
+        const verifyStart = runnerSource.indexOf('async function verifyExistingFulfillmentBootstrapBeforeDeploy()');
+        const verifyEnd = runnerSource.indexOf('function exactBootstrapSecretInventory', verifyStart);
+        const verifySource = runnerSource.slice(verifyStart, verifyEnd);
+        const bootstrapStart = runnerSource.indexOf('async function executeBootstrap()');
+        const bootstrapEnd = runnerSource.indexOf('async function verifyExistingFulfillmentBootstrapBeforeDeploy()', bootstrapStart);
+        const bootstrapSource = runnerSource.slice(bootstrapStart, bootstrapEnd);
+
+        expect(verifySource).toContain('classifyExistingCloudflareWorkerState(');
+        expect(verifySource).toContain("existingWorkerState === 'unknown'");
+        expect(verifySource).toContain("await productionQueueRuntimeProbe('bootstrap')");
+        expect(verifySource).toContain('externalWriteAttempted=false');
+        expect(bootstrapSource.indexOf('await verifyExistingFulfillmentBootstrapBeforeDeploy()'))
+            .toBeLessThan(bootstrapSource.indexOf("deployCommand('fulfillment-bootstrap-dry-run'"));
+        expect(bootstrapSource.indexOf("deployCommand('fulfillment-bootstrap-dry-run'"))
+            .toBeLessThan(bootstrapSource.indexOf("deployCommand('fulfillment-bootstrap-deploy'"));
+    });
+
+    it('proves exact Queue binding, producer, consumer, DLQ, pause and backlog state after enable and compensation', () => {
+        const enableStart = runnerSource.indexOf('async function executeEnable()');
+        const enableEnd = runnerSource.indexOf('async function reconcileEnableCheckpointAtStartup()', enableStart);
+        const enableSource = runnerSource.slice(enableStart, enableEnd);
+        const compensationStart = runnerSource.indexOf('async function compensateToBootstrap');
+        const compensationEnd = runnerSource.indexOf('function command(', compensationStart);
+        const compensationSource = runnerSource.slice(compensationStart, compensationEnd);
+
+        expect(enableSource).toContain("queueVersionBindingProbe(freshFulfillmentVersion, 'bootstrap', 'immediately-before-enable')");
+        expect(enableSource).toContain("queueVersionBindingProbe(afterVersionId, 'active', 'after-enable')");
+        expect(enableSource).toContain("await productionQueueRuntimeProbe('active')");
+        expect(compensationSource).toContain("queueVersionBindingProbe(versionId, 'bootstrap', 'after-compensation')");
+        expect(compensationSource).toContain("await productionQueueRuntimeProbe('bootstrap')");
+        for (const contract of [
+            'deliveryPaused=false',
+            "attachments=${expectedMode === 'active' ? 'producer=1,consumer=1' : 'producer=0,consumer=0'}",
+            'backlog=0',
+        ]) expect(runnerSource).toContain(contract);
+    });
+
     it('persists an atomic durable pending checkpoint before the first active deploy', () => {
         const enableStart = runnerSource.indexOf('async function executeEnable()');
         const enableEnd = runnerSource.indexOf('async function reconcileEnableCheckpointAtStartup()', enableStart);

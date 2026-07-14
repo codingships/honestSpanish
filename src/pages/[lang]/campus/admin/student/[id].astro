@@ -11,6 +11,7 @@ import CrmContactActions from '../../../../../components/admin/CrmContactActions
 import CrmConsentManager from '../../../../../components/admin/CrmConsentManager';
 import CrmOpportunityList from '../../../../../components/admin/CrmOpportunityList';
 import CrmTaskList from '../../../../../components/admin/CrmTaskList';
+import ProgressBar from '../../../../../components/ProgressBar.astro';
 import type { Json } from '../../../../../types/database.types';
 
 export const prerender = false;
@@ -237,12 +238,6 @@ const timelineItems = [
     }] : []),
 ].sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()).slice(0, 15);
 
-const sessionsUsed = subscription?.sessions_used ?? 0;
-const sessionsTotal = subscription?.sessions_total ?? 0;
-const progressPercent = subscription && sessionsTotal > 0
-    ? Math.round((sessionsUsed / sessionsTotal) * 100)
-    : 0;
-
 const teacher = teacherAssignment?.profiles ?? null;
 
 // Modal translations
@@ -387,12 +382,11 @@ const assignModalTranslations = {
                             <span class="font-mono">Sesiones</span>
                             <span class="font-bold">{subscription.sessions_used} / {subscription.sessions_total}</span>
                         </div>
-                        <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
-                            <div 
-                                class="bg-[#006064] h-full transition-all"
-                                style={`width: ${progressPercent}%`}
-                            ></div>
-                        </div>
+                        <ProgressBar
+                            value={subscription.sessions_used}
+                            max={subscription.sessions_total}
+                            label="Sesiones"
+                        />
                     </div>
                 </div>
             ) : (

@@ -47,6 +47,23 @@ const envMode = e2eRuntimeIsolated
     ? 'test'
     : process.env.CLOUDFLARE_ENV || process.env.NODE_ENV || 'staging';
 const env = loadEnv(envMode, envDirectory, '');
+const cloudflareTarget = process.env.CLOUDFLARE_ENV;
+const expectedAppEnvironmentByTarget = {
+    staging: 'staging',
+    production_bootstrap: 'production',
+    production: 'production',
+};
+const expectedAppEnvironment = expectedAppEnvironmentByTarget[cloudflareTarget];
+if (!e2eRuntimeIsolated) {
+    if (!expectedAppEnvironment) {
+        throw new Error(`[env] Refused unknown Cloudflare target: ${cloudflareTarget || '<missing>'}`);
+    }
+    if (env.PUBLIC_APP_ENV?.trim().toLowerCase() !== expectedAppEnvironment) {
+        throw new Error(
+            `[env] Refused ${cloudflareTarget}: PUBLIC_APP_ENV must be exactly ${expectedAppEnvironment}.`,
+        );
+    }
+}
 const legalIdentitySource = readFileSync(new URL('./src/lib/legal-identity.ts', import.meta.url), 'utf8');
 const legalIdentityIsExample = /LEGAL_IDENTITY_MODE\s*=\s*['"]example['"]/.test(legalIdentitySource);
 const productionBootstrap = env.PUBLIC_APP_ENV === 'production'
@@ -61,7 +78,7 @@ const productionBootstrap = env.PUBLIC_APP_ENV === 'production'
 if (process.env.CLOUDFLARE_ENV === 'production_bootstrap' && !productionBootstrap) {
     throw new Error('[production-bootstrap] Refused: production bootstrap must keep web, checkout and email inert.');
 }
-if (env.PUBLIC_APP_ENV === 'production' && legalIdentityIsExample && !productionBootstrap) {
+if (cloudflareTarget === 'production' && legalIdentityIsExample) {
     throw new Error('[legal-identity] Production build refused: replace example legal identity with verified public data.');
 }
 const e2eProcessKeys = [
@@ -139,10 +156,72 @@ const sentryEnvironment = env.SENTRY_ENVIRONMENT || (localRuntime ? `local-${pro
 const sentryIntegrationEnabled = Boolean((sentryDsn || sentrySourcemapsEnabled) && !externalIntegrationsDisabled);
 const keystaticEnabled = env.KEYSTATIC_ENABLED === 'true' && process.env.NODE_ENV !== 'production';
 
+function trustedHttpsOrigin(value, hostnameSuffix) {
+    if (!value) return null;
+
+    try {
+        const url = new URL(value);
+        const hostname = url.hostname.toLowerCase();
+        if (
+            url.protocol !== 'https:' ||
+            (hostname !== hostnameSuffix && !hostname.endsWith(`.${hostnameSuffix}`))
+        ) {
+            return null;
+        }
+        return url.origin;
+    } catch {
+        return null;
+    }
+}
+
+const supabaseCspOrigin = trustedHttpsOrigin(env.PUBLIC_SUPABASE_URL, 'supabase.co');
+const sentryCspOrigin = trustedHttpsOrigin(sentryDsn, 'sentry.io');
+const cspConnectResources = [
+    "'self'",
+    'https://challenges.cloudflare.com',
+    ...(supabaseCspOrigin
+        ? [supabaseCspOrigin, supabaseCspOrigin.replace(/^https:/u, 'wss:')]
+        : []),
+    ...(sentryCspOrigin ? [sentryCspOrigin] : []),
+];
+
 // https://astro.build/config
 export default defineConfig({
     site: 'https://espanolhonesto.com',
     output: 'server',
+    markdown: {
+        // Shiki emits inline styles that cannot satisfy Astro's hash-based CSP.
+        syntaxHighlight: 'prism',
+    },
+    security: {
+        csp: {
+            algorithm: 'SHA-256',
+            directives: [
+                "default-src 'self'",
+                "base-uri 'none'",
+                "object-src 'none'",
+                "form-action 'self'",
+                "img-src 'self' data:",
+                `connect-src ${cspConnectResources.join(' ')}`,
+                "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+                "frame-src 'self' https://challenges.cloudflare.com",
+                "manifest-src 'self'",
+                "media-src 'none'",
+                "worker-src 'self'",
+                'upgrade-insecure-requests',
+            ],
+            scriptDirective: {
+                resources: ["'self'", 'https://challenges.cloudflare.com'],
+            },
+            styleDirective: {
+                resources: [
+                    "'self'",
+                    'https://fonts.googleapis.com',
+                    'https://cdnjs.cloudflare.com',
+                ],
+            },
+        },
+    },
     // The application uses Supabase cookies and never Astro sessions. An
     // in-memory no-op-sized driver avoids auto-provisioning a Cloudflare KV
     // namespace that the runtime would not use.

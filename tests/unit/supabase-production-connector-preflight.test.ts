@@ -19,7 +19,7 @@ import {
 } from '../../scripts/launch/supabase-production-connector-preflight';
 import {
     PRODUCTION_PROJECT,
-    STAGING_ONLY_VERSION,
+    STAGING_ONLY_MIGRATIONS,
     collectLocalMigrations,
 } from '../../scripts/launch/supabase-production-rollout-shared';
 import {
@@ -89,11 +89,25 @@ describe('Supabase production connector preflight importer', () => {
         expect(result.report.migrationInventory.localMigrations)
             .toEqual(expect.arrayContaining([
                 expect.objectContaining({ version: '20260712112000', historyStatus: 'missing' }),
-                expect.objectContaining({ version: STAGING_ONLY_VERSION, historyStatus: 'missing' }),
+                ...STAGING_ONLY_MIGRATIONS.map((migration) => expect.objectContaining({
+                    ...migration,
+                    stagingOnly: true,
+                    historyStatus: 'missing',
+                })),
             ]));
+        expect(result.report.migrationInventory.semanticMissingCountExcludingStagingOnly).toBe(25);
         expect(readProductionPreflightEvidence(result.summaryPath, now, root))
             .toMatchObject({ valid: true, errors: [] });
     });
+
+    it.each(STAGING_ONLY_MIGRATIONS)(
+        'fails closed when staging-only history is present for $version',
+        (migration) => {
+            const snapshot = validSnapshot();
+            snapshot.remoteMigrations.push({ ...migration });
+            expectImportToFail(snapshot, 'missing, misclassified or not absent from production');
+        },
+    );
 
     it('accepts the exact aggregate-only rollout evidence shapes while keeping them optional', () => {
         const snapshot = validSnapshot();
@@ -164,46 +178,22 @@ describe('Supabase production connector preflight importer', () => {
         expectImportToFail(wrongRegion, 'production identity mismatch');
     });
 
-    it('preserves known historical version/name drift as a warning without laundering it', () => {
+    it('rejects known historical version/name drift fail-closed', () => {
         const snapshot = validSnapshot();
         const historical009 = snapshot.remoteMigrations.find((migration) => migration.version === '009');
         expect(historical009).toBeDefined();
         historical009!.name = 'jobs';
-
-        const result = importProductionConnectorPreflight({
-            snapshotPath: writeSnapshot(snapshot),
-            root,
-            now,
-        });
-        expect(result.report.migrationInventory.versionNameMismatchCount).toBe(1);
-        expect(result.report.checks).toContainEqual(expect.objectContaining({
-            name: 'local_migration_reconciliation',
-            status: 'warning',
-        }));
-        expect(readProductionPreflightEvidence(result.summaryPath, now, root))
-            .toMatchObject({ valid: true, errors: [] });
+        expectImportToFail(snapshot, 'version/name drift');
     });
 
-    it('preserves the real duplicate semantic history aliases as warnings', () => {
+    it('rejects duplicate semantic history fail-closed', () => {
         const snapshot = validSnapshot();
         snapshot.remoteMigrations.push(
             { version: '20260703192245', name: '021_harden_session_write_policies' },
             { version: '20260703192307', name: '022_track_stripe_webhook_processing_state' },
             { version: '20260703192329', name: '20260702124757_harden_profile_role_trigger' },
         );
-
-        const result = importProductionConnectorPreflight({
-            snapshotPath: writeSnapshot(snapshot),
-            root,
-            now,
-        });
-        expect(result.report.migrationInventory.duplicateSemanticHistoryCount).toBe(3);
-        expect(result.report.checks).toContainEqual(expect.objectContaining({
-            name: 'local_migration_reconciliation',
-            status: 'warning',
-        }));
-        expect(readProductionPreflightEvidence(result.summaryPath, now, root))
-            .toMatchObject({ valid: true, errors: [] });
+        expectImportToFail(snapshot, 'duplicate semantic entries');
     });
 
     it('rejects stale and future captures instead of refreshing their evidence time', () => {

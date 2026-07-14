@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -21,6 +21,9 @@ import {
     releaseWorkerWriteExecutionLock,
     requireRecoverableWorkerWriteExecutionLock,
     resolveCanonicalWorkerWriteCheckpoint,
+    productionActiveProviderBindingNames,
+    productionBootstrapSecretInventoryErrors,
+    productionInertBindingNameErrors,
     startWorkerWriteCheckpoint,
     summarizeWorkerWriteCheckpoints,
 } from '../../scripts/launch/cloudflare-production-worker-safety';
@@ -57,6 +60,41 @@ describe('Cloudflare production web write safety', () => {
             { name: 'INTERNAL_JOB_SECRET' },
             { name: 'UNEXPECTED_SECRET' },
         ]), ['INTERNAL_JOB_SECRET'])).toThrow(/inventory mismatch/i);
+    });
+
+    it('fails closed unless a visible inert Worker has exactly the HMAC secret name', () => {
+        expect(productionBootstrapSecretInventoryErrors(true, ['INTERNAL_JOB_SECRET'])).toEqual([]);
+        expect(productionBootstrapSecretInventoryErrors(false, [])).toEqual([]);
+        expect(productionBootstrapSecretInventoryErrors(true, [])).toContainEqual(expect.stringMatching(/must be exactly/i));
+        expect(productionBootstrapSecretInventoryErrors(true, [
+            'INTERNAL_JOB_SECRET',
+            'STRIPE_SECRET_KEY',
+        ])).toContainEqual(expect.stringMatching(/STRIPE_SECRET_KEY/));
+        expect(productionBootstrapSecretInventoryErrors(false, ['INTERNAL_JOB_SECRET']))
+            .toContainEqual(expect.stringMatching(/without a visible production Worker/i));
+    });
+
+    it('rejects every active provider binding and the fulfillment Queue from inert versions', () => {
+        expect(productionInertBindingNameErrors('web', [
+            'WEB_RUNTIME_MODE',
+            'CHECKOUT_ENABLED',
+            'INTERNAL_JOB_SECRET',
+            'FULFILLMENT_SERVICE',
+        ])).toEqual([]);
+        expect(productionInertBindingNameErrors('fulfillment', [
+            'FULFILLMENT_RUNTIME_MODE',
+            'CHECKOUT_ENABLED',
+            'INTERNAL_JOB_SECRET',
+        ])).toEqual([]);
+
+        for (const name of productionActiveProviderBindingNames) {
+            expect(productionInertBindingNameErrors('web', ['WEB_RUNTIME_MODE', name]))
+                .toContainEqual(expect.stringContaining(name));
+        }
+        expect(productionInertBindingNameErrors('fulfillment', ['FULFILLMENT_QUEUE']))
+            .toContain('FULFILLMENT_QUEUE must be absent from inert fulfillment');
+        expect(productionInertBindingNameErrors('web', ['INTERNAL_JOB_SECRET', 'INTERNAL_JOB_SECRET']))
+            .toContain('duplicate binding names: INTERNAL_JOB_SECRET');
     });
 
     it('rejects Google in the exact remote version for secret and plain bindings', () => {
@@ -206,6 +244,21 @@ describe('Cloudflare production web write safety', () => {
 
             expect(() => releaseWorkerWriteExecutionLock(lock, oldOwner)).toThrow(/ownership changed/i);
             expect(readWorkerWriteExecutionLock(lock)).toEqual(replacementOwner);
+        } finally {
+            rmSync(root, { force: true, recursive: true });
+        }
+    });
+
+    it('never deletes another contender lock while its owner file is being persisted', () => {
+        const root = mkdtempSync(path.join(tmpdir(), 'worker-write-partial-owner-'));
+        const lock = path.join(root, 'write.lock');
+        try {
+            // Models the interval after the winning process has atomically
+            // created the lock directory and before owner.json is durable.
+            mkdirSync(lock);
+
+            expect(() => acquireWorkerWriteExecutionLock(lock, 'contending-run')).toThrow();
+            expect(existsSync(lock)).toBe(true);
         } finally {
             rmSync(root, { force: true, recursive: true });
         }

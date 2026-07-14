@@ -75,6 +75,7 @@ export interface PublicCleanupReceipt {
     aggregateSnapshotSha256: string;
     approvalScopeSha256: string;
     backupReceiptSha256: string;
+    authInertEvidenceSha256: string;
     executeSqlSha256: string;
     freezeCutoff: string;
     postconditions: {
@@ -109,6 +110,7 @@ export interface ValidationResult<T> {
 
 export interface AuthQuarantineConfig {
     disableSignup: boolean;
+    mailerAutoconfirm: boolean;
     jwtExpirySeconds: number;
     jwtExpirySource: 'management_api' | 'conservative_default';
 }
@@ -376,6 +378,9 @@ export function validateCleanupInputs(input: {
     if (publicReceipt.backupReceiptSha256 !== backup.sha256) {
         errors.push('Public cleanup receipt is not bound to the supplied backup receipt.');
     }
+    if (!/^[a-f0-9]{64}$/u.test(publicReceipt.authInertEvidenceSha256 ?? '')) {
+        errors.push('Public cleanup receipt is not bound to valid Auth inert evidence.');
+    }
     if (publicReceipt.executeSqlSha256 !== manifest.sql.execute.sha256) {
         errors.push('Public cleanup execute SQL hash mismatch.');
     }
@@ -425,11 +430,18 @@ export function validateCleanupInputs(input: {
 }
 
 export function selectAuthQuarantineConfig(payload: unknown): ValidationResult<AuthQuarantineConfig> {
-    if (!isRecord(payload) || typeof payload.disable_signup !== 'boolean') {
-        return { ok: false, errors: ['Auth config response is missing disable_signup.'], value: null };
+    if (!isRecord(payload)
+        || typeof payload.disable_signup !== 'boolean'
+        || typeof payload.mailer_autoconfirm !== 'boolean') {
+        return {
+            ok: false,
+            errors: ['Auth config response is missing disable_signup or mailer_autoconfirm.'],
+            value: null,
+        };
     }
     const errors: string[] = [];
     if (!payload.disable_signup) errors.push('Supabase production signup is not disabled.');
+    if (payload.mailer_autoconfirm) errors.push('Supabase production mailer autoconfirm is not disabled.');
 
     let jwtExpirySeconds = PRODUCTION_AUTH_DEFAULT_JWT_EXPIRY_SECONDS;
     let jwtExpirySource: AuthQuarantineConfig['jwtExpirySource'] = 'conservative_default';
@@ -443,7 +455,12 @@ export function selectAuthQuarantineConfig(payload: unknown): ValidationResult<A
     return {
         ok: errors.length === 0,
         errors,
-        value: errors.length === 0 ? { disableSignup: true, jwtExpirySeconds, jwtExpirySource } : null,
+        value: errors.length === 0 ? {
+            disableSignup: true,
+            mailerAutoconfirm: false,
+            jwtExpirySeconds,
+            jwtExpirySource,
+        } : null,
     };
 }
 

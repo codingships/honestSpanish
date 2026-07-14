@@ -9,6 +9,14 @@ import {
     verifyRuntimeAttestation,
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
+import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
+import {
+    beginOneShotCloudflareWrite,
+    closeOneShotCloudflareWriteGuard,
+    openOneShotCloudflareWriteGuard,
+    recordOneShotCloudflareProviderResult,
+    recordOneShotCloudflareReadback,
+} from './cloudflare-production-one-shot-write';
 
 type CheckStatus = 'ok' | 'failed';
 
@@ -84,7 +92,7 @@ mkdirSync(outputDir, { recursive: true });
 const checks: Check[] = [validatePackageScript(), validateWranglerConfig()];
 const captures: CommandCapture[] = [];
 let externalWriteAttempted = false;
-let externalWritePerformed = false;
+let externalWritePerformed: boolean | 'unknown' = false;
 
 if (executeRequested && checks.some((check) => check.status === 'failed')) {
     checks.push(failed('initial_validation_gate', 'Local safety validation failed; no Cloudflare command ran.', [
@@ -175,7 +183,15 @@ async function runApprovedExecution(): Promise<void> {
     const deployments = captureById(commandSet.deployments.id);
     const secretListBefore = captureById(commandSet.secretList.id);
     const versionBefore = deploymentVersionId(deployments);
-    const remoteTargetOk = captureText(whoami).includes(target.accountId) && Boolean(versionBefore);
+    let accountMatched = false;
+    let identityError = 'none';
+    try {
+        verifyCloudflareWhoamiOutput(captureText(whoami), target.accountId);
+        accountMatched = true;
+    } catch (error) {
+        identityError = safeError(error);
+    }
+    const remoteTargetOk = accountMatched && Boolean(versionBefore);
     checks.push(remoteTargetOk
         ? ok('remote_target_pre_write_gate', 'Read-only evidence proves the exact account, Worker and version.', [
             `account=${target.accountId}`,
@@ -183,6 +199,8 @@ async function runApprovedExecution(): Promise<void> {
             `version=${versionBefore}`,
         ])
         : failed('remote_target_pre_write_gate', 'Exact remote account/Worker/version was not proven.', [
+            `accountMatched=${String(accountMatched)}`,
+            `identityError=${identityError}`,
             'externalWriteAttempted=false',
         ]));
     if (!remoteTargetOk || !versionBefore || !secretListBefore) return;
@@ -198,29 +216,51 @@ async function runApprovedExecution(): Promise<void> {
         if (probe.status === 'failed') return;
     }
 
-    for (const name of requiredSecretNames) {
-        const command = secretPutCommand(name);
-        externalWriteAttempted = true;
-        const capture = runCommand(command, `${secretValue(name)}\n`);
-        captures.push(capture);
-        checks.push(commandCheck(capture));
-        if (capture.status === 'failed') return;
-        externalWritePerformed = true;
+    let writeGuard: ReturnType<typeof openOneShotCloudflareWriteGuard>;
+    try {
+        writeGuard = openOneShotCloudflareWriteGuard('fulfillment-bootstrap-hmac-secret', outputDir);
+    } catch (error) {
+        checks.push(failed('bootstrap_hmac_write_lock', 'An unresolved HMAC write or lock blocks retry until read-only reconciliation.', [
+            safeError(error),
+            'externalWriteAttempted=false',
+        ]));
+        return;
     }
+    const name = requiredSecretNames[0];
+    const command = secretPutCommand(name);
+    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, command.id);
+    externalWriteAttempted = true;
+    externalWritePerformed = 'unknown';
+    const capture = runCommand(command, `${secretValue(name)}\n`);
+    writeCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, writeCheckpoint, {
+        exitCode: capture.exitCode,
+        timedOut: capture.exitCode === null,
+        errorPresent: capture.status === 'failed',
+    });
+    captures.push(capture);
+    checks.push(commandCheck(capture));
+    if (capture.status === 'failed') return;
 
     const secretListAfter = runCommand({ ...commandSet.secretList, id: 'fulfillment-bootstrap-secret-list-after' });
     captures.push(secretListAfter);
     checks.push(commandCheck(secretListAfter));
-    if (secretListAfter.status === 'failed') return;
+    if (secretListAfter.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+        return;
+    }
     const afterShape = validateMinimalSecretShape(secretListAfter, true, 'after_write');
     checks.push(afterShape);
-    if (afterShape.status === 'failed') return;
+    if (afterShape.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+        return;
+    }
 
     const deploymentsAfter = runCommand({ ...commandSet.deployments, id: 'fulfillment-bootstrap-deployments-after-secret' });
     captures.push(deploymentsAfter);
     checks.push(commandCheck(deploymentsAfter));
     const versionAfter = deploymentVersionId(deploymentsAfter);
     if (deploymentsAfter.status === 'failed' || !versionAfter) {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
         checks.push(failed('post_write_deployment_version', 'The version created by the minimal secret write was not proven.', []));
         return;
     }
@@ -232,8 +272,17 @@ async function runApprovedExecution(): Promise<void> {
         await noCronProbe(),
     ]) {
         checks.push(probe);
-        if (probe.status === 'failed') return;
+        if (probe.status === 'failed') {
+            recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+            return;
+        }
     }
+    writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, true);
+    closeOneShotCloudflareWriteGuard(writeGuard);
+    externalWritePerformed = true;
+    checks.push(ok('bootstrap_hmac_write_checkpoint_resolved', 'The HMAC-only secret write is proven remotely and its durable checkpoint is resolved.', [
+        `checkpointStage=${writeCheckpoint.stage}`,
+    ]));
 }
 
 function validateExecutionEnvironment(): Check {
@@ -246,6 +295,7 @@ function validateExecutionEnvironment(): Check {
         process.env.WORKER_IDENTITY?.trim() === target.worker ? null : 'WORKER_IDENTITY',
         normalizeOrigin(process.env.PUBLIC_SITE_URL) === target.site ? null : 'PUBLIC_SITE_URL',
         normalizeDirectUrl(process.env[directUrlEnvVar]) ? null : directUrlEnvVar,
+        process.env.CLOUDFLARE_API_TOKEN?.trim() ? null : 'CLOUDFLARE_API_TOKEN',
         secret && !isPlaceholder(secret) ? null : 'INTERNAL_JOB_SECRET',
     ].filter((value): value is string => Boolean(value));
     return mismatches.length === 0
@@ -253,7 +303,7 @@ function validateExecutionEnvironment(): Check {
             'requiredSecretNames=INTERNAL_JOB_SECRET',
             `withheld=${explicitlyWithheldSecretNames.join(',')}`,
         ])
-        : failed('execution_environment_gate', 'Approval, HMAC input or target facts are incomplete.', [
+        : failed('execution_environment_gate', 'Approval, HMAC input, remote-read token or target facts are incomplete.', [
             `mismatches=${mismatches.join(',') || 'none'}`,
             'externalWritePerformed=false',
         ]);
@@ -421,23 +471,10 @@ async function directRuntimeAttestation(baseUrl: string, expectedVersionId: stri
 
 async function noCronProbe(): Promise<Check> {
     if (!process.env.CLOUDFLARE_API_TOKEN?.trim()) {
-        const source = readFileSync(target.config, 'utf8');
-        const bootstrapStart = source.indexOf('[env.production_bootstrap]');
-        const activeStart = source.indexOf('[env.production]');
-        const bootstrap = bootstrapStart >= 0 && activeStart > bootstrapStart
-            ? source.slice(bootstrapStart, activeStart)
-            : '';
-        const zeroCronConfig = bootstrap.includes('[env.production_bootstrap.triggers]')
-            && bootstrap.includes('crons = []');
-        return zeroCronConfig
-            ? ok('fulfillment_bootstrap_no_cron', 'The deployed bootstrap source pins zero Cron Triggers; the connected Cloudflare API must independently confirm the remote schedule count before the web deploy.', [
-                'scheduleCountFromConfig=0',
-                'verificationMode=wrangler_oauth_plus_connector_followup',
-                'cloudflareApiTokenRequired=false',
-            ])
-            : failed('fulfillment_bootstrap_no_cron', 'The bootstrap source does not prove an empty Cron Trigger set.', [
-                'verificationMode=config_fallback',
-            ]);
+        return failed('fulfillment_bootstrap_no_cron', 'Remote Cron state cannot be proven without the Cloudflare API token.', [
+            'verificationMode=remote_api_required',
+            'configFallbackAccepted=false',
+        ]);
     }
     try {
         const response = await fetch(
@@ -494,7 +531,7 @@ function secretPutCommand(name: (typeof requiredSecretNames)[number]): CommandSp
 }
 
 function runCommand(command: CommandSpec, input?: string): CommandCapture {
-    const result = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', ['pnpm', ...command.args], {
+    const result = spawnSync(pnpmCommand(), command.args, {
         cwd: process.cwd(),
         encoding: 'utf8',
         env: process.env,
@@ -520,6 +557,10 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         stderr || '(empty)',
     ].join('\n'), 'utf8');
     return { id: command.id, display: command.display, outputPath, exitCode: result.status, status, writesCloudflare: command.writesCloudflare };
+}
+
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function validateSecretName(value: unknown): value is string {

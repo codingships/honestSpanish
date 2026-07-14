@@ -4,6 +4,39 @@ import { describe, expect, it } from 'vitest';
 const read = (file: string) => readFileSync(file, 'utf8');
 
 describe('Cloudflare launch environment safety', () => {
+    it('binds every build target to its exact public application environment', () => {
+        const astroConfig = read('astro.config.mjs');
+
+        expect(astroConfig).toContain("staging: 'staging'");
+        expect(astroConfig).toContain("production_bootstrap: 'production'");
+        expect(astroConfig).toContain("production: 'production'");
+        expect(astroConfig).toContain('Refused unknown Cloudflare target');
+        expect(astroConfig).toContain('PUBLIC_APP_ENV must be exactly');
+        expect(astroConfig).toContain("cloudflareTarget === 'production' && legalIdentityIsExample");
+    });
+
+    it('runs generic CI Astro steps against the explicit inert staging target', () => {
+        const workflow = read('.github/workflows/ci.yml');
+        const buildAndTestJob = workflow.slice(
+            workflow.indexOf('  build-and-test:'),
+            workflow.indexOf('  deploy-cloudflare:'),
+        );
+        const syncStep = buildAndTestJob.slice(
+            buildAndTestJob.indexOf('      - name: Sync Astro types'),
+            buildAndTestJob.indexOf('      - name: Check types'),
+        );
+        const buildStep = buildAndTestJob.slice(
+            buildAndTestJob.indexOf('      - name: Build'),
+            buildAndTestJob.indexOf('      - name: Cache Playwright browsers'),
+        );
+
+        for (const step of [syncStep, buildStep]) {
+            expect(step).toContain('CLOUDFLARE_ENV: "staging"');
+            expect(step).toContain('PUBLIC_APP_ENV: "staging"');
+        }
+        expect(buildStep).not.toContain('PUBLIC_APP_ENV: "test"');
+    });
+
     it('deploys Astro 6 web packages only from the build-resolved Wrangler config', () => {
         const deployer = read('scripts/dev/deploy-built-worker.ts');
         const packageJson = read('package.json');
@@ -42,6 +75,17 @@ describe('Cloudflare launch environment safety', () => {
         expect(web).toContain('preview_urls = false');
         expect(fulfillment).toMatch(/^name = "espanol-honesto-fulfillment-env-required"/mu);
         expect(fulfillment).toContain('name = "espanol-honesto-fulfillment-production"');
+        const webBootstrap = web.slice(web.indexOf('[env.production_bootstrap]'), web.indexOf('[env.production]'));
+        const webProduction = web.slice(web.indexOf('[env.production]'));
+        const fulfillmentBootstrap = fulfillment.slice(
+            fulfillment.indexOf('[env.production_bootstrap]'),
+            fulfillment.indexOf('[env.production]'),
+        );
+        const fulfillmentProduction = fulfillment.slice(fulfillment.indexOf('[env.production]'));
+        for (const productionSection of [webBootstrap, webProduction, fulfillmentBootstrap, fulfillmentProduction]) {
+            expect(productionSection).toContain('workers_dev = true');
+            expect(productionSection).toContain('preview_urls = false');
+        }
     });
 
     it('keeps main production read-only while staging retains explicit automatic deploys', () => {
@@ -270,6 +314,15 @@ describe('Cloudflare launch environment safety', () => {
         expect(webRunner).toContain("config.googleBoundary === 'absent'");
         expect(webRunner).toContain('initial_validation_gate');
         expect(webRunner).toContain('externalWriteAttempted = true');
+    });
+
+    it('documents the canonical production manual order without loading final providers before web bootstrap', () => {
+        const workflow = read('.github/workflows/ci.yml');
+        const order = workflow.match(/Required manual order: ([^"\r\n]+)/u)?.[1] ?? '';
+
+        expect(order).toContain('fulfillment HMAC-only secret -> web bootstrap -> web HMAC-only secret');
+        expect(order.indexOf('web HMAC-only secret')).toBeLessThan(order.indexOf('fulfillment final secrets'));
+        expect(order.indexOf('fulfillment final secrets')).toBeLessThan(order.indexOf('web active deploy/final secrets'));
     });
 
     it('binds runtime attestations to the expected Supabase ref and exact production identities', () => {

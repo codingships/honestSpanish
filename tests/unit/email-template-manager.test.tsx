@@ -38,7 +38,11 @@ describe('EmailTemplateManager', () => {
 
         render(<EmailTemplateManager adminEmail="admin@example.com" />);
 
-        expect(await screen.findByTitle('Email preview')).toHaveAttribute('srcdoc', '<p>Hola</p>');
+        expect(await screen.findByTitle('Email preview')).toHaveAttribute(
+            'src',
+            '/api/email/preview-frame?type=welcome&locale=en',
+        );
+        expect(screen.getByTitle('Email preview')).not.toHaveAttribute('srcdoc');
         expect(screen.getByText('Bienvenida')).toBeInTheDocument();
         fireEvent.change(screen.getByLabelText('Destinatario prueba'), {
             target: { value: '  qa@example.com  ' },

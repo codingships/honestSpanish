@@ -747,16 +747,16 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
         if (isOpen) {
             content.hidden = false;
             requestAnimationFrame(() => {
-                content.style.maxHeight = `${content.scrollHeight}px`;
-                content.style.opacity = '1';
+                content.classList.remove('max-h-0', 'opacity-0');
+                content.classList.add('max-h-[64rem]', 'opacity-100');
             });
-            if (icon) icon.style.transform = 'rotate(45deg)';
+            icon?.classList.add('rotate-45');
             return;
         }
 
-        content.style.maxHeight = '0';
-        content.style.opacity = '0';
-        if (icon) icon.style.transform = 'rotate(0deg)';
+        content.classList.add('max-h-0', 'opacity-0');
+        content.classList.remove('max-h-[64rem]', 'opacity-100');
+        icon?.classList.remove('rotate-45');
 
         window.setTimeout(() => {
             if (button.getAttribute('aria-expanded') !== 'true') {
@@ -806,7 +806,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
             }
             menuBtn?.classList.add('is-open', 'bg-transparent', 'text-white', 'border-transparent');
             menuBtn?.classList.remove('bg-[#E0F7FA]', 'text-[#006064]', 'border-[#006064]');
-            document.body.style.overflow = 'hidden';
+            document.body.classList.add('overflow-hidden');
         } else {
             if (overlay) {
                 overlay.classList.add('translate-x-full');
@@ -819,7 +819,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
             }
             menuBtn?.classList.remove('is-open', 'bg-transparent', 'text-white', 'border-transparent');
             menuBtn?.classList.add('bg-[#E0F7FA]', 'text-[#006064]', 'border-[#006064]');
-            document.body.style.overflow = '';
+            document.body.classList.remove('overflow-hidden');
         }
     };
 

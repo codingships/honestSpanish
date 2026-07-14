@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { PRODUCTION_FULFILLMENT_ENABLE_APPROVAL_SENTENCE } from './cloudflare-production-fulfillment-lifecycle-shared';
+import {
+    validateCloudflareRuntimeCutoverPreflightSummary,
+    validateCloudflareRuntimeReadonlySummary,
+} from './cloudflare-production-evidence';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -59,7 +63,7 @@ interface RenderedArtifacts {
 
 const target: CloudflareTarget = {
     accountId: 'd1a22bcf6477ff2ff31d2bfb83084e44',
-    accountLabel: "Alindev95@gmail.com's Account",
+    accountLabel: 'Español Honesto Cloudflare account',
     productionWorker: 'espanolhonesto',
     stagingWorker: 'espanolhonesto-staging',
     pagesProject: 'espanolhonesto',
@@ -78,9 +82,11 @@ const strictQaResultsPath = path.join(
     'strict-qa-v2',
     'strict-qa-results.json',
 );
-const cloudflareRuntimeReadonlyPath = latestGeneratedPath('launch-cloudflare-production-runtime-readonly', 'summary.md');
-const cloudflareRuntimeCutoverPreflightPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'summary.md');
-const cloudflareRuntimeVariableMatrixPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'cloudflare-production-worker-variable-matrix.md');
+const cloudflareRuntimeReadonlyPath = latestGeneratedPath('launch-cloudflare-production-runtime-readonly', 'summary.json');
+const cloudflareRuntimeCutoverPreflightPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'summary.json');
+const cloudflareRuntimeVariableMatrixPath = cloudflareRuntimeCutoverPreflightPath
+    ? path.join(path.dirname(cloudflareRuntimeCutoverPreflightPath), 'cloudflare-production-worker-variable-matrix.md')
+    : null;
 
 const modernParityRoutes = [
     '/',
@@ -300,36 +306,33 @@ function validateLocalBuildParityEvidence(): CutoverCheck {
 function validateCloudflareRuntimeReadonlyEvidence(): CutoverCheck {
     if (!cloudflareRuntimeReadonlyPath || !existsSync(cloudflareRuntimeReadonlyPath)) {
         return {
-            status: 'warning',
+            status: 'failed',
             name: 'cloudflare_runtime_readonly_evidence_exists',
             message: 'Fresh Cloudflare production runtime read-only evidence is missing; run it before asking for any Cloudflare write approval.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly'],
         };
     }
 
-    const evidence = readFileSync(cloudflareRuntimeReadonlyPath, 'utf8');
-    const required = [
-        'Cloudflare Production Runtime Read-Only Evidence',
-        target.accountId,
-        `Pages project: ${target.pagesProject}`,
-        `production=${target.productionWorker}`,
-        `staging=${target.stagingWorker}`,
-        'pages_project_current_domain_owner',
-        'production_worker_exists',
-        'production_worker_secret_names',
-        'This command uses Wrangler read/list/version commands only',
-    ];
-    const missing = required.filter((snippet) => !evidence.includes(snippet));
+    const evidence = readStructuredJson(cloudflareRuntimeReadonlyPath);
+    if (!evidence.value) {
+        return {
+            status: 'failed',
+            name: 'cloudflare_runtime_readonly_evidence_exists',
+            message: 'Latest Cloudflare runtime evidence is not valid structured JSON.',
+            details: [`path=${cloudflareRuntimeReadonlyPath}`, `error=${evidence.error}`],
+        };
+    }
+    const validation = validateCloudflareRuntimeReadonlySummary(evidence.value, target);
 
     return {
-        status: missing.length === 0 ? 'ok' : 'failed',
+        status: validation.valid ? 'ok' : 'failed',
         name: 'cloudflare_runtime_readonly_evidence_exists',
-        message: missing.length === 0
-            ? 'Fresh read-only Cloudflare evidence is available for the target account, Pages project, Workers and secret-name posture.'
-            : 'Fresh read-only Cloudflare evidence is missing required target facts.',
-        details: missing.length === 0
-            ? [`path=${cloudflareRuntimeReadonlyPath}`]
-            : missing.map((snippet) => `missing=${snippet}`),
+        message: validation.valid
+            ? 'Fresh structured Cloudflare evidence proves the exact account, Pages-domain facts, read-only scope, source identity and unambiguous critical checks.'
+            : 'Latest structured Cloudflare evidence is stale, failed, ambiguous or missing required critical facts.',
+        details: validation.valid
+            ? [`path=${cloudflareRuntimeReadonlyPath}`, `endedAt=${validation.evidenceTimestamp}`]
+            : validation.errors.map((error) => `invalid=${error}`),
     };
 }
 
@@ -339,50 +342,37 @@ function validateCloudflareRuntimeCutoverPreflightEvidence(): CutoverCheck {
             status: 'failed',
             name: 'cloudflare_runtime_cutover_preflight_exists',
             message: 'Fresh Cloudflare production runtime cutover preflight evidence is missing.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight'],
         };
     }
 
-    const evidence = readFileSync(cloudflareRuntimeCutoverPreflightPath, 'utf8');
-    const required = [
-        'Cloudflare Production Runtime Preflight Refresh',
-        'Remote write performed: false',
-        `Target account: ${target.accountId}`,
-        `Target Worker: ${target.productionWorker}`,
-        'CHECKOUT_ENABLED=false in config: True',
-        'Dry-run after build looked successful: True',
-        'Dry-run mentions CHECKOUT_ENABLED=false: True',
-        'Dry-run avoids custom domains: True',
-        'Variable matrix:',
-        'wrangler_production_dry_run_passed',
-        'command_scope_no_external_write',
-    ];
-    const missing = required.filter((snippet) => !evidence.includes(snippet));
+    const evidence = readStructuredJson(cloudflareRuntimeCutoverPreflightPath);
     const matrixMissing = !cloudflareRuntimeVariableMatrixPath || !existsSync(cloudflareRuntimeVariableMatrixPath);
-    const cleanupProven = evidence.includes('dist removed after dry-run: True')
-        || (
-            evidence.includes('dist existed before preflight: True')
-            && evidence.includes('dist removed after dry-run: False')
-            && evidence.includes('dist_cleanup_posture')
-            && evidence.includes('was kept to avoid deleting user-owned artifacts')
-        );
+    if (!evidence.value) {
+        return {
+            status: 'failed',
+            name: 'cloudflare_runtime_cutover_preflight_exists',
+            message: 'Latest Cloudflare cutover preflight is not valid structured JSON.',
+            details: [`path=${cloudflareRuntimeCutoverPreflightPath}`, `error=${evidence.error}`],
+        };
+    }
+    const validation = validateCloudflareRuntimeCutoverPreflightSummary(evidence.value, target);
 
     return {
-        status: missing.length === 0 && !matrixMissing && cleanupProven ? 'ok' : 'failed',
+        status: validation.valid && !matrixMissing ? 'ok' : 'failed',
         name: 'cloudflare_runtime_cutover_preflight_exists',
-        message: missing.length === 0 && !matrixMissing && cleanupProven
-            ? 'Fresh cutover preflight proves local build, guarded Wrangler production dry-run, fail-closed checkout, custom-domain separation and guarded dist ownership posture.'
-            : 'Fresh cutover preflight is missing required no-write build/dry-run evidence.',
-        details: missing.length === 0 && !matrixMissing && cleanupProven
+        message: validation.valid && !matrixMissing
+            ? 'Fresh structured cutover preflight proves local build, guarded dry-run, fail-closed checkout, custom-domain separation and every critical check.'
+            : 'Latest structured cutover preflight is stale, failed, ambiguous or missing its same-run variable matrix.',
+        details: validation.valid && !matrixMissing
             ? [
                 `path=${cloudflareRuntimeCutoverPreflightPath}`,
                 `variableMatrix=${cloudflareRuntimeVariableMatrixPath}`,
-                `cleanupProven=${String(cleanupProven)}`,
+                `generatedAt=${validation.evidenceTimestamp}`,
             ]
             : [
-                ...missing.map((snippet) => `missing=${snippet}`),
+                ...validation.errors.map((error) => `invalid=${error}`),
                 ...(matrixMissing ? ['missing=cloudflare-production-worker-variable-matrix.md'] : []),
-                ...(!cleanupProven ? ['missing=guarded dist cleanup/retention posture'] : []),
             ],
     };
 }
@@ -813,8 +803,8 @@ function renderPhaseOneApproval(reportToRender: CutoverReport): string {
         '',
         '## Required Read-Only Preflight',
         '',
-        `- Run \`corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly\` and review \`${cloudflareRuntimeReadonlyPath ?? 'outputs/launch-cloudflare-production-runtime-readonly/<timestamp>/summary.md'}\`.`,
-        `- Run \`corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight\` and review \`${cloudflareRuntimeCutoverPreflightPath ?? 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md'}\`.`,
+        `- Run \`pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly\` and review \`${cloudflareRuntimeReadonlyPath ?? 'outputs/launch-cloudflare-production-runtime-readonly/<timestamp>/summary.json'}\`.`,
+        `- Run \`pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight\` and review \`${cloudflareRuntimeCutoverPreflightPath ?? 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.json'}\`.`,
         `- Review \`${cloudflareRuntimeVariableMatrixPath ?? 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/cloudflare-production-worker-variable-matrix.md'}\` before loading any secret or var name.`,
         `- Review \`${strictQaPreflightPath}\` and confirm the account/project/Worker names match this request.`,
         '- Confirm the current shell is logged into the intended Cloudflare account before any write.',
@@ -870,11 +860,11 @@ function renderSecretsApproval(reportToRender: CutoverReport): string {
         '## Command Shape After Approval',
         '',
         '```bash',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production',
-        'corepack pnpm --config.verify-deps-before-run=false run build:production:release',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production',
+        'pnpm --config.verify-deps-before-run=false run build:production:release',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
         '```',
         '',
         '## Exact Approval Sentence',
@@ -913,8 +903,8 @@ function renderFulfillmentSecretsApproval(reportToRender: CutoverReport): string
         '## Command Shape After Approval',
         '',
         '```bash',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config workers/fulfillment/wrangler.toml --env production_bootstrap',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config workers/fulfillment/wrangler.toml --env production_bootstrap',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config workers/fulfillment/wrangler.toml --env production_bootstrap',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config workers/fulfillment/wrangler.toml --env production_bootstrap',
         '```',
         '',
         '## Exact Approval Sentence',
@@ -1025,7 +1015,7 @@ function renderVerificationChecklist(reportToRender: CutoverReport): string {
         '- Review the Wrangler dry-run output path and confirm it reports no custom domain attachment.',
         '- Confirm Worker name is `espanolhonesto` and account ID is `d1a22bcf6477ff2ff31d2bfb83084e44`.',
         '- Confirm `CHECKOUT_ENABLED=false` remains visible as a state claim.',
-        '- Run `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production` and record names only.',
+        '- Run `pnpm --config.verify-deps-before-run=false exec wrangler secret list --env production` and record names only.',
         '',
         '## Phase 5: Web Bootstrap HMAC Only',
         '',
@@ -1073,10 +1063,10 @@ function renderVerificationChecklist(reportToRender: CutoverReport): string {
         '## Expected Follow-Up Commands',
         '',
         '```bash',
-        'corepack pnpm --config.verify-deps-before-run=false launch:live-domain-readonly',
-        'corepack pnpm --config.verify-deps-before-run=false launch:final-readiness',
-        'corepack pnpm --config.verify-deps-before-run=false launch:seo',
-        'corepack pnpm --config.verify-deps-before-run=false launch:status',
+        'pnpm --config.verify-deps-before-run=false launch:live-domain-readonly',
+        'pnpm --config.verify-deps-before-run=false launch:final-readiness',
+        'pnpm --config.verify-deps-before-run=false launch:seo',
+        'pnpm --config.verify-deps-before-run=false launch:status',
         '```',
         '',
     ].join('\n')}\n`;
@@ -1122,10 +1112,10 @@ function renderManualEvidenceDryRun(reportToRender: CutoverReport): string {
     const checklist = `../../${toPosix(path.relative(process.cwd(), reportToRender.verificationChecklistPath))}`;
     const preflight = cloudflareRuntimeCutoverPreflightPath
         ? `../../${toPosix(path.relative(process.cwd(), cloudflareRuntimeCutoverPreflightPath))}`
-        : '../../outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md';
+        : '../../outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.json';
 
     return `${[
-        'corepack pnpm launch:manual-evidence:record --',
+        'pnpm launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
         '  --summary "Cloudflare production runtime/domain posture closed: production Worker exists, required secret names are present, direct Worker URL probes passed, and custom domains serve the modern Worker build after separate approval."',
@@ -1227,4 +1217,15 @@ function latestGeneratedPath(folderName: string, fileName: string): string | nul
         .reverse();
 
     return candidates[0] ?? null;
+}
+
+function readStructuredJson(filePath: string): { value: unknown | null; error: string } {
+    try {
+        return { value: JSON.parse(readFileSync(filePath, 'utf8')) as unknown, error: 'none' };
+    } catch (error) {
+        return {
+            value: null,
+            error: error instanceof Error ? error.message.replace(/\r?\n/gu, ' ').slice(0, 300) : 'unknown parse error',
+        };
+    }
 }

@@ -44,6 +44,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
         () => templateOptions.find((item) => item.value === selectedType) ?? templateOptions[0],
         [selectedType],
     );
+    const previewFrameUrl = `/api/email/preview-frame?type=${encodeURIComponent(selectedType)}&locale=${encodeURIComponent(selectedLocale)}`;
 
     useEffect(() => {
         const controller = new AbortController();
@@ -203,7 +204,7 @@ export default function EmailTemplateManager({ adminEmail }: Props) {
                     <iframe
                         title="Email preview"
                         sandbox=""
-                        srcDoc={preview.html}
+                        src={previewFrameUrl}
                         className="h-[640px] w-full border border-[#006064]/30 bg-white"
                     />
                 ) : (

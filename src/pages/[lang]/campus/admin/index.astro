@@ -4,6 +4,7 @@ import CrmTaskList from '../../../../components/admin/CrmTaskList';
 import PaymentRecoveryActions from '../../../../components/admin/PaymentRecoveryActions';
 import SubscriptionRenewalActions from '../../../../components/admin/SubscriptionRenewalActions';
 import SupportTicketQuickActions from '../../../../components/admin/SupportTicketQuickActions';
+import ProgressBar from '../../../../components/ProgressBar.astro';
 import { getLangFromParam, useTranslations } from '../../../../i18n/utils';
 import {
     emptyCrmAdminDashboardSummary,
@@ -557,19 +558,13 @@ const commercialPulseItems = [
             <h2 class="font-display text-xl text-[#006064] uppercase mb-4">{t('campus.admin.subscriptionsByPlan')}</h2>
             <div class="space-y-4">
                 {subscriptionsByPlan.map((plan) => {
-                    const percentage = totalActiveSubs > 0 ? Math.round((plan.count / totalActiveSubs) * 100) : 0;
                     return (
                         <div>
                             <div class="flex justify-between text-sm mb-1">
                                 <span class="font-bold text-[#006064]">{plan.displayName}</span>
                                 <span class="font-mono text-[#006064]/70">{plan.count}</span>
                             </div>
-                            <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
-                                <div 
-                                    class="bg-[#006064] h-full transition-all"
-                                    style={`width: ${percentage}%`}
-                                ></div>
-                            </div>
+                            <ProgressBar value={plan.count} max={totalActiveSubs} label={plan.displayName} />
                         </div>
                     );
                 })}

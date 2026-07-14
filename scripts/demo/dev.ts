@@ -20,8 +20,8 @@ if (missingKeys.length > 0) {
     console.warn(`[dev:demo] Faltan variables de demo: ${missingKeys.join(', ')}`);
 }
 
-const command = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
-const args = ['pnpm', 'dev', '--', '--host', '0.0.0.0', ...process.argv.slice(2)];
+const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+const args = ['dev', '--', '--host', '0.0.0.0', ...process.argv.slice(2)];
 
 const child = spawn(command, args, {
     env: process.env,

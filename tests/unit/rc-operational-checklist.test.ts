@@ -14,6 +14,7 @@ const openOperationSection = `
 - [ ] Sentry alerts configuradas. Parcial.
 - [x] Proceso de soporte definido.
 - [ ] Proceso de rollback probado. Parcial.
+- [ ] Worker legacy de recordatorios neutralizado. Parcial.
 
 ## Integraciones
 `;
@@ -24,6 +25,7 @@ describe('Release Candidate operational checklist blockers', () => {
             expect.objectContaining({ id: 'incident_simulation', reason: 'unchecked' }),
             expect.objectContaining({ id: 'sentry_alerts', reason: 'unchecked' }),
             expect.objectContaining({ id: 'rollback_proof', reason: 'unchecked' }),
+            expect.objectContaining({ id: 'legacy_reminder_worker', reason: 'unchecked' }),
         ]);
     });
 
@@ -33,12 +35,14 @@ describe('Release Candidate operational checklist blockers', () => {
             expect.objectContaining({ id: 'incident_simulation', reason: 'incomplete_evidence' }),
             expect.objectContaining({ id: 'sentry_alerts', reason: 'incomplete_evidence' }),
             expect.objectContaining({ id: 'rollback_proof', reason: 'incomplete_evidence' }),
+            expect.objectContaining({ id: 'legacy_reminder_worker', reason: 'incomplete_evidence' }),
         ]);
 
         const closedWithEvidence = closed
             .replace('Parcial.', 'Evidencia: `outputs/launch-incident-drill/summary.md`.')
             .replace('Parcial.', 'Riesgo aceptado por: Alin, nota: aceptado para el RC.')
-            .replace('Parcial.', 'Evidencia: `outputs/launch-rollback/summary.md`.');
+            .replace('Parcial.', 'Evidencia: `outputs/launch-rollback/summary.md`.')
+            .replace('Parcial.', 'Evidencia: `outputs/launch-cloudflare-legacy-reminders/summary.md`.');
         expect(collectOpenRcOperationalBlockers(closedWithEvidence)).toEqual([]);
     });
 
@@ -99,6 +103,7 @@ describe('Release Candidate operational checklist blockers', () => {
             'incident_simulation',
             'sentry_alerts',
             'rollback_proof',
+            'legacy_reminder_worker',
         ]);
         expect(status).toContain('collectOpenRcOperationalBlockers(checklist)');
         expect(status).toContain('...rcOperationalOpenChecks');

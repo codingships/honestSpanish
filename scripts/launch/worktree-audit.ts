@@ -384,7 +384,6 @@ function classifyPath(filePath: string): string {
         /^src\/pages\/api\/admin\/(?:fulfillment-jobs|packages)\.ts$/,
         /^supabase\/migrations\/010_/,
         /^workers\/fulfillment\//,
-        /^workers\/reminder-cron\//,
         /^tests\/(?:api\/(?:create-checkout|create-portal-session|cron-routes|stripe-webhook|admin-packages|admin-fulfillment-jobs)|unit\/(?:fulfillment-jobs|fulfillment-worker-auth|internal-job-service|payment-recovery-actions|product-catalog-manager|real-env-smoke-safety|stripe-readonly-evidence|subscription-renewal-actions))/
     ])) return 'payments_worker_no_real_payments';
 

@@ -4,6 +4,7 @@ import { getLangFromParam, useTranslations } from '../../../../../i18n/utils';
 import { getPrivateProfile } from '../../../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
 import TeacherNotes from '../../../../../components/TeacherNotes';
+import ProgressBar from '../../../../../components/ProgressBar.astro';
 import type { Json } from '../../../../../types/database.types';
 
 export const prerender = false;
@@ -110,12 +111,6 @@ const formatDate = (dateStr: string) => {
 };
 
 // Calculate progress percentage
-const sessionsUsed = subscription?.sessions_used ?? 0;
-const sessionsTotal = subscription?.sessions_total ?? 0;
-const progressPercent = subscription && sessionsTotal > 0
-    ? Math.round((sessionsUsed / sessionsTotal) * 100)
-    : 0;
-
 // Language display
 const languageNames: Record<string, string> = {
     es: 'Español',
@@ -172,12 +167,11 @@ const languageNames: Record<string, string> = {
                             <span class="font-mono">{t('campus.teacher.sessions')}</span>
                             <span class="font-bold">{subscription.sessions_used} / {subscription.sessions_total}</span>
                         </div>
-                        <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
-                            <div 
-                                class="bg-[#006064] h-full transition-all"
-                                style={`width: ${progressPercent}%`}
-                            ></div>
-                        </div>
+                        <ProgressBar
+                            value={subscription.sessions_used}
+                            max={subscription.sessions_total}
+                            label={t('campus.teacher.sessions')}
+                        />
                     </div>
                 </div>
             ) : (

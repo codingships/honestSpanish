@@ -14,6 +14,10 @@ import { inspectStripeLiveReadiness } from './stripe-live-readiness';
 import { orchestrateWebActiveTransition } from './cloudflare-production-web-active-orchestrator';
 import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
 import {
+    validateCloudflareRuntimeCutoverPreflightSummary,
+    validateCloudflareRuntimeReadonlySummary,
+} from './cloudflare-production-evidence';
+import {
     acquireWorkerWriteReconciliationLock,
     acquireNormalWorkerWriteExecutionLock,
     assertWorkerWriteExecutionLockOwned,
@@ -139,7 +143,7 @@ interface RenderedArtifacts {
 
 const target: CloudflareTarget = {
     accountId: 'd1a22bcf6477ff2ff31d2bfb83084e44',
-    accountLabel: "Alindev95@gmail.com's Account",
+    accountLabel: 'Español Honesto Cloudflare account',
     productionWorker: 'espanolhonesto',
     pagesProject: 'espanolhonesto',
     customDomains: ['espanolhonesto.com', 'www.espanolhonesto.com'],
@@ -207,9 +211,11 @@ const canonicalReconciliationLockPath = path.join(workerSecretsStateRoot, 'write
 const outputDir = path.join(workerSecretsStateRoot, writeRunId);
 mkdirSync(outputDir, { recursive: true });
 
-const latestRuntimeReadonlyPath = latestGeneratedPath('launch-cloudflare-production-runtime-readonly', 'summary.md');
-const latestPreflightSummaryPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'summary.md');
-const latestVariableMatrixPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'cloudflare-production-worker-variable-matrix.md');
+const latestRuntimeReadonlyPath = latestGeneratedPath('launch-cloudflare-production-runtime-readonly', 'summary.json');
+const latestPreflightSummaryPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover-preflight', 'summary.json');
+const latestVariableMatrixPath = latestPreflightSummaryPath
+    ? path.join(path.dirname(latestPreflightSummaryPath), 'cloudflare-production-worker-variable-matrix.md')
+    : null;
 const latestCutoverManifestPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover', 'cloudflare-production-runtime-cutover-manifest.json');
 const latestSecretsApprovalPath = latestGeneratedPath('launch-cloudflare-production-runtime-cutover', 'approval-request-worker-secrets.md');
 const latestPhaseOneRunnerPath = latestGeneratedPath('launch-cloudflare-production-worker-phase1', 'summary.md');
@@ -447,30 +453,33 @@ function validatePackageScript(): Check {
 function validateLatestRuntimeReadonlyEvidence(): Check {
     if (!latestRuntimeReadonlyPath || !existsSync(latestRuntimeReadonlyPath)) {
         return {
-            status: 'warning',
+            status: 'failed',
             name: 'latest_runtime_readonly_evidence_exists',
             message: 'Fresh Cloudflare runtime read-only evidence is missing; run it before executing the secret-name phase.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly'],
         };
     }
 
-    const summary = readFileSync(latestRuntimeReadonlyPath, 'utf8');
-    const required = [
-        'Cloudflare Production Runtime Read-Only Evidence',
-        target.accountId,
-        target.productionWorker,
-        'production_worker_secret_names',
-        'This command uses Wrangler read/list/version commands only',
-    ];
-    const missing = required.filter((snippet) => !summary.includes(snippet));
+    const summary = readJsonIfExists<unknown>(latestRuntimeReadonlyPath);
+    if (summary === null) {
+        return {
+            status: 'failed',
+            name: 'latest_runtime_readonly_evidence_exists',
+            message: 'Latest Cloudflare runtime evidence is not valid structured JSON.',
+            details: [`path=${latestRuntimeReadonlyPath}`],
+        };
+    }
+    const validation = validateCloudflareRuntimeReadonlySummary(summary, target);
 
     return {
-        status: missing.length === 0 ? 'ok' : 'failed',
+        status: validation.valid ? 'ok' : 'failed',
         name: 'latest_runtime_readonly_evidence_exists',
-        message: missing.length === 0
-            ? 'Latest Cloudflare runtime read-only evidence is available for account, Worker and secret-name posture.'
-            : 'Latest Cloudflare runtime read-only evidence is missing required facts.',
-        details: missing.length === 0 ? [`path=${latestRuntimeReadonlyPath}`] : missing.map((snippet) => `missing=${snippet}`),
+        message: validation.valid
+            ? 'Latest structured Cloudflare runtime evidence is fresh and proves exact account, Pages-domain ownership, read-only scope and unambiguous critical checks.'
+            : 'Latest structured Cloudflare runtime evidence is stale, failed, ambiguous or missing required critical facts.',
+        details: validation.valid
+            ? [`path=${latestRuntimeReadonlyPath}`, `endedAt=${validation.evidenceTimestamp}`]
+            : validation.errors.map((error) => `invalid=${error}`),
     };
 }
 
@@ -480,34 +489,36 @@ function validateLatestNoWritePreflight(): Check {
             status: 'failed',
             name: 'latest_no_write_preflight_exists',
             message: 'The Cloudflare runtime cutover preflight must exist before the secret-name runner can be used.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover-preflight'],
         };
     }
 
-    const preflight = readFileSync(latestPreflightSummaryPath, 'utf8');
-    const required = [
-        'Cloudflare Production Runtime Preflight Refresh',
-        'Remote write performed: false',
-        `Target account: ${target.accountId}`,
-        `Target Worker: ${target.productionWorker}`,
-        'CHECKOUT_ENABLED=false in config: True',
-        'Dry-run avoids custom domains: True',
-        'Variable matrix:',
-        'wrangler deploy --config dist/server/wrangler.json --dry-run',
-    ];
-    const missing = required.filter((snippet) => !preflight.includes(snippet));
+    const preflight = readJsonIfExists<unknown>(latestPreflightSummaryPath);
     const matrixMissing = !latestVariableMatrixPath || !existsSync(latestVariableMatrixPath);
+    if (preflight === null) {
+        return {
+            status: 'failed',
+            name: 'latest_no_write_preflight_exists',
+            message: 'Latest no-write preflight is not valid structured JSON.',
+            details: [`path=${latestPreflightSummaryPath}`],
+        };
+    }
+    const validation = validateCloudflareRuntimeCutoverPreflightSummary(preflight, target);
 
     return {
-        status: missing.length === 0 && !matrixMissing ? 'ok' : 'failed',
+        status: validation.valid && !matrixMissing ? 'ok' : 'failed',
         name: 'latest_no_write_preflight_exists',
-        message: missing.length === 0 && !matrixMissing
-            ? 'Latest no-write preflight and variable matrix are available before secret-name execution.'
-            : 'Latest no-write preflight is missing required safety facts for the secret-name phase.',
-        details: missing.length === 0 && !matrixMissing
-            ? [`preflight=${latestPreflightSummaryPath}`, `variableMatrix=${latestVariableMatrixPath}`]
+        message: validation.valid && !matrixMissing
+            ? 'Latest structured no-write preflight and its same-run variable matrix are fresh and unambiguous before secret-name execution.'
+            : 'Latest structured no-write preflight is stale, failed, ambiguous or missing its same-run variable matrix.',
+        details: validation.valid && !matrixMissing
+            ? [
+                `preflight=${latestPreflightSummaryPath}`,
+                `variableMatrix=${latestVariableMatrixPath}`,
+                `generatedAt=${validation.evidenceTimestamp}`,
+            ]
             : [
-                ...missing.map((snippet) => `missing=${snippet}`),
+                ...validation.errors.map((error) => `invalid=${error}`),
                 ...(matrixMissing ? ['missing=cloudflare-production-worker-variable-matrix.md'] : []),
             ],
     };
@@ -519,7 +530,7 @@ function validateLatestCutoverPack(): Check {
             status: 'failed',
             name: 'latest_cutover_pack_exists',
             message: 'The Cloudflare cutover package and Worker-secrets approval request must exist before this runner can be used.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-cutover'],
         };
     }
 
@@ -530,8 +541,8 @@ function validateLatestCutoverPack(): Check {
         'lists names only',
         'builds the active package from a clean dist root',
         'compensates automatically to the web bootstrap',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
         'No printing, logging, screenshotting or committing secret values.',
         'No domain move',
     ];
@@ -555,7 +566,7 @@ function validateLatestPhaseOneRunner(): Check {
             status: 'failed',
             name: 'latest_phase1_runner_exists',
             message: 'Executed and proven phase-1 web bootstrap evidence is mandatory before secret loading.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-phase1'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-phase1'],
         };
     }
 
@@ -680,8 +691,8 @@ function validateApprovalGateSource(): Check {
         'exclusive_reconciliation_lock_acquired',
         'persistWorkerWriteCheckpointAtomically',
         'wrangler versions view',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
         'secretValues',
         'sanitizeOutput',
     ];
@@ -2161,6 +2172,7 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         cwd: process.cwd(),
         encoding: 'utf8',
         input,
+        shell: process.platform === 'win32',
         timeout: command.timeoutMs,
         windowsHide: true,
         env: process.env,
@@ -2273,7 +2285,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
             commands.whoami.display,
             commands.deploymentsList.display,
             commands.secretListBefore.display,
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler versions view VERSION_ID --name espanolhonesto --json',
+            'pnpm --config.verify-deps-before-run=false exec wrangler versions view VERSION_ID --name espanolhonesto --json',
             commands.bootstrapBuildForCompensation.display,
             commands.bootstrapDeployForCompensation.display,
         ] : [
@@ -2282,7 +2294,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
             commands.activeBuild.display,
             commands.activeDeployDryRun.display,
             commands.secretListBefore.display,
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
+            'pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
             commands.secretListAfter.display,
             commands.deploymentsListAfter.display,
             commands.activeDeploy.display,
@@ -2347,8 +2359,8 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         '',
         '## Evidence To Review First',
         '',
-        `- Runtime read-only: ${toRelativeOrFallback(report.latestRuntimeReadonlyPath, 'outputs/launch-cloudflare-production-runtime-readonly/<timestamp>/summary.md')}`,
-        `- No-write preflight: ${toRelativeOrFallback(report.latestPreflightSummaryPath, 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md')}`,
+        `- Runtime read-only: ${toRelativeOrFallback(report.latestRuntimeReadonlyPath, 'outputs/launch-cloudflare-production-runtime-readonly/<timestamp>/summary.json')}`,
+        `- No-write preflight: ${toRelativeOrFallback(report.latestPreflightSummaryPath, 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.json')}`,
         `- Variable matrix: ${toRelativeOrFallback(report.latestVariableMatrixPath, 'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/cloudflare-production-worker-variable-matrix.md')}`,
         `- Cutover manifest: ${toRelativeOrFallback(report.latestCutoverManifestPath, 'outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/cloudflare-production-runtime-cutover-manifest.json')}`,
         `- Secret-name approval request: ${toRelativeOrFallback(report.latestSecretsApprovalPath, 'outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/approval-request-worker-secrets.md')}`,
@@ -2360,11 +2372,11 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         commands.whoami.display,
         commands.deploymentsList.display,
         commands.secretListBefore.display,
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler versions view VERSION_ID --name espanolhonesto --json',
+        'pnpm --config.verify-deps-before-run=false exec wrangler versions view VERSION_ID --name espanolhonesto --json',
         ...(recoveryMode ? [] : [
             commands.activeBuild.display,
             commands.activeDeployDryRun.display,
-            'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
+            'pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
             commands.secretListAfter.display,
             commands.deploymentsListAfter.display,
             commands.activeDeploy.display,
@@ -2383,7 +2395,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
         `$env:${report.approvalEnvVar}='${artifactApprovalSentence.replace(/'/g, "''")}'`,
         '# Required in the same approved execution so identity/version/Supabase attestation cannot be deferred:',
         `$env:${directWorkerUrlEnvVar}='https://<direct-worker-url>'`,
-        `corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-secrets -- ${artifactExecutionFlag}`,
+        `pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-secrets -- ${artifactExecutionFlag}`,
         '```',
         '',
         '## Stop Conditions',
@@ -2470,7 +2482,7 @@ function renderArtifacts(report: RunnerReport): RenderedArtifacts {
     ].join('\n')}\n`;
 
     const manualEvidenceAfterSecrets = `${[
-        'corepack pnpm launch:manual-evidence:record --',
+        'pnpm launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
         '  --summary "Cloudflare production web Worker final secrets and active deploy completed: required names are present and the direct active identity/version/Supabase HMAC attestation passed with checkout disabled before domain work."',
@@ -2572,12 +2584,12 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'No secret value printing',
         reconcileRequested
             ? 'Recovery loads no names'
-            : 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
+            : 'pnpm --config.verify-deps-before-run=false exec wrangler secret put SECRET_NAME --config wrangler.toml --env production',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
         reconcileRequested
-            ? 'corepack pnpm --config.verify-deps-before-run=false exec wrangler versions view VERSION_ID --name espanolhonesto --json'
-            : 'corepack pnpm --config.verify-deps-before-run=false run build:production:release',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+            ? 'pnpm --config.verify-deps-before-run=false exec wrangler versions view VERSION_ID --name espanolhonesto --json'
+            : 'pnpm --config.verify-deps-before-run=false run build:production:release',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
         'compensating web-bootstrap redeploy',
         'externalWriteOutcome',
         'readonlyReconciliationRequired',
@@ -2623,97 +2635,97 @@ function buildStaticCommands(): Record<string, CommandSpec> & {
     return {
         whoami: {
             id: 'wrangler-whoami-production-secrets',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler whoami --json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'whoami', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler whoami --json',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'whoami', '--json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         deploymentsList: {
             id: 'wrangler-deployments-list-production',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         deploymentsListAfter: {
             id: 'wrangler-deployments-list-production-before-active-deploy',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         deploymentsListAfterActive: {
             id: 'wrangler-deployments-list-production-after-active-deploy',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         deploymentsListAfterCompensation: {
             id: 'wrangler-deployments-list-production-after-bootstrap-compensation',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         secretListBefore: {
             id: 'wrangler-secret-list-production-before',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', 'wrangler.toml', '--env', 'production', '--format', 'json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', 'wrangler.toml', '--env', 'production', '--format', 'json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         secretListAfter: {
             id: 'wrangler-secret-list-production-after',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', 'wrangler.toml', '--env', 'production', '--format', 'json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', 'wrangler.toml', '--env', 'production', '--format', 'json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         activeBuild: {
             id: 'pnpm-build-production-active-web',
-            display: 'corepack pnpm --config.verify-deps-before-run=false run build:production:release',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:release'],
+            display: 'pnpm --config.verify-deps-before-run=false run build:production:release',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'run', 'build:production:release'],
             timeoutMs: 240000,
             writesCloudflare: false,
         },
         activeDeployDryRun: {
             id: 'wrangler-active-web-deploy-dry-run',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--dry-run'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--dry-run'],
             timeoutMs: 180000,
             writesCloudflare: false,
         },
         activeDeploy: {
             id: 'wrangler-active-web-deploy',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
             timeoutMs: 180000,
             writesCloudflare: true,
         },
         bootstrapBuildForCompensation: {
             id: 'pnpm-build-production-bootstrap-compensation',
-            display: 'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:bootstrap'],
+            display: 'pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'run', 'build:production:bootstrap'],
             timeoutMs: 240000,
             writesCloudflare: false,
         },
         bootstrapDeployForCompensation: {
             id: 'wrangler-bootstrap-web-compensating-deploy',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+            bin: pnpmCommand(),
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
             timeoutMs: 180000,
             writesCloudflare: true,
         },
@@ -2723,9 +2735,9 @@ function buildStaticCommands(): Record<string, CommandSpec> & {
 function buildSecretPutCommand(name: string): CommandSpec {
     return {
         id: `wrangler-secret-put-${name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-        display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config wrangler.toml --env production`,
-        bin: 'corepack',
-        args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.toml', '--env', 'production'],
+        display: `pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config wrangler.toml --env production`,
+        bin: pnpmCommand(),
+        args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.toml', '--env', 'production'],
         timeoutMs: 120000,
         writesCloudflare: true,
     };
@@ -2734,10 +2746,9 @@ function buildSecretPutCommand(name: string): CommandSpec {
 function buildVersionViewCommand(id: string, versionId: string): CommandSpec {
     return {
         id,
-        display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler versions view ${versionId} --name ${target.productionWorker} --json`,
-        bin: 'corepack',
+        display: `pnpm --config.verify-deps-before-run=false exec wrangler versions view ${versionId} --name ${target.productionWorker} --json`,
+        bin: pnpmCommand(),
         args: [
-            'pnpm',
             '--config.verify-deps-before-run=false',
             'exec',
             'wrangler',
@@ -2756,10 +2767,9 @@ function buildVersionViewCommand(id: string, versionId: string): CommandSpec {
 function buildSecretListCommand(id: string): CommandSpec {
     return {
         id,
-        display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
-        bin: 'corepack',
+        display: 'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production --format json',
+        bin: pnpmCommand(),
         args: [
-            'pnpm',
             '--config.verify-deps-before-run=false',
             'exec',
             'wrangler',
@@ -2775,6 +2785,10 @@ function buildSecretListCommand(id: string): CommandSpec {
         timeoutMs: 120000,
         writesCloudflare: false,
     };
+}
+
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function forbiddenScopeLines(): string[] {
@@ -2937,6 +2951,7 @@ function sanitizeOutput(value: string): string {
     );
 
     let sanitized = value
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, '[redacted-email]')
         .replace(privateKeyPattern, '[redacted-private-key]')
         .replace(/sk_(live|test)_[A-Za-z0-9]{20,}/g, 'sk_$1_[redacted]')
         .replace(/whsec_[A-Za-z0-9]{20,}/g, 'whsec_[redacted]')

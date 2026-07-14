@@ -428,12 +428,12 @@ function runApprovedExecution(reportCaptures: CommandCapture[]): Check[] {
         ],
     }];
 
-    const cleanupPack = runPnpmCommand('cleanup_package_refresh', 'corepack pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-cleanup', ['pnpm', '--config.verify-deps-before-run=false', 'launch:supabase-processed-at-cleanup'], false);
+    const cleanupPack = runPnpmCommand('cleanup_package_refresh', 'pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-cleanup', ['--config.verify-deps-before-run=false', 'launch:supabase-processed-at-cleanup'], false);
     reportCaptures.push(cleanupPack);
     executionChecks.push(checkForCapture(cleanupPack));
     if (cleanupPack.status === 'failed') return executionChecks;
 
-    const readonlyBefore = runPnpmCommand('readonly_preflight_before_apply', 'corepack pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-readonly-preflight', ['pnpm', '--config.verify-deps-before-run=false', 'launch:supabase-processed-at-readonly-preflight'], false);
+    const readonlyBefore = runPnpmCommand('readonly_preflight_before_apply', 'pnpm --config.verify-deps-before-run=false launch:supabase-processed-at-readonly-preflight', ['--config.verify-deps-before-run=false', 'launch:supabase-processed-at-readonly-preflight'], false);
     reportCaptures.push(readonlyBefore);
     executionChecks.push(checkForCapture(readonlyBefore));
     if (readonlyBefore.status === 'failed') return executionChecks;
@@ -491,16 +491,20 @@ function runApprovedExecution(reportCaptures: CommandCapture[]): Check[] {
 }
 
 function runPnpmCommand(id: string, display: string, args: string[], writesSupabase: boolean): CommandCapture {
-    const result = spawnSync('corepack', args, {
+    const result = spawnSync(pnpmCommand(), args, {
         cwd: process.cwd(),
         encoding: 'utf8',
-        shell: false,
+        shell: process.platform === 'win32',
         timeout: 120000,
         env: process.env,
         windowsHide: true,
     });
 
     return writeCapture(id, display, writesSupabase, result.status, result.stdout ?? '', result.stderr ?? '', result.error);
+}
+
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function runPsqlForTarget(target: TargetProject, id: string, sqlFile: string, writesSupabase: boolean): CommandCapture {

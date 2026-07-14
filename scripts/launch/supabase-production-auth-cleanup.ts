@@ -97,6 +97,7 @@ interface RolloutReceipt {
     migrationCount: 25;
     migrationManifestSha256: string;
     preflightEvidenceSha256: string;
+    authInertEvidenceSha256: string;
     backupReceiptSha256: string;
     publicCleanupReceiptSha256: string;
     authReducedQuarantinedReceiptSha256: string;
@@ -681,7 +682,7 @@ async function runDeletePhase(
             || (after.database.counts['public.profiles_private'] ?? -1) !== 0
             || after.database.fixtureRows !== 0 || after.database.storageOwnedObjects !== 0
             || after.database.authSessions !== 0 || after.database.authRefreshTokens !== 0
-            || !after.configuration.disableSignup) {
+            || !after.configuration.disableSignup || after.configuration.mailerAutoconfirm) {
             throw taggedError('POST_ROTATION_QUARANTINE_MISMATCH');
         }
         const completedAt = new Date().toISOString();
@@ -856,7 +857,7 @@ async function runRequarantinePhase(
             || (after.database.counts['public.profiles_private'] ?? -1) !== 0
             || after.database.fixtureRows !== 0 || after.database.storageOwnedObjects !== 0
             || after.database.authSessions !== 0 || after.database.authRefreshTokens !== 0
-            || !after.configuration.disableSignup) {
+            || !after.configuration.disableSignup || after.configuration.mailerAutoconfirm) {
             throw taggedError('POST_REQUARANTINE_STATE_MISMATCH');
         }
         const completedAt = new Date().toISOString();
@@ -1403,6 +1404,7 @@ function validateLiveSafety(
     if (live.database.fixtureRows !== 0) errors.push('Fixture rows remain outside profiles/packages.');
     if ((live.database.counts['public.packages'] ?? -1) !== 4) errors.push('Canonical package count is not four.');
     if (!live.configuration.disableSignup) errors.push('Supabase production signup is not disabled.');
+    if (live.configuration.mailerAutoconfirm) errors.push('Supabase production mailer autoconfirm is not disabled.');
     if (live.database.profileCrmSyncTriggerCount !== 0) errors.push('An unexpected profile-to-CRM trigger is installed.');
     const profileCount = live.database.counts['public.profiles'] ?? -1;
     const privateCount = live.database.counts['public.profiles_private'] ?? -1;
@@ -1432,7 +1434,8 @@ function assertLiveMatchesEvidence(live: LiveState, evidence: AuthPreflightEvide
         || (live.database.counts['public.profiles'] ?? -1) !== (evidence.database.counts['public.profiles'] ?? -1)
         || (live.database.counts['public.profiles_private'] ?? -1) !== (evidence.database.counts['public.profiles_private'] ?? -1)
         || live.configuration.jwtExpirySeconds !== evidence.configuration.jwtExpirySeconds
-        || live.configuration.disableSignup !== evidence.configuration.disableSignup) {
+        || live.configuration.disableSignup !== evidence.configuration.disableSignup
+        || live.configuration.mailerAutoconfirm !== evidence.configuration.mailerAutoconfirm) {
         throw new Error('Live Auth/database/config state drifted after the approved preflight.');
     }
 }
@@ -1532,6 +1535,7 @@ function loadAndValidateRolloutReceipt(
         value.allowlistSha256,
         value.migrationManifestSha256,
         value.preflightEvidenceSha256,
+        value.authInertEvidenceSha256,
         value.backupReceiptSha256,
         value.publicCleanupReceiptSha256,
         value.authReducedQuarantinedReceiptSha256,
@@ -1591,7 +1595,8 @@ function assertFinalState(live: LiveState, preservedSetSha256: string): void {
         || live.database.nonMinimalProfiles !== 0 || live.database.nonMinimalProfilesPrivate !== 0
         || live.database.fixtureRows !== 0 || live.database.storageOwnedObjects !== 0
         || live.database.authSessions !== 0 || live.database.authRefreshTokens !== 0
-        || !live.database.finalSchemaReady || !live.configuration.disableSignup) {
+        || !live.database.finalSchemaReady || !live.configuration.disableSignup
+        || live.configuration.mailerAutoconfirm) {
         throw taggedError('FINAL_AGGREGATE_VERIFICATION_FAILED');
     }
 }

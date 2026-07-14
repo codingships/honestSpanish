@@ -9,6 +9,7 @@ import {
     verifyRuntimeAttestation,
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
+import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -177,16 +178,25 @@ async function executeApproved(): Promise<void> {
     const whoami = captures.find((capture) => capture.id === staticCommands.whoami.id);
     const deployments = captures.find((capture) => capture.id === staticCommands.deployments.id);
     const versionId = deploymentVersionId(deployments);
+    let accountMatched = false;
+    let identityError = 'none';
+    try {
+        verifyCloudflareWhoamiOutput(captureText(whoami), target.accountId);
+        accountMatched = true;
+    } catch (error) {
+        identityError = safeError(error);
+    }
     const remoteGate: Check = {
-        status: captureText(whoami).includes(target.accountId) && Boolean(versionId) ? 'ok' : 'failed',
+        status: accountMatched && Boolean(versionId) ? 'ok' : 'failed',
         name: 'remote_target_pre_write_gate',
-        message: captureText(whoami).includes(target.accountId) && Boolean(versionId)
+        message: accountMatched && Boolean(versionId)
             ? 'Read-only preflight proves the exact Cloudflare account, Fulfillment Worker and deployed version before secret writes.'
             : 'Read-only preflight did not prove the exact account/Worker/version; no secret write may start.',
         details: [
-            `accountMatched=${String(captureText(whoami).includes(target.accountId))}`,
+            `accountMatched=${String(accountMatched)}`,
             `targetWorker=${target.worker}`,
             `deploymentVersionPresent=${String(Boolean(versionId))}`,
+            `identityError=${identityError}`,
         ],
     };
     checks.push(remoteGate);
@@ -458,20 +468,20 @@ function commands(): { whoami: CommandSpec; deployments: CommandSpec; secretList
     return {
         whoami: {
             id: 'wrangler-whoami',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler whoami --json',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'whoami', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler whoami --json',
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'whoami', '--json'],
             writesCloudflare: false,
         },
         deployments: {
             id: 'fulfillment-deployments-list',
-            display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name ${target.worker} --json`,
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', target.worker, '--json'],
+            display: `pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name ${target.worker} --json`,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', target.worker, '--json'],
             writesCloudflare: false,
         },
         secretList: {
             id: 'fulfillment-secret-list-before',
-            display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config ${target.config} --env production_bootstrap --format json`,
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', target.config, '--env', 'production_bootstrap', '--format', 'json'],
+            display: `pnpm --config.verify-deps-before-run=false exec wrangler secret list --config ${target.config} --env production_bootstrap --format json`,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--config', target.config, '--env', 'production_bootstrap', '--format', 'json'],
             writesCloudflare: false,
         },
     };
@@ -480,14 +490,14 @@ function commands(): { whoami: CommandSpec; deployments: CommandSpec; secretList
 function secretPutCommand(name: string): CommandSpec {
     return {
         id: `fulfillment-secret-put-${name.toLowerCase().replace(/[^a-z0-9]+/gu, '-')}`,
-        display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config ${target.config} --env production_bootstrap`,
-        args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', target.config, '--env', 'production_bootstrap'],
+        display: `pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config ${target.config} --env production_bootstrap`,
+        args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', target.config, '--env', 'production_bootstrap'],
         writesCloudflare: true,
     };
 }
 
 function runCommand(command: CommandSpec, input?: string): CommandCapture {
-    const result = spawnSync(process.platform === 'win32' ? 'corepack.cmd' : 'corepack', command.args, {
+    const result = spawnSync(pnpmCommand(), command.args, {
         cwd: process.cwd(),
         encoding: 'utf8',
         env: process.env,
@@ -513,6 +523,10 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         stderr || '(empty)',
     ].join('\n'), 'utf8');
     return { id: command.id, display: command.display, outputPath, exitCode: result.status, status, writesCloudflare: command.writesCloudflare };
+}
+
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function commandCheck(capture: CommandCapture): Check {

@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
     PRODUCTION_PROJECT,
-    STAGING_ONLY_VERSION,
+    STAGING_ONLY_MIGRATIONS,
+    STAGING_ONLY_VERSIONS,
+    collectLocalMigrations,
+    isStagingOnlyMigration,
     mapMigrationHistory,
     normalizeMigrationName,
     type LocalMigration,
@@ -17,6 +20,18 @@ const environment = readFileSync('docs/launch/ENVIRONMENT.md', 'utf8');
 const checklist = readFileSync('docs/launch/CHECKLIST.md', 'utf8');
 
 describe('Supabase production rollout safety', () => {
+    it('classifies both staging-only migrations centrally and outside all production waves', () => {
+        const stagingOnly = collectLocalMigrations()
+            .filter((migration) => migration.stagingOnly)
+            .map(({ version, name, plannedWave }) => ({ version, name, plannedWave }));
+
+        expect(stagingOnly).toEqual(STAGING_ONLY_MIGRATIONS.map((migration) => ({
+            ...migration,
+            plannedWave: null,
+        })));
+        expect(STAGING_ONLY_VERSIONS).toEqual(['20260710150000', '20260713161300']);
+    });
+
     it('maps one semantic migration alias without pretending the canonical version is exact', () => {
         const local = migration('021', 'harden_session_write_policies');
         const [mapped] = mapMigrationHistory([local], [{
@@ -105,6 +120,9 @@ describe('Supabase production rollout safety', () => {
             'assessBillingPackagePriceLinks',
             'readStrictStagingHardeningEvidence',
             'STAGING_HARDENING_CONNECTOR_QUERY_PATH',
+            'validateAllowlistedHistoryDrift',
+            '--history-reconciliation-manifest',
+            'validateBackupReceipt',
             "values[0] === '--' ? values.slice(1) : values",
             'missing or incomplete processed_at_posture and billing_package_price_links aggregates as hard blockers',
             "wave.id !== 'processed_at_small_fix' || processedReady || processedAlreadyClosed",
@@ -116,7 +134,7 @@ describe('Supabase production rollout safety', () => {
             expect(planSource).toContain(snippet);
         }
 
-        expect(sharedSource).toContain(STAGING_ONLY_VERSION);
+        for (const version of STAGING_ONLY_VERSIONS) expect(sharedSource).toContain(version);
 
         expect(planSource).not.toContain("spawnSync('");
         expect(planSource).not.toContain('execSync(');
@@ -141,7 +159,7 @@ describe('Supabase production rollout safety', () => {
             expect(document).toContain('launch:supabase-production-readonly-preflight');
             expect(document).toContain('launch:supabase-production-rollout-plan');
             expect(document).toContain(PRODUCTION_PROJECT.ref);
-            expect(document).toContain(STAGING_ONLY_VERSION);
+            expect(document).toContain(STAGING_ONLY_VERSIONS[0]);
             expect(document).toContain('supabase migration repair');
         }
 
@@ -154,6 +172,7 @@ describe('Supabase production rollout safety', () => {
         expect(runbook).toContain('auth-reduced-quarantined-receipt.json');
         expect(runbook).toContain('production-rollout-receipt.json');
         expect(runbook).toContain('deferred_rc_hardening');
+        for (const version of STAGING_ONLY_VERSIONS) expect(environment).toContain(version);
     });
 });
 
@@ -165,7 +184,7 @@ function migration(version: string, name: string): LocalMigration {
         file: `supabase/migrations/${version}_${name}.sql`,
         sha256: 'a'.repeat(64),
         bytes: 1,
-        stagingOnly: version === STAGING_ONLY_VERSION,
+        stagingOnly: isStagingOnlyMigration(version),
         plannedWave: null,
     };
 }

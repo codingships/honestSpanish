@@ -47,9 +47,8 @@ validateBuiltConfig(config, environment);
 
 if (execute) verifyCloudflareIdentity();
 
-const corepack = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 const wranglerArgs = [
-    'pnpm',
     '--config.verify-deps-before-run=false',
     'exec',
     'wrangler',
@@ -62,7 +61,7 @@ const wranglerArgs = [
 console.log(`[deploy-built-worker] Validated Astro 6 ${environment} package for ${String(config.name)}.`);
 console.log(`[deploy-built-worker] Cloudflare account=${accountId}; write=${String(execute)}; checkout=false.`);
 
-const result = spawnSync(corepack, wranglerArgs, {
+const result = spawnSync(pnpm, wranglerArgs, {
     cwd: workspaceRoot,
     env: process.env,
     stdio: 'inherit',
@@ -150,9 +149,8 @@ function verifyCloudflareIdentity(): void {
         throw new Error(`[deploy-built-worker] CLOUDFLARE_ACCOUNT_ID must equal ${accountId}.`);
     }
 
-    const corepack = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
-    const result = spawnSync(corepack, [
-        'pnpm',
+    const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+    const result = spawnSync(pnpm, [
         '--config.verify-deps-before-run=false',
         'exec',
         'wrangler',

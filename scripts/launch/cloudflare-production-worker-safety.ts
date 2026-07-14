@@ -34,6 +34,38 @@ export const forbiddenGoogleWebBindingNames = [
     'GOOGLE_TEMPLATE_DOC_ID',
 ] as const;
 
+export const productionBootstrapSecretNames = ['INTERNAL_JOB_SECRET'] as const;
+
+export const productionActiveProviderBindingNames = [
+    'ADMIN_EMAIL',
+    'CRON_SECRET',
+    'EMAIL_FROM',
+    'EMAIL_RECIPIENT_ALLOWLIST',
+    'FULFILLMENT_WORKER_URL',
+    'GOOGLE_ADMIN_EMAIL',
+    'GOOGLE_DRIVE_ROOT_FOLDER_ID',
+    'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+    'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+    'GOOGLE_TEMPLATE_DOC_ID',
+    'LEVEL_CHECK_TOKEN_SECRET',
+    'PUBLIC_SENTRY_DSN',
+    'PUBLIC_STRIPE_PUBLISHABLE_KEY',
+    'PUBLIC_SUPABASE_ANON_KEY',
+    'PUBLIC_SUPABASE_URL',
+    'PUBLIC_TURNSTILE_SITE_KEY',
+    'RESEND_API_KEY',
+    'RESEND_FROM_EMAIL',
+    'SENTRY_DSN',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'SUPABASE_EXPECTED_PROJECT_REF',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPPORT_ALERT_EMAIL',
+    'TURNSTILE_SECRET_KEY',
+] as const;
+
 export type WorkerWriteCheckpointStage =
     | 'write_ahead'
     | 'provider_succeeded_needs_readback'
@@ -113,6 +145,40 @@ export function assertExactSecretInventory(source: string, expectedNames: readon
         throw new Error(`Cloudflare secret inventory mismatch: actual=${actual.join(',') || 'none'} expected=${expected.join(',') || 'none'}.`);
     }
     return actual;
+}
+
+export function productionBootstrapSecretInventoryErrors(
+    workerVisible: boolean,
+    names: readonly string[],
+): string[] {
+    const actual = [...names].sort();
+    const expected = [...productionBootstrapSecretNames];
+    if (new Set(actual).size !== actual.length) return ['bootstrap secret inventory contains duplicate names'];
+    if (!workerVisible) {
+        return actual.length === 0
+            ? []
+            : [`secret inventory exists without a visible production Worker: ${actual.join(',')}`];
+    }
+    return actual.length === expected.length && actual.every((name, index) => name === expected[index])
+        ? []
+        : [`bootstrap secret inventory must be exactly ${expected.join(',')}; actual=${actual.join(',') || 'none'}`];
+}
+
+export function productionInertBindingNameErrors(
+    kind: 'web' | 'fulfillment',
+    names: readonly string[],
+): string[] {
+    const errors: string[] = [];
+    const duplicates = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
+    if (duplicates.length > 0) errors.push(`duplicate binding names: ${duplicates.join(',')}`);
+    const activeProviders = productionActiveProviderBindingNames.filter((name) => names.includes(name));
+    if (activeProviders.length > 0) {
+        errors.push(`active provider bindings must be absent from inert ${kind}: ${activeProviders.join(',')}`);
+    }
+    if (kind === 'fulfillment' && names.includes('FULFILLMENT_QUEUE')) {
+        errors.push('FULFILLMENT_QUEUE must be absent from inert fulfillment');
+    }
+    return errors;
 }
 
 export function parseVersionBindingNames(source: string, expectedVersionId: string): string[] {
@@ -342,14 +408,19 @@ export function acquireWorkerWriteExecutionLock(
         acquiredAt: new Date().toISOString(),
         state: 'locked_until_all_readbacks_proven',
     };
+    let createdLockDirectory = false;
     try {
         mkdirSync(lockDirectory);
+        createdLockDirectory = true;
         writeNewJsonAtomically(workerWriteLockOwnerPath(lockDirectory), owner);
         fsyncDirectoryBestEffort(lockDirectory);
         fsyncDirectoryBestEffort(path.dirname(lockDirectory));
         return owner;
     } catch (error) {
-        if (existsSync(lockDirectory) && !existsSync(workerWriteLockOwnerPath(lockDirectory))) {
+        // Never remove a directory created by another contender. The atomic
+        // mkdir is the lock claim; its owner file can legitimately be absent
+        // for a few instructions while the winning process persists it.
+        if (createdLockDirectory && existsSync(lockDirectory)) {
             rmSync(lockDirectory, { force: true, recursive: true });
         }
         throw error;

@@ -220,7 +220,6 @@ function runGroup(group: FunctionalGroup): GroupResult {
     }
 
     const args = [
-        'pnpm',
         'exec',
         'vitest',
         'run',
@@ -229,7 +228,7 @@ function runGroup(group: FunctionalGroup): GroupResult {
         ...group.tests,
     ];
 
-    const result = spawnSync(corepackCommand(), args, {
+    const result = spawnSync(pnpmCommand(), args, {
         cwd: process.cwd(),
         encoding: 'utf8',
         shell: process.platform === 'win32',
@@ -237,7 +236,7 @@ function runGroup(group: FunctionalGroup): GroupResult {
     });
 
     writeFileSync(logPath, [
-        `$ ${corepackCommand()} ${args.join(' ')}`,
+        `$ ${pnpmCommand()} ${args.join(' ')}`,
         `exitCode=${result.status ?? 'null'}`,
         '',
         result.stdout ?? '',
@@ -305,8 +304,8 @@ function renderSummary(report: FunctionalRcReport): string {
     return `${lines.join('\n')}\n`;
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

@@ -2,6 +2,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import SegmentLandingPage from '../../components/landing/SegmentLandingPage.astro';
 import { getLandingPageData } from '../../lib/landing-data';
+import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
 
 const lang = 'es';
 const { packages, isLoggedIn } = await getLandingPageData(Astro);
@@ -53,6 +54,10 @@ const faqSchema = {
         },
     })),
 };
+const schemaJson = serializeJsonForHtml(schema);
+const faqSchemaJson = serializeJsonForHtml(faqSchema);
+Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
+Astro.csp?.insertScriptHash(await sha256CspHash(faqSchemaJson));
 
 const pricingTranslations = {
     title: 'Planes',
@@ -98,8 +103,8 @@ const pricingTranslations = {
     canonicalPath="/espanol-para-profesionales"
     alternateLangs={['es']}
 >
-    <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)} />
-    <script is:inline type="application/ld+json" set:html={JSON.stringify(faqSchema)} />
+    <script is:inline type="application/ld+json" set:html={schemaJson} />
+    <script is:inline type="application/ld+json" set:html={faqSchemaJson} />
 
     <SegmentLandingPage
         lang={lang}

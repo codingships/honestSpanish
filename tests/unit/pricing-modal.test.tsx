@@ -80,7 +80,7 @@ describe('PricingModal', () => {
     afterEach(() => {
         vi.clearAllMocks();
         vi.unstubAllGlobals();
-        document.body.style.overflow = '';
+        document.body.classList.remove('overflow-hidden');
     });
 
     it('renders a labelled checkout dialog with keyboard close semantics', async () => {
@@ -92,6 +92,7 @@ describe('PricingModal', () => {
         expect(dialog).toHaveAttribute('aria-busy', 'false');
         expect(dialog).toHaveAccessibleDescription(translations.title);
         await waitFor(() => expect(dialog).toHaveFocus());
+        expect(document.body).toHaveClass('overflow-hidden');
 
         expect(screen.getByRole('button', { name: translations.close })).toHaveAttribute('type', 'button');
         expect(screen.getByRole('group', { name: translations.title })).toBeInTheDocument();

@@ -11,6 +11,10 @@ export const RC_OPERATIONAL_BLOCKER_DEFINITIONS = [
         id: 'rollback_proof',
         label: 'Proceso de rollback probado.',
     },
+    {
+        id: 'legacy_reminder_worker',
+        label: 'Worker legacy de recordatorios neutralizado.',
+    },
 ] as const;
 
 export type RcOperationalBlockerId = typeof RC_OPERATIONAL_BLOCKER_DEFINITIONS[number]['id'];

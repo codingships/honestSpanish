@@ -1,11 +1,19 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+    FIXTURE_CLEANUP_TARGET,
+    PRODUCTION_BACKUP_REQUIRED_LIMITATIONS,
+    validateBackupReceipt,
+    type BackupReceipt,
+} from './production-fixture-cleanup-shared';
+import {
     KNOWN_MIGRATION_WAVES,
     PROCESSED_AT_VERSION,
     PRODUCTION_PROJECT,
-    STAGING_ONLY_VERSION,
+    STAGING_ONLY_MIGRATIONS,
+    STAGING_ONLY_VERSIONS,
     collectLocalMigrations,
+    isStagingOnlyMigration,
     sha256,
     stableJson,
     toPosix,
@@ -15,6 +23,10 @@ import {
     assessBillingPackagePriceLinks,
     assessProcessedAtPosture,
 } from './supabase-production-rollout-evidence';
+import {
+    readHistoryReconciliationManifestEvidence,
+    validateAllowlistedHistoryDrift,
+} from './supabase-production-history-reconciliation-consumer';
 import {
     STAGING_HARDENING_CONNECTOR_QUERY_PATH,
     readStagingHardeningEvidence as readStrictStagingHardeningEvidence,
@@ -43,17 +55,6 @@ interface PreflightReport {
         noPrivateRowsSelected: boolean;
         noSecretsStored: boolean;
     };
-}
-
-interface BackupReceipt {
-    schemaVersion: number;
-    targetProjectRef: string;
-    createdAt: string;
-    method: 'logical_dump' | 'dashboard_backup' | 'pitr';
-    backupCompleted: boolean;
-    artifactStoredOutsideRepository: boolean;
-    verification: 'dump_hash_recorded' | 'restore_tested' | 'dashboard_restore_point_confirmed';
-    limitationsAcknowledged: string[];
 }
 
 interface PreservationPolicy {
@@ -90,6 +91,11 @@ if (!preflightPath || !existsSync(preflightPath)) {
 const preflightRaw = readFileSync(preflightPath, 'utf8');
 const preflight = JSON.parse(preflightRaw) as PreflightReport;
 validatePreflightShape(preflight);
+const historyReconciliation = readHistoryReconciliationManifestEvidence(
+    args.historyReconciliationManifest,
+    startedAt,
+    process.cwd(),
+);
 
 const localMigrations = collectLocalMigrations();
 const preflightByVersion = new Map(preflight.migrationInventory.localMigrations.map((migration) => [migration.version, migration]));
@@ -133,17 +139,30 @@ const stagingHardeningEvidence = readStagingHardeningEvidenceForPlan(args.stagin
 
 const preflightAgeHours = (startedAt.getTime() - new Date(preflight.endedAt).getTime()) / 3_600_000;
 const preflightFresh = Number.isFinite(preflightAgeHours) && preflightAgeHours >= 0 && preflightAgeHours <= 24;
+const historyDriftPresent = preflight.migrationInventory.versionNameMismatchCount !== 0
+    || preflight.migrationInventory.duplicateSemanticHistoryCount !== 0;
+const historyExceptionErrors = historyDriftPresent
+    ? validateAllowlistedHistoryDrift(preflight, historyReconciliation)
+    : [];
+const historyDriftSafe = historyDriftPresent
+    ? historyExceptionErrors.length === 0
+    : true;
 const preflightSafe = preflight.status !== 'FAILED'
     && preflight.target.ref === PRODUCTION_PROJECT.ref
     && preflight.safety.noExternalWrite
     && preflight.safety.noPrivateRowsSelected
     && preflight.safety.noSecretsStored
-    && preflight.migrationInventory.ambiguousCount === 0;
+    && preflight.migrationInventory.ambiguousCount === 0
+    && historyDriftSafe;
 const localInventoryStable = hashDrift.length === 0 && localAddedAfterPreflight.length === 0;
 
 const migrationMap = new Map(preflight.migrationInventory.localMigrations.map((migration) => [migration.version, migration]));
-const stagingOnlyMigration = migrationMap.get(STAGING_ONLY_VERSION);
-const stagingOnlyExcluded = stagingOnlyMigration?.historyStatus === 'missing';
+const stagingOnlyExcluded = STAGING_ONLY_MIGRATIONS.every((expected) => {
+    const migration = migrationMap.get(expected.version);
+    return migration?.name === expected.name
+        && migration.stagingOnly === true
+        && migration.historyStatus === 'missing';
+});
 const processedMigration = migrationMap.get(PROCESSED_AT_VERSION);
 const processedAlreadyClosed = preflightSafe
     && preflightFresh
@@ -239,7 +258,7 @@ const waves = KNOWN_MIGRATION_WAVES.map((wave) => {
 
 const knownVersions = new Set([
     ...KNOWN_MIGRATION_WAVES.flatMap((wave) => [...wave.versions]),
-    STAGING_ONLY_VERSION,
+    ...STAGING_ONLY_VERSIONS,
 ]);
 const unplannedSemanticMissing = preflight.migrationInventory.localMigrations.filter((migration) => (
     migration.historyStatus === 'missing'
@@ -253,6 +272,12 @@ const approvalScope = {
         path: toPosix(path.relative(process.cwd(), preflightPath)),
         sha256: sha256(preflightRaw),
         endedAt: preflight.endedAt,
+    },
+    historyReconciliation: {
+        required: historyDriftPresent,
+        manifestSha256: historyReconciliation.sha256,
+        manifestCoreSha256: historyReconciliation.manifestCoreSha256,
+        snapshotSha256: historyReconciliation.snapshotSha256,
     },
     aggregateSnapshotSha256,
     baselineHistoryEffects,
@@ -269,7 +294,7 @@ const approvalScope = {
         duplicateSemanticHistory: migration.duplicateSemanticHistory,
     })),
     exclusions: {
-        stagingOnlyMigration: STAGING_ONLY_VERSION,
+        stagingOnlyMigrations: STAGING_ONLY_MIGRATIONS.map((migration) => ({ ...migration })),
         blanketDbPush: true,
         migrationRepair: true,
         privateDataExportIntoRepository: true,
@@ -304,6 +329,17 @@ const report = {
         ageHours: Number(preflightAgeHours.toFixed(2)),
         fresh: preflightFresh,
         safe: preflightSafe,
+    },
+    historyReconciliation: {
+        required: historyDriftPresent,
+        valid: historyReconciliation.valid,
+        manifestSha256: historyReconciliation.sha256,
+        manifestCoreSha256: historyReconciliation.manifestCoreSha256,
+        snapshotSha256: historyReconciliation.snapshotSha256,
+        capturedAt: historyReconciliation.capturedAt,
+        errors: [...historyReconciliation.errors, ...historyExceptionErrors],
+        activationRequired: historyDriftPresent,
+        exactActivationApproval: historyReconciliation.exactActivationApproval,
     },
     approvalScopeSha256,
     migrationHistory: {
@@ -366,7 +402,7 @@ const report = {
         secretsRead: false,
         secretsStored: false,
         forbiddenCommands: ['supabase db push', 'supabase migration repair'],
-        productionExcludedMigration: STAGING_ONLY_VERSION,
+        productionExcludedMigrations: [...STAGING_ONLY_VERSIONS],
     },
 };
 
@@ -405,6 +441,7 @@ function parseArgs(values: string[]): {
     backupEvidenceReceipt: string | null;
     preservationPolicy: string | null;
     stagingHardeningEvidence: string | null;
+    historyReconciliationManifest: string | null;
 } {
     const normalizedValues = values[0] === '--' ? values.slice(1) : values;
     const parsed = {
@@ -412,6 +449,7 @@ function parseArgs(values: string[]): {
         backupEvidenceReceipt: null as string | null,
         preservationPolicy: null as string | null,
         stagingHardeningEvidence: null as string | null,
+        historyReconciliationManifest: null as string | null,
     };
     for (let index = 0; index < normalizedValues.length; index += 1) {
         const value = normalizedValues[index];
@@ -427,6 +465,9 @@ function parseArgs(values: string[]): {
             index += 1;
         } else if (value === '--staging-hardening-evidence' && next) {
             parsed.stagingHardeningEvidence = path.resolve(next);
+            index += 1;
+        } else if (value === '--history-reconciliation-manifest' && next) {
+            parsed.historyReconciliationManifest = path.resolve(next);
             index += 1;
         } else {
             throw new Error(`Unsupported or incomplete argument: ${value}`);
@@ -451,6 +492,10 @@ function validatePreflightShape(preflight: PreflightReport): void {
     if (preflight.schemaVersion !== 1) throw new Error('Unsupported production preflight schema version.');
     if (preflight.target?.ref !== PRODUCTION_PROJECT.ref) throw new Error('Preflight targets the wrong Supabase project.');
     if (!Array.isArray(preflight.migrationInventory?.localMigrations)) throw new Error('Preflight migration inventory is missing.');
+    if (!Number.isSafeInteger(preflight.migrationInventory.versionNameMismatchCount)
+        || !Number.isSafeInteger(preflight.migrationInventory.duplicateSemanticHistoryCount)) {
+        throw new Error('Preflight migration drift counters are missing or invalid.');
+    }
     if (!preflight.aggregates || typeof preflight.aggregates !== 'object') throw new Error('Preflight aggregates are missing.');
 }
 
@@ -461,18 +506,9 @@ function readBackupReceipt(receiptPath: string | null): InputGate<BackupReceipt>
     const errors: string[] = [];
     let value: BackupReceipt | null = null;
     try {
-        value = JSON.parse(readFileSync(receiptPath, 'utf8')) as BackupReceipt;
-        if (value.schemaVersion !== 1) errors.push('schemaVersion must be 1');
-        if (value.targetProjectRef !== PRODUCTION_PROJECT.ref) errors.push('targetProjectRef mismatch');
-        if (!value.backupCompleted) errors.push('backupCompleted must be true');
-        if (!value.artifactStoredOutsideRepository) errors.push('artifactStoredOutsideRepository must be true');
-        if (!['logical_dump', 'dashboard_backup', 'pitr'].includes(value.method)) errors.push('unsupported backup method');
-        if (!['dump_hash_recorded', 'restore_tested', 'dashboard_restore_point_confirmed'].includes(value.verification)) errors.push('unsupported verification');
-        const ageHours = (Date.now() - new Date(value.createdAt).getTime()) / 3_600_000;
-        if (!Number.isFinite(ageHours) || ageHours < 0 || ageHours > 24) errors.push('backup evidence must be no more than 24 hours old');
-        for (const limitation of ['storage_objects_not_included', 'custom_role_passwords_not_included']) {
-            if (!value.limitationsAcknowledged?.includes(limitation)) errors.push(`missing limitation acknowledgement: ${limitation}`);
-        }
+        const validation = validateBackupReceipt(JSON.parse(readFileSync(receiptPath, 'utf8')), startedAt);
+        value = validation.value;
+        errors.push(...validation.errors);
     } catch (error) {
         errors.push(error instanceof Error ? error.message : String(error));
     }
@@ -534,19 +570,35 @@ function readStagingHardeningEvidenceForPlan(
     };
 }
 
-function renderBackupTemplate(): BackupReceipt {
+function renderBackupTemplate(): Record<keyof BackupReceipt, unknown> {
     return {
         schemaVersion: 1,
-        targetProjectRef: PRODUCTION_PROJECT.ref,
+        receiptKind: 'supabase_production_logical_backup',
+        targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+        authInertEvidenceSha256: '<SHA-256 of a fresh exact production Auth inert receipt>',
+        aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
+        approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         createdAt: '<ISO-8601 after the backup completes>',
         method: 'logical_dump',
         backupCompleted: false,
         artifactStoredOutsideRepository: true,
+        atRestProtection: 'windows_efs',
+        atRestProtectionVerified: false,
+        artifactSha256: '<64 lowercase hexadecimal characters>',
+        includedSchemas: ['public', 'auth'],
         verification: 'dump_hash_recorded',
-        limitationsAcknowledged: [
-            'storage_objects_not_included',
-            'custom_role_passwords_not_included',
-        ],
+        restoreProcedureReviewed: false,
+        limitationsAcknowledged: [...PRODUCTION_BACKUP_REQUIRED_LIMITATIONS],
+        backupFormat: 'pg_dump_custom',
+        archiveListVerified: false,
+        archiveRequiredTableDataVerified: false,
+        archiveTocEntryCount: 0,
+        artifactBytes: 0,
+        artifactPathRecorded: false,
+        toolVersions: {
+            pgDump: '<pg_dump --version>',
+            pgRestore: '<pg_restore --version>',
+        },
     };
 }
 
@@ -631,7 +683,9 @@ function renderSummary(value: typeof report): string {
         '',
         '- Never run blanket `supabase db push`.',
         '- Never run `supabase migration repair` to hide alias drift.',
-        `- Never apply ${STAGING_ONLY_VERSION}_staging_integration_smoke_runs.sql to production.`,
+        ...STAGING_ONLY_MIGRATIONS.map((migration) => (
+            `- Never apply ${migration.version}_${migration.name}.sql to production.`
+        )),
         '- Never clean fixtures without both a fresh backup evidence receipt and a complete preservation policy bound to the aggregate snapshot hash.',
         '- Treat missing or incomplete processed_at_posture and billing_package_price_links aggregates as hard blockers, never as zero counts.',
         '- Never start the billing wave while any Stripe-linked subscription lacks `package_price_id`.',
@@ -673,7 +727,7 @@ function renderApprovalSentences(value: typeof report): string {
                 return [
                     `### ${wave.id}`,
                     '',
-                    `Autorizo aplicar en Supabase production ${PRODUCTION_PROJECT.name} (${PRODUCTION_PROJECT.ref}) unicamente la ola ${wave.id}, en este orden exacto: ${exactList}; alcance ${value.approvalScopeSha256}. La autorizacion solo es valida si todos los prerequisitos del manifiesto estan en ready, checkout sigue desactivado y una verificacion read-only pasa tras cada migracion. Se excluye expresamente ${STAGING_ONLY_VERSION}; no autorizo db push, migration repair, otras migraciones, limpieza, Stripe, Cloudflare, DNS ni dominios.`,
+                    `Autorizo aplicar en Supabase production ${PRODUCTION_PROJECT.name} (${PRODUCTION_PROJECT.ref}) unicamente la ola ${wave.id}, en este orden exacto: ${exactList}; alcance ${value.approvalScopeSha256}. La autorizacion solo es valida si todos los prerequisitos del manifiesto estan en ready, checkout sigue desactivado y una verificacion read-only pasa tras cada migracion. Se excluyen expresamente ${STAGING_ONLY_VERSIONS.join(', ')}; no autorizo db push, migration repair, otras migraciones, limpieza, Stripe, Cloudflare, DNS ni dominios.`,
                     '',
                 ];
             }),
@@ -687,7 +741,7 @@ function renderVerificationAndRollback(value: typeof report): string {
         `## Before every phase\n\n` +
         `1. Rerun \`pnpm launch:supabase-production-readonly-preflight\`.\n` +
         `2. Rerun \`pnpm launch:supabase-production-rollout-plan\` against that exact summary.\n` +
-        `3. Confirm checkout is disabled, the project ref is ${value.target.ref}, hashes are unchanged, aliases are unambiguous and ${STAGING_ONLY_VERSION} is absent.\n` +
+        `3. Confirm checkout is disabled, the project ref is ${value.target.ref}, hashes are unchanged, aliases are unambiguous and ${STAGING_ONLY_VERSIONS.join(', ')} are absent.\n` +
         `4. For cleanup or migration waves, confirm a backup receipt no older than 24 hours. For cleanup/billing, also confirm the preservation policy hash.\n\n` +
         `## processed_at small fix\n\n` +
         `- Verify: the migration history/effect is present once; \`processed_at\` has no default; invalid/null processing states remain zero.\n` +
@@ -707,7 +761,7 @@ function renderVerificationAndRollback(value: typeof report): string {
 function renderVerificationSql(value: typeof report): string {
     const expectedMigrations = value.gates.migrationWaves
         .flatMap((wave) => wave.pending)
-        .filter((migration) => migration.version !== STAGING_ONLY_VERSION)
+        .filter((migration) => !isStagingOnlyMigration(migration.version))
         .map((migration) => `('${migration.version.replace(/'/g, "''")}', '${migration.name.replace(/'/g, "''")}')`)
         .join(', ');
     return `-- Read-only verification for Supabase production ${PRODUCTION_PROJECT.ref}.\n` +

@@ -39,6 +39,7 @@ describe('campus adult-account middleware gate', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         for (const key of Object.keys(mocks.runtimeEnv)) delete mocks.runtimeEnv[key];
+        mocks.runtimeEnv.PUBLIC_APP_ENV = 'test';
         mocks.getUser.mockResolvedValue({
             data: { user: { id: 'user-1' } },
             error: null,
@@ -184,8 +185,13 @@ describe('campus adult-account middleware gate', () => {
 
         expect(response.status).toBe(200);
         expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive');
+        expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+        expect(response.headers.get('X-Frame-Options')).toBe('DENY');
+        expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=31536000');
+        expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
         expect(next).toHaveBeenCalledOnce();
         expect(mocks.getUser).not.toHaveBeenCalled();
+        expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     });
 
     it('adds the global robots header to a staging redirect created by the auth gate', async () => {
@@ -221,7 +227,196 @@ describe('campus adult-account middleware gate', () => {
 
         expect(response.status).toBe(200);
         expect(response.headers.has('X-Robots-Tag')).toBe(false);
+        expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+        expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
         expect(next).toHaveBeenCalledOnce();
         expect(mocks.getUser).not.toHaveBeenCalled();
+    });
+
+    it('forces no-store caching on hosted API responses', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/api/example');
+        const next = vi.fn().mockResolvedValue(new Response('{}', {
+            headers: { 'Cache-Control': 'public, max-age=3600' },
+        }));
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+        expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
+    });
+
+    it('forces private no-store caching on authenticated and recovery pages', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es/campus');
+
+        const response = await onRequest(context as any, vi.fn()) as Response;
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+        expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
+    });
+
+    it('normalizes the production environment before enforcing bootstrap mode', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: ' Production ',
+            WEB_RUNTIME_MODE: 'bootstrap',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const next = vi.fn();
+
+        const response = await onRequest(middlewareContext('/es') as any, next) as Response;
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toEqual({ errorCode: 'WEB_RUNTIME_BOOTSTRAP' });
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, 'prodcution'])(
+        'fails closed when the hosted environment contract is invalid (%s)',
+        async (appEnvironment) => {
+            if (appEnvironment) mocks.runtimeEnv.PUBLIC_APP_ENV = appEnvironment;
+            else delete mocks.runtimeEnv.PUBLIC_APP_ENV;
+            const { onRequest } = await import('../../src/middleware');
+            const next = vi.fn();
+
+            const response = await onRequest(middlewareContext('/es') as any, next) as Response;
+
+            expect(response.status).toBe(503);
+            await expect(response.json()).resolves.toEqual({ errorCode: 'PUBLIC_APP_ENV_INVALID' });
+            expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
+            expect(response.headers.get('Cache-Control')).toContain('no-store');
+            expect(next).not.toHaveBeenCalled();
+        },
+    );
+
+    it.each(['/es//login', '//es/login'])(
+        'keeps normalized login redirects private and non-cacheable for %s',
+        async (path) => {
+            Object.assign(mocks.runtimeEnv, {
+                PUBLIC_APP_ENV: 'production',
+                WEB_RUNTIME_MODE: 'active',
+            });
+            mocks.single.mockResolvedValue({
+                data: {
+                    role: 'admin',
+                    adult_confirmed: false,
+                    adult_confirmed_at: null,
+                    age_policy_version: null,
+                },
+                error: null,
+            });
+            const { onRequest } = await import('../../src/middleware');
+
+            const response = await onRequest(middlewareContext(path) as any, vi.fn()) as Response;
+
+            expect(response.status).toBe(302);
+            expect(response.headers.get('Location')).toBe('/es/campus/admin');
+            expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+        },
+    );
+
+    it('does not treat a longer unknown path as the login page', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const next = vi.fn().mockResolvedValue(new Response('not found', { status: 404 }));
+
+        const response = await onRequest(middlewareContext('/es/login/extra') as any, next) as Response;
+
+        expect(response.status).toBe(404);
+        expect(next).toHaveBeenCalledOnce();
+        expect(mocks.getUser).not.toHaveBeenCalled();
+        expect(response.headers.has('Cache-Control')).toBe(false);
+    });
+
+    it('does not let encoded localized route segments bypass the authentication gate', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+        const { onRequest } = await import('../../src/middleware');
+        const next = vi.fn();
+
+        const response = await onRequest(
+            middlewareContext('/es/%63ampus/admin') as any,
+            next,
+        ) as Response;
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/es/login');
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('does not decode a localized route segment twice', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const next = vi.fn().mockResolvedValue(new Response('not found', { status: 404 }));
+
+        const response = await onRequest(
+            middlewareContext('/es/%2563ampus/admin') as any,
+            next,
+        ) as Response;
+
+        expect(response.status).toBe(404);
+        expect(next).toHaveBeenCalledOnce();
+        expect(mocks.getUser).not.toHaveBeenCalled();
+        expect(response.headers.has('Cache-Control')).toBe(false);
+    });
+
+    it('applies API cache controls to encoded route segments', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const next = vi.fn().mockResolvedValue(new Response('{}'));
+
+        const response = await onRequest(
+            middlewareContext('/%61pi/example') as any,
+            next,
+        ) as Response;
+
+        expect(response.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+    });
+
+    it('preserves the isolated same-origin policy for the authenticated email preview frame', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const next = vi.fn().mockResolvedValue(new Response('<html></html>', {
+            headers: {
+                'Cache-Control': 'private, no-store',
+                'Referrer-Policy': 'no-referrer',
+            },
+        }));
+
+        const response = await onRequest(
+            middlewareContext('/api/email/preview-frame?type=welcome') as any,
+            next,
+        ) as Response;
+
+        expect(response.headers.get('X-Frame-Options')).toBe('SAMEORIGIN');
+        expect(response.headers.get('Referrer-Policy')).toBe('no-referrer');
+        expect(response.headers.get('Cache-Control')).toBe('private, no-store, no-cache, must-revalidate');
+        expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'self'");
+        expect(response.headers.get('Content-Security-Policy')).toContain("style-src 'unsafe-inline'");
     });
 });

@@ -87,8 +87,8 @@ export default function PricingModal({
         const previouslyFocused = document.activeElement instanceof HTMLElement
             ? document.activeElement
             : null;
-        const previousOverflow = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
+        const bodyWasAlreadyLocked = document.body.classList.contains('overflow-hidden');
+        document.body.classList.add('overflow-hidden');
 
         const focusTimer = window.setTimeout(() => {
             dialogRef.current?.focus();
@@ -132,7 +132,7 @@ export default function PricingModal({
         return () => {
             window.clearTimeout(focusTimer);
             document.removeEventListener('keydown', handleKeyDown);
-            document.body.style.overflow = previousOverflow;
+            if (!bodyWasAlreadyLocked) document.body.classList.remove('overflow-hidden');
             previouslyFocused?.focus();
         };
     }, [isOpen, onClose, plan]);

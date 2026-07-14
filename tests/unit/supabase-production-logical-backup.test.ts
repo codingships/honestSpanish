@@ -25,6 +25,7 @@ describe('Supabase production logical-backup runner', () => {
         expect(parseProductionBackupArgs([])).toEqual({
             mode: 'plan',
             destination: null,
+            authInertEvidencePath: null,
             executeApproved: false,
             restoreProcedureReviewed: false,
         });
@@ -32,6 +33,8 @@ describe('Supabase production logical-backup runner', () => {
             'execute',
             '--destination',
             'C:\\backups\\production.dump',
+            '--auth-inert-evidence',
+            'auth-inert-receipt.json',
             '--execute-approved',
             '--restore-procedure-reviewed',
         ])).toMatchObject({
@@ -109,11 +112,16 @@ describe('Supabase production logical-backup runner', () => {
 
     it('binds exact approval to target, snapshot, scope and a non-disclosing path hash', () => {
         const destinationBinding = sha256('C:\\outside\\production.dump'.toLowerCase());
-        const approval = buildProductionLogicalBackupApproval(destinationBinding);
+        const authInertEvidenceSha256 = 'a'.repeat(64);
+        const approval = buildProductionLogicalBackupApproval({
+            destinationBindingSha256: destinationBinding,
+            authInertEvidenceSha256,
+        });
         expect(approval).toContain(`target=${FIXTURE_CLEANUP_TARGET.projectRef}`);
         expect(approval).toContain(`snapshot=${FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256}`);
         expect(approval).toContain(`scope=${FIXTURE_CLEANUP_TARGET.approvalScopeSha256}`);
         expect(approval).toContain(`destination_binding=${destinationBinding}`);
+        expect(approval).toContain(`auth_inert_evidence=${authInertEvidenceSha256}`);
         expect(approval).toContain('restore_procedure_reviewed=true');
         expect(approval).toContain('at_rest_protection=windows_efs');
         expect(approval).not.toContain('C:\\outside');
@@ -153,5 +161,16 @@ describe('Supabase production logical-backup runner', () => {
         expect(runnerSource).not.toContain('supabase db push');
         expect(runnerSource).not.toContain('supabase migration repair');
         expect(runnerSource).toContain('databaseWritePerformed: false');
+    });
+
+    it('requires a fresh receipt and repeats the Auth GET immediately before pg_dump', () => {
+        const receiptIndex = runnerSource.indexOf('readProductionAuthInertEvidence(options.authInertEvidencePath');
+        const liveGetIndex = runnerSource.indexOf('await verifyLiveProductionAuthInert(accessToken)');
+        const pgDumpIndex = runnerSource.indexOf("const dumpResult = runTool('pg_dump'");
+        expect(receiptIndex).toBeGreaterThan(-1);
+        expect(liveGetIndex).toBeGreaterThan(receiptIndex);
+        expect(pgDumpIndex).toBeGreaterThan(liveGetIndex);
+        expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_LIVE_AUTH_NOT_INERT'");
     });
 });

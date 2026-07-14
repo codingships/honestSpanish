@@ -147,7 +147,10 @@ const copy = {
 ---
 
 <CampusLayout title={copy.title} user={{ ...user, ...profile }} lang={lang}>
-    <div class="mx-auto max-w-4xl space-y-6">
+    <div
+        class="mx-auto max-w-4xl space-y-6"
+        data-support-copy={JSON.stringify({ lang, ...copy.form })}
+    >
         <header>
             <h1 class="font-display text-4xl uppercase text-[#006064]">{copy.title}</h1>
             <p class="mt-2 font-mono text-sm text-[#006064]/70">{copy.intro}</p>
@@ -224,10 +227,9 @@ const copy = {
         </section>
     </div>
 
-    <script type="application/json" id="support-copy" set:html={JSON.stringify({ lang, ...copy.form })}></script>
-    <script is:inline>
-        const supportCopyElement = document.getElementById('support-copy');
-        const supportCopy = JSON.parse(supportCopyElement?.textContent || '{}');
+    <script>
+        const supportRoot = document.querySelector('[data-support-copy]');
+        const supportCopy = JSON.parse(supportRoot?.getAttribute('data-support-copy') || '{}');
 
         function setSupportFormOpen(issueId, isOpen) {
             const form = document.querySelector(`[data-support-form="${issueId}"]`);

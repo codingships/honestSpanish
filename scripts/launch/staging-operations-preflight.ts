@@ -126,20 +126,20 @@ async function checkInternalRouteRejectsAnonymous(baseUrl: string): Promise<Chec
 
 function runWranglerReadOnlyChecks(): CheckResult[] {
     return [
-        runWranglerCommand('wrangler_whoami', ['pnpm', 'exec', 'wrangler', 'whoami'], [
+        runWranglerCommand('wrangler_whoami', ['exec', 'wrangler', 'whoami'], [
             'logged in',
             'Account Name',
         ]),
-        runWranglerCommand('wrangler_deployments_status', ['pnpm', 'exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], [
+        runWranglerCommand('wrangler_deployments_status', ['exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], [
             'version_id',
             'percentage',
         ], path.join(process.cwd(), 'workers', 'fulfillment')),
         runWranglerVersionViewCheck(),
-        runWranglerCommand('wrangler_deployments_list', ['pnpm', 'exec', 'wrangler', 'deployments', 'list', '--env', 'staging', '--json'], [
+        runWranglerCommand('wrangler_deployments_list', ['exec', 'wrangler', 'deployments', 'list', '--env', 'staging', '--json'], [
             'created_on',
             'version_id',
         ], path.join(process.cwd(), 'workers', 'fulfillment')),
-        runWranglerCommand('wrangler_secret_list', ['pnpm', 'exec', 'wrangler', 'secret', 'list', '--env', 'staging'], [
+        runWranglerCommand('wrangler_secret_list', ['exec', 'wrangler', 'secret', 'list', '--env', 'staging'], [
             'INTERNAL_JOB_SECRET',
             'CRON_SECRET',
             'RESEND_API_KEY',
@@ -149,7 +149,7 @@ function runWranglerReadOnlyChecks(): CheckResult[] {
 
 function runWranglerVersionViewCheck(): CheckResult {
     const workerCwd = path.join(process.cwd(), 'workers', 'fulfillment');
-    const status = spawnSync(corepackCommand(), ['pnpm', 'exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], {
+    const status = spawnSync(pnpmCommand(), ['exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], {
         cwd: workerCwd,
         encoding: 'utf8',
         shell: process.platform === 'win32',
@@ -161,7 +161,7 @@ function runWranglerVersionViewCheck(): CheckResult {
 
     if (status.status !== 0 || !versionId) {
         writeFileSync(logPath, [
-            `$ ${corepackCommand()} pnpm exec wrangler deployments status --env staging --json`,
+            `$ ${pnpmCommand()} exec wrangler deployments status --env staging --json`,
             `exitCode=${status.status ?? 'null'}`,
             '',
             redactWranglerOutput(`${status.stdout ?? ''}\n${status.stderr ?? ''}`),
@@ -180,7 +180,7 @@ function runWranglerVersionViewCheck(): CheckResult {
         };
     }
 
-    const version = spawnSync(corepackCommand(), ['pnpm', 'exec', 'wrangler', 'versions', 'view', versionId, '--env', 'staging', '--json'], {
+    const version = spawnSync(pnpmCommand(), ['exec', 'wrangler', 'versions', 'view', versionId, '--env', 'staging', '--json'], {
         cwd: workerCwd,
         encoding: 'utf8',
         shell: process.platform === 'win32',
@@ -189,7 +189,7 @@ function runWranglerVersionViewCheck(): CheckResult {
     const versionOutput = `${version.stdout ?? ''}\n${version.stderr ?? ''}`;
     const sanitized = summarizeVersionView(version.stdout ?? '');
     writeFileSync(logPath, [
-        `$ ${corepackCommand()} pnpm exec wrangler versions view ${versionId} --env staging --json`,
+        `$ ${pnpmCommand()} exec wrangler versions view ${versionId} --env staging --json`,
         `exitCode=${version.status ?? 'null'}`,
         '',
         sanitized || redactWranglerOutput(versionOutput),
@@ -250,7 +250,7 @@ function checkLocalWorkerCronAndObservabilityConfig(): CheckResult {
 }
 
 function runWranglerCommand(name: string, args: string[], expectedSnippets: string[], cwd = process.cwd()): CheckResult {
-    const result = spawnSync(corepackCommand(), args, {
+    const result = spawnSync(pnpmCommand(), args, {
         cwd,
         encoding: 'utf8',
         shell: process.platform === 'win32',
@@ -261,7 +261,7 @@ function runWranglerCommand(name: string, args: string[], expectedSnippets: stri
     const missing = expectedSnippets.filter((snippet) => !output.includes(snippet));
     const logPath = path.join(outputDir, `${name}.log`);
     writeFileSync(logPath, [
-        `$ ${corepackCommand()} ${args.join(' ')}`,
+        `$ ${pnpmCommand()} ${args.join(' ')}`,
         `exitCode=${result.status ?? 'null'}`,
         '',
         redactWranglerOutput(output),
@@ -404,8 +404,8 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? `error=${error.message}` : 'error=unknown';
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

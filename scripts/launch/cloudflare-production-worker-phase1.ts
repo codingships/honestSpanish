@@ -9,6 +9,14 @@ import {
     verifyRuntimeAttestation,
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
+import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
+import {
+    beginOneShotCloudflareWrite,
+    closeOneShotCloudflareWriteGuard,
+    openOneShotCloudflareWriteGuard,
+    recordOneShotCloudflareProviderResult,
+    recordOneShotCloudflareReadback,
+} from './cloudflare-production-one-shot-write';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -59,7 +67,7 @@ interface PhaseOneReport {
     executeRequested: boolean;
     approvalMatched: boolean;
     externalWriteAttempted: boolean;
-    externalWritePerformed: boolean;
+    externalWritePerformed: boolean | 'unknown';
     latestFulfillmentBootstrapSummaryPath: string | null;
     latestFulfillmentBootstrapSecretsSummaryPath: string | null;
     latestPreflightSummaryPath: string | null;
@@ -87,7 +95,7 @@ interface RenderedArtifacts {
 
 const target: CloudflareTarget = {
     accountId: 'd1a22bcf6477ff2ff31d2bfb83084e44',
-    accountLabel: "Alindev95@gmail.com's Account",
+    accountLabel: 'Español Honesto Cloudflare account',
     productionWorker: 'espanolhonesto',
     pagesProject: 'espanolhonesto',
     customDomains: ['espanolhonesto.com', 'www.espanolhonesto.com'],
@@ -162,6 +170,7 @@ const withheldFulfillmentProviderSecretNames = [
 const commands = buildCommands();
 const captures: CommandCapture[] = [];
 let externalWriteAttempted = false;
+let externalWritePerformedState: boolean | 'unknown' = false;
 const checks: PhaseOneCheck[] = [
     validatePackageScript(),
     validateFulfillmentBootstrapEvidence(),
@@ -240,7 +249,6 @@ if (failed.length > 0) process.exit(1);
 
 function createReport(reportChecks: PhaseOneCheck[], reportCaptures: CommandCapture[]): PhaseOneReport {
     const reportStatus = statusFor(reportChecks);
-    const externalWritePerformed = reportCaptures.some((capture) => capture.writesCloudflare && capture.status === 'ok');
 
     return {
         schemaVersion: 1,
@@ -258,7 +266,7 @@ function createReport(reportChecks: PhaseOneCheck[], reportCaptures: CommandCapt
         executeRequested,
         approvalMatched,
         externalWriteAttempted,
-        externalWritePerformed,
+        externalWritePerformed: externalWritePerformedState,
         latestFulfillmentBootstrapSummaryPath,
         latestFulfillmentBootstrapSecretsSummaryPath,
         latestPreflightSummaryPath,
@@ -395,7 +403,7 @@ function validateBootstrapBuildSource(): PhaseOneCheck {
         ['build-production-bootstrap.ts', buildSource, "config.main = wrapperName"],
         ['build-production-bootstrap.ts', buildSource, 'validateBootstrapBundle(distRoot, sourceCredentialValues)'],
         ['build-production-bootstrap.ts', buildSource, 'assets.run_worker_first=true'],
-        ['astro.config.mjs', astroConfig, 'legalIdentityIsExample && !productionBootstrap'],
+        ['astro.config.mjs', astroConfig, "cloudflareTarget === 'production' && legalIdentityIsExample"],
     ] as const;
     const missing = required
         .filter(([, source, snippet]) => !source.includes(snippet))
@@ -506,11 +514,11 @@ function validateApprovalGateSource(): PhaseOneCheck {
         'const exactApprovalSentence =',
         'executeRequested && !approvalMatched',
         'externalWritePerformed=false',
-        'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --name espanolhonesto --format json',
+        'pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+        'pnpm --config.verify-deps-before-run=false exec wrangler secret list --name espanolhonesto --format json',
     ];
     const missing = required.filter((snippet) => !source.includes(snippet));
 
@@ -576,6 +584,38 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
             `targetWorker=${target.productionWorker}`,
         ],
     });
+
+    if (process.env.CLOUDFLARE_ACCOUNT_ID?.trim() !== target.accountId) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'exact_local_account_pre_write_gate',
+            message: 'The write-capable process does not explicitly select the exact approved Cloudflare account.',
+            details: [`expectedAccount=${target.accountId}`, 'externalWriteAttempted=false'],
+        });
+        return executionChecks;
+    }
+
+    const whoamiCapture = runCommand(commands.whoami);
+    reportCaptures.push(whoamiCapture);
+    executionChecks.push(checkForCapture(whoamiCapture));
+    if (whoamiCapture.status === 'failed') return executionChecks;
+    try {
+        verifyCloudflareWhoamiOutput(readFileSync(whoamiCapture.path, 'utf8'), target.accountId);
+        executionChecks.push({
+            status: 'ok',
+            name: 'structured_remote_account_pre_write_gate',
+            message: 'Structured Wrangler identity contains exactly one match for the approved Cloudflare account.',
+            details: [`account=${target.accountId}`],
+        });
+    } catch (error) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'structured_remote_account_pre_write_gate',
+            message: 'Structured Wrangler identity did not prove the exact approved account; no deploy may start.',
+            details: [sanitizeError(error instanceof Error ? error : new Error(String(error))), 'externalWriteAttempted=false'],
+        });
+        return executionChecks;
+    }
 
     const readonlyCapture = runCommand(commands.readonly);
     reportCaptures.push(readonlyCapture);
@@ -643,17 +683,52 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
     executionChecks.push(...freshBootstrapChecks);
     if (freshBootstrapChecks.some((check) => check.status === 'failed')) return executionChecks;
 
-    for (const command of [commands.deployKeepVars, commands.deploymentsList, commands.secretList]) {
+    let writeGuard: ReturnType<typeof openOneShotCloudflareWriteGuard>;
+    try {
+        writeGuard = openOneShotCloudflareWriteGuard('web-bootstrap-deploy', outputDir);
+    } catch (error) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'web_bootstrap_write_lock',
+            message: 'An unresolved web bootstrap write or lock blocks a new deploy until read-only reconciliation.',
+            details: [sanitizeError(error instanceof Error ? error : new Error(String(error))), 'externalWriteAttempted=false'],
+        });
+        return executionChecks;
+    }
+    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, commands.deployKeepVars.id);
+    externalWriteAttempted = true;
+    externalWritePerformedState = 'unknown';
+    const deployCapture = runCommand(commands.deployKeepVars);
+    writeCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, writeCheckpoint, {
+        exitCode: deployCapture.exitCode,
+        timedOut: deployCapture.exitCode === null,
+        errorPresent: deployCapture.status === 'failed',
+    });
+    reportCaptures.push(deployCapture);
+    executionChecks.push(checkForCapture(deployCapture));
+    if (deployCapture.status === 'failed') return executionChecks;
+
+    for (const command of [commands.deploymentsList, commands.secretList]) {
         const capture = runCommand(command);
         reportCaptures.push(capture);
         executionChecks.push(checkForCapture(capture));
-        if (capture.status === 'failed') return executionChecks;
+        if (capture.status === 'failed') {
+            writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+            executionChecks.push({
+                status: 'failed',
+                name: 'web_bootstrap_deploy_readback',
+                message: 'Deploy returned but its exact remote state is not proven; checkpoint and lock remain unresolved.',
+                details: [`checkpointStage=${writeCheckpoint.stage}`, 'externalWritePerformed=unknown'],
+            });
+            return executionChecks;
+        }
     }
 
     const deploymentCapture = reportCaptures.find((capture) => capture.id === commands.deploymentsList.id);
     const secretCapture = reportCaptures.find((capture) => capture.id === commands.secretList.id);
     const webVersionId = deploymentCapture ? deploymentVersionId(deploymentCapture) : null;
     if (!webVersionId || !secretCapture) {
+        writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
         executionChecks.push({
             status: 'failed',
             name: 'web_bootstrap_version_and_secret_shape',
@@ -664,8 +739,31 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
     }
 
     executionChecks.push(validateBootstrapSecretShape(secretCapture));
-    if (executionChecks.at(-1)?.status === 'failed') return executionChecks;
-    executionChecks.push(...await verifyWebBootstrapAfterDeploy(webVersionId));
+    if (executionChecks.at(-1)?.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+        return executionChecks;
+    }
+    const routeChecks = await verifyWebBootstrapAfterDeploy(webVersionId);
+    executionChecks.push(...routeChecks);
+    const proven = routeChecks.every((check) => check.status === 'ok');
+    writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, proven);
+    if (!proven) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'web_bootstrap_deploy_readback',
+            message: 'Deploy returned but health, routes or secret posture is not fully proven; checkpoint and lock remain unresolved.',
+            details: [`checkpointStage=${writeCheckpoint.stage}`, 'externalWritePerformed=unknown'],
+        });
+        return executionChecks;
+    }
+    closeOneShotCloudflareWriteGuard(writeGuard);
+    externalWritePerformedState = true;
+    executionChecks.push({
+        status: 'ok',
+        name: 'web_bootstrap_deploy_readback',
+        message: 'Exact inert web bootstrap is proven and its durable write checkpoint is resolved.',
+        details: [`versionId=${webVersionId}`],
+    });
 
     return executionChecks;
 }
@@ -938,9 +1036,12 @@ function runCommand(command: CommandSpec): CommandCapture {
     const result = spawnSync(command.bin, command.args, {
         cwd: process.cwd(),
         encoding: 'utf8',
-        shell: false,
+        shell: process.platform === 'win32',
         timeout: command.timeoutMs,
-        env: process.env,
+        env: {
+            ...process.env,
+            CLOUDFLARE_ACCOUNT_ID: target.accountId,
+        },
     });
     const stdout = sanitizeOutput(typeof result.stdout === 'string' ? result.stdout : String(result.stdout ?? ''));
     const stderr = sanitizeOutput(typeof result.stderr === 'string' ? result.stderr : String(result.stderr ?? ''));
@@ -1179,7 +1280,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
         '',
         '```powershell',
         `$env:${approvalEnvVar}='${exactApprovalSentence.replace(/'/g, "''")}'`,
-        'corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-phase1 -- --execute-approved',
+        'pnpm --config.verify-deps-before-run=false launch:cloudflare-production-worker-phase1 -- --execute-approved',
         '```',
         '',
         '## Stop Conditions',
@@ -1254,7 +1355,7 @@ function renderArtifacts(report: PhaseOneReport): RenderedArtifacts {
     ].join('\n')}\n`;
 
     const manualEvidenceAfterPhaseOne = `${[
-        'corepack pnpm launch:manual-evidence:record --',
+        'pnpm launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
         '  --summary "Cloudflare production web bootstrap completed: Worker espanolhonesto is inert, checkout/email are disabled and representative application routes return 503; domains remain on Pages."',
@@ -1341,9 +1442,9 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'No secret value printing',
         'production_bootstrap',
         'WEB_RUNTIME_MODE=bootstrap',
-        'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
-        'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+        'pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+        'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
     ];
     const missing = required.filter((snippet) => !combined.includes(snippet));
     const unsafeSecretSnippets = [
@@ -1372,6 +1473,7 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
 }
 
 function buildCommands(): Record<string, CommandSpec> & {
+    whoami: CommandSpec;
     readonly: CommandSpec;
     build: CommandSpec;
     deployDryRun: CommandSpec;
@@ -1379,60 +1481,69 @@ function buildCommands(): Record<string, CommandSpec> & {
     deploymentsList: CommandSpec;
     secretList: CommandSpec;
 } {
+    const pnpm = pnpmCommand();
     return {
+        whoami: {
+            id: 'wrangler-whoami-production-bootstrap',
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler whoami --json',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'whoami', '--json'],
+            timeoutMs: 120000,
+            writesCloudflare: false,
+        },
         readonly: {
             id: 'cloudflare-production-runtime-readonly',
-            display: 'corepack pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'launch:cloudflare-production-runtime-readonly'],
+            display: 'pnpm --config.verify-deps-before-run=false launch:cloudflare-production-runtime-readonly',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'launch:cloudflare-production-runtime-readonly'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         build: {
             id: 'pnpm-build-production-bootstrap',
-            display: 'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:bootstrap'],
+            display: 'pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'run', 'build:production:bootstrap'],
             timeoutMs: 240000,
             writesCloudflare: false,
         },
         deployDryRun: {
             id: 'wrangler-deploy-production-bootstrap-dry-run',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--dry-run'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --dry-run',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--dry-run'],
             timeoutMs: 180000,
             writesCloudflare: false,
         },
         deployKeepVars: {
             id: 'wrangler-deploy-production-bootstrap-keep-vars',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deploy --config dist/server/wrangler.json --keep-vars',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deploy', '--config', 'dist/server/wrangler.json', '--keep-vars'],
             timeoutMs: 240000,
             writesCloudflare: true,
         },
         fulfillmentDeploymentsList: {
             id: 'wrangler-fulfillment-deployments-list-before-web',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanol-honesto-fulfillment-production --json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanol-honesto-fulfillment-production', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanol-honesto-fulfillment-production --json',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanol-honesto-fulfillment-production', '--json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         deploymentsList: {
             id: 'wrangler-deployments-list-production',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name espanolhonesto --json',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'deployments', 'list', '--name', 'espanolhonesto', '--json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
         secretList: {
             id: 'wrangler-secret-list-production',
-            display: 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --name espanolhonesto --format json',
-            bin: 'corepack',
-            args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--name', 'espanolhonesto', '--format', 'json'],
+            display: 'pnpm --config.verify-deps-before-run=false exec wrangler secret list --name espanolhonesto --format json',
+            bin: pnpm,
+            args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'list', '--name', 'espanolhonesto', '--format', 'json'],
             timeoutMs: 120000,
             writesCloudflare: false,
         },
@@ -1514,12 +1625,17 @@ function escapeCell(value: string): string {
     return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+}
+
 function stamp(date: Date): string {
     return date.toISOString().replace(/[:.]/g, '-');
 }
 
 function sanitizeOutput(value: string): string {
     return value
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/giu, '[redacted-email]')
         .replace(/-----BEGIN [A-Z ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+PRIVATE KEY-----/g, '[redacted-private-key]')
         .replace(/sk_(live|test)_[A-Za-z0-9]{20,}/g, 'sk_$1_[redacted]')
         .replace(/whsec_[A-Za-z0-9]{20,}/g, 'whsec_[redacted]')

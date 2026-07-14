@@ -169,12 +169,12 @@ describe('staging browser environment', () => {
             expect(source, file).not.toContain("dotenv.config({ path: '.env'");
         }
 
-        for (const file of [
-            'scripts/launch/accessibility-smoke.ts',
-            'scripts/launch/public-visual-smoke.ts',
-            'scripts/demo/dev.ts',
-        ]) {
-            expect(readFileSync(file, 'utf8'), file).toContain("['pnpm', 'dev'");
-        }
+        expect(readFileSync('scripts/launch/accessibility-smoke.ts', 'utf8'))
+            .toContain("['pnpm', 'dev'");
+        expect(readFileSync('scripts/launch/public-visual-smoke.ts', 'utf8'))
+            .toContain("spawn(pnpmCommand(), ['dev'");
+        const demoDev = readFileSync('scripts/demo/dev.ts', 'utf8');
+        expect(demoDev).toContain("process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'");
+        expect(demoDev).toContain("const args = ['dev'");
     });
 });

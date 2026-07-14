@@ -282,7 +282,7 @@ try {
 }
 
 function startDevServer(port: number, logPath: string): ChildProcessWithoutNullStreams {
-    const child = spawn(corepackCommand(), ['pnpm', 'dev', '--', '--host', '127.0.0.1', '--port', String(port)], {
+    const child = spawn(pnpmCommand(), ['dev', '--', '--host', '127.0.0.1', '--port', String(port)], {
         cwd: process.cwd(),
         env: {
             ...process.env,
@@ -546,6 +546,6 @@ function escapeCell(value: string): string {
     return value.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }

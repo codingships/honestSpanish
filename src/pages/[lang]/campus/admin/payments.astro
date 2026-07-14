@@ -344,7 +344,7 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
             const showByStatus = statusValue === 'all' || rowStatus === statusValue;
             const showBySearch = !searchValue || rowEmail.includes(searchValue);
 
-            row.style.display = (showByDate && showByStatus && showBySearch) ? '' : 'none';
+            row.hidden = !(showByDate && showByStatus && showBySearch);
         });
     }
 

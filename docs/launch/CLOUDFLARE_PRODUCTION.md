@@ -12,6 +12,14 @@ Este documento es la ruta canónica para publicar los dos Workers de producción
 
 Los nombres base terminados en `env-required` son deliberados. En Astro 6 el entorno web se elige durante el build, no durante `wrangler deploy`: por eso todo deploy web debe usar únicamente el `dist/server/wrangler.json` generado y validado para la fase actual. El comando raíz sin ese paquete no tiene entrypoint y falla cerrado. Fulfillment sí debe incluir `--config workers/fulfillment/wrangler.toml` y seleccionar explícitamente `production_bootstrap` o `production` según la fase.
 
+## Worker Histórico De Recordatorios
+
+La rama release candidate elimina de `main`, al hacer merge, el paquete histórico completo `workers/reminder-cron` (`package.json`, `src/index.ts`, `tsconfig.json` y `wrangler.toml`). Hasta que ese merge ocurra, `main` todavía contiene el paquete; no se debe desplegar desde un HEAD que aún lo incluya ni ejecutar ningún comando que pueda publicar `espanol-honesto-reminders`.
+
+No es obligatorio borrar de inmediato el recurso remoto histórico. El gate acepta que se conserve únicamente si una lectura fresca prueba exactamente: cero Cron Triggers, `workers.dev=false`, previews desactivadas, cero dominios personalizados, cero Worker Routes, cero consumidores de Queue, cero service bindings entrantes, cero referencias como tail consumer y cero reglas de Email Routing. Además, el HEAD evaluado no puede contener el paquete ni referencias automáticas capaces de redesplegarlo. Una lectura ausente, incompleta o ambigua falla cerrado.
+
+El Worker duplicado `espanolhonesto-staging-staging` solo puede quedar como aviso no crítico bajo la misma neutralización completa. Si conserva cualquier superficie de invocación, el gate falla.
+
 ## Build Y Dry-Run
 
 El primer build web de producción es el bootstrap inerte:

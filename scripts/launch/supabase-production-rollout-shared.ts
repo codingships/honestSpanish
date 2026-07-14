@@ -12,7 +12,19 @@ export const PRODUCTION_PROJECT = {
 
 export const PROCESSED_AT_VERSION = '20260703211451';
 export const MODEL_RECONCILIATION_VERSION = '20260712112000';
-export const STAGING_ONLY_VERSION = '20260710150000';
+export const STAGING_ONLY_MIGRATIONS = [
+    {
+        version: '20260710150000',
+        name: 'staging_integration_smoke_runs',
+    },
+    {
+        version: '20260713161300',
+        name: 'allow_staging_custom_hostname',
+    },
+] as const;
+export const STAGING_ONLY_VERSIONS: readonly string[] = Object.freeze(
+    STAGING_ONLY_MIGRATIONS.map((migration) => migration.version),
+);
 
 export const KNOWN_MIGRATION_WAVES = [
     {
@@ -143,7 +155,7 @@ export function collectLocalMigrations(root = process.cwd()): LocalMigration[] {
                 file: toPosix(path.relative(root, absolutePath)),
                 sha256: sha256(content),
                 bytes: Buffer.byteLength(content, 'utf8'),
-                stagingOnly: parsed.version === STAGING_ONLY_VERSION,
+                stagingOnly: isStagingOnlyMigration(parsed.version),
                 plannedWave: waveForVersion(parsed.version),
             };
         });
@@ -199,6 +211,10 @@ export function mapMigrationHistory(
 
 export function waveForVersion(version: string): string | null {
     return KNOWN_MIGRATION_WAVES.find((wave) => wave.versions.includes(version as never))?.id ?? null;
+}
+
+export function isStagingOnlyMigration(version: string): boolean {
+    return STAGING_ONLY_VERSIONS.includes(version);
 }
 
 export function normalizeMigrationName(value: string): string {

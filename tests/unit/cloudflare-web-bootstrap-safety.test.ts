@@ -69,7 +69,7 @@ describe('Cloudflare production web bootstrap safety', () => {
             'forbidden Google names in generated config=',
             'assets.run_worker_first=true',
         ]) expect(bootstrap).toContain(snippet);
-        expect(astro).toContain('legalIdentityIsExample && !productionBootstrap');
+        expect(astro).toContain("cloudflareTarget === 'production' && legalIdentityIsExample");
         expect(active).toContain("process.env.WEB_RUNTIME_MODE = 'active'");
     });
 
@@ -201,7 +201,7 @@ describe('Cloudflare production web bootstrap safety', () => {
             "config.googleBoundary === 'absent'",
             "config.supabaseServiceRoleFingerprint === 'absent'",
             "config.resendApiKeyFingerprint === 'absent'",
-            'corepack pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
+            'pnpm --config.verify-deps-before-run=false run build:production:bootstrap',
             'targetEnvironment',
             "'production_bootstrap'",
             'validateBuiltBootstrapConfig()',
@@ -273,8 +273,10 @@ describe('Cloudflare production web bootstrap safety', () => {
             runner.indexOf('function validateExecutionEnvironment()'),
             runner.indexOf('function validatePackageScript()'),
         );
-        expect(executionGate).not.toContain("'CLOUDFLARE_API_TOKEN'");
-        expect(runner).toContain('verificationMode=wrangler_oauth_plus_connector_followup');
+        expect(executionGate).toContain("'CLOUDFLARE_API_TOKEN'");
+        expect(runner).toContain('verificationMode=remote_api_required');
+        expect(runner).toContain('configFallbackAccepted=false');
+        expect(runner).not.toContain('verificationMode=wrangler_oauth_plus_connector_followup');
 
         expect(finalRunner).toContain('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');
         expect(finalRunner).toContain('RESEND_API_KEY');
@@ -332,8 +334,8 @@ describe('Cloudflare production web bootstrap safety', () => {
         expect(minimalSet).not.toContain("'PUBLIC_SUPABASE_ANON_KEY'");
 
         const execution = runner.slice(runner.indexOf('async function runApprovedExecution'));
-        expect(execution.indexOf('validateRemoteTarget(captures)')).toBeLessThan(execution.indexOf('for (const name of requiredSecretNames)'));
-        expect(execution.indexOf("probeBootstrapRoutes('pre_write')")).toBeLessThan(execution.indexOf('for (const name of requiredSecretNames)'));
+        expect(execution.indexOf('validateRemoteTarget(captures)')).toBeLessThan(execution.indexOf('const name = requiredSecretNames[0]'));
+        expect(execution.indexOf("probeBootstrapRoutes('pre_write')")).toBeLessThan(execution.indexOf('const name = requiredSecretNames[0]'));
         expect(finalRunner).toContain('fresh_stripe_live_readiness_pre_write_gate');
         expect(finalRunner).toContain('stripeMode=live');
     });

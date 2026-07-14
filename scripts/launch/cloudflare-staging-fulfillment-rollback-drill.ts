@@ -815,8 +815,8 @@ function runWrangler(id: string, args: string[], readOnly: boolean): CommandCapt
     delete childEnv[STAGING_FULFILLMENT_ROLLBACK_APPROVAL_ENV];
     delete childEnv.CLOUDFLARE_API_TOKEN;
     const scopedArgs = [...args, ...WRANGLER_SCOPE_ARGS];
-    const pnpmArgs = ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', ...scopedArgs];
-    const result = spawnSync(corepackCommand(), pnpmArgs, {
+    const pnpmArgs = ['--config.verify-deps-before-run=false', 'exec', 'wrangler', ...scopedArgs];
+    const result = spawnSync(pnpmCommand(), pnpmArgs, {
         cwd: process.cwd(),
         encoding: 'utf8',
         env: childEnv,
@@ -830,7 +830,7 @@ function runWrangler(id: string, args: string[], readOnly: boolean): CommandCapt
     const capture: CommandCapture = {
         id,
         readOnly,
-        command: `corepack pnpm --config.verify-deps-before-run=false exec wrangler ${scopedArgs.join(' ')}`,
+        command: `pnpm --config.verify-deps-before-run=false exec wrangler ${scopedArgs.join(' ')}`,
         exitCode: result.status,
         stdoutSha256: sha256(stdout),
         stderrSha256: sha256(stderr),
@@ -1125,8 +1125,8 @@ function relative(value: string): string {
     return path.relative(process.cwd(), value).replace(/\\/gu, '/');
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function delay(milliseconds: number): Promise<void> {

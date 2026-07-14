@@ -310,6 +310,7 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                 <div id="password-success" class="hidden p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm"></div>
                 <button
                     id="save-password-btn"
+                    data-default-label={t('campus.account.changePassword')}
                     class="px-4 py-2 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                 >
                     {t('campus.account.changePassword')}
@@ -409,7 +410,11 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                         )}
                     </div>
 
-                    <form id="link-drive-form" class="space-y-3">
+                    <form
+                        id="link-drive-form"
+                        class="space-y-3"
+                        data-drive-ui={JSON.stringify(driveUi[lang])}
+                    >
                         <div>
                             <label for="google-account-email" class="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                                 {driveUi[lang].emailLabel}
@@ -477,7 +482,7 @@ const driveUi: Record<'es' | 'en' | 'ru', {
     });
 </script>
 
-<script define:vars={{ driveUi: driveUi[lang], changePasswordLabel: t('campus.account.changePassword') }}>
+<script>
     // Change Password
     const changePwdBtn = document.getElementById('change-password-btn');
     const changePwdForm = document.getElementById('change-password-form');
@@ -491,6 +496,8 @@ const driveUi: Record<'es' | 'en' | 'ru', {
     const googleAccountEmailInput = document.getElementById('google-account-email');
     const driveLinkError = document.getElementById('drive-link-error');
     const driveLinkSuccess = document.getElementById('drive-link-success');
+    const driveUi = JSON.parse(linkDriveForm?.getAttribute('data-drive-ui') || '{}');
+    const changePasswordLabel = savePwdBtn?.getAttribute('data-default-label') || '';
 
     changePwdBtn?.addEventListener('click', () => {
         changePwdForm?.classList.toggle('hidden');

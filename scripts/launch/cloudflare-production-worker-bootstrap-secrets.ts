@@ -9,6 +9,14 @@ import {
     verifyRuntimeAttestation,
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
+import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
+import {
+    beginOneShotCloudflareWrite,
+    closeOneShotCloudflareWriteGuard,
+    openOneShotCloudflareWriteGuard,
+    recordOneShotCloudflareProviderResult,
+    recordOneShotCloudflareReadback,
+} from './cloudflare-production-one-shot-write';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -47,7 +55,7 @@ interface Report {
     executeRequested: boolean;
     approvalMatched: boolean;
     externalWriteAttempted: boolean;
-    externalWritePerformed: boolean;
+    externalWritePerformed: boolean | 'unknown';
     target: typeof target;
     requiredSecretNames: readonly string[];
     explicitlyWithheldSecretNames: readonly string[];
@@ -116,6 +124,7 @@ const latestPhaseOneSummaryPath = latestGeneratedPathMatching(
 const commands = buildCommands();
 const captures: CommandCapture[] = [];
 let externalWriteAttempted = false;
+let externalWritePerformedState: boolean | 'unknown' = false;
 
 const checks: Check[] = [
     validatePackageAndSource(),
@@ -192,7 +201,7 @@ function createReport(): Report {
         executeRequested,
         approvalMatched,
         externalWriteAttempted,
-        externalWritePerformed: captures.some((capture) => capture.writesCloudflare && capture.status === 'ok'),
+        externalWritePerformed: externalWritePerformedState,
         target,
         requiredSecretNames,
         explicitlyWithheldSecretNames,
@@ -383,19 +392,42 @@ async function runApprovedExecution(): Promise<Check[]> {
     executionChecks.push(...preWriteProbes);
     if (preWriteProbes.some((check) => check.status === 'failed')) return executionChecks;
 
-    for (const name of requiredSecretNames) {
-        const value = process.env[name]?.trim() ?? '';
-        const capture = runCommand(buildSecretPutCommand(name), `${value}\n`);
-        captures.push(capture);
-        executionChecks.push(checkForCapture(capture));
-        if (capture.status === 'failed') return executionChecks;
+    let writeGuard: ReturnType<typeof openOneShotCloudflareWriteGuard>;
+    try {
+        writeGuard = openOneShotCloudflareWriteGuard('web-bootstrap-hmac-secret', outputDir);
+    } catch (error) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'bootstrap_hmac_write_lock',
+            message: 'An unresolved HMAC write or lock blocks retry until read-only reconciliation.',
+            details: [sanitizeError(error instanceof Error ? error : new Error(String(error))), 'externalWriteAttempted=false'],
+        });
+        return executionChecks;
     }
+    const name = requiredSecretNames[0];
+    const value = process.env[name]?.trim() ?? '';
+    const secretCommand = buildSecretPutCommand(name);
+    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, secretCommand.id);
+    externalWriteAttempted = true;
+    externalWritePerformedState = 'unknown';
+    const secretCapture = runCommand(secretCommand, `${value}\n`);
+    writeCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, writeCheckpoint, {
+        exitCode: secretCapture.exitCode,
+        timedOut: secretCapture.exitCode === null,
+        errorPresent: secretCapture.status === 'failed',
+    });
+    captures.push(secretCapture);
+    executionChecks.push(checkForCapture(secretCapture));
+    if (secretCapture.status === 'failed') return executionChecks;
 
     for (const command of [commands.secretsAfter, commands.deploymentsAfter]) {
         const capture = runCommand(command);
         captures.push(capture);
         executionChecks.push(checkForCapture(capture));
-        if (capture.status === 'failed') return executionChecks;
+        if (capture.status === 'failed') {
+            recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+            return executionChecks;
+        }
     }
 
     const secretShape = validateRemoteSecretShape(
@@ -403,11 +435,15 @@ async function runApprovedExecution(): Promise<Check[]> {
         true,
     );
     executionChecks.push(secretShape);
-    if (secretShape.status === 'failed') return executionChecks;
+    if (secretShape.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+        return executionChecks;
+    }
 
     const versionCapture = captures.find((capture) => capture.id === commands.deploymentsAfter.id);
     const versionId = versionCapture ? deploymentVersionId(versionCapture) : null;
     if (!versionId) {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
         executionChecks.push({
             status: 'failed',
             name: 'post_write_deployment_version',
@@ -419,15 +455,36 @@ async function runApprovedExecution(): Promise<Check[]> {
 
     const routeChecks = await probeBootstrapRoutes('post_write');
     executionChecks.push(...routeChecks);
-    if (routeChecks.some((check) => check.status === 'failed')) return executionChecks;
-    executionChecks.push(await attestBootstrap(versionId));
+    if (routeChecks.some((check) => check.status === 'failed')) {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+        return executionChecks;
+    }
+    const attestation = await attestBootstrap(versionId);
+    executionChecks.push(attestation);
+    writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, attestation.status === 'ok');
+    if (attestation.status === 'failed') return executionChecks;
+    closeOneShotCloudflareWriteGuard(writeGuard);
+    externalWritePerformedState = true;
+    executionChecks.push({
+        status: 'ok',
+        name: 'bootstrap_hmac_write_checkpoint_resolved',
+        message: 'The exact HMAC-only secret write is proven remotely and its durable checkpoint is resolved.',
+        details: [`checkpointStage=${writeCheckpoint.stage}`],
+    });
     return executionChecks;
 }
 
 function validateRemoteTarget(reportCaptures: CommandCapture[]): Check {
     const whoami = readIfExists(reportCaptures.find((capture) => capture.id === commands.whoami.id)?.path ?? '') ?? '';
     const deployments = reportCaptures.find((capture) => capture.id === commands.deploymentsBefore.id);
-    const accountMatched = whoami.includes(target.accountId) && process.env.CLOUDFLARE_ACCOUNT_ID?.trim() === target.accountId;
+    let accountMatched = false;
+    let identityError = 'none';
+    try {
+        verifyCloudflareWhoamiOutput(whoami, target.accountId);
+        accountMatched = process.env.CLOUDFLARE_ACCOUNT_ID?.trim() === target.accountId;
+    } catch (error) {
+        identityError = sanitizeError(error instanceof Error ? error : new Error(String(error)));
+    }
     const versionPresent = Boolean(deployments && deploymentVersionId(deployments));
     return {
         status: accountMatched && versionPresent ? 'ok' : 'failed',
@@ -435,7 +492,7 @@ function validateRemoteTarget(reportCaptures: CommandCapture[]): Check {
         message: accountMatched && versionPresent
             ? 'Fresh read-only Wrangler evidence proves the exact account, Worker and an existing deployed bootstrap version.'
             : 'Fresh read-only Wrangler evidence did not prove the exact target before secret writes.',
-        details: [`accountMatched=${String(accountMatched)}`, `deploymentVersionPresent=${String(versionPresent)}`],
+        details: [`accountMatched=${String(accountMatched)}`, `deploymentVersionPresent=${String(versionPresent)}`, `identityError=${identityError}`],
     };
 }
 
@@ -642,30 +699,30 @@ function buildCommands(): Record<string, CommandSpec> & {
     secretsAfter: CommandSpec;
     deploymentsAfter: CommandSpec;
 } {
-    const corepack = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+    const pnpm = pnpmCommand();
     const read = (id: string, display: string, args: string[]): CommandSpec => ({
         id,
         display,
-        bin: corepack,
-        args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', ...args],
+        bin: pnpm,
+        args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', ...args],
         timeoutMs: 120_000,
         writesCloudflare: false,
     });
     return {
-        whoami: read('wrangler-whoami-bootstrap-secrets', 'corepack pnpm --config.verify-deps-before-run=false exec wrangler whoami --json', ['whoami', '--json']),
-        deploymentsBefore: read('web-deployments-before-bootstrap-secrets', `corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name ${target.worker} --json`, ['deployments', 'list', '--name', target.worker, '--json']),
-        secretsBefore: read('web-secrets-before-bootstrap-secrets', 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production_bootstrap --format json', ['secret', 'list', '--config', 'wrangler.toml', '--env', 'production_bootstrap', '--format', 'json']),
-        secretsAfter: read('web-secrets-after-bootstrap-secrets', 'corepack pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production_bootstrap --format json', ['secret', 'list', '--config', 'wrangler.toml', '--env', 'production_bootstrap', '--format', 'json']),
-        deploymentsAfter: read('web-deployments-after-bootstrap-secrets', `corepack pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name ${target.worker} --json`, ['deployments', 'list', '--name', target.worker, '--json']),
+        whoami: read('wrangler-whoami-bootstrap-secrets', 'pnpm --config.verify-deps-before-run=false exec wrangler whoami --json', ['whoami', '--json']),
+        deploymentsBefore: read('web-deployments-before-bootstrap-secrets', `pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name ${target.worker} --json`, ['deployments', 'list', '--name', target.worker, '--json']),
+        secretsBefore: read('web-secrets-before-bootstrap-secrets', 'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production_bootstrap --format json', ['secret', 'list', '--config', 'wrangler.toml', '--env', 'production_bootstrap', '--format', 'json']),
+        secretsAfter: read('web-secrets-after-bootstrap-secrets', 'pnpm --config.verify-deps-before-run=false exec wrangler secret list --config wrangler.toml --env production_bootstrap --format json', ['secret', 'list', '--config', 'wrangler.toml', '--env', 'production_bootstrap', '--format', 'json']),
+        deploymentsAfter: read('web-deployments-after-bootstrap-secrets', `pnpm --config.verify-deps-before-run=false exec wrangler deployments list --name ${target.worker} --json`, ['deployments', 'list', '--name', target.worker, '--json']),
     };
 }
 
 function buildSecretPutCommand(name: string): CommandSpec {
     return {
         id: `web-bootstrap-secret-put-${name.toLowerCase().replace(/_/g, '-')}`,
-        display: `corepack pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config wrangler.toml --env production_bootstrap`,
-        bin: process.platform === 'win32' ? 'corepack.cmd' : 'corepack',
-        args: ['pnpm', '--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.toml', '--env', 'production_bootstrap'],
+        display: `pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config wrangler.toml --env production_bootstrap`,
+        bin: pnpmCommand(),
+        args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.toml', '--env', 'production_bootstrap'],
         timeoutMs: 120_000,
         writesCloudflare: true,
     };
@@ -678,7 +735,7 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         encoding: 'utf8',
         env: process.env,
         input,
-        shell: false,
+        shell: process.platform === 'win32',
         timeout: command.timeoutMs,
         windowsHide: true,
     });
@@ -701,6 +758,10 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         '',
     ].join('\n'), 'utf8');
     return { id: command.id, display: command.display, path: capturePath, exitCode, status, writesCloudflare: command.writesCloudflare };
+}
+
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function checkForCapture(capture: CommandCapture): Check {

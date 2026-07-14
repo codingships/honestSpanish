@@ -1089,11 +1089,11 @@ function renderMarkdown(summary: typeof summary): string {
 }
 
 function pnpmCheck(name: string, args: string[]): { name: string; command: string; args: string[] } {
-    return { name, command: corepackCommand(), args: ['pnpm', ...args] };
+    return { name, command: pnpmCommand(), args };
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

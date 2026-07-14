@@ -1,9 +1,12 @@
 {
   "schemaVersion": 1,
+  "receiptKind": "supabase_production_logical_backup",
   "targetProjectRef": "vkkahxsybhbutszerawz",
+  "authInertEvidenceSha256": "<SHA-256 of a fresh exact production Auth inert receipt>",
   "aggregateSnapshotSha256": "765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6",
   "approvalScopeSha256": "35e5a8bf6a9f06b4419381171b04f3a050f4e9457fd674375a7e26ebc34672ec",
   "createdAt": "<ISO-8601 timestamp no older than 24 hours>",
+  "method": "logical_dump",
   "backupCompleted": false,
   "artifactStoredOutsideRepository": true,
   "atRestProtection": "windows_efs",
@@ -14,7 +17,18 @@
   "restoreProcedureReviewed": false,
   "limitationsAcknowledged": [
     "storage_objects_not_included",
+    "custom_role_passwords_not_included",
     "external_stripe_google_not_included",
     "selected_schemas_only"
-  ]
+  ],
+  "backupFormat": "pg_dump_custom",
+  "archiveListVerified": false,
+  "archiveRequiredTableDataVerified": false,
+  "archiveTocEntryCount": 0,
+  "artifactBytes": 0,
+  "artifactPathRecorded": false,
+  "toolVersions": {
+    "pgDump": "<pg_dump --version>",
+    "pgRestore": "<pg_restore --version>"
+  }
 }

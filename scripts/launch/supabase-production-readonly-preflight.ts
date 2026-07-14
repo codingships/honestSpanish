@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
     PRODUCTION_PROJECT,
-    STAGING_ONLY_VERSION,
+    STAGING_ONLY_MIGRATIONS,
     collectLocalMigrations,
     mapMigrationHistory,
     sha256,
@@ -377,7 +377,15 @@ const aliases = migrationMappings.filter((migration) => migration.historyStatus 
 const ambiguous = migrationMappings.filter((migration) => migration.historyStatus === 'ambiguous');
 const versionNameMismatches = migrationMappings.filter((migration) => migration.versionNameMismatch);
 const duplicateSemanticHistory = migrationMappings.filter((migration) => migration.duplicateSemanticHistory);
-const stagingOnlyMapping = migrationMappings.find((migration) => migration.version === STAGING_ONLY_VERSION);
+const stagingOnlyMappings = STAGING_ONLY_MIGRATIONS.map((expected) => ({
+    expected,
+    mapping: migrationMappings.find((migration) => (
+        migration.version === expected.version && migration.name === expected.name
+    )),
+}));
+const stagingOnlyExcluded = stagingOnlyMappings.every(({ mapping }) => (
+    mapping?.stagingOnly === true && mapping.historyStatus === 'missing'
+));
 
 checks.push({
     status: ambiguous.length === 0 ? 'ok' : 'failed',
@@ -408,16 +416,18 @@ checks.push({
 });
 
 checks.push({
-    status: stagingOnlyMapping?.historyStatus === 'missing' ? 'ok' : 'failed',
-    name: 'staging_only_migration_excluded',
-    message: stagingOnlyMapping?.historyStatus === 'missing'
-        ? 'The staging integration smoke migration is absent from production history and remains excluded.'
-        : 'The staging-only migration appears in production migration history.',
-    details: [
-        `version=${STAGING_ONLY_VERSION}`,
-        `historyStatus=${stagingOnlyMapping?.historyStatus ?? 'local-file-missing'}`,
-        `remoteVersions=${stagingOnlyMapping?.remoteVersions.join(',') || '<none>'}`,
-    ],
+    status: stagingOnlyExcluded ? 'ok' : 'failed',
+    name: 'staging_only_migrations_excluded',
+    message: stagingOnlyExcluded
+        ? 'Both staging-only migrations are absent from production history and remain excluded.'
+        : 'At least one staging-only migration is missing locally, misclassified or present in production migration history.',
+    details: stagingOnlyMappings.map(({ expected, mapping }) => [
+        `version=${expected.version}`,
+        `name=${expected.name}`,
+        `stagingOnly=${String(mapping?.stagingOnly ?? false)}`,
+        `historyStatus=${mapping?.historyStatus ?? 'local-file-missing-or-renamed'}`,
+        `remoteVersions=${mapping?.remoteVersions.join(',') || '<none>'}`,
+    ].join(';')),
 });
 
 const billingHazard = asRecord(parsed.billing_legacy_hazard);
@@ -524,7 +534,7 @@ const report = {
         noSecretsStored: true,
         noMigrationStatementsSelected: true,
         forbiddenCommands: ['supabase db push', 'supabase migration repair'],
-        productionExclusion: `migration ${STAGING_ONLY_VERSION}`,
+        productionExclusions: STAGING_ONLY_MIGRATIONS.map((migration) => ({ ...migration })),
     },
 };
 
@@ -684,7 +694,9 @@ function renderMarkdown(report: typeof report): string {
         '',
         '- Never use blanket `supabase db push` against this drifted production project.',
         '- Never use `supabase migration repair` merely to make histories look equal. Alias evidence must be verified by schema effects first.',
-        `- Never apply production migration ${STAGING_ONLY_VERSION}; it creates staging smoke state and RPCs.`,
+        ...STAGING_ONLY_MIGRATIONS.map((migration) => (
+            `- Never apply production migration ${migration.version}_${migration.name}.sql; it is staging-only.`
+        )),
         '- This preflight did not apply SQL, mutate Auth/Storage/settings, select private rows or store connection values.',
         '',
     ];

@@ -4,6 +4,7 @@ import { getLangFromParam, useTranslations } from '../../../i18n/utils';
 import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import NextClassCard from '../../../components/calendar/NextClassCard';
+import ProgressBar from '../../../components/ProgressBar.astro';
 
 export const prerender = false;
 
@@ -166,7 +167,6 @@ const packageName = packageDisplayName && typeof packageDisplayName === 'object'
 
 const sessionsTotal = subscription?.sessions_total || subscription?.packages?.sessions_per_month || 8;
 const sessionsUsed = subscription?.sessions_used || 0;
-const sessionsPercentage = Math.min(100, Math.round((sessionsUsed / sessionsTotal) * 100));
 
 // Traducciones para NextClassCard
 const nextClassTranslations = {
@@ -400,9 +400,12 @@ const onboardingItems: OnboardingItem[] = [
                     </div>
                     <p class="text-xs text-[#006064]/60 uppercase font-bold mb-4">{t('campus.dashboard.sessionsUsed')}</p>
                     
-                    <div class="h-3 w-full bg-[#E0F7FA] border border-[#006064]/20 rounded-full overflow-hidden">
-                        <div style={{ width: `${sessionsPercentage}%` }} class="h-full bg-[#006064]"></div>
-                    </div>
+                    <ProgressBar
+                        value={sessionsUsed}
+                        max={sessionsTotal}
+                        label={t('campus.dashboard.sessionsUsed')}
+                        rounded={true}
+                    />
                 </div>
              ) : (
                 <div class="flex-1 flex items-center justify-center">

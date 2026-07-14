@@ -21,6 +21,12 @@ import {
     type FixtureCleanupManifest,
     type FixtureCleanupPreview,
 } from './production-fixture-cleanup-shared';
+import {
+    readProductionAuthInertEvidence,
+    safeErrorMessage,
+    SUPABASE_ACCESS_TOKEN_ENV,
+    verifyLiveProductionAuthInert,
+} from './supabase-auth-config-shared';
 
 type Mode = 'plan' | 'preview' | 'execute';
 
@@ -28,6 +34,7 @@ interface CliOptions {
     mode: Mode;
     executeApproved: boolean;
     backupReceiptPath: string | null;
+    authInertEvidencePath: string | null;
 }
 
 interface PsqlResult {
@@ -48,6 +55,7 @@ export function parseFixtureCleanupArgs(args: string[]): CliOptions {
 
     let executeApproved = false;
     let backupReceiptPath: string | null = null;
+    let authInertEvidencePath: string | null = null;
     for (let index = 1; index < args.length; index += 1) {
         const argument = args[index];
         if (argument === '--execute-approved') {
@@ -63,20 +71,29 @@ export function parseFixtureCleanupArgs(args: string[]): CliOptions {
             index += 1;
             continue;
         }
+        if (argument === '--auth-inert-evidence') {
+            const value = args[index + 1];
+            if (!value || value.startsWith('--')) throw new Error('--auth-inert-evidence requires a JSON file path.');
+            if (authInertEvidencePath) throw new Error('--auth-inert-evidence may only be supplied once.');
+            authInertEvidencePath = value;
+            index += 1;
+            continue;
+        }
         throw new Error(`Unknown fixture-cleanup argument: ${argument}`);
     }
 
     const mode = modeCandidate as Mode;
-    if (mode !== 'execute' && (executeApproved || backupReceiptPath)) {
+    if (mode !== 'execute' && (executeApproved || backupReceiptPath || authInertEvidencePath)) {
         throw new Error('Execution gates are accepted only in execute mode.');
     }
-    return { mode, executeApproved, backupReceiptPath };
+    return { mode, executeApproved, backupReceiptPath, authInertEvidencePath };
 }
 
 export function executeGateRequested(options: CliOptions): boolean {
     return options.mode === 'execute'
         && options.executeApproved
-        && typeof options.backupReceiptPath === 'string';
+        && typeof options.backupReceiptPath === 'string'
+        && typeof options.authInertEvidencePath === 'string';
 }
 
 async function main(): Promise<void> {
@@ -127,11 +144,27 @@ async function main(): Promise<void> {
         writeSummary(outputDir, {
             status: 'BLOCKED_EXECUTION_GATES_MISSING',
             mode: options.mode,
-            required: ['--execute-approved', '--backup-receipt <verified-receipt.json>'],
+            required: [
+                '--execute-approved',
+                '--backup-receipt <verified-receipt.json>',
+                '--auth-inert-evidence <fresh-auth-inert-receipt.json>',
+            ],
             networkAccessPerformed: false,
             externalWritePerformed: false,
         });
-        throw new Error('Execute mode requires --execute-approved and --backup-receipt.');
+        throw new Error('Execute mode requires --execute-approved, --backup-receipt and --auth-inert-evidence.');
+    }
+
+    const authInert = readProductionAuthInertEvidence(options.authInertEvidencePath, startedAt);
+    if (!authInert.valid || !authInert.sha256) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_AUTH_INERT_EVIDENCE_INVALID',
+            mode: options.mode,
+            authInertEvidence: evidenceSummary(authInert),
+            networkAccessPerformed: false,
+            externalWritePerformed: false,
+        });
+        throw new Error(authInert.errors.join(' '));
     }
 
     const receiptBytes = readFileSync(path.resolve(root, options.backupReceiptPath as string));
@@ -155,6 +188,8 @@ async function main(): Promise<void> {
 
     const databaseUrl = process.env[FIXTURE_CLEANUP_DATABASE_ENV];
     if (!databaseUrl) throw new Error(`${FIXTURE_CLEANUP_DATABASE_ENV} is required for execute mode.`);
+    const accessToken = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
+    if (!accessToken) throw new Error(`${SUPABASE_ACCESS_TOKEN_ENV} is required for the final read-only Auth inert verification.`);
     const databaseEnvironment = buildPsqlEnvironment(databaseUrl);
     const receiptSha256 = sha256(receiptBytes);
     const preview = runPreview(outputDir, databaseEnvironment);
@@ -174,6 +209,7 @@ async function main(): Promise<void> {
     const approvalSentence = buildFixtureCleanupApproval({
         executeSqlSha256: manifestValidation.value.sql.execute.sha256,
         backupReceiptSha256: receiptSha256,
+        authInertEvidenceSha256: authInert.sha256,
         packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
     });
     const approvalPath = path.join(outputDir, 'exact-approval-required.txt');
@@ -186,12 +222,40 @@ async function main(): Promise<void> {
             targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
             executeSqlSha256: manifestValidation.value.sql.execute.sha256,
             backupReceiptSha256: receiptSha256,
+            authInertEvidenceSha256: authInert.sha256,
             packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
             exactApprovalFile: path.basename(approvalPath),
             networkAccessPerformed: true,
             externalWritePerformed: false,
         });
         throw new Error(`Exact approval mismatch. Review ${approvalPath} and set ${FIXTURE_CLEANUP_APPROVAL_ENV}.`);
+    }
+
+    const immediateAuthInert = readProductionAuthInertEvidence(options.authInertEvidencePath, new Date());
+    if (!immediateAuthInert.valid || immediateAuthInert.sha256 !== authInert.sha256) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION',
+            mode: options.mode,
+            targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+            authInertEvidence: evidenceSummary(immediateAuthInert),
+            networkAccessPerformed: true,
+            externalWritePerformed: false,
+        });
+        throw new Error('Production Auth inert receipt expired, changed or failed immediate revalidation.');
+    }
+    try {
+        await verifyLiveProductionAuthInert(accessToken);
+    } catch (error) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_LIVE_AUTH_NOT_INERT',
+            mode: options.mode,
+            targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+            authInertEvidenceSha256: authInert.sha256,
+            error: safeErrorMessage(error),
+            networkAccessPerformed: true,
+            externalWritePerformed: false,
+        });
+        throw error;
     }
 
     const result = runPsql({
@@ -237,6 +301,7 @@ async function main(): Promise<void> {
         aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
         approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         backupReceiptSha256: receiptSha256,
+        authInertEvidenceSha256: authInert.sha256,
         executeSqlSha256: manifestValidation.value.sql.execute.sha256,
         packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
         freezeCutoff: '2026-07-02T18:29:27.580Z',
@@ -265,6 +330,7 @@ async function main(): Promise<void> {
         approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         executeSqlSha256: manifestValidation.value.sql.execute.sha256,
         backupReceiptSha256: receiptSha256,
+        authInertEvidenceSha256: authInert.sha256,
         packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
         psqlExitCode: result.status,
         markerObserved: true,
@@ -286,9 +352,11 @@ function runPlan(outputDir: string, manifest: FixtureCleanupManifest): void {
     const approvalTemplate = buildFixtureCleanupApproval({
         executeSqlSha256: manifest.sql.execute.sha256,
         backupReceiptSha256: 'b'.repeat(64),
+        authInertEvidenceSha256: 'c'.repeat(64),
         packageStripeReferenceSha256: 'a'.repeat(64),
     })
         .replace(`backup_receipt=${'b'.repeat(64)}`, 'backup_receipt=<SHA256_OF_COMPLETED_RECEIPT>')
+        .replace(`auth_inert_evidence=${'c'.repeat(64)}`, 'auth_inert_evidence=<SHA256_OF_FRESH_AUTH_INERT_RECEIPT>')
         .replace(`package_stripe_references=${'a'.repeat(64)}`, 'package_stripe_references=<SHA256_FROM_FRESH_PREVIEW>');
 
     writeSummary(outputDir, {
@@ -394,6 +462,15 @@ function createOutputDir(startedAt: Date): string {
 
 function writeSummary(outputDir: string, summary: Record<string, unknown>): void {
     writeFileSync(path.join(outputDir, 'summary.json'), stableJson(summary), 'utf8');
+}
+
+function evidenceSummary(evidence: ReturnType<typeof readProductionAuthInertEvidence>): Record<string, unknown> {
+    return {
+        provided: evidence.provided,
+        valid: evidence.valid,
+        sha256: evidence.sha256,
+        errors: evidence.errors,
+    };
 }
 
 const isMain = process.argv[1]

@@ -54,8 +54,22 @@ const t = texts[lang as keyof typeof texts] || texts.es;
 </div>
 
 <style is:global>
+    :root {
+        --cookie-banner-reserved-space: 11rem;
+    }
+
+    #cookie-banner {
+        min-height: var(--cookie-banner-reserved-space);
+    }
+
     html[data-cookie-banner-visible="true"] body {
-        padding-bottom: var(--cookie-banner-offset, 0px);
+        padding-bottom: var(--cookie-banner-reserved-space);
+    }
+
+    @media (min-width: 640px) {
+        :root {
+            --cookie-banner-reserved-space: 6rem;
+        }
     }
 </style>
 
@@ -89,19 +103,13 @@ const t = texts[lang as keyof typeof texts] || texts.es;
         });
     };
 
-    const updatePageOffset = () => {
-        if (!banner || banner.getAttribute('data-visible') !== 'true') {
-            return;
-        }
-
-        const height = banner.getBoundingClientRect().height;
-        document.documentElement.style.setProperty('--cookie-banner-offset', `${height}px`);
+    const reservePageOffset = () => {
+        if (!banner || banner.getAttribute('data-visible') !== 'true') return;
         document.documentElement.setAttribute('data-cookie-banner-visible', 'true');
     };
 
     const clearPageOffset = () => {
         document.documentElement.removeAttribute('data-cookie-banner-visible');
-        document.documentElement.style.removeProperty('--cookie-banner-offset');
     };
 
     const showBanner = () => {
@@ -111,7 +119,7 @@ const t = texts[lang as keyof typeof texts] || texts.es;
         setFocusableState(true);
         window.requestAnimationFrame(() => {
             banner?.classList.remove('translate-y-full');
-            updatePageOffset();
+            reservePageOffset();
         });
     };
 
@@ -141,6 +149,4 @@ const t = texts[lang as keyof typeof texts] || texts.es;
         setStorageItem('cookie_consent_date', new Date().toISOString());
         hideBanner();
     });
-
-    window.addEventListener('resize', updatePageOffset);
 </script>

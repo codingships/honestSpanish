@@ -48,12 +48,12 @@ disableProductionReleaseSentryUpload(process.env);
 process.env.CLOUDFLARE_INCLUDE_PROCESS_ENV = 'false';
 process.env.CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV = 'false';
 
-const command = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+const command = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 // A mode transition must never reuse content-addressed chunks from the inert
 // bootstrap build. The active package is rebuilt from an empty dist root and
 // then validated before any launch runner may upload it.
 rmSync(distRoot, { force: true, recursive: true });
-const result = spawnSync(command, ['pnpm', 'exec', 'astro', 'build', '--mode', 'production'], {
+const result = spawnSync(command, ['exec', 'astro', 'build', '--mode', 'production'], {
     env: process.env,
     stdio: 'inherit',
     shell: process.platform === 'win32',

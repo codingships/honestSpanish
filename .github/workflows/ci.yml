@@ -40,6 +40,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Sync Astro types
+        env:
+          CLOUDFLARE_ENV: "staging"
+          PUBLIC_APP_ENV: "staging"
         run: pnpm astro sync
 
       - name: Check types
@@ -62,6 +65,7 @@ jobs:
 
       - name: Build
         env:
+          CLOUDFLARE_ENV: "staging"
           PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
           PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
           SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
@@ -71,7 +75,7 @@ jobs:
           PUBLIC_TURNSTILE_SITE_KEY: "placeholder-turnstile-site-key"
           TURNSTILE_SECRET_KEY: "placeholder-turnstile-secret-key"
           PUBLIC_SITE_URL: "https://example.com"
-          PUBLIC_APP_ENV: "test"
+          PUBLIC_APP_ENV: "staging"
           CHECKOUT_ENABLED: "false"
         run: pnpm run build
 
@@ -271,7 +275,7 @@ jobs:
         if: github.ref_name == 'main'
         run: |
           echo "Production CI completed build and dry-runs only."
-          echo "Required manual order: fulfillment bootstrap -> fulfillment secrets (still inert) -> web -> web secrets -> fresh dual attestation -> fulfillment enable."
+          echo "Required manual order: fulfillment bootstrap -> fulfillment HMAC-only secret -> web bootstrap -> web HMAC-only secret -> fulfillment final secrets -> web active deploy/final secrets -> fresh dual attestation -> fulfillment enable."
 
       - name: Verify staging checkout is disabled
         if: github.ref_name == 'staging'

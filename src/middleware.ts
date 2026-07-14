@@ -2,11 +2,26 @@ import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServerClient } from "./lib/supabase-server";
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from "./lib/adult-account";
 import { readRuntimeEnv } from "./lib/runtime-env";
+import { applyHostedSecurityHeaders, normalizeRoutePathname } from "./lib/security-headers";
 
 const BOOTSTRAP_DIAGNOSTIC_PATHS = new Set([
     '/health',
     '/api/internal/runtime-attestation',
 ]);
+const LOCAL_APP_ENVIRONMENTS = new Set(['dev', 'development', 'local', 'test']);
+const HOSTED_APP_ENVIRONMENTS = new Set(['staging', 'production']);
+
+function normalizedAppEnvironment(context: Parameters<typeof readRuntimeEnv>[1]): string | undefined {
+    return readRuntimeEnv('PUBLIC_APP_ENV', context)?.trim().toLowerCase() || undefined;
+}
+
+function isAllowedLocalEnvironment(appEnvironment: string | undefined, requestUrl: URL): boolean {
+    return Boolean(
+        appEnvironment &&
+        LOCAL_APP_ENVIRONMENTS.has(appEnvironment) &&
+        (!import.meta.env.PROD || ['localhost', '127.0.0.1', '[::1]'].includes(requestUrl.hostname)),
+    );
+}
 
 function inertProductionResponse(errorCode: string): Response {
     return new Response(JSON.stringify({ errorCode }), {
@@ -23,9 +38,18 @@ function inertProductionResponse(errorCode: string): Response {
 
 const handleApplicationRequest = defineMiddleware(async (context, next) => {
     const url = new URL(context.request.url);
-    const path = url.pathname;
+    const path = normalizeRoutePathname(url.pathname);
 
-    if (readRuntimeEnv('PUBLIC_APP_ENV', context) === 'production') {
+    const appEnvironment = normalizedAppEnvironment(context);
+    const localEnvironmentIsAllowed = isAllowedLocalEnvironment(appEnvironment, url);
+    if (!appEnvironment || (
+        !localEnvironmentIsAllowed &&
+        !HOSTED_APP_ENVIRONMENTS.has(appEnvironment)
+    )) {
+        return inertProductionResponse('PUBLIC_APP_ENV_INVALID');
+    }
+
+    if (appEnvironment === 'production') {
         const runtimeMode = readRuntimeEnv('WEB_RUNTIME_MODE', context);
         if (runtimeMode !== 'active') {
             if (BOOTSTRAP_DIAGNOSTIC_PATHS.has(path)) return next();
@@ -46,7 +70,7 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
 
     const routeSection = pathSegments[1];
     const isCampusRoute = routeSection === 'campus';
-    const isLoginRoute = routeSection === 'login';
+    const isLoginRoute = routeSection === 'login' && pathSegments.length === 2;
 
     // Public localized pages should not trigger auth lookups or cookie parsing.
     if (!isCampusRoute && !isLoginRoute) {
@@ -143,7 +167,19 @@ export const onRequest = defineMiddleware(async (context, next) => {
     if (!response) {
         throw new Error('Application middleware returned no response');
     }
-    const appEnvironment = readRuntimeEnv('PUBLIC_APP_ENV', context)?.trim().toLowerCase();
+    const appEnvironment = normalizedAppEnvironment(context);
+    const requestUrl = new URL(context.request.url);
+    const localEnvironmentIsAllowed = isAllowedLocalEnvironment(appEnvironment, requestUrl);
+
+    // Unknown or missing environments fail closed above and receive the same
+    // defensive headers as a hosted deployment. Only explicit local/test
+    // environments may omit them.
+    if (!localEnvironmentIsAllowed) {
+        applyHostedSecurityHeaders(response, {
+            pathname: requestUrl.pathname,
+            secureTransport: requestUrl.protocol === 'https:',
+        });
+    }
 
     if (appEnvironment === 'staging') {
         response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');

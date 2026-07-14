@@ -132,6 +132,7 @@ describe('Supabase production Auth cleanup runner', () => {
             aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
             approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
             backupReceiptSha256: backupHash,
+            authInertEvidenceSha256: 'e'.repeat(64),
             executeSqlSha256: manifest.sql.execute.sha256,
             freezeCutoff: PRODUCTION_AUTH_FREEZE_CUTOFF,
             postconditions: {
@@ -160,17 +161,19 @@ describe('Supabase production Auth cleanup runner', () => {
         expect(validateCleanupInputs({ backupReceiptPath: backupPath, publicCleanupReceiptPath: cleanupPath })).toMatchObject({ ok: false });
     });
 
-    it('requires signup disabled and a JWT expiry no greater than one hour', () => {
-        expect(selectAuthQuarantineConfig({ disable_signup: true, jwt_exp: 3600 })).toMatchObject({
+    it('requires signup and mailer autoconfirm disabled and a JWT expiry no greater than one hour', () => {
+        expect(selectAuthQuarantineConfig({ disable_signup: true, mailer_autoconfirm: false, jwt_exp: 3600 })).toMatchObject({
             ok: true,
-            value: { jwtExpirySeconds: 3600, jwtExpirySource: 'management_api' },
+            value: { mailerAutoconfirm: false, jwtExpirySeconds: 3600, jwtExpirySource: 'management_api' },
         });
-        expect(selectAuthQuarantineConfig({ disable_signup: true })).toMatchObject({
+        expect(selectAuthQuarantineConfig({ disable_signup: true, mailer_autoconfirm: false })).toMatchObject({
             ok: true,
             value: { jwtExpirySeconds: 3600, jwtExpirySource: 'conservative_default' },
         });
-        expect(selectAuthQuarantineConfig({ disable_signup: false, jwt_exp: 3600 })).toMatchObject({ ok: false });
-        expect(selectAuthQuarantineConfig({ disable_signup: true, jwt_exp: 7200 })).toMatchObject({ ok: false });
+        expect(selectAuthQuarantineConfig({ disable_signup: false, mailer_autoconfirm: false, jwt_exp: 3600 })).toMatchObject({ ok: false });
+        expect(selectAuthQuarantineConfig({ disable_signup: true, mailer_autoconfirm: true, jwt_exp: 3600 })).toMatchObject({ ok: false });
+        expect(selectAuthQuarantineConfig({ disable_signup: true, jwt_exp: 3600 })).toMatchObject({ ok: false });
+        expect(selectAuthQuarantineConfig({ disable_signup: true, mailer_autoconfirm: false, jwt_exp: 7200 })).toMatchObject({ ok: false });
         expect(buildQuarantineUntil('2026-07-12T12:00:00.000Z', 3600)).toBe('2026-07-12T13:05:00.000Z');
     });
 
@@ -566,10 +569,13 @@ function makeTempDir(): string {
 function validBackupReceipt(createdAt: string) {
     return {
         schemaVersion: 1,
+        receiptKind: 'supabase_production_logical_backup',
         targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+        authInertEvidenceSha256: 'e'.repeat(64),
         aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
         approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         createdAt,
+        method: 'logical_dump',
         backupCompleted: true,
         artifactStoredOutsideRepository: true,
         atRestProtection: 'windows_efs',
@@ -580,9 +586,17 @@ function validBackupReceipt(createdAt: string) {
         restoreProcedureReviewed: true,
         limitationsAcknowledged: [
             'storage_objects_not_included',
+            'custom_role_passwords_not_included',
             'external_stripe_google_not_included',
             'selected_schemas_only',
         ],
+        backupFormat: 'pg_dump_custom',
+        archiveListVerified: true,
+        archiveRequiredTableDataVerified: true,
+        archiveTocEntryCount: 42,
+        artifactBytes: 1_024,
+        artifactPathRecorded: false,
+        toolVersions: { pgDump: 'pg_dump 17', pgRestore: 'pg_restore 17' },
     };
 }
 
@@ -646,7 +660,12 @@ function validEvidence(): AuthPreflightEvidence {
             identitiesCreatedAfterFreeze: 0,
         },
         database: aggregate(),
-        configuration: { disableSignup: true, jwtExpirySeconds: 3600, jwtExpirySource: 'management_api' },
+        configuration: {
+            disableSignup: true,
+            mailerAutoconfirm: false,
+            jwtExpirySeconds: 3600,
+            jwtExpirySource: 'management_api',
+        },
         checkpointSha256: null,
         authReducedReceiptSha256: null,
         rolloutReceiptSha256: null,

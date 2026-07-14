@@ -142,16 +142,6 @@ async function handleProcessJobs(body: JsonObject, env: Env): Promise<JsonObject
     }
     const limit = fulfillmentJobLimit(body.limit);
 
-    // Production intentionally stays on the established inline path until its
-    // own Queue resources and rollout have been reviewed and explicitly approved.
-    if (environment === 'production') {
-        await quarantineStaleFulfillmentJobs();
-        return processDueFulfillmentJobs({
-            limit,
-            workerId: fulfillmentWorkerRunId('http'),
-        });
-    }
-
     if (!env.FULFILLMENT_QUEUE) {
         throw new Error('FULFILLMENT_QUEUE_NOT_CONFIGURED');
     }

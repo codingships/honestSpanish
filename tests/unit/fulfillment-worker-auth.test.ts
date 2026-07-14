@@ -108,12 +108,40 @@ describe('fulfillment worker internal auth', () => {
         expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
     });
 
-    it('preserves the existing inline production path until production Queues are approved', async () => {
-        mocks.processDueFulfillmentJobs.mockResolvedValueOnce({
-            processed: 1,
-            succeeded: 1,
-            failed: 0,
-        });
+    it('enqueues production work through the exact production Queue contract', async () => {
+        const worker = await import('../../workers/fulfillment/src/index');
+        const response = await worker.default.fetch(
+            new Request('https://worker.example.com/internal/jobs/process', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer internal-secret' },
+                body: JSON.stringify({ limit: 1 }),
+            }),
+            {
+                INTERNAL_JOB_SECRET: 'internal-secret',
+                FULFILLMENT_RUNTIME_MODE: 'active',
+                PUBLIC_APP_ENV: 'production',
+                WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
+                FULFILLMENT_QUEUE: {
+                    send: mocks.queueSend,
+                    sendBatch: mocks.queueSendBatch,
+                },
+            },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({ queued: true, limit: 1 });
+        expect(mocks.queueSend).toHaveBeenCalledWith({
+            version: 1,
+            kind: 'process_due',
+            environment: 'production',
+            limit: 1,
+            requestedAt: expect.any(String),
+        }, { contentType: 'json' });
+        expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
+        expect(mocks.quarantineStaleFulfillmentJobs).not.toHaveBeenCalled();
+    });
+
+    it('fails closed instead of falling back inline when the production Queue binding is missing', async () => {
         const worker = await import('../../workers/fulfillment/src/index');
         const response = await worker.default.fetch(
             new Request('https://worker.example.com/internal/jobs/process', {
@@ -129,17 +157,9 @@ describe('fulfillment worker internal auth', () => {
             },
         );
 
-        expect(response.status).toBe(200);
-        await expect(response.json()).resolves.toEqual({
-            processed: 1,
-            succeeded: 1,
-            failed: 0,
-        });
-        expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
-            limit: 1,
-            workerId: expect.stringMatching(/^cloudflare-fulfillment-worker:http:[0-9a-f-]+$/),
-        });
-        expect(mocks.quarantineStaleFulfillmentJobs).toHaveBeenCalledTimes(1);
-        expect(mocks.queueSend).not.toHaveBeenCalled();
+        expect(response.status).toBe(500);
+        await expect(response.json()).resolves.toEqual({ errorCode: 'INTERNAL_OPERATION_FAILED' });
+        expect(mocks.processDueFulfillmentJobs).not.toHaveBeenCalled();
+        expect(mocks.quarantineStaleFulfillmentJobs).not.toHaveBeenCalled();
     });
 });

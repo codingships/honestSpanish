@@ -71,6 +71,7 @@ function createSupabaseAdmin(sessions: unknown[] = []) {
 }
 
 const stagingQueueName = 'espanol-honesto-fulfillment-staging-queue';
+const productionQueueName = 'espanol-honesto-fulfillment-production-queue';
 const stagingQueueEnv = {
     FULFILLMENT_RUNTIME_MODE: 'active',
     PUBLIC_APP_ENV: 'staging',
@@ -138,6 +139,33 @@ describe('fulfillment worker scheduled handler', () => {
             workerId: 'cloudflare-fulfillment-worker:queue:queue-message-1:1',
         });
         expect(mocks.quarantineStaleFulfillmentJobs).toHaveBeenCalledTimes(1);
+        expect(message.ack).toHaveBeenCalledTimes(1);
+        expect(message.retry).not.toHaveBeenCalled();
+    });
+
+    it('accepts only the exact production Queue/message identity in production', async () => {
+        const { batch, message } = createQueueBatch({
+            queue: productionQueueName,
+            body: {
+                version: 1,
+                kind: 'process_due',
+                environment: 'production',
+                limit: 5,
+                requestedAt: '2026-07-11T16:00:00.000Z',
+            },
+        });
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        await worker.default.queue(batch as never, {
+            FULFILLMENT_RUNTIME_MODE: 'active',
+            PUBLIC_APP_ENV: 'production',
+            WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
+        });
+
+        expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
+            limit: 5,
+            workerId: 'cloudflare-fulfillment-worker:queue:queue-message-1:1',
+        });
         expect(message.ack).toHaveBeenCalledTimes(1);
         expect(message.retry).not.toHaveBeenCalled();
     });

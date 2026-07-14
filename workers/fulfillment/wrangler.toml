@@ -71,6 +71,7 @@ binding = "CF_VERSION_METADATA"
 [env.production_bootstrap]
 name = "espanol-honesto-fulfillment-production"
 workers_dev = true
+preview_urls = false
 
 [env.production_bootstrap.triggers]
 # Explicitly removes any old production Cron Triggers. Omitting this key would
@@ -96,6 +97,7 @@ binding = "CF_VERSION_METADATA"
 [env.production]
 name = "espanol-honesto-fulfillment-production"
 workers_dev = true
+preview_urls = false
 
 [env.production.triggers]
 crons = ["0 * * * *"]
