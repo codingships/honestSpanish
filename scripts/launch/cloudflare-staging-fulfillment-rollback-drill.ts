@@ -991,7 +991,7 @@ function renderSummary(value: RunnerReport): string {
         `- Worker: ${value.target.worker}`,
         `- Queue: ${value.target.queue} (${value.target.queueId})`,
         `- Current version: ${initial?.versions?.currentVersionId ?? 'unproven'}`,
-        `- Immediate previous version: ${initial?.versions?.previousVersionId ?? 'unproven'}`,
+        `- Previous distinct version: ${initial?.versions?.previousVersionId ?? 'unproven'}`,
         `- Semantic snapshot SHA-256: ${initial?.snapshotSha256 ?? 'unavailable'}`,
         `- External write attempted/performed: ${value.externalWriteAttempted}/${String(value.externalWritePerformed)}`,
         `- Current/Cron/Queue restored: ${value.originalCurrentRestored}/${value.cronRestoredVerified}/${value.queueResumeVerified}`,

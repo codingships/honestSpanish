@@ -104,7 +104,7 @@ export function discoverRollbackVersions(statusValue: unknown, listValue: unknow
         .sort((left, right) => Date.parse(right.createdOn) - Date.parse(left.createdOn));
 
     if (history.length < 2) {
-        throw new Error('Deployment history must contain the current and an immediate previous deployment.');
+        throw new Error('Deployment history must contain the current and at least one previous deployment.');
     }
 
     const statusIndex = history.findIndex((deployment) => deployment.id === status.id);
@@ -112,14 +112,18 @@ export function discoverRollbackVersions(statusValue: unknown, listValue: unknow
         throw new Error('Current deployment status is not the newest deployment in history.');
     }
 
-    const previous = history[1];
-    requireSingleFullTrafficVersion(previous, 'immediate previous deployment');
-
     const currentVersionId = status.versions[0].versionId;
-    const previousVersionId = previous.versions[0].versionId;
-    if (currentVersionId === previousVersionId) {
-        throw new Error('Immediate previous deployment does not identify a distinct Worker version.');
+    let previous: Deployment | undefined;
+    for (const candidate of history.slice(1)) {
+        requireSingleFullTrafficVersion(candidate, 'previous deployment candidate');
+        if (candidate.versions[0].versionId === currentVersionId) continue;
+        previous = candidate;
+        break;
     }
+    if (!previous) {
+        throw new Error('Deployment history does not contain a previous deployment with a distinct Worker version.');
+    }
+    const previousVersionId = previous.versions[0].versionId;
 
     return {
         currentDeploymentId: status.id,

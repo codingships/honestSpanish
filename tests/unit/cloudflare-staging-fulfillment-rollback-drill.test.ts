@@ -67,7 +67,7 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
             .toBe('CLOUDFLARE_STAGING_FULFILLMENT_ROLLBACK_DRILL_APPROVAL');
     });
 
-    it('discovers the current and immediate previous single-version 100% deployments by timestamp', () => {
+    it('discovers the current and most recent previous distinct single-version 100% deployments by timestamp', () => {
         const current = deployment('deployment-current', CURRENT, '2026-07-12T20:00:00Z');
         const previous = deployment('deployment-previous', PREVIOUS, '2026-07-12T19:00:00Z');
         const older = deployment(
@@ -86,8 +86,36 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
         });
     });
 
-    it('does not skip an incompatible immediate prior deployment to find an older convenient target', () => {
+    it('skips consecutive full-traffic deployments of the current version', () => {
+        const current = deployment('deployment-current-restored', CURRENT, '2026-07-12T21:00:00Z');
+        const repeatedCurrent = deployment('deployment-current-original', CURRENT, '2026-07-12T20:00:00Z');
+        const olderRepeatedCurrent = deployment('deployment-current-older', CURRENT, '2026-07-12T19:30:00Z');
+        const previous = deployment('deployment-previous', PREVIOUS, '2026-07-12T19:00:00Z');
+        const older = deployment(
+            'deployment-older',
+            'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+            '2026-07-11T19:00:00Z',
+        );
+
+        expect(discoverRollbackVersions(current, [
+            older,
+            repeatedCurrent,
+            current,
+            previous,
+            olderRepeatedCurrent,
+        ])).toEqual({
+            currentDeploymentId: 'deployment-current-restored',
+            currentVersionId: CURRENT,
+            currentCreatedOn: '2026-07-12T21:00:00Z',
+            previousDeploymentId: 'deployment-previous',
+            previousVersionId: PREVIOUS,
+            previousCreatedOn: '2026-07-12T19:00:00Z',
+        });
+    });
+
+    it('does not skip an incompatible candidate after consecutive current-version deployments', () => {
         const current = deployment('deployment-current', CURRENT, '2026-07-12T20:00:00Z');
+        const repeatedCurrent = deployment('deployment-current-original', CURRENT, '2026-07-12T19:30:00Z');
         const split = {
             id: 'deployment-split',
             created_on: '2026-07-12T19:00:00Z',
@@ -98,8 +126,26 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
         };
         const older = deployment('deployment-older', PREVIOUS, '2026-07-11T19:00:00Z');
 
-        expect(() => discoverRollbackVersions(current, [older, split, current]))
-            .toThrow('immediate previous deployment must contain exactly one version at 100% traffic');
+        expect(() => discoverRollbackVersions(current, [older, split, repeatedCurrent, current]))
+            .toThrow('previous deployment candidate must contain exactly one version at 100% traffic');
+    });
+
+    it('does not skip a current-version candidate without full traffic', () => {
+        const current = deployment('deployment-current', CURRENT, '2026-07-12T20:00:00Z');
+        const partialCurrent = deployment('deployment-current-partial', CURRENT, '2026-07-12T19:30:00Z', 50);
+        const previous = deployment('deployment-previous', PREVIOUS, '2026-07-12T19:00:00Z');
+
+        expect(() => discoverRollbackVersions(current, [previous, partialCurrent, current]))
+            .toThrow('previous deployment candidate must contain exactly one version at 100% traffic');
+    });
+
+    it('fails closed when every previous deployment repeats the current version', () => {
+        const current = deployment('deployment-current', CURRENT, '2026-07-12T20:00:00Z');
+        const repeatedCurrent = deployment('deployment-current-original', CURRENT, '2026-07-12T19:00:00Z');
+        const olderCurrent = deployment('deployment-current-older', CURRENT, '2026-07-11T19:00:00Z');
+
+        expect(() => discoverRollbackVersions(current, [olderCurrent, current, repeatedCurrent]))
+            .toThrow('Deployment history does not contain a previous deployment with a distinct Worker version');
     });
 
     it('requires identical exact handlers and binding name/type shape and fail-closed checkout values', () => {
