@@ -1,5 +1,9 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import {
+    cloudflareGetWithRetry,
+    retryCloudflareReadonlyGet,
+} from '../../scripts/launch/cloudflare-staging-fulfillment-rollback-drill';
 import {
     EXPECTED_STAGING_PLAIN_TEXT,
     STAGING_FULFILLMENT_ROLLBACK_APPROVAL_ENV,
@@ -213,6 +217,115 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
             accounts: [],
         });
         expect(() => parseMixedWranglerJson('notice only')).toThrow('complete JSON');
+    });
+
+    it('retries transient read-only GET transport and provider failures with bounded deterministic backoff', async () => {
+        const transientTransport = vi.fn()
+            .mockRejectedValueOnce(new TypeError('fetch failed'))
+            .mockResolvedValue({ status: 200, value: 'ok' });
+        const transportWait = vi.fn().mockResolvedValue(undefined);
+
+        await expect(retryCloudflareReadonlyGet(transientTransport, transportWait))
+            .resolves.toEqual({ status: 200, value: 'ok' });
+        expect(transientTransport).toHaveBeenCalledTimes(2);
+        expect(transientTransport).toHaveBeenNthCalledWith(1, 1, 3);
+        expect(transientTransport).toHaveBeenNthCalledWith(2, 2, 3);
+        expect(transportWait).toHaveBeenCalledTimes(1);
+        expect(transportWait).toHaveBeenCalledWith(250);
+
+        const transientProvider = vi.fn()
+            .mockResolvedValueOnce({ status: 429 })
+            .mockResolvedValueOnce({ status: 503 })
+            .mockResolvedValue({ status: 200 });
+        const providerWait = vi.fn().mockResolvedValue(undefined);
+
+        await expect(retryCloudflareReadonlyGet(transientProvider, providerWait))
+            .resolves.toEqual({ status: 200 });
+        expect(transientProvider).toHaveBeenCalledTimes(3);
+        expect(providerWait.mock.calls).toEqual([[250], [1_000]]);
+    });
+
+    it('exhausts read-only GET retries fail-closed and does not retry non-transient responses or parse errors', async () => {
+        const exhausted = vi.fn().mockRejectedValue(new TypeError('fetch failed'));
+        const exhaustedWait = vi.fn().mockResolvedValue(undefined);
+
+        await expect(retryCloudflareReadonlyGet(exhausted, exhaustedWait)).rejects.toThrow('fetch failed');
+        expect(exhausted).toHaveBeenCalledTimes(3);
+        expect(exhaustedWait.mock.calls).toEqual([[250], [1_000]]);
+
+        for (const failure of [
+            { kind: 'http', value: { status: 401 } },
+            { kind: 'http', value: { status: 409 } },
+            { kind: 'parse', value: new SyntaxError('invalid JSON') },
+        ] as const) {
+            const request = failure.kind === 'http'
+                ? vi.fn().mockResolvedValue(failure.value)
+                : vi.fn().mockRejectedValue(failure.value);
+            const wait = vi.fn().mockResolvedValue(undefined);
+            if (failure.kind === 'http') {
+                await expect(retryCloudflareReadonlyGet(request, wait)).resolves.toEqual(failure.value);
+            } else {
+                await expect(retryCloudflareReadonlyGet(request, wait)).rejects.toThrow('invalid JSON');
+            }
+            expect(request).toHaveBeenCalledTimes(1);
+            expect(wait).not.toHaveBeenCalled();
+        }
+    });
+
+    it('retries AbortError and a real Cloudflare GET 503 body before requiring JSON', async () => {
+        const abortError = new Error('request aborted');
+        abortError.name = 'AbortError';
+        const abortedRequest = vi.fn()
+            .mockRejectedValueOnce(abortError)
+            .mockResolvedValue({ status: 200 });
+        const abortWait = vi.fn().mockResolvedValue(undefined);
+
+        await expect(retryCloudflareReadonlyGet(abortedRequest, abortWait))
+            .resolves.toEqual({ status: 200 });
+        expect(abortedRequest).toHaveBeenCalledTimes(2);
+        expect(abortWait).toHaveBeenCalledWith(250);
+
+        const fetchMock = vi.fn()
+            .mockResolvedValueOnce(new Response('<html>temporary upstream failure</html>', { status: 503 }))
+            .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: {} }), {
+                status: 200,
+                headers: { 'content-type': 'application/json' },
+            }));
+        const providerWait = vi.fn().mockResolvedValue(undefined);
+        vi.stubEnv('CLOUDFLARE_API_TOKEN', 'test-token');
+        vi.stubGlobal('fetch', fetchMock);
+        try {
+            await expect(cloudflareGetWithRetry('test_get_503', '/test', providerWait))
+                .resolves.toMatchObject({ ok: true, status: 200 });
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(providerWait).toHaveBeenCalledTimes(1);
+            expect(providerWait).toHaveBeenCalledWith(250);
+        } finally {
+            vi.unstubAllGlobals();
+            vi.unstubAllEnvs();
+        }
+    });
+
+    it('keeps GET retries structurally separate from single-attempt PATCH, PUT and Wrangler writes', () => {
+        for (const reader of ['readQueueState', 'readQueueBacklog', 'readSchedules']) {
+            const start = runnerSource.indexOf(`async function ${reader}`);
+            const end = runnerSource.indexOf('\n}', start) + 2;
+            expect(start, reader).toBeGreaterThan(-1);
+            expect(runnerSource.slice(start, end), reader).toContain('cloudflareGetWithRetry(');
+        }
+
+        const apiWriteStart = runnerSource.indexOf('async function executeApiWrite');
+        const apiWriteEnd = runnerSource.indexOf('\n}', apiWriteStart) + 2;
+        const apiWriteSource = runnerSource.slice(apiWriteStart, apiWriteEnd);
+        expect(apiWriteSource).toContain('cloudflareRequestOnce(');
+        expect(apiWriteSource).not.toContain('cloudflareGetWithRetry(');
+        expect(apiWriteSource).toContain('body, 1, 1');
+
+        const wranglerWriteStart = runnerSource.indexOf('function executeWranglerWrite');
+        const wranglerWriteEnd = runnerSource.indexOf('\n}', wranglerWriteStart) + 2;
+        const wranglerWriteSource = runnerSource.slice(wranglerWriteStart, wranglerWriteEnd);
+        expect(wranglerWriteSource).toContain('runWrangler(');
+        expect(wranglerWriteSource).not.toContain('retryCloudflareReadonlyGet(');
     });
 
     it('requires explicit Queue delivery state, exact ID/shape and fresh evidence', () => {

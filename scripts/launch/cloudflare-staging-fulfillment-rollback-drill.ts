@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
     executionLockMayBeReleased,
     orchestrateRollbackDrill,
@@ -70,9 +71,13 @@ interface ApiCapture {
     readOnly: boolean;
     method: 'GET' | 'PATCH' | 'PUT';
     path: string;
+    attempt: number;
+    maxAttempts: number;
     httpStatus: number | null;
     success: boolean;
     responseSha256?: string;
+    retryScheduled?: boolean;
+    retryReason?: 'transport_or_timeout' | 'retryable_http_status';
 }
 
 interface WriteReceipt {
@@ -151,16 +156,20 @@ interface ApiResult {
 }
 
 const EXPECTED_CRON = '0 * * * *';
+const CLOUDFLARE_GET_RETRY_DELAYS_MS = [250, 1_000] as const;
 const WRANGLER_SCOPE_ARGS = [
     '--config', 'workers/fulfillment/wrangler.toml',
     '--env', 'staging',
     '--install-skills=false',
 ];
+const invokedScriptPath = process.argv[1];
+const invokedDirectly = Boolean(
+    invokedScriptPath && import.meta.url === pathToFileURL(path.resolve(invokedScriptPath)).href,
+);
 const startedAt = new Date();
-const executeApproved = parseMode(process.argv.slice(2));
+const executeApproved = invokedDirectly ? parseMode(process.argv.slice(2)) : false;
 const outputRoot = path.join(process.cwd(), 'outputs', 'launch-cloudflare-staging-fulfillment-rollback-drill');
 const outputDir = path.join(outputRoot, startedAt.toISOString().replace(/[:.]/gu, '-'));
-mkdirSync(outputDir, { recursive: true });
 
 const report: RunnerReport = {
     schemaVersion: 3,
@@ -197,8 +206,11 @@ const report: RunnerReport = {
 };
 const commandOutput = new Map<string, string>();
 
-persistWriteReceipts();
-await run();
+if (invokedDirectly) {
+    mkdirSync(outputDir, { recursive: true });
+    persistWriteReceipts();
+    await run();
+}
 
 async function run(): Promise<void> {
     try {
@@ -487,7 +499,7 @@ async function runLivePreflight(label: string): Promise<PreflightEvidence> {
 }
 
 async function readQueueState(id: string): Promise<QueueDeliverySnapshot> {
-    const result = await cloudflareRequest(id, 'GET', queuePath(), true);
+    const result = await cloudflareGetWithRetry(id, queuePath());
     if (!result.ok) throw new Error(`Cloudflare Queue read ${id} failed.`);
     const queue = asRecord(result.payload.result);
     const producers = asArray(queue.producers).map(asRecord);
@@ -520,7 +532,7 @@ async function readQueueState(id: string): Promise<QueueDeliverySnapshot> {
 }
 
 async function readQueueBacklog(id: string): Promise<number> {
-    const result = await cloudflareRequest(id, 'GET', `${queuePath()}/metrics`, true);
+    const result = await cloudflareGetWithRetry(id, `${queuePath()}/metrics`);
     if (!result.ok) throw new Error(`Cloudflare Queue metrics read ${id} failed.`);
     const count = asRecord(result.payload.result).backlog_count;
     if (typeof count !== 'number' || !Number.isInteger(count) || count < 0) throw new Error('Queue backlog_count is invalid.');
@@ -538,7 +550,7 @@ async function verifyQueueRuntime(expectedPaused: boolean, id: string): Promise<
 }
 
 async function readSchedules(id: string): Promise<string[]> {
-    const result = await cloudflareRequest(id, 'GET', schedulesPath(), true);
+    const result = await cloudflareGetWithRetry(id, schedulesPath());
     if (!result.ok) throw new Error(`Cloudflare Cron schedules read ${id} failed.`);
     return asArray(asRecord(result.payload.result).schedules)
         .map(asRecord)
@@ -573,7 +585,7 @@ async function executeApiWrite(
 ): Promise<boolean> {
     const receipt = beginWrite(phase, target, 'cloudflare-api');
     try {
-        const result = await cloudflareRequest(phase, method, apiPath, false, body);
+        const result = await cloudflareRequestOnce(phase, method, apiPath, false, body, 1, 1);
         receipt.completedAt = new Date().toISOString();
         receipt.state = result.ok
             ? requireReadonlyReconciliation(markExternalWriteConfirmed(receipt.state, true))
@@ -626,14 +638,68 @@ function confirmWriteByReadback(phase: WritePhase): void {
     refreshAggregateWriteState();
 }
 
-async function cloudflareRequest(
+export async function cloudflareGetWithRetry(
+    id: string,
+    apiPath: string,
+    wait: (milliseconds: number) => Promise<void> = delay,
+): Promise<ApiResult> {
+    return retryCloudflareReadonlyGet(
+        (attempt, maxAttempts) => cloudflareRequestOnce(
+            id,
+            'GET',
+            apiPath,
+            true,
+            undefined,
+            attempt,
+            maxAttempts,
+        ),
+        wait,
+    );
+}
+
+export async function retryCloudflareReadonlyGet<T extends { status: number }>(
+    request: (attempt: number, maxAttempts: number) => Promise<T>,
+    wait: (milliseconds: number) => Promise<void>,
+): Promise<T> {
+    const maxAttempts = CLOUDFLARE_GET_RETRY_DELAYS_MS.length + 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            const result = await request(attempt, maxAttempts);
+            const retryableStatus = result.status === 429 || result.status >= 500;
+            if (!retryableStatus || attempt === maxAttempts) return result;
+        } catch (error) {
+            const retryableError = error instanceof TypeError
+                || (error instanceof Error && error.name === 'AbortError');
+            if (!retryableError || attempt === maxAttempts) throw error;
+        }
+        const retryDelay = CLOUDFLARE_GET_RETRY_DELAYS_MS[attempt - 1];
+        if (retryDelay === undefined) {
+            throw new Error('Cloudflare read-only GET retry delay is missing.');
+        }
+        await wait(retryDelay);
+    }
+    throw new Error('Cloudflare read-only GET retry loop ended without a result.');
+}
+
+async function cloudflareRequestOnce(
     id: string,
     method: 'GET' | 'PATCH' | 'PUT',
     apiPath: string,
     readOnly: boolean,
     body?: unknown,
+    attempt = 1,
+    maxAttempts = 1,
 ): Promise<ApiResult> {
-    const capture: ApiCapture = { id, readOnly, method, path: apiPath, httpStatus: null, success: false };
+    const capture: ApiCapture = {
+        id,
+        readOnly,
+        method,
+        path: apiPath,
+        attempt,
+        maxAttempts,
+        httpStatus: null,
+        success: false,
+    };
     report.apiCalls.push(capture);
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -649,12 +715,31 @@ async function cloudflareRequest(
             ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         });
         const raw = await response.text();
+        capture.httpStatus = response.status;
+        capture.responseSha256 = sha256(raw);
+        const retryableReadStatus = readOnly
+            && method === 'GET'
+            && (response.status === 429 || response.status >= 500);
+        if (retryableReadStatus) {
+            if (attempt < maxAttempts) {
+                capture.retryScheduled = true;
+                capture.retryReason = 'retryable_http_status';
+            }
+            return { ok: false, status: response.status, payload: {}, rawSha256: sha256(raw) };
+        }
         const payload = asRecord(JSON.parse(raw));
         const ok = response.ok && payload.success === true;
-        capture.httpStatus = response.status;
         capture.success = ok;
-        capture.responseSha256 = sha256(raw);
         return { ok, status: response.status, payload, rawSha256: sha256(raw) };
+    } catch (error) {
+        if (readOnly
+            && method === 'GET'
+            && attempt < maxAttempts
+            && (error instanceof TypeError || (error instanceof Error && error.name === 'AbortError'))) {
+            capture.retryScheduled = true;
+            capture.retryReason = 'transport_or_timeout';
+        }
+        throw error;
     } finally {
         clearTimeout(timeout);
     }
@@ -720,7 +805,7 @@ function runWranglerJson(id: string, args: string[]): unknown {
 }
 
 function runWrangler(id: string, args: string[], readOnly: boolean): CommandCapture {
-    const childEnv = {
+    const childEnv: NodeJS.ProcessEnv = {
         ...minimalWranglerEnvironment(),
         CI: 'true',
         FORCE_COLOR: '0',

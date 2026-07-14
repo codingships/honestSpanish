@@ -122,6 +122,8 @@ describe('Cloudflare staging rollback drill fault injection', () => {
                         'verify_compensated_isolation',
                     ]));
                 }
+                expect(calls.filter((phase) => phase === 'rollback_previous').length, `${fault}:${injectedPhase}`)
+                    .toBeLessThanOrEqual(1);
                 expect(result.manualReconciliationRequired, `${fault}:${injectedPhase}`).toBe(true);
                 expect(executionLockMayBeReleased(result), `${fault}:${injectedPhase}`).toBe(false);
             }
@@ -172,6 +174,7 @@ describe('Cloudflare staging rollback drill fault injection', () => {
         expect(result.manualReconciliationRequired).toBe(false);
         expect(executionLockMayBeReleased(result)).toBe(true);
         expect(calls).toEqual(phases);
+        expect(calls.filter((phase) => phase === 'rollback_previous')).toHaveLength(1);
     });
 
     for (const fault of faultModes) {
