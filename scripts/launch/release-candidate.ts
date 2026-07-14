@@ -95,8 +95,8 @@ if (!readyStatuses.has(finalReport.status)) {
 
 function runStep(script: string, extraArgs: string[] = [], stepName = script): StepResult {
     const logPath = path.join(outputDir, `${slug(stepName)}.log`);
-    const command = corepackCommand();
-    const args = ['pnpm', script, ...extraArgs];
+    const command = pnpmCommand();
+    const args = ['run', script, ...extraArgs];
     const result = spawnSync(command, args, {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -251,8 +251,8 @@ function findLatestEvidenceDir(folderName: string, summaryFileName: string): str
     return directories[0] ?? null;
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

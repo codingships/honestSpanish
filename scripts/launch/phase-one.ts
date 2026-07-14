@@ -114,8 +114,8 @@ if (report.status === 'BLOCKED') process.exit(1);
 
 function runStep(script: string, evidenceFolder: string): StepResult {
     const logPath = path.join(outputDir, `${slug(script)}.log`);
-    const command = corepackCommand();
-    const args = ['pnpm', script];
+    const command = pnpmCommand();
+    const args = ['run', script];
     const result = spawnSync(command, args, {
         cwd: process.cwd(),
         encoding: 'utf8',
@@ -360,8 +360,8 @@ function toMarkdownPath(file: string | null): string {
     return file ? path.relative(process.cwd(), file).replace(/\\/g, '/') : 'missing';
 }
 
-function corepackCommand(): string {
-    return process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+function pnpmCommand(): string {
+    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {
