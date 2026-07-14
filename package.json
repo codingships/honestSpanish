@@ -62,7 +62,7 @@
     "deploy:production": "tsx scripts/dev/deploy-built-worker.ts --environment production --dry-run",
     "fulfillment:dev": "corepack pnpm --filter @espanol-honesto/fulfillment-worker dev",
     "fulfillment:deploy": "corepack pnpm --filter @espanol-honesto/fulfillment-worker run deploy",
-    "fulfillment:typecheck": "corepack pnpm --filter @espanol-honesto/fulfillment-worker typecheck",
+    "fulfillment:typecheck": "pnpm --filter @espanol-honesto/fulfillment-worker typecheck",
     "google:setup-staging": "tsx scripts/setup-google-staging.ts",
     "db:seed": "tsx scripts/prepare-e2e-data.ts",
     "astro": "astro",
