@@ -155,11 +155,13 @@ describe('landing public launch content', () => {
         expect(translationsSource).not.toContain('You can upgrade or downgrade at any time');
     });
 
-    it('uses the approved Irene portrait in the public team section', () => {
+    it('uses the approved unified portraits in the public team section', () => {
         expect(landingSource).toContain('const ireneMemberByLang');
         expect(landingSource).toContain("name: 'IRENE'");
         expect(landingSource).toContain("languages: ['ES', 'EN', 'CS', 'FR', 'LSE']");
-        expect(landingSource).toContain("import avatarIrene from '../assets/avatar_irene.jpg'");
+        expect(landingSource).toContain("import avatarAlejandro from '../assets/avatar_alejandro_team.png'");
+        expect(landingSource).toContain("import avatarAlin from '../assets/avatar_alin_team.png'");
+        expect(landingSource).toContain("import avatarIrene from '../assets/avatar_irene_team.png'");
         expect(landingSource).toContain('const teamImages = [avatarAlejandro, avatarAlin, avatarIrene]');
         expect(landingSource).toContain('<Image');
         expect(landingSource).toContain('src={memberImage}');

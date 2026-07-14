@@ -443,7 +443,7 @@ Notas por proveedor:
 
 Cloudflare:
 
-- Usar el dashboard de Cloudflare Pages para volver al ultimo deployment estable.
+- Usar el historial de versiones del Astro Worker de Cloudflare para volver a la ultima versión estable.
 - Si el error viene de variables, corregir secrets/env vars y redeploy.
 
 Cloudflare Fulfillment Worker:
@@ -484,7 +484,7 @@ Evidencia aceptable:
 
 Usar este guion si no se ejecuta un rollback real:
 
-1. Identificar el deployment estable anterior de Cloudflare Pages.
+1. Identificar la versión estable anterior del Astro Worker de Cloudflare.
 2. Identificar la version estable anterior del Cloudflare Fulfillment Worker.
 3. Decidir si el incidente requiere rollback, pausa de checkout, desactivacion de paquetes, pausa de cron o reintento de jobs.
 4. Confirmar quien aprueba la accion: Alin para Go/No-Go, Codex solo prepara evidencia.
