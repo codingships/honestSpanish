@@ -108,10 +108,10 @@ En Cloudflare, el Astro Worker llama al Fulfillment Worker mediante el service b
 ## Entornos Y Deploy
 
 - `dev`: local, `http://localhost:4321`.
-- `staging`: rama `staging`, dominio canónico `https://staging.espanolhonesto.com` sobre el Worker `espanolhonesto-staging`.
-- `production`: rama `main`, `https://espanolhonesto.com`.
+- `staging`: despliegue manual de un SHA exacto ya validado por CI, dominio canónico `https://staging.espanolhonesto.com` sobre el Worker `espanolhonesto-staging`.
+- `production`: código promovido desde `main` mediante gates manuales, `https://espanolhonesto.com`.
 
-CI valida typecheck, lint, tests, build, E2E público y secrets-check. Un `push` a `staging` despliega primero fulfillment y después el Astro Worker. Un `push` a `main` solo construye y ejecuta dry-runs production: los writes production requieren los gates manuales y ordenados de `docs/launch/CLOUDFLARE_PRODUCTION.md`.
+CI valida PRs y `main` con typecheck, lint, tests, build, E2E público y secrets-check, sin desplegar. `.github/workflows/deploy-staging.yml` solo se despacha desde la definición confiable de `main`, exige un SHA completo con `build-and-test` verde y el environment `staging`, verifica por GET las identidades exactas Supabase staging + Stripe Sandbox ES/EUR, construye sin exponer secretos runtime y despliega primero fulfillment y después el Astro Worker; al final comprueba health/auth/bindings y checkout cerrado. El environment GitHub debe permitir deployments únicamente desde `main`, aunque el SHA candidato validado pueda pertenecer a la PR. Production no se despliega desde un push ni desde ese workflow: sus writes requieren los gates manuales y ordenados de `docs/launch/CLOUDFLARE_PRODUCTION.md`.
 
 Para E2E, ejecuta proyectos Playwright de forma secuencial o en una unica invocacion con varios `--project`. No lances dos procesos `playwright test` separados a la vez en el mismo workspace, porque comparten `test-results/artifacts`. Playwright usa un worker por defecto para que el dev server y el estado de autenticacion sean deterministas; usa `PLAYWRIGHT_WORKERS=<n>` solo para diagnosticos explicitos de paralelismo.
 

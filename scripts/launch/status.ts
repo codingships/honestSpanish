@@ -12,6 +12,10 @@ import {
     type StandaloneSecondaryEvidence,
 } from './status-evidence';
 import { collectOpenRcOperationalBlockers } from './rc-operational-checklist';
+import {
+    RC_PRODUCTION_INERT_BLOCKER_ID,
+    assessRcProductionInertEvidence,
+} from './rc-production-inert-evidence';
 
 type FindingStatus = 'ok' | 'warning' | 'failed';
 type LaunchStatus = 'BLOCKED' | 'READY_WITH_ACCEPTED_RISKS' | 'READY_CANDIDATE' | 'NO_EVIDENCE';
@@ -430,9 +434,14 @@ const openChecklistGoNoGo = sectionLines(checklist, '## Go/No-Go Blockers')
     .filter((line) => line.trim().startsWith('- [ ]'))
     .map((line) => line.trim());
 const rcOperationalBlockers = collectOpenRcOperationalBlockers(checklist);
+const productionInertAssessment = assessRcProductionInertEvidence(outputsRoot, startedAt);
+const productionInertOpenChecks = productionInertAssessment.ready
+    ? []
+    : [RC_PRODUCTION_INERT_BLOCKER_ID];
 const openGoNoGo = uniqueList([
     ...openChecklistGoNoGo,
     ...rcOperationalBlockers.map((blocker) => blocker.line),
+    ...(productionInertAssessment.blocker ? [productionInertAssessment.blocker.line] : []),
 ]);
 
 const standaloneAuditDefinitions = [
@@ -482,7 +491,8 @@ const urgencySummary = buildUrgencySummary(
     manualEvidencePhaseSummary,
     blockers,
     stagingNoRealPaymentsBlocked,
-    strictQaOpenSecurityFindings
+    strictQaOpenSecurityFindings,
+    productionInertOpenChecks.length > 0,
 );
 const status = deriveStatus(effectivePrimary, manual?.data ?? null, effectiveSecondary, blockers, openGoNoGo);
 const releaseCandidateReadiness = buildReleaseCandidateReadiness(
@@ -493,6 +503,7 @@ const releaseCandidateReadiness = buildReleaseCandidateReadiness(
     strictQaOpenSecurityFindings,
     strictQaStandaloneOpenFindings,
     rcOperationalBlockers.map((blocker) => blocker.id),
+    productionInertOpenChecks,
 );
 const gateFreshnessInputs: EvidenceTimestamp[] = [
     // Full-gate freshness is scoped to commands that `pnpm launch:gate`
@@ -519,6 +530,7 @@ const releaseCandidateFreshnessInputs: EvidenceTimestamp[] = [
     { label: 'no-real-payments audit', endedAt: noRealPayments?.data.endedAt },
     { label: 'staging no-real-payments remediation', endedAt: noRealPaymentsRemediation?.data.endedAt },
     { label: 'rc external closure', endedAt: rcExternalClosure?.data.endedAt },
+    { label: 'production inert RC evidence', endedAt: productionInertAssessment.latestEvidenceAt },
 ];
 const rcExternalClosureFreshnessInputs: EvidenceTimestamp[] = [
     { label: 'staging database rollout', endedAt: stagingDatabaseRollout?.data.endedAt },
@@ -764,6 +776,16 @@ const sources: SourceRef[] = [
         label: 'cloudflare production runtime read-only evidence',
         status: cloudflareProductionRuntimeReadonly?.data.status ?? 'missing',
         path: cloudflareProductionRuntimeReadonly?.file ?? null,
+    },
+    {
+        label: 'production inert RC evidence',
+        status: productionInertAssessment.ready
+            ? 'READY'
+            : `BLOCKED (${productionInertAssessment.requirements
+                .filter((requirement) => requirement.status === 'open')
+                .map((requirement) => requirement.id)
+                .join(', ')})`,
+        path: productionInertAssessment.sourcePath,
     },
     {
         label: 'cloudflare production runtime cutover preflight',
@@ -1081,7 +1103,8 @@ function buildUrgencySummary(
     phaseSummary: ManualEvidencePhaseSummary[],
     failedFindings: Finding[],
     stagingNoRealPaymentsIsBlocked: boolean,
-    strictQaOpenSecurityFindings: StrictQaFinding[]
+    strictQaOpenSecurityFindings: StrictQaFinding[],
+    productionInertIsBlocked: boolean,
 ): UrgencySummary[] {
     const byPhase = new Map(phaseSummary.map((summary) => [summary.phase, summary]));
     const legalAuditBlocked = failedFindings.some((finding) => {
@@ -1099,9 +1122,16 @@ function buildUrgencySummary(
         phaseOneSummary
     );
     const releaseCandidateSummary = byPhase.get('phase_2_release_candidate');
-    const enrichedReleaseCandidateSummary = stagingNoRealPaymentsIsBlocked
+    const stagingAwareReleaseCandidateSummary = stagingNoRealPaymentsIsBlocked
         ? addComputedUrgencyCheck(releaseCandidateSummary, 'no_real_payments_staging', 'phase_2_release_candidate')
         : releaseCandidateSummary;
+    const enrichedReleaseCandidateSummary = productionInertIsBlocked
+        ? addComputedUrgencyCheck(
+            stagingAwareReleaseCandidateSummary,
+            RC_PRODUCTION_INERT_BLOCKER_ID,
+            'phase_2_release_candidate',
+        )
+        : stagingAwareReleaseCandidateSummary;
 
     return [
         summarizeUrgencyBucket(
@@ -1114,7 +1144,7 @@ function buildUrgencySummary(
             'phase_2_release_candidate',
             'Release Candidate / Fase 2',
             enrichedReleaseCandidateSummary,
-            'Congelar RC cuando Fase 1 este cerrada y staging tenga checkout bloqueado; Stripe queda final-only mientras no se acepten pagos reales.'
+            'Congelar RC cuando Fase 1, staging sin cobros y la preparacion production inerte computada esten cerrados; legal, Stripe Live, DNS, fulfillment activo y smoke production siguen final-only.'
         ),
         summarizeUrgencyBucket(
             'phase_3_final',
@@ -1221,6 +1251,7 @@ function buildReleaseCandidateReadiness(
     strictQaOpenSecurityFindings: StrictQaFinding[],
     strictQaStandaloneOpenFindings: StrictQaFinding[],
     rcOperationalOpenChecks: string[],
+    productionInertOpenChecks: string[],
 ): ReleaseCandidateReadiness {
     const phaseOneOpenChecks = grouped.phase_1_now
         .filter((check) => check.status === 'failed')
@@ -1239,6 +1270,7 @@ function buildReleaseCandidateReadiness(
             .map((check) => check.id),
         ...(stagingNoRealPaymentsBlocked ? ['no_real_payments_staging'] : []),
         ...rcOperationalOpenChecks,
+        ...productionInertOpenChecks,
     ];
     const finalOnlyOpenChecks = grouped.phase_3_final.map((check) => check.id);
     const finalLaunchOpenChecks = uniqueList([...finalOnlyOpenChecks, ...strictQaStandaloneIds]);
@@ -1259,6 +1291,9 @@ function buildReleaseCandidateReadiness(
         phaseOneOpenChecks.includes('database_readiness') || strictQaSecurityIds.length > 0
             ? `Supabase staging y production estan identificados como proyectos separados; ${strictQaSecurityIds.length > 0 ? `el tracker estricto mantiene ${strictQaSecurityIds.join(', ')} abiertos hasta aplicar/verificar el rollout de seguridad` : 'database_readiness sigue abierto hasta resolver o verificar migraciones/RLS/backup posture'} con staging primero.`
             : 'Supabase staging y production son proyectos separados con RLS y migraciones criticas revisadas.',
+        productionInertOpenChecks.length > 0
+            ? 'La preparacion production inerte aun no esta probada de extremo a extremo: Cloudflare bootstrap HMAC-only y la cadena Supabase rollout -> Auth final -> disponibilidad -> Auth inerte posterior siguen abiertas.'
+            : 'Production inerte esta probada mediante Cloudflare bootstrap HMAC-only y la cadena Supabase rollout, Auth final, cinco filas de disponibilidad y GET Auth posterior.',
         'Launch Gate, Fase 1, evidencia manual y revision secundaria generan evidencias frescas y auditables.',
     ];
 
@@ -1302,6 +1337,8 @@ function buildReleaseCandidateReadiness(
             provenNow,
             nextDecision: releaseCandidateOpenChecks.includes('no_real_payments_staging')
                 ? 'Corregir Cloudflare Worker staging desde el pack de pnpm launch:rc-external-closure y los ultimos rc-staging-package.md/rc-staging-package-files.txt/rc-staging-runtime-diff.patch/rc-staging-runtime-manifest.json/worker-staging-build-manifest.json: si HEAD/deploy no contiene el guard, empaquetar/redeployar la slice minima antes de confiar en CHECKOUT_ENABLED=false; si se usa dist local, exigir readyForStagingDeployPackage=true; despues ejecutar pnpm launch:no-real-payments -- --deployed-url <staging-url> y pnpm launch:rc.'
+                : productionInertOpenChecks.length > 0
+                    ? 'Completar y encadenar la evidencia production inerte: Cloudflare fulfillment/web bootstrap con HMAC-only; Supabase production rollout completo; Auth final a admin+profesor sin sesiones ni reset emails; cinco filas de disponibilidad; y un GET Auth posterior con disable_signup=true y mailer_autoconfirm=false. Mantener legal, Stripe Live, DNS, fulfillment activo y smoke final fuera de este cierre; despues rerun pnpm launch:status y pnpm launch:rc.'
                 : rcOperationalOpenChecks.length > 0
                     ? `Cerrar los bloqueos operativos RC (${rcOperationalOpenChecks.join(', ')}) con evidencia no secreta o una aceptacion de riesgo explicita; despues rerun pnpm launch:operations, pnpm launch:status y pnpm launch:rc.`
                     : 'Cerrar Stripe staging o documentar que el RC se congela sin aceptar pagos.',

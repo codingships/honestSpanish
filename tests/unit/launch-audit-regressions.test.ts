@@ -26,15 +26,15 @@ describe('launch audit regression guards', () => {
 
     it('requires environment-explicit fulfillment deploy commands in both operations checks', () => {
         const audit = read('scripts/launch/operations-audit.ts');
-        const workflow = read('.github/workflows/ci.yml');
+        const workflow = read('.github/workflows/deploy-staging.yml');
         const stagingSnippet = '"deploy": "wrangler deploy --config wrangler.toml --env staging"';
         const productionSnippet = '"deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run"';
 
         expect(audit.split(stagingSnippet)).toHaveLength(3);
         expect(audit.split(productionSnippet)).toHaveLength(3);
         expect(audit).not.toContain('"deploy": "wrangler deploy"');
-        expect(workflow.indexOf('name: Deploy staging Cloudflare Fulfillment Worker')).toBeLessThan(
-            workflow.indexOf('name: Deploy staging Cloudflare Worker'),
+        expect(workflow.indexOf('name: Deploy staging Fulfillment Worker')).toBeLessThan(
+            workflow.indexOf('name: Deploy staging web Worker'),
         );
     });
 

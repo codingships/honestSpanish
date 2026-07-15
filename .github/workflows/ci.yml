@@ -2,23 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [ main, staging ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, staging ]
+    branches: [ main ]
 
 permissions:
   contents: read
 
-# Serialize the whole staging workflow, not only its deploy job. A head-SHA
-# gate below also rejects any older run that GitHub schedules after a newer one.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref != 'refs/heads/staging' }}
+  cancel-in-progress: true
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -102,184 +100,3 @@ jobs:
           PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
           SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
         run: pnpm exec playwright test --project=public
-
-  deploy-cloudflare:
-    needs: build-and-test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')
-    runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'Production' || 'staging' }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10.33.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '22.12.0'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Reject a superseded staging deploy
-        if: github.ref == 'refs/heads/staging'
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          EXPECTED_DEPLOY_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          ref_file="$RUNNER_TEMP/github-staging-ref.json"
-          trap 'rm -f "$ref_file"' EXIT
-          curl --proto '=https' --tlsv1.2 --fail-with-body --silent --show-error \
-            --header "Authorization: Bearer $GITHUB_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/staging" > "$ref_file"
-          node -e '
-            const fs = require("node:fs");
-            const [file, expectedSha] = process.argv.slice(1);
-            const branchRef = JSON.parse(fs.readFileSync(file, "utf8"));
-            if (branchRef?.object?.sha !== expectedSha) {
-              throw new Error("Refusing superseded staging deploy; a newer branch head exists.");
-            }
-          ' "$ref_file" "$EXPECTED_DEPLOY_SHA"
-
-      - name: Verify exact Cloudflare identity before deploy validation
-        shell: bash
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          EXPECTED_CLOUDFLARE_ACCOUNT_ID: d1a22bcf6477ff2ff31d2bfb83084e44
-          WRANGLER_SEND_METRICS: "false"
-        run: |
-          set -euo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "CLOUDFLARE_API_TOKEN is required for Cloudflare validation."
-            exit 1
-          fi
-          if [ "${CLOUDFLARE_ACCOUNT_ID:-}" != "$EXPECTED_CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "CLOUDFLARE_ACCOUNT_ID does not match the exact approved account."
-            exit 1
-          fi
-
-          identity_file="$RUNNER_TEMP/cloudflare-whoami.json"
-          trap 'rm -f "$identity_file"' EXIT
-          pnpm exec wrangler whoami --json --install-skills=false > "$identity_file"
-          pnpm exec tsx scripts/ci/verify-cloudflare-identity.ts \
-            --input "$identity_file" \
-            --expected-account-id "$EXPECTED_CLOUDFLARE_ACCOUNT_ID"
-
-      - name: Resolve exact runtime URLs
-        shell: bash
-        env:
-          PRODUCTION_PUBLIC_SITE_URL: ${{ vars.PUBLIC_SITE_URL }}
-          PRODUCTION_FULFILLMENT_WORKER_URL: ${{ secrets.FULFILLMENT_WORKER_URL }}
-        run: |
-          if [ "$GITHUB_REF_NAME" = "main" ]; then
-            if [ "$PRODUCTION_PUBLIC_SITE_URL" != "https://espanolhonesto.com" ]; then
-              echo "Production PUBLIC_SITE_URL is missing or does not match the canonical production URL."
-              exit 1
-            fi
-            if [ "$PRODUCTION_FULFILLMENT_WORKER_URL" != "https://espanol-honesto-fulfillment-production.alindev95.workers.dev" ]; then
-              echo "Production FULFILLMENT_WORKER_URL is missing or does not match the exact production Worker."
-              exit 1
-            fi
-            printf '%s\n' "PUBLIC_SITE_URL=$PRODUCTION_PUBLIC_SITE_URL" >> "$GITHUB_ENV"
-            printf '%s\n' "FULFILLMENT_WORKER_URL=$PRODUCTION_FULFILLMENT_WORKER_URL" >> "$GITHUB_ENV"
-          elif [ "$GITHUB_REF_NAME" = "staging" ]; then
-            printf '%s\n' "PUBLIC_SITE_URL=https://staging.espanolhonesto.com" >> "$GITHUB_ENV"
-            printf '%s\n' "FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-staging.alindev95.workers.dev" >> "$GITHUB_ENV"
-          else
-            echo "Unsupported deploy branch: $GITHUB_REF_NAME"
-            exit 1
-          fi
-
-      - name: Build
-        env:
-          CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
-          PUBLIC_APP_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
-          SUPABASE_EXPECTED_PROJECT_REF: ${{ github.ref_name == 'main' && 'vkkahxsybhbutszerawz' || 'mzjyvmlxfpzdfdjzxxyj' }}
-          WORKER_IDENTITY: ${{ github.ref_name == 'main' && 'espanolhonesto' || 'espanolhonesto-staging' }}
-          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
-          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
-          PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
-          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
-          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
-          CHECKOUT_ENABLED: "false"
-        shell: bash
-        run: |
-          if [ "$CLOUDFLARE_ENV" = "production" ]; then
-            pnpm run build:production:release
-          else
-            pnpm run build
-          fi
-
-      - name: Validate inert production Fulfillment bootstrap package
-        if: github.ref_name == 'main'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run
-
-      - name: Validate final active production Fulfillment package
-        if: github.ref_name == 'main'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run
-
-      - name: Validate staging Cloudflare Fulfillment Worker deploy package
-        if: github.ref_name == 'staging'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --dry-run
-
-      - name: Deploy staging Cloudflare Fulfillment Worker
-        if: github.ref_name == 'staging'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars
-
-      - name: Validate Cloudflare Worker deploy package
-        env:
-          CLOUDFLARE_ENV: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec tsx scripts/dev/deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run
-
-      - name: Deploy staging Cloudflare Worker
-        if: github.ref_name == 'staging'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm run deploy
-
-      - name: Production deploy remains on explicit lifecycle gates
-        if: github.ref_name == 'main'
-        run: |
-          echo "Production CI completed build and dry-runs only."
-          echo "Required manual order: fulfillment bootstrap -> fulfillment HMAC-only secret -> web bootstrap -> web HMAC-only secret -> fulfillment final secrets -> web active deploy/final secrets -> fresh dual attestation -> fulfillment enable."
-
-      - name: Verify staging checkout is disabled
-        if: github.ref_name == 'staging'
-        env:
-          STAGING_WORKER_URL: https://staging.espanolhonesto.com
-        run: pnpm run launch:no-real-payments -- --deployed-url "$STAGING_WORKER_URL"

@@ -98,7 +98,7 @@ export function validateProductionAvailabilityDatabaseUrl(value: string | undefi
     }
 }
 
-export function validateFinalAuthPolicyReceipt(value: unknown): string[] {
+export function validateFinalAuthPolicyReceipt(value: unknown, now = new Date()): string[] {
     if (!isRecord(value)) return ['receipt must be an object'];
     const errors: string[] = [];
     const expected: Record<string, unknown> = {
@@ -139,8 +139,8 @@ export function validateFinalAuthPolicyReceipt(value: unknown): string[] {
     if (typeof value.closedAt === 'string' && typeof value.quarantineUntil === 'string'
         && Number.isFinite(Date.parse(value.closedAt)) && Number.isFinite(Date.parse(value.quarantineUntil))) {
         if (Date.parse(value.closedAt) < Date.parse(value.quarantineUntil)) errors.push('closedAt must be at or after quarantineUntil');
-        if (Date.parse(value.quarantineUntil) > Date.now()) errors.push('quarantineUntil must have elapsed');
-        if (Date.parse(value.closedAt) > Date.now() + 300_000) errors.push('closedAt cannot be in the future');
+        if (Date.parse(value.quarantineUntil) > now.getTime()) errors.push('quarantineUntil must have elapsed');
+        if (Date.parse(value.closedAt) > now.getTime() + 300_000) errors.push('closedAt cannot be in the future');
     }
     return errors;
 }

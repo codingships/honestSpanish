@@ -56,7 +56,7 @@ pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env produ
 pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run
 ```
 
-CI ejecuta ambos dry-runs en `main`, pero no despliega ningún Worker de producción. Los pushes a `staging` sí conservan su deploy automático explícito. Toda escritura production pasa por los runners manuales con aprobación exacta; así un push a `main` no puede crear fulfillment con email/cron activos.
+CI valida PRs y `main`, pero no ejecuta comandos Cloudflare ni despliega. Staging usa `.github/workflows/deploy-staging.yml` mediante `workflow_dispatch`, ligado a un SHA completo con CI verde; production queda excluido de ese workflow. Toda escritura production pasa por los runners manuales con aprobación exacta, de modo que ningún push puede crear fulfillment con email/cron activos.
 
 ## Fases Separadas
 

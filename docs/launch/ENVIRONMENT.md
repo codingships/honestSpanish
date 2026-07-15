@@ -81,7 +81,7 @@ Inventario de rotacion por entorno:
 | Resend | `RESEND_API_KEY`, `EMAIL_FROM`, `RESEND_FROM_EMAIL`, `EMAIL_DELIVERY_MODE`, `EMAIL_RECIPIENT_ALLOWLIST`, limites de destinatarios | Astro Worker y Fulfillment Worker | Validar envio antes de revocar. Cada destinatario consume una unidad; staging y production comparten el margen del plan si usan la misma cuenta Resend. |
 | Turnstile | `PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY` | Cloudflare Astro Worker | Revisar dominios permitidos si cambia site key. |
 | Sentry | `PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_CAPTURE_LOCAL`, `SENTRY_ENVIRONMENT`, `SENTRY_MAX_UNRESOLVED_ISSUES`, `SENTRY_UPLOAD_SOURCEMAPS` | App build, GitHub/CI | Token de auth es secreto; DSN es publico pero entorno-especifico. `SENTRY_ORG`/`SENTRY_PROJECT` hacen determinista la auditoria read-only y la subida de sourcemaps. `SENTRY_CAPTURE_LOCAL=false` evita que dev/QA local contamine Sentry production; `SENTRY_ENVIRONMENT` es override opcional. `SENTRY_MAX_UNRESOLVED_ISSUES` solo controla el umbral local de warning en `pnpm launch:sentry-readonly`; no modifica Sentry. |
-| GitHub/Cloudflare deploy | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` | GitHub Environments | Token con permisos minimos y aprobacion production. |
+| GitHub/Cloudflare deploy staging | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`; claves públicas staging; `STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` solo en el preflight aislado | GitHub environment `staging` | Workflow manual definido/ejecutado desde `main`, con deployment branch policy `main`; token de mínimo privilegio, SHA candidato exacto, GET de identidad provider y secretos runtime excluidos del build. Production usa runners/gates separados y no este workflow. |
 
 ## Cloudflare Astro Worker
 
@@ -168,7 +168,7 @@ pnpm launch:cloudflare-production-fulfillment-secrets
 pnpm launch:cloudflare-production-fulfillment-enable
 ```
 
-No usar `pnpm --filter ... run deploy -- --env ...`: el script del paquete ya selecciona staging y produciria dos `--env`. CI ejecuta primero dry-run y después un único deploy inequívoco solo para staging. En production no hay deploy automático ni comando raw documentado: se usan los tres gates anteriores.
+No usar `pnpm --filter ... run deploy -- --env ...`: el script del paquete ya selecciona staging y produciria dos `--env`. El workflow manual `.github/workflows/deploy-staging.yml`, despachado desde `main`, exige un SHA exacto verde en CI, verifica las identidades provider, ejecuta primero ambos dry-runs y después un único deploy inequívoco solo para staging; termina con el preflight operativo fulfillment y el guard de no pagos. En production no hay deploy automático ni comando raw documentado: se usan los gates anteriores.
 
 Para production, el bootstrap inerte se despliega antes del web Worker. `pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets` carga solo `INTERNAL_JOB_SECRET`, rechaza nombres de providers y atestigua su ausencia con salud/bootstrap/bloqueo 503 y cron vacío. `pnpm launch:cloudflare-production-fulfillment-secrets` queda para la ventana final y carga Supabase/Google/Resend mientras el runtime aún está inerte. `pnpm launch:cloudflare-production-fulfillment-enable` es la aprobación distinta que, tras probar web + secrets + atestación, activa runtime, email live 80/día y 2.400/mes y cron horario. Ver `docs/launch/CLOUDFLARE_PRODUCTION.md`.
 
@@ -232,15 +232,15 @@ Variables por environment:
 - `PUBLIC_APP_ENV`
 - `CHECKOUT_ENABLED=false` hasta cierre deliberado de pagos.
 - `CHECKOUT_ENABLED_OVERRIDE=false` o ausente hasta la ventana de activacion.
-- `CLOUDFLARE_STAGING_URL` y `CLOUDFLARE_WORKERS_STAGING_URL` quedan solo como overrides opcionales de runners locales. CI usa el dominio canónico de staging fijado en código.
+- `CLOUDFLARE_STAGING_URL` y `CLOUDFLARE_WORKERS_STAGING_URL` quedan solo como overrides opcionales de runners locales. El workflow manual usa el dominio canónico de staging fijado en código.
 
 Valores actuales:
 
 - Worker staging: `espanolhonesto-staging`
 - Worker production: `espanolhonesto`
 - URL staging canónica para probes RC/no-real-payments: `https://staging.espanolhonesto.com`
-- URL fulfillment staging fijada por CI: `https://espanol-honesto-fulfillment-staging.alindev95.workers.dev`; no necesita almacenarse como secret porque es pública.
-- CI escribe ambas URLs en `GITHUB_ENV` después de validar la rama. `main` exige además `FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-production.alindev95.workers.dev`; nunca cae a una URL staging si falta una variable/secret production.
+- URL fulfillment staging fijada por el workflow manual: `https://espanol-honesto-fulfillment-staging.alindev95.workers.dev`; no necesita almacenarse como secret porque es pública.
+- El workflow de staging fija ambas URLs como constantes después de exigir que su propia definición se ejecute desde `main`; el SHA candidato se valida de forma independiente. Production no consume esas URLs ni ese workflow y resuelve sus targets dentro de runners exactos fail-closed.
 - Estado de transición: el 2026-07-13 se creó y verificó el Custom Domain `staging.espanolhonesto.com` con DNS, TLS y routing sobre `espanolhonesto-staging`; Preview URLs web quedaron desactivadas. La URL `workers.dev` permanece solo como rollback y para el webhook Stripe test hasta completar su migracion, Turnstile, correos y smokes.
 
 ## Supabase

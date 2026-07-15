@@ -10,6 +10,7 @@ const GIT_HEAD_PATTERN = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u;
 
 export const CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS = [
     '.github/workflows/ci.yml',
+    '.github/workflows/deploy-staging.yml',
     'astro.config.mjs',
     'package.json',
     'pnpm-lock.yaml',

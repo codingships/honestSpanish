@@ -1,36 +1,52 @@
 import satori from 'satori';
 import { html } from 'satori-html';
-import { Resvg, initWasm } from '@resvg/resvg-wasm';
-import resvgWasmUrl from '@resvg/resvg-wasm/index_bg.wasm?url';
-import unboundedFontUrl from '@fontsource/unbounded/files/unbounded-latin-700-normal.woff?url';
+import { Resvg } from '@resvg/resvg-js';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { APIRoute } from 'astro';
 import { getCollection } from 'astro:content';
 import { getBlogEntrySlug, isPublishedBlogPost } from '../../lib/blog-routes';
 
-let wasmInitialized = false;
-let fontDataPromise: Promise<ArrayBuffer> | null = null;
+type OgPage = {
+  title: string;
+  category: string;
+};
 
-function assetUrl(assetPath: string, request: Request): URL {
-  return new URL(assetPath, request.url);
-}
+const staticPages: Record<string, OgPage> = {
+  home: { title: 'Español Honesto', category: 'Academia' },
+  contacto: { title: 'Contacto', category: 'Hablemos' },
+  blog: { title: 'Nuestro Blog', category: 'Artículos' },
+};
 
-async function initResvg(request: Request): Promise<void> {
-  if (wasmInitialized) return;
+const fontDataPromise = readFile(path.join(
+  process.cwd(),
+  'node_modules',
+  '@fontsource',
+  'unbounded',
+  'files',
+  'unbounded-latin-700-normal.woff',
+));
 
-  await initWasm(fetch(assetUrl(resvgWasmUrl, request)));
-  wasmInitialized = true;
-}
+export const prerender = true;
 
-function loadFontData(request: Request): Promise<ArrayBuffer> {
-  fontDataPromise ??= fetch(assetUrl(unboundedFontUrl, request)).then((res) => {
-    if (!res.ok) {
-      throw new Error(`Could not load OG font asset: ${res.status}`);
+export async function getStaticPaths() {
+  const blogPosts = await getCollection('blog');
+  const pagesBySlug = new Map<string, OgPage>(Object.entries(staticPages));
+
+  for (const post of blogPosts.filter(isPublishedBlogPost).sort((a, b) => a.id.localeCompare(b.id))) {
+    const slug = getBlogEntrySlug(post);
+    if (!pagesBySlug.has(slug)) {
+      pagesBySlug.set(slug, {
+        title: post.data.title,
+        category: post.data.category || 'Artículo',
+      });
     }
+  }
 
-    return res.arrayBuffer();
-  });
-
-  return fontDataPromise;
+  return [...pagesBySlug].map(([slug, props]) => ({
+    params: { slug },
+    props,
+  }));
 }
 
 function escapeHtml(value: string): string {
@@ -42,33 +58,8 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-export const GET: APIRoute = async ({ params, request }) => {
-  const { slug } = params;
-
-  const staticPages: Record<string, { title: string; category: string }> = {
-    home: { title: 'Español Honesto', category: 'Academia' },
-    contacto: { title: 'Contacto', category: 'Hablemos' },
-    blog: { title: 'Nuestro Blog', category: 'Artículos' },
-  };
-
-  let title = 'Español Honesto';
-  let category = 'Academia';
-
-  if (staticPages[slug as string]) {
-    title = staticPages[slug as string].title;
-    category = staticPages[slug as string].category;
-  } else {
-    const blogPosts = await getCollection('blog');
-    const post = blogPosts.find((p) => isPublishedBlogPost(p) && getBlogEntrySlug(p) === slug);
-
-    if (post) {
-      title = post.data.title;
-      category = post.data.category || 'Artículo';
-    }
-  }
-
-  await initResvg(request);
-  const fontData = await loadFontData(request);
+export const GET: APIRoute<OgPage> = async ({ props: { title, category } }) => {
+  const fontData = await fontDataPromise;
   const safeTitle = escapeHtml(title);
   const safeCategory = escapeHtml(category);
 

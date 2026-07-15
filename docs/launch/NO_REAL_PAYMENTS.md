@@ -27,7 +27,7 @@ Estado: apoyo para operar sin cobros reales hasta el cierre final de Stripe.
 corepack pnpm launch:no-real-payments
 ```
 
-CI ejecuta `pnpm run launch:no-real-payments` en build/test y fuerza `CHECKOUT_ENABLED=false` durante el build. Tras desplegar la rama `staging`, GitHub Actions ejecuta el probe read-only contra `https://staging.espanolhonesto.com`. El cutover no debe considerarse apto para RC si DNS/TLS/routing no están verificados o si el probe no devuelve 403 `Checkout is disabled`.
+CI ejecuta `pnpm run launch:no-real-payments` en build/test y fuerza `CHECKOUT_ENABLED=false` durante el build. El workflow manual `.github/workflows/deploy-staging.yml` vuelve a ejecutar el probe read-only contra `https://staging.espanolhonesto.com` después de desplegar un SHA exacto ya verde en CI. El cutover no debe considerarse apto para RC si DNS/TLS/routing no están verificados o si el probe no devuelve 403 `Checkout is disabled`.
 
 Para RC local, si no se pasa URL explícita, los scripts usan como fallback el dominio canónico `https://staging.espanolhonesto.com`. Antes del cutover externo, pasar deliberadamente la URL directa solo para diagnóstico transitorio; no registrar ese resultado como evidencia final del dominio.
 

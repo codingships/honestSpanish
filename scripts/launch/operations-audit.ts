@@ -188,75 +188,110 @@ function reviewCloudflareFulfillmentWorker(): Finding {
 }
 
 function reviewCiDeployPipeline(): Finding {
-    const file = path.join('.github', 'workflows', 'ci.yml');
-    const content = readIfExists(file);
-    const details = missingSnippets(file, content, [
-        'branches: [ main, staging ]',
-        'version: 10.33.0',
-        "node-version: '22.12.0'",
-        'pnpm install --frozen-lockfile',
-        'pnpm run typecheck',
-        'pnpm run lint',
-        'pnpm run test:run',
-        'pnpm run fulfillment:typecheck',
-        'pnpm run secrets:check',
-        'pnpm run launch:no-real-payments',
-        'CHECKOUT_ENABLED: "false"',
-        'pnpm exec playwright test --project=public',
-        'deploy-cloudflare:',
-        "environment: ${{ github.ref_name == 'main' && 'Production' || 'staging' }}",
-        'CLOUDFLARE_ENV',
-        'CLOUDFLARE_API_TOKEN',
-        'pnpm run build:production:release',
-        'deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run',
-        'run: pnpm run deploy',
-        'Verify staging checkout is disabled',
-        'STAGING_WORKER_URL: https://staging.espanolhonesto.com',
-        'Resolve exact runtime URLs',
-        'PRODUCTION_PUBLIC_SITE_URL',
-        'PRODUCTION_FULFILLMENT_WORKER_URL',
-        'Production PUBLIC_SITE_URL is missing or does not match the canonical production URL.',
-        'Production FULFILLMENT_WORKER_URL is missing or does not match the exact production Worker.',
-        'PUBLIC_SITE_URL=https://staging.espanolhonesto.com',
-        'FULFILLMENT_WORKER_URL=https://espanol-honesto-fulfillment-staging.alindev95.workers.dev',
-        '>> "$GITHUB_ENV"',
-        '--deployed-url "$STAGING_WORKER_URL"',
-        'FULFILLMENT_WORKER_URL',
-        'Validate inert production Fulfillment bootstrap package',
-        'Validate final active production Fulfillment package',
-        'Deploy staging Cloudflare Fulfillment Worker',
-        'pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run',
-        'pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run',
-        'pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars',
-        'Production CI completed build and dry-runs only.',
-    ]);
-    if (content.includes('run deploy -- --env')) {
-        details.push(`${file}: fulfillment deploy must not append a second --env to a package script that already selects staging.`);
+    const ciFile = path.join('.github', 'workflows', 'ci.yml');
+    const deployFile = path.join('.github', 'workflows', 'deploy-staging.yml');
+    const ci = readIfExists(ciFile);
+    const deploy = readIfExists(deployFile);
+    const details = [
+        ...missingSnippets(ciFile, ci, [
+            'branches: [ main ]',
+            'version: 10.33.0',
+            "node-version: '22.12.0'",
+            'pnpm install --frozen-lockfile',
+            'pnpm run typecheck',
+            'pnpm run lint',
+            'pnpm run test:run',
+            'pnpm run fulfillment:typecheck',
+            'pnpm run secrets:check',
+            'pnpm run launch:no-real-payments',
+            'CHECKOUT_ENABLED: "false"',
+            'pnpm exec playwright test --project=public',
+        ]),
+        ...missingSnippets(deployFile, deploy, [
+            'workflow_dispatch:',
+            'commit_sha:',
+            'checks: read',
+            'contents: read',
+            'group: cloudflare-staging-deploy',
+            'cancel-in-progress: false',
+            'environment: staging',
+            'This privileged workflow must be dispatched from refs/heads/main.',
+            'ref: ${{ inputs.commit_sha }}',
+            'commit_sha must be a full lowercase 40-character Git commit SHA.',
+            'Require successful CI for the exact commit',
+            'check-runs?per_page=100',
+            'run.name === "build-and-test"',
+            'run.conclusion === "success"',
+            'CLOUDFLARE_API_TOKEN',
+            'EXPECTED_CLOUDFLARE_ACCOUNT_ID: d1a22bcf6477ff2ff31d2bfb83084e44',
+            'Verify exact staging provider identities',
+            'scripts/ci/verify-staging-deploy-environment.ts',
+            'SUPABASE_SERVICE_ROLE_KEY: "build-only-placeholder-service-role"',
+            'STRIPE_SECRET_KEY: "sk_test_build_only_placeholder"',
+            'pnpm run build:staging:release',
+            'deploy-built-worker.ts --environment staging --dry-run',
+            'pnpm run deploy',
+            'Verify staging checkout is disabled',
+            'STAGING_WORKER_URL: https://staging.espanolhonesto.com',
+            '--deployed-url "$STAGING_WORKER_URL"',
+            'Deploy staging Fulfillment Worker',
+            'Deploy staging web Worker',
+            'Record partial-deploy recovery requirement',
+            'Verify staging Fulfillment runtime and bindings',
+            'pnpm run launch:staging-operations -- --include-wrangler',
+            'pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars',
+        ]),
+    ];
+    if (/\b(?:push|pull_request):/u.test(deploy)) {
+        details.push(`${deployFile}: staging deploy must be workflow_dispatch-only.`);
     }
-    if (content.includes('wrangler deploy --config workers/fulfillment/wrangler.toml --env production --keep-vars')) {
-        details.push(`${file}: main CI must never auto-deploy active fulfillment production.`);
+    if (ci.includes('deploy-cloudflare:') || ci.includes('CLOUDFLARE_API_TOKEN') || ci.includes('run: pnpm run deploy')) {
+        details.push(`${ciFile}: CI must validate only; Cloudflare writes belong to the manual exact-SHA staging workflow.`);
     }
-    if (content.includes("github.ref_name == 'main' && vars.PUBLIC_SITE_URL ||")) {
-        details.push(`${file}: production PUBLIC_SITE_URL must fail closed instead of falling back to staging.`);
+    if (deploy.includes('environment: Production') || deploy.includes('--env production') || deploy.includes('--environment production')) {
+        details.push(`${deployFile}: the staging workflow must not contain a production target or write path.`);
     }
-    if (content.includes("github.ref_name == 'main' && secrets.FULFILLMENT_WORKER_URL ||")) {
-        details.push(`${file}: production FULFILLMENT_WORKER_URL must fail closed instead of falling back to staging.`);
+    if (deploy.includes('run deploy -- --env')) {
+        details.push(`${deployFile}: fulfillment deploy must not append a second --env to a package script that already selects staging.`);
     }
-    const fulfillmentDryRunIndex = content.indexOf('name: Validate staging Cloudflare Fulfillment Worker deploy package');
-    const fulfillmentDeployIndex = content.indexOf('name: Deploy staging Cloudflare Fulfillment Worker');
-    const webDeployIndex = content.indexOf('name: Deploy staging Cloudflare Worker');
+    const buildStep = deploy.slice(
+        deploy.indexOf('      - name: Build exact staging package'),
+        deploy.indexOf('      - name: Validate staging Fulfillment package'),
+    );
+    for (const secretName of [
+        'SUPABASE_SERVICE_ROLE_KEY',
+        'STRIPE_SECRET_KEY',
+        'STRIPE_WEBHOOK_SECRET',
+        'TURNSTILE_SECRET_KEY',
+        'CRON_SECRET',
+        'INTERNAL_JOB_SECRET',
+    ]) {
+        if (buildStep.includes(`${secretName}: \${{ secrets.${secretName} }}`)) {
+            details.push(`${deployFile}: ${secretName} must not be exposed to the staging build process.`);
+        }
+    }
+    const fulfillmentDryRunIndex = deploy.indexOf('name: Validate staging Fulfillment package');
+    const webDryRunIndex = deploy.indexOf('name: Validate staging web package');
+    const fulfillmentDeployIndex = deploy.indexOf('name: Deploy staging Fulfillment Worker');
+    const webDeployIndex = deploy.indexOf('name: Deploy staging web Worker');
     if (fulfillmentDeployIndex < 0 || webDeployIndex < 0 || fulfillmentDeployIndex >= webDeployIndex) {
-        details.push(`${file}: fulfillment Worker must deploy before the bound Astro Worker.`);
+        details.push(`${deployFile}: fulfillment Worker must deploy before the bound Astro Worker.`);
     }
-    if (fulfillmentDryRunIndex < 0 || fulfillmentDeployIndex < 0 || fulfillmentDryRunIndex >= fulfillmentDeployIndex) {
-        details.push(`${file}: fulfillment Worker dry-run must pass before its deploy.`);
+    if (
+        fulfillmentDryRunIndex < 0
+        || webDryRunIndex < 0
+        || fulfillmentDeployIndex < 0
+        || fulfillmentDryRunIndex >= fulfillmentDeployIndex
+        || webDryRunIndex >= fulfillmentDeployIndex
+    ) {
+        details.push(`${deployFile}: both staging packages must pass dry-run before the first deploy.`);
     }
 
     return {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'GitHub CI and deploy pipeline',
         message: details.length === 0
-            ? 'CI deploys staging in dependency order and keeps production to explicit bootstrap/active dry-runs with no automatic write.'
+            ? 'CI is validation-only; staging deploys manually from one exact CI-green SHA in dependency order, and production remains on explicit lifecycle gates.'
             : 'CI/deploy pipeline is missing launch-critical steps.',
         details,
     };

@@ -59,6 +59,27 @@ describe('PricingSection', () => {
         expect(screen.getByRole('link', { name: translations.modal.contact })).toHaveAttribute('href', '/es#contacto');
     });
 
+    it('renders the package fallback when its key has no translation', () => {
+        const packageWithoutTranslation = {
+            ...hybridPackage,
+            id: 'pkg-without-translation',
+            name: 'without-translation',
+            display_name: {
+                es: 'Plan sin traducción',
+                en: 'Plan without translation',
+                ru: 'Plan without translation',
+            },
+        };
+
+        renderPricingSection([packageWithoutTranslation]);
+
+        expect(screen.getByRole('heading', { name: 'Plan sin traducción' })).toBeInTheDocument();
+        expect(screen.getByTestId('select-plan-without-translation')).toHaveAttribute(
+            'href',
+            '/es?preferredPackage=without-translation&preferredPackageLabel=Plan%20sin%20traducci%C3%B3n#contacto',
+        );
+    });
+
     it('keeps application CTAs usable as links and dispatches preferred package context after hydration', () => {
         const preferredEvents: unknown[] = [];
         window.addEventListener('eh:preferred-package-selected', (event) => {

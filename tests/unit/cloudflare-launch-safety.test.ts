@@ -17,10 +17,7 @@ describe('Cloudflare launch environment safety', () => {
 
     it('runs generic CI Astro steps against the explicit inert staging target', () => {
         const workflow = read('.github/workflows/ci.yml');
-        const buildAndTestJob = workflow.slice(
-            workflow.indexOf('  build-and-test:'),
-            workflow.indexOf('  deploy-cloudflare:'),
-        );
+        const buildAndTestJob = workflow.slice(workflow.indexOf('  build-and-test:'));
         const syncStep = buildAndTestJob.slice(
             buildAndTestJob.indexOf('      - name: Sync Astro types'),
             buildAndTestJob.indexOf('      - name: Check types'),
@@ -40,7 +37,7 @@ describe('Cloudflare launch environment safety', () => {
     it('deploys Astro 6 web packages only from the build-resolved Wrangler config', () => {
         const deployer = read('scripts/dev/deploy-built-worker.ts');
         const packageJson = read('package.json');
-        const workflow = read('.github/workflows/ci.yml');
+        const workflow = read('.github/workflows/deploy-staging.yml');
 
         for (const snippet of [
             "path.join(workspaceRoot, 'dist', 'server', 'wrangler.json')",
@@ -59,8 +56,8 @@ describe('Cloudflare launch environment safety', () => {
 
         expect(packageJson).toContain('deploy-built-worker.ts --environment staging --execute');
         expect(packageJson).toContain('deploy-built-worker.ts --environment production --dry-run');
-        expect(workflow).toContain('deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run');
-        expect(workflow).toContain('run: pnpm run deploy');
+        expect(workflow).toContain('deploy-built-worker.ts --environment staging --dry-run');
+        expect(workflow).toContain('pnpm run deploy');
     });
 
     it('uses safe top-level Worker names so bare deploys cannot overwrite production', () => {
@@ -88,13 +85,13 @@ describe('Cloudflare launch environment safety', () => {
         }
     });
 
-    it('keeps main production read-only while staging retains explicit automatic deploys', () => {
+    it('keeps CI validation-only while staging uses an explicit manual deploy and production stays gated', () => {
         const ci = read('.github/workflows/ci.yml');
+        const stagingDeploy = read('.github/workflows/deploy-staging.yml');
         const packageJson = read('package.json');
         const productionBuild = read('scripts/dev/build-production-release.ts');
 
         expect(packageJson).toContain('"build:production:release": "tsx scripts/dev/build-production-release.ts"');
-        expect(ci).toContain('pnpm run build:production:release');
         expect(productionBuild).toContain("process.env.CLOUDFLARE_ENV = 'production'");
         expect(productionBuild).toContain("process.env.PUBLIC_APP_ENV = 'production'");
         expect(productionBuild).toContain("SUPABASE_EXPECTED_PROJECT_REF=${productionRef}");
@@ -103,64 +100,80 @@ describe('Cloudflare launch environment safety', () => {
         expect(productionBuild).toContain('disableProductionReleaseSentryUpload(process.env)');
         expect(productionBuild).toContain("entry === '.dev.vars'");
 
-        expect(ci).toContain('if: github.ref_name == \'main\'');
-        expect(ci).toContain('wrangler deploy --config workers/fulfillment/wrangler.toml --env production_bootstrap --dry-run');
-        expect(ci).toContain('wrangler deploy --config workers/fulfillment/wrangler.toml --env production --dry-run');
-        expect(ci).toContain('Production CI completed build and dry-runs only.');
-        expect(ci).toContain('if: github.ref_name == \'staging\'');
-        expect(ci).toContain('wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars');
-        expect(ci).toContain('deploy-built-worker.ts --environment "$CLOUDFLARE_ENV" --dry-run');
-        expect(ci).toContain('run: pnpm run deploy');
+        expect(ci).toContain('branches: [ main ]');
+        expect(ci).not.toContain('branches: [ main, staging ]');
+        expect(ci).not.toContain('deploy-cloudflare:');
+        expect(ci).not.toContain('CLOUDFLARE_API_TOKEN');
+        expect(ci).not.toContain('run: pnpm run deploy');
+        expect(stagingDeploy).toContain('workflow_dispatch:');
+        expect(stagingDeploy).toContain('environment: staging');
+        expect(stagingDeploy).toContain('pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars');
+        expect(stagingDeploy).toContain('deploy-built-worker.ts --environment staging --dry-run');
+        expect(stagingDeploy).toContain('pnpm run deploy');
+        expect(stagingDeploy).toContain('This privileged workflow must be dispatched from refs/heads/main.');
+        expect(stagingDeploy).toContain('scripts/ci/verify-staging-deploy-environment.ts');
+        expect(stagingDeploy).toContain('pnpm run launch:staging-operations -- --include-wrangler');
         expect(ci).not.toContain('wrangler deploy --config workers/fulfillment/wrangler.toml --env production --keep-vars');
-        expect(ci).not.toContain('run deploy -- --env');
+        expect(stagingDeploy).not.toContain('--env production');
+        expect(stagingDeploy).not.toContain('--environment production');
     });
 
-    it('hardens CI identity, repository credentials and staging deploy ordering', () => {
+    it('hardens CI identity, exact-SHA approval and staging deploy ordering', () => {
         const ci = read('.github/workflows/ci.yml');
-        const buildAndTestJob = ci.slice(
-            ci.indexOf('  build-and-test:'),
-            ci.indexOf('  deploy-cloudflare:'),
-        );
-        const deployJob = ci.slice(ci.indexOf('  deploy-cloudflare:'));
+        const deployJob = read('.github/workflows/deploy-staging.yml');
+        const buildAndTestJob = ci.slice(ci.indexOf('  build-and-test:'));
         const buildCheckout = buildAndTestJob.slice(
             buildAndTestJob.indexOf('      - name: Checkout code'),
             buildAndTestJob.indexOf('      - name: Install pnpm'),
         );
         const deployCheckout = deployJob.slice(
-            deployJob.indexOf('      - name: Checkout code'),
-            deployJob.indexOf('      - name: Install pnpm'),
+            deployJob.indexOf('      - name: Checkout exact commit'),
+            deployJob.indexOf('      - name: Verify checked-out commit'),
         );
 
         expect(ci).toMatch(/^permissions:\r?\n {2}contents: read$/mu);
         expect(ci).toContain('group: ci-${{ github.workflow }}-${{ github.ref }}');
-        expect(ci).toContain("cancel-in-progress: ${{ github.ref != 'refs/heads/staging' }}");
-        expect(ci).toContain("if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/staging')");
+        expect(ci).toContain('cancel-in-progress: true');
+        expect(deployJob).toContain('workflow_dispatch:');
+        expect(deployJob).toContain('WORKFLOW_REF: ${{ github.ref }}');
+        expect(deployJob).toContain('This privileged workflow must be dispatched from refs/heads/main.');
+        expect(deployJob).toContain('group: cloudflare-staging-deploy');
+        expect(deployJob).toContain('cancel-in-progress: false');
 
         const checkoutUses = ci.match(/uses: actions\/checkout@v4/gu) ?? [];
         const hardenedCheckouts = ci.match(/uses: actions\/checkout@v4\r?\n {8}with:\r?\n {10}persist-credentials: false/gu) ?? [];
-        expect(checkoutUses).toHaveLength(2);
+        expect(checkoutUses).toHaveLength(1);
         expect(hardenedCheckouts).toHaveLength(checkoutUses.length);
         expect(buildCheckout).toContain('persist-credentials: false');
         expect(buildCheckout).toContain('fetch-depth: 0');
         expect(deployCheckout).toContain('persist-credentials: false');
-        expect(deployCheckout).not.toContain('fetch-depth:');
+        expect(deployCheckout).toContain('fetch-depth: 0');
+        expect(deployCheckout).toContain('ref: ${{ inputs.commit_sha }}');
 
-        const stagingHeadGate = deployJob.indexOf('Reject a superseded staging deploy');
-        const identityPreflight = deployJob.indexOf('Verify exact Cloudflare identity before deploy validation');
+        const commitGate = deployJob.indexOf('Require successful CI for the exact commit');
+        const identityPreflight = deployJob.indexOf('Verify exact Cloudflare identity');
         const firstDryRun = deployJob.indexOf('--dry-run');
-        expect(stagingHeadGate).toBeGreaterThan(-1);
-        expect(stagingHeadGate).toBeLessThan(identityPreflight);
+        expect(commitGate).toBeGreaterThan(-1);
+        expect(commitGate).toBeLessThan(identityPreflight);
         expect(identityPreflight).toBeGreaterThan(-1);
         expect(identityPreflight).toBeLessThan(firstDryRun);
-        expect(deployJob).toContain("if: github.ref == 'refs/heads/staging'");
-        expect(deployJob).toContain('$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/git/ref/heads/staging');
-        expect(deployJob).toContain('branchRef?.object?.sha !== expectedSha');
-        expect(deployJob).toContain('Refusing superseded staging deploy; a newer branch head exists.');
+        expect(deployJob).toContain('commit_sha must be a full lowercase 40-character Git commit SHA.');
+        expect(deployJob).toContain('check-runs?per_page=100');
+        expect(deployJob).toContain('run.name === "build-and-test"');
+        expect(deployJob).toContain('run.conclusion === "success"');
+        expect(deployJob).toContain('Refusing staging deploy: exact commit has no successful build-and-test check.');
         expect(deployJob).toContain('EXPECTED_CLOUDFLARE_ACCOUNT_ID: d1a22bcf6477ff2ff31d2bfb83084e44');
         expect(deployJob).toContain('pnpm exec wrangler whoami --json --install-skills=false');
         expect(deployJob).toContain('pnpm exec tsx scripts/ci/verify-cloudflare-identity.ts');
         expect(deployJob).toContain('--expected-account-id "$EXPECTED_CLOUDFLARE_ACCOUNT_ID"');
-        expect(deployJob).toContain('CLOUDFLARE_ACCOUNT_ID does not match the exact approved account.');
+        expect(deployJob).toContain('CLOUDFLARE_ACCOUNT_ID does not match the exact staging account.');
+        expect(deployJob.indexOf('Verify exact staging provider identities')).toBeLessThan(
+            deployJob.indexOf('Build exact staging package'),
+        );
+        expect(deployJob.indexOf('Deploy staging web Worker')).toBeLessThan(
+            deployJob.indexOf('Verify staging Fulfillment runtime and bindings'),
+        );
+        expect(deployJob).toContain('Record partial-deploy recovery requirement');
     });
 
     it('defines an exact-name inert bootstrap and a separate active fulfillment environment', () => {
@@ -342,12 +355,20 @@ describe('Cloudflare launch environment safety', () => {
     });
 
     it('documents the canonical production manual order without loading final providers before web bootstrap', () => {
-        const workflow = read('.github/workflows/ci.yml');
-        const order = workflow.match(/Required manual order: ([^"\r\n]+)/u)?.[1] ?? '';
+        const runbook = read('docs/launch/RUNBOOK.md');
+        const orderedCommands = [
+            'launch:cloudflare-production-fulfillment-bootstrap',
+            'launch:cloudflare-production-fulfillment-bootstrap-secrets',
+            'launch:cloudflare-production-worker-phase1',
+            'launch:cloudflare-production-worker-bootstrap-secrets',
+            'launch:cloudflare-production-fulfillment-secrets',
+            'launch:cloudflare-production-worker-secrets',
+            'launch:cloudflare-production-fulfillment-enable',
+        ];
 
-        expect(order).toContain('fulfillment HMAC-only secret -> web bootstrap -> web HMAC-only secret');
-        expect(order.indexOf('web HMAC-only secret')).toBeLessThan(order.indexOf('fulfillment final secrets'));
-        expect(order.indexOf('fulfillment final secrets')).toBeLessThan(order.indexOf('web active deploy/final secrets'));
+        for (let index = 1; index < orderedCommands.length; index += 1) {
+            expect(runbook.indexOf(orderedCommands[index - 1])).toBeLessThan(runbook.indexOf(orderedCommands[index]));
+        }
     });
 
     it('binds runtime attestations to the expected Supabase ref and exact production identities', () => {

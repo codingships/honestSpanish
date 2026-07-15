@@ -12,6 +12,7 @@ describe('no-real-payments launch mode', () => {
         const statusScript = read('scripts/launch/status.ts');
         const guide = read('docs/launch/NO_REAL_PAYMENTS.md');
         const ci = read('.github/workflows/ci.yml');
+        const stagingDeploy = read('.github/workflows/deploy-staging.yml');
         const launchSequence = read('docs/launch/LAUNCH_SEQUENCE.md');
         const checklist = read('docs/launch/CHECKLIST.md');
         const wrangler = read('wrangler.toml');
@@ -66,7 +67,7 @@ describe('no-real-payments launch mode', () => {
             'Usar `manual-evidence-dry-run.txt` solo después de que el post-fix probe desplegado pase',
             'no registrar `payments_staging` como cerrado',
             'CI ejecuta `pnpm run launch:no-real-payments`',
-            'GitHub Actions ejecuta el probe read-only contra `https://staging.espanolhonesto.com`',
+            'El workflow manual `.github/workflows/deploy-staging.yml` vuelve a ejecutar el probe read-only contra `https://staging.espanolhonesto.com`',
             'DNS/TLS/routing',
             'https://staging.espanolhonesto.com',
             'cutover no debe considerarse apto para RC',
@@ -77,11 +78,15 @@ describe('no-real-payments launch mode', () => {
         for (const snippet of [
             'pnpm run launch:no-real-payments',
             'CHECKOUT_ENABLED: "false"',
+        ]) {
+            expect(ci).toContain(snippet);
+        }
+        for (const snippet of [
             'Verify staging checkout is disabled',
             'STAGING_WORKER_URL: https://staging.espanolhonesto.com',
             '--deployed-url "$STAGING_WORKER_URL"',
         ]) {
-            expect(ci).toContain(snippet);
+            expect(stagingDeploy).toContain(snippet);
         }
 
         expect(launchSequence).toContain('pnpm launch:no-real-payments');

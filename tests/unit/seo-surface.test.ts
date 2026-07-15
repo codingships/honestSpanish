@@ -334,6 +334,18 @@ describe('SEO and LLM public surface', () => {
         }
     });
 
+    it('prerenders OG images outside the Cloudflare runtime', () => {
+        const ogRoute = read('src/pages/og/[slug].png.ts');
+
+        expect(ogRoute).toContain('export const prerender = true');
+        expect(ogRoute).toContain('export async function getStaticPaths()');
+        expect(ogRoute).toContain("from '@resvg/resvg-js'");
+        expect(ogRoute).not.toContain("from '@resvg/resvg-wasm'");
+        expect(ogRoute).not.toContain(".wasm?url");
+        expect(ogRoute).not.toContain('initWasm');
+        expect(read('public/_headers')).toMatch(/\/og\/\*\s+Cache-Control: public, max-age=86400, stale-while-revalidate=604800/);
+    });
+
     it('keeps public blog surfaces connected to the application flow', () => {
         const blogLayout = read('src/layouts/BlogLayout.astro');
         const blogIndex = read('src/pages/[lang]/blog/index.astro');

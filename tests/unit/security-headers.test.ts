@@ -23,9 +23,10 @@ describe('hosted response security headers', () => {
             .map((section) => section.trim())
             .filter(Boolean);
 
-        expect(sections).toHaveLength(2);
+        expect(sections).toHaveLength(3);
         expect(sections[0]).toMatch(/^\/\*\r?\n/u);
         expect(sections[1]).toMatch(/^\/api\/\*\r?\n/u);
+        expect(sections[2]).toMatch(/^\/og\/\*\r?\n/u);
 
         for (const [name, value] of Object.entries(HOSTED_SECURITY_HEADERS)) {
             expect(sections[0]).toContain(`${name}: ${value}`);
@@ -37,6 +38,8 @@ describe('hosted response security headers', () => {
         expect(sections[0]).not.toContain('Cache-Control:');
         expect(sections[1]).toContain(`Cache-Control: ${API_CACHE_CONTROL}`);
         expect(sections[1].match(/Cache-Control:/gu)).toHaveLength(1);
+        expect(sections[2]).toContain('Cache-Control: public, max-age=86400, stale-while-revalidate=604800');
+        expect(sections[2].match(/Cache-Control:/gu)).toHaveLength(1);
     });
 
     it('merges the non-meta baseline without discarding Astro script and style hashes', () => {
