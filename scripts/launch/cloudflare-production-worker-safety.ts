@@ -83,6 +83,16 @@ export interface WorkerWriteCheckpoint {
     stage: WorkerWriteCheckpointStage;
     recordedAt: string;
     receipt: ExternalWriteReceiptState;
+    intent?: WorkerWriteIntent;
+}
+
+export interface WorkerWriteIntent {
+    kind: 'cloudflare-worker-deploy';
+    accountId: string;
+    worker: string;
+    environment: string;
+    prewriteVersionId: string | null;
+    deployTag: string;
 }
 
 export interface WorkerWriteReceiptSummary {
@@ -215,6 +225,7 @@ export function startWorkerWriteCheckpoint(
     commandId: string,
     sequence: number,
     runId: string,
+    intent?: WorkerWriteIntent,
     now = new Date(),
 ): WorkerWriteCheckpoint {
     return {
@@ -226,6 +237,7 @@ export function startWorkerWriteCheckpoint(
         stage: 'write_ahead',
         recordedAt: now.toISOString(),
         receipt: markExternalWriteAttemptStarted(createExternalWriteReceipt()),
+        ...(intent ? { intent } : {}),
     };
 }
 
@@ -381,6 +393,7 @@ export function findUnresolvedWorkerWriteCheckpoints(
             || typeof parsed.commandId !== 'string' || !parsed.commandId.trim()
             || !isCheckpointStage(parsed.stage)
             || !isExternalWriteReceipt(parsed.receipt)
+            || (parsed.intent !== undefined && !isWorkerWriteIntent(parsed.intent))
         ) throw new Error('Canonical Cloudflare write checkpoint is malformed.');
         const key = `${parsed.runId}:${parsed.sequence}`;
         const current = latest.get(key);
@@ -430,9 +443,14 @@ export function acquireWorkerWriteExecutionLock(
 export function acquireWorkerWriteReconciliationLock(
     lockDirectory: string,
     runId: string,
+    livenessProbe?: (ownerPid: number) => ProcessLiveness,
 ): WorkerWriteLockOwner {
     if (existsSync(lockDirectory)) {
-        const staleOwner = requireRecoverableWorkerWriteExecutionLock(lockDirectory);
+        const staleOwner = requireRecoverableWorkerWriteExecutionLock(
+            lockDirectory,
+            undefined,
+            livenessProbe,
+        );
         releaseWorkerWriteExecutionLock(lockDirectory, staleOwner);
     }
     return acquireWorkerWriteExecutionLock(lockDirectory, runId);
@@ -548,6 +566,19 @@ function isExternalWriteReceipt(value: unknown): value is ExternalWriteReceiptSt
         && [true, false, 'unknown'].includes(value.externalWritePerformed as boolean | string)
         && outcomes.includes(value.externalWriteOutcome as ExternalWriteOutcome)
         && typeof value.readonlyReconciliationRequired === 'boolean';
+}
+
+function isWorkerWriteIntent(value: unknown): value is WorkerWriteIntent {
+    if (!isRecord(value)) return false;
+    return value.kind === 'cloudflare-worker-deploy'
+        && typeof value.accountId === 'string' && /^[0-9a-f]{32}$/iu.test(value.accountId)
+        && typeof value.worker === 'string' && Boolean(value.worker.trim())
+        && typeof value.environment === 'string' && Boolean(value.environment.trim())
+        && typeof value.deployTag === 'string'
+        && /^eh-rc-[a-z0-9-]+-[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(value.deployTag)
+        && (value.prewriteVersionId === null
+            || (typeof value.prewriteVersionId === 'string'
+                && /^[0-9a-f]{8}-[0-9a-f-]{27}$/iu.test(value.prewriteVersionId)));
 }
 
 function workerWriteLockOwnerPath(lockDirectory: string): string {

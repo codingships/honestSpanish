@@ -70,7 +70,7 @@ describe('external write receipts', () => {
             /externalWriteReceipt = markExternalWriteAttemptStarted\(externalWriteReceipt\);\s+persistExternalWriteReceipt\('put_started_awaiting_provider_confirmation'\);\s+\s*try \{\s+const payload = await cloudflareRequest/,
         );
         expect(stripe).toMatch(
-            /externalWriteReceipt = markExternalWriteAttemptStarted\(externalWriteReceipt\);\s+persistExternalWriteReceipt\('update_started_awaiting_provider_confirmation'\);\s+\s*try \{\s+const updated = await stripe\.webhookEndpoints\.update/,
+            /persistStripeCutoverWriteAhead[\s\S]*externalWriteReceipt = markExternalWriteAttemptStarted\(externalWriteReceipt\);\s+persistExternalWriteReceipt\('update_started_awaiting_provider_confirmation'\);\s+\s*let updated: Stripe\.WebhookEndpoint;\s+try \{\s+updated = await stripe\.webhookEndpoints\.update/,
         );
 
         for (const runner of [turnstile, stripe]) {

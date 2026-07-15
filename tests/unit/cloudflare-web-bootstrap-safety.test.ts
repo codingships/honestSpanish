@@ -217,10 +217,19 @@ describe('Cloudflare production web bootstrap safety', () => {
             "response.headers.get('Cache-Control') === 'no-store'",
             "response.headers.get('X-Robots-Tag')",
             'web_bootstrap_attestation_get_hidden_after_deploy',
+            'web_bootstrap_prewrite_version_identity',
+            'web_bootstrap_deploy_version_changed',
+            'workerDeployCheckpointMatchesCurrentVersion',
             'WEB_RUNTIME_BOOTSTRAP',
             'No final legal identity requirement',
             'externalWriteAttempted = true',
         ]) expect(runner).toContain(snippet);
+        const reconciliation = runner.slice(
+            runner.indexOf("reconcileOneShotCloudflareWriteGuard(\n        'web-bootstrap-deploy'"),
+            runner.indexOf("openOneShotCloudflareWriteGuard('web-bootstrap-deploy'"),
+        );
+        expect(reconciliation).toContain('workerDeployCheckpointMatchesCurrentVersion');
+        expect(reconciliation).toContain('versionId');
         expect(runner).not.toContain("args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:release']");
         expect(preflight).toContain("args: pnpmArgs('run', 'build:production:bootstrap')");
         expect(preflight).not.toContain("args: pnpmArgs('run', 'build:production:release')");

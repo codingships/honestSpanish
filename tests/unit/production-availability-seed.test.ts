@@ -3,13 +3,22 @@ import { describe, expect, it } from 'vitest';
 import {
     PRODUCTION_AVAILABILITY_APPROVAL,
     PRODUCTION_AVAILABILITY_SLOTS,
+    normalizeProductionAvailabilityOutput,
     parseAvailabilityFacts,
     renderProductionAvailabilityApplySql,
+    renderProductionAvailabilityPreflightSql,
+    renderProductionAvailabilityVerifySql,
     validateFinalAuthPolicyReceipt,
     validateProductionAvailabilityDatabaseUrl,
     validateProductionAvailabilityPostflight,
     validateProductionAvailabilityPreflight,
+    validateProductionAvailabilityRolledBackPostflight,
 } from '../../scripts/launch/production-availability-shared';
+import { hashIdentitySet } from '../../scripts/launch/supabase-production-auth-cleanup-shared';
+
+const ADMIN_ID = '11111111-1111-4111-8111-111111111111';
+const TEACHER_ID = '22222222-2222-4222-8222-222222222222';
+const PRESERVED_SET_SHA256 = hashIdentitySet([ADMIN_ID, TEACHER_ID]);
 
 const validReceipt = {
     schemaVersion: 1,
@@ -31,7 +40,7 @@ const validReceipt = {
     publicCleanupReceiptSha256: 'b'.repeat(64),
     authReducedReceiptSha256: 'c'.repeat(64),
     productionRolloutReceiptSha256: 'd'.repeat(64),
-    preservedSetSha256: 'e'.repeat(64),
+    preservedSetSha256: PRESERVED_SET_SHA256,
     freezeCutoff: '2026-07-02T18:29:27.580Z',
     quarantineUntil: '2026-07-12T11:00:00.000Z',
     googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED',
@@ -61,9 +70,22 @@ describe('production availability seed', () => {
             endTime: '18:00:00',
         })));
         const sql = renderProductionAvailabilityApplySql();
+        expect(renderProductionAvailabilityPreflightSql()).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        expect(renderProductionAvailabilityVerifySql()).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         expect(sql).toContain('BEGIN;');
         expect(sql).toContain('Expected exact finalized two-profile Auth policy state');
         expect(sql).toContain('Expected zero existing availability rows for the production teacher');
+        expect(sql).toContain('pg_advisory_xact_lock');
+        expect(sql).toContain('LOCK TABLE auth.users IN SHARE MODE');
+        expect(sql).toContain('LOCK TABLE public.teacher_availability IN SHARE ROW EXCLUSIVE MODE');
+        expect(sql).toContain("current_setting('espanol_honesto.expected_admin_id')::uuid");
+        expect(sql).toContain("current_setting('espanol_honesto.expected_teacher_id')::uuid");
+        expect(sql).toContain('Production availability seed did not leave exactly five total rows');
+        expect(sql).toContain("SET LOCAL espanol_honesto.expected_teacher_email = :'expected_teacher_email';");
+        expect(sql.match(/current_setting\('espanol_honesto\.expected_teacher_email'\)/gu)).toHaveLength(3);
+        for (const proceduralBlock of sql.match(/DO \$[\s\S]+?END \$[^;]+;/gu) ?? []) {
+            expect(proceduralBlock).not.toContain(":'expected_teacher_email'");
+        }
         expect(sql).toContain('COMMIT;');
         expect(sql).not.toContain('DELETE');
         expect(sql).not.toContain('TRUNCATE');
@@ -73,17 +95,70 @@ describe('production availability seed', () => {
         expect(validateProductionAvailabilityPreflight(parseAvailabilityFacts([
             'current_database\tpostgres',
             'teacher_match_count\t1',
+            'profile_role_counts\t1,1,0,0',
+            'auth_user_count\t2',
+            'teacher_auth_link_count\t1',
+            `preserved_set_sha256\t${PRESERVED_SET_SHA256}`,
             'teacher_availability_count\t0',
             'final_profile_counts\t2,2',
             'hardening_history_count\t2',
             'overlap_constraint_valid\ttrue',
-        ].join('\n')))).toEqual([]);
+        ].join('\n')), PRESERVED_SET_SHA256)).toEqual([]);
         expect(validateProductionAvailabilityPostflight(parseAvailabilityFacts([
             'current_database\tpostgres',
+            'teacher_match_count\t1',
+            'profile_role_counts\t1,1,0,0',
+            'auth_user_count\t2',
+            'teacher_auth_link_count\t1',
+            'final_profile_counts\t2,2',
+            `preserved_set_sha256\t${PRESERVED_SET_SHA256}`,
             'target_count\t5',
             'target_days\t1,2,3,4,5',
             'unexpected_count\t0',
-        ].join('\n')))).toEqual([]);
+        ].join('\n')), PRESERVED_SET_SHA256)).toEqual([]);
+
+        expect(validateProductionAvailabilityRolledBackPostflight(parseAvailabilityFacts([
+            'current_database\tpostgres',
+            'teacher_match_count\t1',
+            'profile_role_counts\t1,1,0,0',
+            'auth_user_count\t2',
+            'teacher_auth_link_count\t1',
+            'final_profile_counts\t2,2',
+            `preserved_set_sha256\t${PRESERVED_SET_SHA256}`,
+            'target_count\t0',
+            'target_days\t',
+            'unexpected_count\t0',
+        ].join('\n')), PRESERVED_SET_SHA256)).toEqual([]);
+    });
+
+    it('derives the live preserved-set hash without persisting raw identity UUIDs', () => {
+        const normalized = normalizeProductionAvailabilityOutput([
+            `admin_profile_id\t${ADMIN_ID}`,
+            `teacher_profile_id\t${TEACHER_ID}`,
+            'current_database\tpostgres',
+        ].join('\n'));
+        expect(normalized.identityIds).toEqual({ adminId: ADMIN_ID, teacherId: TEACHER_ID });
+        expect(normalized.output).toContain(`preserved_set_sha256\t${PRESERVED_SET_SHA256}`);
+        expect(normalized.output).not.toContain(ADMIN_ID);
+        expect(normalized.output).not.toContain(TEACHER_ID);
+    });
+
+    it('fails closed when the receipt identity set is stale', () => {
+        const facts = parseAvailabilityFacts([
+            'current_database\tpostgres',
+            'teacher_match_count\t1',
+            'profile_role_counts\t1,1,0,0',
+            'auth_user_count\t2',
+            'teacher_auth_link_count\t1',
+            `preserved_set_sha256\t${'f'.repeat(64)}`,
+            'teacher_availability_count\t0',
+            'final_profile_counts\t2,2',
+            'hardening_history_count\t2',
+            'overlap_constraint_valid\ttrue',
+        ].join('\n'));
+        expect(validateProductionAvailabilityPreflight(facts, PRESERVED_SET_SHA256)).toContain(
+            `preserved_set_sha256: expected ${PRESERVED_SET_SHA256}, observed ${'f'.repeat(64)}`,
+        );
     });
 
     it('keeps execution exact-gated, receipt-bound and provider-free', () => {
@@ -93,6 +168,9 @@ describe('production availability seed', () => {
         expect(source).toContain('PRODUCTION_AVAILABILITY_INERT_CONFIRMATION_ENV');
         expect(source).toContain('default_transaction_read_only=on');
         expect(source).toContain('externalProvidersTouched: false');
+        expect(source).toContain("const verify = runPsql('verify'");
+        expect(source).not.toContain('if (externalWritePerformed)');
+        expect(source).toContain('AMBIGUOUS_REQUIRES_READONLY_RECONCILIATION');
         expect(source).not.toContain('googleapis');
         expect(source).not.toContain('resend');
         expect(source).not.toContain('stripe');

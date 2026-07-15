@@ -144,7 +144,7 @@ Pasos:
 2. Confirmar que staging usa Stripe test mode, Price IDs test y URLs de staging.
 3. Si se van a activar pagos, ejecutar una compra de prueba en staging con tarjeta test.
 4. Confirmar webhook delivery en Stripe.
-5. Si `pnpm launch:stripe-readonly` avisa de host antiguo o inesperado, ejecutar `pnpm launch:stripe-webhook-cutover-pack` y `pnpm launch:stripe-webhook-cutover-runner`; revisar `outputs/launch-stripe-webhook-cutover-pack/<timestamp>/approval-request.md`, `verification-checklist.md`, `rollback-plan.md`, `outputs/launch-stripe-webhook-cutover-runner/<timestamp>/approval-gate.md` y `rollback-after-webhook-cutover.md` antes de tocar Stripe.
+5. Si `pnpm launch:stripe-readonly` avisa de host antiguo o inesperado, ejecutar `pnpm launch:stripe-webhook-cutover-pack` y `pnpm launch:stripe-webhook-cutover-runner`; revisar `outputs/launch-stripe-webhook-cutover-pack/<timestamp>/approval-request.md`, `verification-checklist.md`, `rollback-plan.md`, `outputs/launch-stripe-webhook-cutover-runner/<timestamp>/approval-gate.md` y `rollback-after-webhook-cutover.md` antes de tocar Stripe. El runner exige `STRIPE_EXPECTED_ACCOUNT_ID`, enlaza cuenta y endpoint por SHA-256, usa cero reintentos de red para el update y persiste un guard write-ahead. Si encuentra un estado pendiente, esa ejecucion hace solo GET/readback y termina sin reintentar el update, incluso cuando consigue resolver el estado.
 6. Confirmar `payments`, `subscriptions` y estado de paquete en Supabase.
 7. Confirmar acceso al portal de Stripe.
 8. Si no se van a activar pagos, confirmar que checkout queda desactivado, oculto o bloqueado por configuracion/datos.

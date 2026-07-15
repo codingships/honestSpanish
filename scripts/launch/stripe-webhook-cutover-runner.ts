@@ -1,4 +1,5 @@
 import * as dotenv from 'dotenv';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Stripe from 'stripe';
@@ -11,11 +12,36 @@ import {
     type ExternalWriteOutcome,
     type ExternalWritePerformed,
 } from './external-write-receipt';
+import {
+    buildStripeWebhookCutoverApprovalSentence,
+    classifyStripeWebhookCutoverEvidence,
+    evaluatePreExecutionChecks,
+    sha256Hex,
+    validateStructuredCutoverPackSummary,
+    type StripeReadonlySummaryLike,
+    type StripeWebhookCutoverPackSummaryLike,
+} from './stripe-webhook-cutover-shared';
+import {
+    beginStripeCutoverRecovery,
+    blockStripeCutoverRecovery,
+    finishStripeCutoverRecovery,
+    markStripeCutoverProviderResult,
+    openStripeCutoverExecutionGuard,
+    persistStripeCutoverWriteAhead,
+    releaseStripeCutoverPrewriteGuard,
+    resolveStripeCutoverExecution,
+    stripeCutoverScopeHash,
+    type StripeCutoverExecutionGuard,
+    type StripeCutoverPersistentState,
+} from './stripe-webhook-cutover-state';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
 type ClosureStatus =
     | 'PLAN_ONLY_READY'
+    | 'APPROVAL_PREPARED_GET_ONLY'
+    | 'RECOVERY_RESOLVED_GET_ONLY'
+    | 'RECOVERY_BLOCKED_GET_ONLY'
     | 'EXECUTED_AND_NEEDS_REVIEW'
     | 'BLOCKED_BY_GATE_OR_ARTIFACTS'
     | 'NEEDS_READONLY_RECONCILIATION_OR_ROLLBACK';
@@ -27,21 +53,25 @@ interface Check {
     details: string[];
 }
 
-interface SummaryLike {
-    status?: string;
-    stripeMode?: string;
-    checks?: Array<{ status?: string; name?: string; message?: string; details?: string[] }>;
-}
-
 interface EndpointSnapshot {
-    id: string;
+    idSha256: string;
     url: string;
     host: string;
+    urlShapeSafe: boolean;
     status: string | null;
     livemode: boolean;
     enabledEvents: string[];
     apiVersion: string | null;
-    description: string | null;
+    descriptionPresent: boolean;
+    descriptionSha256: string | null;
+}
+
+interface AccountSnapshot {
+    idSha256: string;
+    country: string;
+    defaultCurrency: string;
+    chargesEnabled: boolean;
+    payoutsEnabled: boolean;
 }
 
 interface ExecutionCapture {
@@ -61,7 +91,9 @@ interface RunnerReport {
     outputDir: string;
     stripeModePolicy: 'test-only';
     approvalEnvVar: string;
+    prepareApprovalRequested: boolean;
     executeRequested: boolean;
+    approvalPrepared: boolean;
     approvalMatched: boolean;
     externalWriteAttempted: boolean;
     externalWritePerformed: ExternalWritePerformed;
@@ -72,6 +104,7 @@ interface RunnerReport {
     allowedTargetHosts: string[];
     requiredEnv: string[];
     latestCutoverPackSummaryPath: string | null;
+    latestCutoverPackStructuredSummaryPath: string | null;
     latestCutoverPackApprovalPath: string | null;
     latestStripeReadonlySummaryPath: string | null;
     checks: Check[];
@@ -95,18 +128,30 @@ interface RenderedArtifacts {
 
 interface ExecutionEnv {
     stripeSecretKey: string;
+    expectedAccountId: string;
     endpointId: string;
     targetUrl: string;
     approvalSentence: string;
 }
 
+interface PreparationEnv {
+    stripeSecretKey: string;
+    expectedAccountId: string;
+    endpointId: string;
+    targetUrl: string;
+}
+
 const approvalEnvVar = 'STRIPE_WEBHOOK_CUTOVER_APPROVAL';
+const expectedAccountIdEnvVar = 'STRIPE_EXPECTED_ACCOUNT_ID';
 const endpointIdEnvVar = 'STRIPE_WEBHOOK_ENDPOINT_ID';
 const targetUrlEnvVar = 'STRIPE_WEBHOOK_TARGET_URL';
-const requiredEnv = ['STRIPE_SECRET_KEY', endpointIdEnvVar, targetUrlEnvVar, approvalEnvVar];
+const preparationRequiredEnv = ['STRIPE_SECRET_KEY', expectedAccountIdEnvVar, endpointIdEnvVar, targetUrlEnvVar];
+const requiredEnv = [...preparationRequiredEnv, approvalEnvVar];
 const targetWebhookPath = '/api/stripe-webhook';
 const allowedTargetHosts = ['staging.espanolhonesto.com', 'espanolhonesto.com', 'www.espanolhonesto.com'];
+const prepareApprovalRequested = process.argv.includes('--prepare-approval');
 const executeRequested = process.argv.includes('--execute-approved');
+const runnerRunId = randomUUID();
 
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-stripe-webhook-cutover-runner', stamp(startedAt));
@@ -115,11 +160,13 @@ const externalWriteReceiptPath = path.join(outputDir, 'external-write-receipt.js
 let externalWriteReceipt = createExternalWriteReceipt();
 
 const latestCutoverPackSummaryPath = latestGeneratedPath('launch-stripe-webhook-cutover-pack', 'summary.md');
+const latestCutoverPackStructuredSummaryPath = latestGeneratedPath('launch-stripe-webhook-cutover-pack', 'summary.json');
 const latestCutoverPackApprovalPath = latestGeneratedPath('launch-stripe-webhook-cutover-pack', 'approval-request.md');
 const latestCutoverPackVerificationPath = latestGeneratedPath('launch-stripe-webhook-cutover-pack', 'verification-checklist.md');
 const latestCutoverPackRollbackPath = latestGeneratedPath('launch-stripe-webhook-cutover-pack', 'rollback-plan.md');
 const latestStripeReadonlySummaryPath = latestGeneratedPath('launch-stripe-readonly-evidence', 'summary.json');
-const latestStripeReadonlySummary = readJsonIfExists<SummaryLike>(latestStripeReadonlySummaryPath);
+const latestStripeReadonlySummary = readJsonIfExists<StripeReadonlySummaryLike>(latestStripeReadonlySummaryPath);
+const latestCutoverPackStructuredSummary = readJsonIfExists<StripeWebhookCutoverPackSummaryLike>(latestCutoverPackStructuredSummaryPath);
 
 const captures: ExecutionCapture[] = [];
 const checks: Check[] = [
@@ -131,16 +178,39 @@ const checks: Check[] = [
 ];
 
 let approvalMatched = false;
+let approvalPrepared = false;
+let preparedApprovalSentence: string | null = null;
+let recoveryOnlyStatus: 'resolved' | 'blocked' | null = null;
 
 await main();
 
 async function main(): Promise<void> {
-    if (executeRequested) {
+    if (prepareApprovalRequested && executeRequested) {
+        checks.push({
+            status: 'failed',
+            name: 'runner_mode_gate',
+            message: 'GET-only approval preparation and approved execution are mutually exclusive.',
+            details: ['choose_exactly_one=--prepare-approval|--execute-approved', 'externalWriteAttempted=false'],
+        });
+    } else if (prepareApprovalRequested) {
+        dotenv.config({ path: '.env', quiet: true });
+        const env = validatePreparationEnv();
+        checks.push(env.check);
+        const preExecutionGate = addPreExecutionGate('approval preparation');
+
+        if (env.value && preExecutionGate.acceptable) {
+            const preparation = await runApprovalPreparation(env.value, captures);
+            checks.push(...preparation.checks);
+            preparedApprovalSentence = preparation.approvalSentence;
+            approvalPrepared = Boolean(preparedApprovalSentence);
+        }
+    } else if (executeRequested) {
         dotenv.config({ path: '.env', quiet: true });
         const env = validateExecutionEnv();
         checks.push(env.check);
+        const preExecutionGate = addPreExecutionGate('approved execution');
 
-        if (env.value) {
+        if (env.value && preExecutionGate.acceptable) {
             const executionChecks = await runApprovedExecution(env.value, captures);
             approvalMatched = executionChecks.some((check) => check.name === 'exact_approval_gate' && check.status === 'ok');
             checks.push(...executionChecks);
@@ -152,8 +222,10 @@ async function main(): Promise<void> {
             message: 'Plan mode generated the Stripe webhook cutover runner package without connecting to Stripe or changing webhook endpoints.',
             details: [
                 'executeRequested=false',
+                'prepareApprovalRequested=false',
                 'externalWritePerformed=false',
                 `futureGate=${approvalEnvVar}`,
+                'preparationFlag=--prepare-approval',
                 'futureFlag=--execute-approved',
             ],
         });
@@ -194,6 +266,24 @@ async function main(): Promise<void> {
     if (failed.length > 0) process.exit(1);
 }
 
+function addPreExecutionGate(purpose: string) {
+    const result = evaluatePreExecutionChecks(checks);
+    checks.push({
+        status: result.acceptable ? 'ok' : 'failed',
+        name: 'pre_execution_checks_gate',
+        message: result.acceptable
+            ? `All static, structured-evidence and environment checks are acceptable before ${purpose}.`
+            : `${purpose} is blocked because one or more pre-execution checks are not acceptable.`,
+        details: result.acceptable
+            ? ['all_pre_execution_checks=acceptable']
+            : [
+                ...result.blockingChecks.map((check) => `blocking=${check}`),
+                'externalWriteAttempted=false',
+            ],
+    });
+    return result;
+}
+
 function createReport(reportChecks: Check[], reportCaptures: ExecutionCapture[]): RunnerReport {
     const reportStatus = statusFor(reportChecks);
 
@@ -202,17 +292,25 @@ function createReport(reportChecks: Check[], reportCaptures: ExecutionCapture[])
         startedAt: startedAt.toISOString(),
         endedAt: new Date().toISOString(),
         status: reportStatus,
-        closureStatus: externalWriteReceipt.readonlyReconciliationRequired
+        closureStatus: recoveryOnlyStatus === 'blocked'
+            ? 'RECOVERY_BLOCKED_GET_ONLY'
+            : recoveryOnlyStatus === 'resolved'
+                ? 'RECOVERY_RESOLVED_GET_ONLY'
+        : externalWriteReceipt.readonlyReconciliationRequired
             ? 'NEEDS_READONLY_RECONCILIATION_OR_ROLLBACK'
             : reportStatus === 'FAILED'
             ? 'BLOCKED_BY_GATE_OR_ARTIFACTS'
+            : prepareApprovalRequested && approvalPrepared
+                ? 'APPROVAL_PREPARED_GET_ONLY'
             : executeRequested
                 ? 'EXECUTED_AND_NEEDS_REVIEW'
                 : 'PLAN_ONLY_READY',
         outputDir,
         stripeModePolicy: 'test-only',
         approvalEnvVar,
+        prepareApprovalRequested,
         executeRequested,
+        approvalPrepared,
         approvalMatched,
         ...externalWriteReceipt,
         externalWriteReceiptPath,
@@ -220,6 +318,7 @@ function createReport(reportChecks: Check[], reportCaptures: ExecutionCapture[])
         allowedTargetHosts,
         requiredEnv,
         latestCutoverPackSummaryPath,
+        latestCutoverPackStructuredSummaryPath,
         latestCutoverPackApprovalPath,
         latestStripeReadonlySummaryPath,
         checks: reportChecks,
@@ -265,13 +364,35 @@ function validatePackageScript(): Check {
 }
 
 function validateCutoverPack(): Check {
-    if (!latestCutoverPackSummaryPath || !latestCutoverPackApprovalPath || !latestCutoverPackVerificationPath || !latestCutoverPackRollbackPath) {
+    if (
+        !latestCutoverPackSummaryPath
+        || !latestCutoverPackStructuredSummaryPath
+        || !latestCutoverPackApprovalPath
+        || !latestCutoverPackVerificationPath
+        || !latestCutoverPackRollbackPath
+    ) {
         return {
             status: 'failed',
             name: 'cutover_pack_exists',
-            message: 'The Stripe webhook cutover pack must exist before using the gated runner.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-pack'],
+            message: 'The complete structured Stripe webhook cutover pack must exist before using the gated runner.',
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-pack'],
         };
+    }
+
+    const artifactPaths = [
+        latestCutoverPackSummaryPath,
+        latestCutoverPackStructuredSummaryPath,
+        latestCutoverPackApprovalPath,
+        latestCutoverPackVerificationPath,
+        latestCutoverPackRollbackPath,
+    ];
+    const packDirectory = path.dirname(latestCutoverPackStructuredSummaryPath);
+    const problems = validateStructuredCutoverPackSummary(
+        latestCutoverPackStructuredSummary,
+        latestStripeReadonlySummaryPath ? toRelative(latestStripeReadonlySummaryPath) : null,
+    );
+    if (artifactPaths.some((artifactPath) => path.dirname(artifactPath) !== packDirectory)) {
+        problems.push('cutover_pack_artifacts_do_not_share_one_output_directory');
     }
 
     const combined = [
@@ -284,28 +405,31 @@ function validateCutoverPack(): Check {
         'Stripe Webhook Cutover',
         'The exact approval scope is limited to one Stripe test-mode webhook endpoint host change.',
         'https://staging.espanolhonesto.com/api/stripe-webhook',
-        'https://espanolhonesto.com/api/stripe-webhook',
+        '--prepare-approval',
+        'Endpoint id SHA-256',
         'Do not switch to Stripe live mode.',
         'Do not create or edit products, prices, customers, subscriptions, invoices, tax settings, bank/payout settings or fraud rules.',
         'webhook signing secret',
         'rollback',
     ];
     const missing = required.filter((snippet) => !combined.includes(snippet));
+    problems.push(...missing.map((snippet) => `missing=${snippet}`));
 
     return {
-        status: missing.length === 0 ? 'ok' : 'failed',
+        status: problems.length === 0 ? 'ok' : 'failed',
         name: 'cutover_pack_exists',
-        message: missing.length === 0
-            ? 'Latest Stripe cutover pack contains the test-mode scope, target URLs, verification checklist and rollback posture.'
-            : 'Latest Stripe cutover pack is missing required scope, verification or rollback facts.',
-        details: missing.length === 0
+        message: problems.length === 0
+            ? 'Latest Stripe cutover pack has a structured ready status, current read-only lineage, one artifact directory and the required safety posture.'
+            : 'Latest Stripe cutover pack is failed, stale, structurally inconsistent, or missing required safety facts.',
+        details: problems.length === 0
             ? [
-                `summary=${latestCutoverPackSummaryPath}`,
-                `approval=${latestCutoverPackApprovalPath}`,
-                `verification=${latestCutoverPackVerificationPath}`,
-                `rollback=${latestCutoverPackRollbackPath}`,
+                `summary=${toRelative(latestCutoverPackSummaryPath)}`,
+                `structuredSummary=${toRelative(latestCutoverPackStructuredSummaryPath)}`,
+                `approval=${toRelative(latestCutoverPackApprovalPath)}`,
+                `verification=${toRelative(latestCutoverPackVerificationPath)}`,
+                `rollback=${toRelative(latestCutoverPackRollbackPath)}`,
             ]
-            : missing.map((snippet) => `missing=${snippet}`),
+            : problems,
     };
 }
 
@@ -315,37 +439,29 @@ function validateStripeReadonlyEvidence(): Check {
             status: 'failed',
             name: 'stripe_readonly_evidence_exists',
             message: 'Stripe read-only evidence is missing before preparing a write-capable runner.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:stripe-readonly'],
         };
     }
 
-    const webhookCheck = latestStripeReadonlySummary.checks?.find((check) => check.name === 'stripe_webhook_endpoints_readonly');
-    const currentHosts = detailList(webhookCheck?.details, 'unexpected_enabled_webhook_hosts');
-    const expectedHosts = detailList(webhookCheck?.details, 'expected_webhook_hosts');
-    const events = detailList(webhookCheck?.details, 'enabled_1_events');
-    const problems: string[] = [];
-
-    if (latestStripeReadonlySummary.status === 'FAILED') problems.push('latest Stripe read-only summary failed');
-    if (latestStripeReadonlySummary.stripeMode !== 'test') problems.push(`stripeMode=${latestStripeReadonlySummary.stripeMode ?? 'unknown'}`);
-    if (!webhookCheck) problems.push('missing stripe_webhook_endpoints_readonly check');
-    if (events.length === 0) problems.push('missing enabled event set');
+    const classification = classifyStripeWebhookCutoverEvidence(latestStripeReadonlySummary);
+    const hostOnlyDrift = classification.state === 'HOST_ONLY_DRIFT';
 
     return {
-        status: problems.length === 0 ? 'ok' : 'failed',
+        status: hostOnlyDrift ? 'ok' : 'failed',
         name: 'stripe_readonly_evidence_exists',
-        message: problems.length === 0
-            ? 'Latest Stripe read-only evidence proves test mode and gives the current webhook/event scope for the cutover gate.'
-            : 'Latest Stripe read-only evidence is not sufficient for a gated test-mode webhook cutover.',
-        details: problems.length === 0
+        message: hostOnlyDrift
+            ? 'Latest Stripe read-only evidence proves test mode and a strict host-only drift with the exact current webhook event scope.'
+            : 'Latest Stripe read-only evidence is not the strict host-only drift required for a gated test-mode webhook cutover.',
+        details: hostOnlyDrift
             ? [
-                `summary=${latestStripeReadonlySummaryPath}`,
+                `summary=${toRelative(latestStripeReadonlySummaryPath)}`,
                 `status=${latestStripeReadonlySummary.status ?? 'unknown'}`,
                 `stripeMode=${latestStripeReadonlySummary.stripeMode}`,
-                `currentHosts=${currentHosts.join('|') || 'none'}`,
-                `expectedHosts=${expectedHosts.join('|') || 'none'}`,
-                `events=${events.join('|')}`,
+                `currentHosts=${classification.currentHosts.join('|')}`,
+                `expectedHosts=${classification.expectedHosts.join('|')}`,
+                `events=${classification.enabledEvents.join('|')}`,
             ]
-            : problems,
+            : classification.reasons,
     };
 }
 
@@ -365,9 +481,19 @@ function validateApprovalGateSource(): Check {
         approvalEnvVar,
         endpointIdEnvVar,
         targetUrlEnvVar,
+        '--prepare-approval',
         '--execute-approved',
+        'runApprovalPreparation',
         'runApprovedExecution',
         'buildExactApprovalSentence',
+        'buildStripeWebhookCutoverApprovalSentence',
+        'sha256Hex',
+        'descriptionPresent',
+        'descriptionSha256',
+        'maxNetworkRetries: 0',
+        'persistStripeCutoverWriteAhead',
+        'beginStripeCutoverRecovery',
+        'accountIdSha256',
         'stripe.webhookEndpoints.retrieve',
         'stripe.webhookEndpoints.update',
         "stripeSecretKey.startsWith('sk_test_')",
@@ -387,7 +513,7 @@ function validateApprovalGateSource(): Check {
         status: missing.length === 0 ? 'ok' : 'failed',
         name: 'approval_gate_source',
         message: missing.length === 0
-            ? 'Runner source contains test-key validation, read-only retrieve, exact approval comparison and URL-only update branch.'
+            ? 'Runner source contains account-bound GET-only approval preparation, zero-retry write, persistent recovery guard and URL-only update branch.'
             : 'Runner source is missing required Stripe approval gate or execution sequencing facts.',
         details: missing.length === 0 ? [sourcePath] : missing.map((snippet) => `missing=${snippet}`),
     };
@@ -416,27 +542,43 @@ function validateForbiddenScopeSource(): Check {
     };
 }
 
+function validatePreparationEnv(): { check: Check; value: PreparationEnv | null } {
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY ?? '';
+    const expectedAccountId = process.env[expectedAccountIdEnvVar] ?? '';
+    const endpointId = process.env[endpointIdEnvVar] ?? '';
+    const targetUrl = process.env[targetUrlEnvVar] ?? '';
+    const missing = preparationRequiredEnv.filter((name) => !process.env[name]);
+    const problems = validateRuntimeEnvValues(stripeSecretKey, expectedAccountId, endpointId, targetUrl, missing);
+
+    return {
+        check: {
+            status: problems.length === 0 ? 'ok' : 'failed',
+            name: 'approval_preparation_env_shape',
+            message: problems.length === 0
+                ? 'GET-only approval preparation has a Stripe test key, endpoint id and allowed target URL.'
+                : 'GET-only approval preparation is missing required values or attempts a forbidden Stripe mode/target.',
+            details: problems.length === 0
+                ? [
+                    'stripeKeyMode=test',
+                    `expectedAccountIdSha256=${sha256Hex(expectedAccountId)}`,
+                    `endpointIdSha256=${sha256Hex(endpointId)}`,
+                    `targetUrl=${safeUrl(targetUrl)}`,
+                    'externalWriteAttempted=false',
+                ]
+                : problems,
+        },
+        value: problems.length === 0 ? { stripeSecretKey, expectedAccountId, endpointId, targetUrl } : null,
+    };
+}
+
 function validateExecutionEnv(): { check: Check; value: ExecutionEnv | null } {
     const stripeSecretKey = process.env.STRIPE_SECRET_KEY ?? '';
+    const expectedAccountId = process.env[expectedAccountIdEnvVar] ?? '';
     const endpointId = process.env[endpointIdEnvVar] ?? '';
     const targetUrl = process.env[targetUrlEnvVar] ?? '';
     const approvalSentence = process.env[approvalEnvVar] ?? '';
     const missing = requiredEnv.filter((name) => !process.env[name]);
-    const problems = [...missing.map((name) => `missing=${name}`)];
-
-    if (stripeSecretKey && !stripeSecretKey.startsWith('sk_test_')) {
-        problems.push('STRIPE_SECRET_KEY must be a Stripe test secret key');
-    }
-    if (stripeSecretKey.startsWith('sk_live_')) {
-        problems.push('STRIPE_SECRET_KEY live mode is explicitly forbidden');
-    }
-    if (endpointId && !/^we_[A-Za-z0-9]+$/.test(endpointId)) {
-        problems.push(`${endpointIdEnvVar} must look like a Stripe webhook endpoint id`);
-    }
-    const targetValidation = validateTargetUrl(targetUrl);
-    if (targetUrl && targetValidation.length > 0) {
-        problems.push(...targetValidation);
-    }
+    const problems = validateRuntimeEnvValues(stripeSecretKey, expectedAccountId, endpointId, targetUrl, missing);
 
     return {
         check: {
@@ -448,37 +590,159 @@ function validateExecutionEnv(): { check: Check; value: ExecutionEnv | null } {
             details: problems.length === 0
                 ? [
                     'stripeKeyMode=test',
-                    `endpointId=${compactId(endpointId)}`,
+                    `expectedAccountIdSha256=${sha256Hex(expectedAccountId)}`,
+                    `endpointIdSha256=${sha256Hex(endpointId)}`,
                     `targetUrl=${safeUrl(targetUrl)}`,
                     `approvalProvided=${String(Boolean(approvalSentence))}`,
                 ]
                 : problems,
         },
         value: problems.length === 0
-            ? { stripeSecretKey, endpointId, targetUrl, approvalSentence }
+            ? { stripeSecretKey, expectedAccountId, endpointId, targetUrl, approvalSentence }
             : null,
     };
+}
+
+function validateRuntimeEnvValues(
+    stripeSecretKey: string,
+    expectedAccountId: string,
+    endpointId: string,
+    targetUrl: string,
+    missing: string[],
+): string[] {
+    const problems = [...missing.map((name) => `missing=${name}`)];
+    if (stripeSecretKey && !stripeSecretKey.startsWith('sk_test_')) {
+        problems.push('STRIPE_SECRET_KEY must be a Stripe test secret key');
+    }
+    if (stripeSecretKey.startsWith('sk_live_')) {
+        problems.push('STRIPE_SECRET_KEY live mode is explicitly forbidden');
+    }
+    if (expectedAccountId && !/^acct_[A-Za-z0-9]+$/u.test(expectedAccountId)) {
+        problems.push(`${expectedAccountIdEnvVar} must look like a Stripe account id`);
+    }
+    if (endpointId && !/^we_[A-Za-z0-9]+$/.test(endpointId)) {
+        problems.push(`${endpointIdEnvVar} must look like a Stripe webhook endpoint id`);
+    }
+    const targetValidation = validateTargetUrl(targetUrl);
+    if (targetUrl && targetValidation.length > 0) problems.push(...targetValidation);
+    return problems;
+}
+
+async function runApprovalPreparation(
+    env: PreparationEnv,
+    reportCaptures: ExecutionCapture[],
+): Promise<{ checks: Check[]; approvalSentence: string | null }> {
+    const preparationChecks: Check[] = [];
+    const stripe = new Stripe(env.stripeSecretKey, {
+        apiVersion: '2026-02-25.clover',
+        maxNetworkRetries: 0,
+    });
+
+    const account = await captureStripeAccount(stripe, env.expectedAccountId, reportCaptures);
+    preparationChecks.push(account.check);
+    if (!account.snapshot || account.check.status === 'failed') {
+        return { checks: preparationChecks, approvalSentence: null };
+    }
+
+    const recovery = await runPersistentRecovery(
+        stripe,
+        account.snapshot,
+        env.endpointId,
+        reportCaptures,
+    );
+    preparationChecks.push(...recovery.checks);
+    if (recovery.terminal) return { checks: preparationChecks, approvalSentence: null };
+
+    const before = await retrieveEndpoint(stripe, env.endpointId, 'stripe_endpoint_approval_preparation_get_only', reportCaptures);
+    preparationChecks.push(before.check);
+    if (!before.snapshot || before.check.status === 'failed') {
+        return { checks: preparationChecks, approvalSentence: null };
+    }
+
+    const endpointScopeCheck = validateEndpointScope(before.snapshot);
+    preparationChecks.push(endpointScopeCheck);
+    if (endpointScopeCheck.status === 'failed') return { checks: preparationChecks, approvalSentence: null };
+
+    const approvalSentence = buildExactApprovalSentence(account.snapshot, before.snapshot, env.targetUrl);
+    const capture = writeExecutionCapture(
+        'stripe_exact_approval_prepared_get_only',
+        'ok',
+        false,
+        'GET-only approval preparation stores endpoint identity only as SHA-256 and never stores the full endpoint id or free-form description.',
+        {
+            endpointIdSha256: before.snapshot.idSha256,
+            accountIdSha256: account.snapshot.idSha256,
+            from: before.snapshot.url,
+            to: safeUrl(env.targetUrl),
+            events: before.snapshot.enabledEvents,
+            approvalSentenceSha256: sha256Hex(approvalSentence),
+            externalWriteAttempted: false,
+        },
+    );
+    reportCaptures.push(capture);
+    preparationChecks.push({
+        status: 'ok',
+        name: 'stripe_exact_approval_prepared_get_only',
+        message: 'Exactly one executable approval sentence was prepared from live GET-only endpoint facts and a SHA-256 endpoint identity.',
+        details: [
+            `capture=${capture.path}`,
+            `endpointIdSha256=${before.snapshot.idSha256}`,
+            `approvalSentenceSha256=${sha256Hex(approvalSentence)}`,
+            'externalWriteAttempted=false',
+        ],
+    });
+    return { checks: preparationChecks, approvalSentence };
 }
 
 async function runApprovedExecution(env: ExecutionEnv, reportCaptures: ExecutionCapture[]): Promise<Check[]> {
     const executionChecks: Check[] = [];
     const stripe = new Stripe(env.stripeSecretKey, {
         apiVersion: '2026-02-25.clover',
+        maxNetworkRetries: 0,
     });
 
-    const accountCheck = await captureStripeAccount(stripe, reportCaptures);
-    executionChecks.push(accountCheck);
-    if (accountCheck.status === 'failed') return executionChecks;
+    const account = await captureStripeAccount(stripe, env.expectedAccountId, reportCaptures);
+    executionChecks.push(account.check);
+    if (!account.snapshot || account.check.status === 'failed') return executionChecks;
+
+    const recovery = await runPersistentRecovery(
+        stripe,
+        account.snapshot,
+        env.endpointId,
+        reportCaptures,
+    );
+    executionChecks.push(...recovery.checks);
+    if (recovery.terminal) return executionChecks;
+
+    const scopeHash = stripeCutoverScopeHash(account.snapshot.idSha256, sha256Hex(env.endpointId));
+    let guard: StripeCutoverExecutionGuard;
+    try {
+        guard = openStripeCutoverExecutionGuard(scopeHash, runnerRunId);
+    } catch (error) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'stripe_persistent_write_guard',
+            message: 'Persistent Stripe write guard could not be acquired; no update was attempted.',
+            details: [safeErrorMessage(error), 'externalWriteAttempted=false'],
+        });
+        return executionChecks;
+    }
 
     const before = await retrieveEndpoint(stripe, env.endpointId, 'stripe_endpoint_before_update_readonly', reportCaptures);
     executionChecks.push(before.check);
-    if (!before.snapshot || before.check.status === 'failed') return executionChecks;
+    if (!before.snapshot || before.check.status === 'failed') {
+        releaseStripeCutoverPrewriteGuard(guard);
+        return executionChecks;
+    }
 
     const endpointScopeCheck = validateEndpointScope(before.snapshot);
     executionChecks.push(endpointScopeCheck);
-    if (endpointScopeCheck.status === 'failed') return executionChecks;
+    if (endpointScopeCheck.status === 'failed') {
+        releaseStripeCutoverPrewriteGuard(guard);
+        return executionChecks;
+    }
 
-    const exactApprovalSentence = buildExactApprovalSentence(before.snapshot, env.endpointId, env.targetUrl);
+    const exactApprovalSentence = buildExactApprovalSentence(account.snapshot, before.snapshot, env.targetUrl);
     const exactApprovalGate: Check = {
         status: env.approvalSentence === exactApprovalSentence ? 'ok' : 'failed',
         name: 'exact_approval_gate',
@@ -488,7 +752,7 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         details: env.approvalSentence === exactApprovalSentence
             ? [
                 `env=${approvalEnvVar}`,
-                `endpointId=${before.snapshot.id}`,
+                `endpointIdSha256=${before.snapshot.idSha256}`,
                 `from=${safeUrl(before.snapshot.url)}`,
                 `to=${safeUrl(env.targetUrl)}`,
                 `events=${before.snapshot.enabledEvents.join('|')}`,
@@ -500,7 +764,10 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
             ],
     };
     executionChecks.push(exactApprovalGate);
-    if (exactApprovalGate.status === 'failed') return executionChecks;
+    if (exactApprovalGate.status === 'failed') {
+        releaseStripeCutoverPrewriteGuard(guard);
+        return executionChecks;
+    }
 
     if (normalizeUrl(before.snapshot.url) === normalizeUrl(env.targetUrl)) {
         executionChecks.push({
@@ -508,10 +775,31 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
             name: 'target_url_already_active',
             message: 'The Stripe webhook endpoint already points at the requested target URL; no update call was made.',
             details: [
-                `endpointId=${before.snapshot.id}`,
+                `endpointIdSha256=${before.snapshot.idSha256}`,
                 `targetUrl=${safeUrl(env.targetUrl)}`,
                 'externalWritePerformed=false',
             ],
+        });
+        releaseStripeCutoverPrewriteGuard(guard);
+        return executionChecks;
+    }
+
+    let persistentState: StripeCutoverPersistentState;
+    try {
+        persistentState = persistStripeCutoverWriteAhead(guard, {
+            accountIdSha256: account.snapshot.idSha256,
+            endpointIdSha256: before.snapshot.idSha256,
+            priorUrl: before.snapshot.url,
+            targetUrl: safeUrl(env.targetUrl),
+            enabledEvents: before.snapshot.enabledEvents,
+            approvalSentenceSha256: sha256Hex(exactApprovalSentence),
+        });
+    } catch (error) {
+        executionChecks.push({
+            status: 'failed',
+            name: 'stripe_write_ahead_intent',
+            message: 'Durable Stripe write-ahead intent could not be persisted; no update was attempted.',
+            details: [safeErrorMessage(error), 'externalWriteAttempted=false'],
         });
         return executionChecks;
     }
@@ -519,35 +807,17 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
     externalWriteReceipt = markExternalWriteAttemptStarted(externalWriteReceipt);
     persistExternalWriteReceipt('update_started_awaiting_provider_confirmation');
 
+    let updated: Stripe.WebhookEndpoint;
     try {
-        const updated = await stripe.webhookEndpoints.update(env.endpointId, { url: env.targetUrl });
+        updated = await stripe.webhookEndpoints.update(env.endpointId, { url: env.targetUrl });
         externalWriteReceipt = markExternalWriteConfirmed(externalWriteReceipt, true);
         persistExternalWriteReceipt('update_provider_success_confirmed');
-        const snapshot = snapshotEndpoint(updated);
-        const capture = writeExecutionCapture(
-            'stripe_endpoint_url_update',
-            'ok',
-            true,
-            'Stripe webhook endpoint URL update result, redacted to endpoint id prefix and non-secret metadata.',
-            snapshot,
-        );
-        reportCaptures.push(capture);
-        executionChecks.push({
-            status: 'ok',
-            name: 'stripe_webhook_endpoint_url_updated',
-            message: 'Stripe test-mode webhook endpoint URL was updated and captured without secret values.',
-            details: [
-                `capture=${capture.path}`,
-                `receipt=${externalWriteReceiptPath}`,
-                `externalWriteAttempted=${String(externalWriteReceipt.externalWriteAttempted)}`,
-                `externalWritePerformed=${String(externalWriteReceipt.externalWritePerformed)}`,
-                `externalWriteOutcome=${externalWriteReceipt.externalWriteOutcome}`,
-                `endpointId=${snapshot.id}`,
-                `targetUrl=${safeUrl(snapshot.url)}`,
-                `events=${snapshot.enabledEvents.join('|')}`,
-            ],
-        });
     } catch (error) {
+        try {
+            persistentState = markStripeCutoverProviderResult(guard, persistentState, 'ambiguous');
+        } catch {
+            // The durable write-ahead state and execution lock remain fail-closed.
+        }
         externalWriteReceipt = markExternalWriteAmbiguous(externalWriteReceipt);
         persistExternalWriteReceipt('update_error_or_timeout_outcome_ambiguous');
         const capture = writeExecutionCapture(
@@ -581,9 +851,53 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         return executionChecks;
     }
 
+    try {
+        persistentState = markStripeCutoverProviderResult(guard, persistentState, 'succeeded');
+    } catch (error) {
+        externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
+        persistExternalWriteReceipt('provider_succeeded_but_persistent_state_update_failed');
+        executionChecks.push({
+            status: 'failed',
+            name: 'stripe_persistent_provider_result',
+            message: 'Stripe returned success, but durable state could not advance; GET-only recovery is required.',
+            details: [safeErrorMessage(error), 'required=read-only endpoint reconciliation before retry'],
+        });
+        return executionChecks;
+    }
+
+    const snapshot = snapshotEndpoint(updated);
+    const capture = writeExecutionCapture(
+        'stripe_endpoint_url_update',
+        'ok',
+        true,
+        'Stripe webhook endpoint URL update result, redacted to endpoint identity hashes and non-secret metadata.',
+        snapshot,
+    );
+    reportCaptures.push(capture);
+    executionChecks.push({
+        status: 'ok',
+        name: 'stripe_webhook_endpoint_url_updated',
+        message: 'Stripe test-mode webhook endpoint URL was updated and captured without secret values.',
+        details: [
+            `capture=${capture.path}`,
+            `receipt=${externalWriteReceiptPath}`,
+            `externalWriteAttempted=${String(externalWriteReceipt.externalWriteAttempted)}`,
+            `externalWritePerformed=${String(externalWriteReceipt.externalWritePerformed)}`,
+            `externalWriteOutcome=${externalWriteReceipt.externalWriteOutcome}`,
+            `endpointIdSha256=${snapshot.idSha256}`,
+            `targetUrl=${safeUrl(snapshot.url)}`,
+            `events=${snapshot.enabledEvents.join('|')}`,
+        ],
+    });
+
     const after = await retrieveEndpoint(stripe, env.endpointId, 'stripe_endpoint_after_update_readonly', reportCaptures);
     executionChecks.push(after.check);
     if (!after.snapshot || after.check.status === 'failed') {
+        try {
+            persistentState = markStripeCutoverProviderResult(guard, persistentState, 'ambiguous');
+        } catch {
+            // Existing provider-success state and execution lock remain fail-closed.
+        }
         externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
         persistExternalWriteReceipt('post_update_readonly_reconciliation_failed');
         return executionChecks;
@@ -610,41 +924,222 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         ],
     });
     if (!verificationPassed) {
+        try {
+            persistentState = markStripeCutoverProviderResult(guard, persistentState, 'ambiguous');
+        } catch {
+            // Existing provider-success state and execution lock remain fail-closed.
+        }
         externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
         persistExternalWriteReceipt('post_update_readonly_invariants_failed');
     } else {
+        try {
+            resolveStripeCutoverExecution(guard, persistentState, 'resolved_target');
+        } catch (error) {
+            externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
+            persistExternalWriteReceipt('post_update_state_resolution_failed');
+            executionChecks.push({
+                status: 'failed',
+                name: 'stripe_persistent_state_resolution',
+                message: 'Post-update readback passed, but persistent state/lock resolution failed closed.',
+                details: [safeErrorMessage(error), 'required=GET-only persistent-state recovery'],
+            });
+            return executionChecks;
+        }
         persistExternalWriteReceipt('post_update_readonly_verified');
     }
 
     return executionChecks;
 }
 
-async function captureStripeAccount(stripe: Stripe, reportCaptures: ExecutionCapture[]): Promise<Check> {
+async function runPersistentRecovery(
+    stripe: Stripe,
+    account: AccountSnapshot,
+    endpointId: string,
+    reportCaptures: ExecutionCapture[],
+): Promise<{ terminal: boolean; checks: Check[] }> {
+    const endpointIdSha256 = sha256Hex(endpointId);
+    const scopeHash = stripeCutoverScopeHash(account.idSha256, endpointIdSha256);
+    const recovery = beginStripeCutoverRecovery(scopeHash, runnerRunId);
+    if (recovery.status === 'not_needed') return { terminal: false, checks: [] };
+
+    if (recovery.status === 'blocked') {
+        recoveryOnlyStatus = 'blocked';
+        return {
+            terminal: true,
+            checks: [{
+                status: 'failed',
+                name: 'stripe_persistent_recovery_gate',
+                message: 'Persistent Stripe state or lock is unresolved; this invocation is terminal and cannot update Stripe.',
+                details: [recovery.reason, `scopeHash=${scopeHash}`, 'externalWriteAttempted=false'],
+            }],
+        };
+    }
+
+    if (recovery.status === 'terminal_lock_only_recovered') {
+        recoveryOnlyStatus = 'resolved';
+        return {
+            terminal: true,
+            checks: [{
+                status: 'ok',
+                name: 'stripe_persistent_lock_only_recovery',
+                message: 'A definitely-dead pre-write lock was recovered locally; this invocation is terminal and made no Stripe update.',
+                details: [recovery.reason, `scopeHash=${scopeHash}`, 'externalWriteAttempted=false'],
+            }],
+        };
+    }
+
+    const readback = await retrieveEndpoint(
+        stripe,
+        endpointId,
+        'stripe_endpoint_persistent_recovery_get_only',
+        reportCaptures,
+    );
+    if (!readback.snapshot || readback.check.status === 'failed') {
+        try {
+            blockStripeCutoverRecovery(recovery.session);
+        } catch {
+            // Persistent recovery locks remain fail-closed if local state cannot advance.
+        }
+        recoveryOnlyStatus = 'blocked';
+        return {
+            terminal: true,
+            checks: [
+                readback.check,
+                {
+                    status: 'failed',
+                    name: 'stripe_persistent_recovery_readback',
+                    message: 'GET-only recovery could not read the endpoint; the persistent guard remains blocked.',
+                    details: [`scopeHash=${scopeHash}`, 'externalWriteAttempted=false', 'retryUpdate=false'],
+                },
+            ],
+        };
+    }
+
+    if (readback.snapshot.idSha256 !== endpointIdSha256) {
+        try {
+            blockStripeCutoverRecovery(recovery.session);
+        } catch {
+            // Persistent recovery locks remain fail-closed if local state cannot advance.
+        }
+        recoveryOnlyStatus = 'blocked';
+        return {
+            terminal: true,
+            checks: [{
+                status: 'failed',
+                name: 'stripe_persistent_recovery_identity',
+                message: 'GET-only recovery endpoint identity did not match the guarded endpoint hash.',
+                details: [`scopeHash=${scopeHash}`, 'externalWriteAttempted=false', 'retryUpdate=false'],
+            }],
+        };
+    }
+
     try {
-        const account = await stripe.accounts.retrieve();
+        const result = finishStripeCutoverRecovery(recovery.session, {
+            url: readback.snapshot.url,
+            livemode: readback.snapshot.livemode,
+            status: readback.snapshot.status,
+            enabledEvents: readback.snapshot.enabledEvents,
+        });
+        recoveryOnlyStatus = result.status === 'ambiguous' ? 'blocked' : 'resolved';
         const capture = writeExecutionCapture(
-            'stripe_account_readonly_preflight',
-            'ok',
+            'stripe_persistent_recovery_result',
+            result.status === 'ambiguous' ? 'failed' : 'ok',
             false,
-            'Read-only Stripe account preflight before any webhook update.',
+            'Terminal GET-only persistent-state recovery; it never retries the Stripe update.',
             {
-                accountId: compactId(account.id),
-                country: account.country ?? 'unknown',
-                defaultCurrency: account.default_currency ?? 'unknown',
-                chargesEnabled: Boolean(account.charges_enabled),
-                payoutsEnabled: Boolean(account.payouts_enabled),
+                scopeHash,
+                accountIdSha256: account.idSha256,
+                endpointIdSha256,
+                result: result.status,
+                terminal: true,
+                externalWriteAttempted: false,
+                retryUpdate: false,
             },
         );
         reportCaptures.push(capture);
         return {
-            status: 'ok',
-            name: 'stripe_account_readonly_preflight',
-            message: 'Stripe account is reachable with the configured test key before any write.',
-            details: [
-                `capture=${capture.path}`,
-                `account=${compactId(account.id)}`,
-                `country=${account.country ?? 'unknown'}`,
+            terminal: true,
+            checks: [
+                readback.check,
+                {
+                    status: result.status === 'ambiguous' ? 'failed' : 'ok',
+                    name: 'stripe_persistent_recovery_readback',
+                    message: result.status === 'ambiguous'
+                        ? 'GET-only recovery proved neither exact prior nor exact target state; the guard remains blocked.'
+                        : 'GET-only recovery proved an exact safe state and released the stale guard; this invocation remains terminal.',
+                    details: [
+                        `capture=${capture.path}`,
+                        `scopeHash=${scopeHash}`,
+                        `result=${result.status}`,
+                        'terminal=true',
+                        'externalWriteAttempted=false',
+                        'retryUpdate=false',
+                    ],
+                },
             ],
+        };
+    } catch (error) {
+        try {
+            blockStripeCutoverRecovery(recovery.session);
+        } catch {
+            // Persistent recovery locks remain fail-closed if local state cannot advance.
+        }
+        recoveryOnlyStatus = 'blocked';
+        return {
+            terminal: true,
+            checks: [{
+                status: 'failed',
+                name: 'stripe_persistent_recovery_state',
+                message: 'GET-only recovery could not safely resolve persistent state; the guard remains blocked.',
+                details: [safeErrorMessage(error), `scopeHash=${scopeHash}`, 'retryUpdate=false'],
+            }],
+        };
+    }
+}
+
+async function captureStripeAccount(
+    stripe: Stripe,
+    expectedAccountId: string,
+    reportCaptures: ExecutionCapture[],
+): Promise<{ check: Check; snapshot: AccountSnapshot | null }> {
+    try {
+        const account = await stripe.accounts.retrieve();
+        const idSha256 = sha256Hex(account.id);
+        const evidence = classifyStripeWebhookCutoverEvidence(latestStripeReadonlySummary);
+        const problems: string[] = [];
+        if (account.id !== expectedAccountId) problems.push('live Stripe account does not equal STRIPE_EXPECTED_ACCOUNT_ID');
+        if (evidence.accountIdSha256 !== idSha256) problems.push('live Stripe account hash differs from strict read-only evidence');
+        const snapshot: AccountSnapshot = {
+            idSha256,
+            country: account.country ?? 'unknown',
+            defaultCurrency: account.default_currency ?? 'unknown',
+            chargesEnabled: Boolean(account.charges_enabled),
+            payoutsEnabled: Boolean(account.payouts_enabled),
+        };
+        const capture = writeExecutionCapture(
+            'stripe_account_readonly_preflight',
+            problems.length === 0 ? 'ok' : 'failed',
+            false,
+            'Read-only Stripe account preflight bound to the expected account SHA-256 before any webhook update.',
+            snapshot,
+        );
+        reportCaptures.push(capture);
+        return {
+            check: {
+                status: problems.length === 0 ? 'ok' : 'failed',
+                name: 'stripe_account_readonly_preflight',
+                message: problems.length === 0
+                    ? 'Stripe account exactly matches the expected account and strict evidence hash before any write.'
+                    : 'Stripe account identity does not match the expected account/evidence; no webhook update can run.',
+                details: problems.length === 0
+                    ? [
+                        `capture=${capture.path}`,
+                        `accountIdSha256=${idSha256}`,
+                        `country=${account.country ?? 'unknown'}`,
+                    ]
+                    : problems,
+            },
+            snapshot: problems.length === 0 ? snapshot : null,
         };
     } catch (error) {
         const capture = writeExecutionCapture(
@@ -656,10 +1151,13 @@ async function captureStripeAccount(stripe: Stripe, reportCaptures: ExecutionCap
         );
         reportCaptures.push(capture);
         return {
-            status: 'failed',
-            name: 'stripe_account_readonly_preflight',
-            message: 'Stripe account could not be read; no webhook update can run.',
-            details: [`capture=${capture.path}`, safeErrorMessage(error)],
+            check: {
+                status: 'failed',
+                name: 'stripe_account_readonly_preflight',
+                message: 'Stripe account could not be read; no webhook update can run.',
+                details: [`capture=${capture.path}`, safeErrorMessage(error)],
+            },
+            snapshot: null,
         };
     }
 }
@@ -688,7 +1186,7 @@ async function retrieveEndpoint(
                 message: 'Stripe webhook endpoint metadata was retrieved read-only.',
                 details: [
                     `capture=${capture.path}`,
-                    `endpointId=${snapshot.id}`,
+                    `endpointIdSha256=${snapshot.idSha256}`,
                     `url=${safeUrl(snapshot.url)}`,
                     `livemode=${String(snapshot.livemode)}`,
                     `status=${snapshot.status ?? 'unknown'}`,
@@ -702,7 +1200,7 @@ async function retrieveEndpoint(
             'failed',
             false,
             'Read-only Stripe webhook endpoint retrieve failed; no webhook update was attempted.',
-            { endpointId: compactId(endpointId), error: safeErrorMessage(error) },
+            { endpointIdSha256: sha256Hex(endpointId), error: safeErrorMessage(error) },
         );
         reportCaptures.push(capture);
         return {
@@ -719,10 +1217,17 @@ async function retrieveEndpoint(
 
 function validateEndpointScope(endpoint: EndpointSnapshot): Check {
     const problems: string[] = [];
+    const evidence = classifyStripeWebhookCutoverEvidence(latestStripeReadonlySummary);
     if (endpoint.livemode !== false) problems.push('endpoint livemode is not false');
     if (endpoint.status !== 'enabled') problems.push(`endpoint status is ${endpoint.status ?? 'unknown'}`);
     if (endpoint.enabledEvents.length === 0) problems.push('endpoint has no enabled events to preserve');
-    if (!endpoint.url.endsWith(targetWebhookPath)) problems.push(`current endpoint path is not ${targetWebhookPath}`);
+    if (!endpoint.urlShapeSafe) problems.push(`current endpoint must be a strict HTTPS URL with exact path ${targetWebhookPath}`);
+    if (!sameStringSet(endpoint.enabledEvents, evidence.enabledEvents)) {
+        problems.push('live endpoint events differ from the current strict read-only evidence');
+    }
+    if (!evidence.endpointIdSha256 || endpoint.idSha256 !== evidence.endpointIdSha256) {
+        problems.push('live endpoint id SHA-256 differs from the current read-only evidence');
+    }
 
     return {
         status: problems.length === 0 ? 'ok' : 'failed',
@@ -732,7 +1237,7 @@ function validateEndpointScope(endpoint: EndpointSnapshot): Check {
             : 'Endpoint preflight does not match the allowed test-mode enabled webhook scope.',
         details: problems.length === 0
             ? [
-                `endpointId=${endpoint.id}`,
+                `endpointIdSha256=${endpoint.idSha256}`,
                 `from=${safeUrl(endpoint.url)}`,
                 `events=${endpoint.enabledEvents.join('|')}`,
             ]
@@ -740,21 +1245,28 @@ function validateEndpointScope(endpoint: EndpointSnapshot): Check {
     };
 }
 
-function buildExactApprovalSentence(endpoint: EndpointSnapshot, endpointId: string, targetUrl: string): string {
-    const eventScope = endpoint.enabledEvents.join('|');
-    return `Apruebo cambiar en Stripe test el webhook endpoint actualmente habilitado en ${endpoint.url} (${endpointId}) para que apunte exactamente a ${targetUrl}, conservando solo los eventos ${eventScope}, sin tocar productos, precios, clientes, suscripciones, Stripe live mode, CHECKOUT_ENABLED, Supabase, Cloudflare, Google, Resend, Sentry ni valores de secretos, y verificar despues con corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly. No autorizo ningun otro cambio de Stripe ni servicios externos.`;
+function buildExactApprovalSentence(account: AccountSnapshot, endpoint: EndpointSnapshot, targetUrl: string): string {
+    return buildStripeWebhookCutoverApprovalSentence({
+        accountIdSha256: account.idSha256,
+        endpointIdSha256: endpoint.idSha256,
+        currentUrl: endpoint.url,
+        targetUrl,
+        enabledEvents: endpoint.enabledEvents,
+    });
 }
 
 function snapshotEndpoint(endpoint: Stripe.WebhookEndpoint): EndpointSnapshot {
     return {
-        id: compactId(endpoint.id),
+        idSha256: sha256Hex(endpoint.id),
         url: safeEndpointUrl(endpoint.url),
         host: safeEndpointHost(endpoint.url),
+        urlShapeSafe: isStrictWebhookUrl(endpoint.url),
         status: endpoint.status ?? null,
         livemode: Boolean(endpoint.livemode),
         enabledEvents: [...endpoint.enabled_events],
         apiVersion: endpoint.api_version ?? null,
-        description: endpoint.description ?? null,
+        descriptionPresent: Boolean(endpoint.description),
+        descriptionSha256: endpoint.description ? sha256Hex(endpoint.description) : null,
     };
 }
 
@@ -815,7 +1327,9 @@ function renderCommandManifest(report: RunnerReport): string {
         generatedAt: report.endedAt,
         status: report.status,
         closureStatus: report.closureStatus,
+        prepareApprovalRequested: report.prepareApprovalRequested,
         executeRequested: report.executeRequested,
+        approvalPrepared: report.approvalPrepared,
         approvalMatched: report.approvalMatched,
         externalWriteAttempted: report.externalWriteAttempted,
         externalWritePerformed: report.externalWritePerformed,
@@ -826,12 +1340,21 @@ function renderCommandManifest(report: RunnerReport): string {
         targetWebhookPath: report.targetWebhookPath,
         allowedTargetHosts: report.allowedTargetHosts,
         requiredEnv: report.requiredEnv,
+        preparationRequiredEnv,
         approvalEnvVar: report.approvalEnvVar,
+        prepareApprovalFlag: '--prepare-approval',
         executeFlag: '--execute-approved',
         planMode: {
             connectsToStripe: false,
             writesStripe: false,
             writesOtherExternalServices: false,
+        },
+        approvalPreparationMode: {
+            stripeCalls: ['stripe.accounts.retrieve', 'stripe.webhookEndpoints.retrieve'],
+            maxNetworkRetries: 0,
+            writesStripe: false,
+            identity: 'Account and endpoint SHA-256 only; full ids remain in process environment memory.',
+            freeFormDescriptionPersisted: false,
         },
         approvedExecutionOnly: {
             stripeReadOnlyPreflight: [
@@ -839,10 +1362,14 @@ function renderCommandManifest(report: RunnerReport): string {
                 'stripe.webhookEndpoints.retrieve',
             ],
             stripeWrite: 'stripe.webhookEndpoints.update(endpointId, { url: targetUrl })',
+            maxNetworkRetries: 0,
             updateScope: 'URL only; enabled_events are not sent, products/prices/customers/subscriptions/checkout are never touched.',
+            durableGuard: 'Atomic execution lock plus immutable write-ahead journal keyed by account+endpoint identity hash.',
+            recovery: 'A later invocation is GET-only and terminal; it never retries the update in the recovery process.',
         },
         latestSupportArtifacts: {
             cutoverPackSummary: toRelativeOrNull(report.latestCutoverPackSummaryPath),
+            cutoverPackStructuredSummary: toRelativeOrNull(report.latestCutoverPackStructuredSummaryPath),
             cutoverPackApproval: toRelativeOrNull(report.latestCutoverPackApprovalPath),
             stripeReadonlySummary: toRelativeOrNull(report.latestStripeReadonlySummaryPath),
         },
@@ -872,28 +1399,34 @@ function renderExecutionPlan(report: RunnerReport): string {
         '## Scope',
         '',
         '- Plan mode is local-only and does not call Stripe.',
+        '- Approval preparation uses only Stripe GET operations and writes exactly one approval sentence containing account and endpoint SHA-256 values, never full ids.',
         '- Approved execution is limited to one Stripe test-mode webhook endpoint URL update.',
         '- The target URL must be HTTPS, must use an allowed launch host and must end in `/api/stripe-webhook`.',
         '- Before any update, the runner reads the Stripe account and endpoint metadata, confirms `livemode=false`, confirms the endpoint is enabled and builds the exact approval sentence from that live read-only preflight.',
+        '- Stripe SDK network retries are explicitly zero. A durable write-ahead journal and atomic execution lock are persisted before the single URL update call.',
+        '- Any later invocation that finds unresolved state performs GET/readback only and terminates, even when it resolves the state safely.',
         '',
         '## Sequence',
         '',
-        '1. Run `corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and review the read-only evidence.',
-        '2. Run `corepack pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-pack` and review the approval request, verification checklist and rollback plan.',
-        '3. Export `STRIPE_WEBHOOK_ENDPOINT_ID`, `STRIPE_WEBHOOK_TARGET_URL` and `STRIPE_WEBHOOK_CUTOVER_APPROVAL` outside repo files.',
-        '4. Execute only after exact approval: `corepack pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`.',
-        '5. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and confirm `stripe_webhook_endpoints_readonly` is OK.',
-        '6. If the receipt says `ambiguous_needs_readonly_reconciliation`, do not retry the update: retrieve the endpoint read-only, compare it with both the before-capture and intended URL, then either record that the target landed or obtain separate approval to roll back.',
+        '1. Run `pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and review the read-only evidence.',
+        '2. Run `pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-pack` and review the approval request, verification checklist and rollback plan.',
+        '3. Export `STRIPE_SECRET_KEY`, `STRIPE_EXPECTED_ACCOUNT_ID`, `STRIPE_WEBHOOK_ENDPOINT_ID` and `STRIPE_WEBHOOK_TARGET_URL` outside repo files.',
+        '4. Prepare one approval sentence with GET-only calls: `pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --prepare-approval`.',
+        '5. Review and approve the single sentence in `approval-gate.md`, then supply it through `STRIPE_WEBHOOK_CUTOVER_APPROVAL` outside repo files.',
+        '6. Execute only after exact approval: `pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`.',
+        '7. Rerun `pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and confirm `stripe_webhook_endpoints_readonly` is OK.',
+        '8. If the receipt says `ambiguous_needs_readonly_reconciliation`, do not retry the update: retrieve the endpoint read-only, compare it with both the before-capture and intended URL, then either record that the target landed or obtain separate approval to roll back.',
         '',
         '## Before And After Ledger',
         '',
         'Before this runner:',
         '',
-        '- The launch package could tell the human exactly what to approve in Stripe, but the actual future update still depended on manual dashboard execution.',
+        '- The launch package showed a truncated endpoint id inside sentences labelled exact, so those sentences could not satisfy the executable runner contract.',
         '',
         'After this runner:',
         '',
-        '- The same operation is commandized behind a test-mode key check, endpoint/URL env vars, live read-only preflight, exact approval comparison, redacted captures and rollback instructions.',
+        '- A GET-only mode now prepares one executable sentence from live facts, identifying the endpoint by SHA-256 while keeping the full id only in process environment memory.',
+        '- Endpoint descriptions are reduced to presence plus SHA-256; free-form description text is never persisted.',
         '- No external write occurs unless `--execute-approved` is passed and the approval sentence matches the live endpoint facts.',
         '',
         'Cost/benefit:',
@@ -913,33 +1446,47 @@ function renderExecutionPlan(report: RunnerReport): string {
 }
 
 function renderApprovalGate(report: RunnerReport): string {
+    const exactSentenceSection = preparedApprovalSentence
+        ? [
+            '## Single Exact Executable Approval Sentence',
+            '',
+            preparedApprovalSentence,
+            '',
+            'This sentence contains the endpoint id SHA-256, not the full endpoint id. Supply it unchanged through `STRIPE_WEBHOOK_CUTOVER_APPROVAL` only after explicit human approval.',
+        ]
+        : [
+            '## Approval Sentence Not Prepared Yet',
+            '',
+            'Run the GET-only preparation command below. Plan mode intentionally does not invent or persist a non-executable sentence from a truncated endpoint id.',
+        ];
     return `${[
         '# Stripe Webhook Cutover Approval Gate',
         '',
         'This file is not approval. It describes the exact gate the runner will enforce before any Stripe write.',
         '',
-        '## Required Command',
+        '## GET-only Preparation Command',
         '',
-        '`corepack pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`',
+        '`pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --prepare-approval`',
+        '',
+        ...exactSentenceSection,
+        '',
+        '## Approved Execution Command',
+        '',
+        '`pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`',
         '',
         '## Required Environment',
         '',
         '- `STRIPE_SECRET_KEY`: must be a Stripe test secret key. Live keys are rejected.',
+        `- \`${expectedAccountIdEnvVar}\`: exact expected Stripe account id; the live GET must match it, but only its SHA-256 is persisted.`,
         `- \`${endpointIdEnvVar}\`: the full webhook endpoint id from Stripe Dashboard/API, supplied outside repo files.`,
         `- \`${targetUrlEnvVar}\`: exactly one HTTPS URL on an allowed launch host ending in \`${targetWebhookPath}\`.`,
-        `- \`${approvalEnvVar}\`: the exact approval sentence generated from the live read-only endpoint preflight.`,
+        `- \`${approvalEnvVar}\`: the exact SHA-256-based approval sentence generated by GET-only preparation. Required only for approved execution.`,
         '',
         'Allowed target hosts:',
         '',
         ...allowedTargetHosts.map((host) => `- ${host}`),
         '',
-        '## Exact Sentence Shape',
-        '',
-        'The runner retrieves the endpoint read-only first and then compares this exact sentence shape in memory:',
-        '',
-        '`Apruebo cambiar en Stripe test el webhook endpoint actualmente habilitado en <CURRENT_ENDPOINT_URL> (<STRIPE_WEBHOOK_ENDPOINT_ID>) para que apunte exactamente a <STRIPE_WEBHOOK_TARGET_URL>, conservando solo los eventos <EVENTS_FROM_LIVE_PREFLIGHT>, sin tocar productos, precios, clientes, suscripciones, Stripe live mode, CHECKOUT_ENABLED, Supabase, Cloudflare, Google, Resend, Sentry ni valores de secretos, y verificar despues con corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly. No autorizo ningun otro cambio de Stripe ni servicios externos.`',
-        '',
-        'Do not write the full approval sentence, secret key, webhook signing secret, raw event payloads or customer/payment data into repo files, `.codex-ops`, screenshots, summaries or chat.',
+        'Full account/endpoint ids and the Stripe key must never be written to artifacts. The prepared approval sentence may exist only in this ignored approval-gate artifact and contains only identity hashes, never raw ids or a free-form endpoint description.',
         '',
         `Current runner status: ${report.closureStatus}. External write attempted: ${String(report.externalWriteAttempted)}. External write performed: ${String(report.externalWritePerformed)}. Outcome: ${report.externalWriteOutcome}.`,
         '',
@@ -956,8 +1503,8 @@ function renderRollbackAfterCutover(report: RunnerReport): string {
         '',
         '1. Identify the prior URL from the pre-update read-only capture and Stripe Dashboard, without copying secrets or customer/payment data.',
         '2. Set `STRIPE_WEBHOOK_TARGET_URL` to that prior URL and use the same runner only after a new exact approval sentence is generated from the live read-only endpoint preflight.',
-        '3. Run `corepack pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`.',
-        '4. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and confirm the intended host posture.',
+        '3. Run `pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`.',
+        '4. Rerun `pnpm --config.verify-deps-before-run=false launch:stripe-readonly` and confirm the intended host posture.',
         '5. If checkout/webhook traffic was exercised, reconcile Supabase `payments`, `subscriptions` and `processed_webhook_events` with redacted evidence only.',
         '',
         '## Ambiguous Write Receipt',
@@ -983,7 +1530,7 @@ function renderManualEvidenceAfterCutover(report: RunnerReport): string {
     const rollbackPath = `../../${toRelative(report.rollbackAfterCutoverPath)}`;
 
     return `${[
-        'corepack pnpm launch:manual-evidence:record --',
+        'pnpm launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
         '  --summary "Stripe webhook test-mode launch-host cutover runner reviewed/executed with non-secret evidence."',
@@ -1005,6 +1552,8 @@ function renderSummary(report: RunnerReport): string {
         '',
         `- Status: ${report.status}`,
         `- Closure: ${report.closureStatus}`,
+        `- GET-only approval preparation requested: ${String(report.prepareApprovalRequested)}`,
+        `- Approval prepared: ${String(report.approvalPrepared)}`,
         `- Execute requested: ${String(report.executeRequested)}`,
         `- Approval matched: ${String(report.approvalMatched)}`,
         `- External write attempted: ${String(report.externalWriteAttempted)}`,
@@ -1058,6 +1607,8 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         'No Stripe live mode',
         'No product, price, customer, subscription, invoice, tax, bank/payout or fraud-rule change',
         'No webhook signing secret output or storage',
+        'SHA-256',
+        'free-form endpoint description',
         'stripe.webhookEndpoints.update(endpointId, { url: targetUrl })',
         'rollback',
     ];
@@ -1066,6 +1617,8 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         /sk_(live|test)_[A-Za-z0-9]{20,}/,
         /pk_(live|test)_[A-Za-z0-9]{20,}/,
         /whsec_[A-Za-z0-9]{20,}/,
+        /\bwe_[A-Za-z0-9]{16,}\b/,
+        /\bacct_[A-Za-z0-9]{12,}\b/,
         /(postgres|postgresql):\/\/[^\s"']+:[^\s"']+@/,
     ];
     const offenders = unsafeSecretPatterns.filter((pattern) => pattern.test(combined));
@@ -1097,8 +1650,25 @@ function validateTargetUrl(value: string): string[] {
         problems.push(`${targetUrlEnvVar} host must be one of ${allowedTargetHosts.join('|')}`);
     }
     if (parsed.pathname !== targetWebhookPath) problems.push(`${targetUrlEnvVar} path must be ${targetWebhookPath}`);
-    if (parsed.search || parsed.hash) problems.push(`${targetUrlEnvVar} must not include query string or hash`);
+    if (parsed.port || parsed.username || parsed.password || parsed.search || parsed.hash) {
+        problems.push(`${targetUrlEnvVar} must not include port, credentials, query string or hash`);
+    }
     return problems;
+}
+
+function isStrictWebhookUrl(value: string): boolean {
+    try {
+        const parsed = new URL(value);
+        return parsed.protocol === 'https:'
+            && !parsed.port
+            && !parsed.username
+            && !parsed.password
+            && !parsed.search
+            && !parsed.hash
+            && parsed.pathname === targetWebhookPath;
+    } catch {
+        return false;
+    }
 }
 
 function safeEndpointUrl(value: string): string {
@@ -1130,29 +1700,14 @@ function sameStringSet(left: string[], right: string[]): boolean {
     return left.length === right.length && left.every((item) => right.includes(item));
 }
 
-function compactId(id: string): string {
-    if (id.length <= 12) return id;
-    return `${id.slice(0, 7)}...${id.slice(-6)}`;
-}
-
 function safeErrorMessage(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
     return message
         .replace(/sk_(live|test)_[A-Za-z0-9]+/g, 'sk_$1_[redacted]')
         .replace(/pk_(live|test)_[A-Za-z0-9]+/g, 'pk_$1_[redacted]')
-        .replace(/whsec_[A-Za-z0-9]+/g, 'whsec_[redacted]');
-}
-
-function detailValue(details: string[] | undefined, key: string): string | null {
-    const prefix = `${key}=`;
-    const item = details?.find((detail) => detail.startsWith(prefix));
-    return item ? item.slice(prefix.length) : null;
-}
-
-function detailList(details: string[] | undefined, key: string): string[] {
-    const value = detailValue(details, key);
-    if (!value || value === 'none') return [];
-    return value.split('|').map((item) => item.trim()).filter(Boolean);
+        .replace(/whsec_[A-Za-z0-9]+/g, 'whsec_[redacted]')
+        .replace(/\bwe_[A-Za-z0-9]+\b/g, 'we_[redacted]')
+        .replace(/\bacct_[A-Za-z0-9]+\b/g, 'acct_[redacted]');
 }
 
 function latestGeneratedPath(folderName: string, fileName: string): string | null {

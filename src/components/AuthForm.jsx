@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { LEGAL_POLICY_VERSION } from '../lib/legal-policy';
 
@@ -19,8 +19,13 @@ export default function AuthForm({ lang: langProp, translations, initialError })
     const [password, setPassword] = useState('');
     const [adultConfirmed, setAdultConfirmed] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [hydrated, setHydrated] = useState(false);
     const [error, setError] = useState(initialError || null);
     const [successMessage, setSuccessMessage] = useState(null);
+
+    useEffect(() => {
+        setHydrated(true);
+    }, []);
 
     const t = translations;
 
@@ -167,6 +172,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
+                                disabled={loading || !hydrated}
                                 className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064] placeholder-[#006064]/50`}
                                 placeholder={t.auth.emailPlaceholder}
                             />
@@ -174,7 +180,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
 
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || !hydrated}
                             aria-busy={loading}
                             className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
@@ -186,7 +192,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                         <button
                             type="button"
                             onClick={() => switchMode('login')}
-                            disabled={loading}
+                            disabled={loading || !hydrated}
                             className="text-sm font-bold text-[#006064] underline hover:opacity-70"
                         >
                             {t.auth.backToLogin}
@@ -222,7 +228,11 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <noscript className="mb-4 block p-3 bg-amber-100 border-2 border-amber-700 text-amber-900 font-bold text-sm">
+                    {t.auth.javascriptRequired}
+                </noscript>
+
+                <form onSubmit={handleSubmit} aria-busy={loading || !hydrated} className="space-y-6">
                     <div>
                         <label htmlFor="auth-email" className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                             {t.auth.email}
@@ -234,6 +244,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
+                            disabled={loading || !hydrated}
                             className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064] placeholder-[#006064]/50`}
                             placeholder={t.auth.emailPlaceholder}
                         />
@@ -250,6 +261,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
+                            disabled={loading || !hydrated}
                             className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064]`}
                             placeholder="••••••••"
                         />
@@ -262,6 +274,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                                 checked={adultConfirmed}
                                 onChange={(event) => setAdultConfirmed(event.currentTarget.checked)}
                                 aria-required="true"
+                                disabled={loading || !hydrated}
                                 className="mt-1 h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
                             />
                             <span>{t.auth.adultConfirmation}</span>
@@ -270,7 +283,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
 
                     <button
                         type="submit"
-                        disabled={loading}
+                        disabled={loading || !hydrated}
                         aria-busy={loading}
                         className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
@@ -284,7 +297,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                         <button
                             type="button"
                             onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
-                            disabled={loading}
+                            disabled={loading || !hydrated}
                             className="font-bold underline hover:opacity-70"
                         >
                             {mode === 'login' ? t.auth.register : t.auth.login}
@@ -297,7 +310,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                         <button
                             type="button"
                             onClick={() => switchMode('forgotPassword')}
-                            disabled={loading}
+                            disabled={loading || !hydrated}
                             className="text-[#006064] hover:underline"
                         >
                             {t.auth.forgotPassword}

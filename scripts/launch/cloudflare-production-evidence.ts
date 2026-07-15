@@ -44,6 +44,10 @@ export const CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS = [
     'wrangler.toml',
 ] as const;
 
+export const CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_EXCLUDED_UNTRACKED_PATHS = [
+    'src/assets/avatar_irene_studio.png',
+] as const;
+
 export interface CloudflareProductionSourceFileIdentity {
     path: string;
     sha256: string;
@@ -526,10 +530,14 @@ function parseGitPorcelainPaths(value: string): string[] {
         .map((line) => line.trimEnd())
         .filter(Boolean)
         .flatMap((line) => {
+            const status = line.slice(0, 2);
             const rawPath = line.slice(3).trim();
             if (!rawPath) return [];
             const destination = rawPath.includes(' -> ') ? rawPath.split(' -> ').at(-1) ?? rawPath : rawPath;
-            return [toPosix(destination.replace(/^"|"$/gu, ''))];
+            const filePath = toPosix(destination.replace(/^"|"$/gu, ''));
+            if (status === '??' && CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_EXCLUDED_UNTRACKED_PATHS
+                .some((excludedPath) => excludedPath === filePath)) return [];
+            return [filePath];
         })
         .sort();
 }

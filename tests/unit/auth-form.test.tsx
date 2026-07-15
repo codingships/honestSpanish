@@ -1,4 +1,5 @@
 import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import AuthForm from '../../src/components/AuthForm.jsx';
@@ -39,6 +40,20 @@ describe('AuthForm', () => {
     afterEach(() => {
         vi.restoreAllMocks();
         vi.clearAllMocks();
+    });
+
+    it('renders credentials and submission disabled until the client hydrates', () => {
+        const markup = renderToStaticMarkup(
+            <AuthForm lang="es" translations={translations} initialError={null} />,
+        );
+        const container = document.createElement('div');
+        container.innerHTML = markup;
+
+        expect(container.querySelector('#auth-email')).toBeDisabled();
+        expect(container.querySelector('#auth-password')).toBeDisabled();
+        expect(container.querySelector('form button[type="submit"]')).toBeDisabled();
+        expect(container.querySelector('form')).toHaveAttribute('aria-busy', 'true');
+        expect(container.querySelector('noscript')).toHaveTextContent(translations.auth.javascriptRequired);
     });
 
     it('shows a generic confirmation failure supplied by the localized callback page', () => {

@@ -29,6 +29,8 @@ describe('Stripe read-only launch evidence', () => {
             'unexpected_enabled_webhook_hosts=',
             'matching_enabled_webhook_urls=',
             'unexpected_enabled_webhook_urls=',
+            'enabled_${index + 1}_id_sha256=',
+            'account_id_sha256=',
             'isExpectedWebhookUrl',
             "url.pathname === '/api/stripe-webhook'",
             'host or required-event configuration needs launch review',
@@ -105,8 +107,9 @@ describe('Stripe read-only launch evidence', () => {
             'does not change products, prices, customers, subscriptions, checkout enablement or Stripe live mode',
             'webhook signing secret',
             'READY_FOR_STRIPE_DASHBOARD_APPROVAL',
-            'No autorizo ningun otro cambio de Stripe ni servicios externos',
-            'corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly',
+            '--prepare-approval',
+            'Endpoint id SHA-256',
+            'pnpm --config.verify-deps-before-run=false launch:stripe-readonly',
         ]) {
             expect(cutoverPack).toContain(snippet);
         }

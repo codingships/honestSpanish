@@ -10,6 +10,8 @@ import {
     PRODUCTION_AVAILABILITY_INERT_CONFIRMATION_ENV,
     PRODUCTION_AVAILABILITY_SLOTS,
     PRODUCTION_AVAILABILITY_TARGET,
+    asFinalAuthPolicyReceipt,
+    normalizeProductionAvailabilityOutput,
     parseAvailabilityFacts,
     renderProductionAvailabilityApplySql,
     renderProductionAvailabilityPreflightSql,
@@ -19,9 +21,15 @@ import {
     validateProductionAvailabilityDatabaseUrl,
     validateProductionAvailabilityPostflight,
     validateProductionAvailabilityPreflight,
+    validateProductionAvailabilityRolledBackPostflight,
+    type ProductionAvailabilityIdentityIds,
 } from './production-availability-shared';
+import {
+    classifyAvailabilityWriteAttempt,
+    type AvailabilityWriteOutcome,
+} from './availability-write-recovery-shared';
 
-type Check = { status: 'ok' | 'failed'; name: string; message: string; details?: string[] };
+type Check = { status: 'ok' | 'warning' | 'failed'; name: string; message: string; details?: string[] };
 
 const supportedArgs = new Set(['--preflight-readonly', '--execute-approved', '--auth-policy-receipt']);
 const args = process.argv.slice(2);
@@ -42,8 +50,10 @@ const outputDir = path.join(process.cwd(), 'outputs', 'launch-production-availab
 mkdirSync(outputDir, { recursive: true });
 const checks: Check[] = [];
 let writeInvoked = false;
-let externalWritePerformed = false;
+let externalWritePerformed: boolean | null = false;
+let writeOutcome: AvailabilityWriteOutcome = 'not_attempted';
 let authPolicyReceiptSha256 = '';
+let authPolicyReceipt: ReturnType<typeof asFinalAuthPolicyReceipt> = null;
 
 const preflightPath = path.join(outputDir, 'preflight.sql');
 const applyPath = path.join(outputDir, 'apply.sql');
@@ -77,24 +87,80 @@ if (executeRequested && (!approvalMatched || !inertConfirmed)) {
             const preflight = runPsql('preflight', preflightPath, target.connectionEnv, teacherEmail, false);
             checks.push(preflight.check);
             if (preflight.check.status === 'ok') {
-                const mismatches = validateProductionAvailabilityPreflight(parseAvailabilityFacts(preflight.stdout));
+                const mismatches = validateProductionAvailabilityPreflight(
+                    parseAvailabilityFacts(preflight.stdout),
+                    authPolicyReceipt!.preservedSetSha256,
+                );
                 checks.push(mismatches.length === 0
-                    ? ok('preflight_facts', 'Final Auth policy, exact teacher, empty schedule and overlap hardening are proven.', [])
+                    ? ok('preflight_facts', 'Final Auth identities, exact live roles, exact teacher, empty schedule and overlap hardening are proven.', [])
                     : fail('preflight_facts', 'Read-only preflight does not match the exact production seed baseline.', mismatches));
-                if (executeRequested && mismatches.length === 0) {
+                if (executeRequested && mismatches.length === 0 && !preflight.identityIds) {
+                    checks.push(fail(
+                        'identity_binding',
+                        'The live preserved identities could not be bound to the approved receipt.',
+                        ['identityIds=missing'],
+                    ));
+                }
+                if (executeRequested && mismatches.length === 0 && preflight.identityIds) {
                     writeInvoked = true;
-                    const apply = runPsql('apply', applyPath, target.connectionEnv, teacherEmail, true);
-                    checks.push(apply.check);
-                    externalWritePerformed = apply.check.status === 'ok';
-                    if (externalWritePerformed) {
-                        const verify = runPsql('verify', verifyPath, target.connectionEnv, teacherEmail, false);
-                        checks.push(verify.check);
-                        if (verify.check.status === 'ok') {
-                            const postMismatches = validateProductionAvailabilityPostflight(parseAvailabilityFacts(verify.stdout));
-                            checks.push(postMismatches.length === 0
-                                ? ok('postflight_facts', 'Exactly five Monday-Friday Madrid-time production windows are persisted.', [])
-                                : fail('postflight_facts', 'Postflight did not prove the exact production schedule.', postMismatches));
-                        }
+                    externalWritePerformed = null;
+                    writeOutcome = 'ambiguous';
+                    const apply = runPsql(
+                        'apply',
+                        applyPath,
+                        target.connectionEnv,
+                        teacherEmail,
+                        true,
+                        preflight.identityIds,
+                    );
+                    checks.push(apply.check.status === 'ok' ? apply.check : warning(
+                        'command_apply_unconfirmed',
+                        'Apply did not return success; mandatory read-only reconciliation follows.',
+                        apply.check.details ?? [],
+                    ));
+                    const verify = runPsql('verify', verifyPath, target.connectionEnv, teacherEmail, false);
+                    checks.push(verify.check);
+                    const postflightFacts = verify.check.status === 'ok'
+                        ? parseAvailabilityFacts(verify.stdout)
+                        : new Map<string, string>();
+                    const appliedMismatches = verify.check.status === 'ok'
+                        ? validateProductionAvailabilityPostflight(
+                            postflightFacts,
+                            authPolicyReceipt!.preservedSetSha256,
+                        )
+                        : ['readback command failed'];
+                    const rolledBackMismatches = verify.check.status === 'ok'
+                        ? validateProductionAvailabilityRolledBackPostflight(
+                            postflightFacts,
+                            authPolicyReceipt!.preservedSetSha256,
+                        )
+                        : ['readback command failed'];
+                    const classification = classifyAvailabilityWriteAttempt({
+                        applyCommandSucceeded: apply.check.status === 'ok',
+                        readbackCommandSucceeded: verify.check.status === 'ok',
+                        appliedMismatches,
+                        rolledBackMismatches,
+                    });
+                    writeOutcome = classification.outcome;
+                    externalWritePerformed = classification.externalWritePerformed;
+                    if (writeOutcome === 'applied_verified') {
+                        checks.push(ok(
+                            'write_reconciliation',
+                            'Read-only postflight proves the exact identity-bound production schedule.',
+                            [],
+                        ));
+                    } else if (writeOutcome === 'rolled_back_verified') {
+                        checks.push(fail(
+                            'write_reconciliation',
+                            'Read-only postflight proves the attempted transaction left the empty baseline.',
+                            appliedMismatches,
+                        ));
+                    } else {
+                        checks.push(fail(
+                            'write_reconciliation',
+                            'The attempted production write is ambiguous; do not retry before a fresh read-only reconciliation.',
+                            [...appliedMismatches, ...rolledBackMismatches],
+                        ));
                     }
                 }
             }
@@ -105,10 +171,14 @@ if (executeRequested && (!approvalMatched || !inertConfirmed)) {
 }
 
 const status = checks.some((check) => check.status === 'failed') ? 'FAILED' : 'OK';
-const closure = status === 'FAILED'
-    ? 'BLOCKED'
-    : externalWritePerformed
-        ? 'SEEDED_AND_VERIFIED'
+const closure = writeOutcome === 'rolled_back_verified'
+    ? 'ROLLED_BACK_VERIFIED'
+    : writeOutcome === 'ambiguous'
+        ? 'AMBIGUOUS_REQUIRES_READONLY_RECONCILIATION'
+        : status === 'FAILED'
+            ? 'BLOCKED'
+            : writeOutcome === 'applied_verified'
+                ? 'SEEDED_AND_VERIFIED'
         : mode === 'preflight-readonly'
             ? 'READONLY_PREFLIGHT_READY'
             : 'PLAN_ONLY_READY';
@@ -126,6 +196,7 @@ const report = {
     inertConfirmed,
     authPolicyReceiptSha256: authPolicyReceiptSha256 || null,
     writeInvoked,
+    writeOutcome,
     externalWritePerformed,
     externalProvidersTouched: false,
     checks,
@@ -168,6 +239,7 @@ writeFileSync(path.join(outputDir, 'summary.md'), `${[
     `- Closure: ${closure}`,
     `- Mode: ${mode}`,
     `- Target: ${PRODUCTION_AVAILABILITY_TARGET.projectRef}`,
+    `- Write outcome: ${writeOutcome}`,
     `- External write performed: ${String(externalWritePerformed)}`,
     `- Auth policy receipt SHA-256: ${authPolicyReceiptSha256 || 'none'}`,
     '',
@@ -189,7 +261,11 @@ function validateReceipt(filePath: string | undefined): Check {
         const source = readFileSync(path.resolve(filePath), 'utf8');
         const value: unknown = JSON.parse(source);
         const errors = validateFinalAuthPolicyReceipt(value);
-        authPolicyReceiptSha256 = sha256Availability(source);
+        const parsed = asFinalAuthPolicyReceipt(value);
+        if (errors.length === 0 && parsed) {
+            authPolicyReceiptSha256 = sha256Availability(source);
+            authPolicyReceipt = parsed;
+        }
         return errors.length === 0
             ? ok('auth_policy_receipt', 'Exact executed Auth policy receipt permits post-finalization availability.', [
                 `sha256=${authPolicyReceiptSha256}`,
@@ -223,11 +299,16 @@ function runPsql(
     connectionEnv: NodeJS.ProcessEnv,
     teacherEmail: string,
     writes: boolean,
-): { check: Check; stdout: string } {
-    const result = spawnSync('psql', [
+    identityIds?: ProductionAvailabilityIdentityIds,
+): { check: Check; stdout: string; identityIds: ProductionAvailabilityIdentityIds | null } {
+    const psqlArgs = [
         '-X', '-w', '-v', 'ON_ERROR_STOP=1', '-v', `expected_teacher_email=${teacherEmail}`,
-        '-A', '-t', '-F', '\t', '-f', sqlPath,
-    ], {
+    ];
+    if (identityIds) {
+        psqlArgs.push('-v', `expected_admin_id=${identityIds.adminId}`, '-v', `expected_teacher_id=${identityIds.teacherId}`);
+    }
+    psqlArgs.push('-A', '-t', '-F', '\t', '-f', sqlPath);
+    const result = spawnSync('psql', psqlArgs, {
         cwd: process.cwd(),
         env: {
             ...process.env,
@@ -242,8 +323,9 @@ function runPsql(
         timeout: writes ? 60_000 : 30_000,
         windowsHide: true,
     });
-    const stdout = sanitize(result.stdout ?? '', teacherEmail);
-    const stderr = sanitize(result.stderr ?? '', teacherEmail);
+    const normalized = normalizeProductionAvailabilityOutput(result.stdout ?? '');
+    const stdout = sanitize(normalized.output, teacherEmail, identityIds ?? normalized.identityIds ?? undefined);
+    const stderr = sanitize(result.stderr ?? '', teacherEmail, identityIds ?? normalized.identityIds ?? undefined);
     writeFileSync(path.join(outputDir, `${id}.txt`), `${[
         `operation=${id}`,
         `writesSupabase=${String(writes)}`,
@@ -258,16 +340,27 @@ function runPsql(
     ].join('\n')}\n`, 'utf8');
     return {
         stdout,
+        identityIds: normalized.identityIds,
         check: result.status === 0 && !result.error
             ? ok(`command_${id}`, `${id} completed.`, [])
             : fail(`command_${id}`, `${id} failed.`, []),
     };
 }
 
-function sanitize(value: string, teacherEmail: string): string {
-    return value
+function sanitize(
+    value: string,
+    teacherEmail: string,
+    identityIds?: ProductionAvailabilityIdentityIds,
+): string {
+    let sanitized = value
         .split(teacherEmail).join('[redacted-email]')
         .replace(/postgres(?:ql)?:\/\/[^\s]+/giu, 'postgresql://[redacted]');
+    if (identityIds) {
+        sanitized = sanitized
+            .split(identityIds.adminId).join('[redacted-admin-id]')
+            .split(identityIds.teacherId).join('[redacted-teacher-id]');
+    }
+    return sanitized;
 }
 
 function ok(name: string, message: string, details: string[]): Check {
@@ -276,6 +369,10 @@ function ok(name: string, message: string, details: string[]): Check {
 
 function fail(name: string, message: string, details: string[]): Check {
     return { status: 'failed', name, message, details };
+}
+
+function warning(name: string, message: string, details: string[]): Check {
+    return { status: 'warning', name, message, details };
 }
 
 function escapeCell(value: string): string {

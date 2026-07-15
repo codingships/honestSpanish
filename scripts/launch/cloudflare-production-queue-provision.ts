@@ -16,12 +16,14 @@ import {
     beginOneShotCloudflareWrite,
     closeOneShotCloudflareWriteGuard,
     openOneShotCloudflareWriteGuard,
+    readResolvedOneShotCloudflareWriteCheckpoints,
+    reconcileOneShotCloudflareWriteGuard,
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
 } from './cloudflare-production-one-shot-write';
 
 type CheckStatus = 'ok' | 'failed';
-type ClosureStatus = 'PLAN_READY' | 'VERIFIED_EXISTING' | 'PROVISIONED' | 'BLOCKED' | 'PARTIAL_WRITE_STOP';
+type ClosureStatus = 'PLAN_READY' | 'VERIFIED_EXISTING' | 'PROVISIONED' | 'RECONCILED_STOP' | 'BLOCKED' | 'PARTIAL_WRITE_STOP';
 
 interface Check {
     status: CheckStatus;
@@ -93,10 +95,12 @@ if (checks.every((check) => check.status === 'ok')) {
 }
 
 const status = checks.some((check) => check.status === 'failed') ? 'FAILED' : 'OK';
-if (status === 'OK' && verifyExistingRequested) closureStatus = 'VERIFIED_EXISTING';
-else if (status === 'OK' && executeRequested) closureStatus = 'PROVISIONED';
-else if (status === 'OK') closureStatus = 'PLAN_READY';
-else if (externalWritePerformed) closureStatus = 'PARTIAL_WRITE_STOP';
+if (closureStatus !== 'RECONCILED_STOP') {
+    if (status === 'OK' && verifyExistingRequested) closureStatus = 'VERIFIED_EXISTING';
+    else if (status === 'OK' && executeRequested) closureStatus = 'PROVISIONED';
+    else if (status === 'OK') closureStatus = 'PLAN_READY';
+    else if (externalWritePerformed) closureStatus = 'PARTIAL_WRITE_STOP';
+}
 
 const artifacts = {
     approvalGate: path.join(outputDir, 'approval-gate.md'),
@@ -186,6 +190,26 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     checks.push(inventoryCommandCheck('queue_inventory_before', before));
     if (before.status === 'failed') return;
 
+    const reconciliation = await reconcileOneShotCloudflareWriteGuard(
+        'production-queue-provision',
+        outputDir,
+        { readback: (checkpoint) => queueReconciliationReadback(checkpoint?.commandId ?? null, before.inventory) },
+    );
+    if (reconciliation.status !== 'not_needed') {
+        checks.push(reconciliation.status === 'reconciled'
+            ? ok('queue_provision_readonly_reconciliation', 'Fresh Queue reads proved the interrupted mutation; its checkpoint and stale lock were cleared without retrying any create.', [
+                `checkpointCount=${reconciliation.checkpointCount}`,
+                `lockOnly=${String(reconciliation.lockOnly)}`,
+                'providerMutationRetried=false',
+            ])
+            : failed('queue_provision_readonly_reconciliation', 'Fresh Queue reads did not prove the interrupted mutation; checkpoint/lock remain fail-closed and no create was retried.', [
+                `reason=${reconciliation.reason}`,
+                'providerMutationRetried=false',
+            ]));
+        if (reconciliation.status === 'reconciled') closureStatus = 'RECONCILED_STOP';
+        return;
+    }
+
     if (verifyExistingRequested) {
         const exactExistingState = before.inventory.queueCount === 1
             && before.inventory.deadLetterQueueCount === 1;
@@ -226,14 +250,27 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
         return;
     }
 
-    const clear = before.inventory.clearForProvision
+    const resolved = readResolvedOneShotCloudflareWriteCheckpoints('production-queue-provision');
+    const resolvedDlqCreate = resolved.some((checkpoint) =>
+        checkpoint.commandId === 'create-production-dlq' && checkpoint.stage === 'readback_proven');
+    const resolvedPrimaryCreate = resolved.some((checkpoint) =>
+        checkpoint.commandId === 'create-production-queue' && checkpoint.stage === 'readback_proven');
+    const resumePrimaryOnly = before.inventory.deadLetterQueueCount === 1
         && before.inventory.queueCount === 0
-        && before.inventory.deadLetterQueueCount === 0;
+        && resolvedDlqCreate
+        && !resolvedPrimaryCreate;
+    const clear = (before.inventory.clearForProvision
+        && before.inventory.queueCount === 0
+        && before.inventory.deadLetterQueueCount === 0)
+        || resumePrimaryOnly;
     checks.push(clear
-        ? ok('exact_name_collision_gate', 'Neither exact production Queue name exists before provisioning.', [
+        ? ok('exact_name_collision_gate', resumePrimaryOnly
+            ? 'A previously readback-proven DLQ create permits only the distinct primary Queue create in this new gated run.'
+            : 'Neither exact production Queue name exists before provisioning.', [
             `queue=${PRODUCTION_QUEUE_TARGET.queue}:absent`,
-            `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}:absent`,
+            `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}:${resumePrimaryOnly ? 'present_once_from_resolved_checkpoint' : 'absent'}`,
             `pagesRead=${before.pagesRead}`,
+            `resumePrimaryOnly=${String(resumePrimaryOnly)}`,
         ])
         : failed('exact_name_collision_gate', 'At least one exact production Queue name already exists; provisioning stops before writes.', [
             `queueCount=${before.inventory.queueCount}`,
@@ -276,59 +313,63 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
         ]));
         return;
     }
-    let dlqCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'create-production-dlq');
-    externalWriteAttempted = true;
-    externalWritePerformed = 'unknown';
-    const createDlq = runCommand(writeCommand('create-production-dlq', [
-        'queues',
-        'create',
-        PRODUCTION_QUEUE_TARGET.deadLetterQueue,
-    ]));
-    dlqCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, dlqCheckpoint, {
-        exitCode: createDlq.exitCode,
-        timedOut: createDlq.exitCode === null,
-        errorPresent: createDlq.status === 'failed',
-    });
-    captures.push(createDlq);
-    checks.push(commandCheck(createDlq));
-    if (createDlq.status === 'failed') return;
-    createdQueues.push(PRODUCTION_QUEUE_TARGET.deadLetterQueue);
-
-    const dlqInfo = runCommand(readCommand('production-dlq-info-after-create', [
-        'queues',
-        'info',
-        PRODUCTION_QUEUE_TARGET.deadLetterQueue,
-    ]));
-    captures.push(dlqInfo);
-    checks.push(commandCheck(dlqInfo));
-    if (dlqInfo.status === 'failed') {
-        recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, false);
-        return;
-    }
-
-    const between = readQueueInventory('queues-after-dlq');
-    checks.push(inventoryCommandCheck('queue_inventory_after_dlq', between));
-    if (between.status === 'failed') {
-        recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, false);
-        return;
-    }
-    const exactIntermediateState = between.inventory.deadLetterQueueCount === 1
-        && between.inventory.queueCount === 0;
-    checks.push(exactIntermediateState
-        ? ok('dlq_first_verified', 'The DLQ exists exactly once and the primary Queue is still absent.', [
-            `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}`,
-            'creationOrder=DLQ_FIRST',
-        ])
-        : failed('dlq_first_verified', 'Post-DLQ state is unexpected; primary Queue creation is blocked.', [
-            `queueCount=${between.inventory.queueCount}`,
-            `dlqCount=${between.inventory.deadLetterQueueCount}`,
-            'partialWrite=true',
+    let dlqCheckpoint: ReturnType<typeof beginOneShotCloudflareWrite> | null = null;
+    if (!resumePrimaryOnly) {
+        dlqCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'create-production-dlq');
+        externalWriteAttempted = true;
+        externalWritePerformed = 'unknown';
+        const createDlq = runCommand(writeCommand('create-production-dlq', [
+            'queues',
+            'create',
+            PRODUCTION_QUEUE_TARGET.deadLetterQueue,
         ]));
-    dlqCheckpoint = recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, exactIntermediateState);
-    if (!exactIntermediateState) return;
-    externalWritePerformed = true;
+        dlqCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, dlqCheckpoint, {
+            exitCode: createDlq.exitCode,
+            timedOut: createDlq.exitCode === null,
+            errorPresent: createDlq.status === 'failed',
+        });
+        captures.push(createDlq);
+        checks.push(commandCheck(createDlq));
+        if (createDlq.status === 'failed') return;
+        createdQueues.push(PRODUCTION_QUEUE_TARGET.deadLetterQueue);
+
+        const dlqInfo = runCommand(readCommand('production-dlq-info-after-create', [
+            'queues',
+            'info',
+            PRODUCTION_QUEUE_TARGET.deadLetterQueue,
+        ]));
+        captures.push(dlqInfo);
+        checks.push(commandCheck(dlqInfo));
+        if (dlqInfo.status === 'failed') {
+            recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, false);
+            return;
+        }
+
+        const between = readQueueInventory('queues-after-dlq');
+        checks.push(inventoryCommandCheck('queue_inventory_after_dlq', between));
+        if (between.status === 'failed') {
+            recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, false);
+            return;
+        }
+        const exactIntermediateState = between.inventory.deadLetterQueueCount === 1
+            && between.inventory.queueCount === 0;
+        checks.push(exactIntermediateState
+            ? ok('dlq_first_verified', 'The DLQ exists exactly once and the primary Queue is still absent.', [
+                `dlq=${PRODUCTION_QUEUE_TARGET.deadLetterQueue}`,
+                'creationOrder=DLQ_FIRST',
+            ])
+            : failed('dlq_first_verified', 'Post-DLQ state is unexpected; primary Queue creation is blocked.', [
+                `queueCount=${between.inventory.queueCount}`,
+                `dlqCount=${between.inventory.deadLetterQueueCount}`,
+                'partialWrite=true',
+            ]));
+        dlqCheckpoint = recordOneShotCloudflareReadback(writeGuard, dlqCheckpoint, exactIntermediateState);
+        if (!exactIntermediateState) return;
+        externalWritePerformed = true;
+    }
 
     let queueCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'create-production-queue');
+    externalWriteAttempted = true;
     externalWritePerformed = 'unknown';
     const createQueue = runCommand(writeCommand('create-production-queue', [
         'queues',
@@ -368,9 +409,12 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
         recordOneShotCloudflareReadback(writeGuard, queueCheckpoint, false);
         return;
     }
+    const creationOrderProven = resumePrimaryOnly
+        ? createdQueues.join('|') === PRODUCTION_QUEUE_TARGET.queue && resolvedDlqCreate
+        : createdQueues.join('|') === `${PRODUCTION_QUEUE_TARGET.deadLetterQueue}|${PRODUCTION_QUEUE_TARGET.queue}`;
     const exactFinalState = after.inventory.queueCount === 1
         && after.inventory.deadLetterQueueCount === 1
-        && createdQueues.join('|') === `${PRODUCTION_QUEUE_TARGET.deadLetterQueue}|${PRODUCTION_QUEUE_TARGET.queue}`;
+        && creationOrderProven;
     checks.push(exactFinalState
         ? ok('two_queue_post_write_verification', 'Both exact Queue resources exist once, in the approved creation order.', [
             `created=${createdQueues.join(' -> ')}`,
@@ -387,9 +431,34 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     closeOneShotCloudflareWriteGuard(writeGuard);
     externalWritePerformed = true;
     checks.push(ok('queue_provision_write_checkpoints_resolved', 'Both Queue creates are remotely proven and all durable write checkpoints are resolved.', [
-        `dlqCheckpoint=${dlqCheckpoint.stage}`,
+        `dlqCheckpoint=${dlqCheckpoint?.stage ?? 'resolved-prior-run'}`,
         `queueCheckpoint=${queueCheckpoint.stage}`,
     ]));
+}
+
+function queueReconciliationReadback(commandId: string | null, inventory: QueueInventory): boolean {
+    const exactIntermediate = inventory.deadLetterQueueCount === 1 && inventory.queueCount === 0;
+    const exactFinal = inventory.deadLetterQueueCount === 1 && inventory.queueCount === 1;
+    const expectedNames = commandId === 'create-production-dlq'
+        ? exactIntermediate ? [PRODUCTION_QUEUE_TARGET.deadLetterQueue] : []
+        : commandId === 'create-production-queue'
+            ? exactFinal ? [PRODUCTION_QUEUE_TARGET.deadLetterQueue, PRODUCTION_QUEUE_TARGET.queue] : []
+            : commandId === null
+                ? exactIntermediate
+                    ? [PRODUCTION_QUEUE_TARGET.deadLetterQueue]
+                    : exactFinal
+                        ? [PRODUCTION_QUEUE_TARGET.deadLetterQueue, PRODUCTION_QUEUE_TARGET.queue]
+                        : []
+                : [];
+    if (expectedNames.length === 0) return false;
+
+    const capturesForReadback = expectedNames.map((name) => runCommand(readCommand(
+        `reconcile-${name}-info`,
+        ['queues', 'info', name],
+    )));
+    captures.push(...capturesForReadback);
+    checks.push(...capturesForReadback.map(commandCheck));
+    return capturesForReadback.every((capture) => capture.status === 'ok');
 }
 
 function readQueueInventory(idPrefix: string): InventoryResult {

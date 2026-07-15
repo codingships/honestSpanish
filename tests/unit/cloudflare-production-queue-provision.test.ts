@@ -116,6 +116,12 @@ describe('Cloudflare production Queue provisioning', () => {
             .toBeLessThan(runner.indexOf('const createDlq = runCommand'));
         expect(runner.indexOf("beginOneShotCloudflareWrite(writeGuard, 'create-production-queue')"))
             .toBeLessThan(runner.indexOf('const createQueue = runCommand'));
+        const primaryQueueWrite = runner.slice(
+            runner.indexOf("beginOneShotCloudflareWrite(writeGuard, 'create-production-queue')"),
+            runner.indexOf('const createQueue = runCommand'),
+        );
+        expect(primaryQueueWrite).toContain('externalWriteAttempted = true');
+        expect(runner).toContain('externalWriteAttempted,');
         expect(runner.indexOf('const createQueue = runCommand'))
             .toBeLessThan(runner.indexOf('closeOneShotCloudflareWriteGuard(writeGuard)'));
         expect(runner.indexOf('if (verifyExistingRequested)')).toBeLessThan(runner.indexOf('exact_name_collision_gate'));

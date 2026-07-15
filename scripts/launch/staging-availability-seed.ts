@@ -15,10 +15,15 @@ import {
     STAGING_AVAILABILITY_TARGET,
     validateAvailabilityPostflight,
     validateAvailabilityPreflight,
+    validateAvailabilityRolledBackPostflight,
     validateStagingAvailabilityDatabaseUrl,
 } from './staging-availability-shared';
+import {
+    classifyAvailabilityWriteAttempt,
+    type AvailabilityWriteOutcome,
+} from './availability-write-recovery-shared';
 
-type Check = { status: 'ok' | 'failed'; name: string; message: string; details?: string[] };
+type Check = { status: 'ok' | 'warning' | 'failed'; name: string; message: string; details?: string[] };
 
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-staging-availability', stamp(startedAt));
@@ -30,7 +35,8 @@ const mode = executeRequested ? 'execute-approved' : preflightRequested ? 'prefl
 const approvalMatched = process.env[STAGING_AVAILABILITY_APPROVAL_ENV] === STAGING_AVAILABILITY_APPROVAL;
 const checks: Check[] = [];
 let writeInvoked = false;
-let externalWritePerformed = false;
+let externalWritePerformed: boolean | null = false;
+let writeOutcome: AvailabilityWriteOutcome = 'not_attempted';
 
 const preflightPath = path.join(outputDir, 'preflight.sql');
 const applyPath = path.join(outputDir, 'apply.sql');
@@ -70,23 +76,52 @@ if (executeRequested && !approvalMatched) {
             });
             if (executeRequested && mismatches.length === 0) {
                 writeInvoked = true;
+                externalWritePerformed = null;
+                writeOutcome = 'ambiguous';
                 const apply = runPsql('apply', applyPath, target.connectionEnv, teacherEmail, true);
-                checks.push(apply.check);
-                externalWritePerformed = apply.check.status === 'ok';
-                if (externalWritePerformed) {
-                    const verify = runPsql('verify', verifyPath, target.connectionEnv, teacherEmail, false);
-                    checks.push(verify.check);
-                    if (verify.check.status === 'ok') {
-                        const postMismatches = validateAvailabilityPostflight(parseFacts(verify.stdout));
-                        checks.push({
-                            status: postMismatches.length === 0 ? 'ok' : 'failed',
-                            name: 'postflight_facts',
-                            message: postMismatches.length === 0
-                                ? 'Exactly five Monday-Friday Madrid-time availability windows are persisted.'
-                                : 'Postflight did not prove the exact persisted schedule.',
-                            details: postMismatches,
-                        });
-                    }
+                checks.push(apply.check.status === 'ok' ? apply.check : {
+                    status: 'warning',
+                    name: 'command_apply_unconfirmed',
+                    message: 'Apply did not return success; mandatory read-only reconciliation follows.',
+                    details: apply.check.details,
+                });
+                const verify = runPsql('verify', verifyPath, target.connectionEnv, teacherEmail, false);
+                checks.push(verify.check);
+                const postflightFacts = verify.check.status === 'ok' ? parseFacts(verify.stdout) : new Map<string, string>();
+                const appliedMismatches = verify.check.status === 'ok'
+                    ? validateAvailabilityPostflight(postflightFacts)
+                    : ['readback command failed'];
+                const rolledBackMismatches = verify.check.status === 'ok'
+                    ? validateAvailabilityRolledBackPostflight(postflightFacts)
+                    : ['readback command failed'];
+                const classification = classifyAvailabilityWriteAttempt({
+                    applyCommandSucceeded: apply.check.status === 'ok',
+                    readbackCommandSucceeded: verify.check.status === 'ok',
+                    appliedMismatches,
+                    rolledBackMismatches,
+                });
+                writeOutcome = classification.outcome;
+                externalWritePerformed = classification.externalWritePerformed;
+                if (writeOutcome === 'applied_verified') {
+                    checks.push({
+                        status: 'ok',
+                        name: 'write_reconciliation',
+                        message: 'Read-only postflight proves the exact five persisted availability windows.',
+                    });
+                } else if (writeOutcome === 'rolled_back_verified') {
+                    checks.push({
+                        status: 'failed',
+                        name: 'write_reconciliation',
+                        message: 'Read-only postflight proves the attempted transaction left the empty baseline.',
+                        details: appliedMismatches,
+                    });
+                } else {
+                    checks.push({
+                        status: 'failed',
+                        name: 'write_reconciliation',
+                        message: 'The attempted write is ambiguous; do not retry before a fresh read-only reconciliation.',
+                        details: [...appliedMismatches, ...rolledBackMismatches],
+                    });
                 }
             }
         }
@@ -100,10 +135,14 @@ if (executeRequested && !approvalMatched) {
 }
 
 const status = checks.some((check) => check.status === 'failed') ? 'FAILED' : 'OK';
-const closure = status === 'FAILED'
-    ? 'BLOCKED'
-    : externalWritePerformed
-        ? 'SEEDED_AND_VERIFIED'
+const closure = writeOutcome === 'rolled_back_verified'
+    ? 'ROLLED_BACK_VERIFIED'
+    : writeOutcome === 'ambiguous'
+        ? 'AMBIGUOUS_REQUIRES_READONLY_RECONCILIATION'
+        : status === 'FAILED'
+            ? 'BLOCKED'
+            : writeOutcome === 'applied_verified'
+                ? 'SEEDED_AND_VERIFIED'
         : mode === 'preflight-readonly'
             ? 'READONLY_PREFLIGHT_READY'
             : 'PLAN_ONLY_READY';
@@ -119,6 +158,7 @@ const report = {
     executeRequested,
     approvalMatched,
     writeInvoked,
+    writeOutcome,
     externalWritePerformed,
     checks,
 };
@@ -149,6 +189,7 @@ writeFileSync(path.join(outputDir, 'summary.md'), `${[
     `- Closure: ${closure}`,
     `- Mode: ${mode}`,
     `- Target: ${STAGING_AVAILABILITY_TARGET.projectRef}`,
+    `- Write outcome: ${writeOutcome}`,
     `- External write performed: ${String(externalWritePerformed)}`,
     '',
     '| Status | Check | Message |',

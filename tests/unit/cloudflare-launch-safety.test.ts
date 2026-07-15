@@ -292,7 +292,8 @@ describe('Cloudflare launch environment safety', () => {
         for (const snippet of [
             'launch:cloudflare-production-fulfillment-bootstrap',
             'launch:cloudflare-production-fulfillment-enable',
-            "deployCommand('fulfillment-bootstrap-deploy', 'production_bootstrap', false)",
+            "const deployTag = createOneShotCloudflareDeployTag(writeGuard, 'fulfillment-bootstrap')",
+            "'fulfillment-bootstrap-deploy',\n        'production_bootstrap',\n        false,\n        deployTag,",
             "deployCommand('fulfillment-active-deploy', 'production', false)",
             'bootstrap_web_secrets_pre_enable_gate',
             'disabledOperationProbe',
@@ -305,6 +306,8 @@ describe('Cloudflare launch environment safety', () => {
             'fresh_stripe_live_readiness_immediately_before_enable',
             'structured_enable_prewrite_evidence',
             "cronScheduleProbe('bootstrap')",
+            'bootstrap_deploy_version_changed',
+            'workerDeployCheckpointMatchesCurrentVersion',
             'compensating_bootstrap_rollback_proven',
         ]) expect(lifecycle).toContain(snippet);
 
@@ -330,6 +333,12 @@ describe('Cloudflare launch environment safety', () => {
         expect(webRunner).toContain("config.googleBoundary === 'absent'");
         expect(webRunner).toContain('initial_validation_gate');
         expect(webRunner).toContain('externalWriteAttempted = true');
+        for (const runner of [lifecycle, webRunner]) {
+            expect(runner).toContain('createOneShotCloudflareDeployTag');
+            expect(runner).toContain("'--tag', deployTag");
+            expect(runner).toContain('workerVersionTagFromView');
+            expect(runner).toContain('capturedUnderWriteGuard=true');
+        }
     });
 
     it('documents the canonical production manual order without loading final providers before web bootstrap', () => {

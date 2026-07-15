@@ -48,9 +48,13 @@ import {
 import {
     beginOneShotCloudflareWrite,
     closeOneShotCloudflareWriteGuard,
+    createOneShotCloudflareDeployTag,
     openOneShotCloudflareWriteGuard,
+    reconcileOneShotCloudflareWriteGuard,
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
+    workerDeployCheckpointMatchesCurrentVersion,
+    workerVersionTagFromView,
 } from './cloudflare-production-one-shot-write';
 import { inspectStripeLiveReadiness } from './stripe-live-readiness';
 
@@ -287,6 +291,54 @@ async function executeBootstrap(): Promise<void> {
     const existingState = await verifyExistingFulfillmentBootstrapBeforeDeploy();
     checks.push(...existingState);
     if (existingState.some((check) => check.status === 'failed')) return;
+    const prewriteDeployments = captures.find((capture) =>
+        capture.id === 'fulfillment-bootstrap-existing-deployments-preflight');
+    const observedVersionId = prewriteDeployments ? deploymentVersionId(prewriteDeployments) : null;
+
+    const reconciliation = await reconcileOneShotCloudflareWriteGuard(
+        'fulfillment-bootstrap-deploy',
+        outputDir,
+        {
+            readback: (checkpoint) => {
+                if (
+                    !checkpoint
+                    || checkpoint.commandId !== 'fulfillment-bootstrap-deploy'
+                    || !checkpoint.intent
+                    || checkpoint.intent.kind !== 'cloudflare-worker-deploy'
+                    || !observedVersionId
+                ) return false;
+                const finalGate = existingState.findLast((check) => check.name === 'bootstrap_existing_state_pre_write_gate');
+                if (finalGate?.status !== 'ok' || finalGate.details.includes('existingState=absent')) return false;
+                const versionView = runCommand(versionViewCommand(
+                    'fulfillment-bootstrap-version-view-reconciliation',
+                    observedVersionId,
+                ));
+                captures.push(versionView);
+                checks.push(commandCheck(versionView));
+                if (versionView.status === 'failed') return false;
+                const versionTag = workerVersionTagFromView(versionView.stdout, observedVersionId);
+                return workerDeployCheckpointMatchesCurrentVersion(checkpoint, {
+                        accountId: target.accountId,
+                        worker: target.worker,
+                        environment: 'production_bootstrap',
+                        deployTag: checkpoint.intent.deployTag,
+                    }, observedVersionId, versionTag);
+            },
+        },
+    );
+    if (reconciliation.status !== 'not_needed') {
+        checks.push(reconciliation.status === 'reconciled'
+            ? ok('bootstrap_deploy_readonly_reconciliation', 'Fresh inert Worker/Cron/Queue readbacks proved the interrupted bootstrap deploy; checkpoint and stale lock were cleared without redeploying.', [
+                `checkpointCount=${reconciliation.checkpointCount}`,
+                `lockOnly=${String(reconciliation.lockOnly)}`,
+                'deployRetried=false',
+            ])
+            : failed('bootstrap_deploy_readonly_reconciliation', 'Fresh readbacks did not prove the interrupted bootstrap deploy; checkpoint/lock remain fail-closed and no deploy was retried.', [
+                `reason=${reconciliation.reason}`,
+                'deployRetried=false',
+            ]));
+        return;
+    }
 
     const dryRun = runCommand(deployCommand('fulfillment-bootstrap-dry-run', 'production_bootstrap', true));
     captures.push(dryRun);
@@ -304,10 +356,55 @@ async function executeBootstrap(): Promise<void> {
         ]));
         return;
     }
-    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'fulfillment-bootstrap-deploy');
+    const guardedPrewriteDeployments = runCommand(deploymentsCommand(
+        'fulfillment-bootstrap-deployments-immediately-before-deploy',
+    ));
+    captures.push(guardedPrewriteDeployments);
+    const guardedWorkerAbsent = captureIsWorkerNotFound(guardedPrewriteDeployments);
+    const prewriteVersionId = guardedPrewriteDeployments.status === 'ok'
+        ? deploymentVersionId(guardedPrewriteDeployments)
+        : null;
+    const initialWorkerAbsent = existingState
+        .findLast((check) => check.name === 'bootstrap_existing_state_pre_write_gate')
+        ?.details.includes('existingState=absent') ?? false;
+    const prewriteStateStable = initialWorkerAbsent
+        ? guardedWorkerAbsent
+        : guardedPrewriteDeployments.status === 'ok'
+            && Boolean(prewriteVersionId)
+            && prewriteVersionId === observedVersionId;
+    checks.push(prewriteStateStable
+        ? ok('bootstrap_guarded_prewrite_version_identity', 'The exact pre-write fulfillment version or absence was recaptured under the one-shot guard and still matches the validated inert preflight.', [
+            `prewriteVersionId=${prewriteVersionId ?? 'absent'}`,
+            `workerAbsent=${String(guardedWorkerAbsent)}`,
+            'capturedUnderWriteGuard=true',
+        ])
+        : failed('bootstrap_guarded_prewrite_version_identity', 'The fulfillment Worker changed or became ambiguous before the guarded checkpoint; deploy is blocked.', [
+            `initialVersionId=${observedVersionId ?? 'absent'}`,
+            `guardedVersionId=${prewriteVersionId ?? 'absent'}`,
+            `initialWorkerAbsent=${String(initialWorkerAbsent)}`,
+            `guardedWorkerAbsent=${String(guardedWorkerAbsent)}`,
+        ]));
+    if (!prewriteStateStable) {
+        closeOneShotCloudflareWriteGuard(writeGuard);
+        return;
+    }
+    const deployTag = createOneShotCloudflareDeployTag(writeGuard, 'fulfillment-bootstrap');
+    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, 'fulfillment-bootstrap-deploy', {
+        kind: 'cloudflare-worker-deploy',
+        accountId: target.accountId,
+        worker: target.worker,
+        environment: 'production_bootstrap',
+        prewriteVersionId,
+        deployTag,
+    });
     externalWriteAttempted = true;
     externalWritePerformed = 'unknown';
-    const deploy = runCommand(deployCommand('fulfillment-bootstrap-deploy', 'production_bootstrap', false));
+    const deploy = runCommand(deployCommand(
+        'fulfillment-bootstrap-deploy',
+        'production_bootstrap',
+        false,
+        deployTag,
+    ));
     writeCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, writeCheckpoint, {
         exitCode: deploy.exitCode,
         timedOut: deploy.exitCode === null,
@@ -325,6 +422,17 @@ async function executeBootstrap(): Promise<void> {
         checks.push(failed('bootstrap_version_gate', 'The deployed bootstrap version could not be proven.', [`targetWorker=${target.worker}`]));
         return;
     }
+    const versionView = runCommand(versionViewCommand(
+        'fulfillment-bootstrap-version-view-after-deploy',
+        versionId,
+    ));
+    captures.push(versionView);
+    checks.push(commandCheck(versionView));
+    if (versionView.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+        return;
+    }
+    const currentVersionTag = workerVersionTagFromView(versionView.stdout, versionId);
 
     const directUrl = normalizeDirectUrl(process.env[directUrlEnvVar]);
     if (!directUrl) return;
@@ -334,7 +442,23 @@ async function executeBootstrap(): Promise<void> {
     const queueBinding = queueVersionBindingProbe(versionId, 'bootstrap', 'after-bootstrap-deploy');
     const queueRuntime = await productionQueueRuntimeProbe('bootstrap');
     checks.push(health, blocked, cron, queueBinding, queueRuntime);
-    const proven = [health, blocked, cron, queueBinding, queueRuntime].every((check) => check.status === 'ok');
+    const versionMatchesIntent = workerDeployCheckpointMatchesCurrentVersion(writeCheckpoint, {
+        accountId: target.accountId,
+        worker: target.worker,
+        environment: 'production_bootstrap',
+        deployTag,
+    }, versionId, currentVersionTag);
+    checks.push(versionMatchesIntent
+        ? ok('bootstrap_deploy_version_changed', 'The deployed version differs from the exact pre-write active version bound into the checkpoint.', [
+            `versionId=${versionId}`,
+            `deployTagMatched=${String(currentVersionTag === deployTag)}`,
+        ])
+        : failed('bootstrap_deploy_version_changed', 'The current version is unchanged or does not match the checkpoint target; an older bootstrap cannot satisfy this deploy.', [
+            `currentVersionId=${versionId}`,
+            `prewriteVersionId=${prewriteVersionId ?? 'absent'}`,
+        ]));
+    const proven = versionMatchesIntent
+        && [health, blocked, cron, queueBinding, queueRuntime].every((check) => check.status === 'ok');
     writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, proven);
     if (!proven) {
         checks.push(failed('bootstrap_deploy_readback', 'Bootstrap deploy returned but exact inert version/Cron/Queue state is not proven; checkpoint and lock remain unresolved.', [
@@ -1555,15 +1679,25 @@ function command(id: string, wranglerArgs: string[], writesCloudflare: boolean):
     };
 }
 
-function deployCommand(id: string, environment: 'production_bootstrap' | 'production', dryRun: boolean): CommandSpec {
+function deployCommand(
+    id: string,
+    environment: 'production_bootstrap' | 'production',
+    dryRun: boolean,
+    deployTag?: string,
+): CommandSpec {
     return command(id, [
         'deploy', '--config', target.config, '--env', environment,
         ...(dryRun ? ['--dry-run'] : ['--keep-vars']),
+        ...(deployTag ? ['--tag', deployTag] : []),
     ], !dryRun);
 }
 
 function deploymentsCommand(id: string): CommandSpec {
     return command(id, ['deployments', 'list', '--name', target.worker, '--json'], false);
+}
+
+function versionViewCommand(id: string, versionId: string): CommandSpec {
+    return command(id, ['versions', 'view', versionId, '--name', target.worker, '--json'], false);
 }
 
 function runCommand(spec: CommandSpec): CommandCapture {

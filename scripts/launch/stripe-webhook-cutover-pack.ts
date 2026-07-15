@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    classifyStripeWebhookCutoverEvidence,
+    type StripeReadonlySummaryLike,
+} from './stripe-webhook-cutover-shared';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type PackageStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -15,12 +19,6 @@ interface Check {
     name: string;
     message: string;
     details: string[];
-}
-
-interface SummaryLike {
-    status?: string;
-    stripeMode?: string;
-    checks?: Array<{ status?: string; name?: string; message?: string; details?: string[] }>;
 }
 
 interface Report {
@@ -61,8 +59,10 @@ const outputDir = path.join(process.cwd(), 'outputs', 'launch-stripe-webhook-cut
 mkdirSync(outputDir, { recursive: true });
 
 const latestStripeReadonlySummary = latestGeneratedPath('launch-stripe-readonly-evidence', 'summary.json');
-const stripeSummary = readJsonIfExists<SummaryLike>(latestStripeReadonlySummary);
+const stripeSummary = readJsonIfExists<StripeReadonlySummaryLike>(latestStripeReadonlySummary);
+const stripeEvidenceClassification = classifyStripeWebhookCutoverEvidence(stripeSummary);
 const stripeWebhookCheck = stripeSummary?.checks?.find((check) => check.name === 'stripe_webhook_endpoints_readonly');
+const stripeAccountCheck = stripeSummary?.checks?.find((check) => check.name === 'stripe_account_readonly');
 const environmentCheck = stripeSummary?.checks?.find((check) => check.name === 'environment_shape');
 const stripeMode = stripeSummary?.stripeMode ?? 'unknown';
 const currentEndpointHosts = detailList(stripeWebhookCheck?.details, 'unexpected_enabled_webhook_hosts');
@@ -70,6 +70,8 @@ const matchingEndpointHosts = detailList(stripeWebhookCheck?.details, 'matching_
 const expectedWebhookHosts = detailList(stripeWebhookCheck?.details, 'expected_webhook_hosts');
 const currentEnabledEvents = detailList(stripeWebhookCheck?.details, 'enabled_1_events');
 const currentEndpointId = detailValue(stripeWebhookCheck?.details, 'enabled_1_id') || 'current enabled endpoint';
+const currentAccountIdSha256 = detailValue(stripeAccountCheck?.details, 'account_id_sha256') || 'missing';
+const currentEndpointIdSha256 = detailValue(stripeWebhookCheck?.details, 'enabled_1_id_sha256') || 'missing';
 const currentEndpointUrl = detailValue(stripeWebhookCheck?.details, 'enabled_1_url') || 'current enabled webhook URL';
 const recommendedWebhookUrls = expectedWebhookHosts
     .filter((host) => host !== 'none')
@@ -114,11 +116,11 @@ function createReport(reportChecks: Check[]): Report {
     const status = statusFor(reportChecks);
     const stripeCutoverStatus: StripeCutoverStatus = !latestStripeReadonlySummary
         ? 'MISSING_STRIPE_READONLY_EVIDENCE'
-        : stripeSummary?.status === 'FAILED'
-            ? 'BLOCKED_BY_STRIPE_READONLY_FAILURE'
-            : stripeWebhookCheck?.status === 'warning'
-                ? 'READY_FOR_STRIPE_DASHBOARD_APPROVAL'
-                : 'READY_FOR_FINAL_REVIEW';
+        : stripeEvidenceClassification.state === 'HOST_ONLY_DRIFT'
+            ? 'READY_FOR_STRIPE_DASHBOARD_APPROVAL'
+            : stripeEvidenceClassification.state === 'ALREADY_ON_EXPECTED_HOST'
+                ? 'READY_FOR_FINAL_REVIEW'
+                : 'BLOCKED_BY_STRIPE_READONLY_FAILURE';
 
     return {
         schemaVersion: 1,
@@ -164,21 +166,24 @@ function validatePackageScript(): Check {
 }
 
 function validateReadonlyEvidence(): Check {
-    if (!latestStripeReadonlySummary || !stripeSummary) {
+    if (!latestStripeReadonlySummary) {
         return {
             status: 'warning',
             name: 'stripe_readonly_evidence_available',
             message: 'No Stripe read-only summary is available yet.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:stripe-readonly'],
         };
     }
 
-    if (stripeSummary.status === 'FAILED') {
+    if (!stripeSummary || stripeEvidenceClassification.state === 'BLOCKED') {
         return {
             status: 'failed',
             name: 'stripe_readonly_evidence_available',
-            message: 'Latest Stripe read-only evidence failed; do not prepare a dashboard change until that is understood.',
-            details: [toPosix(path.relative(process.cwd(), latestStripeReadonlySummary))],
+            message: 'Latest Stripe read-only evidence is missing, invalid, or has failures beyond a strict host-only webhook drift.',
+            details: [
+                `latest=${toPosix(path.relative(process.cwd(), latestStripeReadonlySummary))}`,
+                ...stripeEvidenceClassification.reasons,
+            ],
         };
     }
 
@@ -194,11 +199,11 @@ function validateReadonlyEvidence(): Check {
     ];
 
     return {
-        status: stripeWebhookCheck?.status === 'ok' ? 'ok' : 'warning',
+        status: stripeEvidenceClassification.state === 'ALREADY_ON_EXPECTED_HOST' ? 'ok' : 'warning',
         name: 'stripe_readonly_evidence_available',
-        message: stripeWebhookCheck?.status === 'ok'
+        message: stripeEvidenceClassification.state === 'ALREADY_ON_EXPECTED_HOST'
             ? 'Latest Stripe read-only evidence already shows an enabled webhook on an expected launch host.'
-            : 'Latest Stripe read-only evidence needs a launch-host webhook dashboard decision.',
+            : 'Latest Stripe read-only evidence proves the only failed condition is a strict host-only webhook drift.',
         details,
     };
 }
@@ -209,6 +214,8 @@ function validateGeneratedArtifactPosture(renderedArtifacts: RenderedArtifacts):
         /sk_(live|test)_[A-Za-z0-9]{20,}/,
         /pk_(live|test)_[A-Za-z0-9]{20,}/,
         /whsec_[A-Za-z0-9]{20,}/,
+        /\bacct_[A-Za-z0-9]{12,}\b/,
+        /\bwe_[A-Za-z0-9]{16,}\b/,
         /(postgres|postgresql):\/\/[^\s"']+:[^\s"']+@/,
     ];
     const offenders = forbiddenSecretPatterns.filter((pattern) => pattern.test(combined));
@@ -280,7 +287,7 @@ function renderPackage(report: Report): string {
         '',
         'After this package:',
         '',
-        '- The exact dashboard approval text, verification checklist, rollback plan and manual evidence dry run are generated from latest local read-only evidence.',
+        '- The single GET-only approval-preparation flow, verification checklist, rollback plan and manual evidence dry run are generated from latest local read-only evidence.',
         '- No Stripe object, product, price, customer, subscription, checkout setting, live-mode value, Supabase row, secret or code behavior changed.',
         '',
         'Cost/benefit:',
@@ -298,12 +305,11 @@ function renderPackage(report: Report): string {
 function renderApprovalRequest(report: Report): string {
     const eventScope = report.currentEnabledEvents.join('|') || 'same event list shown in the latest Stripe dashboard preflight';
     const stagingUrl = 'https://staging.espanolhonesto.com/api/stripe-webhook';
-    const productionUrl = 'https://espanolhonesto.com/api/stripe-webhook';
 
     return `${[
         '# Stripe Webhook Cutover Approval Request',
         '',
-        'This is not approval by itself. Paste exactly one approval sentence only after the latest Stripe read-only preflight and dashboard target are reviewed.',
+        'This is not approval by itself. The runner must first prepare exactly one executable approval sentence from a live GET-only endpoint read.',
         'The exact approval scope is limited to one Stripe test-mode webhook endpoint host change.',
         '',
         '## Preflight',
@@ -311,16 +317,17 @@ function renderApprovalRequest(report: Report): string {
         `- Latest read-only evidence: ${report.latestStripeReadonlySummary ?? 'missing'}`,
         `- Stripe mode: ${report.stripeMode}`,
         `- Current endpoint: ${currentEndpointUrl} (${currentEndpointId})`,
+        `- Account id SHA-256: ${currentAccountIdSha256}`,
+        `- Endpoint id SHA-256: ${currentEndpointIdSha256}`,
         `- Current hosts: ${report.currentEndpointHosts.join(', ') || 'none'}`,
         `- Event scope: ${eventScope}`,
         '',
-        '## Exact Approval Sentence For Staging/Test Host',
+        '## Single Executable Approval Flow',
         '',
-        `Apruebo cambiar en Stripe ${report.stripeMode} el webhook endpoint actualmente habilitado en ${currentEndpointUrl} (${currentEndpointId}) para que apunte exactamente a ${stagingUrl}, conservando solo los eventos ${eventScope}, sin tocar productos, precios, clientes, suscripciones, Stripe live mode, CHECKOUT_ENABLED, Supabase, Cloudflare, Google, Resend, Sentry ni valores de secretos, y verificar despues con corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly. No autorizo ningun otro cambio de Stripe ni servicios externos.`,
-        '',
-        '## Exact Approval Sentence For Production/Test Rehearsal Host',
-        '',
-        `Apruebo cambiar en Stripe ${report.stripeMode} el webhook endpoint actualmente habilitado en ${currentEndpointUrl} (${currentEndpointId}) para que apunte exactamente a ${productionUrl}, conservando solo los eventos ${eventScope}, sin tocar productos, precios, clientes, suscripciones, Stripe live mode, CHECKOUT_ENABLED, Supabase, Cloudflare, Google, Resend, Sentry ni valores de secretos, y verificar despues con corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly. No autorizo ningun otro cambio de Stripe ni servicios externos.`,
+        `1. Supply \`STRIPE_SECRET_KEY\`, \`STRIPE_EXPECTED_ACCOUNT_ID\`, the full \`STRIPE_WEBHOOK_ENDPOINT_ID\` and \`STRIPE_WEBHOOK_TARGET_URL=${stagingUrl}\` outside repository files.`,
+        '2. Run the GET-only preparation: `pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --prepare-approval`.',
+        '3. Review the one exact sentence written to `approval-gate.md`. It identifies the account and endpoint only by SHA-256 and contains no full ids.',
+        '4. Only after the human approves that exact sentence, supply it through `STRIPE_WEBHOOK_CUTOVER_APPROVAL` outside repository files and run `pnpm --config.verify-deps-before-run=false launch:stripe-webhook-cutover-runner -- --execute-approved`.',
         '',
         '## Forbidden Scope',
         '',
@@ -341,7 +348,7 @@ function renderVerificationChecklist(report: Report): string {
         '- Confirm the target URL is exactly one launch URL ending in `/api/stripe-webhook`.',
         '- Confirm the event list is the intended checkout/subscription/payment event set.',
         '- Confirm no webhook signing secret value is copied into repo artifacts.',
-        '- After the dashboard change, run `corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly`.',
+        '- After the dashboard change, run `pnpm --config.verify-deps-before-run=false launch:stripe-readonly`.',
         '- Expected result: `stripe_webhook_endpoints_readonly` is OK, at least one enabled endpoint host matches an expected launch host, and no unexpected enabled endpoint host remains unless explicitly accepted as risk.',
         '- Record non-secret evidence: summary path, Stripe mode, endpoint id prefix, host, owner and date.',
         '',
@@ -360,7 +367,7 @@ function renderRollbackPlan(report: Report): string {
         '',
         `- Restore the prior enabled endpoint host if it was edited: ${report.currentEndpointHosts.join(', ') || 'unknown prior host'}.`,
         '- Or disable the newly created/edited endpoint and re-enable the prior endpoint if a separate endpoint was created.',
-        '- Rerun `corepack pnpm --config.verify-deps-before-run=false launch:stripe-readonly`.',
+        '- Rerun `pnpm --config.verify-deps-before-run=false launch:stripe-readonly`.',
         '- If checkout was exercised during verification, reconcile Supabase `payments`, `subscriptions` and `processed_webhook_events` with non-secret evidence only.',
         '',
         '## Stop Conditions',
@@ -379,7 +386,7 @@ function renderManualEvidenceDryRun(report: Report): string {
     const verificationPath = `../../${toPosix(path.relative(process.cwd(), report.verificationChecklistPath))}`;
 
     return `${[
-        'corepack pnpm launch:manual-evidence:record --',
+        'pnpm launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
         '  --summary "Stripe webhook launch-host evidence reviewed as part of final integration readiness."',
@@ -434,6 +441,8 @@ function renderManifest(report: Report, renderedFiles: Omit<RenderedArtifacts, '
         recommendedWebhookUrls: report.recommendedWebhookUrls,
         currentEnabledEvents: report.currentEnabledEvents,
         currentEndpointId,
+        currentAccountIdSha256,
+        currentEndpointIdSha256,
         currentEndpointUrl,
         doesNotCallStripe: true,
         doesNotWriteExternalServices: true,

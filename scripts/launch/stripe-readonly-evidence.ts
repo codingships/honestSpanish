@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
+import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import Stripe from 'stripe';
@@ -184,6 +185,7 @@ async function checkStripeAccount(stripe: Stripe): Promise<Check> {
             details: [
                 `account=${compactId(account.id)}`,
                 `expected_account=${compactId(stripeExpectedAccountId)}`,
+                `account_id_sha256=${sha256Hex(account.id)}`,
                 `account_match=${!accountMismatch}`,
                 `charges_enabled=${Boolean(account.charges_enabled)}`,
                 `payouts_enabled=${Boolean(account.payouts_enabled)}`,
@@ -245,6 +247,7 @@ async function checkStripeWebhookEndpoints(stripe: Stripe): Promise<Check> {
             `exactly_one_enabled_endpoint=${!endpointCountProblem}`,
             ...enabled.slice(0, 10).map((endpoint, index) => [
                 `enabled_${index + 1}_id=${compactId(endpoint.id)}`,
+                `enabled_${index + 1}_id_sha256=${sha256Hex(endpoint.id)}`,
                 `enabled_${index + 1}_url=${safeEndpointUrl(endpoint.url)}`,
                 `enabled_${index + 1}_host=${safeEndpointHost(endpoint.url)}`,
                 `enabled_${index + 1}_events=${endpoint.enabled_events.slice(0, 12).join('|')}`,
@@ -535,6 +538,10 @@ function compactId(id: string | null | undefined): string {
     if (!id) return 'missing';
     if (id.length <= 12) return id;
     return `${id.slice(0, 8)}...${id.slice(-6)}`;
+}
+
+function sha256Hex(value: string): string {
+    return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 function safeEndpointUrl(value: string | null | undefined): string {

@@ -14,6 +14,7 @@ import {
     beginOneShotCloudflareWrite,
     closeOneShotCloudflareWriteGuard,
     openOneShotCloudflareWriteGuard,
+    reconcileOneShotCloudflareWriteGuard,
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
 } from './cloudflare-production-one-shot-write';
@@ -51,7 +52,7 @@ interface Report {
     startedAt: string;
     endedAt: string;
     status: ReportStatus;
-    closureStatus: 'PLAN_ONLY_READY' | 'EXECUTED_AND_ATTESTED' | 'BLOCKED_BY_GATE_OR_EVIDENCE';
+    closureStatus: 'PLAN_ONLY_READY' | 'EXECUTED_AND_ATTESTED' | 'RECONCILED_STOP' | 'BLOCKED_BY_GATE_OR_EVIDENCE';
     executeRequested: boolean;
     approvalMatched: boolean;
     externalWriteAttempted: boolean;
@@ -188,6 +189,8 @@ async function main(): Promise<void> {
 
 function createReport(): Report {
     const status = statusFor(checks);
+    const reconciliationCompleted = checks.some((check) =>
+        check.name === 'bootstrap_hmac_readonly_reconciliation' && check.status === 'ok');
     return {
         schemaVersion: 1,
         startedAt: startedAt.toISOString(),
@@ -195,6 +198,8 @@ function createReport(): Report {
         status,
         closureStatus: status === 'FAILED'
             ? 'BLOCKED_BY_GATE_OR_EVIDENCE'
+            : reconciliationCompleted
+                ? 'RECONCILED_STOP'
             : executeRequested
                 ? 'EXECUTED_AND_ATTESTED'
                 : 'PLAN_ONLY_READY',
@@ -391,6 +396,44 @@ async function runApprovedExecution(): Promise<Check[]> {
     const preWriteProbes = await probeBootstrapRoutes('pre_write');
     executionChecks.push(...preWriteProbes);
     if (preWriteProbes.some((check) => check.status === 'failed')) return executionChecks;
+
+    const reconciliation = await reconcileOneShotCloudflareWriteGuard(
+        'web-bootstrap-hmac-secret',
+        outputDir,
+        {
+            readback: async (checkpoint) => {
+                if (checkpoint && checkpoint.commandId !== 'web-bootstrap-secret-put-internal-job-secret') return false;
+                const secretShape = validateRemoteSecretShape(
+                    captures.find((capture) => capture.id === commands.secretsBefore.id),
+                    true,
+                );
+                executionChecks.push(secretShape);
+                if (secretShape.status === 'failed') return false;
+                const versionCapture = captures.find((capture) => capture.id === commands.deploymentsBefore.id);
+                const versionId = versionCapture ? deploymentVersionId(versionCapture) : null;
+                if (!versionId) return false;
+                const attestation = await attestBootstrap(versionId);
+                executionChecks.push(attestation);
+                return attestation.status === 'ok';
+            },
+        },
+    );
+    if (reconciliation.status !== 'not_needed') {
+        executionChecks.push(reconciliation.status === 'reconciled'
+            ? {
+                status: 'ok',
+                name: 'bootstrap_hmac_readonly_reconciliation',
+                message: 'Fresh secret-name and version-bound HMAC readbacks proved the interrupted web secret write; checkpoint and stale lock were cleared without repeating secret put.',
+                details: [`checkpointCount=${reconciliation.checkpointCount}`, `lockOnly=${String(reconciliation.lockOnly)}`, 'secretPutRetried=false'],
+            }
+            : {
+                status: 'failed',
+                name: 'bootstrap_hmac_readonly_reconciliation',
+                message: 'Fresh readbacks did not prove the interrupted web HMAC write; checkpoint/lock remain fail-closed and secret put was not retried.',
+                details: [`reason=${reconciliation.reason}`, 'secretPutRetried=false'],
+            });
+        return executionChecks;
+    }
 
     let writeGuard: ReturnType<typeof openOneShotCloudflareWriteGuard>;
     try {

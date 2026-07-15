@@ -1,10 +1,11 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS,
+    CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_EXCLUDED_UNTRACKED_PATHS,
     captureCloudflareProductionSourceIdentity,
     computeCloudflareProductionSourceSha256,
     validateCloudflareRuntimeCutoverPreflightSummary,
@@ -364,7 +365,7 @@ describe('structured Cloudflare production evidence gates', () => {
         expect(result.errors).toContain('current source identity contains unhashed dirty paths');
     });
 
-    it('captures untracked files so a local-only build input cannot masquerade as a clean commit', () => {
+    it('excludes only the exact untracked Irene studio asset and still rejects other untracked inputs', () => {
         const directory = mkdtempSync(path.join(tmpdir(), 'eh-cloudflare-source-identity-'));
         try {
             const initialized = spawnSync('git', ['init', '--quiet'], {
@@ -373,16 +374,49 @@ describe('structured Cloudflare production evidence gates', () => {
                 windowsHide: true,
             });
             expect(initialized.status).toBe(0);
+            const retainedAsset = CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_EXCLUDED_UNTRACKED_PATHS[0];
+            const retainedAssetPath = path.join(directory, ...retainedAsset.split('/'));
+            mkdirSync(path.dirname(retainedAssetPath), { recursive: true });
+            writeFileSync(retainedAssetPath, 'local image bytes', 'utf8');
             writeFileSync(path.join(directory, 'untracked-build-input.ts'), 'export const localOnly = true;\n', 'utf8');
 
             const identity = captureCloudflareProductionSourceIdentity({ cwd: directory });
 
             expect(identity.gitWorktreeDirty).toBe(true);
+            expect(identity.dirtyPaths).not.toContain(retainedAsset);
             expect(identity.dirtyPaths).toContain('untracked-build-input.ts');
+            expect(identity.files.some((file) => file.path === retainedAsset)).toBe(false);
+            expect(identity.unhashedDirtyPaths).not.toContain(retainedAsset);
             expect(identity.unhashedDirtyPaths).toContain('untracked-build-input.ts');
+
+            const staged = spawnSync('git', ['add', '--', retainedAsset], {
+                cwd: directory,
+                encoding: 'utf8',
+                windowsHide: true,
+            });
+            expect(staged.status).toBe(0);
+            const stagedIdentity = captureCloudflareProductionSourceIdentity({ cwd: directory });
+            expect(stagedIdentity.dirtyPaths).toContain(retainedAsset);
+            expect(stagedIdentity.unhashedDirtyPaths).toContain(retainedAsset);
         } finally {
             rmSync(directory, { recursive: true, force: true });
         }
+    });
+
+    it('keeps the excluded user-local asset unreferenced by runtime code', () => {
+        const assetName = path.basename(CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_EXCLUDED_UNTRACKED_PATHS[0]);
+        const references = spawnSync('git', [
+            'grep', '-n', '-F', assetName, '--', 'src', 'workers', 'astro.config.mjs', 'wrangler.toml',
+        ], {
+            encoding: 'utf8',
+            windowsHide: true,
+        });
+        const landingPage = readFileSync('src/components/LandingPage.astro', 'utf8');
+
+        expect(references.status).toBe(1);
+        expect(references.stdout).toBe('');
+        expect(landingPage).toContain("import avatarIrene from '../assets/avatar_irene_team.png';");
+        expect(landingPage).not.toContain(assetName);
     });
 
     it('source-binds cutover preflight evidence to the same current identity', () => {

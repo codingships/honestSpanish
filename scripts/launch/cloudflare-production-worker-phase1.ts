@@ -13,14 +13,18 @@ import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
 import {
     beginOneShotCloudflareWrite,
     closeOneShotCloudflareWriteGuard,
+    createOneShotCloudflareDeployTag,
     openOneShotCloudflareWriteGuard,
+    reconcileOneShotCloudflareWriteGuard,
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
+    workerDeployCheckpointMatchesCurrentVersion,
+    workerVersionTagFromView,
 } from './cloudflare-production-one-shot-write';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
-type PhaseOneClosureStatus = 'PLAN_ONLY_READY' | 'EXECUTED_AND_NEEDS_REVIEW' | 'BLOCKED_BY_GATE_OR_ARTIFACTS';
+type PhaseOneClosureStatus = 'PLAN_ONLY_READY' | 'EXECUTED_AND_NEEDS_REVIEW' | 'RECONCILED_STOP' | 'BLOCKED_BY_GATE_OR_ARTIFACTS';
 
 interface PhaseOneCheck {
     status: CheckStatus;
@@ -249,6 +253,8 @@ if (failed.length > 0) process.exit(1);
 
 function createReport(reportChecks: PhaseOneCheck[], reportCaptures: CommandCapture[]): PhaseOneReport {
     const reportStatus = statusFor(reportChecks);
+    const reconciliationCompleted = reportChecks.some((check) =>
+        check.name === 'web_bootstrap_readonly_reconciliation' && check.status === 'ok');
 
     return {
         schemaVersion: 1,
@@ -257,6 +263,8 @@ function createReport(reportChecks: PhaseOneCheck[], reportCaptures: CommandCapt
         status: reportStatus,
         phaseOneClosureStatus: reportStatus === 'FAILED'
             ? 'BLOCKED_BY_GATE_OR_ARTIFACTS'
+            : reconciliationCompleted
+                ? 'RECONCILED_STOP'
             : executeRequested
                 ? 'EXECUTED_AND_NEEDS_REVIEW'
                 : 'PLAN_ONLY_READY',
@@ -617,6 +625,59 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
         return executionChecks;
     }
 
+    const reconciliation = await reconcileOneShotCloudflareWriteGuard(
+        'web-bootstrap-deploy',
+        outputDir,
+        {
+            readback: async (checkpoint) => {
+                if (!checkpoint || checkpoint.commandId !== commands.deployKeepVars.id) return false;
+                const deploymentCapture = runCommand(commands.deploymentsList);
+                const secretCapture = runCommand(commands.secretList);
+                reportCaptures.push(deploymentCapture, secretCapture);
+                executionChecks.push(checkForCapture(deploymentCapture), checkForCapture(secretCapture));
+                if (deploymentCapture.status === 'failed' || secretCapture.status === 'failed') return false;
+                const versionId = deploymentVersionId(deploymentCapture);
+                if (!versionId || !checkpoint.intent || checkpoint.intent.kind !== 'cloudflare-worker-deploy') return false;
+                const versionViewCapture = runCommand(buildVersionViewCommand(
+                    'wrangler-web-version-view-reconciliation',
+                    versionId,
+                ));
+                reportCaptures.push(versionViewCapture);
+                executionChecks.push(checkForCapture(versionViewCapture));
+                if (versionViewCapture.status === 'failed') return false;
+                const versionTag = workerVersionTagFromView(readFileSync(versionViewCapture.path, 'utf8'), versionId);
+                const secretShape = validateBootstrapSecretShape(secretCapture);
+                executionChecks.push(secretShape);
+                const versionMatchesIntent = workerDeployCheckpointMatchesCurrentVersion(checkpoint, {
+                    accountId: target.accountId,
+                    worker: target.productionWorker,
+                    environment: 'production_bootstrap',
+                    deployTag: checkpoint.intent.deployTag,
+                }, versionId, versionTag);
+                if (!versionMatchesIntent || secretShape.status === 'failed') return false;
+                const routeChecks = await verifyWebBootstrapAfterDeploy(versionId);
+                executionChecks.push(...routeChecks);
+                return routeChecks.every((check) => check.status === 'ok');
+            },
+        },
+    );
+    if (reconciliation.status !== 'not_needed') {
+        executionChecks.push(reconciliation.status === 'reconciled'
+            ? {
+                status: 'ok',
+                name: 'web_bootstrap_readonly_reconciliation',
+                message: 'Fresh deployment, secret-name and direct-route readbacks proved the interrupted inert web deploy; checkpoint and stale lock were cleared without redeploying.',
+                details: [`checkpointCount=${reconciliation.checkpointCount}`, `lockOnly=${String(reconciliation.lockOnly)}`, 'deployRetried=false'],
+            }
+            : {
+                status: 'failed',
+                name: 'web_bootstrap_readonly_reconciliation',
+                message: 'Fresh readbacks did not prove the interrupted inert web deploy; checkpoint/lock remain fail-closed and no deploy was retried.',
+                details: [`reason=${reconciliation.reason}`, 'deployRetried=false'],
+            });
+        return executionChecks;
+    }
+
     const readonlyCapture = runCommand(commands.readonly);
     reportCaptures.push(readonlyCapture);
     executionChecks.push(checkForCapture(readonlyCapture));
@@ -695,10 +756,46 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
         });
         return executionChecks;
     }
-    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, commands.deployKeepVars.id);
+    const prewriteVersionCapture = runCommand({
+        ...commands.deploymentsList,
+        id: 'wrangler-web-deployments-immediately-before-bootstrap-deploy',
+    });
+    reportCaptures.push(prewriteVersionCapture);
+    const prewriteWorkerAbsent = captureIsWorkerNotFound(prewriteVersionCapture);
+    const prewriteWebVersionId = prewriteVersionCapture.status === 'ok'
+        ? deploymentVersionId(prewriteVersionCapture)
+        : null;
+    const prewriteVersionReadable = (prewriteVersionCapture.status === 'ok' && Boolean(prewriteWebVersionId))
+        || prewriteWorkerAbsent;
+    executionChecks.push({
+        status: prewriteVersionReadable ? 'ok' : 'failed',
+        name: 'web_bootstrap_prewrite_version_identity',
+        message: prewriteVersionReadable
+            ? 'Fresh read-only evidence captured under the one-shot guard binds the checkpoint to the exact active pre-write web version or proven absence.'
+            : 'The exact pre-write web version is ambiguous; deploy is blocked.',
+        details: [
+            `prewriteVersionId=${prewriteWebVersionId ?? 'absent'}`,
+            `workerAbsent=${String(prewriteWorkerAbsent)}`,
+            'capturedUnderWriteGuard=true',
+        ],
+    });
+    if (!prewriteVersionReadable) {
+        closeOneShotCloudflareWriteGuard(writeGuard);
+        return executionChecks;
+    }
+    const deployTag = createOneShotCloudflareDeployTag(writeGuard, 'web-bootstrap');
+    const taggedDeployCommand = withDeployTag(commands.deployKeepVars, deployTag);
+    let writeCheckpoint = beginOneShotCloudflareWrite(writeGuard, commands.deployKeepVars.id, {
+        kind: 'cloudflare-worker-deploy',
+        accountId: target.accountId,
+        worker: target.productionWorker,
+        environment: 'production_bootstrap',
+        prewriteVersionId: prewriteWebVersionId,
+        deployTag,
+    });
     externalWriteAttempted = true;
     externalWritePerformedState = 'unknown';
-    const deployCapture = runCommand(commands.deployKeepVars);
+    const deployCapture = runCommand(taggedDeployCommand);
     writeCheckpoint = recordOneShotCloudflareProviderResult(writeGuard, writeCheckpoint, {
         exitCode: deployCapture.exitCode,
         timedOut: deployCapture.exitCode === null,
@@ -738,6 +835,18 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
         return executionChecks;
     }
 
+    const versionViewCapture = runCommand(buildVersionViewCommand(
+        'wrangler-web-version-view-after-bootstrap-deploy',
+        webVersionId,
+    ));
+    reportCaptures.push(versionViewCapture);
+    executionChecks.push(checkForCapture(versionViewCapture));
+    if (versionViewCapture.status === 'failed') {
+        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
+        return executionChecks;
+    }
+    const currentVersionTag = workerVersionTagFromView(readFileSync(versionViewCapture.path, 'utf8'), webVersionId);
+
     executionChecks.push(validateBootstrapSecretShape(secretCapture));
     if (executionChecks.at(-1)?.status === 'failed') {
         recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
@@ -745,7 +854,25 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
     }
     const routeChecks = await verifyWebBootstrapAfterDeploy(webVersionId);
     executionChecks.push(...routeChecks);
-    const proven = routeChecks.every((check) => check.status === 'ok');
+    const versionMatchesIntent = workerDeployCheckpointMatchesCurrentVersion(writeCheckpoint, {
+        accountId: target.accountId,
+        worker: target.productionWorker,
+        environment: 'production_bootstrap',
+        deployTag,
+    }, webVersionId, currentVersionTag);
+    executionChecks.push({
+        status: versionMatchesIntent ? 'ok' : 'failed',
+        name: 'web_bootstrap_deploy_version_changed',
+        message: versionMatchesIntent
+            ? 'The current web version differs from the exact pre-write version bound into the checkpoint.'
+            : 'The current web version is unchanged or does not match the checkpoint target; an older bootstrap cannot satisfy this deploy.',
+        details: [
+            `currentVersionId=${webVersionId}`,
+            `prewriteVersionId=${prewriteWebVersionId ?? 'absent'}`,
+            `deployTagMatched=${String(currentVersionTag === deployTag)}`,
+        ],
+    });
+    const proven = versionMatchesIntent && routeChecks.every((check) => check.status === 'ok');
     writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, proven);
     if (!proven) {
         executionChecks.push({
@@ -1095,6 +1222,12 @@ function checkForCapture(capture: CommandCapture): PhaseOneCheck {
 function deploymentVersionId(capture: CommandCapture): string | null {
     const text = existsSync(capture.path) ? readFileSync(capture.path, 'utf8') : '';
     return /"version_id"\s*:\s*"([0-9a-f]{8}-[0-9a-f-]{27})"/iu.exec(text)?.[1] ?? null;
+}
+
+function captureIsWorkerNotFound(capture: CommandCapture): boolean {
+    const text = readIfExists(capture.path) ?? '';
+    return text.includes('This Worker does not exist on your account. [code: 10007]')
+        || text.includes(`Worker "${target.productionWorker}" not found.`);
 }
 
 async function verifyFreshFulfillmentBootstrap(expectedVersionId: string): Promise<PhaseOneCheck[]> {
@@ -1547,6 +1680,36 @@ function buildCommands(): Record<string, CommandSpec> & {
             timeoutMs: 120000,
             writesCloudflare: false,
         },
+    };
+}
+
+function buildVersionViewCommand(id: string, versionId: string): CommandSpec {
+    return {
+        id,
+        display: `pnpm --config.verify-deps-before-run=false exec wrangler versions view ${versionId} --name ${target.productionWorker} --json`,
+        bin: pnpmCommand(),
+        args: [
+            '--config.verify-deps-before-run=false',
+            'exec',
+            'wrangler',
+            'versions',
+            'view',
+            versionId,
+            '--name',
+            target.productionWorker,
+            '--json',
+        ],
+        timeoutMs: 120000,
+        writesCloudflare: false,
+    };
+}
+
+function withDeployTag(command: CommandSpec, deployTag: string): CommandSpec {
+    if (!command.writesCloudflare) throw new Error('A Cloudflare deploy tag requires a write command.');
+    return {
+        ...command,
+        display: `${command.display} --tag ${deployTag}`,
+        args: [...command.args, '--tag', deployTag],
     };
 }
 

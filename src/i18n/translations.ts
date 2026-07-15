@@ -38,6 +38,7 @@ export const ui = {
             hasAccount: "¿Ya tienes cuenta?",
             submitLogin: "Entrar",
             submitRegister: "Crear cuenta",
+            javascriptRequired: "Activa JavaScript para iniciar sesión o crear una cuenta de forma segura.",
             error: {
                 invalidCredentials: "Email o contraseña incorrectos",
                 emailTaken: "Este email ya está registrado",
@@ -628,6 +629,7 @@ export const ui = {
             hasAccount: "Already have an account?",
             submitLogin: "Log in",
             submitRegister: "Create account",
+            javascriptRequired: "Enable JavaScript to log in or create an account securely.",
             error: {
                 invalidCredentials: "Invalid email or password",
                 emailTaken: "This email is already registered",
@@ -1215,6 +1217,7 @@ export const ui = {
             hasAccount: "Уже есть аккаунт?",
             submitLogin: "Войти",
             submitRegister: "Создать аккаунт",
+            javascriptRequired: "Включите JavaScript, чтобы безопасно войти или создать аккаунт.",
             error: {
                 invalidCredentials: "Неверный email или пароль",
                 emailTaken: "Этот email уже зарегистрирован",

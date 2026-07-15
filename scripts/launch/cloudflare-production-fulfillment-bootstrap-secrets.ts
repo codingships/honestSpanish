@@ -14,6 +14,7 @@ import {
     beginOneShotCloudflareWrite,
     closeOneShotCloudflareWriteGuard,
     openOneShotCloudflareWriteGuard,
+    reconcileOneShotCloudflareWriteGuard,
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
 } from './cloudflare-production-one-shot-write';
@@ -214,6 +215,35 @@ async function runApprovedExecution(): Promise<void> {
     for (const probe of [await directHealthProbe(directUrl), await disabledOperationProbe(directUrl), await noCronProbe()]) {
         checks.push(probe);
         if (probe.status === 'failed') return;
+    }
+
+    const reconciliation = await reconcileOneShotCloudflareWriteGuard(
+        'fulfillment-bootstrap-hmac-secret',
+        outputDir,
+        {
+            readback: async (checkpoint) => {
+                if (checkpoint && checkpoint.commandId !== 'fulfillment-bootstrap-secret-put-internal-job-secret') return false;
+                const secretShape = validateMinimalSecretShape(secretListBefore, true, 'reconciliation');
+                checks.push(secretShape);
+                if (secretShape.status === 'failed') return false;
+                const attestation = await directRuntimeAttestation(directUrl, versionBefore);
+                checks.push(attestation);
+                return attestation.status === 'ok';
+            },
+        },
+    );
+    if (reconciliation.status !== 'not_needed') {
+        checks.push(reconciliation.status === 'reconciled'
+            ? ok('bootstrap_hmac_readonly_reconciliation', 'Fresh secret-name and HMAC readbacks proved the interrupted secret write; checkpoint and stale lock were cleared without repeating secret put.', [
+                `checkpointCount=${reconciliation.checkpointCount}`,
+                `lockOnly=${String(reconciliation.lockOnly)}`,
+                'secretPutRetried=false',
+            ])
+            : failed('bootstrap_hmac_readonly_reconciliation', 'Fresh readbacks did not prove the interrupted HMAC write; checkpoint/lock remain fail-closed and secret put was not retried.', [
+                `reason=${reconciliation.reason}`,
+                'secretPutRetried=false',
+            ]));
+        return;
     }
 
     let writeGuard: ReturnType<typeof openOneShotCloudflareWriteGuard>;

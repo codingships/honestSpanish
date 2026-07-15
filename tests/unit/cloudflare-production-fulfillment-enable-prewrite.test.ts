@@ -170,10 +170,14 @@ describe('Cloudflare production fulfillment enable prewrite gate', () => {
         expect(verifySource).toContain("existingWorkerState === 'unknown'");
         expect(verifySource).toContain("await productionQueueRuntimeProbe('bootstrap')");
         expect(verifySource).toContain('externalWriteAttempted=false');
+        const dryRunIndex = bootstrapSource.indexOf("deployCommand('fulfillment-bootstrap-dry-run'");
+        const taggedDeployIndex = bootstrapSource.indexOf('const deploy = runCommand(deployCommand(');
+        const taggedDeploySource = bootstrapSource.slice(taggedDeployIndex, taggedDeployIndex + 240);
         expect(bootstrapSource.indexOf('await verifyExistingFulfillmentBootstrapBeforeDeploy()'))
-            .toBeLessThan(bootstrapSource.indexOf("deployCommand('fulfillment-bootstrap-dry-run'"));
-        expect(bootstrapSource.indexOf("deployCommand('fulfillment-bootstrap-dry-run'"))
-            .toBeLessThan(bootstrapSource.indexOf("deployCommand('fulfillment-bootstrap-deploy'"));
+            .toBeLessThan(dryRunIndex);
+        expect(dryRunIndex).toBeLessThan(taggedDeployIndex);
+        expect(taggedDeploySource).toContain("'fulfillment-bootstrap-deploy'");
+        expect(taggedDeploySource).toContain('deployTag');
     });
 
     it('proves exact Queue binding, producer, consumer, DLQ, pause and backlog state after enable and compensation', () => {
