@@ -35,7 +35,10 @@ import {
     type ProductionPreflightEvidence,
     type ProductionRolloutMigration,
 } from '../../scripts/launch/supabase-production-rollout-runner-shared';
-import { parseProductionRolloutArgs } from '../../scripts/launch/supabase-production-rollout-runner';
+import {
+    approvedSqlBytesMatch,
+    parseProductionRolloutArgs,
+} from '../../scripts/launch/supabase-production-rollout-runner';
 import {
     PRODUCTION_PROJECT,
     STAGING_ONLY_MIGRATIONS,
@@ -81,8 +84,12 @@ describe('Supabase production wave rollout runner', () => {
             'preflight.json',
             '--auth-inert-evidence',
             'auth-inert-receipt.json',
+            '--preservation-policy',
+            'preservation-policy.json',
             '--backup-artifact',
             'production.dump',
+            '--sentry-hardening-source-receipt',
+            'sentry-source.json',
         ])).toMatchObject({
             executeApproved: true,
             checkoutDisabledConfirmed: true,
@@ -90,6 +97,8 @@ describe('Supabase production wave rollout runner', () => {
             throughExplicit: true,
             backupArtifact: path.resolve('production.dump'),
             authInertEvidence: path.resolve('auth-inert-receipt.json'),
+            preservationPolicy: path.resolve('preservation-policy.json'),
+            sentryHardeningSourceReceipt: path.resolve('sentry-source.json'),
         });
         expect(() => parseProductionRolloutArgs(['--checkout-disabled-confirmed'])).toThrow();
         expect(() => parseProductionRolloutArgs(['--through', 'unknown'])).toThrow();
@@ -275,6 +284,12 @@ describe('Supabase production wave rollout runner', () => {
             const manifest = JSON.parse(readFileSync('scripts/launch/production-fixture-cleanup-manifest.json', 'utf8')) as {
                 sql: { execute: { sha256: string } };
             };
+            const policyPath = writeJson(
+                directory,
+                'preservation-policy.json',
+                preservationPolicy('2026-07-12T11:10:00.000Z'),
+            );
+            const policySha256 = sha256(readFileSync(policyPath));
             const cleanupPath = writeJson(directory, 'public-cleanup-receipt.json', {
                 schemaVersion: 2,
                 status: 'PUBLIC_FIXTURE_CLEANUP_EXECUTED_AND_VERIFIED',
@@ -286,6 +301,7 @@ describe('Supabase production wave rollout runner', () => {
                 backupReceiptSha256: backup.sha256,
                 authInertEvidenceSha256: 'e'.repeat(64),
                 packageStripeReferenceSha256: 'c'.repeat(64),
+                preservationPolicySha256: policySha256,
                 freezeCutoff: '2026-07-02T18:29:27.580Z',
                 postconditions: {
                     authUsers: 138,
@@ -301,8 +317,42 @@ describe('Supabase production wave rollout runner', () => {
                 externalStripeGoogleStorage: 'UNTOUCHED',
                 authNextStep: 'SEPARATE_AUTH_REDUCTION_REQUIRED',
             });
-            const cleanup = readFixtureCleanupEvidence(cleanupPath, backup.sha256, now);
+            const cleanup = readFixtureCleanupEvidence(
+                cleanupPath,
+                backup.sha256,
+                now,
+                process.cwd(),
+                policyPath,
+            );
             expect(cleanup).toMatchObject({ valid: true });
+            expect(readFixtureCleanupEvidence(
+                cleanupPath,
+                backup.sha256,
+                now,
+                directory,
+                policyPath,
+            )).toMatchObject({
+                valid: false,
+                errors: expect.arrayContaining([expect.stringContaining('contract')]),
+            });
+            const unboundCleanup = JSON.parse(readFileSync(cleanupPath, 'utf8')) as Record<string, unknown>;
+            delete unboundCleanup.preservationPolicySha256;
+            expect(readFixtureCleanupEvidence(
+                writeJson(directory, 'public-cleanup-unbound.json', unboundCleanup),
+                backup.sha256,
+                now,
+                process.cwd(),
+                policyPath,
+            )).toMatchObject({ valid: false });
+            const invalidPolicy = preservationPolicy('2026-07-12T11:10:00.000Z');
+            invalidPolicy.decisions.support_tickets = 'untouched_cleanup_separately';
+            expect(readFixtureCleanupEvidence(
+                cleanupPath,
+                backup.sha256,
+                now,
+                process.cwd(),
+                writeJson(directory, 'preservation-policy-invalid.json', invalidPolicy),
+            )).toMatchObject({ valid: false });
 
             const authPath = writeJson(directory, 'auth-reduced-quarantined-receipt.json', {
                 schemaVersion: 1,
@@ -478,8 +528,78 @@ describe('Supabase production wave rollout runner', () => {
                 )).toMatchObject({ valid: false });
             });
 
-            const sentryPath = writeJson(directory, 'sentry-hardening.json', sentryEvidence());
+            const sentryPath = writeJson(directory, 'sentry-hardening.json', sentryExecutedSourceReceipt());
             expect(readSentryProductionHardeningEvidence(sentryPath, now)).toMatchObject({ valid: true });
+            const sentrySourcePath = writeJson(
+                directory,
+                'sentry-executed-source.json',
+                sentryExecutedSourceReceipt(),
+            );
+            const sentrySourceSha256 = sha256(readFileSync(sentrySourcePath));
+            const getOnlyReattestation = {
+                ...sentryEvidence(),
+                closureStatus: 'REATTESTED_AND_VERIFIED',
+                mode: 'reattestation',
+                executeRequested: false,
+                externalWriteAttempted: false,
+                externalWritePerformed: false,
+                createdWorkflowCount: 0,
+                evidenceContract: {
+                    rolloutEligible: true,
+                    requiredArtifactKind: 'sentry_production_hardening_receipt',
+                    attestationMode: 'live_get_only_revalidation',
+                    rawIdentifiersPersistedInReports: false,
+                },
+                reattestation: {
+                    schemaVersion: 1,
+                    sourceReceiptSha256: sentrySourceSha256,
+                    sourceReceiptEndedAt: '2026-07-12T11:50:00.000Z',
+                    sourceClosureStatus: 'HARDENED_AND_VERIFIED',
+                    requestMethod: 'GET',
+                    sourceExecutedWriteProof: true,
+                    detectorFingerprintMatched: true,
+                    ownerFingerprintMatched: true,
+                    workflowIdFingerprintsMatched: true,
+                },
+            };
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested.json', getOnlyReattestation),
+                now,
+                sentrySourcePath,
+            )).toMatchObject({ valid: true, errors: [], sourceReceiptSha256: sentrySourceSha256 });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested-without-source.json', getOnlyReattestation),
+                now,
+            )).toMatchObject({ valid: false });
+            const tamperedSourcePath = writeJson(directory, 'sentry-executed-source-tampered.json', {
+                ...sentryExecutedSourceReceipt(),
+                ownerFingerprint: 'f'.repeat(64),
+            });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested-tampered-source.json', getOnlyReattestation),
+                now,
+                tamperedSourcePath,
+            )).toMatchObject({ valid: false });
+            for (const field of ['executeRequested', 'externalWriteAttempted', 'externalWritePerformed'] as const) {
+                const missingBoolean = { ...getOnlyReattestation } as Record<string, unknown>;
+                delete missingBoolean[field];
+                expect(readSentryProductionHardeningEvidence(
+                    writeJson(directory, `sentry-reattested-missing-${field}.json`, missingBoolean),
+                    now,
+                    sentrySourcePath,
+                )).toMatchObject({ valid: false });
+            }
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested-unanchored.json', {
+                    ...getOnlyReattestation,
+                    reattestation: {
+                        ...getOnlyReattestation.reattestation,
+                        workflowIdFingerprintsMatched: false,
+                    },
+                }),
+                now,
+                sentrySourcePath,
+            )).toMatchObject({ valid: false });
             expect(readSentryProductionHardeningEvidence(
                 writeJson(directory, 'sentry-plan.json', { ...sentryEvidence(), closureStatus: 'PLAN_READY' }),
                 now,
@@ -550,11 +670,13 @@ describe('Supabase production wave rollout runner', () => {
             backupReceiptSha256: '4'.repeat(64),
             backupArtifactSha256: 'f'.repeat(64),
             cleanupEvidenceSha256: '5'.repeat(64),
+            preservationPolicySha256: 'f'.repeat(64),
             authPolicyEvidenceSha256: '6'.repeat(64),
             stagingEvidenceSha256: '7'.repeat(64),
             stagingLiveVerifySqlSha256: 'e'.repeat(64),
             googleFixturePolicySha256: '8'.repeat(64),
             sentryHardeningEvidenceSha256: 'a'.repeat(64),
+            sentryHardeningSourceReceiptSha256: '0'.repeat(64),
             pendingMigrations: [PRODUCTION_ROLLOUT_MIGRATIONS[0]],
             waveSqlSha256: { processed_at_small_fix: '9'.repeat(64) },
             livePreflightSqlSha256: 'b'.repeat(64),
@@ -569,7 +691,9 @@ describe('Supabase production wave rollout runner', () => {
             'db_push=FORBIDDEN',
             'migration_repair=FORBIDDEN',
             `sentry_hardening=${'a'.repeat(64)}`,
+            `sentry_hardening_source=${'0'.repeat(64)}`,
             `backup_artifact=${'f'.repeat(64)}`,
+            `preservation_policy=${'f'.repeat(64)}`,
             `staging_live_verify_sql=${'e'.repeat(64)}`,
             `history_reconciliation=${'0'.repeat(64)}`,
             `live_history_reconciliation_sql=${'1'.repeat(64)}`,
@@ -591,11 +715,13 @@ describe('Supabase production wave rollout runner', () => {
             backupReceiptSha256: null,
             backupArtifactSha256: null,
             cleanupEvidenceSha256: null,
+            preservationPolicySha256: null,
             authPolicyEvidenceSha256: null,
             stagingEvidenceSha256: null,
             stagingLiveVerifySqlSha256: null,
             googleFixturePolicySha256: null,
             sentryHardeningEvidenceSha256: null,
+            sentryHardeningSourceReceiptSha256: null,
             pendingMigrations: [],
             waveSqlSha256: {},
             livePreflightSqlSha256: 'b'.repeat(64),
@@ -607,7 +733,7 @@ describe('Supabase production wave rollout runner', () => {
     it('does not open a connection before every local gate and never auto-restores or switches', () => {
         const localGate = runnerSource.indexOf('if (executionErrors.length > 0)');
         const databaseCredentialRead = runnerSource.indexOf('const databaseUrl = process.env[PRODUCTION_ROLLOUT_DB_URL_ENV]');
-        const psqlCall = runnerSource.indexOf("runPsql('live-preflight'");
+        const psqlCall = runnerSource.indexOf("runPsql(\n        'live-preflight'");
         expect(localGate).toBeGreaterThan(-1);
         expect(databaseCredentialRead).toBeGreaterThan(localGate);
         expect(psqlCall).toBeGreaterThan(databaseCredentialRead);
@@ -620,6 +746,7 @@ describe('Supabase production wave rollout runner', () => {
         expect(liveAuthReadback).toBeGreaterThan(-1);
         expect(firstProductionWrite).toBeGreaterThan(liveAuthReadback);
         expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_PRESERVATION_POLICY_REVALIDATION'");
         expect(runnerSource).toContain("status: 'BLOCKED_LIVE_AUTH_NOT_INERT'");
         expect(runnerSource).toContain('backupArtifactPathPersisted: false');
         expect(runnerSource).toContain("status: 'STOPPED_AMBIGUOUS_WAVE_RESULT'");
@@ -632,9 +759,26 @@ describe('Supabase production wave rollout runner', () => {
         expect(sharedSource).toContain('automatic_down_or_restore=FORBIDDEN');
     });
 
+    it('executes the exact approved SQL bytes from memory and fails closed on hash drift', () => {
+        const approvedContents = 'SELECT 1;\n';
+        const approvedSha256 = sha256(approvedContents);
+        expect(approvedSqlBytesMatch(approvedContents, approvedSha256)).toBe(true);
+        expect(approvedSqlBytesMatch(`${approvedContents}SELECT 2;\n`, approvedSha256)).toBe(false);
+        expect(approvedSqlBytesMatch(approvedContents, 'not-a-sha')).toBe(false);
+
+        const hashCheck = runnerSource.indexOf('if (!approvedSqlBytesMatch(approvedSql.contents, approvedSql.sha256))');
+        const psqlInvocation = runnerSource.indexOf("const result = spawnSync('psql'");
+        expect(hashCheck).toBeGreaterThan(-1);
+        expect(psqlInvocation).toBeGreaterThan(hashCheck);
+        expect(runnerSource).toContain('input: approvedSql.contents');
+        expect(runnerSource).toContain('psql was not invoked');
+        expect(runnerSource).not.toContain("args.push('-f', sqlPath)");
+        expect(runnerSource).not.toMatch(/runPsql\([^)]*artifacts\.(?:live|wave|final|staging)/su);
+    });
+
     it('requires an exact live staging hardening readback before any production write', () => {
         const stagingReadback = runnerSource.indexOf("runPsql(\n            'live-staging-hardening'");
-        const productionLivePreflight = runnerSource.indexOf("runPsql('live-preflight'");
+        const productionLivePreflight = runnerSource.indexOf("runPsql(\n        'live-preflight'");
         const firstProductionWrite = runnerSource.indexOf('runPsql(`apply-${wave.id}`');
         expect(stagingReadback).toBeGreaterThan(-1);
         expect(productionLivePreflight).toBeGreaterThan(stagingReadback);
@@ -730,6 +874,38 @@ function backupReceipt(createdAt: string): Record<string, unknown> {
         artifactBytes: 1_024,
         artifactPathRecorded: false,
         toolVersions: { pgDump: 'pg_dump 17', pgRestore: 'pg_restore 17' },
+    };
+}
+
+function preservationPolicy(approvedAt: string): {
+    schemaVersion: number;
+    policyKind: string;
+    targetProjectRef: string;
+    aggregateSnapshotSha256: string;
+    approvalScopeSha256: string;
+    approvedAt: string;
+    observedCounts: Record<string, number | null>;
+    decisions: Record<string, string>;
+} {
+    const contract = JSON.parse(readFileSync(
+        'scripts/launch/production-fixture-cleanup-contract-v3.json',
+        'utf8',
+    )) as {
+        classActions: Record<string, { expectedCount: number | null; decision: string }>;
+    };
+    return {
+        schemaVersion: 2,
+        policyKind: 'production_fixture_preservation',
+        targetProjectRef: PRODUCTION_PROJECT.ref,
+        aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
+        approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
+        approvedAt,
+        observedCounts: Object.fromEntries(
+            Object.entries(contract.classActions).map(([fixtureClass, action]) => [fixtureClass, action.expectedCount]),
+        ),
+        decisions: Object.fromEntries(
+            Object.entries(contract.classActions).map(([fixtureClass, action]) => [fixtureClass, action.decision]),
+        ),
     };
 }
 
@@ -894,6 +1070,44 @@ function sentryEvidence(): Record<string, unknown> {
         expectedChanges: sentryExpectedChanges(),
         checks: [{ status: 'ok' }],
     };
+}
+
+function sentryExecutedSourceReceipt(): Record<string, unknown> {
+    const base = sentryEvidence();
+    const detectorFingerprint = String(base.detectorFingerprint);
+    const ownerFingerprint = String(base.ownerFingerprint);
+    const workflowIdFingerprints = [
+        {
+            name: 'EH Production - Error spike 10 events in 5 minutes',
+            idFingerprint: 'a'.repeat(64),
+            ownershipSource: 'post_response',
+        },
+        {
+            name: 'EH Production - New and regressed errors',
+            idFingerprint: 'b'.repeat(64),
+            ownershipSource: 'post_response',
+        },
+    ];
+    return {
+        ...base,
+        finalizationProof: {
+            stateFingerprint: 'c'.repeat(64),
+            sourceFingerprint: sha256(stableSentryJson({
+                ownershipSource: 'post_response',
+                workflowIdFingerprints,
+                detectorFingerprint,
+                ownerFingerprint,
+            })),
+            workflowIdFingerprints,
+        },
+    };
+}
+
+function stableSentryJson(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(stableSentryJson).join(',')}]`;
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSentryJson(record[key])}`).join(',')}}`;
 }
 
 function sentryExpectedChanges(): Record<string, unknown> {

@@ -9,9 +9,10 @@ SELECT (
     :'cleanup_gate' = 'EXECUTE_PRODUCTION_FIXTURE_CLEANUP_V1'
     AND :'cleanup_project_ref' = 'vkkahxsybhbutszerawz'
     AND :'cleanup_snapshot_sha256' = '765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6'
-    AND :'cleanup_scope_sha256' = '35e5a8bf6a9f06b4419381171b04f3a050f4e9457fd674375a7e26ebc34672ec'
+    AND :'cleanup_scope_sha256' = '3579509fe2cec168f9758fc69dab19f697fa5163a8e8a35582d8b8a1665ad320'
     AND :'cleanup_backup_receipt_sha256' ~ '^[a-f0-9]{64}$'
     AND :'cleanup_package_stripe_reference_sha256' ~ '^[a-f0-9]{64}$'
+    AND :'cleanup_preservation_policy_sha256' ~ '^[a-f0-9]{64}$'
 ) AS cleanup_gate_ok \gset
 
 \if :cleanup_gate_ok
@@ -447,5 +448,6 @@ COMMIT;
 SELECT 'FIXTURE_CLEANUP_EXECUTE_OK|'
     || 'project_ref=vkkahxsybhbutszerawz|'
     || 'snapshot=765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6|'
-    || 'scope=35e5a8bf6a9f06b4419381171b04f3a050f4e9457fd674375a7e26ebc34672ec|'
+    || 'scope=3579509fe2cec168f9758fc69dab19f697fa5163a8e8a35582d8b8a1665ad320|'
+    || 'preservation_policy=' || :'cleanup_preservation_policy_sha256' || '|'
     || 'auth_users=BLOCKED_UNTOUCHED_138|packages=4|legacy_jobs=ABSENT';

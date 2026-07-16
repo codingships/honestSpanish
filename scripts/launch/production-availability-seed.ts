@@ -210,6 +210,10 @@ if (externalWritePerformed && status === 'OK') {
         authPolicyReceiptSha256,
         schedule: PRODUCTION_AVAILABILITY_SLOTS,
         timezone: PRODUCTION_AVAILABILITY_TARGET.timezone,
+        authUsersRemaining: 2,
+        authSessionsRemaining: 0,
+        authRefreshTokensRemaining: 0,
+        rolloutMigrationsVerified: 25,
         externalProvidersTouched: false,
         verifiedAt: new Date().toISOString(),
     }, null, 2)}\n`, 'utf8');
@@ -283,8 +287,8 @@ function validateLocalPosture(): Check {
         'BEGIN READ ONLY',
         'Expected exact finalized two-profile Auth policy state',
         'teacher_availability_no_active_overlap',
-        "'20260712114000'",
-        "'20260712114500'",
+        "'20260712112000'",
+        "'20260712195500'",
     ];
     const missing = required.filter((snippet) => !sql.includes(snippet));
     if (packageJson.scripts?.['launch:production-availability'] !== 'tsx scripts/launch/production-availability-seed.ts') missing.push('package script');

@@ -14,11 +14,16 @@ import {
     validateProductionAvailabilityPreflight,
     validateProductionAvailabilityRolledBackPostflight,
 } from '../../scripts/launch/production-availability-shared';
-import { hashIdentitySet } from '../../scripts/launch/supabase-production-auth-cleanup-shared';
+import {
+    hashIdentitySet,
+    hashRoleBoundIdentitySet,
+} from '../../scripts/launch/supabase-production-auth-cleanup-shared';
+import { PRODUCTION_ROLLOUT_MIGRATIONS } from '../../scripts/launch/supabase-production-rollout-runner-shared';
 
 const ADMIN_ID = '11111111-1111-4111-8111-111111111111';
 const TEACHER_ID = '22222222-2222-4222-8222-222222222222';
 const PRESERVED_SET_SHA256 = hashIdentitySet([ADMIN_ID, TEACHER_ID]);
+const PRESERVED_ROLE_BINDING_SHA256 = hashRoleBoundIdentitySet(ADMIN_ID, TEACHER_ID);
 
 const validReceipt = {
     schemaVersion: 1,
@@ -41,6 +46,7 @@ const validReceipt = {
     authReducedReceiptSha256: 'c'.repeat(64),
     productionRolloutReceiptSha256: 'd'.repeat(64),
     preservedSetSha256: PRESERVED_SET_SHA256,
+    preservedRoleBindingSha256: PRESERVED_ROLE_BINDING_SHA256,
     freezeCutoff: '2026-07-02T18:29:27.580Z',
     quarantineUntil: '2026-07-12T11:00:00.000Z',
     googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED',
@@ -61,6 +67,9 @@ describe('production availability seed', () => {
         expect(validateFinalAuthPolicyReceipt(validReceipt)).toEqual([]);
         expect(validateFinalAuthPolicyReceipt({ ...validReceipt, publicProfilesRemaining: 3 })).toContain('publicProfilesRemaining must equal 2');
         expect(validateFinalAuthPolicyReceipt({ ...validReceipt, resetEmailsSent: true })).toContain('resetEmailsSent must equal false');
+        expect(validateFinalAuthPolicyReceipt({ ...validReceipt, preservedRoleBindingSha256: undefined })).toContain(
+            'preservedRoleBindingSha256 must be a lowercase SHA-256',
+        );
     });
 
     it('defines only five Monday-Friday Madrid windows and an atomic empty-baseline insert', () => {
@@ -77,6 +86,11 @@ describe('production availability seed', () => {
         expect(sql).toContain('Expected zero existing availability rows for the production teacher');
         expect(sql).toContain('pg_advisory_xact_lock');
         expect(sql).toContain('LOCK TABLE auth.users IN SHARE MODE');
+        expect(sql).toContain('LOCK TABLE auth.sessions IN SHARE MODE');
+        expect(sql).toContain('LOCK TABLE auth.refresh_tokens IN SHARE MODE');
+        expect(sql).toContain('LOCK TABLE supabase_migrations.schema_migrations IN SHARE MODE');
+        expect(sql).toContain('Expected zero production Auth sessions and refresh tokens');
+        expect(sql).toContain('Expected exact canonical 25-migration production rollout');
         expect(sql).toContain('LOCK TABLE public.teacher_availability IN SHARE ROW EXCLUSIVE MODE');
         expect(sql).toContain("current_setting('espanol_honesto.expected_admin_id')::uuid");
         expect(sql).toContain("current_setting('espanol_honesto.expected_teacher_id')::uuid");
@@ -91,17 +105,37 @@ describe('production availability seed', () => {
         expect(sql).not.toContain('TRUNCATE');
     });
 
+    it('verifies every rollout migration by exact version, name and single-statement SHA-256', () => {
+        const generated = [
+            renderProductionAvailabilityPreflightSql(),
+            renderProductionAvailabilityApplySql(),
+            renderProductionAvailabilityVerifySql(),
+        ];
+        expect(generated[0]).toContain('rollout_history_exact_count');
+        expect(generated[2]).toContain('rollout_history_exact_count');
+        for (const sql of generated) {
+            expect(sql).toContain('count(history.version) = 1');
+            expect(sql).toContain('cardinality(history.statements) = 1');
+            expect(sql).toContain("extensions.digest(convert_to(history.statements[1], 'UTF8'), 'sha256')");
+            expect(sql).not.toContain('count(distinct version)');
+            for (const migration of PRODUCTION_ROLLOUT_MIGRATIONS) {
+                expect(sql).toContain(`('${migration.version}', '${migration.name}', '${migration.sha256}')`);
+            }
+        }
+    });
+
     it('validates exact preflight and postflight aggregates', () => {
         expect(validateProductionAvailabilityPreflight(parseAvailabilityFacts([
             'current_database\tpostgres',
             'teacher_match_count\t1',
             'profile_role_counts\t1,1,0,0',
             'auth_user_count\t2',
+            'auth_session_counts\t0,0',
             'teacher_auth_link_count\t1',
             `preserved_set_sha256\t${PRESERVED_SET_SHA256}`,
             'teacher_availability_count\t0',
             'final_profile_counts\t2,2',
-            'hardening_history_count\t2',
+            'rollout_history_exact_count\t25',
             'overlap_constraint_valid\ttrue',
         ].join('\n')), PRESERVED_SET_SHA256)).toEqual([]);
         expect(validateProductionAvailabilityPostflight(parseAvailabilityFacts([
@@ -109,6 +143,8 @@ describe('production availability seed', () => {
             'teacher_match_count\t1',
             'profile_role_counts\t1,1,0,0',
             'auth_user_count\t2',
+            'auth_session_counts\t0,0',
+            'rollout_history_exact_count\t25',
             'teacher_auth_link_count\t1',
             'final_profile_counts\t2,2',
             `preserved_set_sha256\t${PRESERVED_SET_SHA256}`,
@@ -122,6 +158,8 @@ describe('production availability seed', () => {
             'teacher_match_count\t1',
             'profile_role_counts\t1,1,0,0',
             'auth_user_count\t2',
+            'auth_session_counts\t0,0',
+            'rollout_history_exact_count\t25',
             'teacher_auth_link_count\t1',
             'final_profile_counts\t2,2',
             `preserved_set_sha256\t${PRESERVED_SET_SHA256}`,
@@ -149,11 +187,12 @@ describe('production availability seed', () => {
             'teacher_match_count\t1',
             'profile_role_counts\t1,1,0,0',
             'auth_user_count\t2',
+            'auth_session_counts\t0,0',
             'teacher_auth_link_count\t1',
             `preserved_set_sha256\t${'f'.repeat(64)}`,
             'teacher_availability_count\t0',
             'final_profile_counts\t2,2',
-            'hardening_history_count\t2',
+            'rollout_history_exact_count\t25',
             'overlap_constraint_valid\ttrue',
         ].join('\n'));
         expect(validateProductionAvailabilityPreflight(facts, PRESERVED_SET_SHA256)).toContain(

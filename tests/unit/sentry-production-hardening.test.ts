@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
@@ -9,7 +10,9 @@ import {
     buildSentryRecoveryDecision,
     fingerprintSentryId,
     isSentryHardeningRolloutEligible,
+    matchReattestedWorkflowOwnership,
     parseSentryExecutionJournal,
+    validateSentryHardeningExecutedReceiptAnchor,
     workflowMatchesDefinition,
 } from '../../scripts/launch/sentry-production-hardening-shared';
 
@@ -346,12 +349,44 @@ describe('Sentry production hardening', () => {
             ...base,
             terminalProof: { ...base.terminalProof, ambiguousOutcomeOutstanding: true },
         })).toBe(false);
+        expect(isSentryHardeningRolloutEligible({
+            ...base,
+            closureStatus: 'REATTESTED_AND_VERIFIED',
+            executeRequested: false,
+            reattestRequested: true,
+            externalWriteAttempted: false,
+            externalWritePerformed: false,
+            createdWorkflowCount: 0,
+        })).toBe(true);
+    });
+
+    it('anchors GET-only reattestation to the exact executed receipt and POST-owned workflow ids', () => {
+        const receipt = executedReceiptAnchorFixture();
+        const validation = validateSentryHardeningExecutedReceiptAnchor(
+            receipt,
+            new Date('2026-07-16T12:00:00.000Z'),
+        );
+        expect(validation).toMatchObject({ valid: true, errors: [] });
+        const owned = validation.value?.workflowIdFingerprints ?? [];
+        const responses = definitions.map((definition, index) => ({
+            ...definition,
+            id: `workflow-${index + 1}`,
+        }));
+        expect(matchReattestedWorkflowOwnership(responses, owned)).toBe(true);
+        expect(matchReattestedWorkflowOwnership([
+            { ...responses[0], id: 'foreign-id' },
+            responses[1],
+        ], owned)).toBe(false);
+        expect(validateSentryHardeningExecutedReceiptAnchor({
+            ...receipt,
+            endedAt: '2026-07-17T12:00:00.000Z',
+        }, new Date('2026-07-16T12:00:00.000Z'))).toMatchObject({ valid: false });
     });
 
     it('keeps the executable runner exact-gated, GET-first and free of issue/event mutation', () => {
         const source = readFileSync('scripts/launch/sentry-production-hardening.ts', 'utf8');
         expect(source).toContain('SENTRY_PRODUCTION_HARDENING_APPROVAL_ENV');
-        expect(source).toContain("process.argv.includes('--execute-approved')");
+        expect(source).toContain("value === '--execute-approved'");
         expect(source).toContain("sentryRequest<unknown>('GET', workflowsApiPath()");
         expect(source).toContain("sentryRequest<Record<string, unknown>>('POST', workflowsApiPath()");
         expect(source).toContain('{ scrubIPAddresses: true }');
@@ -362,7 +397,10 @@ describe('Sentry production hardening', () => {
         expect(source).toContain("event: 'workflow_create_intent'");
         expect(source).toContain("source: 'post_response'");
         expect(source).not.toContain("rememberCreatedWorkflow(name, id, 'get_reconciliation')");
-        expect(source).toContain("process.argv.includes('--recover-lock')");
+        expect(source).toContain("value === '--recover-lock'");
+        expect(source).toContain("value === '--reattest-existing'");
+        expect(source).toContain('validateSentryHardeningExecutedReceiptAnchor');
+        expect(source).toContain('matchReattestedWorkflowOwnership');
         expect(source).toContain('SENTRY_PRODUCTION_RECOVERY_APPROVAL_ENV');
         expect(source).toContain('workflow_name_only_match_requires_manual_recovery');
         expect(source).toContain('automatic DELETE is forbidden');
@@ -377,6 +415,74 @@ describe('Sentry production hardening', () => {
         expect(source).not.toContain('status: \'resolved\'');
     });
 });
+
+function executedReceiptAnchorFixture(): Record<string, unknown> {
+    const detectorFingerprint = fingerprintSentryId('detector-123');
+    const ownerFingerprint = fingerprintSentryId('owner-456');
+    const workflowIdFingerprints = Object.values(SENTRY_PRODUCTION_WORKFLOW_NAMES).map((name, index) => ({
+        name,
+        idFingerprint: fingerprintSentryId(`workflow-${index + 1}`),
+        ownershipSource: 'post_response',
+    })).sort((left, right) => left.name.localeCompare(right.name));
+    const sourceFingerprint = createHash('sha256').update(stableJsonForTest({
+        ownershipSource: 'post_response',
+        workflowIdFingerprints,
+        detectorFingerprint,
+        ownerFingerprint,
+    }), 'utf8').digest('hex');
+    return {
+        schemaVersion: 1,
+        evidenceContractVersion: 2,
+        artifactKind: 'sentry_production_hardening_receipt',
+        endedAt: '2026-07-15T12:00:00.000Z',
+        status: 'OK',
+        closureStatus: 'HARDENED_AND_VERIFIED',
+        target: {
+            organization: 'honestspanish',
+            project: 'espanol-honesto-astro',
+            environment: 'production',
+        },
+        executeRequested: true,
+        externalWriteAttempted: true,
+        externalWritePerformed: true,
+        externalWriteOutcomeAmbiguous: false,
+        executionLockRetainedForRecovery: false,
+        rollbackAttempted: false,
+        createdWorkflowCount: 2,
+        detectorFingerprint,
+        ownerFingerprint,
+        rawIdentifiersPersistedInReports: false,
+        terminalProof: {
+            stableReadbacks: 2,
+            exactWorkflowDefinitionsVerified: true,
+            workflowCount: 2,
+            legacyIssueRuleCount: 0,
+            scrubIPAddresses: true,
+            executionLockAbsent: true,
+            ambiguousOutcomeOutstanding: false,
+            rawIdentifiersPersistedInReports: false,
+        },
+        evidenceContract: {
+            rolloutEligible: true,
+            requiredArtifactKind: 'sentry_production_hardening_receipt',
+            rawIdentifiersPersistedInReports: false,
+        },
+        finalizationProof: {
+            stateFingerprint: 'a'.repeat(64),
+            sourceFingerprint,
+            workflowIdFingerprints,
+        },
+    };
+}
+
+function stableJsonForTest(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(stableJsonForTest).join(',')}]`;
+    if (!value || typeof value !== 'object') return JSON.stringify(value);
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => (
+        `${JSON.stringify(key)}:${stableJsonForTest(record[key])}`
+    )).join(',')}}`;
+}
 
 function executionJournal(events: Array<Record<string, unknown>>): string {
     return [

@@ -34,13 +34,11 @@ Estas tareas no son bloqueantes mientras se mantenga la decision actual. Si se a
 | --- | --- | --- |
 | Calendar de `fernandialejandro@gmail.com` | Decision documentada, configuracion final pendiente | Seguir `docs/launch/GOOGLE_CALENDAR_ACCOUNT.md`: si basta con usarlo como `profiles.email`, no hace falta cambio de codigo; si debe ser distinto del login/perfil, crear `calendar_email` con migracion y pruebas antes de production. Probar en staging antes de production. |
 | Google Drive/template final | Final-only | Validar con smoke real antes de production; no usar datos reales durante RC si no hace falta. |
-| Production Worker final | Final-only | Staging verificado; production se valida junto a secretos definitivos y smoke final. |
-| Backup/export Supabase Free | Final-only | Free no tiene backups programados nativos; seguir `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` para backup logico/manual fuera del repo, upgrade Pro o accepted risk antes de cambios destructivos/publicacion definitiva. |
-| Cloudflare Worker legacy `espanol-honesto-reminders` | Decision final | Preflight read-only 2026-06-12 lo encontro con cron horario y sin secrets listados. Antes de Go/No-Go, decidir si se desactiva/elimina o si queda documentado como no interferente con `workers/fulfillment`. |
+| Production Workers activos | Final-only | El RC prepara Fulfillment y web en bootstrap inerte. Secretos de proveedores, Cron, runtime activo, rutas/DNS y smoke real se validan solo en la ventana final. |
+| Backup/export Supabase Free final | Final-only | El backup EFS previo al rollout production inerte es un requisito RC separado. En la ventana final, seguir `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` para confirmar un backup/export vigente fuera del repo, upgrade Pro o accepted risk antes de la publicación definitiva. |
+| Cloudflare Worker legacy `espanol-honesto-reminders` | Cerrado/neutralizado | El 2026-07-14 se retiró su Cron y se desactivaron `workers.dev` y Preview URLs; conserva Worker, versiones y bindings, sin rutas ni dominios. No requiere otra decisión salvo que se quiera eliminarlo después del lanzamiento. |
 | Supabase leaked password protection | Recomendado antes de launch | Supabase Advisor lo marca desactivado en staging y production. Activarlo desde Auth si no rompe el flujo, o registrar accepted risk con seguimiento. |
 | Supabase extension `btree_gist` en `public` | Backlog/riesgo aceptado | Supabase Advisor recomienda mover extensiones fuera de `public`. Hacerlo solo con migracion probada; si no se toca antes de launch, registrar riesgo o backlog. |
-| Supabase production `public.jobs` legacy | Decision final | Production conserva `public.jobs` con RLS y sin policies. Confirmar que el runtime usa `fulfillment_jobs` y que `jobs` queda legacy bloqueada, o planificar limpieza despues de backup. |
-| Historial de migraciones staging | Decision final | Production tiene historial completo; staging muestra solo migraciones recientes 012-017. Confirmar si se acepta por ser proyecto separado con esquema ya presente o si se recrea staging desde migraciones completas. |
 | Stripe MCP listados | No bloqueante | La cuenta Stripe autentica, pero los listados desde el MCP fallan con `Unknown tool`. Cerrar pagos con dashboard, checkout test/live, webhook delivery y reconciliacion Supabase, no con este conector. |
 
 ## Reglas

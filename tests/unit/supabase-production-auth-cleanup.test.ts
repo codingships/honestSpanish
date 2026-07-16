@@ -19,6 +19,7 @@ import {
     buildQuarantineUntil,
     confirmAuthRequarantineRotation,
     hashIdentitySet,
+    hashRoleBoundIdentitySet,
     sanitizeAuthCleanupOutput,
     selectAuthQuarantineConfig,
     validateAuthPreflightEvidence,
@@ -39,6 +40,7 @@ import {
     isRetryableSupabaseAdminError,
     parseProductionAuthCleanupArgs,
     validateRequarantineLedgerDirectory,
+    validateRolloutPreservationPolicyBinding,
 } from '../../scripts/launch/supabase-production-auth-cleanup';
 import { readAuthPolicyEvidence } from '../../scripts/launch/supabase-production-rollout-runner-shared';
 
@@ -114,6 +116,17 @@ describe('Supabase production Auth cleanup runner', () => {
         expect(() => hashIdentitySet(['not-a-uuid'])).toThrow('invalid UUID');
     });
 
+    it('binds preserved identities to their admin and teacher roles', () => {
+        const adminId = '11111111-1111-4111-8111-111111111111';
+        const teacherId = '22222222-2222-4222-8222-222222222222';
+        const roleBinding = hashRoleBoundIdentitySet(adminId, teacherId);
+        expect(roleBinding).toMatch(/^[a-f0-9]{64}$/u);
+        expect(hashRoleBoundIdentitySet(adminId.toUpperCase(), ` ${teacherId} `)).toBe(roleBinding);
+        expect(hashRoleBoundIdentitySet(teacherId, adminId)).not.toBe(roleBinding);
+        expect(() => hashRoleBoundIdentitySet(adminId, adminId)).toThrow('distinct admin and teacher');
+        expect(() => hashRoleBoundIdentitySet('not-a-uuid', teacherId)).toThrow('invalid UUID');
+    });
+
     it('validates the exact v2 public cleanup receipt against the real manifest and backup', () => {
         const directory = makeTempDir();
         const completedAt = new Date().toISOString();
@@ -133,6 +146,7 @@ describe('Supabase production Auth cleanup runner', () => {
             approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
             backupReceiptSha256: backupHash,
             authInertEvidenceSha256: 'e'.repeat(64),
+            preservationPolicySha256: 'f'.repeat(64),
             executeSqlSha256: manifest.sql.execute.sha256,
             freezeCutoff: PRODUCTION_AUTH_FREEZE_CUTOFF,
             postconditions: {
@@ -159,6 +173,26 @@ describe('Supabase production Auth cleanup runner', () => {
         });
         writeFileSync(cleanupPath, stableJson({ ...publicReceipt, targetProjectRef: 'wrong' }), 'utf8');
         expect(validateCleanupInputs({ backupReceiptPath: backupPath, publicCleanupReceiptPath: cleanupPath })).toMatchObject({ ok: false });
+    });
+
+    it('requires the Auth-finalize rollout receipt to preserve the exact public-cleanup policy binding', () => {
+        const policySha256 = 'f'.repeat(64);
+        expect(validateRolloutPreservationPolicyBinding({
+            preservationPolicySha256: policySha256,
+        }, policySha256)).toEqual([]);
+        expect(validateRolloutPreservationPolicyBinding({}, policySha256)).toContain(
+            'Production rollout preservationPolicySha256 must be a lowercase SHA-256.',
+        );
+        expect(validateRolloutPreservationPolicyBinding({
+            preservationPolicySha256: 'e'.repeat(64),
+        }, policySha256)).toContain(
+            'Production rollout preservation-policy binding does not match the public-cleanup receipt.',
+        );
+        expect(validateRolloutPreservationPolicyBinding({
+            preservationPolicySha256: policySha256,
+        }, 'not-a-sha')).toContain('Expected cleanup preservation-policy SHA-256 is invalid.');
+        expect(runnerSource).toContain('value.preservationPolicySha256');
+        expect(runnerSource).toContain('cleanup.publicCleanupReceipt.preservationPolicySha256');
     });
 
     it('requires signup and mailer autoconfirm disabled and a JWT expiry no greater than one hour', () => {

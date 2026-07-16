@@ -34,6 +34,7 @@ const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const fixtureCountsSchema = z.strictObject({
     auth_users: count,
     profiles: count,
+    profiles_private: count,
     packages: count,
     subscriptions: count,
     student_teachers: count,
@@ -44,7 +45,8 @@ const fixtureCountsSchema = z.strictObject({
     fulfillment_jobs: count,
     admin_audit_log: count,
     teacher_availability: count,
-    legacy_jobs: count,
+    jobs: count,
+    support_tickets: count,
 });
 
 const aggregatesSchema = z.strictObject({

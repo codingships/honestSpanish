@@ -81,4 +81,4 @@ No incluir:
 - Se ha probado una alerta segura o se ha documentado por que no se prueba antes del Go/No-Go.
 - La evidencia esta registrada sin secretos.
 - `pnpm launch:operations`, `pnpm launch:security` y `pnpm launch:status` se han rerunteeado despues.
-- El resumen ejecutado de `pnpm launch:sentry-production-hardening -- --execute-approved` acredita `HARDENED_AND_VERIFIED`, o existe un equivalente manual explicitamente aceptado.
+- El receipt ejecutado de `pnpm launch:sentry-production-hardening -- --execute-approved` acredita `HARDENED_AND_VERIFIED`; si caduca pero el estado sigue intacto, `--reattest-existing --source-receipt <receipt-ejecutado.json>` puede emitir un `REATTESTED_AND_VERIFIED` fresco mediante GET-only anclado a las huellas POST originales.

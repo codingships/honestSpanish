@@ -142,6 +142,23 @@ describe('Supabase production connector preflight importer', () => {
         });
     });
 
+    it('requires the exact live fixture-count class set used by the cleanup contract', () => {
+        const missing = validSnapshot() as unknown as {
+            aggregates: { fixture_counts: Record<string, unknown> };
+        };
+        delete missing.aggregates.fixture_counts.support_tickets;
+        expect(() => parseProductionConnectorSnapshot(JSON.stringify(missing), now))
+            .toThrow('schema validation failed');
+
+        const legacyAlias = validSnapshot() as unknown as {
+            aggregates: { fixture_counts: Record<string, unknown> };
+        };
+        legacyAlias.aggregates.fixture_counts.legacy_jobs = legacyAlias.aggregates.fixture_counts.jobs;
+        delete legacyAlias.aggregates.fixture_counts.jobs;
+        expect(() => parseProductionConnectorSnapshot(JSON.stringify(legacyAlias), now))
+            .toThrow('schema validation failed');
+    });
+
     it('rejects cross-aggregate billing contradictions before producing rollout evidence', () => {
         const snapshot = validSnapshot();
         addExactRolloutAggregates(snapshot);
@@ -299,6 +316,7 @@ function validSnapshot(): ProductionConnectorSnapshot {
             fixture_counts: {
                 auth_users: 138,
                 profiles: 138,
+                profiles_private: 138,
                 packages: 5,
                 subscriptions: 84,
                 student_teachers: 60,
@@ -309,7 +327,8 @@ function validSnapshot(): ProductionConnectorSnapshot {
                 fulfillment_jobs: 0,
                 admin_audit_log: 0,
                 teacher_availability: 0,
-                legacy_jobs: 111,
+                jobs: 111,
+                support_tickets: 2,
             },
             schema_hazards: {
                 package_prices_table_present: false,

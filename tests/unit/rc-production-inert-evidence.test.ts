@@ -12,8 +12,25 @@ import {
     reconcileWorkerWriteCheckpoint,
     startWorkerWriteCheckpoint,
 } from '../../scripts/launch/cloudflare-production-worker-safety';
+import {
+    buildCloudflareProductionInertCompositeEvidence,
+    CLOUDFLARE_PRODUCTION_INERT_TARGET,
+} from '../../scripts/launch/cloudflare-production-inert-composite-evidence';
+import {
+    productionRolloutAllowlistSha256,
+    productionRolloutMigrationManifestSha256,
+} from '../../scripts/launch/supabase-production-rollout-runner-shared';
+import {
+    PRODUCTION_EXPECTED_HISTORY_COUNT,
+    PRODUCTION_INERT_ZERO_ROW_TABLES,
+    productionInertDatabaseStateSha256,
+} from '../../scripts/launch/production-inert-final-readonly-shared';
+import { FIXTURE_CLEANUP_TARGET } from '../../scripts/launch/production-fixture-cleanup-shared';
 
 const now = new Date('2026-07-15T12:00:00.000Z');
+const WEB_PHASE1_VERSION = '11111111-1111-4111-8111-111111111111';
+const WEB_HMAC_VERSION = '22222222-2222-4222-8222-222222222222';
+const FULFILLMENT_VERSION = '33333333-3333-4333-8333-333333333333';
 const temporaryDirectories: string[] = [];
 
 afterEach(() => {
@@ -47,7 +64,7 @@ describe('computed RC production-inert evidence', () => {
         expect(assessment.ready).toBe(true);
         expect(assessment.blocker).toBeNull();
         expect(assessment.requirements.every((requirement) => requirement.status === 'closed')).toBe(true);
-        expect(assessment.latestEvidenceAt).toBe('2026-07-15T11:05:00.000Z');
+        expect(assessment.latestEvidenceAt).toBe('2026-07-15T11:58:00.000Z');
     });
 
     it('accepts a read-only Cloudflare reconciliation that re-attests the same HMAC-only bootstrap', () => {
@@ -63,36 +80,13 @@ describe('computed RC production-inert evidence', () => {
     it('keeps Cloudflare open after a newer ambiguous write until a later reconciliation', () => {
         const root = temporaryOutputs();
         writeCompleteEvidenceChain(root);
-        writeEvidence(
-            root,
-            'launch-cloudflare-production-worker-bootstrap-secrets',
-            '2026-07-15T11-30-00-000Z',
-            'summary.json',
-            {
-                ...cloudflareClosure(false, false),
-                endedAt: '2026-07-15T11:30:00.000Z',
-                status: 'FAILED',
-                closureStatus: 'BLOCKED_BY_GATE_OR_EVIDENCE',
-                externalWriteAttempted: true,
-                externalWritePerformed: 'unknown',
-                checks: [{ status: 'failed', name: 'bootstrap_hmac_write_checkpoint_resolved' }],
-            },
-        );
+        writeResolvedCloudflareCheckpoint(root, '2026-07-15T11:59:00.000Z');
 
         expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
             'cloudflare_bootstrap_hmac',
         ]);
 
-        writeEvidence(
-            root,
-            'launch-cloudflare-production-worker-bootstrap-secrets',
-            '2026-07-15T11-40-00-000Z',
-            'summary.json',
-            {
-                ...cloudflareClosure(false, true),
-                endedAt: '2026-07-15T11:40:00.000Z',
-            },
-        );
+        writeCloudflareCompositeClosure(root, true, '2026-07-15T11:59:30.000Z');
 
         expect(assessRcProductionInertEvidence(root, now).ready).toBe(true);
     });
@@ -119,23 +113,17 @@ describe('computed RC production-inert evidence', () => {
     it('keeps Cloudflare open when a resolved checkpoint is newer than its summary until later reconciliation', () => {
         const root = temporaryOutputs();
         writeCompleteEvidenceChain(root);
-        writeResolvedCloudflareCheckpoint(root, '2026-07-15T11:20:00.000Z');
+        writeResolvedCloudflareCheckpoint(
+            root,
+            '2026-07-15T11:59:00.000Z',
+            'fulfillment-bootstrap-hmac-secret',
+        );
 
         expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
             'cloudflare_bootstrap_hmac',
         ]);
 
-        writeEvidence(
-            root,
-            'launch-cloudflare-production-worker-bootstrap-secrets',
-            '2026-07-15T11-30-00-000Z',
-            'summary.json',
-            {
-                ...cloudflareClosure(false, true),
-                startedAt: '2026-07-15T11:29:00.000Z',
-                endedAt: '2026-07-15T11:30:00.000Z',
-            },
-        );
+        writeCloudflareCompositeClosure(root, true, '2026-07-15T11:59:30.000Z');
 
         expect(assessRcProductionInertEvidence(root, now).ready).toBe(true);
     });
@@ -167,28 +155,129 @@ describe('computed RC production-inert evidence', () => {
         ]));
     });
 
-    it('requires a post-preparation GET proving signup remains closed', () => {
+    it('requires a final read-only Supabase/Auth sandwich after availability', () => {
         const root = temporaryOutputs();
-        writeCompleteEvidenceChain(root, { omitPostPreparationAuthInert: true });
+        writeCompleteEvidenceChain(root, { omitFinalSupabase: true });
 
         const missing = assessRcProductionInertEvidence(root, now);
         expect(openRequirementIds(missing)).toEqual(['supabase_auth_inert_after_preparation']);
+    });
 
-        writeEvidence(
+    it('does not fall back to an older final read-only receipt after a newer broken binding', () => {
+        const root = temporaryOutputs();
+        const chain = writeCompleteEvidenceChain(root);
+        writeFinalSupabaseCapture(
             root,
-            'launch-supabase-auth-config-preflight',
-            '2026-07-15T11-05-00-000Z',
-            'auth-inert-receipt.json',
-            authInertReceipt('2026-07-15T11:05:00.000Z', { disable_signup: false, mailer_autoconfirm: false }),
+            '2026-07-15T11-55-00-000Z',
+            {
+                ...finalSupabaseReceipt(
+                    chain.rolloutSha256,
+                    chain.authPolicySha256,
+                    'f'.repeat(64),
+                ),
+                observedAt: '2026-07-15T11:55:00.000Z',
+                expiresAt: '2026-07-15T12:10:00.000Z',
+            },
         );
+
         expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
             'supabase_auth_inert_after_preparation',
         ]);
     });
 
-    it('does not combine an older complete chain with a newer unfinished rollout', () => {
+    it('does not fall back to an older success after a newer failed or in-progress final capture', () => {
+        for (const status of ['CAPTURE_FAILED', 'CAPTURE_IN_PROGRESS'] as const) {
+            const root = temporaryOutputs();
+            writeCompleteEvidenceChain(root);
+            writeEvidence(
+                root,
+                'launch-production-inert-final-readonly',
+                '2026-07-15T11-55-00-000Z',
+                'summary.json',
+                {
+                    schemaVersion: 1,
+                    mode: 'capture-readonly',
+                    status,
+                    targetEnvironment: 'production',
+                    targetProjectRef: 'vkkahxsybhbutszerawz',
+                    startedAt: '2026-07-15T11:55:00.000Z',
+                    finishedAt: status === 'CAPTURE_FAILED' ? '2026-07-15T11:55:01.000Z' : null,
+                    receiptSha256: null,
+                    receiptFile: null,
+                    receiptObservedAt: null,
+                    receiptExpiresAt: null,
+                    failureCategory: status === 'CAPTURE_FAILED' ? 'DATABASE_READBACK_FAILED' : null,
+                    externalWritePerformed: false,
+                },
+            );
+
+            expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+                'supabase_auth_inert_after_preparation',
+            ]);
+        }
+    });
+
+    it('ignores a newer plan-only final directory after a successful capture', () => {
         const root = temporaryOutputs();
         writeCompleteEvidenceChain(root);
+        writeEvidence(
+            root,
+            'launch-production-inert-final-readonly',
+            '2026-07-15T11-59-00-000Z',
+            'plan.json',
+            { schemaVersion: 1, status: 'PLAN_ONLY_NO_NETWORK' },
+        );
+
+        expect(assessRcProductionInertEvidence(root, now).ready).toBe(true);
+    });
+
+    it('expires only renewable final-state attestations, not immutable operation receipts', () => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+
+        const staleAssessment = assessRcProductionInertEvidence(
+            root,
+            new Date('2026-07-15T12:21:00.000Z'),
+        );
+
+        expect(staleAssessment.ready).toBe(false);
+        expect(openRequirementIds(staleAssessment)).toEqual([
+            'cloudflare_bootstrap_hmac',
+            'supabase_auth_inert_after_preparation',
+        ]);
+    });
+
+    it('independently requires zero sessions, zero refresh tokens and all rollout migrations', () => {
+        for (const unsafeField of [
+            { authSessionsRemaining: 1 },
+            { authRefreshTokensRemaining: 1 },
+            { rolloutMigrationsVerified: 24 },
+        ]) {
+            const root = temporaryOutputs();
+            const chain = writeCompleteEvidenceChain(root);
+            writeEvidence(
+                root,
+                'launch-production-availability',
+                '2026-07-15T11-51-00-000Z',
+                'production-availability-receipt.json',
+                {
+                    ...chain.availability,
+                    ...unsafeField,
+                    verifiedAt: '2026-07-15T11:51:00.000Z',
+                },
+            );
+            rmSync(chain.availabilityPath);
+
+            expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual(expect.arrayContaining([
+                'supabase_production_availability',
+                'supabase_auth_inert_after_preparation',
+            ]));
+        }
+    });
+
+    it('does not combine an older complete chain with a newer unfinished rollout', () => {
+        const root = temporaryOutputs();
+        const chain = writeCompleteEvidenceChain(root);
         const newerAuth = writeEvidence(
             root,
             'launch-supabase-auth-config-preflight',
@@ -201,7 +290,12 @@ describe('computed RC production-inert evidence', () => {
             'launch-supabase-production-rollout-runner',
             '2026-07-15T11-20-00-000Z',
             'production-rollout-receipt.json',
-            rolloutReceipt(newerAuth.sha256, '2026-07-15T11:20:00.000Z'),
+            rolloutReceipt(
+                newerAuth.sha256,
+                '2026-07-15T11:20:00.000Z',
+                chain.publicCleanupSha256,
+                chain.preservationPolicySha256,
+            ),
         );
 
         const assessment = assessRcProductionInertEvidence(root, now);
@@ -216,19 +310,120 @@ describe('computed RC production-inert evidence', () => {
 
     it('does not fall back when the newest rollout has a broken Auth-inert binding', () => {
         const root = temporaryOutputs();
-        writeCompleteEvidenceChain(root);
+        const chain = writeCompleteEvidenceChain(root);
         writeEvidence(
             root,
             'launch-supabase-production-rollout-runner',
             '2026-07-15T11-20-00-000Z',
             'production-rollout-receipt.json',
-            rolloutReceipt('f'.repeat(64), '2026-07-15T11:20:00.000Z'),
+            rolloutReceipt(
+                'f'.repeat(64),
+                '2026-07-15T11:20:00.000Z',
+                chain.publicCleanupSha256,
+                chain.preservationPolicySha256,
+            ),
         );
 
         const assessment = assessRcProductionInertEvidence(root, now);
 
         expect(assessment.ready).toBe(false);
         expect(openRequirementIds(assessment)).toEqual([
+            'supabase_production_rollout',
+            'supabase_auth_finalized',
+            'supabase_production_availability',
+            'supabase_auth_inert_after_preparation',
+        ]);
+    });
+
+    it('rejects a rollout whose Auth-inert proof was already older than 15 minutes', () => {
+        const root = temporaryOutputs();
+        const chain = writeCompleteEvidenceChain(root);
+        writeEvidence(
+            root,
+            'launch-supabase-production-rollout-runner',
+            '2026-07-15T10-30-00-000Z',
+            'production-rollout-receipt.json',
+            rolloutReceipt(
+                chain.initialAuthSha256,
+                '2026-07-15T10:30:00.000Z',
+                chain.publicCleanupSha256,
+                chain.preservationPolicySha256,
+            ),
+        );
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'supabase_production_rollout',
+            'supabase_auth_finalized',
+            'supabase_production_availability',
+            'supabase_auth_inert_after_preparation',
+        ]);
+    });
+
+    it('rejects non-canonical rollout allowlist and migration-manifest hashes', () => {
+        for (const field of ['allowlistSha256', 'migrationManifestSha256'] as const) {
+            const root = temporaryOutputs();
+            const chain = writeCompleteEvidenceChain(root);
+            const receipt = rolloutReceipt(
+                chain.initialAuthSha256,
+                '2026-07-15T10:21:00.000Z',
+                chain.publicCleanupSha256,
+                chain.preservationPolicySha256,
+            );
+            receipt[field] = 'f'.repeat(64);
+            writeEvidence(
+                root,
+                'launch-supabase-production-rollout-runner',
+                '2026-07-15T10-21-00-000Z',
+                'production-rollout-receipt.json',
+                receipt,
+            );
+
+            expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+                'supabase_production_rollout',
+                'supabase_auth_finalized',
+                'supabase_production_availability',
+                'supabase_auth_inert_after_preparation',
+            ]);
+        }
+    });
+
+    it('requires the rollout preservation policy to match the linked public-cleanup receipt', () => {
+        const root = temporaryOutputs();
+        const chain = writeCompleteEvidenceChain(root);
+        writeEvidence(
+            root,
+            'launch-supabase-production-rollout-runner',
+            '2026-07-15T11-20-00-000Z',
+            'production-rollout-receipt.json',
+            rolloutReceipt(
+                chain.initialAuthSha256,
+                '2026-07-15T11:20:00.000Z',
+                chain.publicCleanupSha256,
+                'f'.repeat(64),
+            ),
+        );
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'supabase_production_rollout',
+            'supabase_auth_finalized',
+            'supabase_production_availability',
+            'supabase_auth_inert_after_preparation',
+        ]);
+    });
+
+    it('rejects a rollout receipt that omits the preservation-policy binding', () => {
+        const root = temporaryOutputs();
+        const chain = writeCompleteEvidenceChain(root);
+        const receipt = rolloutReceipt(
+            chain.initialAuthSha256,
+            '2026-07-15T10:20:00.000Z',
+            chain.publicCleanupSha256,
+            chain.preservationPolicySha256,
+        );
+        delete receipt.preservationPolicySha256;
+        writeFileSync(chain.rolloutPath, `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
             'supabase_production_rollout',
             'supabase_auth_finalized',
             'supabase_production_availability',
@@ -252,88 +447,201 @@ describe('computed RC production-inert evidence', () => {
 function writeCompleteEvidenceChain(root: string, options: {
     cloudflarePlanOnly?: boolean;
     cloudflareReconciled?: boolean;
-    omitPostPreparationAuthInert?: boolean;
-} = {}): { availability: Record<string, unknown>; availabilityPath: string } {
+    omitFinalSupabase?: boolean;
+} = {}): {
+    availability: Record<string, unknown>;
+    availabilityPath: string;
+    authPolicySha256: string;
+    finalSupabasePath: string | null;
+    initialAuthSha256: string;
+    preservationPolicySha256: string;
+    publicCleanupSha256: string;
+    rolloutPath: string;
+    rolloutSha256: string;
+} {
     const initialAuth = writeEvidence(
         root,
         'launch-supabase-auth-config-preflight',
-        '2026-07-15T10-00-00-000Z',
+        '2026-07-15T10-10-00-000Z',
         'auth-inert-receipt.json',
-        authInertReceipt('2026-07-15T10:00:00.000Z'),
+        authInertReceipt('2026-07-15T10:10:00.000Z'),
+    );
+    const preservationPolicySha256 = '9'.repeat(64);
+    const publicCleanup = writeEvidence(
+        root,
+        'launch-production-fixture-cleanup',
+        '2026-07-15T10-10-00-000Z',
+        'public-cleanup-receipt.json',
+        publicCleanupReceipt(preservationPolicySha256),
     );
     const rollout = writeEvidence(
         root,
         'launch-supabase-production-rollout-runner',
         '2026-07-15T10-20-00-000Z',
         'production-rollout-receipt.json',
-        rolloutReceipt(initialAuth.sha256),
+        rolloutReceipt(
+            initialAuth.sha256,
+            '2026-07-15T10:20:00.000Z',
+            publicCleanup.sha256,
+            preservationPolicySha256,
+        ),
     );
     const authPolicy = writeEvidence(
         root,
         'launch-supabase-production-auth-cleanup',
-        '2026-07-15T10-50-00-000Z',
+        '2026-07-15T11-40-00-000Z',
         'auth-policy-receipt.json',
-        finalAuthPolicyReceipt(rollout.sha256),
+        finalAuthPolicyReceipt(rollout.sha256, publicCleanup.sha256),
     );
     const availability = availabilityReceipt(authPolicy.sha256);
     const availabilityEvidence = writeEvidence(
         root,
         'launch-production-availability',
-        '2026-07-15T11-00-00-000Z',
+        '2026-07-15T11-45-00-000Z',
         'production-availability-receipt.json',
         availability,
     );
-    if (!options.omitPostPreparationAuthInert) {
-        writeEvidence(
+    const finalSupabaseEvidence = !options.omitFinalSupabase
+        ? writeFinalSupabaseCapture(
             root,
-            'launch-supabase-auth-config-preflight',
-            '2026-07-15T11-05-00-000Z',
-            'auth-inert-receipt.json',
-            authInertReceipt('2026-07-15T11:05:00.000Z'),
+            '2026-07-15T11-50-00-000Z',
+            finalSupabaseReceipt(rollout.sha256, authPolicy.sha256, availabilityEvidence.sha256),
+        )
+        : null;
+    if (!options.cloudflarePlanOnly) {
+        writeCloudflareCompositeClosure(
+            root,
+            options.cloudflareReconciled === true,
+            '2026-07-15T11:58:00.000Z',
         );
     }
-    writeEvidence(
-        root,
-        'launch-cloudflare-production-worker-bootstrap-secrets',
-        '2026-07-15T10-40-00-000Z',
-        'summary.json',
-        cloudflareClosure(options.cloudflarePlanOnly === true, options.cloudflareReconciled === true),
-    );
-    return { availability, availabilityPath: availabilityEvidence.file };
+    return {
+        availability,
+        availabilityPath: availabilityEvidence.file,
+        authPolicySha256: authPolicy.sha256,
+        finalSupabasePath: finalSupabaseEvidence?.file ?? null,
+        initialAuthSha256: initialAuth.sha256,
+        preservationPolicySha256,
+        publicCleanupSha256: publicCleanup.sha256,
+        rolloutPath: rollout.file,
+        rolloutSha256: rollout.sha256,
+    };
 }
 
-function cloudflareClosure(planOnly: boolean, reconciled: boolean): Record<string, unknown> {
-    const closureStatus = planOnly
-        ? 'PLAN_ONLY_READY'
-        : reconciled
-            ? 'RECONCILED_STOP'
-            : 'EXECUTED_AND_ATTESTED';
-    return {
-        schemaVersion: 1,
-        startedAt: '2026-07-15T10:39:00.000Z',
-        endedAt: '2026-07-15T10:40:00.000Z',
-        status: planOnly ? 'WARNING' : 'OK',
-        closureStatus,
-        executeRequested: !planOnly,
-        approvalMatched: !planOnly,
-        externalWriteAttempted: !planOnly,
-        externalWritePerformed: !planOnly && !reconciled,
-        target: {
-            accountId: 'd1a22bcf6477ff2ff31d2bfb83084e44',
-            worker: 'espanolhonesto',
-            environment: 'production_bootstrap',
-            supabaseRef: 'vkkahxsybhbutszerawz',
+function writeCloudflareCompositeClosure(
+    outputsRoot: string,
+    reconciled: boolean,
+    generatedAt: string,
+): void {
+    const workspaceRoot = path.dirname(outputsRoot);
+    const finalAt = new Date(generatedAt);
+    const phaseSummaryEndedAt = new Date(finalAt.getTime() - 30_000).toISOString();
+    const phaseEvidenceGeneratedAt = new Date(finalAt.getTime() - 20_000).toISOString();
+    const phaseSummary = writeEvidence(
+        outputsRoot,
+        'launch-cloudflare-production-worker-phase1',
+        phaseSummaryEndedAt.replace(/[:.]/gu, '-'),
+        'summary.json',
+        {
+            schemaVersion: 1,
+            status: 'OK',
+            executeRequested: true,
+            externalWritePerformed: true,
+            phaseOneClosureStatus: 'EXECUTED_AND_NEEDS_REVIEW',
+            endedAt: phaseSummaryEndedAt,
+            target: {
+                accountId: CLOUDFLARE_PRODUCTION_INERT_TARGET.accountId,
+                productionWorker: CLOUDFLARE_PRODUCTION_INERT_TARGET.webWorker,
+            },
+            checks: [
+                okCheck('fresh_fulfillment_bootstrap_health_before_web'),
+                okCheck('fresh_fulfillment_bootstrap_503_before_web'),
+                okCheck('fresh_fulfillment_bootstrap_hmac_before_web', [
+                    'workerVersionMatched=true',
+                    'providersAbsent=true',
+                    'proofVerified=true',
+                ]),
+                okCheck('fresh_fulfillment_bootstrap_no_cron_before_web', ['scheduleCount=0']),
+                okCheck('fresh_fulfillment_bounded_readback_before_web', [`versionId=${FULFILLMENT_VERSION}`]),
+                okCheck('web_bootstrap_deploy_version_changed', [
+                    `currentVersionId=${WEB_PHASE1_VERSION}`,
+                    'deployTagMatched=true',
+                ]),
+                okCheck('web_bootstrap_health_after_deploy', [`deploymentVersion=${WEB_PHASE1_VERSION}`]),
+                okCheck('web_bootstrap_secret_shape_after_deploy'),
+                okCheck('web_bootstrap_bounded_readback', [`versionId=${WEB_PHASE1_VERSION}`]),
+            ],
         },
-        requiredSecretNames: ['INTERNAL_JOB_SECRET'],
-        checks: planOnly ? [] : [
-            'phase1_web_bootstrap_before_secrets',
-            'minimal_bootstrap_secret_shape_after_write',
-            'direct_web_bootstrap_hmac_attestation',
-            reconciled
-                ? 'bootstrap_hmac_readonly_reconciliation'
-                : 'bootstrap_hmac_write_checkpoint_resolved',
-        ].map((name) => ({ status: 'ok', name })),
-    };
+    );
+    const phaseEvidence = buildCloudflareProductionInertCompositeEvidence({
+        stage: 'phase1_web_deployed',
+        generatedAt: phaseEvidenceGeneratedAt,
+        webVersionId: WEB_PHASE1_VERSION,
+        fulfillmentVersionId: FULFILLMENT_VERSION,
+        sourceSummaryPath: phaseSummary.file,
+        workspaceRoot,
+    });
+    const phaseEvidenceWritten = writeEvidence(
+        outputsRoot,
+        'launch-cloudflare-production-worker-phase1',
+        phaseEvidenceGeneratedAt.replace(/[:.]/gu, '-'),
+        'production-inert-web-fulfillment-evidence.json',
+        phaseEvidence as unknown as Record<string, unknown>,
+    );
+    const finalSummary = writeEvidence(
+        outputsRoot,
+        'launch-cloudflare-production-worker-bootstrap-secrets',
+        generatedAt.replace(/[:.]/gu, '-'),
+        'summary.json',
+        {
+            schemaVersion: 1,
+            status: 'OK',
+            executeRequested: true,
+            externalWritePerformed: !reconciled,
+            closureStatus: reconciled ? 'RECONCILED_STOP' : 'EXECUTED_AND_ATTESTED',
+            endedAt: generatedAt,
+            target: {
+                accountId: CLOUDFLARE_PRODUCTION_INERT_TARGET.accountId,
+                worker: CLOUDFLARE_PRODUCTION_INERT_TARGET.webWorker,
+                environment: CLOUDFLARE_PRODUCTION_INERT_TARGET.webEnvironment,
+            },
+            checks: [
+                okCheck('phase1_web_fulfillment_composite_before_secrets', [
+                    `sourceCompositeSha256=${phaseEvidenceWritten.sha256}`,
+                    `fulfillmentVersionId=${FULFILLMENT_VERSION}`,
+                ]),
+                okCheck('minimal_bootstrap_secret_shape_after_write'),
+                okCheck('web_bootstrap_health_post_write'),
+                okCheck('direct_web_bootstrap_hmac_attestation', [
+                    `webVersionId=${WEB_HMAC_VERSION}`,
+                    'workerVersionMatched=true',
+                    'proofVerified=true',
+                ]),
+                okCheck('web_bootstrap_hmac_bounded_readback', [`versionId=${WEB_HMAC_VERSION}`]),
+                ...(reconciled ? [okCheck('bootstrap_hmac_readonly_reconciliation')] : []),
+            ],
+        },
+    );
+    const finalEvidence = buildCloudflareProductionInertCompositeEvidence({
+        stage: 'web_hmac_closed',
+        generatedAt,
+        webVersionId: WEB_HMAC_VERSION,
+        fulfillmentVersionId: FULFILLMENT_VERSION,
+        sourceSummaryPath: finalSummary.file,
+        upstreamEvidencePath: phaseEvidenceWritten.file,
+        workspaceRoot,
+    });
+    writeEvidence(
+        outputsRoot,
+        'launch-cloudflare-production-worker-bootstrap-secrets',
+        generatedAt.replace(/[:.]/gu, '-'),
+        'production-inert-web-fulfillment-evidence.json',
+        finalEvidence as unknown as Record<string, unknown>,
+    );
+}
+
+function okCheck(name: string, details: string[] = []): Record<string, unknown> {
+    return { status: 'ok', name, ...(details.length > 0 ? { details } : {}) };
 }
 
 function authInertReceipt(
@@ -356,6 +664,8 @@ function authInertReceipt(
 function rolloutReceipt(
     authInertEvidenceSha256: string,
     completedAt = '2026-07-15T10:20:00.000Z',
+    publicCleanupReceiptSha256 = '7'.repeat(64),
+    preservationPolicySha256 = '9'.repeat(64),
 ): Record<string, unknown> {
     const hashes = Object.fromEntries([
         'scopeSha256',
@@ -369,7 +679,6 @@ function rolloutReceipt(
         'backupReceiptSha256',
         'backupArtifactSha256',
         'backupArtifactVerificationSha256',
-        'publicCleanupReceiptSha256',
         'authReducedQuarantinedReceiptSha256',
         'googleFixturePolicyEvidenceSha256',
         'stagingHardeningEvidenceSha256',
@@ -377,6 +686,10 @@ function rolloutReceipt(
         'livePreflightSqlSha256',
         'finalVerifySqlSha256',
     ].map((key, index) => [key, (index % 10).toString().repeat(64)]));
+    hashes.allowlistSha256 = productionRolloutAllowlistSha256();
+    hashes.migrationManifestSha256 = productionRolloutMigrationManifestSha256();
+    hashes.backupReceiptSha256 = '1'.repeat(64);
+    hashes.authReducedQuarantinedReceiptSha256 = '3'.repeat(64);
     return {
         schemaVersion: 1,
         status: 'PRODUCTION_ROLLOUT_ALL_WAVES_APPLIED_AND_VERIFIED',
@@ -384,6 +697,8 @@ function rolloutReceipt(
         completedAt,
         ...hashes,
         authInertEvidenceSha256,
+        publicCleanupReceiptSha256,
+        preservationPolicySha256,
         through: 'deferred_rc_hardening',
         migrationCount: 25,
         finalVerificationPassed: true,
@@ -394,12 +709,25 @@ function rolloutReceipt(
     };
 }
 
-function finalAuthPolicyReceipt(productionRolloutReceiptSha256: string): Record<string, unknown> {
+function publicCleanupReceipt(preservationPolicySha256: string): Record<string, unknown> {
+    return {
+        schemaVersion: 2,
+        status: 'PUBLIC_FIXTURE_CLEANUP_EXECUTED_AND_VERIFIED',
+        targetProjectRef: 'vkkahxsybhbutszerawz',
+        completedAt: '2026-07-15T10:10:00.000Z',
+        preservationPolicySha256,
+    };
+}
+
+function finalAuthPolicyReceipt(
+    productionRolloutReceiptSha256: string,
+    publicCleanupReceiptSha256 = '2'.repeat(64),
+): Record<string, unknown> {
     return {
         schemaVersion: 1,
         targetProjectRef: 'vkkahxsybhbutszerawz',
         status: 'CLOSED_AND_VERIFIED',
-        closedAt: '2026-07-15T10:50:00.000Z',
+        closedAt: '2026-07-15T11:40:00.000Z',
         mode: 'preserve_admin_teacher',
         authUsersRemaining: 2,
         publicProfilesRemaining: 2,
@@ -412,12 +740,13 @@ function finalAuthPolicyReceipt(productionRolloutReceiptSha256: string): Record<
         sessionsInvalidatedOrExpired: true,
         resetEmailsSent: false,
         backupReceiptSha256: '1'.repeat(64),
-        publicCleanupReceiptSha256: '2'.repeat(64),
+        publicCleanupReceiptSha256,
         authReducedReceiptSha256: '3'.repeat(64),
         productionRolloutReceiptSha256,
         preservedSetSha256: '4'.repeat(64),
+        preservedRoleBindingSha256: '6'.repeat(64),
         freezeCutoff: '2026-07-02T18:29:27.580Z',
-        quarantineUntil: '2026-07-15T10:45:00.000Z',
+        quarantineUntil: '2026-07-15T11:35:00.000Z',
         googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED',
     };
 }
@@ -434,9 +763,127 @@ function availabilityReceipt(authPolicyReceiptSha256: string): Record<string, un
             endTime: '18:00:00',
         })),
         timezone: 'Europe/Madrid',
+        authUsersRemaining: 2,
+        authSessionsRemaining: 0,
+        authRefreshTokensRemaining: 0,
+        rolloutMigrationsVerified: 25,
         externalProvidersTouched: false,
-        verifiedAt: '2026-07-15T11:00:00.000Z',
+        verifiedAt: '2026-07-15T11:45:00.000Z',
     };
+}
+
+function finalSupabaseReceipt(
+    rolloutReceiptSha256: string,
+    authPolicyReceiptSha256: string,
+    availabilityReceiptSha256: string,
+): Record<string, unknown> {
+    const databaseFacts = finalDatabaseFacts();
+    const databaseStateSha256 = productionInertDatabaseStateSha256({
+        facts: databaseFacts,
+        preservedSetSha256: '4'.repeat(64),
+        preservedRoleBindingSha256: '6'.repeat(64),
+        duplicateKeys: [],
+        identityValuesDiscarded: true,
+    });
+    return {
+        schemaVersion: 1,
+        receiptKind: 'production_inert_final_readonly',
+        status: 'PRODUCTION_INERT_FINAL_READONLY_VERIFIED',
+        targetEnvironment: 'production',
+        targetProjectRef: 'vkkahxsybhbutszerawz',
+        rolloutReceiptSha256,
+        authPolicyReceiptSha256,
+        availabilityReceiptSha256,
+        preservedSetSha256: '4'.repeat(64),
+        preservedRoleBindingSha256: '6'.repeat(64),
+        canonicalMigrationManifestSha256: productionRolloutMigrationManifestSha256(),
+        databaseFacts,
+        databaseStateSha256,
+        authFlags: { disableSignup: true, mailerAutoconfirm: false },
+        stableDatabaseReadbacks: 2,
+        managementApiGetBetweenReadbacks: true,
+        externalWritePerformed: false,
+        observedAt: '2026-07-15T11:50:00.000Z',
+        expiresAt: '2026-07-15T12:05:00.000Z',
+    };
+}
+
+function finalDatabaseFacts(): Record<string, string> {
+    return {
+        current_database: 'postgres',
+        auth_user_count: '2',
+        auth_session_count: '0',
+        auth_refresh_token_count: '0',
+        profile_count: '2',
+        profile_private_count: '2',
+        profile_role_counts: '1,1,0,0',
+        preserved_auth_link_count: '2',
+        preserved_auth_profile_email_match_count: '2',
+        preserved_expected_role_email_match_count: '2',
+        preserved_private_link_count: '2',
+        non_minimal_profile_count: '0',
+        non_minimal_private_profile_count: '0',
+        teacher_madrid_timezone_count: '1',
+        package_total_count: '4',
+        canonical_package_count: '4',
+        canonical_package_clean_count: '4',
+        canonical_package_catalog_sha256: FIXTURE_CLEANUP_TARGET.canonicalPackageSha256,
+        package_catalog_version_one_count: '4',
+        noncanonical_package_count: '0',
+        package_local_stripe_reference_count: '0',
+        legacy_jobs_absent: 'true',
+        storage_owned_object_count: '0',
+        ...Object.fromEntries(PRODUCTION_INERT_ZERO_ROW_TABLES.map((table) => [
+            `row_count_public_${table}`,
+            '0',
+        ])),
+        availability_total_count: '5',
+        teacher_availability_count: '5',
+        availability_target_count: '5',
+        availability_target_days: '1,2,3,4,5',
+        availability_unexpected_count: '0',
+        canonical_migration_counts: '25,0',
+        migration_history_total_count: String(PRODUCTION_EXPECTED_HISTORY_COUNT),
+        staging_only_migration_count: '0',
+    };
+}
+
+function writeFinalSupabaseCapture(
+    root: string,
+    directoryName: string,
+    receipt: Record<string, unknown>,
+): { file: string; sha256: string } {
+    const written = writeEvidence(
+        root,
+        'launch-production-inert-final-readonly',
+        directoryName,
+        'production-inert-final-receipt.json',
+        receipt,
+    );
+    const observedAt = String(receipt.observedAt);
+    const observedTime = Date.parse(observedAt);
+    writeEvidence(
+        root,
+        'launch-production-inert-final-readonly',
+        directoryName,
+        'summary.json',
+        {
+            schemaVersion: 1,
+            mode: 'capture-readonly',
+            status: 'PRODUCTION_INERT_FINAL_READONLY_VERIFIED',
+            targetEnvironment: 'production',
+            targetProjectRef: 'vkkahxsybhbutszerawz',
+            startedAt: new Date(observedTime - 1_000).toISOString(),
+            finishedAt: new Date(observedTime + 1_000).toISOString(),
+            receiptSha256: written.sha256,
+            receiptFile: 'production-inert-final-receipt.json',
+            receiptObservedAt: observedAt,
+            receiptExpiresAt: receipt.expiresAt,
+            failureCategory: null,
+            externalWritePerformed: false,
+        },
+    );
+    return written;
 }
 
 function writeEvidence(
@@ -454,18 +901,22 @@ function writeEvidence(
     return { file, sha256: createHash('sha256').update(source).digest('hex') };
 }
 
-function writeResolvedCloudflareCheckpoint(root: string, recordedAt: string): void {
+function writeResolvedCloudflareCheckpoint(
+    root: string,
+    recordedAt: string,
+    scope = 'web-bootstrap-hmac-secret',
+): void {
     const stateDirectory = path.join(
         root,
         'launch-cloudflare-production-write-state',
-        'web-bootstrap-hmac-secret',
+        scope,
         'write-checkpoints-resolved',
     );
     mkdirSync(stateDirectory, { recursive: true });
     let checkpoint = startWorkerWriteCheckpoint(
         'put-internal-job-secret',
         1,
-        '11111111-1111-4111-8111-111111111111',
+        WEB_HMAC_VERSION,
         undefined,
         new Date('2026-07-15T11:18:00.000Z'),
     );
@@ -479,9 +930,11 @@ function writeResolvedCloudflareCheckpoint(root: string, recordedAt: string): vo
 }
 
 function temporaryOutputs(): string {
-    const directory = mkdtempSync(path.join(os.tmpdir(), 'eh-rc-production-inert-'));
-    temporaryDirectories.push(directory);
-    return directory;
+    const workspace = mkdtempSync(path.join(os.tmpdir(), 'eh-rc-production-inert-'));
+    const outputs = path.join(workspace, 'outputs');
+    mkdirSync(outputs, { recursive: true });
+    temporaryDirectories.push(workspace);
+    return outputs;
 }
 
 function openRequirementIds(assessment: ReturnType<typeof assessRcProductionInertEvidence>): string[] {

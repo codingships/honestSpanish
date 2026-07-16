@@ -81,6 +81,17 @@ export interface SentryHardeningTerminalProof {
     rawIdentifiersPersistedInReports: false;
 }
 
+export interface SentryExecutedReceiptAnchor {
+    endedAt: string;
+    detectorFingerprint: string;
+    ownerFingerprint: string;
+    workflowIdFingerprints: Array<{
+        name: string;
+        idFingerprint: string;
+        ownershipSource: 'post_response';
+    }>;
+}
+
 export interface SentryFinalizationPendingState {
     schemaVersion: 1;
     artifactKind: 'sentry_production_hardening_finalization_pending';
@@ -332,6 +343,7 @@ export function buildSentryProductionRecoveryApproval(decision: SentryRecoveryDe
 export function isSentryHardeningRolloutEligible(input: {
     closureStatus: string;
     executeRequested: boolean;
+    reattestRequested?: boolean;
     externalWriteAttempted: boolean;
     externalWritePerformed: boolean;
     rollbackAttempted: boolean;
@@ -339,12 +351,20 @@ export function isSentryHardeningRolloutEligible(input: {
     terminalProof: SentryHardeningTerminalProof;
 }): boolean {
     const proof = input.terminalProof;
-    return input.closureStatus === 'HARDENED_AND_VERIFIED'
+    const executedHardening = input.closureStatus === 'HARDENED_AND_VERIFIED'
         && input.executeRequested
+        && !input.reattestRequested
         && input.externalWriteAttempted
         && input.externalWritePerformed
+        && input.createdWorkflowCount === 2;
+    const getOnlyReattestation = input.closureStatus === 'REATTESTED_AND_VERIFIED'
+        && input.reattestRequested === true
+        && !input.executeRequested
+        && !input.externalWriteAttempted
+        && !input.externalWritePerformed
+        && input.createdWorkflowCount === 0;
+    return (executedHardening || getOnlyReattestation)
         && !input.rollbackAttempted
-        && input.createdWorkflowCount === 2
         && proof.stableReadbacks >= 2
         && proof.exactWorkflowDefinitionsVerified
         && proof.workflowCount === 2
@@ -353,6 +373,117 @@ export function isSentryHardeningRolloutEligible(input: {
         && proof.executionLockAbsent
         && !proof.ambiguousOutcomeOutstanding
         && proof.rawIdentifiersPersistedInReports === false;
+}
+
+export function validateSentryHardeningExecutedReceiptAnchor(
+    raw: unknown,
+    now = new Date(),
+): { valid: boolean; errors: string[]; value: SentryExecutedReceiptAnchor | null } {
+    if (!isRecord(raw)) return { valid: false, errors: ['Source Sentry receipt must be a JSON object.'], value: null };
+    const errors: string[] = [];
+    const target = isRecord(raw.target) ? raw.target : {};
+    const evidenceContract = isRecord(raw.evidenceContract) ? raw.evidenceContract : {};
+    const terminalProof = isRecord(raw.terminalProof) ? raw.terminalProof : {};
+    const finalizationProof = isRecord(raw.finalizationProof) ? raw.finalizationProof : {};
+    const workflowEntries = Array.isArray(finalizationProof.workflowIdFingerprints)
+        ? finalizationProof.workflowIdFingerprints.filter(isRecord)
+        : [];
+    const expectedNames = Object.values(SENTRY_PRODUCTION_WORKFLOW_NAMES).sort();
+    const observedNames = workflowEntries.map((entry) => String(entry.name ?? '')).sort();
+
+    if (raw.schemaVersion !== 1
+        || raw.evidenceContractVersion !== 2
+        || raw.artifactKind !== 'sentry_production_hardening_receipt'
+        || raw.status !== 'OK'
+        || raw.closureStatus !== 'HARDENED_AND_VERIFIED') {
+        errors.push('Source Sentry receipt is not an executed HARDENED_AND_VERIFIED v2 receipt.');
+    }
+    if (target.organization !== SENTRY_PRODUCTION_TARGET.organization
+        || target.project !== SENTRY_PRODUCTION_TARGET.project
+        || target.environment !== SENTRY_PRODUCTION_TARGET.environment) {
+        errors.push('Source Sentry receipt target mismatch.');
+    }
+    if (raw.executeRequested !== true
+        || raw.externalWriteAttempted !== true
+        || raw.externalWritePerformed !== true
+        || raw.externalWriteOutcomeAmbiguous !== false
+        || raw.executionLockRetainedForRecovery !== false
+        || raw.rollbackAttempted !== false
+        || raw.createdWorkflowCount !== 2
+        || raw.rawIdentifiersPersistedInReports !== false
+        || evidenceContract.rolloutEligible !== true
+        || evidenceContract.requiredArtifactKind !== 'sentry_production_hardening_receipt'
+        || evidenceContract.rawIdentifiersPersistedInReports !== false) {
+        errors.push('Source Sentry receipt does not prove the exact successful write run.');
+    }
+    if (!Number.isSafeInteger(terminalProof.stableReadbacks)
+        || Number(terminalProof.stableReadbacks) < 2
+        || terminalProof.exactWorkflowDefinitionsVerified !== true
+        || terminalProof.workflowCount !== 2
+        || terminalProof.legacyIssueRuleCount !== 0
+        || terminalProof.scrubIPAddresses !== true
+        || terminalProof.executionLockAbsent !== true
+        || terminalProof.ambiguousOutcomeOutstanding !== false
+        || terminalProof.rawIdentifiersPersistedInReports !== false) {
+        errors.push('Source Sentry receipt terminal proof is incomplete.');
+    }
+    if (!isSha256(raw.detectorFingerprint) || !isSha256(raw.ownerFingerprint)) {
+        errors.push('Source Sentry detector/owner fingerprints are invalid.');
+    }
+    if (!isSha256(finalizationProof.stateFingerprint)
+        || !isSha256(finalizationProof.sourceFingerprint)
+        || workflowEntries.length !== 2
+        || stableJson(observedNames) !== stableJson(expectedNames)
+        || new Set(workflowEntries.map((entry) => entry.idFingerprint)).size !== 2
+        || workflowEntries.some((entry) => (
+            !isSha256(entry.idFingerprint) || entry.ownershipSource !== 'post_response'
+        ))) {
+        errors.push('Source Sentry receipt lacks exact POST-owned workflow fingerprints.');
+    }
+    const normalizedWorkflowEntries = workflowEntries.map((entry) => ({
+        name: String(entry.name),
+        idFingerprint: String(entry.idFingerprint),
+        ownershipSource: entry.ownershipSource,
+    })).sort((left, right) => left.name.localeCompare(right.name));
+    const expectedSourceFingerprint = createHash('sha256').update(stableJson({
+        ownershipSource: 'post_response',
+        workflowIdFingerprints: normalizedWorkflowEntries,
+        detectorFingerprint: raw.detectorFingerprint,
+        ownerFingerprint: raw.ownerFingerprint,
+    }), 'utf8').digest('hex');
+    if (finalizationProof.sourceFingerprint !== expectedSourceFingerprint) {
+        errors.push('Source Sentry receipt ownership fingerprint mismatch.');
+    }
+    const endedAt = typeof raw.endedAt === 'string' ? Date.parse(raw.endedAt) : Number.NaN;
+    if (!Number.isFinite(endedAt)) errors.push('Source Sentry receipt endedAt is invalid.');
+    else if (endedAt > now.getTime() + 5 * 60 * 1_000) errors.push('Source Sentry receipt is timestamped in the future.');
+
+    const value = errors.length === 0 ? {
+        endedAt: String(raw.endedAt),
+        detectorFingerprint: String(raw.detectorFingerprint),
+        ownerFingerprint: String(raw.ownerFingerprint),
+        workflowIdFingerprints: normalizedWorkflowEntries.map((entry) => ({
+            name: String(entry.name),
+            idFingerprint: String(entry.idFingerprint),
+            ownershipSource: 'post_response' as const,
+        })).sort((left, right) => left.name.localeCompare(right.name)),
+    } : null;
+    return { valid: errors.length === 0, errors, value };
+}
+
+export function matchReattestedWorkflowOwnership(
+    workflows: Array<Record<string, unknown>>,
+    expected: SentryExecutedReceiptAnchor['workflowIdFingerprints'],
+): boolean {
+    if (workflows.length !== expected.length) return false;
+    const observed = workflows.map((workflow) => ({
+        name: typeof workflow.name === 'string' ? workflow.name : '',
+        idFingerprint: fingerprintSentryId(
+            typeof workflow.id === 'string' || typeof workflow.id === 'number' ? String(workflow.id) : '',
+        ),
+        ownershipSource: 'post_response' as const,
+    })).sort((left, right) => left.name.localeCompare(right.name));
+    return stableJson(observed) === stableJson(expected);
 }
 
 export function buildSentryFinalizationPendingState(input: {

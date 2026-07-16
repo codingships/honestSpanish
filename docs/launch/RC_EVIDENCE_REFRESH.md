@@ -1,6 +1,8 @@
 # RC Evidence Refresh
 
-Estado: guia operativa para volver a dejar el Release Candidate congelable sin tocar legal real, Stripe live, fuente premium rusa, secretos production, servicios production, Search Console/dominio ni smoke production.
+Estado: histórico. Esta guía conserva el cierre de los antiguos scopes de staging `database_readiness` y `operations_external`; no es una fuente de estado actual ni debe reutilizar sus conteos, URLs Pages o aprobaciones.
+
+Fuente viva: ejecutar `pnpm launch:status` y seguir `production_inert_preparation`. Desde 2026-07-16 Fase 1/staging están cerrados; el trabajo RC restante es Cloudflare production en bootstrap inerte más Supabase production/Auth/disponibilidad. Legal real, Stripe Live, proveedores activos, DNS, SEO/LLM y smoke siguen final-only.
 
 Estado que debe comprobarse antes de cerrar:
 

@@ -4,6 +4,7 @@ import {
     PRODUCTION_AUTH_FREEZE_CUTOFF,
     type FinalAuthPolicyReceipt,
 } from './supabase-production-auth-cleanup-shared';
+import { PRODUCTION_ROLLOUT_MIGRATIONS } from './supabase-production-rollout-runner-shared';
 
 export const PRODUCTION_AVAILABILITY_TARGET = {
     projectRef: 'vkkahxsybhbutszerawz',
@@ -22,6 +23,27 @@ export const PRODUCTION_AVAILABILITY_SLOTS = [1, 2, 3, 4, 5].map((dayOfWeek) => 
     startTime: '09:00:00',
     endTime: '18:00:00',
 })) as readonly { dayOfWeek: number; startTime: string; endTime: string }[];
+
+const productionRolloutHistoryValuesSql = PRODUCTION_ROLLOUT_MIGRATIONS
+    .map((migration) => `('${migration.version}', '${migration.name}', '${migration.sha256}')`)
+    .join(',\n    ');
+
+const productionRolloutHistoryCanonicalCteSql = [
+    'with expected(version, name, source_sha256) as (',
+    `  values ${productionRolloutHistoryValuesSql}`,
+    '), canonical as (',
+    '  select expected.version',
+    '  from expected',
+    '  left join supabase_migrations.schema_migrations history on history.version = expected.version',
+    '  group by expected.version, expected.name, expected.source_sha256',
+    '  having count(history.version) = 1',
+    '    and bool_and(history.name = expected.name',
+    '      and cardinality(history.statements) = 1',
+    "      and encode(extensions.digest(convert_to(history.statements[1], 'UTF8'), 'sha256'), 'hex') = expected.source_sha256)",
+    ')',
+].join('\n');
+
+const productionRolloutHistoryExactCountSql = `${productionRolloutHistoryCanonicalCteSql}\nselect count(*)::integer from canonical`;
 
 export type ProductionAvailabilityIdentityIds = {
     adminId: string;
@@ -131,6 +153,7 @@ export function validateFinalAuthPolicyReceipt(value: unknown, now = new Date())
         'authReducedReceiptSha256',
         'productionRolloutReceiptSha256',
         'preservedSetSha256',
+        'preservedRoleBindingSha256',
     ]) {
         if (typeof value[key] !== 'string' || !/^[a-f0-9]{64}$/u.test(value[key])) errors.push(`${key} must be a lowercase SHA-256`);
     }
@@ -158,6 +181,8 @@ export function renderProductionAvailabilityPreflightSql(): string {
         "  (count(*) filter (where role::text = 'student'))::text || ',' ||",
         "  (count(*) filter (where role::text not in ('admin', 'teacher', 'student')))::text) from public.profiles;",
         "select 'auth_user_count', count(*)::text from auth.users;",
+        "select 'auth_session_counts', ((select count(*) from auth.sessions)::text || ',' ||",
+        "  (select count(*) from auth.refresh_tokens)::text);",
         "select 'teacher_auth_link_count', count(*)::text from public.profiles profile",
         'join auth.users identity on identity.id = profile.id',
         "where profile.role::text = 'teacher' and lower(profile.email) = lower(:'expected_teacher_email')",
@@ -170,9 +195,8 @@ export function renderProductionAvailabilityPreflightSql(): string {
         'join public.profiles profile on profile.id = availability.teacher_id',
         "where profile.role::text = 'teacher' and lower(profile.email) = lower(:'expected_teacher_email');",
         "select 'final_profile_counts', ((select count(*) from public.profiles)::text || ',' || (select count(*) from public.profiles_private)::text);",
-        "select 'hardening_history_count', count(*)::text",
-        'from supabase_migrations.schema_migrations',
-        "where version in ('20260712114000', '20260712114500');",
+        "select 'rollout_history_exact_count', exact_count::text",
+        `from (${productionRolloutHistoryExactCountSql}) exact_rollout(exact_count);`,
         "select 'overlap_constraint_valid', exists(",
         '  select 1 from pg_constraint',
         "  where conrelid = 'public.teacher_availability'::regclass",
@@ -197,13 +221,16 @@ export function renderProductionAvailabilityApplySql(): string {
         "SET LOCAL espanol_honesto.expected_teacher_id = :'expected_teacher_id';",
         "SELECT pg_advisory_xact_lock(hashtextextended('espanol-honesto:production-availability:vkkahxsybhbutszerawz', 0));",
         'LOCK TABLE auth.users IN SHARE MODE;',
+        'LOCK TABLE auth.sessions IN SHARE MODE;',
+        'LOCK TABLE auth.refresh_tokens IN SHARE MODE;',
+        'LOCK TABLE supabase_migrations.schema_migrations IN SHARE MODE;',
         'LOCK TABLE public.profiles IN SHARE MODE;',
         'LOCK TABLE public.profiles_private IN SHARE MODE;',
         'LOCK TABLE public.teacher_availability IN SHARE ROW EXCLUSIVE MODE;',
         'DO $availability_gate$',
         'DECLARE v_admin_id uuid; v_teacher_id uuid; v_existing integer; v_profiles integer; v_private integer;',
         'DECLARE v_admin_roles integer; v_teacher_roles integer; v_student_roles integer; v_other_roles integer;',
-        'DECLARE v_auth integer; v_teacher_auth integer; v_private_bound integer;',
+        'DECLARE v_auth integer; v_teacher_auth integer; v_private_bound integer; v_sessions integer; v_refresh_tokens integer; v_rollout_migrations integer;',
         'BEGIN',
         '  SELECT count(*) INTO v_profiles FROM public.profiles;',
         '  SELECT count(*) INTO v_private FROM public.profiles_private;',
@@ -222,6 +249,11 @@ export function renderProductionAvailabilityApplySql(): string {
         "  WHERE id = v_teacher_id AND lower(email) = lower(current_setting('espanol_honesto.expected_teacher_email'));",
         '  SELECT count(*) INTO v_private_bound FROM public.profiles_private WHERE profile_id IN (v_admin_id, v_teacher_id);',
         "  IF v_auth <> 2 OR v_teacher_auth <> 1 OR v_private_bound <> 2 THEN RAISE EXCEPTION 'Preserved production identities no longer match the approved receipt'; END IF;",
+        '  SELECT count(*) INTO v_sessions FROM auth.sessions;',
+        '  SELECT count(*) INTO v_refresh_tokens FROM auth.refresh_tokens;',
+        "  IF v_sessions <> 0 OR v_refresh_tokens <> 0 THEN RAISE EXCEPTION 'Expected zero production Auth sessions and refresh tokens'; END IF;",
+        `  ${productionRolloutHistoryCanonicalCteSql}\n  select count(*)::integer into v_rollout_migrations from canonical;`,
+        "  IF v_rollout_migrations <> 25 THEN RAISE EXCEPTION 'Expected exact canonical 25-migration production rollout'; END IF;",
         '  SELECT count(*) INTO v_existing FROM public.teacher_availability WHERE teacher_id = v_teacher_id;',
         "  IF v_existing <> 0 THEN RAISE EXCEPTION 'Expected zero existing availability rows for the production teacher'; END IF;",
         'END $availability_gate$;',
@@ -269,6 +301,10 @@ export function renderProductionAvailabilityVerifySql(): string {
         "  (count(*) filter (where role::text = 'student'))::text || ',' ||",
         "  (count(*) filter (where role::text not in ('admin', 'teacher', 'student')))::text) from public.profiles;",
         "select 'auth_user_count', count(*)::text from auth.users;",
+        "select 'auth_session_counts', ((select count(*) from auth.sessions)::text || ',' ||",
+        "  (select count(*) from auth.refresh_tokens)::text);",
+        "select 'rollout_history_exact_count', exact_count::text",
+        `from (${productionRolloutHistoryExactCountSql}) exact_rollout(exact_count);`,
         "select 'teacher_auth_link_count', count(*)::text from public.profiles profile",
         'join auth.users identity on identity.id = profile.id',
         "where profile.role::text = 'teacher' and lower(profile.email) = lower(:'expected_teacher_email')",
@@ -316,11 +352,12 @@ export function validateProductionAvailabilityPreflight(
         teacher_match_count: '1',
         profile_role_counts: '1,1,0,0',
         auth_user_count: '2',
+        auth_session_counts: '0,0',
         teacher_auth_link_count: '1',
         preserved_set_sha256: expectedPreservedSetSha256,
         teacher_availability_count: '0',
         final_profile_counts: '2,2',
-        hardening_history_count: '2',
+        rollout_history_exact_count: String(PRODUCTION_ROLLOUT_MIGRATIONS.length),
         overlap_constraint_valid: 'true',
     });
 }
@@ -334,6 +371,8 @@ export function validateProductionAvailabilityPostflight(
         teacher_match_count: '1',
         profile_role_counts: '1,1,0,0',
         auth_user_count: '2',
+        auth_session_counts: '0,0',
+        rollout_history_exact_count: String(PRODUCTION_ROLLOUT_MIGRATIONS.length),
         teacher_auth_link_count: '1',
         final_profile_counts: '2,2',
         preserved_set_sha256: expectedPreservedSetSha256,
@@ -352,6 +391,8 @@ export function validateProductionAvailabilityRolledBackPostflight(
         teacher_match_count: '1',
         profile_role_counts: '1,1,0,0',
         auth_user_count: '2',
+        auth_session_counts: '0,0',
+        rollout_history_exact_count: String(PRODUCTION_ROLLOUT_MIGRATIONS.length),
         teacher_auth_link_count: '1',
         final_profile_counts: '2,2',
         preserved_set_sha256: expectedPreservedSetSha256,

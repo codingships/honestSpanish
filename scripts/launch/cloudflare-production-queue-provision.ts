@@ -20,6 +20,7 @@ import {
     reconcileOneShotCloudflareWriteGuard,
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
+    type OneShotCloudflareReadbackResult,
 } from './cloudflare-production-one-shot-write';
 
 type CheckStatus = 'ok' | 'failed';
@@ -197,9 +198,10 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     );
     if (reconciliation.status !== 'not_needed') {
         checks.push(reconciliation.status === 'reconciled'
-            ? ok('queue_provision_readonly_reconciliation', 'Fresh Queue reads proved the interrupted mutation; its checkpoint and stale lock were cleared without retrying any create.', [
+            ? ok('queue_provision_readonly_reconciliation', 'Fresh Queue reads proved either the intended mutation or its exact safe pre-write state; its checkpoint and stale lock were cleared without retrying any create.', [
                 `checkpointCount=${reconciliation.checkpointCount}`,
                 `lockOnly=${String(reconciliation.lockOnly)}`,
+                `result=${reconciliation.reason}`,
                 'providerMutationRetried=false',
             ])
             : failed('queue_provision_readonly_reconciliation', 'Fresh Queue reads did not prove the interrupted mutation; checkpoint/lock remain fail-closed and no create was retried.', [
@@ -436,9 +438,23 @@ async function runRemotePreflightAndMaybeProvision(): Promise<void> {
     ]));
 }
 
-function queueReconciliationReadback(commandId: string | null, inventory: QueueInventory): boolean {
+function queueReconciliationReadback(
+    commandId: string | null,
+    inventory: QueueInventory,
+): OneShotCloudflareReadbackResult {
+    const exactAbsent = inventory.deadLetterQueueCount === 0 && inventory.queueCount === 0;
     const exactIntermediate = inventory.deadLetterQueueCount === 1 && inventory.queueCount === 0;
     const exactFinal = inventory.deadLetterQueueCount === 1 && inventory.queueCount === 1;
+
+    const safeStateProven = commandId === 'create-production-dlq'
+        ? exactAbsent
+        : commandId === 'create-production-queue'
+            ? exactIntermediate
+            : commandId === null
+                ? exactAbsent
+                : false;
+    if (safeStateProven) return 'safe_state_proven';
+
     const expectedNames = commandId === 'create-production-dlq'
         ? exactIntermediate ? [PRODUCTION_QUEUE_TARGET.deadLetterQueue] : []
         : commandId === 'create-production-queue'
@@ -450,7 +466,7 @@ function queueReconciliationReadback(commandId: string | null, inventory: QueueI
                         ? [PRODUCTION_QUEUE_TARGET.deadLetterQueue, PRODUCTION_QUEUE_TARGET.queue]
                         : []
                 : [];
-    if (expectedNames.length === 0) return false;
+    if (expectedNames.length === 0) return 'not_proven';
 
     const capturesForReadback = expectedNames.map((name) => runCommand(readCommand(
         `reconcile-${name}-info`,
@@ -458,7 +474,9 @@ function queueReconciliationReadback(commandId: string | null, inventory: QueueI
     )));
     captures.push(...capturesForReadback);
     checks.push(...capturesForReadback.map(commandCheck));
-    return capturesForReadback.every((capture) => capture.status === 'ok');
+    return capturesForReadback.every((capture) => capture.status === 'ok')
+        ? 'intended_state_proven'
+        : 'not_proven';
 }
 
 function readQueueInventory(idPrefix: string): InventoryResult {

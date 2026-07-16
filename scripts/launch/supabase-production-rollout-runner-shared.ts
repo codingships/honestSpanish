@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
-    FIXTURE_CLEANUP_PATHS,
     FIXTURE_CLEANUP_TARGET,
+    loadAndValidateFixtureCleanupManifest,
+    readFixturePreservationPolicyEvidence,
     sha256,
     stableJson,
     validateBackupReceipt,
@@ -19,6 +20,7 @@ import {
     validateAllowlistedHistoryDrift,
     type HistoryReconciliationManifestEvidence,
 } from './supabase-production-history-reconciliation-consumer';
+import { validateSentryHardeningExecutedReceiptAnchor } from './sentry-production-hardening-shared';
 
 export const PRODUCTION_ROLLOUT_APPROVAL_ENV = 'SUPABASE_PRODUCTION_ROLLOUT_APPROVAL';
 export const PRODUCTION_ROLLOUT_DB_URL_ENV = 'SUPABASE_DB_URL';
@@ -164,6 +166,7 @@ export interface FixtureCleanupEvidence {
     backupReceiptSha256: string;
     authInertEvidenceSha256: string;
     packageStripeReferenceSha256: string;
+    preservationPolicySha256: string;
     freezeCutoff: string;
     postconditions: {
         authUsers: number;
@@ -372,6 +375,7 @@ export interface SentryProductionHardeningEvidence {
     endedAt: string;
     status: string;
     closureStatus: string;
+    mode: string;
     target: { organization: string; project: string; environment: string };
     executeRequested: boolean;
     externalWriteAttempted: boolean;
@@ -396,8 +400,20 @@ export interface SentryProductionHardeningEvidence {
     evidenceContract: {
         rolloutEligible: boolean;
         requiredArtifactKind: string;
+        attestationMode?: string;
         rawIdentifiersPersistedInReports: boolean;
     };
+    reattestation?: {
+        schemaVersion: number;
+        sourceReceiptSha256: string;
+        sourceReceiptEndedAt: string;
+        sourceClosureStatus: string;
+        requestMethod: string;
+        sourceExecutedWriteProof: boolean;
+        detectorFingerprintMatched: boolean;
+        ownerFingerprintMatched: boolean;
+        workflowIdFingerprintsMatched: boolean;
+    } | null;
     expectedChanges: {
         scrubIPAddresses: boolean;
         workflows: string[];
@@ -406,6 +422,12 @@ export interface SentryProductionHardeningEvidence {
         spikeThreshold: string;
     };
     checks: Array<{ status: string }>;
+}
+
+export interface SentryHardeningEvidenceValidation
+    extends EvidenceValidation<SentryProductionHardeningEvidence> {
+    sourceReceiptPath: string | null;
+    sourceReceiptSha256: string | null;
 }
 
 export interface AllowlistValidation {
@@ -422,6 +444,15 @@ export interface WaveHistoryState {
 
 export function productionRolloutAllowlistSha256(): string {
     return sha256(stableJson(PRODUCTION_ROLLOUT_WAVES));
+}
+
+export function productionRolloutMigrationManifestSha256(): string {
+    return sha256(stableJson(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => ({
+        version: entry.version,
+        name: entry.name,
+        file: entry.file,
+        sha256: entry.sha256,
+    }))));
 }
 
 export function validateProductionRolloutAllowlist(root = process.cwd()): AllowlistValidation {
@@ -589,26 +620,35 @@ export function readFixtureCleanupEvidence(
     backupReceiptSha256: string | null,
     now = new Date(),
     root = process.cwd(),
+    preservationPolicyPath: string | null = null,
 ): EvidenceValidation<FixtureCleanupEvidence> {
     const loaded = readJsonEvidence<FixtureCleanupEvidence>(evidencePath);
     if (!loaded.value) return loaded;
     const value = loaded.value;
     const errors = [...loaded.errors];
-    let manifest: { sql?: { execute?: { sha256?: string } } } = {};
-    try {
-        manifest = JSON.parse(readFileSync(path.join(root, FIXTURE_CLEANUP_PATHS.manifest), 'utf8')) as typeof manifest;
-    } catch {
-        errors.push('Current fixture-cleanup manifest is missing or invalid.');
-    }
+    const manifestValidation = loadAndValidateFixtureCleanupManifest(root);
+    errors.push(...manifestValidation.errors);
+    const manifest = manifestValidation.value;
+    const preservationPolicy = readFixturePreservationPolicyEvidence(
+        preservationPolicyPath,
+        now,
+        root,
+    );
+    errors.push(...preservationPolicy.errors);
     if (value.schemaVersion !== 2) errors.push('Fixture cleanup receipt schemaVersion must be 2.');
     if (value.status !== 'PUBLIC_FIXTURE_CLEANUP_EXECUTED_AND_VERIFIED') errors.push('Fixture cleanup receipt status is invalid.');
     if (value.targetProjectRef !== PRODUCTION_PROJECT.ref) errors.push('Fixture cleanup target ref mismatch.');
     if (value.aggregateSnapshotSha256 !== FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256) errors.push('Fixture cleanup snapshot hash mismatch.');
     if (value.approvalScopeSha256 !== FIXTURE_CLEANUP_TARGET.approvalScopeSha256) errors.push('Fixture cleanup approval scope mismatch.');
-    if (value.executeSqlSha256 !== manifest.sql?.execute?.sha256) errors.push('Fixture cleanup SQL hash mismatch.');
+    if (value.executeSqlSha256 !== manifest?.sql?.execute?.sha256) errors.push('Fixture cleanup SQL hash mismatch.');
     if (!backupReceiptSha256 || value.backupReceiptSha256 !== backupReceiptSha256) errors.push('Fixture cleanup is not bound to the supplied backup receipt.');
     if (!/^[a-f0-9]{64}$/u.test(value.authInertEvidenceSha256 ?? '')) {
         errors.push('Fixture cleanup is not bound to valid Auth inert evidence.');
+    }
+    if (!preservationPolicy.ok
+        || !preservationPolicy.sha256
+        || value.preservationPolicySha256 !== preservationPolicy.sha256) {
+        errors.push('Fixture cleanup is not bound to the supplied fresh exact preservation policy.');
     }
     if (stableJson([...(value.packagesPreserved ?? [])].sort()) !== stableJson(['bootcamp', 'group', 'hybrid', 'standard'])) {
         errors.push('Fixture cleanup did not preserve the exact canonical package set.');
@@ -919,13 +959,20 @@ export function readGoogleFixturePolicyEvidence(
 export function readSentryProductionHardeningEvidence(
     evidencePath: string | null,
     now = new Date(),
-): EvidenceValidation<SentryProductionHardeningEvidence> {
+    sourceReceiptPath: string | null = null,
+): SentryHardeningEvidenceValidation {
     const loaded = readJsonEvidence<SentryProductionHardeningEvidence>(evidencePath);
-    if (!loaded.value) return loaded;
+    if (!loaded.value) return {
+        ...loaded,
+        sourceReceiptPath: sourceReceiptPath ? path.resolve(sourceReceiptPath) : null,
+        sourceReceiptSha256: null,
+    };
     const value = loaded.value;
     const errors = [...loaded.errors];
-    if (value.schemaVersion !== 1 || value.status !== 'OK' || value.closureStatus !== 'HARDENED_AND_VERIFIED') {
-        errors.push('Sentry production hardening is not HARDENED_AND_VERIFIED.');
+    if (value.schemaVersion !== 1
+        || value.status !== 'OK'
+        || !['HARDENED_AND_VERIFIED', 'REATTESTED_AND_VERIFIED'].includes(value.closureStatus)) {
+        errors.push('Sentry production hardening is neither HARDENED_AND_VERIFIED nor REATTESTED_AND_VERIFIED.');
     }
     if (value.evidenceContractVersion !== 2
         || value.artifactKind !== 'sentry_production_hardening_receipt'
@@ -938,8 +985,61 @@ export function readSentryProductionHardeningEvidence(
         || value.target?.environment !== 'production') {
         errors.push('Sentry production hardening target mismatch.');
     }
-    if (!value.executeRequested || !value.externalWriteAttempted || !value.externalWritePerformed) {
-        errors.push('Sentry evidence does not prove an executed hardening run.');
+    const executedAnchor = value.closureStatus === 'HARDENED_AND_VERIFIED'
+        ? validateSentryHardeningExecutedReceiptAnchor(value, now)
+        : null;
+    if (executedAnchor) {
+        errors.push(...executedAnchor.errors.map((error) => `Sentry executed receipt: ${error}`));
+    }
+    const executedHardening = value.closureStatus === 'HARDENED_AND_VERIFIED'
+        && executedAnchor?.valid === true
+        && value.mode !== 'reattestation'
+        && value.executeRequested === true
+        && value.externalWriteAttempted === true
+        && value.externalWritePerformed === true
+        && value.createdWorkflowCount === 2
+        && value.evidenceContract?.attestationMode !== 'live_get_only_revalidation';
+    const reattestation = value.reattestation;
+    let sourceReceiptSha256: string | null = null;
+    let sourceAnchorMatched = false;
+    if (value.closureStatus === 'REATTESTED_AND_VERIFIED') {
+        const sourceReceipt = readJsonEvidence<Record<string, unknown>>(sourceReceiptPath);
+        sourceReceiptSha256 = sourceReceipt.sha256;
+        errors.push(...sourceReceipt.errors.map((error) => `Sentry source receipt: ${error}`));
+        if (sourceReceipt.value) {
+            const sourceAnchor = validateSentryHardeningExecutedReceiptAnchor(sourceReceipt.value, now);
+            errors.push(...sourceAnchor.errors.map((error) => `Sentry source receipt: ${error}`));
+            sourceAnchorMatched = sourceAnchor.valid
+                && sourceAnchor.value !== null
+                && sourceReceipt.sha256 === reattestation?.sourceReceiptSha256
+                && sourceAnchor.value.endedAt === reattestation?.sourceReceiptEndedAt
+                && sourceAnchor.value.detectorFingerprint === value.detectorFingerprint
+                && sourceAnchor.value.ownerFingerprint === value.ownerFingerprint;
+            if (!sourceAnchorMatched) {
+                errors.push('Sentry reattestation is not cryptographically bound to the supplied executed source receipt.');
+            }
+        }
+    }
+    const getOnlyReattestation = value.closureStatus === 'REATTESTED_AND_VERIFIED'
+        && value.mode === 'reattestation'
+        && value.executeRequested === false
+        && value.externalWriteAttempted === false
+        && value.externalWritePerformed === false
+        && value.createdWorkflowCount === 0
+        && value.evidenceContract?.attestationMode === 'live_get_only_revalidation'
+        && reattestation?.schemaVersion === 1
+        && /^[a-f0-9]{64}$/u.test(reattestation.sourceReceiptSha256 ?? '')
+        && typeof reattestation.sourceReceiptEndedAt === 'string'
+        && !Number.isNaN(Date.parse(reattestation.sourceReceiptEndedAt))
+        && reattestation.sourceClosureStatus === 'HARDENED_AND_VERIFIED'
+        && reattestation.requestMethod === 'GET'
+        && reattestation.sourceExecutedWriteProof === true
+        && reattestation.detectorFingerprintMatched === true
+        && reattestation.ownerFingerprintMatched === true
+        && reattestation.workflowIdFingerprintsMatched === true
+        && sourceAnchorMatched;
+    if (!executedHardening && !getOnlyReattestation) {
+        errors.push('Sentry evidence proves neither the executed hardening nor an anchored GET-only reattestation.');
     }
     if (value.externalWriteOutcomeAmbiguous !== false) {
         errors.push('Sentry hardening evidence has an ambiguous external-write outcome.');
@@ -963,7 +1063,7 @@ export function readSentryProductionHardeningEvidence(
         errors.push('Sentry receipt terminal proof is incomplete or unsafe for rollout.');
     }
     if (value.rollbackAttempted) errors.push('Sentry hardening evidence includes a rollback attempt.');
-    if (value.createdWorkflowCount !== 2) errors.push('Sentry hardening did not create the exact two workflows.');
+    if (executedHardening && value.createdWorkflowCount !== 2) errors.push('Sentry hardening did not create the exact two workflows.');
     if (!/^[a-f0-9]{64}$/u.test(value.detectorFingerprint ?? '')
         || !/^[a-f0-9]{64}$/u.test(value.ownerFingerprint ?? '')) {
         errors.push('Sentry detector/owner fingerprints are invalid.');
@@ -983,7 +1083,13 @@ export function readSentryProductionHardeningEvidence(
         errors.push('Sentry hardening must contain only completed ok checks.');
     }
     requireFreshTimestamp(value.endedAt, now, PRODUCTION_EVIDENCE_MAX_AGE_MS, 'Sentry production hardening', errors);
-    return { ...loaded, valid: errors.length === 0, errors };
+    return {
+        ...loaded,
+        valid: errors.length === 0,
+        errors,
+        sourceReceiptPath: sourceReceiptPath ? path.resolve(sourceReceiptPath) : null,
+        sourceReceiptSha256,
+    };
 }
 
 export function deriveWaveHistoryStates(preflight: ProductionPreflightEvidence): WaveHistoryState[] {
@@ -1241,11 +1347,13 @@ export function buildProductionRolloutApproval(scope: {
     backupReceiptSha256: string | null;
     backupArtifactSha256: string | null;
     cleanupEvidenceSha256: string | null;
+    preservationPolicySha256: string | null;
     authPolicyEvidenceSha256: string | null;
     stagingEvidenceSha256: string | null;
     stagingLiveVerifySqlSha256: string | null;
     googleFixturePolicySha256: string | null;
     sentryHardeningEvidenceSha256: string | null;
+    sentryHardeningSourceReceiptSha256: string | null;
     pendingMigrations: readonly ProductionRolloutMigration[];
     waveSqlSha256: Record<string, string>;
     livePreflightSqlSha256: string;
@@ -1269,11 +1377,13 @@ export function buildProductionRolloutApproval(scope: {
         scope.backupReceiptSha256,
         scope.backupArtifactSha256,
         scope.cleanupEvidenceSha256,
+        scope.preservationPolicySha256,
         scope.authPolicyEvidenceSha256,
         scope.stagingEvidenceSha256,
         scope.stagingLiveVerifySqlSha256,
         scope.googleFixturePolicySha256,
         scope.sentryHardeningEvidenceSha256,
+        scope.sentryHardeningSourceReceiptSha256,
     ].filter((value): value is string => value !== null);
     if ([...requiredHashes, ...optionalHashes].some((value) => !/^[a-f0-9]{64}$/u.test(value))) {
         throw new Error('Production rollout approval contains a non-SHA-256 binding.');
@@ -1300,11 +1410,13 @@ export function buildProductionRolloutApproval(scope: {
         `backup=${scope.backupReceiptSha256 ?? '<not-required>'}`,
         `backup_artifact=${scope.backupArtifactSha256 ?? '<not-required>'}`,
         `cleanup=${scope.cleanupEvidenceSha256 ?? '<not-required>'}`,
+        `preservation_policy=${scope.preservationPolicySha256 ?? '<not-required>'}`,
         `auth_policy=${scope.authPolicyEvidenceSha256 ?? '<not-required>'}`,
         `staging_hardening=${scope.stagingEvidenceSha256 ?? '<not-required>'}`,
         `staging_live_verify_sql=${scope.stagingLiveVerifySqlSha256 ?? '<not-required>'}`,
         `google_fixture_policy=${scope.googleFixturePolicySha256 ?? '<not-required>'}`,
         `sentry_hardening=${scope.sentryHardeningEvidenceSha256 ?? '<not-required>'}`,
+        `sentry_hardening_source=${scope.sentryHardeningSourceReceiptSha256 ?? '<not-required>'}`,
         `migrations=${migrationScope}`,
         `wave_sql=${waveSqlScope}`,
         `live_preflight_sql=${scope.livePreflightSqlSha256}`,

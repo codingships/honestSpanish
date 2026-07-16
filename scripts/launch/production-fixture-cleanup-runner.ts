@@ -14,6 +14,7 @@ import {
     buildPsqlEnvironment,
     loadAndValidateFixtureCleanupManifest,
     parseFixtureCleanupPreview,
+    readFixturePreservationPolicyEvidence,
     sanitizeOutput,
     sha256,
     stableJson,
@@ -35,6 +36,7 @@ interface CliOptions {
     executeApproved: boolean;
     backupReceiptPath: string | null;
     authInertEvidencePath: string | null;
+    preservationPolicyPath: string | null;
 }
 
 interface PsqlResult {
@@ -56,6 +58,7 @@ export function parseFixtureCleanupArgs(args: string[]): CliOptions {
     let executeApproved = false;
     let backupReceiptPath: string | null = null;
     let authInertEvidencePath: string | null = null;
+    let preservationPolicyPath: string | null = null;
     for (let index = 1; index < args.length; index += 1) {
         const argument = args[index];
         if (argument === '--execute-approved') {
@@ -79,21 +82,30 @@ export function parseFixtureCleanupArgs(args: string[]): CliOptions {
             index += 1;
             continue;
         }
+        if (argument === '--preservation-policy') {
+            const value = args[index + 1];
+            if (!value || value.startsWith('--')) throw new Error('--preservation-policy requires a JSON file path.');
+            if (preservationPolicyPath) throw new Error('--preservation-policy may only be supplied once.');
+            preservationPolicyPath = value;
+            index += 1;
+            continue;
+        }
         throw new Error(`Unknown fixture-cleanup argument: ${argument}`);
     }
 
     const mode = modeCandidate as Mode;
-    if (mode !== 'execute' && (executeApproved || backupReceiptPath || authInertEvidencePath)) {
+    if (mode !== 'execute' && (executeApproved || backupReceiptPath || authInertEvidencePath || preservationPolicyPath)) {
         throw new Error('Execution gates are accepted only in execute mode.');
     }
-    return { mode, executeApproved, backupReceiptPath, authInertEvidencePath };
+    return { mode, executeApproved, backupReceiptPath, authInertEvidencePath, preservationPolicyPath };
 }
 
 export function executeGateRequested(options: CliOptions): boolean {
     return options.mode === 'execute'
         && options.executeApproved
         && typeof options.backupReceiptPath === 'string'
-        && typeof options.authInertEvidencePath === 'string';
+        && typeof options.authInertEvidencePath === 'string'
+        && typeof options.preservationPolicyPath === 'string';
 }
 
 async function main(): Promise<void> {
@@ -148,11 +160,32 @@ async function main(): Promise<void> {
                 '--execute-approved',
                 '--backup-receipt <verified-receipt.json>',
                 '--auth-inert-evidence <fresh-auth-inert-receipt.json>',
+                '--preservation-policy <fresh-exact-policy.json>',
             ],
             networkAccessPerformed: false,
             externalWritePerformed: false,
         });
-        throw new Error('Execute mode requires --execute-approved, --backup-receipt and --auth-inert-evidence.');
+        throw new Error('Execute mode requires --execute-approved, --backup-receipt, --auth-inert-evidence and --preservation-policy.');
+    }
+
+    const preservationPolicy = readFixturePreservationPolicyEvidence(
+        options.preservationPolicyPath,
+        startedAt,
+        root,
+    );
+    if (!preservationPolicy.ok || !preservationPolicy.sha256) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_PRESERVATION_POLICY_INVALID',
+            mode: options.mode,
+            preservationPolicy: {
+                provided: preservationPolicy.provided,
+                sha256: preservationPolicy.sha256,
+                errors: preservationPolicy.errors,
+            },
+            networkAccessPerformed: false,
+            externalWritePerformed: false,
+        });
+        throw new Error(preservationPolicy.errors.join(' '));
     }
 
     const authInert = readProductionAuthInertEvidence(options.authInertEvidencePath, startedAt);
@@ -211,6 +244,7 @@ async function main(): Promise<void> {
         backupReceiptSha256: receiptSha256,
         authInertEvidenceSha256: authInert.sha256,
         packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
+        preservationPolicySha256: preservationPolicy.sha256,
     });
     const approvalPath = path.join(outputDir, 'exact-approval-required.txt');
     writeFileSync(approvalPath, `${approvalSentence}\n`, 'utf8');
@@ -224,11 +258,34 @@ async function main(): Promise<void> {
             backupReceiptSha256: receiptSha256,
             authInertEvidenceSha256: authInert.sha256,
             packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
+            preservationPolicySha256: preservationPolicy.sha256,
             exactApprovalFile: path.basename(approvalPath),
             networkAccessPerformed: true,
             externalWritePerformed: false,
         });
         throw new Error(`Exact approval mismatch. Review ${approvalPath} and set ${FIXTURE_CLEANUP_APPROVAL_ENV}.`);
+    }
+
+    const immediatePreservationPolicy = readFixturePreservationPolicyEvidence(
+        options.preservationPolicyPath,
+        new Date(),
+        root,
+    );
+    if (!immediatePreservationPolicy.ok
+        || immediatePreservationPolicy.sha256 !== preservationPolicy.sha256) {
+        writeSummary(outputDir, {
+            status: 'BLOCKED_PRESERVATION_POLICY_REVALIDATION',
+            mode: options.mode,
+            targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+            preservationPolicy: {
+                provided: immediatePreservationPolicy.provided,
+                sha256: immediatePreservationPolicy.sha256,
+                errors: immediatePreservationPolicy.errors,
+            },
+            networkAccessPerformed: true,
+            externalWritePerformed: false,
+        });
+        throw new Error('Fixture-preservation policy expired, changed or failed immediate revalidation.');
     }
 
     const immediateAuthInert = readProductionAuthInertEvidence(options.authInertEvidencePath, new Date());
@@ -269,6 +326,7 @@ async function main(): Promise<void> {
             cleanup_scope_sha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
             cleanup_backup_receipt_sha256: receiptSha256,
             cleanup_package_stripe_reference_sha256: preview.packageStripeReferenceSha256,
+            cleanup_preservation_policy_sha256: preservationPolicy.sha256,
         },
     });
     writePsqlEvidence(outputDir, 'execute', result);
@@ -277,6 +335,7 @@ async function main(): Promise<void> {
         + `project_ref=${FIXTURE_CLEANUP_TARGET.projectRef}|`
         + `snapshot=${FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256}|`
         + `scope=${FIXTURE_CLEANUP_TARGET.approvalScopeSha256}|`
+        + `preservation_policy=${preservationPolicy.sha256}|`
         + 'auth_users=BLOCKED_UNTOUCHED_138|packages=4|legacy_jobs=ABSENT';
     if (!result.ok || !result.stdout.includes(expectedSuccessMarker)) {
         writeSummary(outputDir, {
@@ -304,6 +363,7 @@ async function main(): Promise<void> {
         authInertEvidenceSha256: authInert.sha256,
         executeSqlSha256: manifestValidation.value.sql.execute.sha256,
         packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
+        preservationPolicySha256: preservationPolicy.sha256,
         freezeCutoff: '2026-07-02T18:29:27.580Z',
         postconditions: {
             authUsers: 138,
@@ -332,6 +392,7 @@ async function main(): Promise<void> {
         backupReceiptSha256: receiptSha256,
         authInertEvidenceSha256: authInert.sha256,
         packageStripeReferenceSha256: preview.packageStripeReferenceSha256,
+        preservationPolicySha256: preservationPolicy.sha256,
         psqlExitCode: result.status,
         markerObserved: true,
         packagesPreserved: ['group', 'standard', 'hybrid', 'bootcamp'],
@@ -354,10 +415,12 @@ function runPlan(outputDir: string, manifest: FixtureCleanupManifest): void {
         backupReceiptSha256: 'b'.repeat(64),
         authInertEvidenceSha256: 'c'.repeat(64),
         packageStripeReferenceSha256: 'a'.repeat(64),
+        preservationPolicySha256: 'd'.repeat(64),
     })
         .replace(`backup_receipt=${'b'.repeat(64)}`, 'backup_receipt=<SHA256_OF_COMPLETED_RECEIPT>')
         .replace(`auth_inert_evidence=${'c'.repeat(64)}`, 'auth_inert_evidence=<SHA256_OF_FRESH_AUTH_INERT_RECEIPT>')
-        .replace(`package_stripe_references=${'a'.repeat(64)}`, 'package_stripe_references=<SHA256_FROM_FRESH_PREVIEW>');
+        .replace(`package_stripe_references=${'a'.repeat(64)}`, 'package_stripe_references=<SHA256_FROM_FRESH_PREVIEW>')
+        .replace(`preservation_policy=${'d'.repeat(64)}`, 'preservation_policy=<SHA256_OF_FRESH_EXACT_POLICY>');
 
     writeSummary(outputDir, {
         status: 'PLAN_ONLY_READY',
@@ -371,6 +434,7 @@ function runPlan(outputDir: string, manifest: FixtureCleanupManifest): void {
         approvalTemplate,
         executionSequence: [
             'Create and independently store a fresh backup; complete the receipt.',
+            'Complete the exact class/action preservation policy and keep it fresh.',
             `Run preview with ${FIXTURE_CLEANUP_DATABASE_ENV} supplied only to the process.`,
             'Require baselineMatches=true and capture the fresh package Stripe-reference hash.',
             'Invoke execute with both CLI gates and the exact dynamic approval environment value.',

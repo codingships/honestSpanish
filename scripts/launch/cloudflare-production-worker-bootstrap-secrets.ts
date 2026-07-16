@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import * as dotenv from 'dotenv';
 import {
@@ -9,7 +9,7 @@ import {
     verifyRuntimeAttestation,
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
-import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
+import { parseMixedJsonOutput, verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
 import {
     beginOneShotCloudflareWrite,
     closeOneShotCloudflareWriteGuard,
@@ -18,6 +18,19 @@ import {
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
 } from './cloudflare-production-one-shot-write';
+import { newestWorkerDeploymentVersionId } from './cloudflare-deployment-order';
+import {
+    isRetryableCloudflareReadonlyError,
+    isRetryableCloudflareReadonlyStatus,
+    retryCloudflareReadonlyEvidence,
+    type CloudflareReadonlyAttemptResult,
+    type CloudflareReadonlyRetryResult,
+} from './cloudflare-readonly-retry';
+import {
+    buildCloudflareProductionInertCompositeEvidence,
+    readCloudflareProductionInertCompositeEvidence,
+    type CloudflareProductionInertEvidenceValidation,
+} from './cloudflare-production-inert-composite-evidence';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -60,13 +73,14 @@ interface Report {
     target: typeof target;
     requiredSecretNames: readonly string[];
     explicitlyWithheldSecretNames: readonly string[];
-    latestPhaseOneSummaryPath: string | null;
+    latestPhaseOneCompositeEvidencePath: string | null;
     checks: Check[];
     captures: CommandCapture[];
     outputDir: string;
     summaryPath: string;
     approvalGatePath: string;
     executionPlanPath: string;
+    compositeEvidencePath: string;
 }
 
 const target = {
@@ -116,16 +130,18 @@ const explicitlyWithheldSecretNames = [
 const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-cloudflare-production-worker-bootstrap-secrets', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
+const compositeEvidencePath = path.join(outputDir, 'production-inert-web-fulfillment-evidence.json');
 
-const latestPhaseOneSummaryPath = latestGeneratedPathMatching(
+const latestPhaseOneCompositeEvidencePath = latestGeneratedPath(
     'launch-cloudflare-production-worker-phase1',
-    'summary.md',
-    ['- Status: OK', '- Execute requested: true', '- External write performed: true', '| ok | web_bootstrap_health_after_deploy |'],
+    'production-inert-web-fulfillment-evidence.json',
 );
 const commands = buildCommands();
 const captures: CommandCapture[] = [];
 let externalWriteAttempted = false;
 let externalWritePerformedState: boolean | 'unknown' = false;
+let attestedWebVersionId: string | null = null;
+let acceptedPhaseOneEvidenceSha256: string | null = null;
 
 const checks: Check[] = [
     validatePackageAndSource(),
@@ -170,12 +186,68 @@ async function main(): Promise<void> {
         });
     }
 
-    const report = createReport();
-    const rendered = renderArtifacts(report);
-    writeFileSync(report.summaryPath, rendered.summary, 'utf8');
-    writeFileSync(report.approvalGatePath, rendered.approvalGate, 'utf8');
-    writeFileSync(report.executionPlanPath, rendered.executionPlan, 'utf8');
-    writeFileSync(path.join(outputDir, 'summary.json'), JSON.stringify(report, null, 2), 'utf8');
+    const closureMayEmitEvidence = executeRequested && !checks.some((check) => check.status === 'failed');
+    const finalUpstreamValidation = latestPhaseOneEvidenceValidation(new Date());
+    const finalUpstreamStable = finalUpstreamValidation.valid
+        && Boolean(finalUpstreamValidation.sha256)
+        && finalUpstreamValidation.sha256 === acceptedPhaseOneEvidenceSha256;
+    if (closureMayEmitEvidence) {
+        checks.push(attestedWebVersionId && finalUpstreamStable && finalUpstreamValidation.value
+            ? {
+                status: 'ok',
+                name: 'production_inert_composite_evidence_inputs',
+                message: 'Fresh structured phase-1 evidence and the exact HMAC-attested web version are ready for final composite closure.',
+                details: [
+                    `webVersionId=${attestedWebVersionId}`,
+                    `fulfillmentVersionId=${finalUpstreamValidation.value.fulfillment.versionId}`,
+                    `sourceCompositeSha256=${finalUpstreamValidation.sha256}`,
+                ],
+            }
+            : {
+                status: 'failed',
+                name: 'production_inert_composite_evidence_inputs',
+                message: 'Web bootstrap-secret closure lacks a fresh exact web+fulfillment version binding.',
+                details: [
+                    `webVersionId=${attestedWebVersionId ?? 'missing'}`,
+                    `upstreamValid=${String(finalUpstreamValidation.valid)}`,
+                    `upstreamHashStable=${String(finalUpstreamStable)}`,
+                    ...finalUpstreamValidation.errors.map((error) => `upstreamError=${error}`),
+                ],
+            });
+    }
+
+    let report = createReport();
+    let rendered = renderArtifacts(report);
+    persistArtifacts(report, rendered);
+    if (report.status === 'OK'
+        && ['EXECUTED_AND_ATTESTED', 'RECONCILED_STOP'].includes(report.closureStatus)
+        && attestedWebVersionId
+        && latestPhaseOneCompositeEvidencePath
+        && finalUpstreamStable
+        && finalUpstreamValidation.value) {
+        try {
+            const evidence = buildCloudflareProductionInertCompositeEvidence({
+                stage: 'web_hmac_closed',
+                generatedAt: report.endedAt,
+                webVersionId: attestedWebVersionId,
+                fulfillmentVersionId: finalUpstreamValidation.value.fulfillment.versionId,
+                sourceSummaryPath: path.join(outputDir, 'summary.json'),
+                upstreamEvidencePath: latestPhaseOneCompositeEvidencePath,
+            });
+            writeFileSync(compositeEvidencePath, JSON.stringify(evidence, null, 2), 'utf8');
+        } catch (error) {
+            rmSync(compositeEvidencePath, { force: true });
+            checks.push({
+                status: 'failed',
+                name: 'production_inert_composite_evidence_persistence',
+                message: 'Final web+fulfillment evidence could not be built and persisted; closure is fail-closed.',
+                details: [sanitizeError(error instanceof Error ? error : new Error(String(error)))],
+            });
+            report = createReport();
+            rendered = renderArtifacts(report);
+            persistArtifacts(report, rendered);
+        }
+    }
 
     console.log(`[launch:cloudflare-production-worker-bootstrap-secrets] Status: ${report.status}`);
     console.log(`[launch:cloudflare-production-worker-bootstrap-secrets] Closure: ${report.closureStatus}`);
@@ -183,6 +255,7 @@ async function main(): Promise<void> {
     console.log(`[launch:cloudflare-production-worker-bootstrap-secrets] External write performed: ${report.externalWritePerformed}`);
     console.log(`[launch:cloudflare-production-worker-bootstrap-secrets] Summary: ${report.summaryPath}`);
     console.log(`[launch:cloudflare-production-worker-bootstrap-secrets] Approval gate: ${report.approvalGatePath}`);
+    console.log(`[launch:cloudflare-production-worker-bootstrap-secrets] Composite evidence: ${report.compositeEvidencePath}`);
 
     if (report.status === 'FAILED') process.exit(1);
 }
@@ -210,14 +283,22 @@ function createReport(): Report {
         target,
         requiredSecretNames,
         explicitlyWithheldSecretNames,
-        latestPhaseOneSummaryPath,
+        latestPhaseOneCompositeEvidencePath,
         checks,
         captures,
         outputDir,
         summaryPath: path.join(outputDir, 'summary.md'),
         approvalGatePath: path.join(outputDir, 'approval-gate.md'),
         executionPlanPath: path.join(outputDir, 'execution-plan.md'),
+        compositeEvidencePath,
     };
+}
+
+function persistArtifacts(report: Report, rendered: ReturnType<typeof renderArtifacts>): void {
+    writeFileSync(report.summaryPath, rendered.summary, 'utf8');
+    writeFileSync(report.approvalGatePath, rendered.approvalGate, 'utf8');
+    writeFileSync(report.executionPlanPath, rendered.executionPlan, 'utf8');
+    writeFileSync(path.join(outputDir, 'summary.json'), JSON.stringify(report, null, 2), 'utf8');
 }
 
 function validatePackageAndSource(): Check {
@@ -329,26 +410,45 @@ function validateFinalRouteSeparation(): Check {
 }
 
 function validateLatestPhaseOneEvidence(): Check {
-    const summary = latestPhaseOneSummaryPath ? readIfExists(latestPhaseOneSummaryPath) : null;
-    const required = [
-        '- Status: OK',
-        '- Execute requested: true',
-        '- External write performed: true',
-        '| ok | web_bootstrap_health_after_deploy |',
-    ];
-    const missing = summary ? required.filter((snippet) => !summary.includes(snippet)) : required;
+    const validation = latestPhaseOneEvidenceValidation(new Date());
+    const correctStage = validation.valid && validation.value?.stage === 'phase1_web_deployed';
+    const valid = correctStage && Boolean(validation.sha256);
+    if (valid) acceptedPhaseOneEvidenceSha256 = validation.sha256;
     return {
-        status: missing.length === 0 ? 'ok' : executeRequested ? 'failed' : 'warning',
-        name: 'phase1_web_bootstrap_before_secrets',
-        message: missing.length === 0
-            ? 'Latest phase-1 evidence records an executed inert web bootstrap before minimal secret loading.'
+        status: valid ? 'ok' : executeRequested ? 'failed' : 'warning',
+        name: 'phase1_web_fulfillment_composite_before_secrets',
+        message: valid
+            ? 'Fresh structured phase-1 evidence binds the exact inert web deployment to its directly attested fulfillment version.'
             : executeRequested
-                ? 'Executed phase-1 bootstrap evidence is required before any secret write.'
-                : 'Phase-1 has not yet been executed; this plan remains ready but execution will be gated.',
-        details: missing.length === 0
-            ? [`summary=${latestPhaseOneSummaryPath}`]
-            : [`summary=${latestPhaseOneSummaryPath ?? 'missing'}`, ...missing.map((item) => `missing=${item}`)],
+                ? 'Fresh version-bound phase-1 web+fulfillment evidence is required before any secret write.'
+                : 'Phase-1 composite evidence is absent or stale; plan mode remains non-writing.',
+        details: valid && validation.value
+            ? [
+                `evidence=${latestPhaseOneCompositeEvidencePath}`,
+                `sourceCompositeSha256=${validation.sha256}`,
+                `webVersionId=${validation.value.web.versionId}`,
+                `fulfillmentVersionId=${validation.value.fulfillment.versionId}`,
+                'maxAgeMs=300000',
+                'sequence=Cloudflare C-D-E immediately before launch:status',
+            ]
+            : [
+                `evidence=${latestPhaseOneCompositeEvidencePath ?? 'missing'}`,
+                `stage=${validation.value?.stage ?? 'missing'}`,
+                ...validation.errors.map((error) => `error=${error}`),
+            ],
     };
+}
+
+function latestPhaseOneEvidenceValidation(now: Date): CloudflareProductionInertEvidenceValidation {
+    if (!latestPhaseOneCompositeEvidencePath) {
+        return {
+            valid: false,
+            errors: ['Phase-1 composite evidence is missing.'],
+            value: null,
+            sha256: null,
+        };
+    }
+    return readCloudflareProductionInertCompositeEvidence(latestPhaseOneCompositeEvidencePath, { now });
 }
 
 function validateExecutionInputs(): Check {
@@ -397,24 +497,44 @@ async function runApprovedExecution(): Promise<Check[]> {
     executionChecks.push(...preWriteProbes);
     if (preWriteProbes.some((check) => check.status === 'failed')) return executionChecks;
 
+    const immediatePhaseOne = latestPhaseOneEvidenceValidation(new Date());
+    const immediatePhaseOneValid = immediatePhaseOne.valid
+        && immediatePhaseOne.value?.stage === 'phase1_web_deployed'
+        && Boolean(immediatePhaseOne.sha256)
+        && immediatePhaseOne.sha256 === acceptedPhaseOneEvidenceSha256;
+    executionChecks.push({
+        status: immediatePhaseOneValid ? 'ok' : 'failed',
+        name: 'phase1_composite_immediately_before_secret_write',
+        message: immediatePhaseOneValid
+            ? 'The five-minute phase-1 web+fulfillment receipt was revalidated immediately before the one-shot HMAC path.'
+            : 'The phase-1 receipt is missing, stale or invalid immediately before the one-shot HMAC path; no write may start.',
+        details: immediatePhaseOneValid && immediatePhaseOne.value
+            ? [
+                `sourceCompositeSha256=${immediatePhaseOne.sha256}`,
+                'sourceCompositeHashStable=true',
+                `webVersionId=${immediatePhaseOne.value.web.versionId}`,
+                `fulfillmentVersionId=${immediatePhaseOne.value.fulfillment.versionId}`,
+                'maxAgeMs=300000',
+            ]
+            : [
+                `sourceCompositeHashStable=${String(immediatePhaseOne.sha256 === acceptedPhaseOneEvidenceSha256)}`,
+                ...immediatePhaseOne.errors.map((error) => `error=${error}`),
+            ],
+    });
+    if (!immediatePhaseOneValid) return executionChecks;
+
     const reconciliation = await reconcileOneShotCloudflareWriteGuard(
         'web-bootstrap-hmac-secret',
         outputDir,
         {
             readback: async (checkpoint) => {
                 if (checkpoint && checkpoint.commandId !== 'web-bootstrap-secret-put-internal-job-secret') return false;
-                const secretShape = validateRemoteSecretShape(
-                    captures.find((capture) => capture.id === commands.secretsBefore.id),
-                    true,
-                );
-                executionChecks.push(secretShape);
-                if (secretShape.status === 'failed') return false;
                 const versionCapture = captures.find((capture) => capture.id === commands.deploymentsBefore.id);
                 const versionId = versionCapture ? deploymentVersionId(versionCapture) : null;
                 if (!versionId) return false;
-                const attestation = await attestBootstrap(versionId);
-                executionChecks.push(attestation);
-                return attestation.status === 'ok';
+                const readback = await retryWebBootstrapSecretEvidence(versionId, false, 'reconciliation', executionChecks);
+                if (readback.state === 'proven') attestedWebVersionId = readback.value;
+                return readback.state === 'proven';
             },
         },
     );
@@ -463,49 +583,28 @@ async function runApprovedExecution(): Promise<Check[]> {
     executionChecks.push(checkForCapture(secretCapture));
     if (secretCapture.status === 'failed') return executionChecks;
 
-    for (const command of [commands.secretsAfter, commands.deploymentsAfter]) {
-        const capture = runCommand(command);
-        captures.push(capture);
-        executionChecks.push(checkForCapture(capture));
-        if (capture.status === 'failed') {
-            recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
-            return executionChecks;
-        }
-    }
-
-    const secretShape = validateRemoteSecretShape(
-        captures.find((capture) => capture.id === commands.secretsAfter.id),
-        true,
-    );
-    executionChecks.push(secretShape);
-    if (secretShape.status === 'failed') {
-        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
-        return executionChecks;
-    }
-
-    const versionCapture = captures.find((capture) => capture.id === commands.deploymentsAfter.id);
-    const versionId = versionCapture ? deploymentVersionId(versionCapture) : null;
-    if (!versionId) {
+    const prewriteVersionCapture = captures.find((capture) => capture.id === commands.deploymentsBefore.id);
+    const prewriteVersionId = prewriteVersionCapture ? deploymentVersionId(prewriteVersionCapture) : null;
+    if (!prewriteVersionId) {
         recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
         executionChecks.push({
             status: 'failed',
-            name: 'post_write_deployment_version',
-            message: 'A fresh deployed version could not be read after the secret writes.',
+            name: 'post_write_prewrite_version',
+            message: 'The pre-secret Worker version is unavailable; version change cannot be proven.',
             details: ['versionId=missing'],
         });
         return executionChecks;
     }
-
-    const routeChecks = await probeBootstrapRoutes('post_write');
-    executionChecks.push(...routeChecks);
-    if (routeChecks.some((check) => check.status === 'failed')) {
-        recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, false);
-        return executionChecks;
-    }
-    const attestation = await attestBootstrap(versionId);
-    executionChecks.push(attestation);
-    writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, attestation.status === 'ok');
-    if (attestation.status === 'failed') return executionChecks;
+    const postWriteReadback = await retryWebBootstrapSecretEvidence(
+        prewriteVersionId,
+        true,
+        'post-write',
+        executionChecks,
+    );
+    const postWriteProven = postWriteReadback.state === 'proven';
+    writeCheckpoint = recordOneShotCloudflareReadback(writeGuard, writeCheckpoint, postWriteProven);
+    if (!postWriteProven) return executionChecks;
+    attestedWebVersionId = postWriteReadback.value;
     closeOneShotCloudflareWriteGuard(writeGuard);
     externalWritePerformedState = true;
     executionChecks.push({
@@ -515,6 +614,86 @@ async function runApprovedExecution(): Promise<Check[]> {
         details: [`checkpointStage=${writeCheckpoint.stage}`],
     });
     return executionChecks;
+}
+
+async function retryWebBootstrapSecretEvidence(
+    referenceVersionId: string,
+    requireChangedVersion: boolean,
+    phase: 'reconciliation' | 'post-write',
+    executionChecks: Check[],
+): Promise<CloudflareReadonlyRetryResult<string>> {
+    let latestChecks: Check[] = [];
+    const result = await retryCloudflareReadonlyEvidence({
+        operation: 'attestation',
+        read: async ({ attempt }) => {
+            const attemptChecks: Check[] = [];
+            latestChecks = attemptChecks;
+            const suffix = `${phase}-attempt-${attempt}`;
+            const secretCapture = runCommand({ ...commands.secretsAfter, id: `web-secrets-${suffix}` });
+            captures.push(secretCapture);
+            if (secretCapture.status === 'failed') {
+                attemptChecks.push(checkForCapture(secretCapture));
+                return readonlyCaptureFailure(secretCapture, 'Web secret-name readback failed.');
+            }
+            const parsedSecrets = extractSecretNames(readIfExists(secretCapture.path) ?? '');
+            const requiredSet = new Set<string>(requiredSecretNames);
+            const unexpected = [...parsedSecrets.names].filter((name) => !requiredSet.has(name));
+            if (!parsedSecrets.parsed || unexpected.length > 0) {
+                attemptChecks.push(validateRemoteSecretShape(secretCapture, true));
+                return { state: 'definitive_failure', reason: 'Web secret inventory is malformed or unexpected.' } as const;
+            }
+            if (!parsedSecrets.names.has('INTERNAL_JOB_SECRET')) {
+                attemptChecks.push(validateRemoteSecretShape(secretCapture, true));
+                return { state: 'retryable', reason: 'Web INTERNAL_JOB_SECRET is not visible yet.' } as const;
+            }
+            attemptChecks.push(validateRemoteSecretShape(secretCapture, true));
+
+            const deploymentCapture = runCommand({ ...commands.deploymentsAfter, id: `web-deployments-${suffix}` });
+            captures.push(deploymentCapture);
+            if (deploymentCapture.status === 'failed') {
+                attemptChecks.push(checkForCapture(deploymentCapture));
+                return readonlyCaptureFailure(deploymentCapture, 'Web deployment readback failed.');
+            }
+            const versionId = deploymentVersionId(deploymentCapture);
+            if (!versionId) {
+                attemptChecks.push({ status: 'failed', name: 'post_write_deployment_version', message: 'Web deployment readback is malformed.', details: [] });
+                return { state: 'definitive_failure', reason: 'Web deployment readback is malformed.' } as const;
+            }
+            if (requireChangedVersion && versionId === referenceVersionId) {
+                attemptChecks.push({
+                    status: 'failed',
+                    name: 'post_write_deployment_version',
+                    message: 'Cloudflare still reports the pre-secret web version.',
+                    details: [`version=${versionId}`, 'readonlyOutcome=retryable'],
+                });
+                return { state: 'retryable', reason: 'Cloudflare still reports the pre-secret web version.' } as const;
+            }
+
+            const routeChecks = await probeBootstrapRoutes('post_write');
+            const attestation = await attestBootstrap(versionId);
+            attemptChecks.push(...routeChecks, attestation);
+            const failure = classifyReadonlyChecks([...routeChecks, attestation]);
+            return failure ?? { state: 'proven', value: versionId } as const;
+        },
+    });
+    executionChecks.push(...latestChecks);
+    executionChecks.push(result.state === 'proven'
+        ? {
+            status: 'ok', name: 'web_bootstrap_hmac_bounded_readback',
+            message: 'Bounded readbacks proved the exact HMAC-only inert web bootstrap.',
+            details: [
+                `versionId=${result.value}`,
+                `attempts=${result.attempts}`,
+                `delaysMs=${result.delaysMs.join(',') || 'none'}`,
+                'secretPutRetried=false',
+            ],
+        }
+        : {
+            status: 'failed', name: 'web_bootstrap_hmac_bounded_readback',
+            message: 'Bounded readbacks did not prove the exact HMAC-only inert web bootstrap.',
+            details: [`state=${result.state}`, `attempts=${result.attempts}`, `reason=${result.reason}`, 'secretPutRetried=false'],
+        });
+    return result;
 }
 
 function validateRemoteTarget(reportCaptures: CommandCapture[]): Check {
@@ -566,11 +745,13 @@ function validateRemoteSecretShape(capture: CommandCapture | undefined, requireM
 
 async function probeBootstrapRoutes(phase: 'pre_write' | 'post_write'): Promise<Check[]> {
     const results: Check[] = [];
+    let httpStatus: number | null = null;
     try {
         const healthResponse = await fetch(`${target.directUrl}/health`, {
             redirect: 'manual',
             signal: AbortSignal.timeout(20_000),
         });
+        httpStatus = healthResponse.status;
         const health = await healthResponse.json() as Record<string, unknown>;
         const healthy = healthResponse.status === 200
             && health.appEnvironment === 'production'
@@ -581,7 +762,11 @@ async function probeBootstrapRoutes(phase: 'pre_write' | 'post_write'): Promise<
             status: healthy ? 'ok' : 'failed',
             name: `web_bootstrap_health_${phase}`,
             message: 'Direct health must prove the exact production bootstrap identity with checkout disabled.',
-            details: [`httpStatus=${healthResponse.status}`, `runtimeMode=${String(health.runtimeMode ?? 'missing')}`],
+            details: [
+                `httpStatus=${healthResponse.status}`,
+                `runtimeMode=${String(health.runtimeMode ?? 'missing')}`,
+                ...(healthy ? [] : [`readonlyOutcome=${isRetryableCloudflareReadonlyStatus(healthResponse.status) ? 'retryable' : 'definitive_failure'}`]),
+            ],
         });
 
         const routes: Array<{ path: string; method: 'GET' | 'POST' }> = [
@@ -603,6 +788,7 @@ async function probeBootstrapRoutes(phase: 'pre_write' | 'post_write'): Promise<
                 redirect: 'manual',
                 signal: AbortSignal.timeout(20_000),
             });
+            httpStatus = response.status;
             let errorCode = 'invalid-body';
             try {
                 errorCode = String((await response.json() as { errorCode?: unknown }).errorCode ?? 'missing');
@@ -615,25 +801,40 @@ async function probeBootstrapRoutes(phase: 'pre_write' | 'post_write'): Promise<
                 status: response.status === 503 && errorCode === 'WEB_RUNTIME_BOOTSTRAP' && headersAreInert ? 'ok' : 'failed',
                 name: `web_bootstrap_route_503_${phase}_${route.method.toLowerCase()}_${route.path.replace(/[^a-z0-9]+/giu, '_') || 'root'}`,
                 message: 'All representative application route classes must remain 503 while bootstrap is inert.',
-                details: [`route=${route.method} ${route.path}`, `httpStatus=${response.status}`, `errorCode=${errorCode}`, `inertHeaders=${String(headersAreInert)}`],
+                details: [
+                    `route=${route.method} ${route.path}`,
+                    `httpStatus=${response.status}`,
+                    `errorCode=${errorCode}`,
+                    `inertHeaders=${String(headersAreInert)}`,
+                    ...(response.status === 503 && errorCode === 'WEB_RUNTIME_BOOTSTRAP' && headersAreInert
+                        ? []
+                        : [`readonlyOutcome=${response.status !== 503 && isRetryableCloudflareReadonlyStatus(response.status) ? 'retryable' : 'definitive_failure'}`]),
+                ],
             });
         }
 
         const attestationGet = await fetch(`${target.directUrl}/api/internal/runtime-attestation`, {
             method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(20_000),
         });
+        httpStatus = attestationGet.status;
         results.push({
             status: attestationGet.status === 404 ? 'ok' : 'failed',
             name: `web_bootstrap_attestation_get_hidden_${phase}`,
             message: 'The allowed diagnostic attestation path must expose only authenticated POST; GET remains 404.',
-            details: [`httpStatus=${attestationGet.status}`],
+            details: [
+                `httpStatus=${attestationGet.status}`,
+                ...(attestationGet.status === 404 ? [] : [`readonlyOutcome=${isRetryableCloudflareReadonlyStatus(attestationGet.status) ? 'retryable' : 'definitive_failure'}`]),
+            ],
         });
     } catch (error) {
         results.push({
             status: 'failed',
             name: `web_bootstrap_route_probe_${phase}`,
             message: 'Direct bootstrap route probes failed or timed out.',
-            details: [sanitizeError(error instanceof Error ? error : new Error(String(error)))],
+            details: [
+                sanitizeError(error instanceof Error ? error : new Error(String(error))),
+                `readonlyOutcome=${readonlyErrorIsRetryable(error, httpStatus) ? 'retryable' : 'definitive_failure'}`,
+            ],
         });
     }
     return results;
@@ -665,16 +866,31 @@ async function attestBootstrap(expectedVersionId: string): Promise<Check> {
             signal: AbortSignal.timeout(20_000),
         });
         httpStatus = response.status;
+        if (isRetryableCloudflareReadonlyStatus(response.status, [401])) {
+            return {
+                status: 'failed', name: 'direct_web_bootstrap_hmac_attestation',
+                message: 'Web runtime attestation has not propagated yet.',
+                details: [`httpStatus=${response.status}`, 'readonlyOutcome=retryable'],
+            };
+        }
+        if (response.status !== 200) {
+            return {
+                status: 'failed', name: 'direct_web_bootstrap_hmac_attestation',
+                message: 'Web runtime attestation returned a definitive HTTP failure.',
+                details: [`httpStatus=${response.status}`, 'readonlyOutcome=definitive_failure'],
+            };
+        }
         const envelope = await response.json() as RuntimeAttestationEnvelope;
         identity = envelope.workerIdentity ?? 'missing';
         version = envelope.workerVersionId ?? 'missing';
+        const observedVersionId = typeof envelope.workerVersionId === 'string' ? envelope.workerVersionId : '';
         const config = await buildRuntimeAttestationConfig('web', {
             INTERNAL_JOB_SECRET: process.env.INTERNAL_JOB_SECRET,
             PUBLIC_APP_ENV: 'production',
             WEB_RUNTIME_MODE: 'bootstrap',
             SUPABASE_EXPECTED_PROJECT_REF: target.supabaseRef,
             WORKER_IDENTITY: target.worker,
-            WORKER_VERSION_ID: expectedVersionId,
+            WORKER_VERSION_ID: observedVersionId,
             FULFILLMENT_WORKER_URL: target.fulfillmentUrl,
             CHECKOUT_ENABLED: 'false',
             CHECKOUT_ENABLED_OVERRIDE: 'false',
@@ -696,9 +912,7 @@ async function attestBootstrap(expectedVersionId: string): Promise<Check> {
             && config.turnstileSecretFingerprint === 'absent'
             && config.cronSecretFingerprint === 'absent'
             && config.levelCheckSecretFingerprint === 'absent';
-        verified = response.status === 200
-            && envelope.workerIdentity === target.worker
-            && envelope.workerVersionId === expectedVersionId
+        const cryptographicallyVerified = envelope.workerIdentity === target.worker
             && providersAbsent
             && await verifyRuntimeAttestation(envelope, {
                 config,
@@ -706,8 +920,31 @@ async function attestBootstrap(expectedVersionId: string): Promise<Check> {
                 role: 'web',
                 schema: RUNTIME_ATTESTATION_SCHEMA,
             }, process.env.INTERNAL_JOB_SECRET ?? '');
-    } catch {
+        if (!cryptographicallyVerified) {
+            return {
+                status: 'failed', name: 'direct_web_bootstrap_hmac_attestation',
+                message: 'A 200 web attestation was cryptographically invalid or had the wrong identity/configuration.',
+                details: [`httpStatus=${response.status}`, `workerIdentity=${identity}`, 'readonlyOutcome=definitive_failure'],
+            };
+        }
+        if (observedVersionId !== expectedVersionId) {
+            return {
+                status: 'failed', name: 'direct_web_bootstrap_hmac_attestation',
+                message: 'A valid web attestation still reports the previous Worker version.',
+                details: [`workerVersion=${version}`, `expectedVersion=${expectedVersionId}`, 'readonlyOutcome=retryable'],
+            };
+        }
+        verified = true;
+    } catch (error) {
         verified = false;
+        return {
+            status: 'failed', name: 'direct_web_bootstrap_hmac_attestation',
+            message: 'Web runtime attestation failed.',
+            details: [
+                sanitizeError(error instanceof Error ? error : new Error(String(error))),
+                `readonlyOutcome=${readonlyErrorIsRetryable(error, httpStatus, [401]) ? 'retryable' : 'definitive_failure'}`,
+            ],
+        };
     }
 
     return {
@@ -719,6 +956,7 @@ async function attestBootstrap(expectedVersionId: string): Promise<Check> {
         details: [
             `httpStatus=${httpStatus ?? 'none'}`,
             `workerIdentity=${identity}`,
+            `webVersionId=${expectedVersionId}`,
             `workerVersionMatched=${String(version === expectedVersionId)}`,
             'webRuntimeMode=bootstrap',
             'stripeBoundary=absent',
@@ -733,6 +971,31 @@ async function attestBootstrap(expectedVersionId: string): Promise<Check> {
             `proofVerified=${String(verified)}`,
         ],
     };
+}
+
+function classifyReadonlyChecks(checkList: readonly Check[]): CloudflareReadonlyAttemptResult<never> | null {
+    const failures = checkList.filter((check) => check.status === 'failed');
+    if (failures.length === 0) return null;
+    const retryable = failures.every((check) => check.details.includes('readonlyOutcome=retryable'));
+    return retryable
+        ? { state: 'retryable', reason: failures.map((check) => check.name).join(',') }
+        : { state: 'definitive_failure', reason: failures.map((check) => check.name).join(',') };
+}
+
+function readonlyCaptureFailure(capture: CommandCapture, reason: string): CloudflareReadonlyAttemptResult<never> {
+    const output = readIfExists(capture.path) ?? '';
+    const retryable = capture.exitCode === null
+        || /\b(?:ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENETUNREACH)\b|fetch failed|network error|timed out|too many requests|(?:http(?: status)?|status(?: code)?|code)\s*[=:]?\s*(?:429|5\d\d)\b/iu.test(output);
+    return retryable ? { state: 'retryable', reason } : { state: 'definitive_failure', reason };
+}
+
+function readonlyErrorIsRetryable(
+    error: unknown,
+    httpStatus: number | null,
+    additionalStatuses: readonly number[] = [],
+): boolean {
+    return (httpStatus !== null && isRetryableCloudflareReadonlyStatus(httpStatus, additionalStatuses))
+        || isRetryableCloudflareReadonlyError(error);
 }
 
 function buildCommands(): Record<string, CommandSpec> & {
@@ -818,7 +1081,11 @@ function checkForCapture(capture: CommandCapture): Check {
 
 function deploymentVersionId(capture: CommandCapture): string | null {
     const text = readIfExists(capture.path) ?? '';
-    return /"version_id"\s*:\s*"([0-9a-f]{8}-[0-9a-f-]{27})"/iu.exec(text)?.[1] ?? null;
+    try {
+        return newestWorkerDeploymentVersionId(parseMixedJsonOutput(text));
+    } catch {
+        return null;
+    }
 }
 
 function extractSecretNames(text: string): { names: Set<string>; parsed: boolean } {
@@ -952,21 +1219,6 @@ function latestGeneratedPath(folderName: string, fileName: string): string | nul
         .filter((candidate) => existsSync(candidate))
         .sort()
         .reverse()[0] ?? null;
-}
-
-function latestGeneratedPathMatching(folderName: string, fileName: string, snippets: readonly string[]): string | null {
-    const root = path.join(process.cwd(), 'outputs', folderName);
-    if (!existsSync(root)) return null;
-    const candidates = readdirSync(root, { withFileTypes: true })
-        .filter((entry) => entry.isDirectory())
-        .map((entry) => path.join(root, entry.name, fileName))
-        .filter((candidate) => existsSync(candidate))
-        .sort()
-        .reverse();
-    return candidates.find((candidate) => {
-        const contents = readFileSync(candidate, 'utf8');
-        return snippets.every((snippet) => contents.includes(snippet));
-    }) ?? null;
 }
 
 function readIfExists(filePath: string): string | null {

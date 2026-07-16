@@ -2,7 +2,7 @@
 
 Estado: final-only. No ejecutar esta secuencia hasta que Alin decida entrar en ventana real de Go/No-Go.
 
-Este documento une los cierres que no deben bloquear el Release Candidate pero si bloquean el lanzamiento publico: legal real, pagos/Stripe, integraciones production, rotacion de claves, backup/export final, fuente rusa premium, SEO/LLM final y smoke end-to-end.
+Este documento une los cierres que no deben bloquear el Release Candidate pero si bloquean el lanzamiento publico: legal real, pagos/Stripe, activación de integraciones production ya preparadas en modo inerte, rotacion de claves, backup/export final, fuente rusa premium, SEO/LLM final y smoke end-to-end.
 
 ## Criterio De Entrada
 
@@ -10,11 +10,16 @@ Entrar en cierre final solo cuando:
 
 - El Release Candidate esta congelado y `pnpm launch:rc` devuelve `RC_READY_WITH_FINAL_BLOCKERS`.
 - Fase 1 esta limpia en `pnpm launch:status`.
+- `production_inert_preparation` está cerrada: Workers production en bootstrap, Supabase production migrado/limpio, Auth inerte, disponibilidad verificada y checkout desactivado; todavía sin proveedores activos, DNS ni tráfico.
 - Ya no quedan cambios de producto/copy/posicionamiento que puedan alterar legal, precios, SEO o pagos.
 - `docs/launch/LAUNCH_MARKETING_PLAN.md` esta congelado y representa la promesa final: adulto/profesional +30, conversacion, cultura, criterio, comunidad y solicitud de plaza/prueba como accion principal.
 - Alin confirma si se lanzara con pagos reales o sin aceptar pagos reales.
 - Alin confirma si se compra/licencia la fuente oficial con soporte cirilico o si acepta mantener el fallback actual para el lanzamiento.
 - Hay tiempo para rotar claves, validar staging, validar production y hacer rollback si algo falla.
+
+El ultimo cierre tecnico del RC debe respetar este orden y no se considera ejecutado por estar documentado: despues de crear y verificar la disponibilidad production, ejecutar `pnpm launch:production-inert-final-readonly -- --capture-readonly` con las tres rutas de evidencia explicitas para generar la atestacion renovable de Supabase/Auth mediante Management API `GET` entre dos consultas SQL `READ ONLY`; despues ejecutar Cloudflare C-D-E como un unico bloque continuo (HMAC fulfillment inerte, web bootstrap y HMAC web inerte) y lanzar inmediatamente `pnpm launch:status`. La atestacion Supabase/Auth demuestra de nuevo el estado inerte completo, no solo Auth: dos perfiles minimos con roles admin/profesor ligados a sus identidades por hash de rol; tablas transaccionales/CRM/billing/fulfillment vacias; exactamente cuatro paquetes cuyo hash de catalogo coincide con el `catalogSha256` del manifiesto de cleanup aprobado (identificador, nombres localizados, precio mensual en centimos EUR, sesiones, flags grupal/dual y estado activo), todos con `catalog_version=1` y referencias Stripe locales nulas; cero objetos Storage con propietario; cinco franjas del profesor; y las 25 migraciones RC exactas dentro de un historial cerrado de 49 entradas. La evidencia compuesta de Cloudflare caduca a los 5 minutos, por lo que no se intercala ningun otro trabajo entre C-D-E y `launch:status`.
+
+Cada captura real requiere en el entorno local `TEST_ADMIN_EMAIL` y `TEST_TEACHER_EMAIL`, distintos entre si, para probar que el email esperado de cada rol coincide simultaneamente en `auth.users` y `public.profiles`; los valores se descartan y nunca se persisten en la atestacion, resumen ni logs. La captura deja primero un resumen durable. Si el intento real mas reciente queda `CAPTURE_FAILED` o `CAPTURE_IN_PROGRESS`, invalida cualquier exito anterior aunque este siga dentro de su TTL; hay que reconciliar y ejecutar una captura nueva. Un plan local `PLAN_ONLY_NO_NETWORK` se ignora para esta precedencia y nunca sustituye una captura real.
 
 ## No Hacer En Esta Secuencia
 
@@ -108,10 +113,10 @@ Evidencia aceptable:
 
 No guardar dumps en el repo.
 
-Preflight read-only 2026-06-12:
+Inventario reconciliado read-only del RC (no implica que las operaciones production pendientes esten ejecutadas):
 
 - Supabase tiene dos proyectos separados activos: `espanol-staging` y `espanol-honesto`.
-- Production mantiene historial completo de migraciones; staging muestra solo migraciones recientes 012-017. Antes de Go/No-Go, confirmar si ese historial parcial de staging es una decision aceptada o si se recrea staging desde migraciones completas.
+- Production contiene 24 entradas historicas y mantiene pendientes las 25 migraciones RC incluidas en el allowlist production. Tras el rollout, el cierre final exige exactamente esas 25 entradas por version, nombre y SHA-256 del unico statement, y exactamente 49 entradas historicas en total. Staging contiene el RC completo y, ademas, `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`; esas dos migraciones son staging-only y estan excluidas deliberadamente de production.
 - Las tablas criticas existen con RLS activado en ambos proyectos, pero production conserva `public.jobs` como tabla legacy con RLS sin policies. Confirmar que no forma parte del runtime actual o decidir limpieza/accepted risk.
 - Supabase Advisor marca `btree_gist` instalado en `public` en ambos proyectos y leaked password protection desactivado. Antes del lanzamiento publico, habilitar leaked password protection o registrar riesgo aceptado; mover `btree_gist` fuera de `public` solo con migracion probada, o dejarlo como backlog/riesgo aceptado si no bloquea el lanzamiento.
 

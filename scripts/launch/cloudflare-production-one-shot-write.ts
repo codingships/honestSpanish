@@ -11,6 +11,7 @@ import {
     persistCanonicalWorkerWriteCheckpoint,
     persistWorkerWriteCheckpointAtomically,
     reconcileWorkerWriteCheckpoint,
+    reconcileWorkerWriteCheckpointToSafeState,
     releaseWorkerWriteExecutionLock,
     requireRecoverableWorkerWriteExecutionLock,
     resolveCanonicalWorkerWriteCheckpoint,
@@ -44,6 +45,11 @@ export interface OneShotCloudflareReconciliationResult {
     reason: string;
 }
 
+export type OneShotCloudflareReadbackResult =
+    | 'intended_state_proven'
+    | 'safe_state_proven'
+    | 'not_proven';
+
 export interface OneShotCloudflareReconciliationOptions {
     /**
      * Must perform only fresh read-only provider observations. It must never
@@ -52,7 +58,9 @@ export interface OneShotCloudflareReconciliationOptions {
      * from the lock owner's run. A lock opened before any checkpoint needs no
      * provider readback because write-ahead persistence precedes every write.
      */
-    readback: (checkpoint: WorkerWriteCheckpoint | null) => Promise<boolean> | boolean;
+    readback: (
+        checkpoint: WorkerWriteCheckpoint | null,
+    ) => Promise<OneShotCloudflareReadbackResult | boolean> | OneShotCloudflareReadbackResult | boolean;
     /** Test seam. Production callers must rely on the default OS liveness probe. */
     livenessProbe?: (ownerPid: number) => ProcessLiveness;
 }
@@ -207,11 +215,12 @@ export async function reconcileOneShotCloudflareWriteGuard(
             targets = [];
         }
 
+        let safeStateCheckpointCount = 0;
         for (const target of targets) {
             const checkpoint = target.checkpoint;
-            let intendedStateProven = false;
+            let readbackResult: OneShotCloudflareReadbackResult = 'not_proven';
             try {
-                intendedStateProven = await options.readback(checkpoint);
+                readbackResult = normalizeReadbackResult(await options.readback(checkpoint));
             } catch (error) {
                 return blockedReconciliation(
                     state.scope,
@@ -221,7 +230,7 @@ export async function reconcileOneShotCloudflareWriteGuard(
                 );
             }
 
-            if (!intendedStateProven) {
+            if (readbackResult === 'not_proven') {
                 if (target.pending) {
                     const failedReadback = reconcileWorkerWriteCheckpoint(checkpoint, false);
                     persistCanonicalWorkerWriteCheckpoint(state.pendingDirectory, failedReadback);
@@ -235,8 +244,11 @@ export async function reconcileOneShotCloudflareWriteGuard(
                 );
             }
 
+            if (readbackResult === 'safe_state_proven') safeStateCheckpointCount += 1;
             if (target.pending) {
-                const proven = reconcileWorkerWriteCheckpoint(checkpoint, true);
+                const proven = readbackResult === 'safe_state_proven'
+                    ? reconcileWorkerWriteCheckpointToSafeState(checkpoint)
+                    : reconcileWorkerWriteCheckpoint(checkpoint, true);
                 persistCanonicalWorkerWriteCheckpoint(state.pendingDirectory, proven);
                 persistWorkerWriteCheckpointAtomically(evidenceDirectory, proven);
                 resolveCanonicalWorkerWriteCheckpoint(
@@ -279,7 +291,9 @@ export async function reconcileOneShotCloudflareWriteGuard(
                 ? 'stale-prewrite-lock-had-no-checkpoint-or-provider-write'
                 : reconciliationLockExists && unresolved.length === 0 && !executionLockExists
                     ? 'stale-reconciliation-lock-had-no-pending-write'
-                : 'fresh-readback-proved-intended-state',
+                    : safeStateCheckpointCount > 0
+                        ? 'fresh-readback-proved-safe-state'
+                        : 'fresh-readback-proved-intended-state',
         };
     }
 }
@@ -410,6 +424,19 @@ function blockedReconciliation(
     reason: string,
 ): OneShotCloudflareReconciliationResult {
     return { status: 'blocked', scope, checkpointCount, lockOnly, reason };
+}
+
+function normalizeReadbackResult(
+    result: OneShotCloudflareReadbackResult | boolean,
+): OneShotCloudflareReadbackResult {
+    if (result === true) return 'intended_state_proven';
+    if (result === false) return 'not_proven';
+    if (
+        result === 'intended_state_proven'
+        || result === 'safe_state_proven'
+        || result === 'not_proven'
+    ) return result;
+    throw new Error(`Unsupported one-shot Cloudflare readback result: ${String(result)}`);
 }
 
 function safeError(error: unknown): string {

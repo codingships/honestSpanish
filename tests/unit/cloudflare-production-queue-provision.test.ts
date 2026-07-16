@@ -130,6 +130,26 @@ describe('Cloudflare production Queue provisioning', () => {
             .toBeLessThan(PRODUCTION_QUEUE_APPROVAL_SENTENCE.indexOf(PRODUCTION_QUEUE_TARGET.queue));
     });
 
+    it('reconciles only exact Queue pre-write states as safe without retrying either create', () => {
+        for (const snippet of [
+            "const exactAbsent = inventory.deadLetterQueueCount === 0 && inventory.queueCount === 0",
+            "commandId === 'create-production-dlq'",
+            "commandId === 'create-production-queue'",
+            "if (safeStateProven) return 'safe_state_proven'",
+            "? 'intended_state_proven'",
+            ": 'not_proven'",
+            'providerMutationRetried=false',
+            'result=${reconciliation.reason}',
+        ]) {
+            expect(runner).toContain(snippet);
+        }
+
+        expect(runner).toContain("commandId === 'create-production-dlq'\n        ? exactAbsent");
+        expect(runner).toContain("commandId === 'create-production-queue'\n            ? exactIntermediate");
+        expect(runner.indexOf('queueReconciliationReadback('))
+            .toBeLessThan(runner.indexOf("openOneShotCloudflareWriteGuard('production-queue-provision'"));
+    });
+
     it('allowlists only identity/list/info reads and exact Queue creates', () => {
         for (const snippet of [
             "group === 'whoami'",

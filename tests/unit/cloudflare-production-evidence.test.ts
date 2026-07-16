@@ -322,6 +322,11 @@ describe('structured Cloudflare production evidence gates', () => {
         ]));
     });
 
+    it('hashes the structured web+fulfillment evidence contract as production-critical source', () => {
+        expect(CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS)
+            .toContain('scripts/launch/cloudflare-production-inert-composite-evidence.ts');
+    });
+
     it('rejects a runtime report generated from another Git HEAD', () => {
         const report = runtimeSummary();
         (report.sourceIdentity as CloudflareProductionSourceIdentity).gitHead = 'f'.repeat(40);

@@ -3,8 +3,11 @@ import path from 'node:path';
 import {
     FIXTURE_CLEANUP_TARGET,
     PRODUCTION_BACKUP_REQUIRED_LIMITATIONS,
+    loadAndValidateFixtureCleanupContract,
+    readFixturePreservationPolicyEvidence,
     validateBackupReceipt,
     type BackupReceipt,
+    type FixturePreservationPolicy,
 } from './production-fixture-cleanup-shared';
 import {
     KNOWN_MIGRATION_WAVES,
@@ -57,20 +60,13 @@ interface PreflightReport {
     };
 }
 
-interface PreservationPolicy {
-    schemaVersion: number;
-    targetProjectRef: string;
-    aggregateSnapshotSha256: string;
-    approvedAt: string;
-    decisions: Record<string, string>;
-}
-
 interface InputGate<T> {
     provided: boolean;
     valid: boolean;
     label: string | null;
     value: T | null;
     errors: string[];
+    sha256?: string | null;
 }
 
 const args = parseArgs(process.argv.slice(2));
@@ -128,13 +124,10 @@ const aggregateSnapshot = {
     packagePriceLinks,
 };
 const aggregateSnapshotSha256 = sha256(stableJson(aggregateSnapshot));
+const cleanupContract = loadAndValidateFixtureCleanupContract(process.cwd());
 
 const backupReceipt = readBackupReceipt(args.backupEvidenceReceipt);
-const preservationPolicy = readPreservationPolicy(
-    args.preservationPolicy,
-    aggregateSnapshotSha256,
-    Object.keys(fixtureCounts),
-);
+const preservationPolicy = readPreservationPolicy(args.preservationPolicy);
 const stagingHardeningEvidence = readStagingHardeningEvidenceForPlan(args.stagingHardeningEvidence);
 
 const preflightAgeHours = (startedAt.getTime() - new Date(preflight.endedAt).getTime()) / 3_600_000;
@@ -182,7 +175,24 @@ const processedGate: GateStatus = processedAlreadyClosed
     : processedReady ? 'ready' : 'blocked';
 
 const stripeLinkedWithoutPackagePrice = packagePriceLinksAssessment.stripeLinkedWithoutPackagePrice;
-const cleanupGate: GateStatus = backupReceipt.valid && preservationPolicy.valid
+const contractCountEntries = cleanupContract.value
+    ? Object.entries(cleanupContract.value.classActions)
+        .filter(([, action]) => action.expectedCount !== null)
+    : [];
+const contractKnownCountsMatch = cleanupContract.value
+    ? stableJson(Object.keys(fixtureCounts).sort())
+        === stableJson(contractCountEntries.map(([fixtureClass]) => fixtureClass).sort())
+        && contractCountEntries.every(([fixtureClass, action]) => (
+            fixtureCounts[fixtureClass] === action.expectedCount
+        ))
+    : false;
+const cleanupGate: GateStatus = preflightSafe
+    && preflightFresh
+    && localInventoryStable
+    && cleanupContract.ok
+    && contractKnownCountsMatch
+    && backupReceipt.valid
+    && preservationPolicy.valid
     ? 'ready'
     : 'blocked';
 const billingDataReady = packagePriceLinksAssessment.ready;
@@ -226,7 +236,7 @@ const waves = KNOWN_MIGRATION_WAVES.map((wave) => {
         && ambiguous.length === 0
         && missingLocalVersion.length === 0
         && (!wave.requiresBackupEvidence || backupReceipt.valid)
-        && (!wave.requiresPreservationPolicy || preservationPolicy.valid)
+        && (!wave.requiresPreservationPolicy || (preservationPolicy.valid && cleanupContract.ok))
         && (wave.id !== 'processed_at_small_fix' || processedReady || processedAlreadyClosed)
         && (wave.id === 'processed_at_small_fix' || processedAlreadyClosed)
         && (wave.id === 'processed_at_small_fix' || baselineEffectsVerified)
@@ -380,6 +390,12 @@ const report = {
         },
         destructiveFixtureCleanup: {
             status: cleanupGate,
+            cleanupContract: {
+                valid: cleanupContract.ok,
+                sha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
+                knownCountsMatch: contractKnownCountsMatch,
+                errors: cleanupContract.errors,
+            },
             backupReceipt,
             preservationPolicy,
             noCleanupSqlGenerated: true,
@@ -524,36 +540,15 @@ function readBackupReceipt(receiptPath: string | null): InputGate<BackupReceipt>
 
 function readPreservationPolicy(
     policyPath: string | null,
-    expectedSnapshotSha256: string,
-    requiredClasses: string[],
-): InputGate<PreservationPolicy> {
-    if (!policyPath) return { provided: false, valid: false, label: null, value: null, errors: ['not provided'] };
-    if (!existsSync(policyPath)) return { provided: true, valid: false, label: path.basename(policyPath), value: null, errors: ['file does not exist'] };
-
-    const errors: string[] = [];
-    let value: PreservationPolicy | null = null;
-    try {
-        value = JSON.parse(readFileSync(policyPath, 'utf8')) as PreservationPolicy;
-        if (value.schemaVersion !== 1) errors.push('schemaVersion must be 1');
-        if (value.targetProjectRef !== PRODUCTION_PROJECT.ref) errors.push('targetProjectRef mismatch');
-        if (value.aggregateSnapshotSha256 !== expectedSnapshotSha256) errors.push('aggregateSnapshotSha256 mismatch');
-        const approvedAt = new Date(value.approvedAt).getTime();
-        if (!Number.isFinite(approvedAt)) errors.push('approvedAt must be an ISO timestamp');
-        const allowed = new Set(['preserve', 'delete_as_fixture', 'rebuild_from_source', 'not_present', 'cleanup_separately']);
-        for (const fixtureClass of [...requiredClasses, 'stripe_external_objects', 'google_external_objects', 'storage_objects']) {
-            const decision = value.decisions?.[fixtureClass];
-            if (!decision || !allowed.has(decision)) errors.push(`missing or invalid decision for ${fixtureClass}`);
-        }
-    } catch (error) {
-        errors.push(error instanceof Error ? error.message : String(error));
-    }
-
+): InputGate<FixturePreservationPolicy> {
+    const evidence = readFixturePreservationPolicyEvidence(policyPath, startedAt, process.cwd());
     return {
-        provided: true,
-        valid: errors.length === 0,
-        label: path.basename(policyPath),
-        value,
-        errors,
+        provided: evidence.provided,
+        valid: evidence.ok,
+        label: policyPath ? path.basename(policyPath) : null,
+        value: evidence.value,
+        errors: evidence.errors,
+        sha256: evidence.sha256,
     };
 }
 
@@ -602,18 +597,25 @@ function renderBackupTemplate(): Record<keyof BackupReceipt, unknown> {
     };
 }
 
-function renderPreservationTemplate(): PreservationPolicy {
-    const decisions = Object.fromEntries([
-        ...Object.keys(fixtureCounts),
-        'stripe_external_objects',
-        'google_external_objects',
-        'storage_objects',
-    ].map((fixtureClass) => [fixtureClass, 'UNDECIDED']));
+function renderPreservationTemplate(): FixturePreservationPolicy {
+    const classActions = cleanupContract.value?.classActions ?? {};
+    const decisions = Object.fromEntries(
+        Object.keys(classActions).map((fixtureClass) => [fixtureClass, 'UNDECIDED']),
+    );
+    const observedCounts = Object.fromEntries(
+        Object.entries(classActions).map(([fixtureClass, action]) => [
+            fixtureClass,
+            action.expectedCount === null ? null : fixtureCounts[fixtureClass],
+        ]),
+    );
     return {
-        schemaVersion: 1,
+        schemaVersion: 2,
+        policyKind: 'production_fixture_preservation',
         targetProjectRef: PRODUCTION_PROJECT.ref,
-        aggregateSnapshotSha256,
+        aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
+        approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
         approvedAt: '<ISO-8601 after human review>',
+        observedCounts,
         decisions,
     };
 }
@@ -716,7 +718,7 @@ function renderApprovalSentences(value: typeof report): string {
         '',
         '## 3. Fixture cleanup scope',
         '',
-        `Confirmo que el recibo de backup y la politica de preservacion vinculada al snapshot agregado ${value.aggregateSnapshotSha256} han sido revisados. Autorizo preparar un manifiesto SQL transaccional de limpieza limitado exclusivamente a las clases marcadas delete_as_fixture para Supabase production ${PRODUCTION_PROJECT.ref}; esta frase no autoriza ejecutar ese SQL hasta que se presente su hash exacto, su orden de borrado, su dry-run de conteos y una segunda aprobacion literal. No autorizo borrar objetos externos de Stripe, Google o Storage, ni usar db push o migration repair.`,
+        `Confirmo que el recibo de backup y la politica de preservacion SHA-256 ${value.gates.destructiveFixtureCleanup.preservationPolicy.sha256 ?? '<not-valid>'}, vinculada al snapshot ${FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256} y contrato ${FIXTURE_CLEANUP_TARGET.approvalScopeSha256}, han sido revisados. Autorizo preparar un manifiesto SQL transaccional de limpieza limitado exclusivamente a las acciones exactas de ese contrato para Supabase production ${PRODUCTION_PROJECT.ref}; esta frase no autoriza ejecutar ese SQL hasta que se presente su hash exacto, su orden de borrado, su dry-run de conteos y una segunda aprobacion literal. No autorizo borrar objetos externos de Stripe, Google o Storage, ni usar db push o migration repair.`,
         '',
         '## 4. Migration waves',
         '',

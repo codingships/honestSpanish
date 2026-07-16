@@ -76,6 +76,7 @@ export interface PublicCleanupReceipt {
     approvalScopeSha256: string;
     backupReceiptSha256: string;
     authInertEvidenceSha256: string;
+    preservationPolicySha256: string;
     executeSqlSha256: string;
     freezeCutoff: string;
     postconditions: {
@@ -302,6 +303,7 @@ export interface FinalAuthPolicyReceipt {
     authReducedReceiptSha256: string;
     productionRolloutReceiptSha256: string;
     preservedSetSha256: string;
+    preservedRoleBindingSha256: string;
     freezeCutoff: string;
     quarantineUntil: string;
     googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED';
@@ -330,6 +332,18 @@ export function hashIdentitySet(values: readonly string[]): string {
         throw new Error('Identity set contains duplicate UUIDs.');
     }
     return createHash('sha256').update(stableJson(normalized)).digest('hex');
+}
+
+export function hashRoleBoundIdentitySet(adminId: string, teacherId: string): string {
+    const admin = adminId.trim().toLowerCase();
+    const teacher = teacherId.trim().toLowerCase();
+    if (!UUID_PATTERN.test(admin) || !UUID_PATTERN.test(teacher)) {
+        throw new Error('Role-bound identity set contains an invalid UUID.');
+    }
+    if (admin === teacher) {
+        throw new Error('Role-bound identity set requires distinct admin and teacher UUIDs.');
+    }
+    return createHash('sha256').update(stableJson({ admin, teacher })).digest('hex');
 }
 
 export function validateCleanupInputs(input: {
@@ -380,6 +394,9 @@ export function validateCleanupInputs(input: {
     }
     if (!/^[a-f0-9]{64}$/u.test(publicReceipt.authInertEvidenceSha256 ?? '')) {
         errors.push('Public cleanup receipt is not bound to valid Auth inert evidence.');
+    }
+    if (!/^[a-f0-9]{64}$/u.test(publicReceipt.preservationPolicySha256 ?? '')) {
+        errors.push('Public cleanup receipt is not bound to an exact preservation policy.');
     }
     if (publicReceipt.executeSqlSha256 !== manifest.sql.execute.sha256) {
         errors.push('Public cleanup execute SQL hash mismatch.');

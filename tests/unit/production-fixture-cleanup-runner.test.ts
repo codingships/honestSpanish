@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
     FIXTURE_CLEANUP_APPROVAL_ENV,
@@ -7,8 +9,10 @@ import {
     FIXTURE_CLEANUP_TARGET,
     buildFixtureCleanupApproval,
     buildPsqlEnvironment,
+    loadAndValidateFixtureCleanupContract,
     loadAndValidateFixtureCleanupManifest,
     parseFixtureCleanupPreview,
+    readFixturePreservationPolicyEvidence,
     sanitizeOutput,
     validateBackupReceipt,
 } from '../../scripts/launch/production-fixture-cleanup-shared';
@@ -33,10 +37,14 @@ const manifestSource = readFileSync(
     'scripts/launch/production-fixture-cleanup-manifest.json',
     'utf8',
 );
-const cleanupScope = JSON.parse(readFileSync(
-    'scripts/launch/production-fixture-cleanup-scope-v2.json',
+const cleanupContract = JSON.parse(readFileSync(
+    'scripts/launch/production-fixture-cleanup-contract-v3.json',
     'utf8',
-)) as { deleteFixtureRows: string[]; dropAfterVerifiedDelete: string[] };
+)) as {
+    classActions: Record<string, { expectedCount: number | null; decision: string }>;
+    deleteOrder: string[];
+    dropAfterVerifiedDelete: string[];
+};
 const manifest = JSON.parse(manifestSource) as {
     schemaVersion: number;
     snapshotDocument: { path: string; sha256: string };
@@ -61,6 +69,7 @@ const authSharedSource = readFileSync(
 describe('production fixture-cleanup safety package', () => {
     it('binds both SQL files to the immutable manifest and exact production snapshot', () => {
         expect(loadAndValidateFixtureCleanupManifest()).toMatchObject({ ok: true, errors: [] });
+        expect(loadAndValidateFixtureCleanupContract()).toMatchObject({ ok: true, errors: [] });
         expect(manifest.schemaVersion).toBe(2);
         expect(manifest.sql.preview.sha256).toBe(hash(previewSql));
         expect(manifest.sql.execute.sha256).toBe(hash(executeSql));
@@ -98,6 +107,7 @@ describe('production fixture-cleanup safety package', () => {
             "RAISE EXCEPTION 'Postcondition failed:",
             'COMMIT;',
             'FIXTURE_CLEANUP_EXECUTE_OK|',
+            "cleanup_preservation_policy_sha256",
         ]) {
             expect(executeSql).toContain(snippet);
         }
@@ -143,8 +153,8 @@ describe('production fixture-cleanup safety package', () => {
             'public.packages[name=essential,is_active=false]',
         ]);
         expect(manifest.dropAfterVerifiedDelete).toEqual(['public.jobs']);
-        expect(cleanupScope.deleteFixtureRows).toEqual(manifest.deleteOrder);
-        expect(cleanupScope.dropAfterVerifiedDelete).toEqual(manifest.dropAfterVerifiedDelete);
+        expect(cleanupContract.deleteOrder).toEqual(manifest.deleteOrder);
+        expect(cleanupContract.dropAfterVerifiedDelete).toEqual(manifest.dropAfterVerifiedDelete);
         expect(executeSql).toContain('IF v_deleted <> 111 THEN');
         expect(executeSql).toContain('IF v_deleted <> 2 THEN');
         expect(executeSql).toContain("to_regclass('public.jobs') IS NOT NULL");
@@ -215,18 +225,74 @@ describe('production fixture-cleanup safety package', () => {
             .toMatchObject({ ok: false });
     });
 
-    it('binds the exact approval to SQL, backup, Auth inert and fresh package-reference hashes', () => {
+    it('requires the exact versioned class/action policy, including formerly uncovered classes', () => {
+        expect(cleanupContract.classActions.profiles_private).toMatchObject({
+            expectedCount: 138,
+            decision: 'delete_as_fixture_rebuild_preserved_auth_profiles_separately',
+        });
+        expect(cleanupContract.classActions.jobs).toMatchObject({
+            expectedCount: 111,
+            decision: 'delete_as_fixture_drop_verified_legacy_table',
+        });
+        expect(cleanupContract.classActions.support_tickets).toMatchObject({
+            expectedCount: 2,
+            decision: 'delete_as_fixture',
+        });
+        expect(cleanupContract.classActions.packages.decision)
+            .toBe('preserve_canonical_clear_local_stripe_delete_inactive_essential');
+
+        const directory = mkdtempSync(path.join(tmpdir(), 'fixture-policy-'));
+        const policyPath = path.join(directory, 'policy.json');
+        const now = new Date('2026-07-16T12:00:00.000Z');
+        try {
+            const policy = validPolicy('2026-07-16T11:30:00.000Z');
+            writeFileSync(policyPath, `${JSON.stringify(policy, null, 2)}\n`, 'utf8');
+            expect(readFixturePreservationPolicyEvidence(policyPath, now)).toMatchObject({
+                ok: true,
+                errors: [],
+                sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+            });
+
+            for (const invalid of [
+                { ...policy, targetProjectRef: 'wrong-project' },
+                { ...policy, approvedAt: '2026-07-14T11:30:00.000Z' },
+                {
+                    ...policy,
+                    observedCounts: { ...policy.observedCounts, support_tickets: 0 },
+                },
+                {
+                    ...policy,
+                    decisions: { ...policy.decisions, packages: 'preserve' },
+                },
+                {
+                    ...policy,
+                    decisions: Object.fromEntries(
+                        Object.entries(policy.decisions).filter(([key]) => key !== 'profiles_private'),
+                    ),
+                },
+            ]) {
+                writeFileSync(policyPath, `${JSON.stringify(invalid, null, 2)}\n`, 'utf8');
+                expect(readFixturePreservationPolicyEvidence(policyPath, now).ok).toBe(false);
+            }
+        } finally {
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    it('binds the exact approval to SQL, backup, Auth inert, package references and preservation policy', () => {
         const approval = buildFixtureCleanupApproval({
             executeSqlSha256: manifest.sql.execute.sha256,
             backupReceiptSha256: 'b'.repeat(64),
             authInertEvidenceSha256: 'd'.repeat(64),
             packageStripeReferenceSha256: 'c'.repeat(64),
+            preservationPolicySha256: 'f'.repeat(64),
         });
         expect(approval).toContain(`target=${FIXTURE_CLEANUP_TARGET.projectRef}`);
         expect(approval).toContain(`execute_sql=${manifest.sql.execute.sha256}`);
         expect(approval).toContain(`backup_receipt=${'b'.repeat(64)}`);
         expect(approval).toContain(`auth_inert_evidence=${'d'.repeat(64)}`);
         expect(approval).toContain(`package_stripe_references=${'c'.repeat(64)}`);
+        expect(approval).toContain(`preservation_policy=${'f'.repeat(64)}`);
         expect(approval).toContain('auth_users=BLOCKED_UNTOUCHED');
         expect(approval).toContain('post_commit_rollback=VERIFIED_BACKUP_ONLY');
         expect(runnerSource).toContain(`process.env[FIXTURE_CLEANUP_APPROVAL_ENV] !== approvalSentence`);
@@ -255,7 +321,7 @@ describe('production fixture-cleanup safety package', () => {
         expect(runnerSource).not.toContain("args.push(process.env[FIXTURE_CLEANUP_DATABASE_ENV]");
     });
 
-    it('requires approval, backup and fresh Auth inert evidence before execute-mode preview', () => {
+    it('requires approval, backup, fresh Auth inert evidence and exact preservation policy before execute-mode preview', () => {
         expect(executeGateRequested(parseFixtureCleanupArgs([
             'execute',
             '--execute-approved',
@@ -263,7 +329,17 @@ describe('production fixture-cleanup safety package', () => {
             'receipt.json',
             '--auth-inert-evidence',
             'auth-inert-receipt.json',
+            '--preservation-policy',
+            'preservation-policy.json',
         ]))).toBe(true);
+        expect(executeGateRequested(parseFixtureCleanupArgs([
+            'execute',
+            '--execute-approved',
+            '--backup-receipt',
+            'receipt.json',
+            '--auth-inert-evidence',
+            'auth-inert-receipt.json',
+        ]))).toBe(false);
         expect(executeGateRequested(parseFixtureCleanupArgs(['execute']))).toBe(false);
         expect(() => parseFixtureCleanupArgs(['preview', '--execute-approved'])).toThrow();
 
@@ -279,6 +355,7 @@ describe('production fixture-cleanup safety package', () => {
         expect(liveAuthIndex).toBeGreaterThan(executePreviewIndex);
         expect(executePsqlIndex).toBeGreaterThan(liveAuthIndex);
         expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_PRESERVATION_POLICY_REVALIDATION'");
     });
 
     it('parses only one exactly bound aggregate preview and preserves mismatch as a block signal', () => {
@@ -353,6 +430,36 @@ function validReceipt(createdAt: string): Record<string, unknown> {
         artifactBytes: 1_024,
         artifactPathRecorded: false,
         toolVersions: { pgDump: 'pg_dump 17', pgRestore: 'pg_restore 17' },
+    };
+}
+
+function validPolicy(approvedAt: string): {
+    schemaVersion: number;
+    policyKind: string;
+    targetProjectRef: string;
+    aggregateSnapshotSha256: string;
+    approvalScopeSha256: string;
+    approvedAt: string;
+    observedCounts: Record<string, number | null>;
+    decisions: Record<string, string>;
+} {
+    return {
+        schemaVersion: 2,
+        policyKind: 'production_fixture_preservation',
+        targetProjectRef: FIXTURE_CLEANUP_TARGET.projectRef,
+        aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
+        approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
+        approvedAt,
+        observedCounts: Object.fromEntries(
+            Object.entries(cleanupContract.classActions).map(([fixtureClass, action]) => (
+                [fixtureClass, action.expectedCount]
+            )),
+        ),
+        decisions: Object.fromEntries(
+            Object.entries(cleanupContract.classActions).map(([fixtureClass, action]) => (
+                [fixtureClass, action.decision]
+            )),
+        ),
     };
 }
 

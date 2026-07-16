@@ -1,4 +1,5 @@
 import * as dotenv from 'dotenv';
+import { createHash } from 'node:crypto';
 import {
     closeSync,
     existsSync,
@@ -29,11 +30,14 @@ import {
     buildSentryFinalizationPendingState,
     fingerprintSentryId,
     isSentryHardeningRolloutEligible,
+    matchReattestedWorkflowOwnership,
     parseSentryFinalizationPendingState,
     parseSentryExecutionJournal,
+    validateSentryHardeningExecutedReceiptAnchor,
     workflowMatchesDefinition,
     type SentryFinalizationPendingState,
     type SentryHardeningTerminalProof,
+    type SentryExecutedReceiptAnchor,
     type SentryRecoveryDecision,
     type SentryWorkflowDefinition,
 } from './sentry-production-hardening-shared';
@@ -41,6 +45,7 @@ import {
 type CheckStatus = 'ok' | 'failed';
 type ClosureStatus = 'PLAN_READY'
     | 'HARDENED_AND_VERIFIED'
+    | 'REATTESTED_AND_VERIFIED'
     | 'PARTIAL_WRITE_STOP'
     | 'RECOVERY_REQUIRED'
     | 'RECOVERY_PLAN_READY'
@@ -74,13 +79,25 @@ interface MemberShape {
     user?: { id?: string } | null;
 }
 
-const supportedArguments = new Set(['--execute-approved', '--recover-lock']);
-const SENTRY_API_ORIGIN = 'https://sentry.io';
-const unsupportedArguments = process.argv.slice(2).filter((argument) => !supportedArguments.has(argument));
-if (unsupportedArguments.length > 0) throw new Error(`Unsupported argument(s): ${unsupportedArguments.join(', ')}`);
+interface SentryIdentitySnapshot {
+    exact: boolean;
+    detectorId: string;
+    ownerUserId: string;
+    detectorFingerprint: string;
+    ownerFingerprint: string;
+    enabledErrorDetectorCount: number;
+    activeMemberCount: number;
+    privilegedMemberCount: number;
+}
 
-const executeRequested = process.argv.includes('--execute-approved');
-const recoverLockRequested = process.argv.includes('--recover-lock');
+const SENTRY_API_ORIGIN = 'https://sentry.io';
+const cli = parseArguments(process.argv.slice(2));
+const executeRequested = cli.executeRequested;
+const recoverLockRequested = cli.recoverLockRequested;
+const reattestRequested = cli.reattestRequested;
+if (reattestRequested && (executeRequested || recoverLockRequested)) {
+    throw new Error('--reattest-existing is GET-only and cannot be combined with --execute-approved or --recover-lock.');
+}
 const startedAt = new Date();
 const hardeningOutputRoot = path.join(process.cwd(), 'outputs', 'launch-sentry-production-hardening');
 const executionLockPath = path.join(hardeningOutputRoot, '.execution-lock.jsonl');
@@ -121,6 +138,8 @@ let hardeningRemoteStateVerified = false;
 let hardeningFinalReadbackJournaled = false;
 let finalizationPendingState: SentryFinalizationPendingState | null = null;
 let evidenceCreatedWorkflowCount: number | null = null;
+let reattestationAnchor: SentryExecutedReceiptAnchor | null = null;
+let reattestationSourceReceiptSha256 = '';
 let recoveryPlan: null | {
     lockFingerprint: string;
     remoteSnapshotFingerprint: string;
@@ -135,6 +154,7 @@ let closureStatus: ClosureStatus = 'BLOCKED';
 
 checks.push(validateLocalEnvironment());
 checks.push(recoverLockRequested ? validateExecutionLockPresence() : validateExecutionLockAbsence());
+if (reattestRequested) checks.push(validateReattestationSourceReceipt());
 if (checks.every((check) => check.status === 'ok')) {
     try {
         if (recoverLockRequested && existsSync(finalizationPendingPath)) await reconcileFinalizationPending();
@@ -154,11 +174,13 @@ if (checks.every((check) => check.status === 'ok')) {
 const failed = checks.some((check) => check.status === 'failed');
 if (!failed && closureStatus === 'BLOCKED') closureStatus = recoverLockRequested
     ? (executeRequested ? 'RECOVERED_AND_VERIFIED' : 'RECOVERY_PLAN_READY')
-    : (executeRequested ? 'HARDENED_AND_VERIFIED' : 'PLAN_READY');
+    : reattestRequested ? 'REATTESTED_AND_VERIFIED'
+        : (executeRequested ? 'HARDENED_AND_VERIFIED' : 'PLAN_READY');
 if (failed && externalWritePerformed && closureStatus === 'BLOCKED') closureStatus = 'PARTIAL_WRITE_STOP';
 const status = failed ? 'FAILED' : 'OK';
 const createdWorkflowCount = evidenceCreatedWorkflowCount ?? createdWorkflowIds.length;
 const reportFinalizationState = getFinalizationPendingState();
+const reportReattestationAnchor = currentReattestationAnchor();
 const terminalProof: SentryHardeningTerminalProof = {
     stableReadbacks: finalStableReadbacks,
     exactWorkflowDefinitionsVerified: finalExactWorkflowDefinitionsVerified,
@@ -172,6 +194,7 @@ const terminalProof: SentryHardeningTerminalProof = {
 const rolloutEligible = isSentryHardeningRolloutEligible({
     closureStatus,
     executeRequested,
+    reattestRequested,
     externalWriteAttempted,
     externalWritePerformed,
     rollbackAttempted,
@@ -187,7 +210,7 @@ const report = {
     status,
     closureStatus,
     target: SENTRY_PRODUCTION_TARGET,
-    mode: recoverLockRequested ? 'recovery' : 'hardening',
+    mode: recoverLockRequested ? 'recovery' : reattestRequested ? 'reattestation' : 'hardening',
     executeRequested,
     externalWriteAttempted,
     externalWritePerformed,
@@ -203,8 +226,20 @@ const report = {
     evidenceContract: {
         rolloutEligible,
         requiredArtifactKind: 'sentry_production_hardening_receipt',
+        attestationMode: reattestRequested ? 'live_get_only_revalidation' : 'write_proven_hardening',
         rawIdentifiersPersistedInReports: false,
     },
+    reattestation: reattestRequested && reportReattestationAnchor ? {
+        schemaVersion: 1,
+        sourceReceiptSha256: reattestationSourceReceiptSha256,
+        sourceReceiptEndedAt: reportReattestationAnchor.endedAt,
+        sourceClosureStatus: 'HARDENED_AND_VERIFIED' as const,
+        requestMethod: 'GET' as const,
+        sourceExecutedWriteProof: true,
+        detectorFingerprintMatched: detectorFingerprint === reportReattestationAnchor.detectorFingerprint,
+        ownerFingerprintMatched: ownerFingerprint === reportReattestationAnchor.ownerFingerprint,
+        workflowIdFingerprintsMatched: true,
+    } : null,
     finalizationProof: reportFinalizationState ? {
         stateFingerprint: reportFinalizationState.stateFingerprint,
         sourceFingerprint: reportFinalizationState.sourceFingerprint,
@@ -212,9 +247,11 @@ const report = {
     } : null,
     recoveryPlan,
     approval: {
-        environmentVariable: approvalEnvironmentVariable,
-        requiredFlag: recoverLockRequested ? '--recover-lock --execute-approved' : '--execute-approved',
-        exactSentence: approvalSentence,
+        environmentVariable: reattestRequested ? 'GET_ONLY_NO_APPROVAL' : approvalEnvironmentVariable,
+        requiredFlag: reattestRequested
+            ? '--reattest-existing --source-receipt <executed-receipt.json>'
+            : recoverLockRequested ? '--recover-lock --execute-approved' : '--execute-approved',
+        exactSentence: reattestRequested ? '' : approvalSentence,
     },
     expectedChanges: {
         scrubIPAddresses: true,
@@ -281,6 +318,103 @@ async function preflightAndMaybeExecute(): Promise<void> {
 
     const workflows = extractRecords(await sentryRequest<unknown>('GET', workflowsApiPath(), { project: SENTRY_PRODUCTION_TARGET.project }));
     const projectRulesMirror = extractRecords(await sentryRequest<unknown>('GET', `${projectApiPath()}rules/`));
+    const detectors = extractRecords(await sentryRequest<unknown>('GET', detectorsApiPath(), { project: SENTRY_PRODUCTION_TARGET.project }));
+    const members = await sentryRequest<MemberShape[]>('GET', membersApiPath());
+    const identity = resolveSentryIdentity(detectors, members);
+    const exactIdentity = identity.exact;
+    if (exactIdentity) {
+        detectorId = identity.detectorId;
+        ownerUserId = identity.ownerUserId;
+        detectorFingerprint = identity.detectorFingerprint;
+        ownerFingerprint = identity.ownerFingerprint;
+        workflowDefinitions = buildSentryProductionWorkflows({ detectorId, ownerUserId });
+        approvalSentence = buildSentryProductionHardeningApproval({ detectorFingerprint, ownerFingerprint });
+    }
+    checks.push(exactIdentity
+        ? ok('exact_detector_and_owner', 'Exactly one enabled error detector and one notification owner are pinned by hash.', [
+            `detectorFingerprint=${detectorFingerprint}`,
+            `ownerFingerprint=${ownerFingerprint}`,
+            'rawDetectorOwnerIdsPersisted=false',
+        ])
+        : fail('exact_detector_and_owner', 'Error detector or notification owner is ambiguous.', [
+            `enabledErrorDetectors=${identity.enabledErrorDetectorCount}`,
+            `activeMembers=${identity.activeMemberCount}`,
+            `privilegedMembers=${identity.privilegedMemberCount}`,
+            'externalWriteAttempted=false',
+        ]));
+    if (!exactIdentity) return;
+
+    if (reattestRequested) {
+        if (!reattestationAnchor) throw new Error('Validated Sentry source receipt anchor is unavailable.');
+        const initialMirror = analyzeSentryProjectRulesMirror(projectRulesMirror, workflowDefinitions);
+        const identityMatchesAnchor = detectorFingerprint === reattestationAnchor.detectorFingerprint
+            && ownerFingerprint === reattestationAnchor.ownerFingerprint;
+        const ownershipMatchesAnchor = matchReattestedWorkflowOwnership(
+            workflows,
+            reattestationAnchor.workflowIdFingerprints,
+        );
+        const initialExact = identityMatchesAnchor
+            && ownershipMatchesAnchor
+            && initialScrubIp
+            && workflows.length === workflowDefinitions.length
+            && workflowDefinitions.every((definition) => (
+                workflows.some((workflow) => workflowMatchesDefinition(workflow, definition))
+            ))
+            && initialMirror.exact;
+        checks.push(initialExact
+            ? ok('existing_hardening_baseline', 'Existing Sentry state matches the exact production hardening contract.', [
+                'scrubIPAddresses=true',
+                `workflowCount=${workflows.length}`,
+                'sourcePostResponseWorkflowIdsMatched=true',
+                'sourceDetectorOwnerFingerprintsMatched=true',
+                'projectRulesCompatibilityMirror=exact',
+                'externalWriteAttempted=false',
+            ])
+            : fail('existing_hardening_baseline', 'Existing Sentry state does not match the exact production hardening contract.', [
+                `scrubIPAddresses=${String(initialScrubIp)}`,
+                `workflowCount=${workflows.length}`,
+                `projectRulesCompatibilityEntries=${projectRulesMirror.length}`,
+                `projectRulesCompatibilityMirrorExact=${String(initialMirror.exact)}`,
+                `sourcePostResponseWorkflowIdsMatched=${String(ownershipMatchesAnchor)}`,
+                `sourceDetectorOwnerFingerprintsMatched=${String(identityMatchesAnchor)}`,
+                'externalWriteAttempted=false',
+            ]));
+        if (!initialExact) return;
+
+        const finalState = await readStableHardeningState(reattestationAnchor.workflowIdFingerprints);
+        finalStableReadbacks = finalState.stableReadbacks;
+        finalExactWorkflowDefinitionsVerified = finalState.exactWorkflowDefinitionsVerified;
+        finalWorkflowCount = finalState.workflowCount;
+        finalLegacyIssueRuleCount = finalState.legacyIssueRuleCount;
+        finalScrubIPAddresses = finalState.scrubIPAddresses;
+        const terminalExact = finalState.stableReadbacks >= 2
+            && finalState.exactWorkflowDefinitionsVerified
+            && finalState.workflowCount === 2
+            && finalState.legacyIssueRuleCount === 0
+            && finalState.scrubIPAddresses
+            && finalState.identityFingerprintsMatched
+            && finalState.workflowIdFingerprintsMatched;
+        checks.push(terminalExact
+            ? ok('get_only_reattestation', 'Two stable GET readbacks reattested the exact hardened production state.', [
+                `stableReadbacks=${finalState.stableReadbacks}`,
+                'remoteWriteAttempted=false',
+                'sourcePostResponseWorkflowIdsMatched=true',
+                'stableDetectorOwnerFingerprintsMatched=true',
+                'receiptFresh=true',
+            ])
+            : fail('get_only_reattestation', 'Stable GET readbacks did not reattest the exact hardened production state.', [
+                `stableReadbacks=${finalState.stableReadbacks}`,
+                `workflowCount=${finalState.workflowCount}`,
+                `unmatchedLegacyIssueRuleCount=${finalState.legacyIssueRuleCount}`,
+                `scrubIPAddresses=${String(finalState.scrubIPAddresses)}`,
+                `stableDetectorOwnerFingerprintsMatched=${String(finalState.identityFingerprintsMatched)}`,
+                `sourcePostResponseWorkflowIdsMatched=${String(finalState.workflowIdFingerprintsMatched)}`,
+                'remoteWriteAttempted=false',
+            ]));
+        if (terminalExact) closureStatus = 'REATTESTED_AND_VERIFIED';
+        return;
+    }
+
     const noExistingAlerts = workflows.length === 0 && projectRulesMirror.length === 0;
     checks.push(noExistingAlerts
         ? ok('empty_alert_baseline', 'The exact project has no native workflows or deprecated project-rules compatibility entries.', [
@@ -293,36 +427,6 @@ async function preflightAndMaybeExecute(): Promise<void> {
             'externalWriteAttempted=false',
         ]));
     if (!noExistingAlerts) return;
-
-    const detectors = extractRecords(await sentryRequest<unknown>('GET', detectorsApiPath(), { project: SENTRY_PRODUCTION_TARGET.project }));
-    const errorDetectors = detectors.filter((record) => record.type === 'error' && record.enabled !== false && typeof record.id === 'string');
-    const members = await sentryRequest<MemberShape[]>('GET', membersApiPath());
-    const active = members.filter((member) => member.expired !== true && member.pending !== true);
-    const privileged = active.filter((member) => ['owner', 'manager', 'admin'].includes(member.orgRole ?? member.role ?? ''));
-    const owner = privileged.length === 1 ? privileged[0] : active.length === 1 ? active[0] : null;
-    const candidateOwnerUserId = owner?.user?.id ?? owner?.id ?? '';
-    const exactIdentity = errorDetectors.length === 1 && Boolean(candidateOwnerUserId);
-    if (exactIdentity) {
-        detectorId = String(errorDetectors[0].id);
-        ownerUserId = candidateOwnerUserId;
-        detectorFingerprint = fingerprintSentryId(detectorId);
-        ownerFingerprint = fingerprintSentryId(ownerUserId);
-        workflowDefinitions = buildSentryProductionWorkflows({ detectorId, ownerUserId });
-        approvalSentence = buildSentryProductionHardeningApproval({ detectorFingerprint, ownerFingerprint });
-    }
-    checks.push(exactIdentity
-        ? ok('exact_detector_and_owner', 'Exactly one enabled error detector and one notification owner are pinned by hash.', [
-            `detectorFingerprint=${detectorFingerprint}`,
-            `ownerFingerprint=${ownerFingerprint}`,
-            'rawDetectorOwnerIdsPersisted=false',
-        ])
-        : fail('exact_detector_and_owner', 'Error detector or notification owner is ambiguous.', [
-            `enabledErrorDetectors=${errorDetectors.length}`,
-            `activeMembers=${active.length}`,
-            `privilegedMembers=${privileged.length}`,
-            'externalWriteAttempted=false',
-        ]));
-    if (!exactIdentity) return;
 
     if (!executeRequested) {
         closureStatus = 'PLAN_READY';
@@ -969,9 +1073,13 @@ function matchPendingWorkflowOwnership(
     };
 }
 
-async function readStableHardeningState(): Promise<{
+async function readStableHardeningState(
+    requiredWorkflowFingerprints: SentryExecutedReceiptAnchor['workflowIdFingerprints'] | null = null,
+): Promise<{
     stableReadbacks: number;
     exactWorkflowDefinitionsVerified: boolean;
+    identityFingerprintsMatched: boolean;
+    workflowIdFingerprintsMatched: boolean;
     workflowCount: number;
     legacyIssueRuleCount: number;
     scrubIPAddresses: boolean;
@@ -981,6 +1089,8 @@ async function readStableHardeningState(): Promise<{
     let latest = {
         stableReadbacks: 0,
         exactWorkflowDefinitionsVerified: false,
+        identityFingerprintsMatched: false,
+        workflowIdFingerprintsMatched: requiredWorkflowFingerprints === null,
         workflowCount: 0,
         legacyIssueRuleCount: -1,
         scrubIPAddresses: false,
@@ -993,6 +1103,14 @@ async function readStableHardeningState(): Promise<{
                 project: SENTRY_PRODUCTION_TARGET.project,
             }));
             const projectRulesMirror = extractRecords(await sentryRequest<unknown>('GET', `${projectApiPath()}rules/`));
+            const detectors = extractRecords(await sentryRequest<unknown>('GET', detectorsApiPath(), {
+                project: SENTRY_PRODUCTION_TARGET.project,
+            }));
+            const members = await sentryRequest<MemberShape[]>('GET', membersApiPath());
+            const identity = resolveSentryIdentity(detectors, members);
+            const identityFingerprintsMatched = identity.exact
+                && identity.detectorFingerprint === detectorFingerprint
+                && identity.ownerFingerprint === ownerFingerprint;
             const scrubIPAddresses = project.scrubIPAddresses === true
                 || project.options?.['sentry:scrub_ip_address'] === true;
             const nativeWorkflowDefinitionsVerified = workflows.length === workflowDefinitions.length
@@ -1000,7 +1118,12 @@ async function readStableHardeningState(): Promise<{
                     workflows.some((workflow) => workflowMatchesDefinition(workflow, definition))
                 ));
             const mirror = analyzeSentryProjectRulesMirror(projectRulesMirror, workflowDefinitions);
-            const exactWorkflowDefinitionsVerified = nativeWorkflowDefinitionsVerified && mirror.exact;
+            const workflowIdFingerprintsMatched = requiredWorkflowFingerprints === null
+                || matchReattestedWorkflowOwnership(workflows, requiredWorkflowFingerprints);
+            const exactWorkflowDefinitionsVerified = nativeWorkflowDefinitionsVerified
+                && mirror.exact
+                && identityFingerprintsMatched
+                && workflowIdFingerprintsMatched;
             const signature = JSON.stringify({
                 scrubIPAddresses,
                 workflowInventory: workflows.map((workflow) => ({
@@ -1009,12 +1132,22 @@ async function readStableHardeningState(): Promise<{
                     exact: workflowDefinitions.some((definition) => workflowMatchesDefinition(workflow, definition)),
                 })).sort((left, right) => `${left.name}:${left.id}`.localeCompare(`${right.name}:${right.id}`)),
                 projectRulesMirror: mirror,
+                identity: {
+                    exact: identity.exact,
+                    detectorFingerprint: identity.detectorFingerprint,
+                    ownerFingerprint: identity.ownerFingerprint,
+                    enabledErrorDetectorCount: identity.enabledErrorDetectorCount,
+                    activeMemberCount: identity.activeMemberCount,
+                    privilegedMemberCount: identity.privilegedMemberCount,
+                },
             });
             stableReadCount = signature === previousSignature ? stableReadCount + 1 : 1;
             previousSignature = signature;
             latest = {
                 stableReadbacks: stableReadCount,
                 exactWorkflowDefinitionsVerified,
+                identityFingerprintsMatched,
+                workflowIdFingerprintsMatched,
                 workflowCount: workflows.length,
                 legacyIssueRuleCount: mirror.unmatchedEntryCount,
                 scrubIPAddresses,
@@ -1125,6 +1258,9 @@ async function sentryRequest<T>(
     params: Record<string, string> = {},
     body?: unknown,
 ): Promise<T> {
+    if (reattestRequested && method !== 'GET') {
+        throw new Error(`Sentry GET-only reattestation blocked forbidden ${method} request`);
+    }
     if (!sentryBaseUrlIsCanonical) {
         throw new Error('Sentry API origin is not the exact canonical production origin');
     }
@@ -1167,6 +1303,43 @@ function validateLocalEnvironment(): Check {
             `baseOriginCanonical=${String(sentryBaseUrlIsCanonical)}`,
             'externalWriteAttempted=false',
         ]);
+}
+
+function validateReattestationSourceReceipt(): Check {
+    if (!cli.sourceReceiptPath) {
+        return fail('reattestation_source_receipt', 'GET-only reattestation requires an explicit executed source receipt.', [
+            'requiredFlag=--source-receipt <sentry-production-hardening-receipt.json>',
+            'networkAccessPerformed=false',
+        ]);
+    }
+    try {
+        const receiptBytes = readFileSync(cli.sourceReceiptPath);
+        const parsed = JSON.parse(receiptBytes.toString('utf8')) as unknown;
+        const validation = validateSentryHardeningExecutedReceiptAnchor(parsed, startedAt);
+        if (!validation.valid || !validation.value) {
+            return fail('reattestation_source_receipt', 'Executed Sentry source receipt is not a valid ownership anchor.', [
+                ...validation.errors,
+                'networkAccessPerformed=false',
+            ]);
+        }
+        reattestationAnchor = validation.value;
+        reattestationSourceReceiptSha256 = createHash('sha256').update(receiptBytes).digest('hex');
+        return ok('reattestation_source_receipt', 'Executed Sentry receipt is a valid POST-owned identity anchor.', [
+            `sourceReceiptSha256=${reattestationSourceReceiptSha256}`,
+            `sourceReceiptEndedAt=${validation.value.endedAt}`,
+            'workflowOwnership=post_response',
+            'networkAccessPerformed=false',
+        ]);
+    } catch (error) {
+        return fail('reattestation_source_receipt', 'Executed Sentry source receipt could not be read or validated.', [
+            safeError(error),
+            'networkAccessPerformed=false',
+        ]);
+    }
+}
+
+function currentReattestationAnchor(): SentryExecutedReceiptAnchor | null {
+    return reattestationAnchor;
 }
 
 function isCanonicalSentryBaseUrl(value: string): boolean {
@@ -1226,6 +1399,34 @@ function extractRecords(payload: unknown): Array<Record<string, unknown>> {
         if (Array.isArray(payload[key])) return payload[key].filter(isRecord);
     }
     return [];
+}
+
+function resolveSentryIdentity(
+    detectors: Array<Record<string, unknown>>,
+    members: MemberShape[],
+): SentryIdentitySnapshot {
+    const errorDetectors = detectors.filter((record) => (
+        record.type === 'error' && record.enabled !== false && typeof record.id === 'string'
+    ));
+    const active = members.filter((member) => member.expired !== true && member.pending !== true);
+    const privileged = active.filter((member) => (
+        ['owner', 'manager', 'admin'].includes(member.orgRole ?? member.role ?? '')
+    ));
+    const owner = privileged.length === 1 ? privileged[0] : active.length === 1 ? active[0] : null;
+    const rawOwnerUserId = owner?.user?.id ?? owner?.id ?? '';
+    const ownerUserId = typeof rawOwnerUserId === 'string' ? rawOwnerUserId : '';
+    const detectorId = errorDetectors.length === 1 ? String(errorDetectors[0].id) : '';
+    const exact = Boolean(detectorId && ownerUserId);
+    return {
+        exact,
+        detectorId,
+        ownerUserId,
+        detectorFingerprint: exact ? fingerprintSentryId(detectorId) : '',
+        ownerFingerprint: exact ? fingerprintSentryId(ownerUserId) : '',
+        enabledErrorDetectorCount: errorDetectors.length,
+        activeMemberCount: active.length,
+        privilegedMemberCount: privileged.length,
+    };
 }
 
 function projectApiPath(): string {
@@ -1321,4 +1522,34 @@ function escapeCell(value: string): string {
 
 function stamp(date: Date): string {
     return date.toISOString().replace(/[:.]/gu, '-');
+}
+
+function parseArguments(values: string[]): {
+    executeRequested: boolean;
+    recoverLockRequested: boolean;
+    reattestRequested: boolean;
+    sourceReceiptPath: string | null;
+} {
+    const normalized = values[0] === '--' ? values.slice(1) : values;
+    let executeRequested = false;
+    let recoverLockRequested = false;
+    let reattestRequested = false;
+    let sourceReceiptPath: string | null = null;
+    for (let index = 0; index < normalized.length; index += 1) {
+        const value = normalized[index];
+        if (value === '--execute-approved') executeRequested = true;
+        else if (value === '--recover-lock') recoverLockRequested = true;
+        else if (value === '--reattest-existing') reattestRequested = true;
+        else if (value === '--source-receipt') {
+            const candidate = normalized[index + 1];
+            if (!candidate || candidate.startsWith('--')) throw new Error('--source-receipt requires a file path.');
+            if (sourceReceiptPath) throw new Error('--source-receipt may be provided only once.');
+            sourceReceiptPath = path.resolve(candidate);
+            index += 1;
+        } else throw new Error(`Unsupported argument: ${value}`);
+    }
+    if (reattestRequested !== Boolean(sourceReceiptPath)) {
+        throw new Error('--reattest-existing and --source-receipt must be provided together.');
+    }
+    return { executeRequested, recoverLockRequested, reattestRequested, sourceReceiptPath };
 }

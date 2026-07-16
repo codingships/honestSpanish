@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import {
     buildDatabaseToolProcessEnvironment,
     buildPsqlEnvironment,
+    readFixturePreservationPolicyEvidence,
     sanitizeOutput,
     sha256,
     stableJson,
@@ -24,6 +25,7 @@ import {
     deriveWaveHistoryStates,
     expectedProductionWaveVerificationFacts,
     parseProductionSqlFacts,
+    productionRolloutMigrationManifestSha256,
     readAuthPolicyEvidence,
     readBackupReceiptEvidence,
     readFixtureCleanupEvidence,
@@ -79,10 +81,12 @@ interface RunnerArgs {
     backupReceipt: string | null;
     backupArtifact: string | null;
     cleanupEvidence: string | null;
+    preservationPolicy: string | null;
     authPolicyEvidence: string | null;
     googleFixturePolicyEvidence: string | null;
     stagingHardeningEvidence: string | null;
     sentryHardeningEvidence: string | null;
+    sentryHardeningSourceReceipt: string | null;
     historyReconciliationManifest: string | null;
     acceptReviewedHistoryException: boolean;
 }
@@ -95,6 +99,11 @@ interface PsqlCapture {
     stderr: string;
     error: string | null;
     writeAttempted: boolean;
+}
+
+interface ApprovedSql {
+    contents: string;
+    sha256: string;
 }
 
 const root = process.cwd();
@@ -110,10 +119,12 @@ export function parseProductionRolloutArgs(values: string[]): RunnerArgs {
         backupReceipt: null,
         backupArtifact: null,
         cleanupEvidence: null,
+        preservationPolicy: null,
         authPolicyEvidence: null,
         googleFixturePolicyEvidence: null,
         stagingHardeningEvidence: null,
         sentryHardeningEvidence: null,
+        sentryHardeningSourceReceipt: null,
         historyReconciliationManifest: null,
         acceptReviewedHistoryException: false,
     };
@@ -123,10 +134,12 @@ export function parseProductionRolloutArgs(values: string[]): RunnerArgs {
         ['--backup-receipt', 'backupReceipt'],
         ['--backup-artifact', 'backupArtifact'],
         ['--cleanup-evidence', 'cleanupEvidence'],
+        ['--preservation-policy', 'preservationPolicy'],
         ['--auth-policy-evidence', 'authPolicyEvidence'],
         ['--google-fixture-policy-evidence', 'googleFixturePolicyEvidence'],
         ['--staging-hardening-evidence', 'stagingHardeningEvidence'],
         ['--sentry-hardening-evidence', 'sentryHardeningEvidence'],
+        ['--sentry-hardening-source-receipt', 'sentryHardeningSourceReceipt'],
         ['--history-reconciliation-manifest', 'historyReconciliationManifest'],
     ]);
 
@@ -192,11 +205,22 @@ async function main(): Promise<void> {
     const preflight = readProductionPreflightEvidence(preflightPath, startedAt, root, historyReconciliation);
     const authInert = readProductionAuthInertEvidence(args.authInertEvidence, startedAt);
     const backup = readBackupReceiptEvidence(args.backupReceipt, startedAt);
-    const cleanup = readFixtureCleanupEvidence(args.cleanupEvidence, backup.sha256, startedAt, root);
+    const preservationPolicy = readFixturePreservationPolicyEvidence(args.preservationPolicy, startedAt, root);
+    const cleanup = readFixtureCleanupEvidence(
+        args.cleanupEvidence,
+        backup.sha256,
+        startedAt,
+        root,
+        args.preservationPolicy,
+    );
     const authPolicy = readAuthPolicyEvidence(args.authPolicyEvidence, cleanup.sha256, startedAt, backup.sha256);
     const googlePolicy = readGoogleFixturePolicyEvidence(args.googleFixturePolicyEvidence, startedAt);
     const stagingHardening = readStagingHardeningEvidence(args.stagingHardeningEvidence, startedAt);
-    const sentryHardening = readSentryProductionHardeningEvidence(args.sentryHardeningEvidence, startedAt);
+    const sentryHardening = readSentryProductionHardeningEvidence(
+        args.sentryHardeningEvidence,
+        startedAt,
+        args.sentryHardeningSourceReceipt,
+    );
     const selectedWaves = selectedWavesThrough(args.through);
     const operationalWavesSelected = selectedWaves.some((wave) => wave.id !== 'processed_at_small_fix');
     const stagingHardeningSelected = selectedWaves.some((wave) => (
@@ -225,6 +249,7 @@ async function main(): Promise<void> {
         authInert: authInert.valid,
         backup: !destructiveRolloutSelected || backup.valid,
         backupArtifactCurrentAndRecoverable: !destructiveRolloutSelected || backupArtifact.valid,
+        preservationPolicy: !operationalWavesSelected || preservationPolicy.ok,
         publicCleanup: !operationalWavesSelected || cleanup.valid,
         authReducedQuarantined: !operationalWavesSelected || authPolicy.valid,
         googleFixturePolicy: !operationalWavesSelected || googlePolicy.valid,
@@ -246,10 +271,14 @@ async function main(): Promise<void> {
             backupArtifactSha256: destructiveRolloutSelected ? backupArtifact.artifactSha256 : null,
             backupArtifactVerificationSha256: destructiveRolloutSelected ? backupArtifact.verificationSha256 : null,
             cleanupEvidenceSha256: operationalWavesSelected ? cleanup.sha256 : null,
+            preservationPolicySha256: operationalWavesSelected ? preservationPolicy.sha256 : null,
             authPolicyEvidenceSha256: operationalWavesSelected ? authPolicy.sha256 : null,
             googleFixturePolicySha256: operationalWavesSelected ? googlePolicy.sha256 : null,
             stagingHardeningEvidenceSha256: stagingHardeningSelected ? stagingHardening.sha256 : null,
             sentryHardeningEvidenceSha256: finalHardeningSelected ? sentryHardening.sha256 : null,
+            sentryHardeningSourceReceiptSha256: finalHardeningSelected
+                ? sentryHardening.sourceReceiptSha256
+                : null,
         },
         preflightWaveStates: waveStates,
         pendingMigrations: pendingMigrations.map(migrationIdentity),
@@ -274,6 +303,8 @@ async function main(): Promise<void> {
     writeFileSync(artifacts.stagingHardeningLiveVerifySql, stagingHardeningPostVerifySql, 'utf8');
     const livePreflightSql = renderProductionLivePreflightSql();
     writeFileSync(artifacts.livePreflightSql, livePreflightSql, 'utf8');
+    const waveApplySql: Partial<Record<ProductionRolloutWaveId, ApprovedSql>> = {};
+    const waveVerifySql: Partial<Record<ProductionRolloutWaveId, ApprovedSql>> = {};
     const waveSqlSha256: Record<string, string> = {};
     const verifySqlSha256: Record<string, string> = {};
     for (const wave of selectedWaves) {
@@ -283,6 +314,8 @@ async function main(): Promise<void> {
         writeFileSync(artifacts.waveVerify[wave.id], verifySql, 'utf8');
         waveSqlSha256[wave.id] = sha256(applySql);
         verifySqlSha256[wave.id] = sha256(verifySql);
+        waveApplySql[wave.id] = { contents: applySql, sha256: waveSqlSha256[wave.id] };
+        waveVerifySql[wave.id] = { contents: verifySql, sha256: verifySqlSha256[wave.id] };
     }
     const finalVerifySql = renderProductionWaveVerifySql(selectedWaves);
     writeFileSync(artifacts.finalVerifySql, finalVerifySql, 'utf8');
@@ -299,11 +332,15 @@ async function main(): Promise<void> {
             backupReceiptSha256: destructiveRolloutSelected ? backup.sha256 : null,
             backupArtifactSha256: destructiveRolloutSelected ? backupArtifact.artifactSha256 : null,
             cleanupEvidenceSha256: operationalWavesSelected ? cleanup.sha256 : null,
+            preservationPolicySha256: operationalWavesSelected ? preservationPolicy.sha256 : null,
             authPolicyEvidenceSha256: operationalWavesSelected ? authPolicy.sha256 : null,
             stagingEvidenceSha256: stagingHardeningSelected ? stagingHardening.sha256 : null,
             stagingLiveVerifySqlSha256: stagingHardeningSelected ? stagingHardeningPostVerifySqlSha256 : null,
             googleFixturePolicySha256: operationalWavesSelected ? googlePolicy.sha256 : null,
             sentryHardeningEvidenceSha256: finalHardeningSelected ? sentryHardening.sha256 : null,
+            sentryHardeningSourceReceiptSha256: finalHardeningSelected
+                ? sentryHardening.sourceReceiptSha256
+                : null,
             pendingMigrations,
             waveSqlSha256: Object.fromEntries(pendingWaves.map((wave) => [wave.id, waveSqlSha256[wave.id]])),
             livePreflightSqlSha256: sha256(livePreflightSql),
@@ -346,11 +383,16 @@ async function main(): Promise<void> {
             authInert: evidenceSummary(authInert),
             backup: evidenceSummary(backup),
             backupArtifact,
+            preservationPolicy: preservationPolicySummary(preservationPolicy),
             cleanup: evidenceSummary(cleanup),
             authPolicy: evidenceSummary(authPolicy),
             googlePolicy: evidenceSummary(googlePolicy),
             stagingHardening: evidenceSummary(stagingHardening),
-            sentryHardening: evidenceSummary(sentryHardening),
+            sentryHardening: {
+                ...evidenceSummary(sentryHardening),
+                sourceReceiptProvided: sentryHardening.sourceReceiptPath !== null,
+                sourceReceiptSha256: sentryHardening.sourceReceiptSha256,
+            },
         },
         artifacts: relativeArtifacts(artifacts),
         hashes: {
@@ -396,6 +438,9 @@ async function main(): Promise<void> {
     if (!args.throughExplicit) executionErrors.push('Execute mode requires an explicit --through wave.');
     if (!args.preflight) executionErrors.push('Execute mode requires explicit --preflight evidence.');
     if (!args.authInertEvidence) executionErrors.push('Execute mode requires explicit --auth-inert-evidence.');
+    if (operationalWavesSelected && !args.preservationPolicy) {
+        executionErrors.push('Execute mode requires explicit --preservation-policy for operational waves.');
+    }
     if (!args.historyReconciliationManifest) executionErrors.push('Execute mode requires explicit --history-reconciliation-manifest evidence.');
     if (!args.acceptReviewedHistoryException) executionErrors.push('Execute mode requires --accept-reviewed-history-exception.');
     if (destructiveRolloutSelected && !args.backupArtifact) {
@@ -433,7 +478,10 @@ async function main(): Promise<void> {
     let liveHistoryReconciliationSnapshotSha256: string | null = null;
     const liveHistoryReconciliation = runPsql(
         'live-history-reconciliation',
-        artifacts.liveHistoryReconciliationSql,
+        {
+            contents: liveHistoryReconciliationSql,
+            sha256: sha256(liveHistoryReconciliationSql),
+        },
         connection,
         false,
         {},
@@ -469,7 +517,10 @@ async function main(): Promise<void> {
         if (!stagingConnection) throw new Error('Validated staging connection environment is unavailable.');
         const stagingLive = runPsql(
             'live-staging-hardening',
-            artifacts.stagingHardeningLiveVerifySql,
+            {
+                contents: stagingHardeningPostVerifySql,
+                sha256: stagingHardeningPostVerifySqlSha256,
+            },
             stagingConnection,
             false,
             {},
@@ -495,7 +546,13 @@ async function main(): Promise<void> {
             throw new Error(stagingLiveErrors.join(' '));
         }
     }
-    const live = runPsql('live-preflight', artifacts.livePreflightSql, connection, false, {});
+    const live = runPsql(
+        'live-preflight',
+        { contents: livePreflightSql, sha256: sha256(livePreflightSql) },
+        connection,
+        false,
+        {},
+    );
     persistCapture(outputDir, live);
     captures.push(captureSummary(live));
     if (!live.ok || !preflight.value) throw new Error('Live read-only migration-history preflight failed.');
@@ -538,6 +595,29 @@ async function main(): Promise<void> {
                 externalWritePerformed: false,
             });
             throw new Error('The current encrypted backup artifact failed immediate pre-write revalidation.');
+        }
+    }
+
+    if (operationalWavesSelected) {
+        const immediatePreservationPolicy = readFixturePreservationPolicyEvidence(
+            args.preservationPolicy,
+            new Date(),
+            root,
+        );
+        if (!immediatePreservationPolicy.ok
+            || immediatePreservationPolicy.sha256 !== preservationPolicy.sha256) {
+            writeSummary(artifacts.summaryJson, {
+                ...reportBase,
+                endedAt: new Date().toISOString(),
+                status: 'BLOCKED_PRESERVATION_POLICY_REVALIDATION',
+                errors: immediatePreservationPolicy.errors,
+                preservationPolicy: preservationPolicySummary(immediatePreservationPolicy),
+                captures,
+                networkAccessPerformed: true,
+                writeCommandInvoked: false,
+                externalWritePerformed: false,
+            });
+            throw new Error('The exact preservation policy expired, changed or failed immediate pre-write revalidation.');
         }
     }
 
@@ -596,7 +676,12 @@ async function main(): Promise<void> {
                 throw new Error('Auth credential quarantine expired before the next production wave.');
             }
             writeCommandInvoked = true;
-            const apply = runPsql(`apply-${wave.id}`, artifacts.waveApply[wave.id], connection, true, {
+            const approvedApplySql = waveApplySql[wave.id];
+            const approvedVerifySql = waveVerifySql[wave.id];
+            if (!approvedApplySql || !approvedVerifySql) {
+                throw new Error(`Approved in-memory SQL is unavailable for wave ${wave.id}.`);
+            }
+            const apply = runPsql(`apply-${wave.id}`, approvedApplySql, connection, true, {
                 rollout_gate: PRODUCTION_ROLLOUT_PSQL_GATE,
                 rollout_project_ref: PRODUCTION_PROJECT.ref,
                 rollout_scope_sha256: scopeSha256,
@@ -605,7 +690,7 @@ async function main(): Promise<void> {
             persistCapture(outputDir, apply);
             captures.push(captureSummary(apply));
             if (!apply.ok || !apply.stdout.includes(`PRODUCTION_ROLLOUT_WAVE_COMMITTED|wave=${wave.id}|scope=${scopeSha256}`)) {
-                const reconcile = runPsql(`reconcile-${wave.id}`, artifacts.waveVerify[wave.id], connection, false, {});
+                const reconcile = runPsql(`reconcile-${wave.id}`, approvedVerifySql, connection, false, {});
                 persistCapture(outputDir, reconcile);
                 captures.push(captureSummary(reconcile));
                 writeSummary(artifacts.summaryJson, {
@@ -624,7 +709,9 @@ async function main(): Promise<void> {
             externalWritePerformed = true;
         }
 
-        const verify = runPsql(`verify-${wave.id}`, artifacts.waveVerify[wave.id], connection, false, {});
+        const approvedVerifySql = waveVerifySql[wave.id];
+        if (!approvedVerifySql) throw new Error(`Approved in-memory verification SQL is unavailable for wave ${wave.id}.`);
+        const verify = runPsql(`verify-${wave.id}`, approvedVerifySql, connection, false, {});
         persistCapture(outputDir, verify);
         captures.push(captureSummary(verify));
         const verifyErrors = verify.ok
@@ -650,7 +737,13 @@ async function main(): Promise<void> {
         }
     }
 
-    const finalVerify = runPsql('final-verify', artifacts.finalVerifySql, connection, false, {});
+    const finalVerify = runPsql(
+        'final-verify',
+        { contents: finalVerifySql, sha256: sha256(finalVerifySql) },
+        connection,
+        false,
+        {},
+    );
     persistCapture(outputDir, finalVerify);
     captures.push(captureSummary(finalVerify));
     const finalErrors = finalVerify.ok
@@ -680,7 +773,7 @@ async function main(): Promise<void> {
             allowlistSha256: allowlist.allowlistSha256,
             through: args.through,
             migrationCount: 25,
-            migrationManifestSha256: sha256(stableJson(PRODUCTION_ROLLOUT_MIGRATIONS.map(migrationIdentity))),
+            migrationManifestSha256: productionRolloutMigrationManifestSha256(),
             preflightEvidenceSha256: preflight.sha256,
             historyReconciliationManifestSha256: historyReconciliation.sha256,
             historyReconciliationSnapshotSha256: historyReconciliation.snapshotSha256,
@@ -691,10 +784,12 @@ async function main(): Promise<void> {
             backupArtifactSha256: backupArtifact.artifactSha256,
             backupArtifactVerificationSha256: backupArtifact.verificationSha256,
             publicCleanupReceiptSha256: cleanup.sha256,
+            preservationPolicySha256: preservationPolicy.sha256,
             authReducedQuarantinedReceiptSha256: authPolicy.sha256,
             googleFixturePolicyEvidenceSha256: googlePolicy.sha256,
             stagingHardeningEvidenceSha256: stagingHardening.sha256,
             sentryProductionHardeningEvidenceSha256: sentryHardening.sha256,
+            sentryProductionHardeningSourceReceiptSha256: sentryHardening.sourceReceiptSha256,
             livePreflightSqlSha256: sha256(livePreflightSql),
             finalVerifySqlSha256: sha256(finalVerifySql),
             finalVerificationPassed: true,
@@ -725,14 +820,24 @@ async function main(): Promise<void> {
 
 function runPsql(
     id: string,
-    sqlPath: string,
+    approvedSql: ApprovedSql,
     connection: ReturnType<typeof buildPsqlEnvironment>,
     writeAttempted: boolean,
     variables: Record<string, string>,
 ): PsqlCapture {
+    if (!approvedSqlBytesMatch(approvedSql.contents, approvedSql.sha256)) {
+        return {
+            id,
+            ok: false,
+            exitCode: null,
+            stdout: '',
+            stderr: '',
+            error: `Approved SQL SHA-256 mismatch for ${id}; psql was not invoked.`,
+            writeAttempted,
+        };
+    }
     const args = ['-X', '-w', '-q', '-A', '-t', '-F', '\t', '-v', 'ON_ERROR_STOP=1'];
     for (const [key, value] of Object.entries(variables)) args.push('-v', `${key}=${value}`);
-    args.push('-f', sqlPath);
     const result = spawnSync('psql', args, {
         env: buildDatabaseToolProcessEnvironment(connection, {
             PGAPPNAME: `espanol-honesto-production-rollout-${id}`,
@@ -748,6 +853,7 @@ function runPsql(
                 ].join(' '),
         }),
         encoding: 'utf8',
+        input: approvedSql.contents,
         timeout: writeAttempted ? 180_000 : 45_000,
         windowsHide: true,
     });
@@ -761,6 +867,10 @@ function runPsql(
         error: result.error ? sanitizeOutput(result.error.message) : exitCode === 0 ? null : `psql exited ${exitCode ?? 'unknown'}`,
         writeAttempted,
     };
+}
+
+export function approvedSqlBytesMatch(contents: string, expectedSha256: string): boolean {
+    return /^[a-f0-9]{64}$/u.test(expectedSha256) && sha256(contents) === expectedSha256;
 }
 
 function createArtifacts(outputDir: string, waves: readonly ProductionRolloutWave[]) {
@@ -818,6 +928,17 @@ function evidenceSummary<T>(evidence: EvidenceValidation<T>): Record<string, unk
     return {
         provided: evidence.provided,
         valid: evidence.valid,
+        sha256: evidence.sha256,
+        errors: evidence.errors,
+    };
+}
+
+function preservationPolicySummary(
+    evidence: ReturnType<typeof readFixturePreservationPolicyEvidence>,
+): Record<string, unknown> {
+    return {
+        provided: evidence.provided,
+        valid: evidence.ok,
         sha256: evidence.sha256,
         errors: evidence.errors,
     };

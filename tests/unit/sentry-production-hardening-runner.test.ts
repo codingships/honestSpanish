@@ -42,6 +42,111 @@ vi.mock('../../scripts/launch/sentry-production-hardening-local', async (importO
 });
 
 describe.sequential('Sentry production hardening runner finalization boundaries', () => {
+    it('refreshes an executed receipt through anchored GET-only reattestation without remote writes', async () => {
+        await withRunnerHarness(async (harness) => {
+            expect(await harness.execute(['--execute-approved'])).toBeUndefined();
+            const sourceReceipt = harness.receiptPaths()[0];
+            expect(sourceReceipt).toBeTruthy();
+            const writesBefore = remoteWriteCalls(harness.calls).length;
+
+            expect(await harness.execute([
+                '--reattest-existing',
+                '--source-receipt',
+                sourceReceipt as string,
+            ])).toBeUndefined();
+
+            expect(remoteWriteCalls(harness.calls)).toHaveLength(writesBefore);
+            const reattestation = harness.summaries().find((summary) => summary.mode === 'reattestation');
+            expect(reattestation).toMatchObject({
+                status: 'OK',
+                closureStatus: 'REATTESTED_AND_VERIFIED',
+                executeRequested: false,
+                externalWriteAttempted: false,
+                externalWritePerformed: false,
+                createdWorkflowCount: 0,
+                evidenceContract: {
+                    rolloutEligible: true,
+                    attestationMode: 'live_get_only_revalidation',
+                },
+                reattestation: {
+                    sourceExecutedWriteProof: true,
+                    detectorFingerprintMatched: true,
+                    ownerFingerprintMatched: true,
+                    workflowIdFingerprintsMatched: true,
+                },
+            });
+            expect(harness.receiptPaths()).toHaveLength(2);
+        });
+    });
+
+    it('rejects same-name workflows whose ids no longer match the executed receipt anchor', async () => {
+        await withRunnerHarness(async (harness) => {
+            expect(await harness.execute(['--execute-approved'])).toBeUndefined();
+            const sourceReceipt = harness.receiptPaths()[0] as string;
+            const writesBefore = remoteWriteCalls(harness.calls).length;
+            harness.patchWorkflow(0, { id: 'foreign-same-name-workflow' });
+
+            expect(await harness.execute([
+                '--reattest-existing',
+                '--source-receipt',
+                sourceReceipt,
+            ])).toBe(harness.exitSignal);
+            expect(remoteWriteCalls(harness.calls)).toHaveLength(writesBefore);
+            expect(harness.receiptPaths()).toHaveLength(1);
+            expect(harness.summaries()).toContainEqual(expect.objectContaining({
+                status: 'FAILED',
+                mode: 'reattestation',
+                externalWriteAttempted: false,
+                externalWritePerformed: false,
+            }));
+        });
+    });
+
+    it.each(['detector', 'owner'] as const)(
+        'rejects %s identity drift that occurs after the initial reattestation preflight',
+        async (identityKind) => {
+            await withRunnerHarness(async (harness) => {
+                expect(await harness.execute(['--execute-approved'])).toBeUndefined();
+                const sourceReceipt = harness.receiptPaths()[0] as string;
+                const writesBefore = remoteWriteCalls(harness.calls).length;
+                if (identityKind === 'detector') harness.invalidateDetectorAfterAdditionalReads(2);
+                else harness.invalidateOwnerAfterAdditionalReads(2);
+
+                expect(await harness.execute([
+                    '--reattest-existing',
+                    '--source-receipt',
+                    sourceReceipt,
+                ])).toBe(harness.exitSignal);
+
+                expect(remoteWriteCalls(harness.calls)).toHaveLength(writesBefore);
+                expect(harness.receiptPaths()).toHaveLength(1);
+                const reattestation = harness.summaries().find((summary) => summary.mode === 'reattestation');
+                expect(reattestation).toMatchObject({
+                    status: 'FAILED',
+                    closureStatus: 'BLOCKED',
+                    externalWriteAttempted: false,
+                    externalWritePerformed: false,
+                    checks: expect.arrayContaining([
+                        expect.objectContaining({
+                            name: 'get_only_reattestation',
+                            status: 'failed',
+                            details: expect.arrayContaining([
+                                'stableDetectorOwnerFingerprintsMatched=false',
+                                'remoteWriteAttempted=false',
+                            ]),
+                        }),
+                    ]),
+                });
+            });
+        },
+    );
+
+    it('enforces GET-only reattestation at the Sentry transport boundary', () => {
+        const source = readFileSync('scripts/launch/sentry-production-hardening.ts', 'utf8');
+        expect(source).toContain("if (reattestRequested && method !== 'GET')");
+        expect(source).toContain('Sentry GET-only reattestation blocked forbidden');
+    });
+
     it('retains the execution lock and performs no rollback when provisional-state persistence fails', async () => {
         await withRunnerHarness(async (harness) => {
             localFault.phase = 'pending_write';
@@ -180,6 +285,8 @@ interface RunnerHarness {
     lockPath: string;
     pendingPath: string;
     execute: (args: string[]) => Promise<unknown>;
+    invalidateDetectorAfterAdditionalReads: (additionalReads: number) => void;
+    invalidateOwnerAfterAdditionalReads: (additionalReads: number) => void;
     patchWorkflow: (index: number, patch: Record<string, unknown>) => void;
     receiptPaths: () => string[];
     summaries: () => Array<Record<string, unknown>>;
@@ -206,6 +313,10 @@ async function withRunnerHarness(
     const baseUrl = options.baseUrl ?? 'https://sentry.io';
     const calls: Array<{ method: string; path: string }> = [];
     const workflows: Array<Record<string, unknown>> = [];
+    let detectorReadCount = 0;
+    let ownerReadCount = 0;
+    let detectorInvalidAtRead: number | null = null;
+    let ownerInvalidAtRead: number | null = null;
     let scrubIPAddresses = false;
     const exitSignal = new Error('expected process.exit from a failed runner');
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => {
@@ -231,10 +342,19 @@ async function withRunnerHarness(
             return jsonResponse(projectRulesMirror(workflows, ownerUserId));
         }
         if (url.pathname === '/api/0/organizations/honestspanish/detectors/') {
-            return jsonResponse([{ id: detectorId, type: 'error', enabled: true }]);
+            detectorReadCount += 1;
+            return jsonResponse([{
+                id: detectorId,
+                type: 'error',
+                enabled: detectorInvalidAtRead === null || detectorReadCount < detectorInvalidAtRead,
+            }]);
         }
         if (url.pathname === '/api/0/organizations/honestspanish/members/') {
-            return jsonResponse([{ orgRole: 'owner', user: { id: ownerUserId } }]);
+            ownerReadCount += 1;
+            const currentOwnerUserId = ownerInvalidAtRead !== null && ownerReadCount >= ownerInvalidAtRead
+                ? 'foreign-owner-test-id'
+                : ownerUserId;
+            return jsonResponse([{ orgRole: 'owner', user: { id: currentOwnerUserId } }]);
         }
         if (url.pathname === '/api/0/organizations/honestspanish/workflows/') {
             if (method === 'GET') return jsonResponse(workflows);
@@ -329,6 +449,12 @@ async function withRunnerHarness(
             lockPath: path.join(outputRoot, '.execution-lock.jsonl'),
             pendingPath: path.join(outputRoot, '.finalization-pending.json'),
             execute,
+            invalidateDetectorAfterAdditionalReads: (additionalReads) => {
+                detectorInvalidAtRead = detectorReadCount + additionalReads;
+            },
+            invalidateOwnerAfterAdditionalReads: (additionalReads) => {
+                ownerInvalidAtRead = ownerReadCount + additionalReads;
+            },
             patchWorkflow: (index, patch) => {
                 Object.assign(workflows[index], patch);
             },

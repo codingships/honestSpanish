@@ -45,6 +45,7 @@ select 'fixture_counts' as check_name,
        json_build_object(
            'auth_users', (select count(*)::int from auth.users),
            'profiles', (select count(*)::int from public.profiles),
+           'profiles_private', (select count(*)::int from public.profiles_private),
            'packages', (select count(*)::int from public.packages),
            'subscriptions', (select count(*)::int from public.subscriptions),
            'student_teachers', (select count(*)::int from public.student_teachers),
@@ -54,7 +55,9 @@ select 'fixture_counts' as check_name,
            'processed_webhook_events', (select count(*)::int from public.processed_webhook_events),
            'fulfillment_jobs', (select count(*)::int from public.fulfillment_jobs),
            'admin_audit_log', (select count(*)::int from public.admin_audit_log),
-           'teacher_availability', (select count(*)::int from public.teacher_availability)
+           'teacher_availability', (select count(*)::int from public.teacher_availability),
+           'jobs', (select count(*)::int from public.jobs),
+           'support_tickets', (select count(*)::int from public.support_tickets)
        )::text as check_value;
 
 select 'fixture_distributions' as check_name,

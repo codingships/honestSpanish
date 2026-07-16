@@ -28,6 +28,7 @@ import {
     buildQuarantineUntil,
     confirmAuthRequarantineRotation,
     hashIdentitySet,
+    hashRoleBoundIdentitySet,
     readJsonEvidence,
     sanitizeAuthCleanupOutput,
     selectAuthQuarantineConfig,
@@ -100,6 +101,7 @@ interface RolloutReceipt {
     authInertEvidenceSha256: string;
     backupReceiptSha256: string;
     publicCleanupReceiptSha256: string;
+    preservationPolicySha256: string;
     authReducedQuarantinedReceiptSha256: string;
     googleFixturePolicyEvidenceSha256: string;
     stagingHardeningEvidenceSha256: string;
@@ -116,6 +118,8 @@ interface ValidatedRolloutReceipt {
     value: RolloutReceipt;
     sha256: string;
 }
+
+const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 
 interface LiveState {
     identity: IdentityState;
@@ -1119,6 +1123,10 @@ async function runFinalizePhase(
             authReducedReceiptSha256: reducedInput.sha256,
             productionRolloutReceiptSha256: rolloutInput.sha256,
             preservedSetSha256: after.identity.preservedSetSha256,
+            preservedRoleBindingSha256: hashRoleBoundIdentitySet(
+                after.identity.preserved[0].id,
+                after.identity.preserved[1].id,
+            ),
             freezeCutoff: PRODUCTION_AUTH_FREEZE_CUTOFF,
             quarantineUntil: reducedInput.value.quarantineUntil,
             googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED',
@@ -1538,6 +1546,7 @@ function loadAndValidateRolloutReceipt(
         value.authInertEvidenceSha256,
         value.backupReceiptSha256,
         value.publicCleanupReceiptSha256,
+        value.preservationPolicySha256,
         value.authReducedQuarantinedReceiptSha256,
         value.googleFixturePolicyEvidenceSha256,
         value.stagingHardeningEvidenceSha256,
@@ -1553,6 +1562,10 @@ function loadAndValidateRolloutReceipt(
         || !hashes.every((hash) => /^[a-f0-9]{64}$/u.test(hash))
         || value.backupReceiptSha256 !== cleanup.backupReceiptSha256
         || value.publicCleanupReceiptSha256 !== cleanup.publicCleanupReceiptSha256
+        || validateRolloutPreservationPolicyBinding(
+            value,
+            cleanup.publicCleanupReceipt.preservationPolicySha256,
+        ).length > 0
         || value.authReducedQuarantinedReceiptSha256 !== reducedInput.sha256
         || value.finalVerificationPassed !== true
         || value.stagingOnlyMigrationAbsent !== true
@@ -1564,6 +1577,26 @@ function loadAndValidateRolloutReceipt(
         throw new Error('Production rollout receipt is invalid or not bound to the cleanup/Auth-reduced receipts.');
     }
     return { value, sha256: loaded.sha256 };
+}
+
+export function validateRolloutPreservationPolicyBinding(
+    raw: unknown,
+    expectedPreservationPolicySha256: string,
+): string[] {
+    const errors: string[] = [];
+    const value = raw && typeof raw === 'object' && !Array.isArray(raw)
+        ? raw as { preservationPolicySha256?: unknown }
+        : null;
+    const observed = value?.preservationPolicySha256;
+    if (!SHA256_PATTERN.test(expectedPreservationPolicySha256)) {
+        errors.push('Expected cleanup preservation-policy SHA-256 is invalid.');
+    }
+    if (typeof observed !== 'string' || !SHA256_PATTERN.test(observed)) {
+        errors.push('Production rollout preservationPolicySha256 must be a lowercase SHA-256.');
+    } else if (observed !== expectedPreservationPolicySha256) {
+        errors.push('Production rollout preservation-policy binding does not match the public-cleanup receipt.');
+    }
+    return errors;
 }
 
 function assertEvidenceCleanupBindings(

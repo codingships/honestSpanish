@@ -66,6 +66,16 @@ export const productionActiveProviderBindingNames = [
     'TURNSTILE_SECRET_KEY',
 ] as const;
 
+export const productionCanonicalInertProviderBindingNames = {
+    web: [
+        'FULFILLMENT_WORKER_URL',
+        'SUPABASE_EXPECTED_PROJECT_REF',
+    ],
+    fulfillment: [
+        'SUPABASE_EXPECTED_PROJECT_REF',
+    ],
+} as const satisfies Record<'web' | 'fulfillment', readonly string[]>;
+
 export type WorkerWriteCheckpointStage =
     | 'write_ahead'
     | 'provider_succeeded_needs_readback'
@@ -181,7 +191,9 @@ export function productionInertBindingNameErrors(
     const errors: string[] = [];
     const duplicates = [...new Set(names.filter((name, index) => names.indexOf(name) !== index))];
     if (duplicates.length > 0) errors.push(`duplicate binding names: ${duplicates.join(',')}`);
-    const activeProviders = productionActiveProviderBindingNames.filter((name) => names.includes(name));
+    const canonicalInertNames = new Set<string>(productionCanonicalInertProviderBindingNames[kind]);
+    const activeProviders = productionActiveProviderBindingNames.filter((name) =>
+        names.includes(name) && !canonicalInertNames.has(name));
     if (activeProviders.length > 0) {
         errors.push(`active provider bindings must be absent from inert ${kind}: ${activeProviders.join(',')}`);
     }

@@ -13,7 +13,7 @@ Reglas:
 - Despues de actualizar evidencia de Fase 1, ejecutar `pnpm launch:phase1`; para cierre completo ejecutar despues `pnpm launch:manual-evidence`, `pnpm launch:secondary-review` y `pnpm launch:status`.
 - Para priorizar, usar `docs/launch/LAUNCH_SEQUENCE.md`: separa checks que conviene cerrar ahora de legal/Stripe/keys/smoke final.
 - Para la ventana real de Go/No-Go, usar `docs/launch/FINAL_CLOSURE.md`: ordena pagos, legal, backup/export, rotacion, integraciones, SEO/LLM, smoke final, gate y revision secundaria.
-- Para el bloqueo RC actual, usar `docs/launch/RC_EVIDENCE_REFRESH.md`: concentra solo `database_readiness` y `operations_external`, sin tocar final-only.
+- Para el bloqueo RC actual, usar la última salida de `pnpm launch:status` y `docs/launch/CLOUDFLARE_PRODUCTION.md`: Fase 1/staging están cerrados y el único scope RC es `production_inert_preparation`. `docs/launch/RC_EVIDENCE_REFRESH.md` queda como historial de cómo se cerraron los antiguos `database_readiness`/`operations_external`, no como estado vivo.
 - Cada corrida de `pnpm launch:status` genera `final-closure-pack.md` en `outputs/launch-status/<timestamp>/` con los blockers final-only actuales, worksheets vigentes, orden de cierre y reglas de evidencia sin secretos.
 - Cada corrida de `pnpm launch:manual-evidence` genera `manual-evidence-index.md` en `outputs/launch-manual-evidence/<timestamp>/` para ver en una sola matriz la fase, comando, worksheet y evidencia minima de cada check.
 - Cada corrida de `pnpm launch:manual-evidence` genera `phase-1-worksheet.md` en `outputs/launch-manual-evidence/<timestamp>/` para ejecutar primero los checks de Fase 1 sin crear otro documento de estado.

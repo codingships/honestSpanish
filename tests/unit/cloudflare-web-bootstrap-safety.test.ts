@@ -220,6 +220,10 @@ describe('Cloudflare production web bootstrap safety', () => {
             'web_bootstrap_prewrite_version_identity',
             'web_bootstrap_deploy_version_changed',
             'workerDeployCheckpointMatchesCurrentVersion',
+            'buildCloudflareProductionInertCompositeEvidence',
+            'production-inert-web-fulfillment-evidence.json',
+            'production_inert_composite_evidence_inputs',
+            '`versionId=${result.value}`',
             'WEB_RUNTIME_BOOTSTRAP',
             'No final legal identity requirement',
             'externalWriteAttempted = true',
@@ -228,8 +232,9 @@ describe('Cloudflare production web bootstrap safety', () => {
             runner.indexOf("reconcileOneShotCloudflareWriteGuard(\n        'web-bootstrap-deploy'"),
             runner.indexOf("openOneShotCloudflareWriteGuard('web-bootstrap-deploy'"),
         );
-        expect(reconciliation).toContain('workerDeployCheckpointMatchesCurrentVersion');
-        expect(reconciliation).toContain('versionId');
+        expect(reconciliation).toContain('retryWebBootstrapDeployEvidence');
+        expect(runner).toContain('workerDeployCheckpointMatchesCurrentVersion');
+        expect(runner).toContain('versionId');
         expect(runner).not.toContain("args: ['pnpm', '--config.verify-deps-before-run=false', 'run', 'build:production:release']");
         expect(preflight).toContain("args: pnpmArgs('run', 'build:production:bootstrap')");
         expect(preflight).not.toContain("args: pnpmArgs('run', 'build:production:release')");
@@ -314,6 +319,13 @@ describe('Cloudflare production web bootstrap safety', () => {
             'minimal_bootstrap_secret_shape_before_write',
             'minimal_bootstrap_secret_shape_after_write',
             'direct_web_bootstrap_hmac_attestation',
+            'phase1_web_fulfillment_composite_before_secrets',
+            'phase1_composite_immediately_before_secret_write',
+            'readCloudflareProductionInertCompositeEvidence',
+            'buildCloudflareProductionInertCompositeEvidence',
+            'production-inert-web-fulfillment-evidence.json',
+            'maxAgeMs=300000',
+            'sequence=Cloudflare C-D-E immediately before launch:status',
             "config.webRuntimeMode === 'bootstrap'",
             "config.stripeBoundary === 'absent'",
             "config.resendApiKeyFingerprint === 'absent'",
@@ -333,6 +345,8 @@ describe('Cloudflare production web bootstrap safety', () => {
             runner.indexOf('async function runApprovedExecution()'),
         );
         expect(executionInputs).not.toContain('CLOUDFLARE_API_TOKEN');
+        expect(runner).not.toContain('latestGeneratedPathMatching');
+        expect(runner).not.toContain("['- Status: OK', '- Execute requested: true'");
 
         const minimalSet = runner.slice(
             runner.indexOf('const requiredSecretNames = ['),
@@ -347,5 +361,62 @@ describe('Cloudflare production web bootstrap safety', () => {
         expect(execution.indexOf("probeBootstrapRoutes('pre_write')")).toBeLessThan(execution.indexOf('const name = requiredSecretNames[0]'));
         expect(finalRunner).toContain('fresh_stripe_live_readiness_pre_write_gate');
         expect(finalRunner).toContain('stripeMode=live');
+    });
+
+    it('bounds only C-D-E readbacks while each approved mutation remains a one-shot outside the retry helper', () => {
+        const fulfillmentSecrets = read('scripts/launch/cloudflare-production-fulfillment-bootstrap-secrets.ts');
+        const webDeploy = read('scripts/launch/cloudflare-production-worker-phase1.ts');
+        const webSecrets = read('scripts/launch/cloudflare-production-worker-bootstrap-secrets.ts');
+
+        for (const source of [fulfillmentSecrets, webDeploy, webSecrets]) {
+            expect(source).toContain("from './cloudflare-readonly-retry'");
+            expect(source).toContain('retryCloudflareReadonlyEvidence({');
+            expect(source).toContain('readonlyOutcome=retryable');
+            expect(source).toContain('readonlyOutcome=definitive_failure');
+            expect(source).toContain('attempt-${attempt}');
+        }
+
+        const fulfillmentMutation = fulfillmentSecrets.indexOf('const capture = runCommand(command, `${secretValue(name)}\\n`);');
+        const fulfillmentRetry = fulfillmentSecrets.indexOf('const postWriteReadback = await retryFulfillmentBootstrapSecretEvidence(');
+        expect(fulfillmentMutation).toBeGreaterThan(-1);
+        expect(fulfillmentRetry).toBeGreaterThan(fulfillmentMutation);
+        const fulfillmentHelper = fulfillmentSecrets.slice(
+            fulfillmentSecrets.indexOf('async function retryFulfillmentBootstrapSecretEvidence('),
+            fulfillmentSecrets.indexOf('function validateExecutionEnvironment()'),
+        );
+        expect(fulfillmentHelper).not.toContain('secretPutCommand(');
+        expect(fulfillmentHelper).not.toContain('writesCloudflare: true');
+
+        const deployMutation = webDeploy.indexOf('const deployCapture = runCommand(taggedDeployCommand);');
+        const deployRetry = webDeploy.indexOf('const postDeployReadback = await retryWebBootstrapDeployEvidence(');
+        expect(deployMutation).toBeGreaterThan(-1);
+        expect(deployRetry).toBeGreaterThan(deployMutation);
+        const deployHelper = webDeploy.slice(
+            webDeploy.indexOf('async function retryWebBootstrapDeployEvidence('),
+            webDeploy.indexOf('function validateFreshReadonlyWebShapeBeforeDeploy()'),
+        );
+        expect(deployHelper).not.toContain('taggedDeployCommand');
+        expect(deployHelper).not.toContain('deployKeepVars');
+        expect(deployHelper).not.toContain('writesCloudflare: true');
+        expect(webDeploy).toContain('isRetryableCloudflareReadonlyStatus(healthResponse.status, [404])');
+
+        const webSecretMutation = webSecrets.indexOf('const secretCapture = runCommand(secretCommand, `${value}\\n`);');
+        const webSecretRetry = webSecrets.indexOf('const postWriteReadback = await retryWebBootstrapSecretEvidence(');
+        expect(webSecretMutation).toBeGreaterThan(-1);
+        expect(webSecretRetry).toBeGreaterThan(webSecretMutation);
+        const webSecretHelper = webSecrets.slice(
+            webSecrets.indexOf('async function retryWebBootstrapSecretEvidence('),
+            webSecrets.indexOf('function validateRemoteTarget('),
+        );
+        expect(webSecretHelper).not.toContain('buildSecretPutCommand(');
+        expect(webSecretHelper).not.toContain('writesCloudflare: true');
+
+        expect(fulfillmentSecrets).toContain('isRetryableCloudflareReadonlyStatus(response.status, [401])');
+        expect(webSecrets).toContain('isRetryableCloudflareReadonlyStatus(response.status, [401])');
+        expect(webDeploy).toContain('isRetryableCloudflareReadonlyStatus(attestationResponse.status, [401])');
+        expect(webDeploy.indexOf("const blockedResponse = await fetch(new URL('/internal/jobs/process'"))
+            .toBeLessThan(webDeploy.indexOf('httpStatus = blockedResponse.status'));
+        expect(fulfillmentSecrets).toContain('A 200 attestation was cryptographically invalid');
+        expect(webSecrets).toContain('A 200 web attestation was cryptographically invalid');
     });
 });

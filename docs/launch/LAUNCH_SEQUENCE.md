@@ -7,7 +7,7 @@ Este documento separa lo que conviene cerrar ahora de lo que se deja deliberadam
 - Los datos reales legales los completara Alin manualmente al final. No se inventan ni se rellenan con datos temporales.
 - Stripe se mantiene en modo prueba por ahora. Stripe live y los precios live se validan al final, justo antes de pagos reales.
 - Todas las API keys se rotaran antes del lanzamiento real. La evidencia final de seguridad debe generarse despues de esa rotacion.
-- Supabase se mantiene en Free para el RC. Esto implica que no hay backups programados nativos; antes de production deploy, migracion destructiva o Go/No-Go publico se hara backup logico/manual fuera del repo o se subira a Pro.
+- Supabase se mantiene en Free para el RC. Esto implica que no hay backups programados nativos. El rollout inerte de production exige primero un backup lógico EFS fresco; la ventana final exige además confirmar un backup/export vigente o subir a Pro antes del Go/No-Go público.
 - SEO para buscadores y LLMs queda como cierre final despues de estabilizar copy, legal y dominios.
 - Reviews, canal publico de Telegram, telemetria de uso y prueba de nivel definitiva quedan fuera del RC salvo decision posterior explicita.
 - El backlog de piezas aplazadas vive en `docs/launch/POST_LAUNCH_BACKLOG.md`; si una tarea de ese backlog entra en launch, debe moverse a esta secuencia, checklist y evidencia antes del siguiente Gate.
@@ -37,7 +37,7 @@ No hace falta cerrar ahora:
 - Datos reales del titular/controlador legal.
 - Stripe live.
 - Rotacion final de todas las API keys.
-- Backup logico/manual final o upgrade a Pro.
+- Backup logico/manual de la ventana final o upgrade a Pro. El backup EFS previo al rollout production inerte pertenece a Fase 2 y no se aplaza.
 - SEO/LLM final.
 - Smoke final de produccion.
 - Reviews reales.
@@ -61,7 +61,9 @@ Condiciones esperadas:
 - Si el probe desplegado devuelve `400 priceId is required`, ejecutar `pnpm launch:staging-no-real-payments-remediation` y corregir Cloudflare Pages staging antes de cerrar no-cobros.
 - `pnpm launch:rc-external-closure` genera la hoja unica `outputs/launch-rc-external-closure/<timestamp>/rc-external-closure-pack.md` para Cloudflare checkout blocking, Supabase staging rollout y operations evidence antes de pedir writes externos.
 - `pnpm launch:phase1` ya no bloquea por checks inmediatos.
-- `pnpm launch:rc` pasa cuando Fase 1 esta cerrada; si se congela con pagos desactivados, `payments_staging` queda como final-only documentado.
+- Cloudflare production queda preparado, pero no activo: Queue/DLQ sin consumidores, Fulfillment y web en bootstrap, un único HMAC interno compartido, cero Cron, cero proveedores activos, sin rutas/DNS y checkout desactivado.
+- Supabase production completa las 25 migraciones allowlisted por olas después de Auth inerte, backup EFS, limpieza/preservación aprobada y reconciliación de fixtures; después quedan exactamente admin + profesor y cinco filas de disponibilidad L-V 09:00-18:00 `Europe/Madrid`.
+- `pnpm launch:rc` pasa cuando Fase 1 y `production_inert_preparation` están cerradas. Stripe Live, proveedores activos, dominios, datos legales y smoke siguen final-only.
 - `pnpm launch:legal` puede seguir fallando solo por datos legales reales pendientes.
 - `pnpm launch:manual-evidence` puede seguir fallando solo por checks final-only documentados.
 - `pnpm launch:secondary-review` confirma que no hay contradicciones entre checklist, evidencia y estado real.

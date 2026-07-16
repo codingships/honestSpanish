@@ -23,6 +23,7 @@ import {
     resolveCanonicalWorkerWriteCheckpoint,
     productionActiveProviderBindingNames,
     productionBootstrapSecretInventoryErrors,
+    productionCanonicalInertProviderBindingNames,
     productionInertBindingNameErrors,
     startWorkerWriteCheckpoint,
     summarizeWorkerWriteCheckpoints,
@@ -35,6 +36,20 @@ function versionView(bindings: Array<{ name: string; type: string }>): string {
         id: VERSION_ID,
         resources: { bindings },
     });
+}
+
+function productionBootstrapBindingNames(relativeTomlPath: string): string[] {
+    const source = readFileSync(path.join(process.cwd(), relativeTomlPath), 'utf8');
+    const start = source.indexOf('[env.production_bootstrap]');
+    const end = source.indexOf('[env.production]', start + 1);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const bootstrap = source.slice(start, end);
+    const names = [
+        ...[...bootstrap.matchAll(/^([A-Z][A-Z0-9_]*)\s*=/gmu)].map((match) => match[1]),
+        ...[...bootstrap.matchAll(/^binding\s*=\s*"([A-Z][A-Z0-9_]*)"/gmu)].map((match) => match[1]),
+    ];
+    return [...new Set(names)].sort();
 }
 
 describe('Cloudflare production web write safety', () => {
@@ -74,27 +89,56 @@ describe('Cloudflare production web write safety', () => {
             .toContainEqual(expect.stringMatching(/without a visible production Worker/i));
     });
 
-    it('rejects every active provider binding and the fulfillment Queue from inert versions', () => {
+    it('allows only the canonical inert provider-shaped bindings for each Worker kind', () => {
         expect(productionInertBindingNameErrors('web', [
             'WEB_RUNTIME_MODE',
             'CHECKOUT_ENABLED',
             'INTERNAL_JOB_SECRET',
             'FULFILLMENT_SERVICE',
+            ...productionCanonicalInertProviderBindingNames.web,
         ])).toEqual([]);
         expect(productionInertBindingNameErrors('fulfillment', [
             'FULFILLMENT_RUNTIME_MODE',
             'CHECKOUT_ENABLED',
             'INTERNAL_JOB_SECRET',
+            ...productionCanonicalInertProviderBindingNames.fulfillment,
         ])).toEqual([]);
 
         for (const name of productionActiveProviderBindingNames) {
-            expect(productionInertBindingNameErrors('web', ['WEB_RUNTIME_MODE', name]))
-                .toContainEqual(expect.stringContaining(name));
+            const webErrors = productionInertBindingNameErrors('web', ['WEB_RUNTIME_MODE', name]);
+            if (productionCanonicalInertProviderBindingNames.web.includes(
+                name as typeof productionCanonicalInertProviderBindingNames.web[number],
+            )) expect(webErrors).toEqual([]);
+            else expect(webErrors).toContainEqual(expect.stringContaining(name));
+
+            const fulfillmentErrors = productionInertBindingNameErrors('fulfillment', ['FULFILLMENT_RUNTIME_MODE', name]);
+            if (productionCanonicalInertProviderBindingNames.fulfillment.includes(
+                name as typeof productionCanonicalInertProviderBindingNames.fulfillment[number],
+            )) expect(fulfillmentErrors).toEqual([]);
+            else expect(fulfillmentErrors).toContainEqual(expect.stringContaining(name));
         }
+        expect(productionInertBindingNameErrors('fulfillment', ['FULFILLMENT_WORKER_URL']))
+            .toContainEqual(expect.stringContaining('FULFILLMENT_WORKER_URL'));
         expect(productionInertBindingNameErrors('fulfillment', ['FULFILLMENT_QUEUE']))
             .toContain('FULFILLMENT_QUEUE must be absent from inert fulfillment');
         expect(productionInertBindingNameErrors('web', ['INTERNAL_JOB_SECRET', 'INTERNAL_JOB_SECRET']))
             .toContain('duplicate binding names: INTERNAL_JOB_SECRET');
+    });
+
+    it('accepts the canonical inert bindings encoded in both real production_bootstrap TOMLs', () => {
+        const webNames = productionBootstrapBindingNames('wrangler.toml');
+        const fulfillmentNames = productionBootstrapBindingNames(path.join('workers', 'fulfillment', 'wrangler.toml'));
+
+        expect(webNames).toEqual(expect.arrayContaining([
+            'SUPABASE_EXPECTED_PROJECT_REF',
+            'FULFILLMENT_WORKER_URL',
+            'FULFILLMENT_SERVICE',
+        ]));
+        expect(fulfillmentNames).toContain('SUPABASE_EXPECTED_PROJECT_REF');
+        expect(fulfillmentNames).not.toContain('FULFILLMENT_WORKER_URL');
+        expect(fulfillmentNames).not.toContain('FULFILLMENT_QUEUE');
+        expect(productionInertBindingNameErrors('web', webNames)).toEqual([]);
+        expect(productionInertBindingNameErrors('fulfillment', fulfillmentNames)).toEqual([]);
     });
 
     it('rejects Google in the exact remote version for secret and plain bindings', () => {

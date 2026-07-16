@@ -56,6 +56,7 @@ import {
     workerDeployCheckpointMatchesCurrentVersion,
     workerVersionTagFromView,
 } from './cloudflare-production-one-shot-write';
+import { parseCloudflareCronSchedulesResponse } from './cloudflare-cron-schedules-response';
 import { inspectStripeLiveReadiness } from './stripe-live-readiness';
 
 type Phase = 'bootstrap' | 'enable';
@@ -1584,21 +1585,22 @@ async function cronScheduleProbe(expectedMode: 'bootstrap' | 'active'): Promise<
             redirect: 'error',
             signal: AbortSignal.timeout(20_000),
         });
-        const body = await response.json() as { success?: unknown; result?: Array<{ cron?: unknown }> };
-        const schedules = Array.isArray(body.result) ? body.result : [];
+        const body = await response.json() as unknown;
+        const parsed = parseCloudflareCronSchedulesResponse(body);
+        const schedules = parsed?.schedules;
         const matched = response.status === 200
-            && body.success === true
+            && schedules !== undefined
             && (expectedMode === 'bootstrap'
                 ? schedules.length === 0
                 : schedules.length === 1 && schedules[0]?.cron === '0 * * * *');
         return matched
             ? ok(`cron_${expectedMode}`, `Remote Cron Trigger state matches ${expectedMode}.`, [
-                `scheduleCount=${schedules.length}`,
+                `scheduleCount=${schedules?.length ?? 'unknown'}`,
                 `expected=${expectedMode === 'bootstrap' ? 'none' : '0 * * * *'}`,
             ])
             : failed(`cron_${expectedMode}`, `Remote Cron Trigger state does not match ${expectedMode}.`, [
                 `httpStatus=${response.status}`,
-                `scheduleCount=${schedules.length}`,
+                `scheduleCount=${schedules?.length ?? 'unknown'}`,
             ]);
     } catch (error) {
         return failed(`cron_${expectedMode}`, 'Remote Cron Trigger state could not be proven.', [safeError(error)]);

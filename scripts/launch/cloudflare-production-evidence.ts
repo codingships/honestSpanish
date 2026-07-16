@@ -27,6 +27,7 @@ export const CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS = [
     'scripts/launch/cloudflare-production-fulfillment-lifecycle-shared.ts',
     'scripts/launch/cloudflare-production-fulfillment-lifecycle.ts',
     'scripts/launch/cloudflare-production-fulfillment-secrets.ts',
+    'scripts/launch/cloudflare-production-inert-composite-evidence.ts',
     'scripts/launch/cloudflare-production-one-shot-write.ts',
     'scripts/launch/cloudflare-production-queue-provision.ts',
     'scripts/launch/cloudflare-production-queue-runtime.ts',

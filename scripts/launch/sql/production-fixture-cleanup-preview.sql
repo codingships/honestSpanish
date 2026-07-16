@@ -248,7 +248,7 @@ SELECT 'FIXTURE_CLEANUP_PREVIEW|' || jsonb_build_object(
     'mode', 'read_only',
     'targetProjectRef', 'vkkahxsybhbutszerawz',
     'aggregateSnapshotSha256', '765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6',
-    'approvalScopeSha256', '35e5a8bf6a9f06b4419381171b04f3a050f4e9457fd674375a7e26ebc34672ec',
+    'approvalScopeSha256', '3579509fe2cec168f9758fc69dab19f697fa5163a8e8a35582d8b8a1665ad320',
     'counts', computed.counts,
     'distributions', computed.distributions,
     'schemaPosture', computed.schema_posture,

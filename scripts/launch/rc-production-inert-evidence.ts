@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import {
+    PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS,
     PRODUCTION_AUTH_INERT_RECEIPT_KIND,
     validateProductionAuthInertReceipt,
 } from './supabase-auth-config-shared';
@@ -14,9 +15,28 @@ import {
     PRODUCTION_PROJECT,
     STAGING_ONLY_VERSIONS,
 } from './supabase-production-rollout-shared';
+import {
+    PRODUCTION_ROLLOUT_MIGRATIONS,
+    productionRolloutAllowlistSha256,
+    productionRolloutMigrationManifestSha256,
+} from './supabase-production-rollout-runner-shared';
 import { findUnresolvedWorkerWriteCheckpoints } from './cloudflare-production-worker-safety';
+import {
+    validateCloudflareProductionInertCompositeEvidence,
+    type CloudflareProductionInertCompositeEvidence,
+} from './cloudflare-production-inert-composite-evidence';
+import {
+    PRODUCTION_INERT_FINAL_ATTEMPT_FILE,
+    PRODUCTION_INERT_FINAL_OUTPUT_FILE,
+    PRODUCTION_INERT_FINAL_STATUS,
+    validateProductionInertFinalAttemptSummary,
+    validateProductionInertFinalReceipt,
+    type ProductionInertFinalAttemptSummary,
+    type ProductionInertFinalReceipt,
+} from './production-inert-final-readonly-shared';
 
 export const RC_PRODUCTION_INERT_BLOCKER_ID = 'production_inert_preparation' as const;
+export const RC_FOUNDATIONAL_EVIDENCE_MAX_AGE_MS = Number.POSITIVE_INFINITY;
 
 export type RcProductionInertRequirementId =
     | 'cloudflare_bootstrap_hmac'
@@ -49,18 +69,34 @@ interface JsonCandidate<T = unknown> {
     value: T;
 }
 
-interface CloudflareBootstrapClosure {
-    endedAt: string;
-}
-
 interface ProductionRolloutReceipt {
     completedAt: string;
     authInertEvidenceSha256: string;
+    backupReceiptSha256: string;
+    publicCleanupReceiptSha256: string;
+    authReducedQuarantinedReceiptSha256: string;
+    preservationPolicySha256: string;
+}
+
+interface PublicCleanupReceipt {
+    completedAt: string;
+    preservationPolicySha256: string;
 }
 
 interface FinalAuthPolicyReceipt {
     closedAt: string;
     productionRolloutReceiptSha256: string;
+    backupReceiptSha256: string;
+    publicCleanupReceiptSha256: string;
+    authReducedReceiptSha256: string;
+    preservedSetSha256: string;
+    preservedRoleBindingSha256: string;
+}
+
+interface FinalSupabaseCaptureAttempt {
+    directory: string;
+    summary: JsonCandidate<ProductionInertFinalAttemptSummary> | null;
+    receipt: JsonCandidate<ProductionInertFinalReceipt> | null;
 }
 
 interface ProductionAvailabilityReceipt {
@@ -76,83 +112,139 @@ const futureClockSkewMs = 5 * 60 * 1_000;
 const sha256Pattern = /^[a-f0-9]{64}$/u;
 
 const evidenceLocations = {
-    cloudflare: ['launch-cloudflare-production-worker-bootstrap-secrets', 'summary.json'],
+    cloudflare: [
+        'launch-cloudflare-production-worker-bootstrap-secrets',
+        'production-inert-web-fulfillment-evidence.json',
+    ],
+    publicCleanup: ['launch-production-fixture-cleanup', 'public-cleanup-receipt.json'],
     rollout: ['launch-supabase-production-rollout-runner', 'production-rollout-receipt.json'],
     authPolicy: ['launch-supabase-production-auth-cleanup', 'auth-policy-receipt.json'],
     authInert: ['launch-supabase-auth-config-preflight', 'auth-inert-receipt.json'],
     availability: ['launch-production-availability', 'production-availability-receipt.json'],
+    finalSupabase: ['launch-production-inert-final-readonly', 'production-inert-final-receipt.json'],
 } as const;
 
 export function assessRcProductionInertEvidence(
     outputsRoot = path.join(process.cwd(), 'outputs'),
     now = new Date(),
 ): RcProductionInertAssessment {
+    const workspaceRoot = path.dirname(path.resolve(outputsRoot));
     const cloudflareAttempts = readJsonCandidates(outputsRoot, ...evidenceLocations.cloudflare)
-        .flatMap((candidate): Array<JsonCandidate<CloudflareBootstrapClosure>> => {
+        .flatMap((candidate): Array<JsonCandidate<CloudflareProductionInertCompositeEvidence>> => {
             if (!isRecord(candidate.value)
-                || candidate.value.executeRequested !== true
-                || candidate.value.approvalMatched !== true
-                || typeof candidate.value.endedAt !== 'string'
-                || !Number.isFinite(Date.parse(candidate.value.endedAt))) return [];
-            return [{ ...candidate, value: candidate.value as unknown as CloudflareBootstrapClosure }];
+                || candidate.value.stage !== 'web_hmac_closed'
+                || typeof candidate.value.generatedAt !== 'string'
+                || !Number.isFinite(Date.parse(candidate.value.generatedAt))) return [];
+            return [{ ...candidate, value: candidate.value as unknown as CloudflareProductionInertCompositeEvidence }];
         });
-    const latestCloudflareAttempt = newest(cloudflareAttempts, (value) => value.endedAt);
+    const latestCloudflareAttempt = newest(cloudflareAttempts, (value) => value.generatedAt);
     const latestAcceptedCloudflareClosure = latestCloudflareAttempt
-        && validateCloudflareBootstrapClosure(latestCloudflareAttempt.value, now).length === 0
+        && validateCloudflareProductionInertCompositeEvidence(latestCloudflareAttempt.value, {
+            workspaceRoot,
+            now,
+        }).valid
         ? latestCloudflareAttempt
         : null;
-    const cloudflareWriteStateOpen = hasOpenCloudflareWriteState(
-        outputsRoot,
+    const cloudflareWriteStateOpen = [
+        'fulfillment-bootstrap-hmac-secret',
         'web-bootstrap-hmac-secret',
-        latestAcceptedCloudflareClosure?.value.endedAt ?? null,
-    );
+    ].some((scope) => hasOpenCloudflareWriteState(
+        outputsRoot,
+        scope,
+        latestAcceptedCloudflareClosure?.value.generatedAt ?? null,
+    ));
     const cloudflare = cloudflareWriteStateOpen ? null : latestAcceptedCloudflareClosure;
 
-    const authInertCandidates = validCandidates<ProductionAuthInertReceipt>(
-        readJsonCandidates(outputsRoot, ...evidenceLocations.authInert),
-        (value) => validateAuthInertReceiptContract(value, now),
+    const authInertArtifacts = readJsonCandidates(outputsRoot, ...evidenceLocations.authInert);
+    const historicalAuthInertCandidates = validCandidates<ProductionAuthInertReceipt>(
+        authInertArtifacts,
+        (value) => validateHistoricalAuthInertReceipt(value, now),
     );
-    const authInertBySha = new Map(authInertCandidates.map((candidate) => [candidate.sha256, candidate]));
+    const authInertBySha = new Map(historicalAuthInertCandidates.map((candidate) => [candidate.sha256, candidate]));
 
-    const rolloutCandidates = validCandidates<ProductionRolloutReceipt>(
-        readJsonCandidates(outputsRoot, ...evidenceLocations.rollout),
-        (value) => validateProductionRolloutReceipt(value, now),
+    const publicCleanupCandidates = validCandidates<PublicCleanupReceipt>(
+        readJsonCandidates(outputsRoot, ...evidenceLocations.publicCleanup),
+        (value) => validatePublicCleanupReceipt(value, now),
     );
-    const latestRolloutReceipt = newest(rolloutCandidates, (value) => value.completedAt);
+    const publicCleanupBySha = new Map(publicCleanupCandidates.map((candidate) => [candidate.sha256, candidate]));
+
+    const rolloutAttempts = timestampedCandidates<ProductionRolloutReceipt>(
+        readJsonCandidates(outputsRoot, ...evidenceLocations.rollout),
+        'completedAt',
+    );
+    const latestRolloutAttempt = newest(rolloutAttempts, (value) => value.completedAt);
+    const latestRolloutReceipt = latestRolloutAttempt
+        && validateProductionRolloutReceipt(latestRolloutAttempt.value, now).length === 0
+        ? latestRolloutAttempt
+        : null;
     const rollout = latestRolloutReceipt && (() => {
         const linkedAuth = authInertBySha.get(latestRolloutReceipt.value.authInertEvidenceSha256);
+        const linkedCleanup = publicCleanupBySha.get(latestRolloutReceipt.value.publicCleanupReceiptSha256);
         return linkedAuth !== undefined
+            && linkedCleanup !== undefined
+            && latestRolloutReceipt.value.preservationPolicySha256 === linkedCleanup.value.preservationPolicySha256
             && Date.parse(linkedAuth.value.observedAt) <= Date.parse(latestRolloutReceipt.value.completedAt) + futureClockSkewMs
+            && Date.parse(latestRolloutReceipt.value.completedAt) - Date.parse(linkedAuth.value.observedAt)
+                <= PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS
+            && Date.parse(linkedCleanup.value.completedAt) <= Date.parse(latestRolloutReceipt.value.completedAt) + futureClockSkewMs
             ? latestRolloutReceipt
             : null;
     })();
 
-    const authPolicyCandidates = validCandidates<FinalAuthPolicyReceipt>(
+    const authPolicyAttempts = timestampedCandidates<FinalAuthPolicyReceipt>(
         readJsonCandidates(outputsRoot, ...evidenceLocations.authPolicy),
-        (value) => validateAuthPolicyReceipt(value, now),
-    ).filter((candidate) => {
-        return rollout !== null
-            && candidate.value.productionRolloutReceiptSha256 === rollout.sha256
-            && Date.parse(candidate.value.closedAt) >= Date.parse(rollout.value.completedAt);
-    });
-    const authPolicy = newest(authPolicyCandidates, (value) => value.closedAt);
+        'closedAt',
+    );
+    const latestAuthPolicyAttempt = newest(authPolicyAttempts, (value) => value.closedAt);
+    const authPolicy = latestAuthPolicyAttempt
+        && validateAuthPolicyReceipt(latestAuthPolicyAttempt.value, now).length === 0
+        && rollout !== null
+        && latestAuthPolicyAttempt.value.productionRolloutReceiptSha256 === rollout.sha256
+        && latestAuthPolicyAttempt.value.backupReceiptSha256 === rollout.value.backupReceiptSha256
+        && latestAuthPolicyAttempt.value.publicCleanupReceiptSha256 === rollout.value.publicCleanupReceiptSha256
+        && latestAuthPolicyAttempt.value.authReducedReceiptSha256
+            === rollout.value.authReducedQuarantinedReceiptSha256
+        && Date.parse(latestAuthPolicyAttempt.value.closedAt) >= Date.parse(rollout.value.completedAt)
+        ? latestAuthPolicyAttempt
+        : null;
 
-    const availabilityCandidates = validCandidates<ProductionAvailabilityReceipt>(
+    const availabilityAttempts = timestampedCandidates<ProductionAvailabilityReceipt>(
         readJsonCandidates(outputsRoot, ...evidenceLocations.availability),
-        (value) => validateProductionAvailabilityReceipt(value, now),
-    ).filter((candidate) => {
-        return authPolicy !== null
-            && candidate.value.authPolicyReceiptSha256 === authPolicy.sha256
-            && Date.parse(candidate.value.verifiedAt) >= Date.parse(authPolicy.value.closedAt);
-    });
-    const availability = newest(availabilityCandidates, (value) => value.verifiedAt);
+        'verifiedAt',
+    );
+    const latestAvailabilityAttempt = newest(availabilityAttempts, (value) => value.verifiedAt);
+    const availability = latestAvailabilityAttempt
+        && validateProductionAvailabilityReceipt(latestAvailabilityAttempt.value, now).length === 0
+        && authPolicy !== null
+        && latestAvailabilityAttempt.value.authPolicyReceiptSha256 === authPolicy.sha256
+        && Date.parse(latestAvailabilityAttempt.value.verifiedAt) >= Date.parse(authPolicy.value.closedAt)
+        ? latestAvailabilityAttempt
+        : null;
 
-    const postPreparationAuthInert = availability
-        ? newest(
-            authInertCandidates.filter((candidate) =>
-                Date.parse(candidate.value.observedAt) >= Date.parse(availability.value.verifiedAt)),
-            (value) => value.observedAt,
-        )
+    const finalSupabaseAttempts = readFinalSupabaseCaptureAttempts(outputsRoot);
+    const latestFinalSupabaseAttempt = finalSupabaseAttempts[0] ?? null;
+    const latestFinalSupabaseSummary = latestFinalSupabaseAttempt?.summary ?? null;
+    const latestFinalSupabaseReceipt = latestFinalSupabaseAttempt?.receipt ?? null;
+    const finalSupabase = latestFinalSupabaseSummary
+        && latestFinalSupabaseReceipt
+        && validateProductionInertFinalAttemptSummary(latestFinalSupabaseSummary.value, now).length === 0
+        && latestFinalSupabaseSummary.value.status === PRODUCTION_INERT_FINAL_STATUS
+        && latestFinalSupabaseSummary.value.receiptSha256 === latestFinalSupabaseReceipt.sha256
+        && latestFinalSupabaseSummary.value.receiptFile === PRODUCTION_INERT_FINAL_OUTPUT_FILE
+        && latestFinalSupabaseSummary.value.receiptObservedAt === latestFinalSupabaseReceipt.value.observedAt
+        && latestFinalSupabaseSummary.value.receiptExpiresAt === latestFinalSupabaseReceipt.value.expiresAt
+        && validateProductionInertFinalReceipt(latestFinalSupabaseReceipt.value, now).length === 0
+        && rollout !== null
+            && authPolicy !== null
+            && availability !== null
+            && latestFinalSupabaseReceipt.value.rolloutReceiptSha256 === rollout.sha256
+            && latestFinalSupabaseReceipt.value.authPolicyReceiptSha256 === authPolicy.sha256
+            && latestFinalSupabaseReceipt.value.availabilityReceiptSha256 === availability.sha256
+            && latestFinalSupabaseReceipt.value.preservedSetSha256 === authPolicy.value.preservedSetSha256
+            && latestFinalSupabaseReceipt.value.preservedRoleBindingSha256
+                === authPolicy.value.preservedRoleBindingSha256
+            && Date.parse(latestFinalSupabaseReceipt.value.observedAt) >= Date.parse(availability.value.verifiedAt)
+        ? latestFinalSupabaseReceipt
         : null;
 
     const requirements: RcProductionInertRequirement[] = [
@@ -167,9 +259,9 @@ export function assessRcProductionInertEvidence(
         requirement(
             'supabase_production_rollout',
             rollout,
-            'Supabase production rollout is fully applied, verified, checkout-off and bound to Auth-inert GET evidence.',
-            rolloutCandidates.length > 0
-                ? 'A rollout receipt exists, but it is not bound to the canonical Auth-inert receipt it names.'
+            'Supabase production rollout is fully applied, verified, checkout-off and bound to Auth-inert plus the exact public-cleanup preservation policy.',
+            rolloutAttempts.length > 0
+                ? 'A rollout receipt exists, but it is not bound to the canonical Auth-inert and public-cleanup receipts it names.'
                 : 'No exact 25-migration production rollout receipt was found.',
         ),
         requirement(
@@ -186,19 +278,19 @@ export function assessRcProductionInertEvidence(
         ),
         requirement(
             'supabase_auth_inert_after_preparation',
-            postPreparationAuthInert,
-            'A post-preparation Management API GET proves disable_signup=true and mailer_autoconfirm=false.',
-            'No canonical Auth-inert GET receipt observed after Auth finalization and availability was found.',
+            finalSupabase,
+            'A fresh final read-only sandwich proves the exact database state plus disable_signup=true and mailer_autoconfirm=false.',
+            'No fresh final Supabase/Auth read-only receipt bound to rollout, final Auth and availability was found.',
         ),
     ];
     const open = requirements.filter((item) => item.status === 'open');
     const ready = open.length === 0;
     const evidenceTimestamps = [
-        cloudflare?.value.endedAt,
+        cloudflare?.value.generatedAt,
         rollout?.value.completedAt,
         authPolicy?.value.closedAt,
         availability?.value.verifiedAt,
-        postPreparationAuthInert?.value.observedAt,
+        finalSupabase?.value.observedAt,
     ].filter((value): value is string => Boolean(value));
 
     return {
@@ -210,7 +302,7 @@ export function assessRcProductionInertEvidence(
                 line: `- [ ] ${RC_PRODUCTION_INERT_BLOCKER_ID} (computed): missing ${open.map((item) => item.id).join(', ')}.`,
             },
         requirements,
-        sourcePath: postPreparationAuthInert?.file
+        sourcePath: finalSupabase?.file
             ?? availability?.file
             ?? authPolicy?.file
             ?? rollout?.file
@@ -218,54 +310,6 @@ export function assessRcProductionInertEvidence(
             ?? null,
         latestEvidenceAt: latestTimestamp(evidenceTimestamps),
     };
-}
-
-function validateCloudflareBootstrapClosure(value: unknown, now: Date): string[] {
-    if (!isRecord(value)) return ['Cloudflare bootstrap closure must be an object.'];
-    const errors: string[] = [];
-    if (value.schemaVersion !== 1) errors.push('schemaVersion must be 1.');
-    if (value.status !== 'OK') errors.push('status must be OK.');
-    if (!['EXECUTED_AND_ATTESTED', 'RECONCILED_STOP'].includes(String(value.closureStatus))) {
-        errors.push('closureStatus must prove execution or read-only reconciliation.');
-    }
-    if (value.executeRequested !== true || value.approvalMatched !== true) {
-        errors.push('The exact execution approval must have matched.');
-    }
-    if (value.closureStatus === 'EXECUTED_AND_ATTESTED' && value.externalWritePerformed !== true) {
-        errors.push('Executed closure must prove the HMAC write.');
-    }
-    if (value.externalWritePerformed === 'unknown') errors.push('Cloudflare write outcome is ambiguous.');
-    validateTimestamp(value.endedAt, 'endedAt', now, errors);
-
-    const target = isRecord(value.target) ? value.target : null;
-    if (!target
-        || target.accountId !== 'd1a22bcf6477ff2ff31d2bfb83084e44'
-        || target.worker !== 'espanolhonesto'
-        || target.environment !== 'production_bootstrap'
-        || target.supabaseRef !== PRODUCTION_PROJECT.ref) {
-        errors.push('Cloudflare bootstrap target mismatch.');
-    }
-    if (!sameStringArray(value.requiredSecretNames, ['INTERNAL_JOB_SECRET'])) {
-        errors.push('Cloudflare bootstrap secret set must be exactly INTERNAL_JOB_SECRET.');
-    }
-
-    const checks = Array.isArray(value.checks) ? value.checks.filter(isRecord) : [];
-    const checkIsOk = (name: string): boolean => checks.some((check) => check.name === name && check.status === 'ok');
-    for (const name of [
-        'phase1_web_bootstrap_before_secrets',
-        'minimal_bootstrap_secret_shape_after_write',
-        'direct_web_bootstrap_hmac_attestation',
-    ]) {
-        if (!checkIsOk(name)) errors.push(`Cloudflare proof check is missing: ${name}.`);
-    }
-    const closureProof = value.closureStatus === 'RECONCILED_STOP'
-        ? 'bootstrap_hmac_readonly_reconciliation'
-        : 'bootstrap_hmac_write_checkpoint_resolved';
-    if (!checkIsOk(closureProof)) errors.push(`Cloudflare closure proof is missing: ${closureProof}.`);
-    if (checks.some((check) => check.status === 'failed' || check.status === 'warning')) {
-        errors.push('Cloudflare closure contains a non-ok check.');
-    }
-    return errors;
 }
 
 function validateProductionRolloutReceipt(value: unknown, now: Date): string[] {
@@ -276,7 +320,7 @@ function validateProductionRolloutReceipt(value: unknown, now: Date): string[] {
         status: 'PRODUCTION_ROLLOUT_ALL_WAVES_APPLIED_AND_VERIFIED',
         targetProjectRef: PRODUCTION_PROJECT.ref,
         through: 'deferred_rc_hardening',
-        migrationCount: 25,
+        migrationCount: PRODUCTION_ROLLOUT_MIGRATIONS.length,
         finalVerificationPassed: true,
         stagingOnlyMigrationAbsent: true,
         checkoutRemainedDisabledByOperatorAttestation: true,
@@ -299,6 +343,7 @@ function validateProductionRolloutReceipt(value: unknown, now: Date): string[] {
         'backupArtifactSha256',
         'backupArtifactVerificationSha256',
         'publicCleanupReceiptSha256',
+        'preservationPolicySha256',
         'authReducedQuarantinedReceiptSha256',
         'googleFixturePolicyEvidenceSha256',
         'stagingHardeningEvidenceSha256',
@@ -308,17 +353,44 @@ function validateProductionRolloutReceipt(value: unknown, now: Date): string[] {
     ]) {
         if (!sha256Pattern.test(String(value[key] ?? ''))) errors.push(`${key} must be a lowercase SHA-256.`);
     }
+    if (value.allowlistSha256 !== productionRolloutAllowlistSha256()) {
+        errors.push('allowlistSha256 must match the canonical production rollout allowlist.');
+    }
+    if (value.migrationManifestSha256 !== productionRolloutMigrationManifestSha256()) {
+        errors.push('migrationManifestSha256 must match the canonical production rollout manifest.');
+    }
     if (!sameStringArray(value.stagingOnlyVersions, [...STAGING_ONLY_VERSIONS])) {
         errors.push('stagingOnlyVersions must contain the exact excluded staging migrations.');
     }
-    validateTimestamp(value.completedAt, 'completedAt', now, errors);
+    validateTimestamp(value.completedAt, 'completedAt', now, errors, RC_FOUNDATIONAL_EVIDENCE_MAX_AGE_MS);
+    return errors;
+}
+
+function validatePublicCleanupReceipt(value: unknown, now: Date): string[] {
+    if (!isRecord(value)) return ['Public cleanup receipt must be an object.'];
+    const errors: string[] = [];
+    if (value.schemaVersion !== 2) errors.push('Public cleanup receipt schemaVersion must be 2.');
+    if (value.status !== 'PUBLIC_FIXTURE_CLEANUP_EXECUTED_AND_VERIFIED') {
+        errors.push('Public cleanup receipt status mismatch.');
+    }
+    if (value.targetProjectRef !== PRODUCTION_PROJECT.ref) errors.push('Public cleanup receipt target mismatch.');
+    if (!sha256Pattern.test(String(value.preservationPolicySha256 ?? ''))) {
+        errors.push('Public cleanup preservationPolicySha256 must be a lowercase SHA-256.');
+    }
+    validateTimestamp(
+        value.completedAt,
+        'Public cleanup completedAt',
+        now,
+        errors,
+        RC_FOUNDATIONAL_EVIDENCE_MAX_AGE_MS,
+    );
     return errors;
 }
 
 function validateAuthPolicyReceipt(value: unknown, now: Date): string[] {
     const errors = validateFinalAuthPolicyReceipt(value, now);
     if (!isRecord(value)) return errors;
-    validateTimestamp(value.closedAt, 'closedAt', now, errors);
+    validateTimestamp(value.closedAt, 'closedAt', now, errors, RC_FOUNDATIONAL_EVIDENCE_MAX_AGE_MS);
     if (!sha256Pattern.test(String(value.productionRolloutReceiptSha256 ?? ''))) {
         errors.push('productionRolloutReceiptSha256 must be a lowercase SHA-256.');
     }
@@ -333,31 +405,68 @@ function validateProductionAvailabilityReceipt(value: unknown, now: Date): strin
     if (value.targetProjectRef !== PRODUCTION_AVAILABILITY_TARGET.projectRef) errors.push('targetProjectRef mismatch.');
     if (value.timezone !== PRODUCTION_AVAILABILITY_TARGET.timezone) errors.push('timezone must be Europe/Madrid.');
     if (value.externalProvidersTouched !== false) errors.push('externalProvidersTouched must be false.');
+    if (value.authUsersRemaining !== 2) errors.push('authUsersRemaining must be 2.');
+    if (value.authSessionsRemaining !== 0) errors.push('authSessionsRemaining must be 0.');
+    if (value.authRefreshTokensRemaining !== 0) errors.push('authRefreshTokensRemaining must be 0.');
+    if (value.rolloutMigrationsVerified !== 25) errors.push('rolloutMigrationsVerified must be 25.');
     if (!sha256Pattern.test(String(value.authPolicyReceiptSha256 ?? ''))) {
         errors.push('authPolicyReceiptSha256 must be a lowercase SHA-256.');
     }
     if (JSON.stringify(value.schedule) !== JSON.stringify(PRODUCTION_AVAILABILITY_SLOTS)) {
         errors.push('schedule must contain exactly the five canonical weekday rows.');
     }
-    validateTimestamp(value.verifiedAt, 'verifiedAt', now, errors);
+    validateTimestamp(value.verifiedAt, 'verifiedAt', now, errors, RC_FOUNDATIONAL_EVIDENCE_MAX_AGE_MS);
     return errors;
 }
 
-function validateAuthInertReceiptContract(value: unknown, now: Date): string[] {
+function validateHistoricalAuthInertReceipt(value: unknown, now: Date): string[] {
     if (!isRecord(value)) return ['Production Auth inert receipt must be an object.'];
     const observedAt = typeof value.observedAt === 'string' ? Date.parse(value.observedAt) : Number.NaN;
     if (!Number.isFinite(observedAt)) return ['Production Auth inert receipt observedAt is invalid.'];
 
-    // The canonical validator includes a 15-minute operational gate. RC status
-    // validates the same exact receipt contract, then uses chain chronology
-    // instead of expiring a completed preparation every fifteen minutes.
+    // Historical evidence is used only to verify the rollout's immutable hash
+    // binding. It remains bounded to the same 24-hour preparation window.
     const contractNow = new Date(observedAt + 1_000);
     const errors = validateProductionAuthInertReceipt(value, contractNow).errors;
     if (value.receiptKind !== PRODUCTION_AUTH_INERT_RECEIPT_KIND) {
         errors.push('Production Auth inert receipt kind mismatch.');
     }
-    validateTimestamp(value.observedAt, 'observedAt', now, errors);
+    validateTimestamp(value.observedAt, 'observedAt', now, errors, RC_FOUNDATIONAL_EVIDENCE_MAX_AGE_MS);
     return [...new Set(errors)];
+}
+
+function readFinalSupabaseCaptureAttempts(outputsRoot: string): FinalSupabaseCaptureAttempt[] {
+    const directory = path.join(outputsRoot, evidenceLocations.finalSupabase[0]);
+    if (!existsSync(directory)) return [];
+    return readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .sort((left, right) => right.name.localeCompare(left.name))
+        .flatMap((entry): FinalSupabaseCaptureAttempt[] => {
+            const attemptDirectory = path.join(directory, entry.name);
+            const summaryPath = path.join(attemptDirectory, PRODUCTION_INERT_FINAL_ATTEMPT_FILE);
+            const receiptPath = path.join(attemptDirectory, PRODUCTION_INERT_FINAL_OUTPUT_FILE);
+            const planPath = path.join(attemptDirectory, 'plan.json');
+            if (existsSync(planPath) && !existsSync(summaryPath) && !existsSync(receiptPath)) return [];
+            return [{
+                directory: attemptDirectory,
+                summary: readJsonCandidate<ProductionInertFinalAttemptSummary>(summaryPath),
+                receipt: readJsonCandidate<ProductionInertFinalReceipt>(receiptPath),
+            }];
+        });
+}
+
+function readJsonCandidate<T>(file: string): JsonCandidate<T> | null {
+    if (!existsSync(file)) return null;
+    try {
+        const bytes = readFileSync(file);
+        return {
+            file,
+            sha256: createHash('sha256').update(bytes).digest('hex'),
+            value: JSON.parse(bytes.toString('utf8')) as T,
+        };
+    } catch {
+        return null;
+    }
 }
 
 function readJsonCandidates(outputsRoot: string, outputName: string, fileName: string): JsonCandidate[] {
@@ -421,6 +530,18 @@ function validCandidates<T>(
         : []);
 }
 
+function timestampedCandidates<T>(
+    candidates: JsonCandidate[],
+    timestampKey: string,
+): Array<JsonCandidate<T>> {
+    return candidates.flatMap((candidate) => {
+        if (!isRecord(candidate.value)) return [];
+        const timestamp = candidate.value[timestampKey];
+        if (typeof timestamp !== 'string' || !Number.isFinite(Date.parse(timestamp))) return [];
+        return [{ ...candidate, value: candidate.value as unknown as T }];
+    });
+}
+
 function newest<T>(
     candidates: Array<JsonCandidate<T>>,
     timestamp: (value: T) => string,
@@ -443,12 +564,20 @@ function requirement<T>(
     };
 }
 
-function validateTimestamp(value: unknown, label: string, now: Date, errors: string[]): void {
+function validateTimestamp(
+    value: unknown,
+    label: string,
+    now: Date,
+    errors: string[],
+    maxAgeMs: number,
+): void {
     const parsed = typeof value === 'string' ? Date.parse(value) : Number.NaN;
     if (!Number.isFinite(parsed)) {
         errors.push(`${label} must be a valid timestamp.`);
     } else if (parsed > now.getTime() + futureClockSkewMs) {
         errors.push(`${label} cannot be in the future.`);
+    } else if (now.getTime() - parsed > maxAgeMs) {
+        errors.push(`${label} is stale.`);
     }
 }
 

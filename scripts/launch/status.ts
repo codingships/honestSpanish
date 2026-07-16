@@ -1292,8 +1292,8 @@ function buildReleaseCandidateReadiness(
             ? `Supabase staging y production estan identificados como proyectos separados; ${strictQaSecurityIds.length > 0 ? `el tracker estricto mantiene ${strictQaSecurityIds.join(', ')} abiertos hasta aplicar/verificar el rollout de seguridad` : 'database_readiness sigue abierto hasta resolver o verificar migraciones/RLS/backup posture'} con staging primero.`
             : 'Supabase staging y production son proyectos separados con RLS y migraciones criticas revisadas.',
         productionInertOpenChecks.length > 0
-            ? 'La preparacion production inerte aun no esta probada de extremo a extremo: Cloudflare bootstrap HMAC-only y la cadena Supabase rollout -> Auth final -> disponibilidad -> Auth inerte posterior siguen abiertas.'
-            : 'Production inerte esta probada mediante Cloudflare bootstrap HMAC-only y la cadena Supabase rollout, Auth final, cinco filas de disponibilidad y GET Auth posterior.',
+            ? 'La preparacion production inerte aun no esta probada de extremo a extremo: Cloudflare bootstrap HMAC-only y la cadena Supabase rollout -> Auth final -> disponibilidad -> atestacion final read-only siguen abiertas.'
+            : 'Production inerte esta probada mediante Cloudflare bootstrap HMAC-only y la cadena Supabase rollout, Auth final, cinco filas de disponibilidad y atestacion final read-only DB/Auth.',
         'Launch Gate, Fase 1, evidencia manual y revision secundaria generan evidencias frescas y auditables.',
     ];
 
@@ -1338,7 +1338,7 @@ function buildReleaseCandidateReadiness(
             nextDecision: releaseCandidateOpenChecks.includes('no_real_payments_staging')
                 ? 'Corregir Cloudflare Worker staging desde el pack de pnpm launch:rc-external-closure y los ultimos rc-staging-package.md/rc-staging-package-files.txt/rc-staging-runtime-diff.patch/rc-staging-runtime-manifest.json/worker-staging-build-manifest.json: si HEAD/deploy no contiene el guard, empaquetar/redeployar la slice minima antes de confiar en CHECKOUT_ENABLED=false; si se usa dist local, exigir readyForStagingDeployPackage=true; despues ejecutar pnpm launch:no-real-payments -- --deployed-url <staging-url> y pnpm launch:rc.'
                 : productionInertOpenChecks.length > 0
-                    ? 'Completar y encadenar la evidencia production inerte: Cloudflare fulfillment/web bootstrap con HMAC-only; Supabase production rollout completo; Auth final a admin+profesor sin sesiones ni reset emails; cinco filas de disponibilidad; y un GET Auth posterior con disable_signup=true y mailer_autoconfirm=false. Mantener legal, Stripe Live, DNS, fulfillment activo y smoke final fuera de este cierre; despues rerun pnpm launch:status y pnpm launch:rc.'
+                    ? 'Completar y encadenar la evidencia production inerte: Supabase production rollout completo; Auth final a admin+profesor; cinco filas de disponibilidad; atestacion final renovable con dos lecturas DB READ ONLY y el GET Auth entre ambas; y, como ultimo bloque continuo, Cloudflare fulfillment/web bootstrap HMAC-only seguido inmediatamente de launch:status. Mantener legal, Stripe Live, DNS, fulfillment activo y smoke final fuera de este cierre; despues rerun pnpm launch:rc.'
                 : rcOperationalOpenChecks.length > 0
                     ? `Cerrar los bloqueos operativos RC (${rcOperationalOpenChecks.join(', ')}) con evidencia no secreta o una aceptacion de riesgo explicita; despues rerun pnpm launch:operations, pnpm launch:status y pnpm launch:rc.`
                     : 'Cerrar Stripe staging o documentar que el RC se congela sin aceptar pagos.',

@@ -6,6 +6,7 @@ import {
     beginOneShotCloudflareWrite,
     closeOneShotCloudflareWriteGuard,
     openOneShotCloudflareWriteGuard,
+    readResolvedOneShotCloudflareWriteCheckpoints,
     reconcileOneShotCloudflareWriteGuard,
     recordOneShotCloudflareProviderResult,
     recordOneShotCloudflareReadback,
@@ -78,7 +79,7 @@ describe('Cloudflare one-shot write guard', () => {
             timedOut: true,
             errorPresent: true,
         });
-        const readback = vi.fn().mockResolvedValue(true);
+        const readback = vi.fn().mockResolvedValue('intended_state_proven');
 
         const result = await reconcileOneShotCloudflareWriteGuard('timeout-recovery', evidence, {
             readback,
@@ -103,6 +104,47 @@ describe('Cloudflare one-shot write guard', () => {
         closeOneShotCloudflareWriteGuard(nextGuard);
     });
 
+    it('resolves an ambiguous write when a fresh readback proves the exact safe pre-write state', async () => {
+        const { root, evidence } = workspace();
+        const guard = openOneShotCloudflareWriteGuard('safe-state-recovery', evidence);
+        let checkpoint = beginOneShotCloudflareWrite(guard, 'provider-write');
+        checkpoint = recordOneShotCloudflareProviderResult(guard, checkpoint, {
+            exitCode: 1,
+            timedOut: false,
+            errorPresent: true,
+        });
+        const readback = vi.fn().mockResolvedValue('safe_state_proven');
+
+        const result = await reconcileOneShotCloudflareWriteGuard('safe-state-recovery', evidence, {
+            readback,
+            livenessProbe: () => 'dead',
+        });
+
+        expect(result).toMatchObject({
+            status: 'reconciled',
+            checkpointCount: 1,
+            lockOnly: false,
+            reason: 'fresh-readback-proved-safe-state',
+        });
+        expect(readback).toHaveBeenCalledOnce();
+        const [resolved] = readResolvedOneShotCloudflareWriteCheckpoints('safe-state-recovery');
+        expect(resolved).toMatchObject({
+            commandId: 'provider-write',
+            stage: 'recovery_safe_state_proven',
+            receipt: {
+                externalWritePerformed: 'unknown',
+                externalWriteOutcome: 'historical_outcome_unknown_safe_state_proven',
+                readonlyReconciliationRequired: false,
+            },
+        });
+        const stateRoot = path.join(root, 'outputs', 'launch-cloudflare-production-write-state', 'safe-state-recovery');
+        expect(existsSync(path.join(stateRoot, 'execution.lock'))).toBe(false);
+        expect(existsSync(path.join(stateRoot, 'reconciliation.lock'))).toBe(false);
+
+        const nextGuard = openOneShotCloudflareWriteGuard('safe-state-recovery', evidence);
+        closeOneShotCloudflareWriteGuard(nextGuard);
+    });
+
     it('keeps checkpoint and execution lock closed when a readback does not prove the target', async () => {
         const { root, evidence } = workspace();
         const guard = openOneShotCloudflareWriteGuard('failed-readback', evidence);
@@ -114,7 +156,7 @@ describe('Cloudflare one-shot write guard', () => {
         });
 
         const result = await reconcileOneShotCloudflareWriteGuard('failed-readback', evidence, {
-            readback: async () => false,
+            readback: async () => 'not_proven' as const,
             livenessProbe: () => 'dead',
         });
 
@@ -153,6 +195,30 @@ describe('Cloudflare one-shot write guard', () => {
         expect(existsSync(path.join(stateRoot, 'execution.lock'))).toBe(true);
         expect(existsSync(path.join(stateRoot, 'reconciliation.lock'))).toBe(false);
         expect(() => openOneShotCloudflareWriteGuard('readback-timeout', evidence)).toThrow(
+            'unresolved write checkpoints',
+        );
+    });
+
+    it('fails closed when a readback returns a value outside the tri-state contract', async () => {
+        const { root, evidence } = workspace();
+        const guard = openOneShotCloudflareWriteGuard('invalid-readback-result', evidence);
+        let checkpoint = beginOneShotCloudflareWrite(guard, 'provider-write');
+        checkpoint = recordOneShotCloudflareProviderResult(guard, checkpoint, {
+            exitCode: null,
+            timedOut: true,
+            errorPresent: true,
+        });
+
+        const result = await reconcileOneShotCloudflareWriteGuard('invalid-readback-result', evidence, {
+            readback: async () => 'unexpected' as never,
+            livenessProbe: () => 'dead',
+        });
+
+        expect(result.status).toBe('blocked');
+        expect(result.reason).toContain('Unsupported one-shot Cloudflare readback result: unexpected');
+        const stateRoot = path.join(root, 'outputs', 'launch-cloudflare-production-write-state', 'invalid-readback-result');
+        expect(existsSync(path.join(stateRoot, 'execution.lock'))).toBe(true);
+        expect(() => openOneShotCloudflareWriteGuard('invalid-readback-result', evidence)).toThrow(
             'unresolved write checkpoints',
         );
     });

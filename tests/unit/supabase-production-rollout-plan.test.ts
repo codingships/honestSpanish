@@ -82,6 +82,9 @@ describe('Supabase production rollout safety', () => {
             "'ON_ERROR_STOP=1'",
             'remote_migrations',
             'fixture_counts',
+            "'profiles_private'",
+            "'jobs'",
+            "'support_tickets'",
             'billing_legacy_hazard',
             'billing_package_price_links',
             'baseline_history_effects',
@@ -123,6 +126,10 @@ describe('Supabase production rollout safety', () => {
             'validateAllowlistedHistoryDrift',
             '--history-reconciliation-manifest',
             'validateBackupReceipt',
+            'readFixturePreservationPolicyEvidence',
+            'loadAndValidateFixtureCleanupContract',
+            'contractKnownCountsMatch',
+            'stableJson(Object.keys(fixtureCounts).sort())',
             "values[0] === '--' ? values.slice(1) : values",
             'missing or incomplete processed_at_posture and billing_package_price_links aggregates as hard blockers',
             "wave.id !== 'processed_at_small_fix' || processedReady || processedAlreadyClosed",
@@ -143,6 +150,7 @@ describe('Supabase production rollout safety', () => {
         expect(planSource).not.toContain('staging-hardening-evidence.template.json');
         expect(planSource).not.toContain('modelContractVerified');
         expect(planSource).not.toContain('stagingCleanupVerified');
+        expect(planSource).not.toContain("new Set(['preserve', 'delete_as_fixture'");
     });
 
     it('exposes planning and executable gates through pnpm-only package scripts', () => {
