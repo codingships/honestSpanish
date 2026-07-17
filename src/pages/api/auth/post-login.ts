@@ -2,6 +2,7 @@ export const config = {
     runtime: 'nodejs'
 };
 import type { APIRoute } from 'astro';
+import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from '../../../lib/adult-account';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
 export const prerender = false;
@@ -36,17 +37,23 @@ export const GET: APIRoute = async (context) => {
         // Get user role from profiles table
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('role')
+            .select('role, adult_confirmed, adult_confirmed_at, age_policy_version')
             .eq('id', user.id)
             .single();
 
-        if (profileError) {
-            console.log('[post-login] Error fetching profile:', profileError.message);
-            // Default to student dashboard if profile fetch fails
-            return redirect(`/${safeLang}/campus`);
+        if (profileError || !profile) {
+            console.log('[post-login] Missing account profile');
+            await supabase.auth.signOut({ scope: 'local' });
+            return redirect(`/${safeLang}/login?error=${ADULT_ATTESTATION_REQUIRED_QUERY}`);
         }
 
         const role = profile?.role || 'student';
+
+        if (role === 'student' && !hasVerifiedAdultAccount(profile)) {
+            console.log('[post-login] Student must complete adult self-attestation');
+            return redirect(`/${safeLang}/adult-confirmation`);
+        }
+
         console.log('[post-login] User role:', role, '-> redirecting');
 
         // Redirect based on role

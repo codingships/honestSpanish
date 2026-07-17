@@ -6,6 +6,7 @@ author: "alin"
 category: "metodo"
 tags: ["negocios", "email", "vocabulario", "plantillas"]
 lang: "es"
+draft: true
 ctaText: "Deja que corrijamos los emails de tu trabajo en clase"
 ctaLink: "/espanol-para-profesionales"
 ---

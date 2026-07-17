@@ -6,7 +6,7 @@ import { createSupabaseServerClient } from '../../lib/supabase-server';
 
 export const prerender = false;
 
-const { lang } = Astro.params;
+const { lang = 'es' } = Astro.params as { lang?: 'es' | 'en' | 'ru' };
 const t = useTranslations(lang);
 
 // Check if user is already logged in
@@ -24,6 +24,7 @@ if (user) {
 // Let's import the 'ui' object directly to pass the specific language part.
 import { ui } from '../../i18n/translations';
 const currentLangTranslations = ui[lang];
+const confirmationFailed = Astro.url.searchParams.get('error') === 'confirmation-failed';
 ---
 
 <BaseLayout 
@@ -32,7 +33,12 @@ const currentLangTranslations = ui[lang];
     lang={lang}
     noindex={true}
 >
-    <div class="min-h-screen bg-[#E0F7FA] flex items-center justify-center p-4">
-        <AuthForm client:load lang={lang} translations={currentLangTranslations} />
-    </div>
+    <main id="main-content" class="min-h-screen bg-[#E0F7FA] flex items-center justify-center p-4">
+        <AuthForm
+            client:load
+            lang={lang}
+            translations={currentLangTranslations}
+            initialError={confirmationFailed ? currentLangTranslations.auth.error.confirmationFailed : null}
+        />
+    </main>
 </BaseLayout>

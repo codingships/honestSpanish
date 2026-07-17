@@ -1,148 +1,170 @@
 /**
- * Email Send Functions
- * Functions to send each type of transactional email
+ * Transactional email send functions. Every provider call passes through the
+ * persistent recipient-budget gate in delivery.ts.
  */
-import { getEmailFrom, getResend } from './client';
+import { deliverEmail } from './delivery';
+import { describeEmailSendError, redactEmailForLog } from './errors';
+import {
+    sendFulfillmentEmailEffect,
+    type FulfillmentEmailEffectContext,
+} from '../fulfillment/effects';
 import {
     welcomeEmailTemplate,
+    welcomeEmailSubject,
+    renewalNoticeEmailTemplate,
+    renewalNoticeSubject,
     classConfirmationTemplate,
     classReminderTemplate,
     classCancelledTemplate,
     leadWelcomeTemplate,
+    levelCheckInviteTemplate,
+    missingInfoEmailTemplate,
+    proposalNextStepEmailTemplate,
+    supportTicketReceivedTemplate,
+    supportTicketUpdatedTemplate,
     type WelcomeEmailData,
+    type RenewalNoticeEmailData,
     type ClassConfirmationData,
     type ClassReminderData,
     type ClassCancelledData,
     type LeadWelcomeEmailData,
+    type LevelCheckInviteEmailData,
+    type MissingInfoEmailData,
+    type ProposalNextStepEmailData,
+    type SupportTicketReceivedEmailData,
+    type SupportTicketUpdatedEmailData,
 } from './templates';
 
-// ============================================
-// Send Welcome Email
-// ============================================
+type TransactionalEmailInput = {
+    email: string;
+    failureLabel: string;
+    html: string;
+    source: string;
+    subject: string;
+    successLabel: string;
+    thrownLabel: string;
+};
+
+export type TransactionalEmailSendOptions = {
+    fulfillmentEffect?: FulfillmentEmailEffectContext;
+};
+
+async function sendTransactionalEmail(
+    input: TransactionalEmailInput,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
+    if (options.fulfillmentEffect) {
+        await sendFulfillmentEmailEffect(options.fulfillmentEffect, {
+            email: input.email,
+            html: input.html,
+            source: input.source,
+            subject: input.subject,
+        });
+        console.log(`${input.successLabel} ${redactEmailForLog(input.email)}`);
+        return true;
+    }
+
+    try {
+        const result = await deliverEmail({
+            to: input.email,
+            subject: input.subject,
+            html: input.html,
+            source: input.source,
+        });
+
+        if (!result.ok) {
+            console.error(
+                input.failureLabel,
+                result.error ? describeEmailSendError(result.error) : result.reason,
+            );
+            return false;
+        }
+
+        console.log(`${input.successLabel} ${redactEmailForLog(input.email)}`);
+        return true;
+    } catch (error) {
+        console.error(input.thrownLabel, describeEmailSendError(error));
+        return false;
+    }
+}
 
 export async function sendWelcomeEmail(
     email: string,
-    data: WelcomeEmailData
+    data: WelcomeEmailData,
+    options: TransactionalEmailSendOptions = {},
 ): Promise<boolean> {
-    try {
-        const { error } = await getResend().emails.send({
-            from: getEmailFrom(),
-            to: email,
-            subject: '¡Bienvenido/a a Español Honesto! 🎉',
-            html: welcomeEmailTemplate(data),
-        });
-
-        if (error) {
-            console.error('[Email] Failed to send welcome email:', error);
-            return false;
-        }
-
-        console.log(`[Email] Welcome email sent to ${email}`);
-        return true;
-    } catch (error) {
-        console.error('[Email] Error sending welcome email:',
-            error instanceof Error ? error.message : 'Unknown error');
-        return false;
-    }
+    return sendTransactionalEmail({
+        email,
+        subject: welcomeEmailSubject(data.locale),
+        html: welcomeEmailTemplate(data),
+        source: 'welcome',
+        failureLabel: '[Email] Failed to send welcome email:',
+        thrownLabel: '[Email] Error sending welcome email:',
+        successLabel: '[Email] Welcome email sent to',
+    }, options);
 }
 
-// ============================================
-// Send Class Confirmation Email
-// ============================================
+export async function sendRenewalNoticeEmail(
+    email: string,
+    data: RenewalNoticeEmailData,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: renewalNoticeSubject(data.locale),
+        html: renewalNoticeEmailTemplate(data),
+        source: 'renewal_notice',
+        failureLabel: '[Email] Failed to send renewal notice:',
+        thrownLabel: '[Email] Error sending renewal notice:',
+        successLabel: '[Email] Renewal notice sent to',
+    }, options);
+}
 
 export async function sendClassConfirmation(
     email: string,
-    data: ClassConfirmationData
+    data: ClassConfirmationData,
+    options: TransactionalEmailSendOptions = {},
 ): Promise<boolean> {
-    try {
-        const subject = data.isTeacher
-            ? `📅 Nueva clase programada - ${data.date}`
-            : `🎉 Clase confirmada - ${data.date}`;
-
-        const { error } = await getResend().emails.send({
-            from: getEmailFrom(),
-            to: email,
-            subject,
-            html: classConfirmationTemplate(data),
-        });
-
-        if (error) {
-            console.error('[Email] Failed to send class confirmation:', error);
-            return false;
-        }
-
-        console.log(`[Email] Class confirmation sent to ${email}`);
-        return true;
-    } catch (error) {
-        console.error('[Email] Error sending class confirmation:',
-            error instanceof Error ? error.message : 'Unknown error');
-        return false;
-    }
+    return sendTransactionalEmail({
+        email,
+        subject: data.isTeacher
+            ? `New class scheduled - ${data.date}`
+            : `Class confirmed - ${data.date}`,
+        html: classConfirmationTemplate(data),
+        source: 'class_confirmation',
+        failureLabel: '[Email] Failed to send class confirmation:',
+        thrownLabel: '[Email] Error sending class confirmation:',
+        successLabel: '[Email] Class confirmation sent to',
+    }, options);
 }
 
-// ============================================
-// Send Class Reminder Email
-// ============================================
-
-export async function sendClassReminder(
-    email: string,
-    data: ClassReminderData
-): Promise<boolean> {
-    try {
-        const { error } = await getResend().emails.send({
-            from: getEmailFrom(),
-            to: email,
-            subject: `⏰ Recordatorio: Tu clase es mañana - ${data.date}`,
-            html: classReminderTemplate(data),
-        });
-
-        if (error) {
-            console.error('[Email] Failed to send class reminder:', error);
-            return false;
-        }
-
-        console.log(`[Email] Class reminder sent to ${email}`);
-        return true;
-    } catch (error) {
-        console.error('[Email] Error sending class reminder:',
-            error instanceof Error ? error.message : 'Unknown error');
-        return false;
-    }
+export async function sendClassReminder(email: string, data: ClassReminderData): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: `Reminder: your class is tomorrow - ${data.date}`,
+        html: classReminderTemplate(data),
+        source: 'class_reminder',
+        failureLabel: '[Email] Failed to send class reminder:',
+        thrownLabel: '[Email] Error sending class reminder:',
+        successLabel: '[Email] Class reminder sent to',
+    });
 }
-
-// ============================================
-// Send Class Cancelled Email
-// ============================================
 
 export async function sendClassCancelled(
     email: string,
-    data: ClassCancelledData
+    data: ClassCancelledData,
+    options: TransactionalEmailSendOptions = {},
 ): Promise<boolean> {
-    try {
-        const { error } = await getResend().emails.send({
-            from: getEmailFrom(),
-            to: email,
-            subject: `❌ Clase cancelada - ${data.date}`,
-            html: classCancelledTemplate(data),
-        });
-
-        if (error) {
-            console.error('[Email] Failed to send cancellation email:', error);
-            return false;
-        }
-
-        console.log(`[Email] Cancellation email sent to ${email}`);
-        return true;
-    } catch (error) {
-        console.error('[Email] Error sending cancellation email:',
-            error instanceof Error ? error.message : 'Unknown error');
-        return false;
-    }
+    return sendTransactionalEmail({
+        email,
+        subject: `Class cancelled - ${data.date}`,
+        html: classCancelledTemplate(data),
+        source: 'class_cancelled',
+        failureLabel: '[Email] Failed to send cancellation email:',
+        thrownLabel: '[Email] Error sending cancellation email:',
+        successLabel: '[Email] Cancellation email sent to',
+    }, options);
 }
-
-// ============================================
-// Send to Both Parties (Student + Teacher)
-// ============================================
 
 export async function sendClassConfirmationToBoth(
     studentEmail: string,
@@ -155,17 +177,14 @@ export async function sendClassConfirmationToBoth(
         duration: number;
         meetLink?: string;
         documentLink?: string;
-    }
+    },
 ): Promise<void> {
-    // Send to student
     await sendClassConfirmation(studentEmail, {
         recipientName: studentName,
         isTeacher: false,
         otherPartyName: teacherName,
         ...classDetails,
     });
-
-    // Send to teacher
     await sendClassConfirmation(teacherEmail, {
         recipientName: teacherName,
         isTeacher: true,
@@ -179,49 +198,98 @@ export async function sendClassCancelledToBoth(
     studentName: string,
     teacherEmail: string,
     teacherName: string,
-    data: Omit<ClassCancelledData, 'recipientName'>
+    data: Omit<ClassCancelledData, 'recipientName'>,
 ): Promise<void> {
-    // Send to student
-    await sendClassCancelled(studentEmail, {
-        recipientName: studentName,
-        ...data,
-    });
-
-    // Send to teacher
-    await sendClassCancelled(teacherEmail, {
-        recipientName: teacherName,
-        ...data,
-    });
+    await sendClassCancelled(studentEmail, { recipientName: studentName, ...data });
+    await sendClassCancelled(teacherEmail, { recipientName: teacherName, ...data });
 }
-
-// ============================================
-// Send Lead Welcome Email (Marketing)
-// ============================================
 
 export async function sendLeadWelcomeEmail(
     email: string,
-    data: LeadWelcomeEmailData
+    data: LeadWelcomeEmailData,
 ): Promise<boolean> {
-    try {
-        const { error } = await getResend().emails.send({
-            from: getEmailFrom(),
-            to: email,
-            subject: '¡Bienvenido a Español Honesto! 🌎',
-            html: leadWelcomeTemplate(data),
-        });
+    return sendTransactionalEmail({
+        email,
+        subject: 'Application received - Español Honesto',
+        html: leadWelcomeTemplate(data),
+        source: 'lead_welcome',
+        failureLabel: '[Email] Failed to send lead welcome email:',
+        thrownLabel: '[Email] Error sending lead welcome email:',
+        successLabel: '[Email] Lead welcome email sent to',
+    });
+}
 
-        if (error) {
-            console.error('[Email] Failed to send lead welcome email:', error);
-            // We return true because failing to send a marketing email shouldn't 
-            // necessarily crash the user's subscribe process, but we log the error.
-            return true;
-        }
+export async function sendLevelCheckInviteEmail(
+    email: string,
+    data: LevelCheckInviteEmailData,
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: 'A few level questions - Espanol Honesto',
+        html: levelCheckInviteTemplate(data),
+        source: 'level_check_invite',
+        failureLabel: '[Email] Failed to send level check invite:',
+        thrownLabel: '[Email] Error sending level check invite:',
+        successLabel: '[Email] Level check invite sent to',
+    });
+}
 
-        console.log(`[Email] Lead welcome email sent to ${email}`);
-        return true;
-    } catch (error) {
-        console.error('[Email] Error sending lead welcome email:',
-            error instanceof Error ? error.message : 'Unknown error');
-        return true;
-    }
+export async function sendMissingInfoEmail(
+    email: string,
+    data: MissingInfoEmailData,
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: 'A little more context - Espanol Honesto',
+        html: missingInfoEmailTemplate(data),
+        source: 'missing_info',
+        failureLabel: '[Email] Failed to send missing info email:',
+        thrownLabel: '[Email] Error sending missing info email:',
+        successLabel: '[Email] Missing info email sent to',
+    });
+}
+
+export async function sendProposalNextStepEmail(
+    email: string,
+    data: ProposalNextStepEmailData,
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: 'Suggested next step - Espanol Honesto',
+        html: proposalNextStepEmailTemplate(data),
+        source: 'proposal_next_step',
+        failureLabel: '[Email] Failed to send proposal next step email:',
+        thrownLabel: '[Email] Error sending proposal next step email:',
+        successLabel: '[Email] Proposal next step email sent to',
+    });
+}
+
+export async function sendSupportTicketReceivedEmail(
+    email: string,
+    data: SupportTicketReceivedEmailData,
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: 'Support request received - Espanol Honesto',
+        html: supportTicketReceivedTemplate(data),
+        source: 'support_received',
+        failureLabel: '[Email] Failed to send support acknowledgement:',
+        thrownLabel: '[Email] Error sending support acknowledgement:',
+        successLabel: '[Email] Support acknowledgement sent to',
+    });
+}
+
+export async function sendSupportTicketUpdatedEmail(
+    email: string,
+    data: SupportTicketUpdatedEmailData,
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: 'Support request updated - Espanol Honesto',
+        html: supportTicketUpdatedTemplate(data),
+        source: 'support_updated',
+        failureLabel: '[Email] Failed to send support update:',
+        thrownLabel: '[Email] Error sending support update:',
+        successLabel: '[Email] Support update sent to',
+    });
 }

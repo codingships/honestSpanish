@@ -51,17 +51,17 @@ Standard workflow for daily development tasks on this project.
 
 1. **Run type check**:
    ```bash
-   npm run typecheck
+   pnpm typecheck
    ```
 
 2. **Run linting**:
    ```bash
-   npm run lint
+   pnpm lint
    ```
 
 3. **Run tests** (if changed related code):
    ```bash
-   npm run test:unit
+   pnpm test:run
    ```
 
 ## Useful Skills Reference

@@ -1,24 +1,41 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import { useTranslations } from '../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../i18n/utils';
 
 export const prerender = false;
 
-const { lang } = Astro.params;
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
+const copy = {
+  es: {
+    title: 'Pago cancelado',
+    message: 'No se ha realizado ningún cargo.',
+    action: 'Volver a precios',
+  },
+  en: {
+    title: 'Payment cancelled',
+    message: 'You have not been charged.',
+    action: 'Back to pricing',
+  },
+  ru: {
+    title: 'Оплата отменена',
+    message: 'Списание не производилось.',
+    action: 'Вернуться к тарифам',
+  },
+}[lang];
 ---
 
-<BaseLayout title={`Cancelled | ${t('nav.brand')}`} lang={lang} noindex={true}>
-  <div class="min-h-screen flex items-center justify-center bg-[#E0F7FA]">
+<BaseLayout title={`${copy.title} | ${t('nav.brand')}`} description={t('meta.description')} lang={lang} noindex={true}>
+  <main class="min-h-screen flex items-center justify-center bg-[#E0F7FA]" id="main-content">
     <div class="text-center p-8 bg-white border-2 border-[#006064] shadow-[8px_8px_0px_0px_#006064]">
-      <h1 class="font-display text-4xl text-[#006064] mb-4">Pago Cancelado</h1>
-      <p class="font-sans text-lg text-[#006064]/80 mb-8">No se ha realizado ningún cargo.</p>
+      <h1 class="font-display text-4xl text-[#006064] mb-4">{copy.title}</h1>
+      <p class="font-sans text-lg text-[#006064]/80 mb-8">{copy.message}</p>
       <a 
         href={`/${lang}/#pricing`}
         class="inline-block bg-[#006064] text-white font-bold py-3 px-6 uppercase tracking-widest hover:bg-[#004d40] transition-colors"
       >
-        Volver a precios
+        {copy.action}
       </a>
     </div>
-  </div>
+  </main>
 </BaseLayout>

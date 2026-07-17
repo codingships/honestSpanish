@@ -1,0 +1,197 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import SegmentLandingPage from '../../components/landing/SegmentLandingPage.astro';
+import { getLandingPageData } from '../../lib/landing-data';
+import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
+
+const lang = 'es';
+const { packages, isLoggedIn } = await getLandingPageData(Astro);
+
+const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: 'Español para vivir en España | Español Honesto',
+    description: 'Clases de español para adultos que quieren vivir España con conversación, cultura, criterio y contacto real con el país.',
+    inLanguage: 'es-ES',
+};
+
+const answers = {
+    title: 'Respuestas rápidas',
+    intro: 'Lo esencial antes de solicitar plaza, sin prometer grupos o comunidad artificial.',
+    items: [
+        {
+            question: '¿Qué es español para vivir en España?',
+            answer: 'Es una ruta de Español Honesto para adultos que quieren usar el idioma en la vida real del país. Trabajamos conversación, cultura, vocabulario útil, criterio y contacto con España desde un nivel aproximado A2/B1 o superior.',
+        },
+        {
+            question: '¿Para quién encaja?',
+            answer: 'Encaja con personas adultas, normalmente +30, que ya entienden algo de español y quieren participar más en conversaciones reales. No está pensada para quien busca clases baratas, atajos rápidos o grupos sin compatibilidad.',
+        },
+        {
+            question: '¿Cómo funciona la solicitud de plaza?',
+            answer: 'Primero cuentas tu nivel aproximado, objetivos, disponibilidad e intereses. Después revisamos si hay encaje, si conviene una clase privada, un grupo compatible cuando exista o un paso previo para aclarar nivel y necesidades.',
+        },
+        {
+            question: '¿Qué incluye el curso?',
+            answer: 'El curso incluye clases online en directo, documento vivo de clase, revisión de errores, vocabulario útil, deberes, worksheets propios, carpeta de Drive, calendario, enlace de Meet y seguimiento. La conversación grupal se añade sólo cuando hay compatibilidad real.',
+        },
+        {
+            question: '¿Qué pasa si no hay grupo compatible?',
+            answer: 'No vendemos un grupo como si existiera. Si no hay alumnos compatibles por nivel, ritmo e intereses, proponemos otra ruta o esperamos a que tenga sentido abrir conversación grupal.',
+        },
+    ],
+};
+
+const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: answers.items.map((item) => ({
+        '@type': 'Question',
+        name: item.question,
+        acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+        },
+    })),
+};
+const schemaJson = serializeJsonForHtml(schema);
+const faqSchemaJson = serializeJsonForHtml(faqSchema);
+Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
+Astro.csp?.insertScriptHash(await sha256CspHash(faqSchemaJson));
+
+const pricingTranslations = {
+    title: 'Planes',
+    subtitle: 'Solicita plaza antes de comprar.',
+    headers: {
+        name: 'Plan',
+        price: 'Precio',
+        includes: 'Incluye',
+        action: 'Acción',
+    },
+    month: '/mes',
+    select: 'Solicitar plaza',
+    recommended: 'Recomendado',
+    plans: {
+        group: { name: 'Grupo compatible', description: 'Conversación guiada con alumnos compatibles cuando haya grupo disponible.', features: [] },
+        standard: { name: 'Mensual estándar', description: 'Clases privadas semanales para avanzar con seguimiento claro.', features: [] },
+        hybrid: { name: 'Híbrido mensual', description: 'Privadas, grupo compatible y doble mirada docente.', features: [] },
+        bootcamp: { name: 'Intensivo', description: 'Ritmo intensivo para preparar un objetivo concreto.', features: [] },
+    },
+    modal: {
+        title: 'Elige duración',
+        duration1: '1 mes',
+        duration3: '3 meses',
+        duration6: '6 meses',
+        save: 'Ahorras',
+        total: 'Total',
+        perMonth: 'al mes',
+        continue: 'Continuar',
+        login: 'Inicia sesión para continuar',
+        loading: 'Procesando...',
+        error: 'No se pudo continuar.',
+        close: 'Cerrar',
+        contact: 'Contactar',
+        contactMessage: 'Antes de pagar confirmamos encaje, nivel y disponibilidad.',
+    },
+};
+---
+
+<BaseLayout
+    title="Español para vivir en España | Español Honesto"
+    description="Español online para adultos que quieren vivir España con conversación, cultura, criterio y contacto real con el país."
+    lang={lang}
+    canonicalPath="/espanol-para-vivir-en-espana"
+    alternateLangs={['es']}
+>
+    <script is:inline type="application/ld+json" set:html={schemaJson} />
+    <script is:inline type="application/ld+json" set:html={faqSchemaJson} />
+
+    <SegmentLandingPage
+        lang={lang}
+        navLabel="/ Vivir en España"
+        packages={packages}
+        isLoggedIn={isLoggedIn}
+        pricingTranslations={pricingTranslations}
+        hero={{
+            headline1: 'VIVIR',
+            headline2: 'ESPAÑA',
+            headline3: 'DE VERDAD',
+            manifesto: 'Conversación, cultura y contacto real',
+            subtitle: 'Español para adultos que quieren entrar en la vida del país: hablar, entender matices y construir una relación real con España.',
+            ready: '¿Quieres estar dentro de la conversación?',
+            ctaText: 'SOLICITAR PLAZA',
+        }}
+        problems={{
+            headline: 'VIVIR AQUÍ NO ES LO MISMO QUE ENTENDER AQUÍ',
+            subtext: 'El idioma cotidiano no basta cuando quieres pertenecer.',
+            statements: [
+                'Puedes pedir un café, pero te cuesta seguir una conversación larga, rápida o con referencias culturales.',
+                'España no es sólo sol, tapas y frases hechas. También es ciudad, historia, trabajo, familia, humor y burocracia.',
+                'Quieres hablar con españoles y con otros alumnos sobre temas reales, no repetir diálogos de manual.',
+                'Necesitas una rutina que una idioma, cultura y contacto humano sin prometer atajos.',
+            ],
+        }}
+        method={{
+            headline: 'Aprender español como forma de entrar en España',
+            manifesto: 'MADRID • OVIEDO • TOLEDO • BARCELONA',
+            closing: 'No vendemos una fantasia de España. Trabajamos el idioma que permite habitarla mejor.',
+            subtitle: 'Usamos materiales, conversación guiada y seguimiento para que el español deje de ser una asignatura y empiece a ser una forma de estar en el país.',
+            columns: [
+                { number: '01', title: 'Conversación adulta', description: 'Hablamos de trabajo, ciudad, historia, lecturas, trámites, familia y vida diaria.' },
+                { number: '02', title: 'Materiales con país', description: 'Worksheets y documentos vivos para revisar vocabulario, errores y temas que conectan con España.' },
+                { number: '03', title: 'Comunidad con criterio', description: 'La parte grupal se activa cuando hay alumnos compatibles por nivel, intereses y ritmo; no se fuerza para llenar plazas.' },
+            ],
+        }}
+        fit={{
+            title: 'Para quién encaja',
+            intro: 'Esta página es para quien quiere algo más exigente y más humano que una clase genérica.',
+            items: [
+                'Adultos +30 que viven, quieren vivir o quieren conocer España con profundidad.',
+                'Alumnos A2/B1+ que entienden bastante, pero necesitan conversación real.',
+                'Profesionales y personas curiosas con interés cultural previo.',
+                'Gente que acepta que hablar mejor requiere constancia, lectura, escucha y práctica.',
+            ],
+        }}
+        community={{
+            title: 'Contacto con España',
+            body: 'La comunidad no se fuerza. Se construye cuando hay alumnos compatibles, temas buenos y una conversación que no sea ruido.',
+            notes: [
+                'Madrid, Oviedo, Toledo/Castilla-La Mancha y Barcelona aparecen como puertas culturales, no como decorado turístico.',
+                'El grupo se usa para practicar con otros alumnos y un profesor cuando el emparejamiento tiene sentido.',
+                'Si no hay grupo adecuado, no lo vendemos como si lo hubiera. Primero encaje; luego plan.',
+            ],
+        }}
+        contexts={{
+            title: 'España como contexto de conversación',
+            intro: 'Usamos ciudades y situaciones reales para practicar idioma con criterio. No es una promesa presencial: es material cultural para hablar mejor.',
+            items: [
+                {
+                    label: 'Madrid',
+                    title: 'Trabajo, transporte, barrios y ritmo de ciudad',
+                    body: 'Madrid sirve para practicar small talk, reuniones, planes de fin de semana, trámites y diferencias entre registro formal e informal sin quedarse en vocabulario turístico.',
+                },
+                {
+                    label: 'Oviedo',
+                    title: 'Vida diaria, conversación pausada y referencias locales',
+                    body: 'Oviedo ayuda a trabajar conversaciones más tranquilas sobre rutina, clima, comida, familia, costumbres y el tipo de matiz que aparece cuando ya entiendes lo básico.',
+                },
+                {
+                    label: 'Toledo / Castilla-La Mancha',
+                    title: 'Historia, territorio y memoria cultural',
+                    body: 'Toledo y Castilla-La Mancha permiten hablar de historia, pueblos, viajes, literatura, tradiciones y contraste entre ciudad grande y España interior.',
+                },
+                {
+                    label: 'Barcelona',
+                    title: 'Ciudad internacional, lenguas y convivencia',
+                    body: 'Barcelona abre conversación sobre trabajo internacional, vida urbana, bilingüismo, turismo, identidad y cómo moverse en contextos donde conviven varias lenguas.',
+                },
+            ],
+        }}
+        answers={answers}
+        lead={{
+            title: 'SOLICITA PLAZA',
+            subtitle: 'Cuéntanos tu nivel, tus intereses y qué España quieres entender mejor.',
+            interest: 'Vivir España con más profundidad',
+        }}
+    />
+</BaseLayout>

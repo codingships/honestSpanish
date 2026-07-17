@@ -2,65 +2,16 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import LandingPage from '../../components/LandingPage.astro';
 import { useTranslations } from '../../i18n/utils';
+import { getLandingPageData } from '../../lib/landing-data';
+import { buildLandingSchema } from '../../lib/landing-schema';
+import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
 
 const lang = 'es';
 const t = useTranslations(lang);
-
-const schema = {
-    "@context": "https://schema.org",
-    "@graph": [
-        {
-            "@type": "EducationalOrganization",
-            "name": "Español Honesto",
-            "description": t('meta.description'),
-            "url": "https://espanolhonesto.com",
-            "logo": "https://espanolhonesto.com/favicon.png",
-            "sameAs": [
-                "https://www.linkedin.com/in/alejandro-espanol-honesto",
-                "https://www.youtube.com/@EspanolHonesto"
-            ],
-            "address": {
-                "@type": "PostalAddress",
-                "addressLocality": "Madrid",
-                "addressCountry": "ES"
-            },
-            "email": "alejandro@espanolhonesto.com",
-            "knowsAbout": ["Spanish language", "DELE", "SIELE", "Spanish conversation"]
-        },
-        {
-            "@type": "FAQPage",
-            "mainEntity": (t('faq.items') as unknown as any[]).map(item => ({
-                "@type": "Question",
-                "name": item.question,
-                "acceptedAnswer": {
-                    "@type": "Answer",
-                    "text": item.answer
-                }
-            }))
-        },
-        {
-            "@type": "Course",
-            "name": t('pricing.plans.essential.name'),
-            "description": t('pricing.plans.essential.description'),
-            "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
-            "offers": { "@type": "Offer", "price": "160", "priceCurrency": "EUR" }
-        },
-        {
-            "@type": "Course",
-            "name": t('pricing.plans.intensive.name'),
-            "description": t('pricing.plans.intensive.description'),
-            "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
-            "offers": { "@type": "Offer", "price": "280", "priceCurrency": "EUR" }
-        },
-        {
-            "@type": "Course",
-            "name": t('pricing.plans.premium.name'),
-            "description": t('pricing.plans.premium.description'),
-            "provider": { "@type": "EducationalOrganization", "name": "Español Honesto" },
-            "offers": { "@type": "Offer", "price": "300", "priceCurrency": "EUR" }
-        }
-    ]
-};
+const { packages, isLoggedIn } = await getLandingPageData(Astro);
+const schema = buildLandingSchema(lang, t, packages);
+const schemaJson = serializeJsonForHtml(schema);
+Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
 ---
 
 <BaseLayout 
@@ -70,7 +21,7 @@ const schema = {
   canonicalPath="/"
 >
     <!-- Schema JSON-LD -->
-    <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)} />
+    <script is:inline type="application/ld+json" set:html={schemaJson} />
     
-    <LandingPage lang={lang} />
+    <LandingPage lang={lang} packages={packages} isLoggedIn={isLoggedIn} />
 </BaseLayout>

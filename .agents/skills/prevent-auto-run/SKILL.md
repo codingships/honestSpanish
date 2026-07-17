@@ -5,7 +5,7 @@ description: Prevents the assistant from executing terminal commands automatical
 
 # User Execution Rule
 
-The user has strictly requested that the assistant NEVER automatically execute terminal scripts (npm, bash, etc.).
+The user has strictly requested that the assistant NEVER automatically execute terminal scripts (package-manager commands, bash, etc.).
 
 **Rules to follow:**
 1. NEVER use `SafeToAutoRun: true` in the `run_command` tool under ANY circumstance. You must always use `SafeToAutoRun: false` so the user is prompted to execute it manually, or provide the bash script as text.

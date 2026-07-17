@@ -7,6 +7,7 @@ import { docs } from '@googleapis/docs';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
 import { ensureAnyoneWithLinkPermission, findOrCreateFolder, getFolderLink } from './drive';
+import { describeGoogleError } from './logging';
 
 export interface CreateStudentFolderOptions {
     studentName: string;
@@ -62,7 +63,7 @@ export async function createStudentFolderStructure(
     const { studentName, studentEmail, teacherName } = options;
     const teacherDisplay = teacherName || 'Por asignar';
 
-    console.log(`[StudentFolder] Creating complete structure for ${studentName}`);
+    console.log('[StudentFolder] Creating complete student structure');
 
     // 1. Create root folder: "[Nombre] - [Email]"
     const rootFolderName = `${studentName} - ${studentEmail}`;
@@ -77,7 +78,7 @@ export async function createStudentFolderStructure(
 
     for (const level of LEVELS) {
         try {
-            console.log(`[StudentFolder] Creating level ${level} for ${studentName}`);
+            console.log(`[StudentFolder] Creating level ${level}`);
 
             // Create level folder
             const levelFolder = await findOrCreateFolder(level, rootFolder.id);
@@ -111,8 +112,7 @@ export async function createStudentFolderStructure(
 
             console.log(`[StudentFolder] Level ${level} created successfully`);
         } catch (error) {
-            console.error(`[StudentFolder] Error creating level ${level}:`,
-                error instanceof Error ? error.message : 'Unknown error');
+            console.error(`[StudentFolder] Error creating level ${level}:`, describeGoogleError(error));
             // Continue with other levels even if one fails
         }
     }
@@ -120,16 +120,15 @@ export async function createStudentFolderStructure(
     // 3. Enable progressive access by default: anyone with the link can view.
     try {
         await ensureAnyoneWithLinkPermission(rootFolder.id, 'reader');
-        console.log(`[StudentFolder] Enabled public-link access for ${studentEmail}`);
+        console.log('[StudentFolder] Enabled public-link access');
     } catch (error) {
-        console.error(`[StudentFolder] Warning: Could not enable public-link access for ${studentEmail}:`,
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[StudentFolder] Warning: Could not enable public-link access:', describeGoogleError(error));
     }
 
     // 4. Get shareable link
     const rootFolderLink = await getFolderLink(rootFolder.id);
 
-    console.log(`[StudentFolder] Complete structure created for ${studentName}`);
+    console.log('[StudentFolder] Complete student structure created');
 
     return {
         rootFolderId: rootFolder.id,
@@ -198,7 +197,7 @@ async function createIndexDocument(options: CreateIndexDocOptions): Promise<{ id
         },
     });
 
-    console.log(`[StudentFolder] Created index document: ${docTitle} (${docId})`);
+    console.log('[StudentFolder] Created index document');
 
     return { id: docId };
 }
@@ -220,7 +219,7 @@ export async function addLevelToStudent(
 }> {
     const teacherDisplay = teacherName || 'Por asignar';
 
-    console.log(`[StudentFolder] Adding level ${level} for ${studentName}`);
+    console.log(`[StudentFolder] Adding level ${level}`);
 
     // Create level folder
     const levelFolderName = `${level} - ${studentName}`;
@@ -284,7 +283,7 @@ export async function getStudentFolderStructure(
 
         const levelFolder = levelResponse.data.files?.[0];
         if (!levelFolder?.id) {
-            console.log(`[StudentFolder] Level folder not found: ${levelFolderName}`);
+            console.log(`[StudentFolder] Level folder not found for level ${level}`);
             return null;
         }
 
@@ -299,7 +298,7 @@ export async function getStudentFolderStructure(
 
         const exercisesFolder = exercisesResponse.data.files?.[0];
         if (!exercisesFolder?.id) {
-            console.log(`[StudentFolder] Ejercicios folder not found in ${levelFolderName}`);
+            console.log(`[StudentFolder] Ejercicios folder not found for level ${level}`);
             return null;
         }
 
@@ -325,7 +324,7 @@ export async function getStudentFolderStructure(
 
         const indexDoc = indexResponse.data.files?.[0];
 
-        console.log(`[StudentFolder] Found structure for ${studentName} (${level})`);
+        console.log(`[StudentFolder] Found structure for level ${level}`);
 
         return {
             levelFolderId: levelFolder.id,
@@ -335,8 +334,7 @@ export async function getStudentFolderStructure(
         };
 
     } catch (error) {
-        console.error('[StudentFolder] Error getting folder structure:',
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[StudentFolder] Error getting folder structure:', describeGoogleError(error));
         return null;
     }
 }

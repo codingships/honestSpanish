@@ -26,7 +26,7 @@ test.describe('Fase 5 y 6 UAT: Sesiones - Cancelar, No-Show, Reporte', () => {
                     await expect(toast.first()).toBeVisible({ timeout: 8000 }).catch(e => null);
                 }
             } else {
-                test.info().annotations.push({ type: 'note', description: 'No cancel button (might be <24h)' });
+                test.info().annotations.push({ type: 'note', description: 'No scheduled cancellable class found' });
             }
         } else {
             test.info().annotations.push({ type: 'note', description: 'No classes to cancel' });

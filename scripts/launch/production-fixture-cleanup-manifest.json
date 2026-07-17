@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 2,
+  "operation": "production_fixture_cleanup_before_schema_rollout",
+  "target": {
+    "projectRef": "vkkahxsybhbutszerawz",
+    "environment": "production",
+    "aggregateSnapshotSha256": "765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6",
+    "approvalScopeSha256": "3579509fe2cec168f9758fc69dab19f697fa5163a8e8a35582d8b8a1665ad320"
+  },
+  "snapshotDocument": {
+    "path": "scripts/launch/production-fixture-cleanup-snapshot-v2.json",
+    "sha256": "765491a84ccab34ff0d2b1ca9149bf09f91cce2f267d20c9c95fe3a7316f5ca6"
+  },
+  "approvalScopeDocument": {
+    "path": "scripts/launch/production-fixture-cleanup-contract-v3.json",
+    "sha256": "3579509fe2cec168f9758fc69dab19f697fa5163a8e8a35582d8b8a1665ad320"
+  },
+  "sql": {
+    "preview": {
+      "path": "scripts/launch/sql/production-fixture-cleanup-preview.sql",
+      "sha256": "449eb47672dfdb2f959af315623b386f907bdeb04d7cd2dc5e1eecb9ca688628"
+    },
+    "execute": {
+      "path": "scripts/launch/sql/production-fixture-cleanup-execute.sql",
+      "sha256": "ae3279905d1811ff61eb7f5f21e611c54496d67ba0beb814835102aa898c0f3c"
+    }
+  },
+  "expectedBaseline": {
+    "counts": {
+      "auth_users": 138,
+      "profiles": 138,
+      "profiles_private": 138,
+      "packages": 5,
+      "subscriptions": 84,
+      "student_teachers": 127,
+      "sessions": 700,
+      "payments": 108,
+      "processed_webhook_events": 184,
+      "admin_audit_log": 3,
+      "teacher_availability": 5,
+      "leads": 0,
+      "fulfillment_jobs": 0,
+      "jobs": 111,
+      "support_tickets": 2
+    },
+    "profileRoles": { "admin": 1, "student": 136, "teacher": 1 },
+    "subscriptionStatuses": { "active": 58, "cancelled": 26 },
+    "sessionStatuses": { "no_show": 13, "cancelled": 653, "completed": 16, "scheduled": 18 },
+    "paymentStatuses": { "failed": 26, "succeeded": 82 },
+    "stripeLinkedSubscriptions": 27
+  },
+  "canonicalPackages": {
+    "preserve": ["group", "standard", "hybrid", "bootcamp"],
+    "catalogSha256": "6d17a17ca7bd8a99c2f0ba17522780546b473e49c386cee83d1da9acf08da38e",
+    "catalogHashAlgorithm": "sha256(UTF8(jsonb_agg(jsonb_build_object(name,display_name,price_monthly,sessions_per_month,has_group_session,has_dual_teacher,is_active) ORDER BY name)::text))",
+    "clearLocalFieldsBeforeBillingWave": [
+      "stripe_product_id",
+      "stripe_price_1m",
+      "stripe_price_3m",
+      "stripe_price_6m"
+    ],
+    "deleteAfterSubscriptions": { "name": "essential", "requiredActiveState": false }
+  },
+  "deleteOrder": [
+    "public.jobs",
+    "public.fulfillment_jobs",
+    "public.processed_webhook_events",
+    "public.admin_audit_log",
+    "public.support_tickets",
+    "public.payments",
+    "public.sessions",
+    "public.student_teachers",
+    "public.teacher_availability",
+    "public.subscriptions",
+    "public.leads",
+    "public.profiles_private",
+    "public.profiles",
+    "public.packages[name=essential,is_active=false]"
+  ],
+  "dropAfterVerifiedDelete": ["public.jobs"],
+  "foreignKeyEvidence": [
+    "payments -> subscriptions/profiles",
+    "sessions -> subscriptions/profiles",
+    "student_teachers -> profiles",
+    "teacher_availability -> profiles",
+    "fulfillment_jobs -> sessions/subscriptions/profiles",
+    "legacy jobs -> zero outbound FKs and zero inbound references; exact shape/index/constraint allowlist required before DROP",
+    "support_tickets -> profiles",
+    "profiles_private -> profiles",
+    "subscriptions -> profiles/packages"
+  ],
+  "transactionSafety": {
+    "explicitDeletesOnly": true,
+    "tableLocks": "SHARE ROW EXCLUSIVE",
+    "advisoryTransactionLock": "espanol-honesto:production-fixture-cleanup:v1",
+    "perStatementRowCountAssertions": true,
+    "schemaDriftFailsClosed": true,
+    "rollbackBeforeCommit": "automatic transaction rollback on any assertion failure",
+    "rollbackAfterCommit": "restore into an isolated project from the separately verified encrypted backup, verify, then request a separate connection-switch approval"
+  },
+  "externalExclusions": [
+    "Stripe objects and subscriptions",
+    "Google Workspace objects",
+    "Supabase Storage objects and metadata"
+  ],
+  "authCleanup": {
+    "status": "BLOCKED_SEPARATE_APPROVAL_AND_WORKFLOW",
+    "reason": "Admin API user deletion, Storage ownership and already-issued JWTs cannot be made atomic with the public-schema SQL transaction.",
+    "requirementsBeforeSeparateExecution": [
+      "fresh aggregate re-preview and dedicated approval",
+      "verified auth-inclusive backup",
+      "aggregate Storage ownership check and safe handling outside SQL",
+      "Supabase Admin API with service-role authority",
+      "session/JWT invalidation plan",
+      "post-action aggregate verification"
+    ]
+  },
+  "prohibited": [
+    "blanket supabase db push",
+    "supabase migration repair",
+    "TRUNCATE",
+    "implicit cascading deletion",
+    "row-level fixture exports containing private data"
+  ],
+  "stateCompatibility": "Run before later production schema waves. Any new table/column or aggregate drift invalidates this manifest and requires regeneration."
+}

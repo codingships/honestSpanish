@@ -1,11 +1,28 @@
 import type { APIRoute } from 'astro';
 import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
-import { runAfterResponse } from '../../../lib/cloudflare-runtime';
-import { enqueueSessionFulfillment, processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
-import { fulfillSingleSession } from '../../../lib/fulfillment/session-fulfillment';
+import { checkTeacherAvailabilitySlots } from '../../../lib/calendar/availability';
+import { compareDateKeys, normalizeDateInputToDateKey } from '../../../lib/calendar/madrid-time';
+import { normalizeManualMeetingLink } from '../../../lib/calendar/meeting-link';
+import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
+import { recordFirstClassScheduledSafe } from '../../../lib/crm/onboarding';
+import { enqueueSessionFulfillment } from '../../../lib/fulfillment/queue';
+import {
+    checkTeacherAvailabilityViaInternalService,
+    isInternalJobServiceConfigured,
+    triggerFulfillmentProcessing,
+} from '../../../lib/internal-job-service';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
+
+type CreateSessionRequest = {
+    studentId?: unknown;
+    teacherId?: unknown;
+    scheduledAt?: unknown;
+    durationMinutes?: unknown;
+    meetLink?: unknown;
+    autoCreateMeeting?: unknown;
+};
 
 
 // GET: Obtener sesiones (Sin cambios, solo añadido tipado)
@@ -89,13 +106,27 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
-    const body = await context.request.json();
-    const { studentId, teacherId, scheduledAt, durationMinutes: rawDurationMinutes, meetLink, autoCreateMeeting = true } = body;
+    const body = await context.request.json() as CreateSessionRequest;
+    const studentId = typeof body.studentId === 'string' ? body.studentId : '';
+    const teacherId = typeof body.teacherId === 'string' ? body.teacherId : '';
+    const scheduledAt = typeof body.scheduledAt === 'string' ? body.scheduledAt : '';
+    const rawDurationMinutes = body.durationMinutes;
+    const meetLink = body.meetLink;
+    const autoCreateMeeting = typeof body.autoCreateMeeting === 'boolean' ? body.autoCreateMeeting : true;
     const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
+    const manualMeetLink = normalizeManualMeetingLink(meetLink);
     const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
+
+    if (!manualMeetLink.ok) {
+        return new Response(JSON.stringify({ error: manualMeetLink.error }), { status: 400 });
+    }
 
     if (!studentId || !scheduledAt) {
         return new Response(JSON.stringify({ error: 'studentId and scheduledAt are required' }), { status: 400 });
+    }
+
+    if (profile.role === 'admin' && !teacherId) {
+        return new Response(JSON.stringify({ error: 'teacherId is required for admin scheduling' }), { status: 400 });
     }
 
     const finalTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
@@ -115,9 +146,31 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Verificar suscripción
+    const { data: targetStudentProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', studentId)
+        .maybeSingle();
+
+    if (targetStudentProfile?.role !== 'student') {
+        return new Response(JSON.stringify({ error: 'studentId must belong to a student profile' }), { status: 400 });
+    }
+
+    if (profile.role === 'admin') {
+        const { data: targetTeacherProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', finalTeacherId)
+            .maybeSingle();
+
+        if (targetTeacherProfile?.role !== 'teacher') {
+            return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+        }
+    }
+
     const { data: subscription } = await supabase
         .from('subscriptions')
-        .select('id, sessions_used, sessions_total')
+        .select('id, sessions_used, sessions_total, ends_at')
         .eq('student_id', studentId)
         .eq('status', 'active')
         .gte('ends_at', new Date().toISOString())
@@ -129,9 +182,26 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Student has no active subscription' }), { status: 400 });
     }
 
+    const scheduledDateKey = normalizeDateInputToDateKey(scheduledAt);
+    if (!scheduledDateKey) {
+        return new Response(JSON.stringify({ error: 'scheduledAt must be a valid date' }), { status: 400 });
+    }
+
+    const subscriptionEndDateKey = normalizeDateInputToDateKey(subscription.ends_at);
+    if (!subscriptionEndDateKey) {
+        return new Response(JSON.stringify({ error: 'Subscription end date is invalid' }), { status: 500 });
+    }
+
+    if (compareDateKeys(scheduledDateKey, subscriptionEndDateKey) > 0) {
+        return new Response(JSON.stringify({
+            error: 'Session cannot be scheduled after the subscription end date',
+        }), { status: 400 });
+    }
+
     // Corrección: Si es null, usamos 0 como valor por defecto
     const sessionsUsed = subscription.sessions_used ?? 0;
     const sessionsTotal = subscription.sessions_total ?? 0;
+    const shouldRecordFirstClass = sessionsUsed === 0;
 
     if (sessionsUsed >= sessionsTotal) {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 400 });
@@ -153,6 +223,16 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Time slot is not available' }), { status: 409 });
     }
 
+    const campusAvailability = await checkTeacherAvailabilitySlots(supabaseAdmin, {
+        teacherId: finalTeacherId,
+        scheduledAts: [scheduledAt],
+        durationMinutes,
+    });
+
+    if (!campusAvailability.ok) {
+        return new Response(JSON.stringify({ error: campusAvailability.error }), { status: campusAvailability.status });
+    }
+
     // Verificar conflictos (Google Calendar Real)
     // Extraemos el email del profesor para consultarlo en Calendar
     const { data: teacherProfile } = await supabase
@@ -162,11 +242,19 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (!externalIntegrationsDisabled && teacherProfile && teacherProfile.email) {
-        // Necesitamos importar checkTeacherAvailability al inicio del archivo
-        const { checkTeacherAvailability } = await import('../../../lib/google/calendar');
+        if (!isInternalJobServiceConfigured(context)) {
+            return new Response(JSON.stringify({
+                error: 'Calendar availability service is not configured'
+            }), { status: 503 });
+        }
+
         let isFree = false;
         try {
-            isFree = await checkTeacherAvailability(teacherProfile.email, scheduledDate, endTime);
+            isFree = await checkTeacherAvailabilityViaInternalService(context, {
+                teacherEmail: teacherProfile.email,
+                startTime: scheduledDate.toISOString(),
+                endTime: endTime.toISOString(),
+            });
         } catch (availabilityError) {
             console.error('[Sessions] Availability check failed:', availabilityError);
             return new Response(JSON.stringify({
@@ -182,7 +270,7 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Crear la sesión
-    const { data: session, error: sessionError } = await supabase
+    const { data: session, error: sessionError } = await supabaseAdmin
         .from('sessions')
         .insert({
             subscription_id: subscription.id,
@@ -190,7 +278,7 @@ export const POST: APIRoute = async (context) => {
             teacher_id: finalTeacherId,
             scheduled_at: scheduledAt,
             duration_minutes: durationMinutes,
-            meet_link: meetLink || null, // Guardamos el link manual si existe
+            meet_link: manualMeetLink.value,
             status: 'scheduled'
         })
         .select(`
@@ -221,11 +309,45 @@ export const POST: APIRoute = async (context) => {
             console.error('[Sessions] Failed to consume subscription quota:', quotaUpdateError);
         }
         // Another concurrent request already used the last session — cancel this one
-        await supabase
+        await supabaseAdmin
             .from('sessions')
             .update({ status: 'cancelled' })
             .eq('id', session.id);
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 409 });
+    }
+
+    await recordCrmActivityForProfileSafe(supabaseAdmin, {
+        profileId: session.student_id,
+        email: session.student?.email ?? null,
+        fullName: session.student?.full_name ?? null,
+        actorId: user.id,
+        lifecycleStage: 'customer',
+        source: 'calendar',
+        activityType: 'class',
+        subject: 'Clase programada',
+        body: session.teacher?.full_name || session.teacher?.email || null,
+        occurredAt: session.scheduled_at,
+        relatedEntityType: 'session_scheduled',
+        relatedEntityId: session.id,
+        metadata: {
+            session_id: session.id,
+            teacher_id: session.teacher_id,
+            scheduled_at: session.scheduled_at,
+            duration_minutes: session.duration_minutes,
+            status: session.status,
+        },
+    });
+
+    if (shouldRecordFirstClass) {
+        await recordFirstClassScheduledSafe(supabaseAdmin, {
+            profileId: session.student_id,
+            email: session.student?.email ?? null,
+            fullName: session.student?.full_name ?? null,
+            subscriptionId: subscription.id,
+            sessionId: session.id,
+            teacherId: session.teacher_id,
+            scheduledAt: session.scheduled_at,
+        });
     }
 
     let fulfillment: 'queued' | 'fallback' | 'skipped' = 'skipped';
@@ -235,13 +357,10 @@ export const POST: APIRoute = async (context) => {
             sendEmail: true,
         });
 
-        fulfillment = fulfillmentQueued ? 'queued' : 'fallback';
-        runAfterResponse(
-            context,
-            fulfillmentQueued
-                ? processDueFulfillmentJobs({ limit: 3, supabaseAdmin })
-                : fulfillSingleSession(supabaseAdmin, session.id, { autoCreateMeeting, sendEmail: true })
-        );
+        fulfillment = fulfillmentQueued ? 'queued' : 'skipped';
+        if (fulfillmentQueued) {
+            triggerFulfillmentProcessing(context, 3);
+        }
     }
 
     return new Response(JSON.stringify({

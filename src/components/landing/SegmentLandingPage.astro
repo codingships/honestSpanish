@@ -1,0 +1,278 @@
+---
+import type { LandingPackage } from '../../lib/landing-data';
+import HeroSection from './HeroSection.astro';
+import ProblemsSection from './ProblemsSection.astro';
+import MethodSection from './MethodSection.astro';
+import PricingSection from '../PricingSection';
+import LeadCaptureForm from '../LeadCaptureForm.tsx';
+
+interface MethodColumn {
+    number: string;
+    title: string;
+    description: string;
+}
+
+interface AnswerItem {
+    question: string;
+    answer: string;
+}
+
+interface ContextItem {
+    label: string;
+    title: string;
+    body: string;
+}
+
+interface Props {
+    lang: 'es';
+    navLabel: string;
+    hero: {
+        headline1: string;
+        headline2: string;
+        headline3: string;
+        manifesto: string;
+        subtitle: string;
+        ready: string;
+        ctaText: string;
+    };
+    problems: {
+        headline: string;
+        subtext: string;
+        statements: string[];
+    };
+    method: {
+        headline: string;
+        manifesto: string;
+        closing: string;
+        subtitle: string;
+        columns: MethodColumn[];
+    };
+    fit: {
+        title: string;
+        intro: string;
+        items: string[];
+    };
+    community: {
+        title: string;
+        body: string;
+        notes: string[];
+    };
+    contexts: {
+        title: string;
+        intro: string;
+        items: ContextItem[];
+    };
+    answers: {
+        title: string;
+        intro: string;
+        items: AnswerItem[];
+    };
+    lead: {
+        title: string;
+        subtitle: string;
+        interest: string;
+    };
+    packages: LandingPackage[];
+    isLoggedIn: boolean;
+    pricingTranslations: any;
+}
+
+const {
+    lang,
+    navLabel,
+    hero,
+    problems,
+    method,
+    fit,
+    community,
+    contexts,
+    answers,
+    lead,
+    packages,
+    isLoggedIn,
+    pricingTranslations,
+} = Astro.props;
+// Public pricing always starts with a reviewed application. Approved checkout
+// is exposed only inside the authenticated campus.
+const checkoutMode = 'application' as const;
+
+const leadTranslations = {
+    title: lead.title,
+    subtitle: lead.subtitle,
+    name: 'Nombre',
+    email: 'Email',
+    interest: 'Me interesa...',
+    interests: {
+        general: lead.interest,
+        company: 'Español profesional',
+        other: 'No sé todavía',
+    },
+    level: 'Nivel aproximado',
+    levels: {
+        not_sure: 'No lo sé / quiero orientarme',
+        a1: 'A1 - básico',
+        a2: 'A2 - puedo comunicarme en situaciones simples',
+        b1: 'B1 - entiendo bastante, me falta soltura',
+        b2: 'B2 - quiero precisión y conversación real',
+        c1_plus: 'C1+ - quiero matices, cultura y criterio',
+    },
+    languages: 'Lenguas que hablas',
+    languagesHelp: 'Marca las lenguas relevantes para entender tu perfil. El ruso nos ayuda a priorizar encaje, pero puedes indicar otras.',
+    languageOptions: {
+        russian: 'Ruso',
+        english: 'Inglés',
+        spanish: 'Español',
+    },
+    otherLanguages: 'Otras lenguas',
+    otherLanguagesPlaceholder: 'Rumano, italiano, francés...',
+    goal: 'Qué quieres conseguir',
+    goalPlaceholder: 'Cuéntanos para qué necesitas el español: trabajo, vida en España, conversación, cultura, trámites, amigos...',
+    availability: 'Disponibilidad aproximada',
+    availabilityPlaceholder: 'Días, horarios, zona horaria o ritmo que te encaja. Si no lo sabes todavía, déjalo abierto.',
+    placeholder: 'tu@email.com',
+    adultConfirmation: 'Confirmo que tengo 18 años o más. Español Honesto no acepta alumnos menores de edad.',
+    consent: 'He leído y acepto la ',
+    privacyLink: 'Política de Privacidad',
+    button: 'SOLICITAR PLAZA',
+    success: 'Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad.',
+    error: 'Algo salió mal. Por favor inténtalo de nuevo.',
+    loading: 'ENVIANDO...',
+    consentError: 'Debes aceptar la política de privacidad.',
+    adultError: 'Debes confirmar que tienes al menos 18 años.',
+    securityError: 'La verificación de seguridad sigue cargando, o ha fallado.',
+};
+
+const applicationSteps = [
+    {
+        title: 'Revisión de encaje',
+        body: 'Leemos nivel aproximado, objetivo, disponibilidad, página de origen y plan de interés. No tratamos la solicitud como compra automática.',
+    },
+    {
+        title: 'Siguiente paso',
+        body: 'Si falta contexto, podemos proponer preguntas breves, una prueba automática ligera o una conversación humana cuando tenga sentido.',
+    },
+    {
+        title: 'Plan y pago',
+        body: 'Sólo después de confirmar encaje, disponibilidad y expectativas proponemos plan, grupo compatible si existe, o pago.',
+    },
+];
+---
+
+<div class="bg-[#E0F7FA] min-h-screen text-[#006064] font-sans selection:bg-black selection:text-white">
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
+        Saltar al contenido principal
+    </a>
+    <nav aria-label="Navegación principal" class="h-16 border-b-2 border-[#006064] flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 bg-[#E0F7FA]">
+        <a href="/es" class="font-display text-lg md:text-xl tracking-tighter truncate mr-2 hover:opacity-70 transition-opacity">
+            Español Honesto <span class="text-xs uppercase font-mono bg-[#006064] text-white px-2 py-1 ml-2 rounded-sm hidden md:inline-block">{navLabel}</span>
+        </a>
+        <div class="flex items-center gap-4">
+            <a href="/es" class="font-mono text-xs uppercase font-bold border-b border-transparent hover:border-[#006064] transition-all">Volver al inicio</a>
+        </div>
+    </nav>
+
+    <main id="main-content" tabindex="-1">
+    <HeroSection {...hero} imageAlt="Estudiante practicando español" />
+
+    <ProblemsSection {...problems} />
+
+    <MethodSection {...method} />
+
+    <section class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+        <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-2">
+            <div>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{fit.title}</h2>
+                <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{fit.intro}</p>
+            </div>
+            <div class="space-y-3">
+                {fit.items.map((item) => (
+                    <div class="border-2 border-[#006064] bg-white p-4 shadow-[4px_4px_0px_0px_#006064]">
+                        <p class="font-sans text-base font-bold leading-7 text-[#006064]">{item}</p>
+                    </div>
+                ))}
+            </div>
+        </div>
+    </section>
+
+    <section class="bg-white py-24 px-6 border-b-2 border-[#006064]">
+        <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-5">
+            <div class="lg:col-span-2">
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{community.title}</h2>
+                <p class="mt-4 text-lg leading-8 text-[#006064]/80 font-bold">{community.body}</p>
+            </div>
+            <div class="lg:col-span-3 grid grid-cols-1 gap-4">
+                {community.notes.map((note) => (
+                    <p class="border-2 border-[#006064] p-5 text-base font-bold leading-7 text-[#006064]">
+                        {note}
+                    </p>
+                ))}
+            </div>
+        </div>
+    </section>
+
+    <section class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+        <div class="max-w-6xl mx-auto">
+            <div class="max-w-3xl mb-12">
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">Contextos de uso</p>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{contexts.title}</h2>
+                <p class="mt-4 text-lg leading-8 text-[#006064] font-bold">{contexts.intro}</p>
+            </div>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {contexts.items.map((item) => (
+                    <article class="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064]">
+                        <p class="font-mono text-xs font-bold uppercase tracking-widest text-[#006064]">{item.label}</p>
+                        <h3 class="mt-3 font-display text-2xl text-[#006064]">{item.title}</h3>
+                        <p class="mt-3 font-sans text-base font-bold leading-7 text-[#006064]">{item.body}</p>
+                    </article>
+                ))}
+            </div>
+        </div>
+    </section>
+
+    <section class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
+        <div class="max-w-6xl mx-auto">
+            <div class="max-w-3xl mb-12">
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">Respuestas para decidir</p>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{answers.title}</h2>
+                <p class="mt-4 text-lg leading-8 text-[#006064] font-bold">{answers.intro}</p>
+            </div>
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {answers.items.map((item) => (
+                    <article class="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064]">
+                        <h3 class="font-display text-2xl text-[#006064]">{item.question}</h3>
+                        <p class="mt-3 font-sans text-base font-bold leading-7 text-[#006064]">{item.answer}</p>
+                    </article>
+                ))}
+            </div>
+        </div>
+    </section>
+
+    <section id="contacto" class="py-24 px-6 border-b-2 border-[#006064] bg-[#E0F7FA]">
+        <div class="max-w-4xl mx-auto">
+            <div class="mb-12 border-2 border-[#006064] bg-white p-6 shadow-[6px_6px_0px_0px_#006064]">
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">Después de solicitar plaza</p>
+                <h2 class="font-display text-3xl lg:text-4xl text-[#006064]">Primero encaje. Después plan.</h2>
+                <ol class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+                    {applicationSteps.map((step, index) => (
+                        <li class="border-2 border-[#006064] bg-[#E0F7FA] p-4">
+                            <span class="font-mono text-xs font-bold uppercase text-[#006064]">0{index + 1}</span>
+                            <h3 class="mt-3 font-display text-2xl text-[#006064]">{step.title}</h3>
+                            <p class="mt-2 font-sans text-sm font-bold leading-6 text-[#006064]">{step.body}</p>
+                        </li>
+                    ))}
+                </ol>
+            </div>
+            <LeadCaptureForm client:load lang={lang} translations={leadTranslations} />
+        </div>
+    </section>
+
+    <PricingSection
+        client:load
+        packages={packages}
+        lang={lang}
+        isLoggedIn={isLoggedIn}
+        checkoutMode={checkoutMode}
+        translations={pricingTranslations}
+    />
+    </main>
+</div>

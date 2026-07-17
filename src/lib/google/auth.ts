@@ -5,6 +5,7 @@
 
 import { JWT } from 'google-auth-library';
 import { getGoogleConfig, validateGoogleConfig } from './config';
+import { describeGoogleError } from './logging';
 
 let cachedClient: JWT | null = null;
 
@@ -33,7 +34,7 @@ export function getAuthClient(): JWT {
 
         return cachedClient;
     } catch (error) {
-        console.error('[Google Auth] Failed to create JWT client:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Google Auth] Failed to create JWT client:', describeGoogleError(error));
         throw new Error('Failed to initialize Google authentication');
     }
 }
@@ -55,7 +56,7 @@ export async function testAuth(): Promise<boolean> {
         console.log('[Google Auth] Authentication successful');
         return true;
     } catch (error) {
-        console.error('[Google Auth] Authentication test failed:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Google Auth] Authentication test failed:', describeGoogleError(error));
         return false;
     }
 }

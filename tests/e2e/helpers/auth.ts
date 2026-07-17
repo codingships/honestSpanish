@@ -49,6 +49,22 @@ export async function saveAuthState(page: Page, path: string): Promise<void> {
     await page.context().storageState({ path });
 }
 
+export async function saveVerifiedStagingAuthState(page: Page, path: string): Promise<void> {
+    const expectedRef = process.env.E2E_TARGET_SUPABASE_REF;
+    if (!expectedRef) throw new Error('[e2e-env] Missing E2E_TARGET_SUPABASE_REF while saving auth state');
+
+    const expectedCookie = `sb-${expectedRef}-auth-token`;
+    const supabaseCookies = (await page.context().cookies())
+        .filter((cookie) => cookie.name.startsWith('sb-') && cookie.name.includes('-auth-token'));
+
+    expect(supabaseCookies.length).toBeGreaterThan(0);
+    expect(supabaseCookies.every((cookie) =>
+        cookie.name === expectedCookie || cookie.name.startsWith(`${expectedCookie}.`)
+    )).toBe(true);
+
+    await page.context().storageState({ path });
+}
+
 /**
  * Get expected dashboard URL for role
  */

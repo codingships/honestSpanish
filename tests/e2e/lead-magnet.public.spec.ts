@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+const subscribeEndpoint = /\/api\/subscribe(?:\?.*)?$/;
+
 test.describe('Lead Magnet Form — public', () => {
     test('successfully submits the lead capture form', async ({ page }) => {
         // Intercept the Cloudflare Turnstile script and replace it with a mock
@@ -12,7 +14,10 @@ test.describe('Lead Magnet Form — public', () => {
                     window.turnstile = {
                         render: function(container, params) {
                             if (params && params.callback) {
-                                setTimeout(() => params.callback('fake-e2e-token'), 50);
+                                setTimeout(() => {
+                                    params.callback('fake-e2e-token');
+                                    document.documentElement.dataset.e2eTurnstileReady = 'true';
+                                }, 0);
                             }
                             return 'fake-widget-id';
                         },
@@ -24,8 +29,13 @@ test.describe('Lead Magnet Form — public', () => {
             });
         });
 
-        // Mock the /api/subscribe endpoint
-        await page.route('**/api/subscribe', async (route) => {
+        // Keep the public CI run fully inert: the browser request is captured
+        // here and can never reach Astro, Supabase, CRM or email providers.
+        let subscribeCalls = 0;
+        let submittedPayload: Record<string, unknown> | null = null;
+        await page.route(subscribeEndpoint, async (route) => {
+            subscribeCalls += 1;
+            submittedPayload = route.request().postDataJSON() as Record<string, unknown>;
             await route.fulfill({
                 status: 200,
                 contentType: 'application/json',
@@ -49,9 +59,13 @@ test.describe('Lead Magnet Form — public', () => {
         // Now we can safely fill the form without React wiping our values.
         const nameInput = page.locator('#contacto form input[name="name"]');
         const emailInput = page.locator('#contacto form input[name="email"]');
+        const goalInput = page.locator('#contacto form textarea[name="learningGoal"]');
+        const availabilityInput = page.locator('#contacto form textarea[name="availability"]');
 
         await nameInput.fill('Playwright Test User');
         await emailInput.fill('e2e-test-lead@espanolhonesto.com');
+        await goalInput.fill('Quiero hablar mejor para vivir en España y entender conversaciones reales.');
+        await availabilityInput.fill('Entre semana por la tarde, Europe/Madrid.');
 
         // Verify the name was actually set (if still empty, something is wrong)
         await expect(nameInput).toHaveValue('Playwright Test User');
@@ -61,22 +75,39 @@ test.describe('Lead Magnet Form — public', () => {
         if (await selectInterest.count() > 0) {
             await selectInterest.selectOption({ index: 1 });
         }
+        await page.locator('#contacto form select[name="currentLevel"]').selectOption('b1');
 
-        // Check the privacy consent checkbox
+        // The current policy requires both independent declarations.
+        await page.locator('#contacto form input[name="adultConfirmed"]').check();
         await page.locator('#consent').check();
 
-        // Wait for the fake Turnstile callback to fire (50ms + margin)
-        await page.waitForTimeout(300);
+        await page.waitForFunction(() => document.documentElement.dataset.e2eTurnstileReady === 'true');
 
         // Submit the form
         await page.locator('#contacto form button[type="submit"]').click();
 
-        // Wait for the success message to appear
-        const successMessage = page.locator('text="¡Gracias! Te escribiremos pronto."');
-        await expect(successMessage).toBeVisible({ timeout: 5000 });
+        await expect(page.locator('#contacto').getByRole('status')).toContainText(
+            'Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad.',
+        );
+        expect(subscribeCalls).toBe(1);
+        expect(submittedPayload).toMatchObject({
+            adultConfirmed: true,
+            consent: true,
+            'cf-turnstile-response': 'fake-e2e-token',
+        });
     });
 
     test('shows an error if privacy policy is not checked', async ({ page }) => {
+        let subscribeCalls = 0;
+        await page.route(subscribeEndpoint, async (route) => {
+            subscribeCalls += 1;
+            await route.fulfill({
+                status: 500,
+                contentType: 'application/json',
+                body: JSON.stringify({ error: 'Unexpected E2E request' }),
+            });
+        });
+
         await page.goto('/es');
 
         // Scroll to trigger client:visible hydration
@@ -90,12 +121,15 @@ test.describe('Lead Magnet Form — public', () => {
 
         await page.locator('#contacto form input[name="name"]').fill('No Consent User');
         await page.locator('#contacto form input[name="email"]').fill('noconsent@test.com');
+        await page.locator('#contacto form input[name="adultConfirmed"]').check();
 
         // Deliberately do NOT check the consent box
         await page.locator('#contacto form button[type="submit"]').click();
 
         // Success message should NOT appear
-        const successMessage = page.locator('text="¡Gracias! Te escribiremos pronto."');
+        const successMessage = page.locator('text="Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad."');
         await expect(successMessage).not.toBeVisible();
+        await expect(page.getByRole('alert')).toContainText('Debes aceptar');
+        expect(subscribeCalls).toBe(0);
     });
 });

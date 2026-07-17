@@ -1,0 +1,312 @@
+---
+import CampusLayout from '../../../layouts/CampusLayout.astro';
+import { createSupabaseServerClient } from '../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .eq('id', user.id)
+    .single();
+
+if (!profile) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const copy = {
+    es: {
+        title: 'Soporte',
+        intro: 'Guia rapida para resolver incidencias normales sin depender de soporte tecnico.',
+        contactTitle: 'Contacto',
+        contactText: 'Si algo bloquea una clase o un pago, escribe al equipo con el email de tu cuenta, fecha de la clase y una captura si es posible.',
+        contactEmail: 'alejandro@espanolhonesto.com',
+        form: {
+            reportButton: 'Avisar de este error',
+            detailsLabel: 'Explica que ha pasado',
+            detailsPlaceholder: 'Cuenta que esperabas ver, que ha pasado y si afecta a una clase o pago concreto.',
+            submit: 'Enviar aviso',
+            cancel: 'Cancelar',
+            sending: 'Enviando...',
+            success: 'Aviso enviado. Queda guardado para revision.',
+            savedNoEmail: 'Aviso guardado. La notificacion por email no se pudo enviar.',
+            error: 'No se pudo enviar el aviso. Prueba de nuevo o escribe al email de contacto.',
+        },
+        sections: [
+            {
+                id: 'missing-meet-link',
+                title: 'No veo el enlace de Meet',
+                body: 'El enlace aparece cuando la clase esta preparada. Si faltan menos de 24 horas y no aparece, avisa a soporte para revisarlo manualmente.',
+            },
+            {
+                id: 'missing-drive-folder',
+                title: 'No veo mi carpeta o documento de Drive',
+                body: 'La carpeta puede tardar unos minutos tras activar el plan. Si ya tienes plan activo y sigue pendiente, soporte puede reintentar la preparacion.',
+            },
+            {
+                id: 'change-or-cancel-class',
+                title: 'Necesito cambiar o cancelar una clase',
+                body: 'Desde Mis clases puedes cancelar cuando la ventana de cancelacion lo permite. Si no aparece la opcion, contacta con el equipo.',
+            },
+            {
+                id: 'payment-problem',
+                title: 'Tengo un problema de pago',
+                body: 'Revisa primero Mi cuenta > gestionar suscripcion. Para cobros, renovaciones o errores de Stripe, indica el email de compra y la fecha aproximada.',
+            },
+        ],
+    },
+    en: {
+        title: 'Support',
+        intro: 'Quick guide to resolve normal issues without depending on technical support.',
+        contactTitle: 'Contact',
+        contactText: 'If something blocks a class or payment, write to the team with your account email, class date and a screenshot if possible.',
+        contactEmail: 'alejandro@espanolhonesto.com',
+        form: {
+            reportButton: 'Report this issue',
+            detailsLabel: 'Explain what happened',
+            detailsPlaceholder: 'Tell us what you expected, what happened, and whether it affects a specific class or payment.',
+            submit: 'Send report',
+            cancel: 'Cancel',
+            sending: 'Sending...',
+            success: 'Report sent. It has been saved for review.',
+            savedNoEmail: 'Report saved. The email notification could not be sent.',
+            error: 'The report could not be sent. Try again or write to the contact email.',
+        },
+        sections: [
+            {
+                id: 'missing-meet-link',
+                title: 'I cannot see the Meet link',
+                body: 'The link appears when the class is prepared. If the class is less than 24 hours away and it is missing, report it for a manual check.',
+            },
+            {
+                id: 'missing-drive-folder',
+                title: 'I cannot see my Drive folder or document',
+                body: 'The folder can take a few minutes after plan activation. If your plan is active and it is still pending, support can retry preparation.',
+            },
+            {
+                id: 'change-or-cancel-class',
+                title: 'I need to change or cancel a class',
+                body: 'You can cancel from My classes when the cancellation window allows it. If the option is not available, contact the team.',
+            },
+            {
+                id: 'payment-problem',
+                title: 'I have a payment issue',
+                body: 'First check My account > manage subscription. For charges, renewals or Stripe errors, include the purchase email and approximate date.',
+            },
+        ],
+    },
+    ru: {
+        title: 'Поддержка',
+        intro: 'Краткая инструкция для обычных проблем без ожидания технической поддержки.',
+        contactTitle: 'Контакт',
+        contactText: 'Если что-то блокирует занятие или оплату, напишите команде email аккаунта, дату занятия и приложите скриншот, если возможно.',
+        contactEmail: 'alejandro@espanolhonesto.com',
+        form: {
+            reportButton: 'Сообщить об ошибке',
+            detailsLabel: 'Опишите, что произошло',
+            detailsPlaceholder: 'Напишите, что вы ожидали увидеть, что произошло и связано ли это с конкретным занятием или платежом.',
+            submit: 'Отправить',
+            cancel: 'Отмена',
+            sending: 'Отправка...',
+            success: 'Сообщение отправлено и сохранено для проверки.',
+            savedNoEmail: 'Сообщение сохранено. Email-уведомление не удалось отправить.',
+            error: 'Не удалось отправить сообщение. Попробуйте еще раз или напишите на контактный email.',
+        },
+        sections: [
+            {
+                id: 'missing-meet-link',
+                title: 'Я не вижу ссылку Meet',
+                body: 'Ссылка появляется после подготовки занятия. Если до занятия меньше 24 часов и ссылки нет, сообщите в поддержку для ручной проверки.',
+            },
+            {
+                id: 'missing-drive-folder',
+                title: 'Я не вижу папку или документ Drive',
+                body: 'Папка может появиться через несколько минут после активации плана. Если план активен, поддержка может повторить подготовку.',
+            },
+            {
+                id: 'change-or-cancel-class',
+                title: 'Мне нужно изменить или отменить занятие',
+                body: 'Отмена доступна в разделе Мои занятия, если окно отмены еще открыто. Если кнопки нет, свяжитесь с командой.',
+            },
+            {
+                id: 'payment-problem',
+                title: 'Проблема с оплатой',
+                body: 'Сначала проверьте Мой аккаунт > управление подпиской. Для списаний, продлений или ошибок Stripe укажите email покупки и дату.',
+            },
+        ],
+    },
+}[lang];
+---
+
+<CampusLayout title={copy.title} user={{ ...user, ...profile }} lang={lang}>
+    <div
+        class="mx-auto max-w-4xl space-y-6"
+        data-support-copy={JSON.stringify({ lang, ...copy.form })}
+    >
+        <header>
+            <h1 class="font-display text-4xl uppercase text-[#006064]">{copy.title}</h1>
+            <p class="mt-2 font-mono text-sm text-[#006064]/70">{copy.intro}</p>
+        </header>
+
+        <section class="grid grid-cols-1 gap-4 md:grid-cols-2">
+            {copy.sections.map((section) => {
+                const formId = `support-form-${section.id}`;
+                const statusId = `support-status-${section.id}`;
+                return (
+                    <article class="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064]">
+                        <h2 class="font-display text-xl uppercase text-[#006064]">{section.title}</h2>
+                        <p class="mt-3 text-sm leading-6 text-[#006064]/80">{section.body}</p>
+                        <button
+                            type="button"
+                            class="mt-4 border-2 border-[#006064] bg-[#E0F7FA] px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#006064] hover:text-white focus:outline-none focus:ring-2 focus:ring-[#006064]"
+                            data-support-toggle={section.id}
+                            aria-expanded="false"
+                            aria-controls={formId}
+                        >
+                            {copy.form.reportButton}
+                        </button>
+                        <form
+                            id={formId}
+                            class="mt-4 hidden space-y-3 border-t border-[#006064]/20 pt-4"
+                            data-support-form={section.id}
+                            data-issue-title={section.title}
+                            aria-describedby={statusId}
+                        >
+                            <label class="block text-xs font-bold uppercase text-[#006064]" for={`support-message-${section.id}`}>
+                                {copy.form.detailsLabel}
+                            </label>
+                            <textarea
+                                id={`support-message-${section.id}`}
+                                name="message"
+                                rows="4"
+                                minlength="5"
+                                maxlength="2000"
+                                required
+                                placeholder={copy.form.detailsPlaceholder}
+                                class="w-full border-2 border-[#006064] bg-[#E0F7FA] p-3 text-sm text-[#006064] placeholder:text-[#006064]/50 focus:outline-none focus:ring-2 focus:ring-[#006064]"
+                            ></textarea>
+                            <div class="flex flex-wrap gap-2">
+                                <button
+                                    type="submit"
+                                    class="border-2 border-[#006064] bg-[#006064] px-3 py-2 text-xs font-bold uppercase text-white hover:bg-[#004d40] disabled:opacity-50"
+                                >
+                                    {copy.form.submit}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="border-2 border-[#006064] bg-white px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA]"
+                                    data-support-cancel={section.id}
+                                >
+                                    {copy.form.cancel}
+                                </button>
+                            </div>
+                            <p id={statusId} class="min-h-5 font-mono text-xs text-[#006064]" data-support-status={section.id} aria-live="polite" role="status"></p>
+                        </form>
+                    </article>
+                );
+            })}
+        </section>
+
+        <section class="border-2 border-[#006064] bg-[#E0F7FA] p-5">
+            <h2 class="font-display text-xl uppercase text-[#006064]">{copy.contactTitle}</h2>
+            <p class="mt-2 text-sm leading-6 text-[#006064]/80">{copy.contactText}</p>
+            <a
+                href={`mailto:${copy.contactEmail}`}
+                class="mt-4 inline-block border-2 border-[#006064] bg-[#006064] px-4 py-2 text-sm font-bold uppercase text-white hover:bg-[#004d40]"
+            >
+                {copy.contactEmail}
+            </a>
+        </section>
+    </div>
+
+    <script>
+        const supportRoot = document.querySelector('[data-support-copy]');
+        const supportCopy = JSON.parse(supportRoot?.getAttribute('data-support-copy') || '{}');
+
+        function setSupportFormOpen(issueId, isOpen) {
+            const form = document.querySelector(`[data-support-form="${issueId}"]`);
+            const toggle = document.querySelector(`[data-support-toggle="${issueId}"]`);
+            const status = document.querySelector(`[data-support-status="${issueId}"]`);
+            if (!form || !toggle) return;
+
+            form.classList.toggle('hidden', !isOpen);
+            toggle.setAttribute('aria-expanded', String(isOpen));
+            if (!isOpen && status) status.textContent = '';
+            if (isOpen) {
+                const textarea = form.querySelector('textarea[name="message"]');
+                if (textarea instanceof HTMLTextAreaElement) {
+                    requestAnimationFrame(() => textarea.focus());
+                }
+            }
+        }
+
+        document.querySelectorAll('[data-support-toggle]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const issueId = button.getAttribute('data-support-toggle');
+                const isExpanded = button.getAttribute('aria-expanded') === 'true';
+                if (issueId) setSupportFormOpen(issueId, !isExpanded);
+            });
+        });
+
+        document.querySelectorAll('[data-support-cancel]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const issueId = button.getAttribute('data-support-cancel');
+                if (issueId) setSupportFormOpen(issueId, false);
+            });
+        });
+
+        document.querySelectorAll('[data-support-form]').forEach((form) => {
+            form.addEventListener('submit', async (event) => {
+                event.preventDefault();
+                const issueId = form.getAttribute('data-support-form');
+                const issueTitle = form.getAttribute('data-issue-title');
+                const textarea = form.querySelector('textarea[name="message"]');
+                const submit = form.querySelector('button[type="submit"]');
+                const status = issueId ? document.querySelector(`[data-support-status="${issueId}"]`) : null;
+                if (!issueId || !issueTitle || !textarea || !submit || !status) return;
+
+                submit.disabled = true;
+                form.setAttribute('aria-busy', 'true');
+                const originalText = submit.textContent;
+                submit.textContent = supportCopy.sending || 'Sending...';
+                status.textContent = supportCopy.sending || '';
+
+                try {
+                    const response = await fetch('/api/support/alert', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({
+                            issueId,
+                            issueTitle,
+                            message: textarea.value,
+                            pageUrl: window.location.href,
+                            locale: supportCopy.lang || 'es',
+                        }),
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Support alert failed');
+
+                    textarea.value = '';
+                    status.textContent = data.emailSent === false
+                        ? supportCopy.savedNoEmail
+                        : supportCopy.success;
+                } catch {
+                    status.textContent = supportCopy.error || 'The report could not be sent.';
+                } finally {
+                    submit.disabled = false;
+                    form.removeAttribute('aria-busy');
+                    submit.textContent = originalText;
+                }
+            });
+        });
+    </script>
+</CampusLayout>

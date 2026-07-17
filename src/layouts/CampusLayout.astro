@@ -1,26 +1,87 @@
 ---
 import BaseLayout from './BaseLayout.astro';
-import { useTranslations } from '../i18n/utils';
+import { getLangFromParam, useTranslations } from '../i18n/utils';
 
 interface Props {
   title: string;
   user: {
-    email?: string;
-    full_name?: string;
-    role?: string;
+    email?: string | null;
+    full_name?: string | null;
+    role?: string | null;
   };
   lang: string;
 }
 
-const { title, user, lang } = Astro.props;
+const { title, user, lang: langParam } = Astro.props;
+const lang = getLangFromParam(langParam);
 const t = useTranslations(lang);
 const role = user.role || 'student';
+
+const accessibilityCopy = {
+    es: {
+        skip: 'Saltar al contenido principal',
+        sidebar: 'Navegación del campus',
+        openSidebar: 'Abrir navegación del campus',
+        closeSidebar: 'Cerrar navegación del campus',
+        userMenu: 'Menú de usuario',
+        openUserMenu: 'Abrir menú de usuario',
+    },
+    en: {
+        skip: 'Skip to main content',
+        sidebar: 'Campus navigation',
+        openSidebar: 'Open campus navigation',
+        closeSidebar: 'Close campus navigation',
+        userMenu: 'User menu',
+        openUserMenu: 'Open user menu',
+    },
+    ru: {
+        skip: 'Перейти к основному содержанию',
+        sidebar: 'Навигация кампуса',
+        openSidebar: 'Открыть навигацию кампуса',
+        closeSidebar: 'Закрыть навигацию кампуса',
+        userMenu: 'Меню пользователя',
+        openUserMenu: 'Открыть меню пользователя',
+    },
+}[lang];
 
 const getInitials = (nameOrEmail: string = '') => {
     return nameOrEmail.slice(0, 2).toUpperCase();
 };
 
 const userLabel = user.full_name || user.email || 'User';
+const lowerEnye = String.fromCodePoint(0x00F1);
+const upperEnye = String.fromCodePoint(0x00D1);
+const documentBrandName = `Espa${lowerEnye}ol Honesto`;
+const brandName = `ESPA${upperEnye}OL HONESTO`;
+const brandNameHtml = 'ESPA&#x00D1;OL HONESTO';
+const catalogLabel = `Cat${String.fromCodePoint(0x00E1)}logo`;
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const stripBrandSuffix = (value: string) => {
+    const normalized = value.trim();
+    const brandVariants = [documentBrandName, 'Espanol Honesto'];
+
+    return brandVariants.reduce((current, brand) => {
+        return current.replace(new RegExp(`\\s*\\|\\s*${escapeRegExp(brand)}\\s*$`, 'i'), '').trim();
+    }, normalized);
+};
+
+const pageTitle = stripBrandSuffix(title);
+const documentTitle = `${pageTitle || documentBrandName} | ${documentBrandName}`;
+
+const icons = {
+    home: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
+    calendar: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="17" rx="2"/><path d="M8 3v4M16 3v4M4 11h16"/></svg>',
+    user: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.8-4 14.2-4 16 0"/></svg>',
+    users: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c1.4-4 11.6-4 13 0"/><path d="M16 5a4 4 0 0 1 0 8M17 17c2.4.4 4.2 1.5 5 4"/></svg>',
+    chart: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19h18"/><path d="M7 19V9M12 19V5M17 19v-7"/></svg>',
+    target: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg>',
+    card: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M7 15h4"/></svg>',
+    logout: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4"/><path d="M8 12h10"/></svg>',
+    package: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7l8-4 8 4-8 4-8-4Z"/><path d="M4 7v10l8 4 8-4V7"/><path d="M12 11v10"/></svg>',
+    support: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4"/><path d="M12 17h.01"/></svg>',
+    job: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8l2 3v17H6V7l2-3Z"/><path d="M8 8h8M9 13h6M9 17h4"/></svg>',
+    email: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>',
+} as const;
 
 // Role badge colors
 const roleBadges: Record<string, { bg: string; text: string; label: string }> = {
@@ -31,58 +92,91 @@ const roleBadges: Record<string, { bg: string; text: string; label: string }> = 
 const badge = roleBadges[role] || roleBadges.student;
 
 // Navigation items based on role
-type NavItem = { href: string; icon: string; label: string; active?: boolean; disabled?: boolean };
+type NavIcon = keyof typeof icons;
+type NavItem = { href: string; icon: NavIcon; label: string; active?: boolean; disabled?: boolean };
 
 const studentNav: NavItem[] = [
-    { href: `/${lang}/campus`, icon: '🏠', label: t('campus.nav.dashboard') },
-    { href: `/${lang}/campus/classes`, icon: '📅', label: t('campus.student.classes.title') },
-    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account') },
+    { href: `/${lang}/campus`, icon: 'home', label: t('campus.nav.dashboard') },
+    { href: `/${lang}/campus/classes`, icon: 'calendar', label: t('campus.student.classes.title') },
+    { href: `/${lang}/campus/support`, icon: 'support', label: t('campus.nav.support') },
+    { href: `/${lang}/campus/account`, icon: 'user', label: t('campus.nav.account') },
 ];
 
 const teacherNav: NavItem[] = [
-    { href: `/${lang}/campus/teacher`, icon: '👥', label: t('campus.nav.myStudents') },
-    { href: `/${lang}/campus/teacher/calendar`, icon: '📅', label: t('campus.teacher.calendar.title') },
-    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account') },
+    { href: `/${lang}/campus/teacher`, icon: 'users', label: t('campus.nav.myStudents') },
+    { href: `/${lang}/campus/teacher/calendar`, icon: 'calendar', label: t('campus.teacher.calendar.title') },
+    { href: `/${lang}/campus/support`, icon: 'support', label: t('campus.nav.support') },
+    { href: `/${lang}/campus/account`, icon: 'user', label: t('campus.nav.account') },
 ];
 
 const adminNav: NavItem[] = [
-    { href: `/${lang}/campus/admin`, icon: '📊', label: t('campus.nav.adminDashboard') },
-    { href: `/${lang}/campus/admin/leads`, icon: '🎯', label: 'CRM Leads' },
-    { href: `/${lang}/campus/admin/packages`, icon: '€', label: 'Catálogo' },
-    { href: `/${lang}/campus/admin/users`, icon: '👥', label: t('campus.nav.students') },
-    { href: `/${lang}/campus/admin/calendar`, icon: '📅', label: t('campus.admin.calendar.title') },
-    { href: `/${lang}/campus/admin/payments`, icon: '💳', label: t('campus.nav.payments') },
-    { href: `/${lang}/campus/account`, icon: '👤', label: t('campus.nav.account') },
+    { href: `/${lang}/campus/admin`, icon: 'chart', label: t('campus.nav.adminDashboard') },
+    { href: `/${lang}/campus/admin/leads`, icon: 'target', label: 'CRM Leads' },
+    { href: `/${lang}/campus/admin/packages`, icon: 'package', label: catalogLabel },
+    { href: `/${lang}/campus/admin/jobs`, icon: 'job', label: 'Jobs' },
+    { href: `/${lang}/campus/admin/support`, icon: 'support', label: 'Tickets soporte' },
+    { href: `/${lang}/campus/admin/emails`, icon: 'email', label: t('campus.nav.emails') },
+    { href: `/${lang}/campus/admin/students`, icon: 'users', label: t('campus.nav.students') },
+    { href: `/${lang}/campus/admin/users`, icon: 'users', label: 'Matching' },
+    { href: `/${lang}/campus/admin/calendar`, icon: 'calendar', label: t('campus.admin.calendar.title') },
+    { href: `/${lang}/campus/admin/payments`, icon: 'card', label: t('campus.nav.payments') },
+    { href: `/${lang}/campus/support`, icon: 'support', label: t('campus.nav.support') },
+    { href: `/${lang}/campus/account`, icon: 'user', label: t('campus.nav.account') },
 ];
 
 // Select nav based on role
 const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav : studentNav;
+const normalizedPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
+const isCurrentNavItem = (href: string) => {
+    const normalizedHref = href.replace(/\/+$/, '') || '/';
+    const isSectionRoot = normalizedHref === `/${lang}/campus`
+        || normalizedHref === `/${lang}/campus/teacher`
+        || normalizedHref === `/${lang}/campus/admin`;
+
+    return isSectionRoot
+        ? normalizedPath === normalizedHref
+        : normalizedPath === normalizedHref || normalizedPath.startsWith(`${normalizedHref}/`);
+};
 ---
 
-<BaseLayout title={title} description="Campus" lang={lang} noindex={true}>
+<BaseLayout title={documentTitle} description="Campus" lang={lang} noindex={true}>
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
+        {accessibilityCopy.skip}
+    </a>
     <div class="flex h-screen bg-[#E0F7FA] overflow-hidden">
         
         <!-- Sidebar (Desktop & Mobile) -->
-        <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-64 bg-[#006064] text-white transition-transform transform -translate-x-full md:translate-x-0 md:static md:flex md:flex-col">
+        <aside id="sidebar" aria-label={accessibilityCopy.sidebar} class="fixed inset-y-0 left-0 z-50 w-64 bg-[#006064] text-white transition-transform transform -translate-x-full md:translate-x-0 md:static md:flex md:flex-col">
             <!-- Logo -->
-            <div class="flex items-center justify-center h-16 border-b border-[#004d40]">
-                <a href={`/${lang}`} class="font-display text-xl tracking-wider hover:text-[#E0F7FA] transition-colors">ESPAÑOL HONESTO</a>
+            <div class="flex items-center justify-between md:justify-center h-16 border-b border-[#004d40] px-4 md:px-0">
+                <a href={`/${lang}`} aria-label={brandName} class="font-display text-xl tracking-wider hover:text-[#E0F7FA] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"><span set:html={brandNameHtml} /></a>
+                <button
+                    id="mobile-menu-close-btn"
+                    type="button"
+                    aria-label={accessibilityCopy.closeSidebar}
+                    class="md:hidden inline-flex h-10 w-10 items-center justify-center rounded-md border-2 border-white text-2xl leading-none focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-white"
+                >
+                    <span aria-hidden="true">&times;</span>
+                </button>
             </div>
 
             <!-- Nav -->
-            <nav class="flex-1 overflow-y-auto py-4">
+            <nav aria-label={accessibilityCopy.sidebar} class="flex-1 overflow-y-auto py-4">
                 <ul class="space-y-1 px-2">
                     {navItems.map((item) => (
                         <li>
                             <a 
                                 href={item.disabled ? '#' : item.href} 
+                                aria-current={!item.disabled && isCurrentNavItem(item.href) ? 'page' : undefined}
+                                aria-disabled={item.disabled ? 'true' : undefined}
+                                tabindex={item.disabled ? -1 : undefined}
                                 class={`flex items-center px-4 py-3 rounded-md transition-colors group ${
                                     item.disabled 
                                         ? 'opacity-50 cursor-not-allowed' 
                                         : 'hover:bg-[#004d40]'
-                                } ${item.active && !item.disabled ? 'bg-[#004d40]/50 border-l-4 border-white' : ''}`}
+                                } ${(item.active || isCurrentNavItem(item.href)) && !item.disabled ? 'bg-[#004d40]/50 border-l-4 border-white' : ''} focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white`}
                             >
-                               <span class="mr-3 text-xl">{item.icon}</span>
+                               <span class="campus-nav-icon mr-3 inline-flex w-6 shrink-0 items-center justify-center" set:html={icons[item.icon]}></span>
                                <span class="font-bold">{item.label}</span>
                             </a>
                         </li>
@@ -92,15 +186,15 @@ const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav :
 
             <!-- Bottom Actions -->
             <div class="p-4 border-t border-[#004d40]">
-                 <a href={`/${lang}/logout`} class="flex items-center px-4 py-2 hover:bg-[#004d40] rounded-md transition-colors text-red-200 hover:text-red-100 group">
-                    <span class="mr-3 text-xl group-hover:-translate-x-1 transition-transform">🚪</span>
+                 <a href={`/${lang}/logout`} class="flex items-center px-4 py-2 hover:bg-[#004d40] rounded-md transition-colors text-red-200 hover:text-red-100 group focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
+                    <span class="campus-nav-icon mr-3 inline-flex w-6 shrink-0 items-center justify-center group-hover:-translate-x-1 transition-transform" set:html={icons.logout}></span>
                     <span class="font-bold">{t('campus.nav.logout')}</span>
                  </a>
             </div>
         </aside>
 
         <!-- Overlay for mobile -->
-        <div id="sidebar-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden md:hidden cursor-pointer"></div>
+        <div id="sidebar-overlay" class="fixed inset-0 bg-black bg-opacity-50 z-40 md:hidden cursor-pointer" aria-hidden="true" hidden></div>
 
         <!-- Main Content Wrapper -->
         <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -110,10 +204,19 @@ const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav :
                 
                 <!-- Left: Hamburger & Breadcrumb -->
                 <div class="flex items-center">
-                    <button id="mobile-menu-btn" class="md:hidden p-2 text-[#006064] hover:bg-gray-100 rounded-md mr-2 focus:outline-none">
-                       <span class="text-2xl">☰</span>
+                    <button
+                        id="mobile-menu-btn"
+                        type="button"
+                        aria-label={accessibilityCopy.openSidebar}
+                        data-open-label={accessibilityCopy.openSidebar}
+                        data-close-label={accessibilityCopy.closeSidebar}
+                        aria-expanded="false"
+                        aria-controls="sidebar"
+                        class="md:hidden p-2 text-[#006064] hover:bg-gray-100 rounded-md mr-2 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-[#006064]"
+                    >
+                       <span class="campus-nav-icon inline-flex w-6 items-center justify-center" set:html={'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>'}></span>
                     </button>
-                    <h1 class="text-xl font-display text-[#006064] uppercase truncate">{title}</h1>
+                    <h1 class="text-xl font-display text-[#006064] uppercase truncate">{pageTitle}</h1>
                 </div>
 
                 <!-- Right: User Info & Dropdown -->
@@ -124,65 +227,177 @@ const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav :
                             {badge.label}
                         </span>
                         <span class="hidden md:block text-sm font-bold text-[#006064] tracking-wide">{userLabel}</span>
-                         <button id="user-menu-btn" class="bg-[#006064] text-white rounded-full flex items-center justify-center text-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#006064] h-10 w-10 font-bold border-2 border-[#004d40] shadow-md hover:scale-105 transition-transform">
+                         <button
+                            id="user-menu-btn"
+                            type="button"
+                            aria-label={`${accessibilityCopy.openUserMenu}: ${userLabel}`}
+                            aria-expanded="false"
+                            aria-controls="user-menu"
+                            aria-haspopup="true"
+                            class="bg-[#006064] text-white rounded-full flex items-center justify-center text-sm focus:outline-none focus-visible:ring-4 focus-visible:ring-offset-2 focus-visible:ring-[#006064] h-10 w-10 font-bold border-2 border-[#004d40] shadow-md hover:scale-105 transition-transform"
+                         >
                             {getInitials(userLabel)}
                         </button>
                     </div>
 
                     <!-- Dropdown Menu -->
-                    <div id="user-menu" class="hidden origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-[4px_4px_0px_0px_#006064] py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none border-2 border-[#006064] z-50">
+                    <nav id="user-menu" aria-label={accessibilityCopy.userMenu} class="origin-top-right absolute right-0 mt-2 w-48 rounded-md shadow-[4px_4px_0px_0px_#006064] py-1 bg-white ring-1 ring-black ring-opacity-5 focus:outline-none border-2 border-[#006064] z-50" hidden>
                         <div class="px-4 py-2 border-b border-gray-100">
                             <p class="text-xs text-gray-500 truncate">{user.email}</p>
                             <p class={`text-xs font-bold uppercase mt-1 ${badge.text}`}>{badge.label}</p>
                         </div>
-                        <a href={`/${lang}/campus/account`} class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 font-bold">{t('campus.nav.account')}</a>
-                        <a href={`/${lang}/logout`} class="block px-4 py-2 text-sm text-red-700 hover:bg-red-50 font-bold">{t('campus.nav.logout')}</a>
-                    </div>
+                        <a href={`/${lang}/campus/account`} class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 font-bold focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-[-4px] focus-visible:outline-[#006064]">{t('campus.nav.account')}</a>
+                        <a href={`/${lang}/logout`} class="block px-4 py-2 text-sm text-red-700 hover:bg-red-50 font-bold focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-[-4px] focus-visible:outline-[#006064]">{t('campus.nav.logout')}</a>
+                    </nav>
                 </div>
             </header>
 
             <!-- Main Content Area -->
-            <main class="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 relative">
+            <main id="main-content" tabindex="-1" class="flex-1 overflow-auto p-4 sm:p-6 lg:p-8 relative focus:outline-none">
                  <slot />
             </main>
         </div>
     </div>
 </BaseLayout>
 
+<style is:global>
+    .campus-nav-icon svg {
+        width: 1.25rem;
+        height: 1.25rem;
+        display: block;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    main [class*="text-[#006064]/50"],
+    main [class*="text-[#006064]/60"],
+    main [class*="text-[#006064]/70"],
+    main [class*="text-[#006064]/80"] {
+        color: #006064 !important;
+    }
+
+    main [class*="opacity-70"],
+    main [class*="opacity-80"] {
+        opacity: 1 !important;
+    }
+</style>
+
 <script>
     // Elements
     const btn = document.getElementById('mobile-menu-btn');
+    const closeBtn = document.getElementById('mobile-menu-close-btn');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');
     const userBtn = document.getElementById('user-menu-btn');
     const userMenu = document.getElementById('user-menu');
+    const mobileMedia = window.matchMedia('(max-width: 767px)');
+    let sidebarOpen = false;
 
-    // Sidebar Toggle
-    function toggleSidebar() {
-        if (!sidebar || !overlay) return;
-        const isClosed = sidebar.classList.contains('-translate-x-full');
-        if (isClosed) {
+    function syncSidebarState() {
+        if (!sidebar || !overlay || !btn) return;
+        const isMobile = mobileMedia.matches;
+        const isOpen = isMobile && sidebarOpen;
+
+        btn.setAttribute('aria-expanded', String(isOpen));
+        btn.setAttribute('aria-label', isOpen
+            ? btn.dataset.closeLabel || ''
+            : btn.dataset.openLabel || '');
+
+        if (!isMobile) {
+            sidebarOpen = false;
             sidebar.classList.remove('-translate-x-full');
-            overlay.classList.remove('hidden');
+            sidebar.removeAttribute('aria-hidden');
+            sidebar.removeAttribute('inert');
+            overlay.hidden = true;
+            return;
+        }
+
+        if (isOpen) {
+            sidebar.classList.remove('-translate-x-full');
+            sidebar.removeAttribute('aria-hidden');
+            sidebar.removeAttribute('inert');
+            overlay.hidden = false;
         } else {
             sidebar.classList.add('-translate-x-full');
-            overlay.classList.add('hidden');
+            sidebar.setAttribute('aria-hidden', 'true');
+            sidebar.setAttribute('inert', '');
+            overlay.hidden = true;
         }
     }
 
-    btn?.addEventListener('click', toggleSidebar);
-    overlay?.addEventListener('click', toggleSidebar);
+    function openSidebar() {
+        if (!mobileMedia.matches) return;
+        sidebarOpen = true;
+        syncSidebarState();
+        closeBtn?.focus();
+    }
 
-    // User Dropdown Toggle
+    function closeSidebar(returnFocus = true) {
+        sidebarOpen = false;
+        syncSidebarState();
+        if (returnFocus) btn?.focus();
+    }
+
+    btn?.addEventListener('click', () => sidebarOpen ? closeSidebar() : openSidebar());
+    closeBtn?.addEventListener('click', () => closeSidebar());
+    overlay?.addEventListener('click', () => closeSidebar());
+    mobileMedia.addEventListener('change', () => syncSidebarState());
+    syncSidebarState();
+
+    function setUserMenuOpen(open: boolean, returnFocus = false) {
+        if (!userBtn || !userMenu) return;
+        userMenu.hidden = !open;
+        userBtn.setAttribute('aria-expanded', String(open));
+
+        if (open) {
+            userMenu.querySelector<HTMLElement>('a[href], button:not([disabled])')?.focus();
+        } else if (returnFocus) {
+            userBtn.focus();
+        }
+    }
+
     userBtn?.addEventListener('click', (e) => {
         e.stopPropagation();
-        userMenu?.classList.toggle('hidden');
+        setUserMenuOpen(Boolean(userMenu?.hidden), true);
     });
 
-    // Close dropdown on click outside
     document.addEventListener('click', (e) => {
-        if (userMenu && !userMenu.classList.contains('hidden') && userBtn && !userBtn.contains(e.target as Node)) {
-            userMenu.classList.add('hidden');
+        if (userMenu && !userMenu.hidden && userBtn && !userBtn.contains(e.target as Node) && !userMenu.contains(e.target as Node)) {
+            setUserMenuOpen(false);
+        }
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            if (sidebarOpen) {
+                e.preventDefault();
+                closeSidebar();
+                return;
+            }
+            if (userMenu && !userMenu.hidden) {
+                e.preventDefault();
+                setUserMenuOpen(false, true);
+            }
+            return;
+        }
+
+        if (e.key === 'Tab' && sidebarOpen && sidebar) {
+            const focusable = Array.from(sidebar.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'))
+                .filter((element) => element.getClientRects().length > 0);
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (!first || !last) return;
+
+            if (e.shiftKey && (document.activeElement === first || !sidebar.contains(document.activeElement))) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
         }
     });
 </script>

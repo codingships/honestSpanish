@@ -1,15 +1,17 @@
 import { defineConfig, devices } from '@playwright/test';
-import dotenv from 'dotenv';
+import { configurePlaywrightEnvironment } from './tests/e2e/environment-guard';
 
-// Cargar variables de entorno de .env.test
-dotenv.config({ path: '.env.test' });
+configurePlaywrightEnvironment();
+
+const configuredWorkers = Number.parseInt(process.env.PLAYWRIGHT_WORKERS ?? '1', 10);
+const workerCount = Number.isInteger(configuredWorkers) && configuredWorkers > 0 ? configuredWorkers : 1;
 
 export default defineConfig({
     testDir: './tests/e2e',
     fullyParallel: true,
     forbidOnly: !!process.env.CI,
     retries: process.env.CI ? 2 : 0,
-    workers: process.env.CI ? 1 : undefined,
+    workers: workerCount,
 
     // Enhanced reporter for max observability
     reporter: [
@@ -45,6 +47,8 @@ export default defineConfig({
 
     // Output directory for artifacts
     outputDir: 'test-results/artifacts',
+    globalSetup: './tests/e2e/global-setup.ts',
+    globalTeardown: './tests/e2e/global-teardown.ts',
 
     projects: [
         // =====================
@@ -108,6 +112,26 @@ export default defineConfig({
             },
             dependencies: ['student-setup'],
         },
+        // Tests de profesor - Firefox
+        {
+            name: 'teacher-firefox',
+            testMatch: /.*\.teacher\.spec\.ts/,
+            use: {
+                ...devices['Desktop Firefox'],
+                storageState: 'tests/e2e/.auth/teacher.json',
+            },
+            dependencies: ['teacher-setup'],
+        },
+        // Tests de admin - Firefox
+        {
+            name: 'admin-firefox',
+            testMatch: /.*\.admin\.spec\.ts/,
+            use: {
+                ...devices['Desktop Firefox'],
+                storageState: 'tests/e2e/.auth/admin.json',
+            },
+            dependencies: ['admin-setup'],
+        },
 
         // =====================
         // WEBKIT (SAFARI) PROJECTS
@@ -128,6 +152,26 @@ export default defineConfig({
                 storageState: 'tests/e2e/.auth/student.json',
             },
             dependencies: ['student-setup'],
+        },
+        // Tests de profesor - Safari
+        {
+            name: 'teacher-webkit',
+            testMatch: /.*\.teacher\.spec\.ts/,
+            use: {
+                ...devices['Desktop Safari'],
+                storageState: 'tests/e2e/.auth/teacher.json',
+            },
+            dependencies: ['teacher-setup'],
+        },
+        // Tests de admin - Safari
+        {
+            name: 'admin-webkit',
+            testMatch: /.*\.admin\.spec\.ts/,
+            use: {
+                ...devices['Desktop Safari'],
+                storageState: 'tests/e2e/.auth/admin.json',
+            },
+            dependencies: ['admin-setup'],
         },
 
         // =====================
@@ -168,9 +212,12 @@ export default defineConfig({
         },
     ],
     webServer: {
-        command: 'pnpm dev',
-        url: 'http://localhost:4321',
-        reuseExistingServer: !process.env.CI,
+        command: 'node tests/e2e/start-server.mjs',
+        // Probe a provider-free, React-free endpoint. Probing `/` follows the
+        // redirect to `/es` while Vite is still settling its SSR optimizer and
+        // can mix dependency hashes in the first disposable readiness request.
+        url: 'http://localhost:4321/api/e2e-runtime/environment',
+        reuseExistingServer: false,
         timeout: 120000,
     },
 });

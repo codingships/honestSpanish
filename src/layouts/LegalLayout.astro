@@ -12,16 +12,19 @@ const legalLinks = {
     es: [
         { href: `/${lang}/legal/aviso-legal`, label: 'Aviso Legal' },
         { href: `/${lang}/legal/privacidad`, label: 'Privacidad' },
+        { href: `/${lang}/legal/terminos`, label: 'Términos' },
         { href: `/${lang}/legal/cookies`, label: 'Cookies' },
     ],
     en: [
         { href: `/${lang}/legal/aviso-legal`, label: 'Legal Notice' },
         { href: `/${lang}/legal/privacidad`, label: 'Privacy' },
+        { href: `/${lang}/legal/terminos`, label: 'Terms' },
         { href: `/${lang}/legal/cookies`, label: 'Cookies' },
     ],
     ru: [
         { href: `/${lang}/legal/aviso-legal`, label: 'Правовая информация' },
         { href: `/${lang}/legal/privacidad`, label: 'Конфиденциальность' },
+        { href: `/${lang}/legal/terminos`, label: 'Условия' },
         { href: `/${lang}/legal/cookies`, label: 'Cookies' },
     ],
 };
@@ -30,6 +33,13 @@ const links = legalLinks[lang as keyof typeof legalLinks] || legalLinks.es;
 
 const homeText = { es: 'Inicio', en: 'Home', ru: 'Главная' };
 const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← На главную' };
+const accessibilityText = {
+    es: { skip: 'Saltar al contenido principal', breadcrumb: 'Ruta de navegación', legal: 'Documentos legales' },
+    en: { skip: 'Skip to main content', breadcrumb: 'Breadcrumb', legal: 'Legal documents' },
+    ru: { skip: 'Перейти к основному содержанию', breadcrumb: 'Навигационная цепочка', legal: 'Юридические документы' },
+};
+const accessibility = accessibilityText[lang as keyof typeof accessibilityText] || accessibilityText.es;
+const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase() === 'staging';
 ---
 
 <!DOCTYPE html>
@@ -39,7 +49,7 @@ const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← 
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{title} | Español Honesto</title>
     <meta name="description" content={description}>
-    <meta name="robots" content="noindex, follow">
+    <meta name="robots" content={stagingNoindex ? 'noindex, nofollow' : 'noindex, follow'}>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
     <style>
@@ -56,6 +66,21 @@ const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← 
         .font-display {
             font-family: 'Boldonse', sans-serif;
         }
+
+        .skip-link {
+            position: fixed;
+            left: 1rem;
+            top: 1rem;
+            z-index: 100;
+            transform: translateY(-200%);
+            background: white;
+            color: #006064;
+            border: 3px solid #006064;
+            padding: 0.75rem 1rem;
+            font-weight: bold;
+        }
+
+        .skip-link:focus { transform: translateY(0); }
         
         header {
             background-color: #006064;
@@ -94,11 +119,11 @@ const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← 
             align-items: center;
             gap: 0.5rem;
             font-size: 0.875rem;
-            color: rgba(0,96,100,0.6);
+            color: rgba(0,96,100,0.85);
         }
         
         .breadcrumb a {
-            color: rgba(0,96,100,0.6);
+            color: rgba(0,96,100,0.85);
             text-decoration: none;
         }
         
@@ -225,6 +250,7 @@ const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← 
     </style>
 </head>
 <body>
+    <a class="skip-link" href="#main-content">{accessibility.skip}</a>
     <header>
         <div class="header-content">
             <a href={`/${lang}`} class="logo">ESPAÑOL HONESTO</a>
@@ -232,13 +258,13 @@ const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← 
         </div>
     </header>
 
-    <nav class="breadcrumb">
+    <nav class="breadcrumb" aria-label={accessibility.breadcrumb}>
         <a href={`/${lang}`}>{homeText[lang as keyof typeof homeText] || homeText.es}</a>
-        <span>/</span>
-        <span class="current">{title}</span>
+        <span aria-hidden="true">/</span>
+        <span class="current" aria-current="page">{title}</span>
     </nav>
 
-    <main>
+    <main id="main-content">
         <article>
             <header class="article-header">
                 <h1>{title}</h1>
@@ -250,11 +276,11 @@ const backText = { es: '← Volver al inicio', en: '← Back to home', ru: '← 
             </div>
         </article>
 
-        <nav class="legal-nav">
+        <nav class="legal-nav" aria-label={accessibility.legal}>
             {links.map((link, i) => (
                 <>
                     <a href={link.href}>{link.label}</a>
-                    {i < links.length - 1 && <span class="separator">|</span>}
+                    {i < links.length - 1 && <span class="separator" aria-hidden="true">|</span>}
                 </>
             ))}
         </nav>

@@ -41,7 +41,7 @@ test.describe('Student Classes Page', () => {
         await page.goto('/es/campus/classes');
         await page.waitForLoadState('domcontentloaded');
 
-        // Check if there is a cancel button visible (requires session > 24h in the future)
+        // Cancellation stays available inside 24h, with a consumed-credit warning.
         const cancelBtn = page.locator('button:has-text("Cancelar clase"), button:has-text("Cancelar")').first();
 
         if (await cancelBtn.isVisible({ timeout: 3000 })) {

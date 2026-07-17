@@ -1,20 +1,28 @@
 import type { APIRoute } from 'astro';
+import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
+import { recordFirstClassCancelledSafe, recordFirstClassCompletedSafe, recordNoShowFollowUpSafe } from '../../../lib/crm/onboarding';
+import { enqueueSessionCancellation } from '../../../lib/fulfillment/queue';
+import { triggerFulfillmentProcessing } from '../../../lib/internal-job-service';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { cancelClassEvent } from '../../../lib/google/calendar';
-import { sendClassCancelledToBoth } from '../../../lib/email';
+import type { Database, Json } from '../../../types/database.types';
 
+const NO_SHOW_GRACE_PERIOD_MS = 15 * 60 * 1000;
 
-// 👇 FIX 1: Forzamos Node.js para que funcionen las librerías de Google
-export const config = {
-    runtime: 'nodejs'
+const isSessionReport = (value: unknown): value is Json => {
+    return value === null || typeof value === 'string' || (typeof value === 'object' && !Array.isArray(value));
+};
+
+const formatReportForActivityBody = (value: unknown): string | null => {
+    if (typeof value === 'string') return value;
+    if (value === null || value === undefined) return null;
+
+    return JSON.stringify(value);
 };
 
 export const POST: APIRoute = async (context) => {
-    // 👇 FIX 2: Inyectamos el tipo <Database>
     const supabase = createSupabaseServerClient(context);
 
-    // Auth Check
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
@@ -26,16 +34,24 @@ export const POST: APIRoute = async (context) => {
         .eq('id', user.id)
         .single();
 
-    const body = await context.request.json();
-    const { sessionId, action, reason } = body;
+    let body: Record<string, unknown>;
+    try {
+        body = await context.request.json();
+    } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+    }
 
-    if (!sessionId || !action) {
+    const { sessionId, action } = body;
+    const cancellationReason = typeof body.reason === 'string' && body.reason.trim() ? body.reason.trim() : null;
+
+    if (typeof sessionId !== 'string' || !sessionId.trim() || typeof action !== 'string' || !action.trim()) {
         return new Response(JSON.stringify({ error: 'Session ID and action are required' }), { status: 400 });
     }
 
-    // 👇 FIX 3: Corregimos la query. Quitamos 'google_calendar_event_id' explícito
-    // y confiamos en el '*' o usamos el nombre correcto 'calendar_event_id'.
-    // También arreglamos el tipado de las relaciones.
+    if (!['cancel', 'complete', 'no_show', 'update_notes'].includes(action)) {
+        return new Response(JSON.stringify({ error: 'Invalid action' }), { status: 400 });
+    }
+
     const { data: session, error: fetchError } = await supabase
         .from('sessions')
         .select(`
@@ -51,10 +67,7 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404 });
     }
 
-    // Cast to access calendar_event_id which may not be in generated types yet
     const sessionData = session as typeof session & { calendar_event_id?: string | null };
-
-    // Permission check
     const isTeacher = session.teacher_id === user.id;
     const isStudent = session.student_id === user.id;
     const isAdmin = profile?.role === 'admin';
@@ -63,97 +76,99 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
+    const supabaseAdmin = createSupabaseAdminClient();
+
     if (action === 'cancel') {
-        // Atomic cancel: only goes through if status is still 'scheduled'
-        // Prevents TOCTOU race where two concurrent requests both pass the check
-        const { data: cancelResult, error: updateError } = await supabase
-            .from('sessions')
-            .update({
-                status: 'cancelled',
-                cancellation_reason: reason || null,
-                cancelled_at: new Date().toISOString(),
-                cancelled_by: user.id,
-            })
-            .eq('id', sessionId)
-            .eq('status', 'scheduled') // Atomic guard: only cancels if still scheduled
-            .select('id');
+        const cancelledBy = isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student');
+        const { data: cancelRows, error: updateError } = await supabaseAdmin.rpc('cancel_scheduled_session', {
+            p_session_id: sessionId,
+            p_cancelled_by: user.id,
+            p_cancelled_by_role: cancelledBy,
+            p_cancellation_reason: cancellationReason,
+        });
 
         if (updateError) {
+            console.error('[SessionAction] Atomic session cancellation failed:', updateError);
             return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
         }
 
-        // If no rows were updated, session was already cancelled or completed
-        if (!cancelResult || cancelResult.length === 0) {
+        const cancelResult = cancelRows?.[0];
+        if (!cancelResult) {
             return new Response(JSON.stringify({ error: 'Session is already cancelled or completed' }), { status: 409 });
         }
 
-        // 2. Restore subscription credit using supabaseAdmin (bypasses RLS — works for
-        //    all roles: student RLS blocks subscription UPDATE, teacher RLS also blocks it)
-        if (session.subscription) {
-            const sub = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
+        const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
+        const cancelledAt = cancelResult.cancelled_at;
+        const lateStudentCancellation = cancelResult.late_student_cancellation;
+        const quotaRestoreAttempted = cancelResult.quota_restore_attempted;
+        const quotaRestored = cancelResult.quota_restored;
+        const previousSessionsUsed = cancelResult.previous_sessions_used;
+        const nextSessionsUsed = cancelResult.next_sessions_used;
+        const hoursUntilClass = cancelResult.hours_until_class;
+        const subscriptionId = cancelResult.subscription_id ?? subscription?.id ?? null;
 
-            if (sub) {
-                const currentUsed = sub.sessions_used ?? 0;
-                if (currentUsed > 0) {
-                    // Lazy-initialize admin client only when needed to avoid module-load env var issues
-                    const supabaseAdmin = createSupabaseAdminClient();
-                    await supabaseAdmin
-                        .from('subscriptions')
-                        .update({ sessions_used: currentUsed - 1 })
-                        .eq('id', sub.id)
-                        .eq('sessions_used', currentUsed); // Optimistic lock: prevent double-decrement
-                }
-            }
+        const fulfillmentQueued = await enqueueSessionCancellation(supabaseAdmin, {
+            sessionId,
+            subscriptionId,
+            studentId: session.student_id,
+            cancelledBy,
+            reason: cancellationReason,
+        });
+
+        if (fulfillmentQueued) {
+            triggerFulfillmentProcessing(context, 3);
         }
 
-        // 3. Delete from Google Calendar
-        // 👇 FIX 5: Usamos el nombre correcto de la columna: 'calendar_event_id'
-        if (sessionData.calendar_event_id) {
-            try {
-                await cancelClassEvent(sessionData.calendar_event_id);
+        await recordCrmActivityForProfileSafe(supabaseAdmin, {
+            profileId: session.student_id,
+            email: session.student?.email ?? null,
+            fullName: session.student?.full_name ?? null,
+            actorId: user.id,
+            lifecycleStage: 'customer',
+            source: 'calendar',
+            activityType: 'class',
+            subject: 'Clase cancelada',
+            body: cancellationReason,
+            relatedEntityType: 'session_cancelled',
+            relatedEntityId: sessionId,
+            metadata: {
+                session_id: sessionId,
+                teacher_id: session.teacher_id,
+                scheduled_at: session.scheduled_at,
+                cancelled_by: cancelledBy,
+                reason: cancellationReason,
+                quota_restore_attempted: quotaRestoreAttempted,
+                quota_restored: quotaRestored,
+                previous_sessions_used: previousSessionsUsed,
+                next_sessions_used: nextSessionsUsed,
+                late_student_cancellation: lateStudentCancellation,
+                hours_until_class: hoursUntilClass,
+            },
+        });
 
-                // Clear event ID from session
-                await supabase
-                    .from('sessions')
-                    .update({
-                        calendar_event_id: null,
-                        meet_link: null
-                    })
-                    .eq('id', sessionId);
+        await recordFirstClassCancelledSafe(supabaseAdmin, {
+            profileId: session.student_id,
+            email: session.student?.email ?? null,
+            fullName: session.student?.full_name ?? null,
+            subscriptionId: session.subscription_id ?? subscriptionId,
+            sessionId,
+            teacherId: session.teacher_id,
+            scheduledAt: session.scheduled_at,
+            cancelledAt,
+            cancelledBy,
+            cancellationReason,
+        });
 
-            } catch (error) {
-                console.error('Error deleting calendar event:', error);
-            }
-        }
+        return new Response(JSON.stringify({
+            success: true,
+            fulfillment: fulfillmentQueued ? 'queued' : 'skipped',
+            calendarEventQueued: Boolean(sessionData.calendar_event_id),
+            quotaRestored,
+            quotaConsumed: lateStudentCancellation,
+        }), { status: 200 });
+    }
 
-        // 4. Send emails
-        try {
-            // Casting seguro para los profiles
-            const student = Array.isArray(session.student) ? session.student[0] : session.student;
-            const teacher = Array.isArray(session.teacher) ? session.teacher[0] : session.teacher;
-
-            if (student?.email && teacher?.email && session.scheduled_at) {
-                await sendClassCancelledToBoth(
-                    student.email,
-                    student.full_name || 'Estudiante',
-                    teacher.email,
-                    teacher.full_name || 'Profesor',
-                    {
-                        date: new Date(session.scheduled_at).toLocaleDateString(),
-                        time: new Date(session.scheduled_at).toLocaleTimeString(),
-                        reason: reason || 'Sin motivo especificado',
-                        cancelledBy: isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student')
-                    }
-                );
-            }
-        } catch (error) {
-            console.error('Error sending cancellation emails:', error);
-        }
-
-        return new Response(JSON.stringify({ success: true }), { status: 200 });
-    } else if (action === 'complete' || action === 'no_show' || action === 'update_notes') {
-        // 👇 FIX 6: Security Fix (IDOR validation). 
-        // Prevent students from marking their own classes as complete, no_show, or updating teacher notes.
+    if (action === 'complete' || action === 'no_show' || action === 'update_notes') {
         if (!isTeacher && !isAdmin) {
             return new Response(JSON.stringify({ error: 'Forbidden. Only teachers and admins can modify session states.' }), { status: 403 });
         }
@@ -166,25 +181,42 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Session has not started yet.' }), { status: 409 });
         }
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const updateData: any = { updated_at: new Date().toISOString() };
+        if (action === 'no_show' && session.scheduled_at) {
+            const noShowAvailableAt = new Date(session.scheduled_at).getTime() + NO_SHOW_GRACE_PERIOD_MS;
+            if (Date.now() < noShowAvailableAt) {
+                return new Response(JSON.stringify({
+                    error: 'A no-show can only be recorded 15 minutes after the scheduled start time.',
+                }), { status: 409 });
+            }
+        }
+
+        const stateChangedAt = new Date().toISOString();
+        const updateData: Database['public']['Tables']['sessions']['Update'] = { updated_at: stateChangedAt };
 
         if (action === 'complete') {
             updateData.status = 'completed';
-            updateData.completed_at = new Date().toISOString();
+            updateData.completed_at = stateChangedAt;
         } else if (action === 'no_show') {
             updateData.status = 'no_show';
         }
 
         if (body.notes !== undefined) {
-            updateData.teacher_notes = body.notes;
+            if (body.notes !== null && typeof body.notes !== 'string') {
+                return new Response(JSON.stringify({ error: 'notes must be a string' }), { status: 400 });
+            }
+            updateData.teacher_notes = body.notes ?? null;
         }
 
+        let reportActivityBody: string | null = null;
         if (body.report !== undefined) {
-            updateData.post_class_report = body.report;
+            if (!isSessionReport(body.report)) {
+                return new Response(JSON.stringify({ error: 'report must be a string or object' }), { status: 400 });
+            }
+            updateData.post_class_report = body.report ?? null;
+            reportActivityBody = formatReportForActivityBody(body.report);
         }
 
-        let updateQuery = supabase
+        let updateQuery = supabaseAdmin
             .from('sessions')
             .update(updateData)
             .eq('id', sessionId);
@@ -201,6 +233,70 @@ export const POST: APIRoute = async (context) => {
 
         if ((action === 'complete' || action === 'no_show') && (!updatedRows || updatedRows.length === 0)) {
             return new Response(JSON.stringify({ error: 'Session state changed before this action could be applied.' }), { status: 409 });
+        }
+
+        if (action === 'complete' || action === 'no_show' || body.notes !== undefined || body.report !== undefined) {
+            const occurredAt = stateChangedAt;
+            const subject = action === 'complete'
+                ? 'Clase completada'
+                : action === 'no_show'
+                    ? 'Alumno no asistio'
+                    : 'Notas de clase actualizadas';
+
+            await recordCrmActivityForProfileSafe(supabaseAdmin, {
+                profileId: session.student_id,
+                email: session.student?.email ?? null,
+                fullName: session.student?.full_name ?? null,
+                actorId: user.id,
+                lifecycleStage: 'customer',
+                source: 'calendar',
+                activityType: 'class',
+                subject,
+                body: reportActivityBody
+                    ?? (typeof body.notes === 'string'
+                        ? body.notes
+                        : null),
+                occurredAt,
+                relatedEntityType: action === 'complete'
+                    ? 'session_completed'
+                    : action === 'no_show'
+                        ? 'session_no_show'
+                        : 'session_notes_update',
+                relatedEntityId: action === 'update_notes' ? `${sessionId}:${occurredAt}` : sessionId,
+                metadata: {
+                    session_id: sessionId,
+                    teacher_id: session.teacher_id,
+                    scheduled_at: session.scheduled_at,
+                    action,
+                    status: updateData.status ?? session.status,
+                },
+            });
+
+            if (action === 'complete') {
+                const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
+                await recordFirstClassCompletedSafe(supabaseAdmin, {
+                    profileId: session.student_id,
+                    email: session.student?.email ?? null,
+                    fullName: session.student?.full_name ?? null,
+                    subscriptionId: session.subscription_id ?? subscription?.id ?? null,
+                    sessionId,
+                    teacherId: session.teacher_id,
+                    scheduledAt: session.scheduled_at,
+                    completedAt: occurredAt,
+                });
+            } else if (action === 'no_show') {
+                const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
+                await recordNoShowFollowUpSafe(supabaseAdmin, {
+                    profileId: session.student_id,
+                    email: session.student?.email ?? null,
+                    fullName: session.student?.full_name ?? null,
+                    subscriptionId: session.subscription_id ?? subscription?.id ?? null,
+                    sessionId,
+                    teacherId: session.teacher_id,
+                    scheduledAt: session.scheduled_at,
+                    noShowAt: occurredAt,
+                });
+            }
         }
 
         return new Response(JSON.stringify({ success: true }), { status: 200 });

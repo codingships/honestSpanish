@@ -6,6 +6,7 @@ import { drive, drive_v3 } from '@googleapis/drive';
 import { docs } from '@googleapis/docs';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
+import { describeGoogleError } from './logging';
 
 let cachedDriveClient: drive_v3.Drive | null = null;
 type DrivePermissionRole = 'reader' | 'writer' | 'commenter';
@@ -42,7 +43,7 @@ export async function findFolder(name: string, parentId?: string): Promise<drive
 
         return response.data.files?.[0] || null;
     } catch (error) {
-        console.error('[Drive] Error finding folder:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error finding folder:', describeGoogleError(error));
         throw error;
     }
 }
@@ -64,10 +65,10 @@ export async function createFolder(name: string, parentId?: string): Promise<dri
             fields: 'id, name, webViewLink',
         });
 
-        console.log(`[Drive] Created folder: ${name} (${response.data.id})`);
+        console.log('[Drive] Created folder');
         return response.data;
     } catch (error) {
-        console.error('[Drive] Error creating folder:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error creating folder:', describeGoogleError(error));
         throw error;
     }
 }
@@ -78,7 +79,7 @@ export async function createFolder(name: string, parentId?: string): Promise<dri
 export async function findOrCreateFolder(name: string, parentId?: string): Promise<drive_v3.Schema$File> {
     const existing = await findFolder(name, parentId);
     if (existing) {
-        console.log(`[Drive] Found existing folder: ${name} (${existing.id})`);
+        console.log('[Drive] Found existing folder');
         return existing;
     }
     return createFolder(name, parentId);
@@ -135,9 +136,9 @@ export async function ensureUserPermission(fileId: string, email: string, role: 
             });
         }
 
-        console.log(`[Drive] Shared ${fileId} with ${normalizedEmail} as ${role}`);
+        console.log(`[Drive] Ensured explicit user permission with role ${role}`);
     } catch (error) {
-        console.error('[Drive] Error sharing file:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error sharing file:', describeGoogleError(error));
         throw error;
     }
 }
@@ -175,9 +176,9 @@ export async function ensureAnyoneWithLinkPermission(fileId: string, role: Drive
             });
         }
 
-        console.log(`[Drive] Ensured public-link access for ${fileId} as ${role}`);
+        console.log(`[Drive] Ensured public-link access with role ${role}`);
     } catch (error) {
-        console.error('[Drive] Error ensuring public-link permission:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error ensuring public-link permission:', describeGoogleError(error));
         throw error;
     }
 }
@@ -199,9 +200,9 @@ export async function revokeAnyoneWithLinkPermissions(fileId: string): Promise<v
             });
         }
 
-        console.log(`[Drive] Revoked public-link access for ${fileId}`);
+        console.log('[Drive] Revoked public-link access');
     } catch (error) {
-        console.error('[Drive] Error revoking public-link permission:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error revoking public-link permission:', describeGoogleError(error));
         throw error;
     }
 }
@@ -222,10 +223,10 @@ export async function copyFile(fileId: string, newName: string, destinationFolde
             fields: 'id, name, webViewLink',
         });
 
-        console.log(`[Drive] Copied file to: ${newName} (${response.data.id})`);
+        console.log('[Drive] Copied file');
         return response.data;
     } catch (error) {
-        console.error('[Drive] Error copying file:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error copying file:', describeGoogleError(error));
         throw error;
     }
 }
@@ -253,10 +254,10 @@ export async function moveFile(fileId: string, newParentId: string): Promise<dri
             fields: 'id, name, webViewLink',
         });
 
-        console.log(`[Drive] Moved file ${fileId} to ${newParentId}`);
+        console.log('[Drive] Moved file');
         return response.data;
     } catch (error) {
-        console.error('[Drive] Error moving file:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error moving file:', describeGoogleError(error));
         throw error;
     }
 }
@@ -287,9 +288,9 @@ export async function appendToDocument(docId: string, content: string): Promise<
             },
         });
 
-        console.log(`[Drive] Appended content to doc ${docId}`);
+        console.log('[Drive] Appended content to document');
     } catch (error) {
-        console.error('[Drive] Error appending to document:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error appending to document:', describeGoogleError(error));
         throw error;
     }
 }
@@ -308,7 +309,7 @@ export async function getFileLink(fileId: string): Promise<string> {
 
         return response.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`;
     } catch (error) {
-        console.error('[Drive] Error getting file link:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error getting file link:', describeGoogleError(error));
         return `https://drive.google.com/file/d/${fileId}/view`;
     }
 }
@@ -327,7 +328,7 @@ export async function getFolderLink(folderId: string): Promise<string> {
 
         return response.data.webViewLink || `https://drive.google.com/drive/folders/${folderId}`;
     } catch (error) {
-        console.error('[Drive] Error getting folder link:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error getting folder link:', describeGoogleError(error));
         return `https://drive.google.com/drive/folders/${folderId}`;
     }
 }
@@ -347,7 +348,7 @@ export async function listFilesInFolder(folderId: string): Promise<drive_v3.Sche
 
         return response.data.files || [];
     } catch (error) {
-        console.error('[Drive] Error listing files:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error listing files:', describeGoogleError(error));
         throw error;
     }
 }
@@ -383,7 +384,7 @@ export async function getStudentLevelStructure(
 
         const levelFolder = levelResponse.data.files?.[0];
         if (!levelFolder?.id) {
-            console.error(`[Drive] Level folder ${level} not found in ${rootFolderId}`);
+            console.error(`[Drive] Level folder ${level} not found`);
             return null;
         }
 
@@ -421,7 +422,9 @@ export async function getStudentLevelStructure(
 
         const indexDoc = indexResponse.data.files?.[0];
 
-        console.log(`[Drive] Found structure for level ${level}: exercises=${exercisesFolder.id}, index=${indexDoc?.id || 'none'}`);
+        console.log(indexDoc?.id
+            ? `[Drive] Found structure with index for level ${level}`
+            : `[Drive] Found structure without index for level ${level}`);
 
         return {
             levelFolderId: levelFolder.id,
@@ -431,8 +434,7 @@ export async function getStudentLevelStructure(
         };
 
     } catch (error) {
-        console.error('[Drive] Error getting student level structure:',
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error getting student level structure:', describeGoogleError(error));
         return null;
     }
 }
@@ -507,15 +509,14 @@ export async function createClassDocument(
             return null;
         }
 
-        console.log(`[Drive] Created class document: ${docName} (${newDocId})`);
+        console.log('[Drive] Created class document');
 
         // 4. Append to index document (non-blocking)
         if (structure.indexDocId) {
             try {
                 await appendToIndexDocument(structure.indexDocId, classDate, newDocUrl);
             } catch (indexError) {
-                console.warn('[Drive] Warning: Could not update index document:',
-                    indexError instanceof Error ? indexError.message : 'Unknown error');
+                console.warn('[Drive] Warning: Could not update index document:', describeGoogleError(indexError));
                 // Continue - document was created successfully
             }
         } else {
@@ -528,8 +529,7 @@ export async function createClassDocument(
         };
 
     } catch (error) {
-        console.error('[Drive] Error creating class document:',
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error creating class document:', describeGoogleError(error));
         return null;
     }
 }
@@ -570,8 +570,7 @@ export async function appendToIndexDocument(
 
         console.log(`[Drive] Added entry to index: ${dateStr}`);
     } catch (error) {
-        console.error('[Drive] Error appending to index document:',
-            error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error appending to index document:', describeGoogleError(error));
         throw error;
     }
 }
@@ -607,13 +606,13 @@ export async function uploadFileToFolder(
 
         if (!response.data.id) return null;
 
-        console.log(`[Drive] Uploaded file: ${fileName} to ${folderId}`);
+        console.log('[Drive] Uploaded file');
         return {
             docId: response.data.id,
             docUrl: response.data.webViewLink || `https://drive.google.com/file/d/${response.data.id}/view`
         };
     } catch (error) {
-        console.error('[Drive] Error uploading file:', error instanceof Error ? error.message : 'Unknown error');
+        console.error('[Drive] Error uploading file:', describeGoogleError(error));
         return null;
     }
 }

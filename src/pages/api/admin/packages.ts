@@ -1,9 +1,20 @@
 import type { APIContext, APIRoute } from 'astro';
+import type Stripe from 'stripe';
 import { z } from 'zod';
-import { stripe } from '../../../lib/stripe';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import {
+    calculatePackageTotalCents,
+    isPackageCheckoutReady,
+    packagePriceField,
+    PACKAGE_CURRENCY,
+    type PackageDuration,
+    type PackagePriceSnapshot,
+} from '../../../lib/package-pricing';
+import { assertStripePaymentReadiness, assertStripeRuntimeAccount } from '../../../lib/stripe-runtime-guard';
 import type { Database, Json } from '../../../types/database.types';
+
+type StripeClient = typeof import('../../../lib/stripe')['stripe'];
 
 export const config = {
     runtime: 'nodejs',
@@ -69,6 +80,14 @@ function parsePayload<T>(schema: z.ZodType<T>, value: unknown): { data: T; error
     return { data: result.data, error: null };
 }
 
+async function readJsonBody(context: APIContext): Promise<{ data: unknown; error: null } | { data: null; error: Response }> {
+    try {
+        return { data: await context.request.json(), error: null };
+    } catch {
+        return { data: null, error: jsonResponse({ error: 'Invalid JSON body' }, 400) };
+    }
+}
+
 async function requireAdmin(context: APIContext) {
     const supabase = createSupabaseServerClient(context);
     const { data: { user } } = await supabase.auth.getUser();
@@ -89,6 +108,15 @@ async function requireAdmin(context: APIContext) {
 
 function centsFromEuro(value: number): number {
     return Math.round(value * 100);
+}
+
+function isStripeResourceMissing(error: unknown): boolean {
+    return (error as { code?: unknown })?.code === 'resource_missing';
+}
+
+async function getStripeClient(): Promise<StripeClient> {
+    const { stripe } = await import('../../../lib/stripe');
+    return stripe;
 }
 
 function parseDisplayName(value: Json): Record<'es' | 'en' | 'ru', string> {
@@ -119,12 +147,42 @@ function parseDisplayName(value: Json): Record<'es' | 'en' | 'ru', string> {
     return { es: '', en: '', ru: '' };
 }
 
-function serializePackage(pkg: Database['public']['Tables']['packages']['Row']) {
+type PackagePriceRow = Database['public']['Tables']['package_prices']['Row'];
+
+function serializePackage(
+    pkg: Database['public']['Tables']['packages']['Row'],
+    packagePrices: PackagePriceSnapshot[] = []
+) {
     return {
         ...pkg,
         display_name: parseDisplayName(pkg.display_name),
-        checkout_ready: Boolean(pkg.is_active && pkg.stripe_price_1m && pkg.stripe_price_3m && pkg.stripe_price_6m),
+        checkout_ready: isPackageCheckoutReady({
+            ...pkg,
+            package_prices: packagePrices,
+        }),
     };
+}
+
+async function loadActivePackagePrices(
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+    packageIds: string[]
+): Promise<Map<string, PackagePriceSnapshot[]>> {
+    const byPackage = new Map<string, PackagePriceSnapshot[]>();
+    if (packageIds.length === 0) return byPackage;
+
+    const { data, error } = await supabaseAdmin
+        .from('package_prices')
+        .select('package_id, catalog_version, package_key, duration_months, amount_cents, currency, sessions_per_month, sessions_per_period, has_group_session, has_dual_teacher, status, stripe_account_id, stripe_livemode, stripe_product_id, stripe_price_id')
+        .eq('status', 'active')
+        .in('package_id', packageIds);
+    if (error) throw error;
+
+    for (const row of (data ?? []) as PackagePriceRow[]) {
+        const packageRows = byPackage.get(row.package_id) ?? [];
+        packageRows.push(row);
+        byPackage.set(row.package_id, packageRows);
+    }
+    return byPackage;
 }
 
 async function logAudit(
@@ -154,40 +212,84 @@ async function logAudit(
     }
 }
 
-async function ensureStripeProduct(pkg: Database['public']['Tables']['packages']['Row']) {
+async function ensureStripeProduct(
+    pkg: Database['public']['Tables']['packages']['Row'],
+    appEnvironment: string
+) {
+    const stripe = await getStripeClient();
     const displayName = parseDisplayName(pkg.display_name);
+    const metadata = {
+        package_id: pkg.id,
+        package_key: pkg.name,
+        catalog_version: String(pkg.catalog_version),
+        app_environment: appEnvironment,
+    };
 
     if (pkg.stripe_product_id) {
         try {
             const existingProduct = await stripe.products.retrieve(pkg.stripe_product_id);
             if (!existingProduct.deleted) {
+                const boundPackageId = existingProduct.metadata.package_id;
+                const boundEnvironment = existingProduct.metadata.app_environment;
+                if (
+                    (boundPackageId && boundPackageId !== metadata.package_id)
+                    || (boundEnvironment && boundEnvironment !== metadata.app_environment)
+                    || (!boundPackageId && existingProduct.name !== (displayName.es || pkg.name))
+                ) {
+                    throw new Error('Existing Stripe Product is bound to a different catalog');
+                }
                 if (
                     existingProduct.name !== (displayName.es || pkg.name) ||
-                    existingProduct.active !== Boolean(pkg.is_active)
+                    existingProduct.active !== Boolean(pkg.is_active) ||
+                    existingProduct.metadata.package_id !== metadata.package_id ||
+                    existingProduct.metadata.package_key !== metadata.package_key ||
+                    existingProduct.metadata.catalog_version !== metadata.catalog_version ||
+                    existingProduct.metadata.app_environment !== metadata.app_environment
                 ) {
                     await stripe.products.update(existingProduct.id, {
                         name: displayName.es || pkg.name,
                         active: Boolean(pkg.is_active),
-                        metadata: {
-                            package_id: pkg.id,
-                            package_key: pkg.name,
-                        },
+                        metadata,
                     });
                 }
                 return existingProduct.id;
             }
         } catch (error) {
+            if (!isStripeResourceMissing(error)) throw error;
             console.warn('[AdminPackages] Stripe product missing, creating replacement:', error);
         }
+    }
+
+    // Recover a Product created by a previous partial attempt. Product creation
+    // happens before the first atomic Price activation can persist its ID.
+    const products = await stripe.products.list({ limit: 100 });
+    const reusableProduct = products.data.find((candidate) => (
+        !candidate.deleted
+        && candidate.metadata.package_id === metadata.package_id
+        && candidate.metadata.catalog_version === metadata.catalog_version
+        && candidate.metadata.app_environment === metadata.app_environment
+    ));
+    if (reusableProduct && !reusableProduct.deleted) {
+        if (
+            reusableProduct.name !== (displayName.es || pkg.name)
+            || reusableProduct.active !== Boolean(pkg.is_active)
+            || reusableProduct.metadata.package_key !== metadata.package_key
+        ) {
+            await stripe.products.update(reusableProduct.id, {
+                name: displayName.es || pkg.name,
+                active: Boolean(pkg.is_active),
+                metadata,
+            });
+        }
+        return reusableProduct.id;
     }
 
     const product = await stripe.products.create({
         name: displayName.es || pkg.name,
         active: Boolean(pkg.is_active),
-        metadata: {
-            package_id: pkg.id,
-            package_key: pkg.name,
-        },
+        metadata,
+    }, {
+        idempotencyKey: `product:${appEnvironment}:${pkg.id}:v${pkg.catalog_version}`,
     });
 
     return product.id;
@@ -197,34 +299,98 @@ async function ensureStripePrice(input: {
     productId: string;
     packageKey: string;
     packageId: string;
+    catalogVersion: number;
+    appEnvironment: string;
+    livemode: boolean;
     existingPriceId: string | null;
     amount: number;
-    months: 1 | 3 | 6;
+    months: PackageDuration;
 }) {
+    const stripe = await getStripeClient();
+
+    const priceMatches = (price: Stripe.Price) => {
+        const priceProductId = typeof price.product === 'string' ? price.product : price.product.id;
+        return price.active
+            && priceProductId === input.productId
+            && price.unit_amount === input.amount
+            && price.currency === PACKAGE_CURRENCY
+            && price.recurring?.interval === 'month'
+            && price.recurring?.interval_count === input.months
+            && price.livemode === input.livemode;
+    };
+
+    const retrieveValidatedPrice = async (priceId: string): Promise<Stripe.Price> => {
+        let price = await stripe.prices.retrieve(priceId);
+
+        if (!price.metadata.package_key) {
+            await stripe.prices.update(price.id, {
+                metadata: { package_key: input.packageKey },
+            });
+            price = await stripe.prices.retrieve(price.id);
+        }
+
+        if (
+            !priceMatches(price)
+            || price.metadata.package_id !== input.packageId
+            || price.metadata.package_key !== input.packageKey
+            || price.metadata.catalog_version !== String(input.catalogVersion)
+            || price.metadata.duration_months !== String(input.months)
+            || price.metadata.app_environment !== input.appEnvironment
+        ) {
+            throw new Error('Stripe Price does not match the catalog offer after persistence');
+        }
+
+        return price;
+    };
+
     if (input.existingPriceId) {
         try {
             const existingPrice = await stripe.prices.retrieve(input.existingPriceId);
+            const existingProductId = typeof existingPrice.product === 'string'
+                ? existingPrice.product
+                : existingPrice.product.id;
             if (
-                existingPrice.active &&
-                existingPrice.unit_amount === input.amount &&
-                existingPrice.currency === 'eur' &&
-                existingPrice.recurring?.interval === 'month' &&
-                existingPrice.recurring?.interval_count === input.months
+                existingProductId !== input.productId
+                || existingPrice.metadata.package_id !== input.packageId
+                || existingPrice.metadata.catalog_version !== String(input.catalogVersion)
+                || existingPrice.metadata.duration_months !== String(input.months)
+                || existingPrice.metadata.app_environment !== input.appEnvironment
             ) {
-                return existingPrice.id;
+                throw new Error('Existing Stripe Price is bound to a different catalog');
             }
-
-            if (existingPrice.active) {
-                await stripe.prices.update(existingPrice.id, { active: false });
+            if (
+                existingPrice.metadata.package_key
+                && existingPrice.metadata.package_key !== input.packageKey
+            ) {
+                throw new Error('Existing Stripe Price is bound to a different package key');
             }
+            if (priceMatches(existingPrice)) return retrieveValidatedPrice(existingPrice.id);
         } catch (error) {
+            if (!isStripeResourceMissing(error)) throw error;
             console.warn('[AdminPackages] Existing Stripe price unavailable, creating new one:', error);
         }
     }
 
+    // Recover a Price created by a previous attempt where Stripe succeeded but
+    // the atomic Supabase activation did not.
+    const candidates = await stripe.prices.list({
+        product: input.productId,
+        active: true,
+        limit: 100,
+    });
+    const reusablePrice = candidates.data.find((candidate) => (
+        priceMatches(candidate)
+        && candidate.metadata.package_id === input.packageId
+        && candidate.metadata.catalog_version === String(input.catalogVersion)
+        && candidate.metadata.duration_months === String(input.months)
+        && candidate.metadata.app_environment === input.appEnvironment
+        && (!candidate.metadata.package_key || candidate.metadata.package_key === input.packageKey)
+    ));
+    if (reusablePrice) return retrieveValidatedPrice(reusablePrice.id);
+
     const price = await stripe.prices.create({
         product: input.productId,
-        currency: 'eur',
+        currency: PACKAGE_CURRENCY,
         unit_amount: input.amount,
         recurring: {
             interval: 'month',
@@ -233,11 +399,15 @@ async function ensureStripePrice(input: {
         metadata: {
             package_id: input.packageId,
             package_key: input.packageKey,
+            catalog_version: String(input.catalogVersion),
             duration_months: String(input.months),
+            app_environment: input.appEnvironment,
         },
+    }, {
+        idempotencyKey: `price:${input.appEnvironment}:${input.packageId}:v${input.catalogVersion}:${input.months}m`,
     });
 
-    return price.id;
+    return retrieveValidatedPrice(price.id);
 }
 
 export const GET: APIRoute = async (context) => {
@@ -254,8 +424,15 @@ export const GET: APIRoute = async (context) => {
         return jsonResponse({ error: 'Could not load packages' }, 500);
     }
 
+    let activePrices: Map<string, PackagePriceSnapshot[]>;
+    try {
+        activePrices = await loadActivePackagePrices(supabaseAdmin, (data ?? []).map((pkg) => pkg.id));
+    } catch {
+        return jsonResponse({ error: 'Could not verify package billing readiness' }, 500);
+    }
+
     return jsonResponse({
-        packages: (data ?? []).map(serializePackage),
+        packages: (data ?? []).map((pkg) => serializePackage(pkg, activePrices.get(pkg.id) ?? [])),
     });
 };
 
@@ -263,7 +440,10 @@ export const PATCH: APIRoute = async (context) => {
     const auth = await requireAdmin(context);
     if (auth.error || !auth.user) return auth.error;
 
-    const parsed = parsePayload(updatePackageSchema, await context.request.json());
+    const rawBody = await readJsonBody(context);
+    if (rawBody.error) return rawBody.error;
+
+    const parsed = parsePayload(updatePackageSchema, rawBody.data);
     if (parsed.error) return parsed.error;
     const payload = parsed.data;
     const supabaseAdmin = createSupabaseAdminClient();
@@ -279,9 +459,15 @@ export const PATCH: APIRoute = async (context) => {
     }
 
     const nextPriceMonthly = centsFromEuro(payload.priceMonthlyEur);
-    const priceChanged = before.price_monthly !== nextPriceMonthly;
+    const nextDisplayName = payload.displayName;
+    const currentDisplayName = parseDisplayName(before.display_name);
+    const catalogChanged = before.price_monthly !== nextPriceMonthly
+        || before.sessions_per_month !== payload.sessionsPerMonth
+        || Boolean(before.has_group_session) !== payload.hasGroupSession
+        || Boolean(before.has_dual_teacher) !== payload.hasDualTeacher
+        || JSON.stringify(currentDisplayName) !== JSON.stringify(nextDisplayName);
     const updateData: Database['public']['Tables']['packages']['Update'] = {
-        display_name: payload.displayName,
+        display_name: nextDisplayName,
         price_monthly: nextPriceMonthly,
         sessions_per_month: payload.sessionsPerMonth,
         has_group_session: payload.hasGroupSession,
@@ -289,7 +475,7 @@ export const PATCH: APIRoute = async (context) => {
         is_active: payload.isActive,
     };
 
-    if (priceChanged) {
+    if (catalogChanged) {
         updateData.stripe_price_1m = null;
         updateData.stripe_price_3m = null;
         updateData.stripe_price_6m = null;
@@ -315,20 +501,31 @@ export const PATCH: APIRoute = async (context) => {
         after: updated as Json,
     });
 
-    return jsonResponse({ package: serializePackage(updated) });
+    let activePrices: Map<string, PackagePriceSnapshot[]>;
+    try {
+        activePrices = catalogChanged
+            ? new Map()
+            : await loadActivePackagePrices(supabaseAdmin, [updated.id]);
+    } catch {
+        return jsonResponse({ error: 'Package saved but billing readiness could not be verified' }, 500);
+    }
+
+    return jsonResponse({ package: serializePackage(updated, activePrices.get(updated.id) ?? []) });
 };
 
 export const POST: APIRoute = async (context) => {
     const auth = await requireAdmin(context);
     if (auth.error || !auth.user) return auth.error;
 
-    const body = await context.request.json();
-    const supabaseAdmin = createSupabaseAdminClient();
+    const rawBody = await readJsonBody(context);
+    if (rawBody.error) return rawBody.error;
+    const body = rawBody.data;
 
-    if (body?.action === 'create_package') {
+    if (body && typeof body === 'object' && 'action' in body && body.action === 'create_package') {
         const parsed = parsePayload(createPackageSchema, body);
         if (parsed.error) return parsed.error;
         const payload = parsed.data;
+        const supabaseAdmin = createSupabaseAdminClient();
         const { data: created, error } = await supabaseAdmin
             .from('packages')
             .insert({
@@ -361,6 +558,7 @@ export const POST: APIRoute = async (context) => {
     const parsed = parsePayload(syncStripeSchema, body);
     if (parsed.error) return parsed.error;
     const payload = parsed.data;
+    const supabaseAdmin = createSupabaseAdminClient();
     const { data: pkg, error: packageError } = await supabaseAdmin
         .from('packages')
         .select('*')
@@ -371,29 +569,87 @@ export const POST: APIRoute = async (context) => {
         return jsonResponse({ error: 'Package not found' }, 404);
     }
 
-    const productId = await ensureStripeProduct(pkg);
-    const discounts: Record<1 | 3 | 6, number> = { 1: 1, 3: 0.9, 6: 0.8 };
-    const priceUpdates: Database['public']['Tables']['packages']['Update'] = {
-        stripe_product_id: productId,
-    };
+    const stripe = await getStripeClient();
+    const account = await stripe.accounts.retrieve();
+    const stripeRuntime = assertStripeRuntimeAccount(context, account);
+    if (stripeRuntime.livemode) assertStripePaymentReadiness(account);
+
+    const { data: retiredPriceRows, error: retiredPricesError } = await supabaseAdmin
+        .from('package_prices')
+        .select('duration_months, stripe_price_id, stripe_account_id, stripe_livemode, retired_at')
+        .eq('package_id', pkg.id)
+        .eq('status', 'retired')
+        .order('retired_at', { ascending: false });
+    if (retiredPricesError) {
+        return jsonResponse({ error: 'Could not load Stripe price history' }, 500);
+    }
+    const productId = await ensureStripeProduct(pkg, stripeRuntime.appEnvironment);
+    const activeReplacementByDuration = new Map<PackageDuration, string>();
 
     for (const months of payload.durations) {
-        const key = `stripe_price_${months}m` as 'stripe_price_1m' | 'stripe_price_3m' | 'stripe_price_6m';
-        priceUpdates[key] = await ensureStripePrice({
+        const key = packagePriceField(months);
+        const currentPriceId = pkg[key];
+        const expectedAmount = calculatePackageTotalCents(pkg.price_monthly, months);
+        const stripePrice = await ensureStripePrice({
             productId,
             packageId: pkg.id,
             packageKey: pkg.name,
-            existingPriceId: pkg[key],
-            amount: Math.round(pkg.price_monthly * months * discounts[months]),
+            catalogVersion: pkg.catalog_version,
+            appEnvironment: stripeRuntime.appEnvironment,
+            livemode: stripeRuntime.livemode,
+            existingPriceId: currentPriceId,
+            amount: expectedAmount,
             months,
         });
+
+        if (stripePrice.livemode !== stripeRuntime.livemode) {
+            return jsonResponse({ error: 'Stripe Price mode does not match this environment' }, 409);
+        }
+
+        const { error: activationError } = await supabaseAdmin.rpc('activate_package_price', {
+            p_package_id: pkg.id,
+            p_catalog_version: pkg.catalog_version,
+            p_duration_months: months,
+            p_amount_cents: expectedAmount,
+            p_currency: PACKAGE_CURRENCY,
+            p_stripe_account_id: stripeRuntime.accountId,
+            p_stripe_livemode: stripeRuntime.livemode,
+            p_stripe_product_id: productId,
+            p_stripe_price_id: stripePrice.id,
+            p_activated_by: auth.user.id,
+        });
+
+        if (activationError) {
+            console.error('[AdminPackages] Stripe Price created but activation failed:', activationError);
+            return jsonResponse({ error: 'Stripe price could not be activated in the catalog' }, 409);
+        }
+        activeReplacementByDuration.set(months, stripePrice.id);
+    }
+
+    // Retry every retired Price for the synchronized durations on every run.
+    // A transient Stripe failure must not leave an obsolete offer active forever.
+    for (const retiredPrice of retiredPriceRows ?? []) {
+        if (
+            (retiredPrice.duration_months !== 1
+                && retiredPrice.duration_months !== 3
+                && retiredPrice.duration_months !== 6)
+            || !payload.durations.includes(retiredPrice.duration_months)
+            || retiredPrice.stripe_livemode !== stripeRuntime.livemode
+            || (retiredPrice.stripe_account_id && retiredPrice.stripe_account_id !== stripeRuntime.accountId)
+            || activeReplacementByDuration.get(retiredPrice.duration_months) === retiredPrice.stripe_price_id
+        ) continue;
+
+        try {
+            await stripe.prices.update(retiredPrice.stripe_price_id, { active: false });
+        } catch (archiveError) {
+            console.warn('[AdminPackages] Retired Stripe Price could not be archived and will be retried:', archiveError);
+        }
     }
 
     const { data: updated, error: updateError } = await supabaseAdmin
         .from('packages')
-        .update(priceUpdates)
-        .eq('id', pkg.id)
         .select('*')
+        .eq('id', pkg.id)
         .single();
 
     if (updateError || !updated) {
@@ -409,5 +665,12 @@ export const POST: APIRoute = async (context) => {
         after: updated as Json,
     });
 
-    return jsonResponse({ package: serializePackage(updated) });
+    let activePrices: Map<string, PackagePriceSnapshot[]>;
+    try {
+        activePrices = await loadActivePackagePrices(supabaseAdmin, [updated.id]);
+    } catch {
+        return jsonResponse({ error: 'Stripe synchronized but billing readiness could not be verified' }, 500);
+    }
+
+    return jsonResponse({ package: serializePackage(updated, activePrices.get(updated.id) ?? []) });
 };

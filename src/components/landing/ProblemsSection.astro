@@ -1,22 +1,19 @@
 ---
-import noiseTexture from '../../assets/noise_texture.png';
-
 interface Props {
   headline: string;
   subtext: string;
-  statements: string[];
+  statements: readonly string[];
 }
 
 const { headline, subtext, statements } = Astro.props;
 ---
 <section
-    class="bg-white py-24 px-6 border-b-2 border-[#006064]"
-    style={`background-image: url(${noiseTexture.src}); background-size: 200px;`}
+    class="problems-section bg-white py-24 px-6 border-b-2 border-[#006064]"
 >
     <div class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-5 gap-12">
         {/* Left Column */}
         <div class="lg:col-span-2">
-            <h2 class="font-display text-4xl lg:text-5xl text-[#006064] mb-4" style={{ lineHeight: '1.55' }}>{headline}</h2>
+            <h2 class="font-display text-4xl lg:text-5xl text-[#006064] mb-4 leading-[1.55]">{headline}</h2>
             <p class="font-sans text-xl text-[#006064]/70 font-medium">{subtext}</p>
         </div>
 
@@ -24,7 +21,7 @@ const { headline, subtext, statements } = Astro.props;
         <div class="lg:col-span-3 space-y-8">
             {statements.map((statement, index) => (
                 <div class="relative pl-2">
-                    <span class="absolute -top-6 -left-4 font-display text-8xl text-[#006064]/10 select-none pointer-events-none">
+                    <span aria-hidden="true" class="absolute -top-6 -left-4 font-display text-8xl text-[#006064]/10 select-none pointer-events-none">
                         0{index + 1}
                     </span>
                     <p class="relative z-10 font-sans text-lg md:text-xl text-[#006064] font-medium leading-relaxed">
@@ -35,3 +32,10 @@ const { headline, subtext, statements } = Astro.props;
         </div>
     </div>
 </section>
+
+<style>
+    .problems-section {
+        background-image: url('../../assets/noise_texture.png');
+        background-size: 200px;
+    }
+</style>

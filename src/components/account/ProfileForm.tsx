@@ -89,10 +89,11 @@ export default function ProfileForm({ profile, translations: t }: ProfileFormPro
         <form onSubmit={handleSubmit} className="space-y-4">
             {/* Full Name */}
             <div>
-                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                <label htmlFor="profile-full-name" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                     {t.fullName}
                 </label>
                 <input
+                    id="profile-full-name"
                     type="text"
                     name="fullName"
                     value={formData.fullName}
@@ -103,10 +104,11 @@ export default function ProfileForm({ profile, translations: t }: ProfileFormPro
 
             {/* Email (read-only) */}
             <div>
-                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                <label htmlFor="profile-email" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                     {t.email}
                 </label>
                 <input
+                    id="profile-email"
                     type="email"
                     value={profile.email}
                     disabled
@@ -116,10 +118,11 @@ export default function ProfileForm({ profile, translations: t }: ProfileFormPro
 
             {/* Phone */}
             <div>
-                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                <label htmlFor="profile-phone" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                     {t.phone}
                 </label>
                 <input
+                    id="profile-phone"
                     type="tel"
                     name="phone"
                     value={formData.phone}
@@ -131,10 +134,11 @@ export default function ProfileForm({ profile, translations: t }: ProfileFormPro
 
             {/* Preferred Language */}
             <div>
-                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                <label htmlFor="profile-preferred-language" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                     {t.language}
                 </label>
                 <select
+                    id="profile-preferred-language"
                     name="preferredLanguage"
                     value={formData.preferredLanguage}
                     onChange={handleChange}
@@ -148,10 +152,11 @@ export default function ProfileForm({ profile, translations: t }: ProfileFormPro
 
             {/* Timezone */}
             <div>
-                <label className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
+                <label htmlFor="profile-timezone" className="block text-xs font-mono uppercase text-[#006064]/60 mb-1">
                     {t.timezone}
                 </label>
                 <select
+                    id="profile-timezone"
                     name="timezone"
                     value={formData.timezone}
                     onChange={handleChange}
@@ -177,10 +182,10 @@ export default function ProfileForm({ profile, translations: t }: ProfileFormPro
                 </button>
 
                 {saveStatus === 'saved' && (
-                    <span className="text-green-600 font-bold text-sm">✓ {t.saved}</span>
+                    <span role="status" className="text-green-600 font-bold text-sm">✓ {t.saved}</span>
                 )}
                 {saveStatus === 'error' && (
-                    <span className="text-red-600 font-bold text-sm">✗ Error</span>
+                    <span role="alert" className="text-red-600 font-bold text-sm">✗ Error</span>
                 )}
             </div>
         </form>

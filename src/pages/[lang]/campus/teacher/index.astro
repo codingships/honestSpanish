@@ -238,11 +238,7 @@ const getStatusBadge = (sub: any) => {
                 const name = card.getAttribute('data-name') || '';
                 const email = card.getAttribute('data-email') || '';
                 
-                if (name.includes(query) || email.includes(query)) {
-                    (card as HTMLElement).style.display = 'block';
-                } else {
-                    (card as HTMLElement).style.display = 'none';
-                }
+                (card as HTMLElement).hidden = !(name.includes(query) || email.includes(query));
             });
         });
     }

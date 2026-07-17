@@ -1,170 +1,154 @@
-# Arquitectura de "Español Honesto"
+# Arquitectura
 
-El proyecto `Español Honesto` aborda dos universos completamente distintos en un solo repositorio de Astro:
-1.  **Frontend Público e Internacional (SSG):** Rutas ultra-rápidas para adquirir *Leads*, optimizadas para SEO en tres idiomas.
-2.  **Dashboard Privado (SSR):** Aplicación interactiva bajo autenticación estricta donde conviven Alumnos, Profesores y Administrador.
+## Principio
 
----
+Modular monolith pragmatico: una app Astro para web/API transaccional y un Cloudflare Worker separado para jobs operativos. La prioridad es mantener limites claros por dominio sin redisenar todo el stack de golpe.
 
-## 1. El Patrón de Renderizado (Astro SSR/SSG Híbrido)
+## Runtimes
 
-El enrutador está configurado en `output: 'server'` (dentro de `astro.config.mjs`) para soportar sesiones dinámicas, pero usamos `export const prerender = true;` en las rutas que necesitan coste computacional cero y latencia CDN absoluta.
+### Cloudflare Astro Worker
 
-*   **Rutas Prerenderizadas (SSG - Estáticas):**
-    *   `/` (Landing Page)
-    *   `/[lang]/` (Página de Inicio traducida)
-    *   `/[lang]/blog/` (Lista de artículos)
-    *   `/[lang]/blog/[slug]` (Post individual generado mediante las colecciones de Keystatic en `src/content/blog`)
-    *   *En estas rutas, no hay acceso al objeto dinámico `Astro.request`.*
+Responsable de:
 
-*   **Rutas Server-Side (SSR - Dinámicas):**
-    *   `/[lang]/campus/*` (Todo el panel de estudiante, profesor y administrador)
-    *   `/[lang]/login` (Verifica si ya hay sesión abierta)
-    *   `/api/create-checkout.ts` (Redirige al Hosted Checkout de Stripe con precios dinámicos)
-    *   *Aquí se ejecutan consultas a BBDD en milisegundos y actúan los Guardianes de Ruta.*
+- Web publica ES/EN/RU.
+- Campus student/teacher/admin.
+- Auth SSR con Supabase.
+- API transaccional: checkout, webhook Stripe, CRM, reservas, cancelaciones.
+- Encolar trabajo en `fulfillment_jobs`.
+- Delegar disponibilidad/Drive/Docs/Calendar/Resend al Cloudflare Fulfillment Worker.
 
----
+La delegación desplegada usa el service binding privado `FULFILLMENT_SERVICE`. `FULFILLMENT_WORKER_URL` se mantiene como URL canónica y fallback local, mientras `INTERNAL_JOB_SECRET` autentica cada petición; staging y production no recurren a `fetch()` público entre Workers de la misma cuenta.
 
-## 2. Base de Datos (Supabase PostgreSQL)
+Regla: `src/pages/api/**` no debe importar `src/lib/google/**` ni `src/lib/fulfillment/jobs.ts`.
 
-**Fuente de Verdad (Source of Truth):** El archivo `db/schema.sql` es el plano oficial y canónico de la base de datos. Los archivos en `supabase/migrations/` o volcados como `esquema_nube.sql` deben ignorarse a la hora de consultar la arquitectura.
+### Cloudflare Fulfillment Worker
 
-La jerarquía del esquema de datos (`/db/schema.sql`) gira alrededor del objeto `auth.users` nativo de Supabase, extendido mediante triggers.
+Paquete: `workers/fulfillment`.
 
-### Relaciones Core
-1.  **Profiles (Perfiles):** La tabla maestra. Define el `role` (`student`, `teacher`, `admin`), el idioma y guarda el `stripe_customer_id`.
-2.  **Packages (Paquetes):** El catálogo de productos (`essential`, `intensive`, `premium`). Enlazan con los IDs de precio reales de Stripe (`stripe_price_1m`, `3m`, `6m`).
-3.  **Subscriptions (Suscripciones):** Une un `profile` con un `package`. Controla la fecha de fin (`ends_at`) y el total de sesiones de clase (`sessions_total` vs `sessions_used`).
-4.  **Student_Teachers (Asignación):** Tabla pivote (N:M). Define qué Profesor imparte clase a qué Estudiante (`is_primary = true`).
-5.  **Sessions (Clases):** El calendario de clases consumidas y programadas y sus *meet_links*.
-6.  **Leads:** Registro legal (GDPR) de los usuarios que dejan su email en el formulario para cumplir normativas.
+Responsable de:
 
-### Row Level Security (RLS)
-El frontend de Campus se comunican a través del Cliente SSR de Supabase. Supabase inyecta automáticametne las "Cookies" generadas en `login` hacia la conexión de PostgreSQL. 
+- `POST /internal/jobs/process`: en staging publica una senal pequena en Cloudflare Queues y responde sin ejecutar Google/Resend dentro de la ventana HTTP. Production conserva la ejecucion inline hasta que su Queue tenga una aprobacion separada.
+- `POST /internal/reminders/send`
+- `POST /internal/google/availability`
+- `POST /internal/google/filter-available-slots`
+- `POST /internal/drive/append-homework`
+- `POST /internal/account/link-google-drive`
+- `POST /internal/google/create-student-folder`
+- `GET /health`
 
-> [!TIP]
-> **Regla RLS:** Un `Student` *únicamente* puede leer las filas de la BBDD donde su `id` coincida. Intentar hacer un SELECT global devolverá una matriz vacía sin crashear.
+Todas las rutas internas requieren `Authorization: Bearer INTERNAL_JOB_SECRET`.
 
----
+En staging, `espanol-honesto-fulfillment-staging` produce y consume
+`espanol-honesto-fulfillment-staging-queue`; los mensajes agotados pasan a
+`espanol-honesto-fulfillment-staging-dlq`. La Queue solo transporta la senal
+`process_due`: Supabase `fulfillment_jobs` sigue siendo la fuente de verdad,
+con batch y concurrencia limitados a uno para proteger Google, Resend y la base.
 
-## 3. Webhooks & Bypass de Seguridad (Serverless APIs)
+## Dominios
 
-En `src/pages/api/`, Astro expone endpoints "Edge" desplegados como Cloudflare Workers. 
+- Auth/RBAC: `src/middleware.ts`, Supabase SSR client y `profiles.role`.
+- Billing: aprobacion CRM, `checkout_intents`, Stripe Checkout/webhooks, `packages`, `package_prices`, `subscriptions` y `payments`.
+- Scheduling: `sessions`, disponibilidad, quotas y acciones de clase.
+- Fulfillment: `fulfillment_jobs`, Google Workspace y Resend.
+- Notifications: emails transaccionales y recordatorios.
+- Admin CRM: usuarios, leads, paquetes, precios, jobs y recuperacion operativa.
+- Content/SEO: landing, blog, RSS, OG images.
 
-### /api/stripe-webhook.ts
-*   **Misión:** Escuchar asíncronamente a los servidores de Stripe y actualizar a los estudiantes.
-*   **Bypass:** Usa `SUPABASE_SERVICE_ROLE_KEY` (Cliente Admin). Esto ignora las políticas RLS. 
-*   **Lógica:** Cuando llega `checkout.session.completed`, el script extrae los metadatos de Stripe para buscar al Alumno, crea su suscripción en Postgres, y manda un email de bienvenida.
+## Base De Datos
 
-### /api/subscribe.ts
-*   **Misión:** Recibir los embudos Lead Magnet desde el Footer y la Landing Page (*React Island*).
-*   **Validación Dual:** Primero comprueba el token inyectado por `@marsidev/react-turnstile` mandándolo a Cloudflare `siteverify` para cazar bots. Si es humano, usa el Service Role para meter al lead en BBDD y lanza un Resend.
+Fuente oficial: `db/schema.sql`. Es un superset desplegable: contiene las 22 tablas comunes de la aplicación y las 2 tablas de smoke que solo existen en staging. Production excluye expresamente `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`; ninguna ruta production puede depender de esas tablas, sus RPC ni del hostname exclusivo de staging.
 
----
+La única cadena de despliegue es `supabase/migrations/`. `src/types/database.types.ts` se regenera desde staging porque es el entorno más avanzado y conserva ese superset; las ampliaciones manuales se limitan a la nulabilidad de argumentos/resultados PL/pgSQL que el generador de Supabase no puede inferir.
 
-## 4. Estructura de Roles del Sistema (Middlewares Reales)
+Tablas clave:
 
-El acceso al campus está estrictamente segregado leyendo el `role` de la tabla `profiles` en **Server Side**. El usuario no ve parpadeos de redirección, la pantalla ni siquiera compila el DOM si no tienes permiso.
+- `profiles`
+- `packages`
+- `package_prices`
+- `checkout_intents`
+- `subscriptions`
+- `sessions`
+- `student_teachers`
+- `payments`
+- `leads`
+- `profiles_private`
+- `processed_webhook_events`
+- `fulfillment_jobs`
+- `admin_audit_log`
 
-*   `admin/index.astro`: Si el perfíl devuelto no es `role === 'admin'`, se destruye la request devolviendo Status 302 y derivando a `/campus`. Tiene omnipotencia para ver la facturación y los listados puros.
-*   `teacher/index.astro`: Verifica que el role sea `teacher` o `admin`. Accede mediante JOINs a la tabla `student_teachers` para ver única y exclusivamente a SU cartera de clientes, y las sesiones relativas a ellos.
-*   `campus/account.astro`: Panel base. Únicamente puede ver las columnas de `subscriptions` donde su propio ID cuadra en PostgreSQL.
+Supabase RLS protege datos por rol. Las operaciones admin/worker usan service role y deben quedar en codigo server-only.
 
----
+## Fulfillment
 
-## 5. El Blog y CMS Git-Based (Keystatic)
+Flujo de pago:
 
-Para evitar inflar la BBDD tabular de Supabase con HTML y rich-text, los Artículos del Blog viven físicamente en el repositorio (Dentro de `src/content/blog`).
+1. El admin aprueba un paquete concreto en CRM; la web publica siempre mantiene `solicitar plaza`.
+2. El alumno autenticado elige 1/3/6 meses y Supabase reclama un unico `checkout_intent` atomico.
+3. La app verifica proyecto Supabase, cuenta/modo Stripe y la oferta inmutable antes de crear una unica Checkout Session idempotente.
+4. El webhook exige el intent y el Price realmente cobrado, consume la aprobacion y crea `subscription`/`payment` con snapshot contractual.
+5. Webhook encola `welcome_fulfillment`, pide procesamiento por Queue y el consumidor del Worker crea Drive y envia la confirmacion contractual fuera del limite HTTP.
 
-A esto se le suma el sistema **Keystatic**: Al entrar a `/keystatic` en local, levantas un mini-panel de control (React Admin) configurado por `keystatic.config.ts`. Este panel parsea los `.mdx`, te permite subir fotos y escribir artículos visualmente. 
-Al darle a guardar, Keystatic escribe el archivo markdown directamente en el disco duro para que hagas Commits. 
-Astro lo compila como estático (SSG) y lo sirve por 0ms desde Cloudflare. Pura eficiencia.
+Flujo de clase:
 
----
+1. Teacher/admin crea una clase.
+2. Cloudflare valida rol, quota y disponibilidad.
+3. Cloudflare inserta `sessions`.
+4. Cloudflare encola `session_fulfillment` o `bulk_session_fulfillment`.
+5. Cloudflare Fulfillment Worker crea Doc, Calendar, Meet y emails.
 
-## 6. Automatizaciones de Google Workspace
+Cancelacion:
 
-El sistema se integra de manera profunda con el ecosistema de Google mediante una **Service Account con Delegación de Dominio**, lo que permite actuar en nombre del usuario Administrador sin requerir OAuth interactivo.
+1. Cloudflare cambia estado y devuelve quota.
+2. Cloudflare encola `session_cancellation`.
+3. Cloudflare Fulfillment Worker cancela Calendar y envia emails.
 
-### Funciones Principales:
-*   **Google Drive (`src/lib/google/drive.ts`):** 
-    *   Genera carpetas organizadas para estudiantes de forma manual mediante el endpoint `/api/google/create-student-folder` (lógica principal en `src/lib/google/student-folder.ts`).
-    *   Por cada sesión agendada, clona automáticamente un "Documento de Clase" base vinculándolo a la carpeta de Drive del alumno específico.
-*   **Google Calendar y Meet (`src/lib/google/calendar.ts`):**
-    *   Almacena las sesiones de clase creando eventos de Cloudflare a Google Calendar.
-    *   Genera automáticamente el enlace de videollamada de **Google Meet** que es enviado al correo del alumno y profesor.
+## Productos Y Precios
 
-> [!NOTE]
-> Esta arquitectura garantiza que todo el material de clase (apuntes en Docs y grabaciones de Meet) residan siempre bajo la propiedad del correo administrador especificado en `GOOGLE_ADMIN_EMAIL`.
+El modelo tiene responsabilidades distintas, no cuatro copias editables:
 
----
+- `packages`: catalogo comercial editable y proyeccion publica.
+- `package_prices`: ofertas 1/3/6 inmutables, con importe, cuota, Product/Price, cuenta y modo; es la fuente contractual de checkout y renovacion.
+- Stripe: ejecuta el cobro; cada objeto se verifica contra `package_prices`.
+- `packages.stripe_price_*`: punteros denormalizados a las ofertas activas, escritos solo por `activate_package_price`.
 
-## 7. Tareas Programadas (Cron Jobs)
+El CRM admin sincroniza Stripe en el orden crear/verificar -> activar atomicamente en Supabase -> archivar el Price anterior.
 
-Existen rutinas de Backend asíncronas para el mantenimiento de los estudiantes y el Campus.
+Regla comercial actual:
 
-### `src/pages/api/cron/send-reminders.ts`
-*   **Misión:** Buscar en Supabase de forma automatizada las sesiones programadas (*scheduled*) que van a ocurrir en las próximas horas.
-*   **Acción:** Genera y envía por Resend un "Email de Recordatorio de Clase" con los enlaces de Google Meet tanto al profesor involucrado como al estudiante.
-*   **Despliegue:** Preparado para integrarse con Cloudflare Cron Triggers u otros invocadores HTTP externos mediante un Bearer Token.
+- Cambios de precio/cuota afectan solo a nuevas compras.
+- Stripe Price IDs son inmutables.
+- Al cambiar datos contractuales, las ofertas activas se retiran, se limpian punteros y el paquete deja de estar checkout-ready hasta sincronizar las tres duraciones.
+- Suscripciones guardan `package_price_id` y `contracted_sessions_per_period`; una edicion futura no cambia contratos existentes.
 
----
+## Google Workspace
 
-## 8. Cumplimiento Legal y Privacidad (RGPD / LSSI)
+Decision vigente: mantener service account con domain-wide delegation.
 
-El proyecto incluye de serie los requisitos legales mínimos para operar comercialmente en Europa y el mundo hispanohablante.
+Decision vigente: mantener acceso Drive "anyone with link" para reducir friccion operativa. Cuando el alumno vincula una cuenta Google se puede anadir permiso directo, pero no se revoca automaticamente el acceso por enlace mientras esta decision siga vigente.
 
-### Textos Legales (SSG Multilingüe)
-En `src/pages/[lang]/legal/` se generan de forma estática (SSG) las siguientes páginas en 3 idiomas (Español, Inglés y Ruso):
-*   `aviso-legal.astro`: Identificación del titular (LSSI).
-*   `privacidad.astro`: Política de privacidad y tratamiento de datos (RGPD).
-*   `cookies.astro`: Explicación técnica de las cookies usadas.
-*   `terminos.astro`: Términos y condiciones de contratación de los paquetes de clases.
+Meet no se corta automaticamente. Las duraciones comerciales disponibles son 30, 40 y 50 minutos; la duracion por defecto es 50 minutos y se usa para agenda/disponibilidad.
 
-### Consentimiento de Cookies
-En `src/components/CookieBanner.astro` existe un banner inyectado globalmente a través del `BaseLayout.astro`. 
-*   **Funcionamiento:** Aparece flotando en la parte inferior si el usuario no tiene la clave `cookie_consent` en su `localStorage`.
-*   **Bloqueo:** Permite a la plataforma condicionar la carga de scripts de analítica (como Google Analytics, Meta Pixel) al evento de aceptación por parte del usuario, cumpliendo con la directiva ePrivacy europea.
+## Entornos
 
----
+Debe haber staging y produccion separados:
 
-## 9. Monitoreo y Observabilidad (Sentry)
+- Cloudflare Astro Worker.
+- Cloudflare Fulfillment Worker.
+- Supabase con proyectos separados para staging y production dentro de la misma cuenta, sin branching.
+- Stripe test/live.
+- Google folders/templates.
+- Resend sender/domain.
+- Sentry environment.
 
-Para garantizar la estabilidad en Producción, el proyecto integra **Sentry** de forma nativa a través del adaptador oficial `@sentry/astro`.
+## Calidad
 
-*   **Server-Side Tracking:** Monitorea de cerca excepciones ocurridas en endpoints asíncronos (como fallos en el *webhook* de Stripe o en los *Cron Jobs*) permitiendo rastrear la petición desde Cloudflare Workers hasta la caída.
-*   **Client-Side Tracking:** Captura errores no controlados de React (por ejemplo, excepciones durante la carga en Islands complejas o formularios).
-*   **Release Management:** Los Source Maps son inyectados y emparejados en build time para poder trazar los errores minificados al código original TypeScript, reportando así métricas de rendimiento y cuellos de botella del Edge Rendering.
+Minimo antes de deploy:
 
----
-
-## 10. SEO Dinámico (Open Graph y RSS)
-
-Para maximizar el CTR (Click-Through Rate) en redes sociales (Twitter, LinkedIn, WhatsApp) y mejorar el Discoverability, el proyecto abandona las imágenes estáticas en favor de la generación al vuelo.
-
-### Generación de Imágenes Open Graph (Satori + resvg)
-*   **Endpoint:** `src/pages/og/[slug].png.ts`.
-*   **Lógica:** Usando **Satori** (creado por Vercel), incrustamos componentes TSX transformándolos en SVG (como si estuviéramos escribiendo UI directamente). Luego, **`@resvg/resvg-js`** toma este SVG y lo compila en buffer binario PNG usando WebAssembly de forma instantánea al solicitar la URL.
-*   **Dinamismo:** El título del post del blog, el autor, o el idioma detectado determinan la apariencia visual de la miniatura, no consumiendo tiempo de diseño manual.
-
-### Sindicación (RSS)
-*   **Endpoint:** `src/pages/[lang]/blog/rss.xml.ts`.
-*   **Lógica:** Mediante `@astrojs/rss`, cada idioma compila un feed XML automatizado leyendo iterativamente de las colecciones locales Markdown controladas por **Keystatic**, propiciando interacciones limpias para agregadores modernos y Newsletters.
-
----
-
-## 11. Arquitectura de Testing y Calidad
-
-"Español Honesto" no depende de la suerte en los despliegues. Usamos una pirámide invertida de Testing que blinda rutas críticas y comportamientos asíncronos, apoyándose intensivamente en Mocks por la cantidad de integraciones externas (Google, Stripe, Supabase).
-
-### Unidad e Integración (Vitest + MSW)
-*   **Motor:** Vitest en modo DOM simulado y NodeJS nativo para Server Endpoints.
-*   **Asilamiento:** Las dependencias externas letales están "mockeadas":
-    *   `vi.mock` intercepta llamadas al cliente de autenticación `Supabase Server`.
-    *   **MSW (Mock Service Worker)** intercepta peticiones HTTP de la API de Google o llamadas en cliente React sin ensuciar producción.
-*   *Misión:* Asegurarse de que las reglas de negocio base (crear clases con disponibilidad correcta, bloquear intentos malformados) no rompan de un build a otro.
-
-### Pruebas E2E (Playwright)
-*   **La Suite E2E** usa credenciales de prueba pre-guardadas (`.auth/`) y proyectos estrictamente fragmentados en `playwright.config.ts`.
-*   **Proyectos Específicos:** Se lanzan en paralelo sub-redes para testar a un `student`, a un `teacher`, la ruta pública (`public`) y al `admin`.
-*   **Validación de Caja Negra:** Se ciñe agresivamente al **`uat_test_plan.md.resolved`**, garantizando que no haya *Double-booking* en calendarios compartidos, ni escaladas de IDOR (ej. que un alumno modifique la clase de otro) por fallos RLS no contemplados.
+```bash
+pnpm typecheck
+pnpm fulfillment:typecheck
+pnpm lint
+pnpm test:run
+pnpm build
+pnpm secrets:check
+```

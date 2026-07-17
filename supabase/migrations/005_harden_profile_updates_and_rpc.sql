@@ -15,6 +15,28 @@ REVOKE EXECUTE ON FUNCTION public.get_available_slots(uuid, date, integer) FROM 
 REVOKE EXECUTE ON FUNCTION public.get_available_slots(uuid, date, integer) FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.get_available_slots(uuid, date, integer) TO service_role;
 
+-- Policies introduced by the next migrations need this helper before the
+-- launch-catalog migration historically re-declared it. Keep the bootstrap
+-- chain executable from an empty database; migration 016 later moves the
+-- hardened implementation to the private schema.
+CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean
+    LANGUAGE plpgsql
+    SECURITY DEFINER
+    SET search_path = public
+    AS $$
+BEGIN
+    RETURN EXISTS (
+        SELECT 1 FROM public.profiles
+        WHERE id = auth.uid() AND role = 'admin'
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.is_admin() FROM anon;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO service_role;
+
 -- Consolidate profile protection in a single trigger.
 DROP TRIGGER IF EXISTS prevent_role_change_trigger ON public.profiles;
 DROP TRIGGER IF EXISTS no_role_escalation ON public.profiles;

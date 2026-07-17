@@ -31,17 +31,23 @@ dist-ssr
 .netlify
 .astro
 .env
-.env.local
-.env.test
+.env.*
+!.env.example
+!.env.*.example
 tests/e2e/.auth/
 coverage/
 playwright-report/
 test-results/
+.temp-execution-*.js
 .gemini
+tmp/
 
 # Cloudflare
 .wrangler/
-.dev.vars
+.dev.vars*
+!.dev.vars.example
+!.dev.vars.staging.example
+!.dev.vars.production.example
 supabase/.temp/
 
 # Vercel (not used)
@@ -55,3 +61,6 @@ audit_handover.md
 uat_test_plan.md.resolved
 build_error*.txt
 scripts/test-credentials.json
+outputs/
+docs/launch/MANUAL_EVIDENCE.local.json
+.codex-ops/

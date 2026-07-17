@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 
 interface Session {
     id: string;
@@ -37,10 +37,34 @@ export default function PostClassReport({
     const [homeworkText, setHomeworkText] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const dialogId = useId();
+    const titleId = `${dialogId}-title`;
+    const ratingLabelId = `${dialogId}-rating-label`;
+    const commentsId = `${dialogId}-comments`;
+    const homeworkId = `${dialogId}-homework`;
 
     const skillLevels = ['Needs Work', 'Good', 'Excellent'];
+    const skillLabels: Record<string, string> = {
+        grammar: 'Gramatica',
+        vocabulary: 'Vocabulario',
+        fluency: 'Fluidez',
+        pronunciation: 'Pronunciacion',
+    };
+    const levelLabels: Record<string, string> = {
+        'Needs Work': 'Falla un poco',
+        Good: 'Bien',
+        Excellent: 'Excelente',
+    };
 
-    const handleSubmit = async () => {
+    const handleClose = () => {
+        if (isLoading) return;
+        onClose();
+    };
+
+    const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        if (isLoading) return;
+
         if (rating === 0) {
             setError('Please provide a rating for the class.');
             return;
@@ -57,10 +81,10 @@ export default function PostClassReport({
 
         try {
             await onSubmit(reportData, homeworkText);
+            setIsLoading(false);
             onClose();
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Error saving the report');
-        } finally {
             setIsLoading(false);
         }
     };
@@ -69,38 +93,58 @@ export default function PostClassReport({
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+            <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={handleClose} aria-hidden="true" />
 
-            <div className="relative bg-white border-4 border-[#006064] shadow-[12px_12px_0px_0px_#006064] p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={titleId}
+                aria-busy={isLoading}
+                data-testid="post-class-report"
+                className="relative bg-white border-4 border-[#006064] shadow-[12px_12px_0px_0px_#006064] p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+            >
                 <div className="flex justify-between items-start mb-6 border-b-2 border-[#006064]/20 pb-4">
                     <div>
-                        <h2 className="font-display text-2xl text-[#006064] uppercase tracking-wider">
+                        <h2 id={titleId} className="font-display text-2xl text-[#006064] uppercase tracking-wider">
                             Reporte Post-Clase
                         </h2>
                         <p className="font-mono text-sm text-[#006064]/70 mt-1">
                             Estudiante: {session.student.full_name || session.student.email}
                         </p>
                     </div>
-                    <button onClick={onClose} className="text-[#006064] hover:opacity-70 text-3xl font-light">×</button>
+                    <button
+                        type="button"
+                        onClick={handleClose}
+                        disabled={isLoading}
+                        aria-label="Cerrar reporte post-clase"
+                        className="text-[#006064] hover:opacity-70 text-3xl font-light disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        ×
+                    </button>
                 </div>
 
                 {error && (
-                    <div className="mb-6 p-4 bg-red-100 border-l-4 border-red-500 text-red-800 text-sm font-bold font-mono">
+                    <div role="alert" className="mb-6 p-4 bg-red-100 border-l-4 border-red-500 text-red-800 text-sm font-bold font-mono">
                         {error}
                     </div>
                 )}
 
-                <div className="space-y-8">
+                <form onSubmit={handleSubmit} className="space-y-8">
                     {/* 1. Rating General */}
-                    <section>
-                        <h3 className="font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">1. Valoración General</h3>
-                        <div className="flex gap-2">
+                    <section aria-labelledby={ratingLabelId}>
+                        <h3 id={ratingLabelId} className="font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">1. Valoración General</h3>
+                        <div role="radiogroup" aria-labelledby={ratingLabelId} className="stars flex gap-2">
                             {[1, 2, 3, 4, 5].map((star) => (
                                 <button
                                     key={star}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={rating === star}
+                                    aria-label={`Seleccionar ${star} estrellas`}
+                                    disabled={isLoading}
                                     onClick={() => setRating(star)}
                                     className={`text-4xl transition-transform hover:scale-110 ${rating >= star ? 'text-yellow-400' : 'text-gray-200'
-                                        }`}
+                                        } disabled:cursor-not-allowed disabled:hover:scale-100`}
                                 >
                                     ★
                                 </button>
@@ -109,70 +153,79 @@ export default function PostClassReport({
                     </section>
 
                     {/* 2. Evaluación por Habilidades (Skills) */}
-                    <section>
-                        <h3 className="font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">2. Evaluación por Áreas</h3>
+                    <section aria-labelledby={`${dialogId}-skills-title`}>
+                        <h3 id={`${dialogId}-skills-title`} className="font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">2. Evaluación por Áreas</h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             {Object.entries(skills).map(([skill, currentValue]) => (
-                                <div key={skill} className="bg-[#E0F7FA] p-4 border border-[#006064]/20">
-                                    <p className="font-bold text-sm uppercase text-[#006064] capitalize mb-3">
+                                <fieldset key={skill} className="bg-[#E0F7FA] p-4 border border-[#006064]/20">
+                                    <legend className="font-bold text-sm uppercase text-[#006064] capitalize mb-3">
                                         {skill === 'fluency' ? 'Fluidez' :
                                             skill === 'grammar' ? 'Gramática' :
                                                 skill === 'vocabulary' ? 'Vocabulario' : 'Pronunciación'}
-                                    </p>
+                                    </legend>
                                     <div className="flex flex-col gap-2">
                                         {skillLevels.map(level => (
                                             <label key={level} className="flex items-center gap-2 text-sm text-[#006064] cursor-pointer">
                                                 <input
                                                     type="radio"
-                                                    name={`skill-${skill}`}
+                                                    name={skill}
                                                     value={level}
                                                     checked={currentValue === level}
+                                                    disabled={isLoading}
+                                                    aria-label={`${skillLabels[skill]}: ${levelLabels[level]}`}
                                                     onChange={(e) => setSkills(prev => ({ ...prev, [skill]: e.target.value }))}
-                                                    className="accent-[#006064] w-4 h-4 cursor-pointer"
+                                                    className="accent-[#006064] w-4 h-4 cursor-pointer disabled:cursor-not-allowed"
                                                 />
-                                                {level === 'Needs Work' ? 'Falla un poco' : level === 'Good' ? 'Bien' : 'Excelente'}
+                                                {levelLabels[level]}
                                             </label>
                                         ))}
                                     </div>
-                                </div>
+                                </fieldset>
                             ))}
                         </div>
                     </section>
 
                     {/* 3. Comentarios */}
                     <section>
-                        <h3 className="font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">3. Comentarios para el Estudiante (Visible)</h3>
+                        <label htmlFor={commentsId} className="block font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">3. Comentarios para el Estudiante (Visible)</label>
                         <textarea
+                            id={commentsId}
+                            name="comments"
                             value={comments}
+                            disabled={isLoading}
                             onChange={(e) => setComments(e.target.value)}
                             placeholder="Escribe aspectos positivos y cosas a mejorar..."
-                            className="w-full h-32 p-4 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 text-sm"
+                            className="w-full h-32 p-4 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 text-sm disabled:cursor-not-allowed disabled:opacity-70"
                         />
                     </section>
 
                     {/* 4. Deberes (Se anexan al Doc) */}
                     <section className="bg-gray-50 border-2 border-dashed border-[#006064]/40 p-6">
-                        <h3 className="font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-2">4. Deberes (Se añadirán a su Documento)</h3>
+                        <label htmlFor={homeworkId} className="block font-bold font-mono text-xs uppercase tracking-widest text-[#006064] mb-2">4. Deberes (Se añadirán a su Documento)</label>
                         <p className="text-xs text-[#006064]/60 mb-4">El texto escrito aquí se incrustará automáticamente al final del Google Doc de esta clase.</p>
                         <textarea
+                            id={homeworkId}
+                            name="homework_text"
                             value={homeworkText}
+                            disabled={isLoading}
                             onChange={(e) => setHomeworkText(e.target.value)}
                             placeholder="Ej: Escribe 5 frases usando el Presente Perfecto..."
-                            className="w-full h-32 p-4 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 text-sm"
+                            className="w-full h-32 p-4 border-2 border-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20 text-sm disabled:cursor-not-allowed disabled:opacity-70"
                         />
                     </section>
 
                     {/* Submit */}
                     <div className="pt-4 border-t-2 border-[#006064]/20">
                         <button
-                            onClick={handleSubmit}
+                            type="submit"
                             disabled={isLoading}
+                            aria-busy={isLoading}
                             className="w-full py-4 bg-[#006064] text-white font-bold uppercase tracking-widest text-sm border-2 border-[#006064] hover:bg-[#004d40] hover:translate-y-[-2px] hover:shadow-[0_4px_0_0_#004d40] transition-all disabled:opacity-50 disabled:transform-none disabled:shadow-none disabled:cursor-not-allowed"
                         >
                             {isLoading ? 'GUARDANDO EN DRIVE Y COMPLETANDO...' : 'ENVIAR REPORTE Y COMPLETAR CLASE'}
                         </button>
                     </div>
-                </div>
+                </form>
             </div>
         </div>
     );

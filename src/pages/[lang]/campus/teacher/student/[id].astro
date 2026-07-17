@@ -1,13 +1,21 @@
 ---
 import CampusLayout from '../../../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../../../../i18n/utils';
 import { getPrivateProfile } from '../../../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
 import TeacherNotes from '../../../../../components/TeacherNotes';
+import ProgressBar from '../../../../../components/ProgressBar.astro';
+import type { Json } from '../../../../../types/database.types';
 
 export const prerender = false;
 
-const { lang, id: studentId } = Astro.params as { lang: 'es' | 'en' | 'ru'; id: string };
+const lang = getLangFromParam(Astro.params.lang);
+const studentId = Astro.params.id;
+
+if (!studentId) {
+    return Astro.redirect(`/${lang}/campus/teacher`);
+}
+
 const t = useTranslations(lang);
 
 // Get Supabase client and user
@@ -76,10 +84,24 @@ const { data: subscription } = await supabase
     .single();
 
 // Helper function for package name
-const getPackageName = (sub: any) => {
+type SubscriptionPackage = {
+    packages: {
+        name: string;
+        display_name: Json;
+    } | null;
+};
+
+const localizedPackageName = (displayName: Json): string | null => {
+    if (!displayName || typeof displayName !== 'object' || Array.isArray(displayName)) return null;
+    const localized = displayName[lang];
+    if (typeof localized === 'string') return localized;
+    const spanish = displayName.es;
+    return typeof spanish === 'string' ? spanish : null;
+};
+
+const getPackageName = (sub: SubscriptionPackage | null | undefined) => {
     if (!sub?.packages?.display_name) return t('campus.teacher.noPlan');
-    const displayName = sub.packages.display_name;
-    return displayName[lang] || displayName['es'] || sub.packages.name;
+    return localizedPackageName(sub.packages.display_name) || sub.packages.name;
 };
 
 // Format dates
@@ -89,10 +111,6 @@ const formatDate = (dateStr: string) => {
 };
 
 // Calculate progress percentage
-const progressPercent = subscription 
-    ? Math.round((subscription.sessions_used / subscription.sessions_total) * 100) 
-    : 0;
-
 // Language display
 const languageNames: Record<string, string> = {
     es: 'Español',
@@ -149,12 +167,11 @@ const languageNames: Record<string, string> = {
                             <span class="font-mono">{t('campus.teacher.sessions')}</span>
                             <span class="font-bold">{subscription.sessions_used} / {subscription.sessions_total}</span>
                         </div>
-                        <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
-                            <div 
-                                class="bg-[#006064] h-full transition-all"
-                                style={`width: ${progressPercent}%`}
-                            ></div>
-                        </div>
+                        <ProgressBar
+                            value={subscription.sessions_used}
+                            max={subscription.sessions_total}
+                            label={t('campus.teacher.sessions')}
+                        />
                     </div>
                 </div>
             ) : (

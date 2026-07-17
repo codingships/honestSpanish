@@ -1,8 +1,14 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../i18n/utils';
+import { ui } from '../../../i18n/translations';
+import { findCheckoutApproval } from '../../../lib/checkout-approval';
+import { isCheckoutEnabled } from '../../../lib/checkout-enabled';
+import { getCheckoutReadyPackageOffers, isPackageKeyCheckoutEligible, type PackageCatalogSnapshot } from '../../../lib/package-pricing';
 import { getPrivateProfile } from '../../../lib/profiles-private';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import ApprovedCheckoutCard from '../../../components/account/ApprovedCheckoutCard';
 import ProfileForm from '../../../components/account/ProfileForm';
 
 export const prerender = false;
@@ -43,12 +49,102 @@ if (profile.role === 'student') {
             )
         `)
         .eq('student_id', user.id)
-        .eq('status', 'active')
+        .in('status', ['active', 'pending', 'paused'])
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
     subscription = sub;
     profilePrivate = await getPrivateProfile(user.id);
+}
+
+let approvedCheckoutPlan: {
+    name: string;
+    displayName: string;
+    priceMonthlyCents: number;
+    sessionsPerMonth: number;
+    priceTotalsCents: Record<1 | 3 | 6, number>;
+    stripe_price_1m: string | null;
+    stripe_price_3m: string | null;
+    stripe_price_6m: string | null;
+} | null = null;
+
+if (
+    profile.role === 'student'
+    && !subscription
+    && isCheckoutEnabled(Astro)
+    && user.email
+    && user.email_confirmed_at
+) {
+    const supabaseAdmin = createSupabaseAdminClient();
+    const approval = await findCheckoutApproval(supabaseAdmin, {
+        userId: user.id,
+        email: user.email,
+        emailConfirmedAt: user.email_confirmed_at,
+    });
+
+    if (approval) {
+        const { data: approvedPackage } = await supabaseAdmin
+            .from('packages')
+            .select(`
+                id,
+                name,
+                display_name,
+                price_monthly,
+                catalog_version,
+                sessions_per_month,
+                has_group_session,
+                has_dual_teacher,
+                stripe_product_id,
+                stripe_price_1m,
+                stripe_price_3m,
+                stripe_price_6m,
+                is_active,
+                package_prices (
+                    catalog_version,
+                    package_key,
+                    duration_months,
+                    amount_cents,
+                    currency,
+                    sessions_per_month,
+                    sessions_per_period,
+                    has_group_session,
+                    has_dual_teacher,
+                    status,
+                    stripe_account_id,
+                    stripe_livemode,
+                    stripe_product_id,
+                    stripe_price_id
+                )
+            `)
+            .eq('id', approval.packageId)
+            .eq('is_active', true)
+            .single();
+
+        const activeOffers = approvedPackage && isPackageKeyCheckoutEligible(approvedPackage.name)
+            ? getCheckoutReadyPackageOffers(approvedPackage as PackageCatalogSnapshot)
+            : null;
+
+        if (
+            approvedPackage
+            && activeOffers
+        ) {
+            const displayName = approvedPackage.display_name as Record<string, string>;
+            approvedCheckoutPlan = {
+                name: approvedPackage.name,
+                displayName: displayName?.[lang] || displayName?.es || approvedPackage.name,
+                priceMonthlyCents: approvedPackage.price_monthly,
+                sessionsPerMonth: approvedPackage.sessions_per_month,
+                priceTotalsCents: {
+                    1: activeOffers.get(1)!.amount_cents,
+                    3: activeOffers.get(3)!.amount_cents,
+                    6: activeOffers.get(6)!.amount_cents,
+                },
+                stripe_price_1m: approvedPackage.stripe_price_1m,
+                stripe_price_3m: approvedPackage.stripe_price_3m,
+                stripe_price_6m: approvedPackage.stripe_price_6m,
+            };
+        }
+    }
 }
 
 const driveFolderUrl = profilePrivate?.drive_folder_url
@@ -214,6 +310,7 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                 <div id="password-success" class="hidden p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm"></div>
                 <button
                     id="save-password-btn"
+                    data-default-label={t('campus.account.changePassword')}
                     class="px-4 py-2 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                 >
                     {t('campus.account.changePassword')}
@@ -235,14 +332,14 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                                 <p class="font-bold text-[#006064] text-lg">{getPackageName(subscription)}</p>
                                 <p class="text-sm text-[#006064]/60">
                                     {subscription.status === 'active' ? (
-                                        <span class="text-green-600">● Activo</span>
+                                        <span class="text-green-600">● {t('campus.account.active')}</span>
                                     ) : (
                                         <span class="text-gray-500">● {subscription.status}</span>
                                     )}
                                 </p>
                             </div>
                             <div class="text-right">
-                                <p class="text-xs text-[#006064]/60 uppercase">Expira</p>
+                                <p class="text-xs text-[#006064]/60 uppercase">{t('campus.account.expires')}</p>
                                 <p class="font-mono text-[#006064]">{formatDate(subscription.ends_at)}</p>
                             </div>
                         </div>
@@ -256,6 +353,13 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                             </button>
                         )}
                     </div>
+                ) : approvedCheckoutPlan ? (
+                    <ApprovedCheckoutCard
+                        client:load
+                        plan={approvedCheckoutPlan}
+                        lang={lang}
+                        translations={ui[lang].pricing.modal}
+                    />
                 ) : (
                     <div>
                         <p class="text-[#006064]/60 font-mono mb-4">{t('campus.dashboard.noPlan')}</p>
@@ -306,7 +410,11 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                         )}
                     </div>
 
-                    <form id="link-drive-form" class="space-y-3">
+                    <form
+                        id="link-drive-form"
+                        class="space-y-3"
+                        data-drive-ui={JSON.stringify(driveUi[lang])}
+                    >
                         <div>
                             <label for="google-account-email" class="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                                 {driveUi[lang].emailLabel}
@@ -363,28 +471,18 @@ const driveUi: Record<'es' | 'en' | 'ru', {
     </div>
 </CampusLayout>
 
-<script define:vars={{ driveUi: driveUi[lang], changePasswordLabel: t('campus.account.changePassword') }}>
-    // Stripe Customer Portal
-    const stripeBtn = document.getElementById('manage-stripe-btn');
-    stripeBtn?.addEventListener('click', async () => {
-        try {
-            stripeBtn.textContent = '...';
-            const response = await fetch('/api/account/create-portal-session', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-            });
-            
-            if (response.ok) {
-                const data = await response.json();
-                if (data.url) {
-                    window.location.href = data.url;
-                }
-            }
-        } catch (error) {
-            console.error('Error opening Stripe portal:', error);
-        }
-    });
+<script>
+    import { openBillingPortal } from '../../../lib/billing-portal-client';
 
+    const stripeBtn = document.getElementById('manage-stripe-btn') as HTMLButtonElement | null;
+    stripeBtn?.addEventListener('click', () => {
+        void openBillingPortal({ button: stripeBtn }).catch((error) => {
+            console.error('Error opening Stripe portal:', error);
+        });
+    });
+</script>
+
+<script>
     // Change Password
     const changePwdBtn = document.getElementById('change-password-btn');
     const changePwdForm = document.getElementById('change-password-form');
@@ -398,6 +496,8 @@ const driveUi: Record<'es' | 'en' | 'ru', {
     const googleAccountEmailInput = document.getElementById('google-account-email');
     const driveLinkError = document.getElementById('drive-link-error');
     const driveLinkSuccess = document.getElementById('drive-link-success');
+    const driveUi = JSON.parse(linkDriveForm?.getAttribute('data-drive-ui') || '{}');
+    const changePasswordLabel = savePwdBtn?.getAttribute('data-default-label') || '';
 
     changePwdBtn?.addEventListener('click', () => {
         changePwdForm?.classList.toggle('hidden');

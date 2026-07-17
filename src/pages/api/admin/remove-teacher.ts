@@ -3,16 +3,6 @@ import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
 export const POST: APIRoute = async (context) => {
     try {
-        const body = await context.request.json();
-        const { studentId, teacherId } = body;
-
-        if (!studentId || !teacherId) {
-            return new Response(JSON.stringify({ error: 'studentId and teacherId are required' }), {
-                status: 400,
-                headers: { 'Content-Type': 'application/json' },
-            });
-        }
-
         // Get Supabase client and verify user
         const supabase = createSupabaseServerClient(context);
         const { data: { user } } = await supabase.auth.getUser();
@@ -38,12 +28,31 @@ export const POST: APIRoute = async (context) => {
             });
         }
 
+        let body: Record<string, unknown>;
+        try {
+            body = await context.request.json();
+        } catch {
+            return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const { studentId, teacherId } = body;
+
+        if (typeof studentId !== 'string' || !studentId.trim() || typeof teacherId !== 'string' || !teacherId.trim()) {
+            return new Response(JSON.stringify({ error: 'studentId and teacherId are required' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
         // Delete the assignment
         const { error: deleteError } = await supabase
             .from('student_teachers')
             .delete()
-            .eq('student_id', studentId)
-            .eq('teacher_id', teacherId);
+            .eq('student_id', studentId.trim())
+            .eq('teacher_id', teacherId.trim());
 
         if (deleteError) {
             console.error('Error removing assignment:', deleteError);

@@ -1,6 +1,44 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
+type AvailabilityRequestBody = {
+    teacherId?: unknown;
+    dayOfWeek?: unknown;
+    startTime?: unknown;
+    endTime?: unknown;
+    id?: unknown;
+};
+
+const timePattern = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
+
+async function readAvailabilityBody(request: Request): Promise<AvailabilityRequestBody | null> {
+    try {
+        const body = await request.json();
+        return body && typeof body === 'object' ? body as AvailabilityRequestBody : null;
+    } catch {
+        return null;
+    }
+}
+
+function normalizeTime(value: unknown) {
+    if (typeof value !== 'string' || !timePattern.test(value)) return null;
+    return value.length === 5 ? `${value}:00` : value;
+}
+
+function isValidDayOfWeek(value: unknown) {
+    return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 6;
+}
+
+async function getProfileRole(supabase: ReturnType<typeof createSupabaseServerClient>, profileId: string) {
+    const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', profileId)
+        .maybeSingle();
+
+    return data?.role;
+}
+
 // GET: Obtener disponibilidad del profesor
 export const GET: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
@@ -23,9 +61,16 @@ export const GET: APIRoute = async (context) => {
 
     // Obtener teacherId del query param (admin puede ver de cualquier profesor)
     const url = new URL(context.request.url);
-    const teacherId = profile.role === 'admin'
-        ? url.searchParams.get('teacherId') || user.id
-        : user.id;
+    const requestedTeacherId = url.searchParams.get('teacherId')?.trim();
+    if (profile.role === 'admin' && !requestedTeacherId) {
+        return new Response(JSON.stringify({ error: 'teacherId is required for admin availability queries' }), { status: 400 });
+    }
+
+    const teacherId = profile.role === 'admin' ? requestedTeacherId as string : user.id;
+
+    if (profile.role === 'admin' && await getProfileRole(supabase, teacherId) !== 'teacher') {
+        return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+    }
 
     const { data, error } = await supabase
         .from('teacher_availability')
@@ -64,33 +109,65 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
-    const body = await context.request.json();
-    const { teacherId, dayOfWeek, startTime, endTime } = body;
+    const body = await readAvailabilityBody(context.request);
+    if (!body) {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+    }
 
-    // Solo admin puede crear para otro profesor
-    const targetTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
+    const { teacherId, dayOfWeek, startTime, endTime } = body;
+    const normalizedStartTime = normalizeTime(startTime);
+    const normalizedEndTime = normalizeTime(endTime);
 
     // Validar datos
     if (dayOfWeek === undefined || !startTime || !endTime) {
         return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
     }
 
+    if (!isValidDayOfWeek(dayOfWeek) || !normalizedStartTime || !normalizedEndTime) {
+        return new Response(JSON.stringify({ error: 'Invalid availability slot' }), { status: 400 });
+    }
+
+    if (normalizedStartTime >= normalizedEndTime) {
+        return new Response(JSON.stringify({ error: 'Invalid availability time range' }), { status: 400 });
+    }
+    const normalizedDayOfWeek = Number(dayOfWeek);
+
+    // Solo admin puede crear para otro profesor
+    const requestedTeacherId = typeof teacherId === 'string' ? teacherId.trim() : '';
+    const targetTeacherId = profile.role === 'admin' && requestedTeacherId ? requestedTeacherId : user.id;
+
+    if (profile.role === 'admin') {
+        if (!requestedTeacherId) {
+            return new Response(JSON.stringify({ error: 'teacherId is required for admin availability changes' }), { status: 400 });
+        }
+
+        if (await getProfileRole(supabase, targetTeacherId) !== 'teacher') {
+            return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+        }
+    }
+
     const { data, error } = await supabase
         .from('teacher_availability')
         .insert({
             teacher_id: targetTeacherId,
-            day_of_week: dayOfWeek,
-            start_time: startTime,
-            end_time: endTime,
+            day_of_week: normalizedDayOfWeek,
+            start_time: normalizedStartTime,
+            end_time: normalizedEndTime,
             is_active: true
         })
         .select()
         .single();
 
     if (error) {
-        // Si es duplicado, ignorar
-        if (error.code === '23505') {
-            return new Response(JSON.stringify({ message: 'Slot already exists' }), { status: 200 });
+        // A database constraint is the concurrency-safe source of truth for
+        // both exact duplicates (23505) and overlapping active ranges (23P01).
+        if (error.code === '23505' || error.code === '23P01') {
+            return new Response(JSON.stringify({
+                error: 'Availability overlaps an existing active slot',
+            }), {
+                status: 409,
+                headers: { 'Content-Type': 'application/json' },
+            });
         }
         return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
     }
@@ -120,10 +197,15 @@ export const DELETE: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
     }
 
-    const body = await context.request.json();
-    const { id } = body;
+    const body = await readAvailabilityBody(context.request);
+    if (!body) {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+    }
 
-    if (!id) {
+    const { id } = body;
+    const slotId = typeof id === 'string' ? id.trim() : '';
+
+    if (!slotId) {
         return new Response(JSON.stringify({ error: 'Missing availability id' }), { status: 400 });
     }
 
@@ -131,8 +213,8 @@ export const DELETE: APIRoute = async (context) => {
     const { error } = await supabase
         .from('teacher_availability')
         .update({ is_active: false })
-        .eq('id', id)
-        .eq(profile.role !== 'admin' ? 'teacher_id' : 'id', profile.role !== 'admin' ? user.id : id);
+        .eq('id', slotId)
+        .eq(profile.role !== 'admin' ? 'teacher_id' : 'id', profile.role !== 'admin' ? user.id : slotId);
 
     if (error) {
         return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });

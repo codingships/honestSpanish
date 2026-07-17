@@ -1,11 +1,14 @@
 import type { APIRoute } from 'astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
+const SUPPORTED_LANGUAGES = new Set(['es', 'en', 'ru']);
+
+function optionalString(value: unknown): string | null {
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
 export const POST: APIRoute = async (context) => {
     try {
-        const body = await context.request.json();
-        const { fullName, phone, preferredLanguage, timezone } = body;
-
         // Get Supabase client and verify user
         const supabase = createSupabaseServerClient(context);
         const { data: { user } } = await supabase.auth.getUser();
@@ -16,6 +19,23 @@ export const POST: APIRoute = async (context) => {
                 headers: { 'Content-Type': 'application/json' },
             });
         }
+
+        let body: Record<string, unknown>;
+        try {
+            body = await context.request.json();
+        } catch {
+            return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' },
+            });
+        }
+
+        const fullName = optionalString(body.fullName);
+        const phone = optionalString(body.phone);
+        const preferredLanguage = typeof body.preferredLanguage === 'string' && SUPPORTED_LANGUAGES.has(body.preferredLanguage)
+            ? body.preferredLanguage
+            : 'es';
+        const timezone = optionalString(body.timezone);
 
         // Validate timezone is a real IANA timezone
         let safeTimezone = 'Europe/Madrid';
@@ -32,9 +52,9 @@ export const POST: APIRoute = async (context) => {
         const { error: updateError } = await supabase
             .from('profiles')
             .update({
-                full_name: fullName || null,
-                phone: phone || null,
-                preferred_language: preferredLanguage || 'es',
+                full_name: fullName,
+                phone,
+                preferred_language: preferredLanguage,
                 timezone: safeTimezone,
                 updated_at: new Date().toISOString(),
             })

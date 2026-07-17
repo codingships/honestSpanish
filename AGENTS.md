@@ -1,135 +1,119 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+Guidance for Codex and other coding agents in this repository.
 
-## Node.js Package Manager Policy
+## Package Manager
 
-- Universal, inviolable rule: use `pnpm` only for Node.js package management in this repository.
-- Never run `npm`, `npx`, `yarn`, `bun`, `bunx`, or `pnpx`.
-- Use `pnpm install`, `pnpm add`, `pnpm remove`, `pnpm run`, `pnpm exec`, `pnpm dlx`, and `pnpm audit`.
-- Keep `packageManager` set to `pnpm@10.33.0` in `package.json`.
-- Treat dependency install scripts as sensitive; do not approve lifecycle scripts globally.
+- Use `pnpm` only.
+- Do not run `npm`, `npx`, `yarn`, `bun`, `bunx`, `pnpx`, or equivalents.
+- Keep `packageManager` as `pnpm@10.33.0`.
+- Do not globally approve dependency lifecycle scripts.
 
 ## Commands
 
 ```bash
-# Development
-pnpm dev            # Astro dev server on http://localhost:4321
-pnpm build          # Production build
-pnpm preview        # Local Wrangler emulation (Cloudflare Pages)
-pnpm deploy         # Deploy to Cloudflare Pages
-pnpm typecheck      # TypeScript check (tsc --noEmit)
-pnpm lint           # ESLint
-pnpm db:seed        # Seed the database (tsx scripts/seed/index.ts)
-
-# Unit + API tests (Vitest, ~87 tests)
-pnpm test:run                                      # Run all
-pnpm test:coverage                                 # With coverage report
-pnpm exec vitest run tests/api/sessions-create.test.ts    # Single file
-
-# E2E tests (Playwright)
-pnpm test:e2e -- --project=public     # 5 tests, no auth
-pnpm test:e2e -- --project=student    # 12 tests
-pnpm test:e2e -- --project=teacher    # 8 tests
-pnpm test:e2e -- --project=admin      # 7 tests
-pnpm test:e2e:ui                      # Interactive UI mode
-pnpm test:e2e:report                  # View last HTML report
-pnpm test:e2e:debug                   # Debug mode
-pnpm test:e2e:firefox                 # Public tests on Firefox
-pnpm test:e2e:safari                  # Public tests on WebKit
-pnpm test:e2e:mobile                  # Public tests on mobile viewports
-pnpm test:all                         # vitest run + public playwright
+pnpm dev
+pnpm build
+pnpm preview
+pnpm run deploy
+pnpm typecheck
+pnpm fulfillment:dev
+pnpm fulfillment:typecheck
+pnpm lint
+pnpm test:run
+pnpm test:coverage
+pnpm test:e2e --project=public
+pnpm test:e2e --project=student
+pnpm test:e2e --project=teacher
+pnpm test:e2e --project=admin
+pnpm db:seed
+pnpm secrets:check
+pnpm launch:rc
+pnpm launch:gate
 ```
 
-## Architecture Overview
+## Architecture
 
-**Español Honesto** is a Spanish-language tutoring platform. Stack: Astro 5 SSR + React 18 islands + Supabase + Cloudflare Pages + Stripe + Google Workspace APIs + Sentry.
+Espanol Honesto is an Astro SSR app deployed to Cloudflare Workers with a separate Cloudflare Worker for Google Workspace and Resend jobs.
 
-### Rendering Strategy
-- `output: 'server'` (full SSR via Cloudflare adapter), image service set to `noop`
-- Static/prerendered: landing pages, blog (`/src/content/blog/` via Keystatic CMS)
-- Dynamic: all `/[lang]/campus/*` routes and `/api/*` endpoints
-- Keystatic CMS admin panel available at `/keystatic` in local dev
+Cloudflare Astro Worker:
 
-### i18n
-URL-prefix routing with `prefixDefaultLocale: false`. The default locale `es` **must use the URL prefix** `/es/`. The root path `/` redirects to `/es/`. Other locales: `/en/`, `/ru/`. Translation dictionary at `src/i18n/translations.ts`. The `[lang]` dynamic route param covers all supported languages (`es`, `en`, `ru`).
+- Public web and blog.
+- Campus student/teacher/admin.
+- API routes for auth, checkout, Stripe webhook, scheduling and admin CRM.
+- Enqueues `fulfillment_jobs`.
+- Delegates Google/Resend work to the Cloudflare Fulfillment Worker.
 
-### Authentication & Authorization
-`src/middleware.ts` is the single gate for all protected routes:
-1. Calls `supabase.auth.getUser()` server-side (validates JWT, not just cookie)
-2. Fetches `role` from `profiles` table (`student` | `teacher` | `admin`)
-3. Guards `/{lang}/campus` (requires auth), `/{lang}/campus/teacher` (teacher+admin only), `/{lang}/campus/admin` (admin only)
-4. Redirects authenticated users away from `/login`
+Cloudflare Fulfillment Worker:
 
-Three Supabase clients:
-- `src/lib/supabase.ts` — browser client (`createBrowserClient`, cookie-based)
-- `src/lib/supabase-server.ts` — server client (`createServerClient`, reads request cookies, typed with `Database`)
-- `src/lib/supabase-admin.ts` — service role client (`createClient` with `SUPABASE_SERVICE_ROLE_KEY`, **bypasses RLS entirely**, server-only)
+- Package: `workers/fulfillment`.
+- Uses Google SDKs and Resend.
+- Processes jobs from `src/lib/fulfillment/jobs.ts`.
+- Exposes internal endpoints protected by `INTERNAL_JOB_SECRET`.
 
-### Database (Supabase PostgreSQL)
-**Source of Truth:** `db/schema.sql` is the official and only reference file for the database schema that AIs and developers should read. Ignore `esquema_nube.sql` (it's a dump) and `supabase/migrations/` (deployment artifacts).
-Key tables: `profiles` (extends auth.users, has `role`), `packages`, `subscriptions`, `sessions`, `student_teachers` (M:N), `payments`, `leads`. Full schema with RLS at `db/schema.sql`.
+Runtime boundary:
 
-RLS pattern: students see own data, teachers see assigned students, admins use the admin client (bypasses RLS).
+- `src/pages/api/**` must not import `src/lib/google/**`.
+- `src/pages/api/**` must not import `src/lib/fulfillment/jobs.ts`.
+- Cloudflare-safe queue helpers live in `src/lib/fulfillment/queue.ts`.
+- Astro-Worker-to-Fulfillment-Worker client lives in `src/lib/internal-job-service.ts`.
 
-### API Routes (`src/pages/api/`)
-All serverless Astro endpoints (Cloudflare Workers). Key groups:
-- `calendar/` — session CRUD, bulk import, availability slots
-- `admin/` — user management, teacher assignment, leads CRM
-- `account/` — profile updates, Stripe billing portal
-- `teacher/` — teacher-specific endpoints
-- `drive/` — Google Drive folder creation
-- `stripe-webhook.ts` — handles `checkout.session.completed`, `invoice.paid`, subscription lifecycle (uses admin client)
-- `cron/send-reminders.ts` — bearer-token-protected scheduled job
-- `subscribe.ts` — lead magnet form with Cloudflare Turnstile validation
+## Database
 
-### Google Workspace Integration (`src/lib/google/`)
-Service Account with domain-wide delegation. On session creation:
-1. Creates Google Calendar event + Meet link (`calendar.ts`)
-2. Clones template doc → names it `Clase - [Date] - [Student]` (`drive.ts`)
-3. Creates student Drive folder structure on first session (`student-folder.ts`)
+- Official schema source: `db/schema.sql`.
+- Apply deployment SQL from `supabase/migrations/`.
+- Key tables: `profiles`, `packages`, `subscriptions`, `sessions`, `student_teachers`, `payments`, `leads`, `profiles_private`, `processed_webhook_events`, `fulfillment_jobs`, `admin_audit_log`.
+- `src/lib/supabase-admin.ts` uses service role and bypasses RLS. Server-only.
 
-### Payment Flow
-`/api/create-checkout.ts` (requires existing authenticated user) → Stripe hosted checkout → `stripe-webhook.ts` processes `checkout.session.completed` → creates/updates `subscriptions` + `payments` records using admin client.
+## Product Rules
 
-### SEO
-- OG images generated on-the-fly at `src/pages/og/[slug].png.ts` (Satori + resvg-wasm)
-- RSS feeds per language at `src/pages/[lang]/blog/rss.xml.ts`
+- Runtime product source: Supabase `packages`.
+- Admin CRM: `/es/campus/admin/packages`.
+- Price/quota changes affect only new purchases.
+- Stripe prices are immutable; changing package price clears stored Price IDs until Stripe is synchronized.
+- Admin recovery UI for jobs: `/es/campus/admin/jobs`.
+- Supported class durations are 30, 40 and 50 minutes. The default class duration is 50 minutes. Google Meet is not cut off automatically.
 
-## Test Architecture
+## Google Decisions
 
-### API Tests (Vitest)
-Use dynamic imports because `vi.mock` hoists. Pattern:
-```typescript
-vi.mock('../../src/lib/supabase-server', () => ({
-    createSupabaseServerClient: vi.fn(),
-}));
-// then inside test:
-const mockSupabase = createMockSupabaseClient(); // from tests/mocks/supabase.ts
-vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-const { POST } = await import('../../src/pages/api/...');
-```
-
-### E2E Tests (Playwright)
-- Auth state saved to `tests/e2e/.auth/[role].json` by setup scripts (git-ignored)
-- Credentials from `.env.test`: `TEST_STUDENT_EMAIL/PASSWORD`, `TEST_TEACHER_EMAIL/PASSWORD`, `TEST_ADMIN_EMAIL/PASSWORD`
-- File naming determines which Playwright project runs it: `*.public.spec.ts`, `*.student.spec.ts`, etc.
-
-Coverage thresholds are intentionally low (14/13/15/14) — Google/Stripe/email integrations are not unit-tested.
-
-## Key UI Facts (verified against real pages)
-- Dashboard heading: `PANEL DE CONTROL` (CSS uppercase h1)
-- Classes page tabs: `PRÓXIMAS` and `HISTORIAL`
-- Teacher calendar URL: `/es/campus/teacher/calendar`
-- Teacher calendar tabs: `HORARIO` and `DISPONIBILIDAD`
-- Schedule modal has no `role="dialog"` — identify by `button:has-text("Continuar")`
-- Playwright `:has-text()` is case-insensitive; CSS comma OR selectors do NOT work — use `.or()` or `.filter({ hasText })`
+- Keep service account with domain-wide delegation.
+- Keep Drive "anyone with link can view" as the current operational model.
+- Students may link a Google account, but public-link access is not revoked automatically while this decision remains active.
 
 ## Environment Variables
-Required in `.env` (dev) and `.env.test` (E2E). Key ones:
-- `PUBLIC_SUPABASE_URL` + `PUBLIC_SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY`
-- `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` + `PUBLIC_STRIPE_PUBLISHABLE_KEY`
-- `GOOGLE_SERVICE_ACCOUNT_EMAIL` + `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` + `GOOGLE_ADMIN_EMAIL` + `GOOGLE_DRIVE_ROOT_FOLDER_ID` + `GOOGLE_TEMPLATE_DOC_ID`
-- `RESEND_API_KEY` + `EMAIL_FROM`
-- `PUBLIC_TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`
-- `SENTRY_AUTH_TOKEN` (build-time, for source map uploads)
+
+Required runtime groups:
+
+- Supabase: `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+- Stripe: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `PUBLIC_STRIPE_PUBLISHABLE_KEY`
+- Cloudflare fulfillment Worker: `FULFILLMENT_WORKER_URL`, `INTERNAL_JOB_SECRET`
+- Google, only the fulfillment Worker: `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_ADMIN_EMAIL`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`, `GOOGLE_TEMPLATE_DOC_ID`
+- Email: `RESEND_API_KEY`, `EMAIL_FROM`, optional `SUPPORT_ALERT_EMAIL`
+- Turnstile: `PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`
+- Sentry: `PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN`
+- Cron: `CRON_SECRET`
+
+Do not print or commit real secret values.
+
+## Testing Notes
+
+- Vitest tests use dynamic imports after mocks.
+- Playwright auth state is stored in `tests/e2e/.auth/` and is git-ignored.
+- `.env.test` controls test users.
+- Do not run separate Playwright CLI processes in parallel against the same workspace; they share `test-results/artifacts` and can race on trace/artifact cleanup. Use one Playwright invocation with multiple projects, or run project commands sequentially.
+- Playwright uses one worker by default for deterministic local QA against the shared dev server/auth state. Set `PLAYWRIGHT_WORKERS=<n>` only for explicit parallelism diagnostics.
+- Set `E2E_DISABLE_EXTERNAL_INTEGRATIONS=true` for local booking E2E tests that should not call Google/Resend.
+
+## Documentation
+
+Current sources:
+
+- `README.md`
+- `ARCHITECTURE.md`
+- `docs/launch/DECISIONS.md`
+- `docs/launch/ENVIRONMENT.md`
+- `docs/launch/PRODUCTS.md`
+- `docs/launch/RUNBOOK.md`
+- `docs/launch/CHECKLIST.md`
+
+Historical audit docs were intentionally removed. Do not recreate stale parallel status docs.

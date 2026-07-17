@@ -31,11 +31,3 @@ export function getEmailFrom(): string {
         readRuntimeEnv('RESEND_FROM_EMAIL') ||
         'Español Honesto <alejandro@espanolhonesto.com>';
 }
-
-export const resend = new Proxy({} as Resend, {
-    get(_target, property) {
-        const client = getResend();
-        const value = client[property as keyof Resend];
-        return typeof value === 'function' ? value.bind(client) : value;
-    },
-});

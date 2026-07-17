@@ -1,9 +1,107 @@
-name = "espanolhonesto"
-pages_build_output_dir = "dist"
+# The top-level Worker is intentionally a non-production sink. Every remote
+# command must select --env staging or --env production explicitly.
+name = "espanolhonesto-env-required"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+keep_vars = true
+
+[version_metadata]
+binding = "CF_VERSION_METADATA"
 
 [vars]
-# Las variables sensibles se configuran en el dashboard de Cloudflare
-# Aquí solo van las no sensibles
+# Las variables sensibles se configuran en el dashboard de Cloudflare.
+# Aqui solo van defaults no sensibles y fail-closed.
 NODE_ENV = "production"
+WEB_RUNTIME_MODE = "bootstrap"
+CHECKOUT_ENABLED = "false"
+CHECKOUT_ENABLED_OVERRIDE = "false"
+
+[env.staging]
+name = "espanolhonesto-staging"
+workers_dev = true
+preview_urls = false
+routes = [
+  { pattern = "staging.espanolhonesto.com", custom_domain = true }
+]
+
+[[env.staging.services]]
+binding = "FULFILLMENT_SERVICE"
+service = "espanol-honesto-fulfillment-staging"
+
+[env.staging.vars]
+NODE_ENV = "production"
+PUBLIC_APP_ENV = "staging"
+WEB_RUNTIME_MODE = "active"
+SUPABASE_EXPECTED_PROJECT_REF = "mzjyvmlxfpzdfdjzxxyj"
+WORKER_IDENTITY = "espanolhonesto-staging"
+PUBLIC_SITE_URL = "https://staging.espanolhonesto.com"
+FULFILLMENT_WORKER_URL = "https://espanol-honesto-fulfillment-staging.alindev95.workers.dev"
+CHECKOUT_ENABLED = "false"
+CHECKOUT_ENABLED_OVERRIDE = "false"
+EMAIL_DELIVERY_MODE = "allowlist"
+EMAIL_DAILY_RECIPIENT_LIMIT = "10"
+EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"
+PUBLIC_TURNSTILE_SITE_KEY = "1x00000000000000000000AA"
+SENTRY_ENVIRONMENT = "staging"
+
+[env.staging.version_metadata]
+binding = "CF_VERSION_METADATA"
+
+# Bootstrap uses the exact production Worker name but serves no application
+# routes. Only /health and the authenticated runtime attestation are reachable.
+[env.production_bootstrap]
+name = "espanolhonesto"
+workers_dev = true
+preview_urls = false
+
+[env.production_bootstrap.assets]
+# Required for inertness: prerendered HTML must not bypass the Worker guard.
+run_worker_first = true
+
+[[env.production_bootstrap.services]]
+binding = "FULFILLMENT_SERVICE"
+service = "espanol-honesto-fulfillment-production"
+
+[env.production_bootstrap.vars]
+NODE_ENV = "production"
+PUBLIC_APP_ENV = "production"
+WEB_RUNTIME_MODE = "bootstrap"
+SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"
+WORKER_IDENTITY = "espanolhonesto"
+PUBLIC_SITE_URL = "https://espanolhonesto.com"
+FULFILLMENT_WORKER_URL = "https://espanol-honesto-fulfillment-production.alindev95.workers.dev"
+CHECKOUT_ENABLED = "false"
+CHECKOUT_ENABLED_OVERRIDE = "false"
+EMAIL_DELIVERY_MODE = "disabled"
+EMAIL_DAILY_RECIPIENT_LIMIT = "0"
+EMAIL_MONTHLY_RECIPIENT_LIMIT = "0"
+SENTRY_ENVIRONMENT = "production-bootstrap"
+
+[env.production_bootstrap.version_metadata]
+binding = "CF_VERSION_METADATA"
+
+[env.production]
+name = "espanolhonesto"
+workers_dev = true
+preview_urls = false
+
+[[env.production.services]]
+binding = "FULFILLMENT_SERVICE"
+service = "espanol-honesto-fulfillment-production"
+
+[env.production.vars]
+NODE_ENV = "production"
+PUBLIC_APP_ENV = "production"
+WEB_RUNTIME_MODE = "active"
+SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"
+WORKER_IDENTITY = "espanolhonesto"
+PUBLIC_SITE_URL = "https://espanolhonesto.com"
+CHECKOUT_ENABLED = "false"
+CHECKOUT_ENABLED_OVERRIDE = "false"
+EMAIL_DELIVERY_MODE = "live"
+EMAIL_DAILY_RECIPIENT_LIMIT = "80"
+EMAIL_MONTHLY_RECIPIENT_LIMIT = "2400"
+SENTRY_ENVIRONMENT = "production"
+
+[env.production.version_metadata]
+binding = "CF_VERSION_METADATA"

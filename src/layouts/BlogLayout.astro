@@ -3,6 +3,8 @@ import BaseLayout from './BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import type { CollectionEntry } from 'astro:content';
 import TableOfContents from '../components/blog/TableOfContents.astro';
+import { getBlogEntrySlug } from '../lib/blog-routes';
+import { serializeJsonForHtml, sha256CspHash } from '../lib/csp';
 
 interface Heading {
   depth: number;
@@ -45,10 +47,34 @@ const articleSchema = {
       "knowsAbout": ["Spanish language", "DELE", "SIELE", "Spanish grammar", "Language acquisition"]
   }]
 };
-// Get the slug without the language prefix for canonical path
-const slugParts = post.slug.split('/');
-const postSlug = slugParts.length > 1 ? slugParts.slice(1).join('/') : post.slug;
+const postSlug = getBlogEntrySlug(post);
 const canonicalPath = `/blog/${postSlug}`;
+const articleSchemaJson = serializeJsonForHtml(articleSchema);
+Astro.csp?.insertScriptHash(await sha256CspHash(articleSchemaJson));
+
+const blogCta = {
+  es: {
+    heading: post.data.ctaText || '¿Quieres llevar esto a una conversación real?',
+    button: 'Solicitar plaza',
+    href: post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}#contacto`,
+  },
+  en: {
+    heading: post.data.ctaText || 'Want to turn this into real conversation?',
+    button: 'Apply for a place',
+    href: post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}#contacto`,
+  },
+  ru: {
+    heading: post.data.ctaText || 'Хотите перейти к живой разговорной практике?',
+    button: 'Оставить заявку',
+    href: post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}#contacto`,
+  },
+}[lang];
+
+const accessibilityCopy = {
+  es: { skip: 'Saltar al contenido principal', breadcrumb: 'Ruta de navegación' },
+  en: { skip: 'Skip to main content', breadcrumb: 'Breadcrumb' },
+  ru: { skip: 'Перейти к основному содержанию', breadcrumb: 'Навигационная цепочка' },
+}[lang];
 ---
 
 <BaseLayout 
@@ -58,21 +84,25 @@ const canonicalPath = `/blog/${postSlug}`;
   ogImage={image?.src || `/og/${postSlug}.png`}
   canonicalPath={canonicalPath}
 >
-    <script is:inline type="application/ld+json" set:html={JSON.stringify(articleSchema)} />
+    <script is:inline type="application/ld+json" set:html={articleSchemaJson} />
 
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
+        {accessibilityCopy.skip}
+    </a>
     <div class="bg-white min-h-screen text-[#006064] font-sans">
         
         {/* Navigation / Breadcrumbs */}
-        <nav class="bg-[#E0F7FA] py-4 px-6 border-b-2 border-[#006064]">
-            <div class="max-w-4xl mx-auto flex items-center text-sm font-mono uppercase tracking-wide opacity-70">
+        <nav aria-label={accessibilityCopy.breadcrumb} class="bg-[#E0F7FA] py-4 px-6 border-b-2 border-[#006064]">
+            <div class="max-w-4xl mx-auto flex items-center text-sm font-mono uppercase tracking-wide text-[#006064]">
                 <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
-                <span class="mx-2">/</span>
+                <span aria-hidden="true" class="mx-2">/</span>
                 <a href={getLocalizedPath('/blog', lang)} class="hover:underline">{t('common.blog')}</a>
-                <span class="mx-2">/</span>
-                <span class="truncate">{title}</span>
+                <span aria-hidden="true" class="mx-2">/</span>
+                <span aria-current="page" class="truncate">{title}</span>
             </div>
         </nav>
 
+        <main id="main-content" tabindex="-1">
         <article class="max-w-4xl mx-auto px-6 py-12">
             
             {/* Header */}
@@ -83,7 +113,7 @@ const canonicalPath = `/blog/${postSlug}`;
                 <h1 class="font-display text-4xl md:text-5xl lg:text-6xl mb-6 leading-tight">
                     {title}
                 </h1>
-                <div class="flex items-center justify-center gap-4 text-sm font-mono opacity-60 uppercase">
+                <div class="flex items-center justify-center gap-4 text-sm font-mono text-[#006064] uppercase">
                     <span>{formattedDate}</span>
                     <span>•</span>
                     <span>{author}</span>
@@ -122,15 +152,16 @@ const canonicalPath = `/blog/${postSlug}`;
 
         {/* CTA Section */}
         <section class="bg-[#006064] text-white py-24 text-center px-6">
-            <h2 class="font-display text-4xl mb-6">{post.data.ctaText || t('common.ctaReady')}</h2>
+            <h2 class="font-display text-4xl mb-6">{blogCta.heading}</h2>
              <a
-                href={post.data.ctaLink ? (post.data.ctaLink.startsWith('/') ? `/${lang}${post.data.ctaLink}` : post.data.ctaLink) : `/${lang}/#planes`}
+                href={blogCta.href}
                 class="inline-block bg-white text-[#006064] px-8 py-4 text-lg font-bold border-2 border-transparent hover:bg-[#E0F7FA] transition-all uppercase tracking-wider"
             >
-                {post.data.ctaText ? t('common.ctaContact') : t('common.ctaContact')} 
-                {/* Fallback to global contact label if we just change the H2 and Link, or allow a custom ctaButtonText in the future */}
+                {blogCta.button}
             </a>
         </section>
+
+        </main>
 
     </div>
 </BaseLayout>

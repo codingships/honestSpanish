@@ -28,11 +28,83 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Leer payload
-    const body = await context.request.json();
-    const { studentId, teacherId } = body;
+    let body: Record<string, unknown>;
+    try {
+        body = await context.request.json();
+    } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+    }
+
+    const studentId = typeof body.studentId === 'string' ? body.studentId.trim() : '';
+    const teacherId = typeof body.teacherId === 'string' ? body.teacherId.trim() : '';
+    const isPrimary = body.isPrimary !== false;
 
     if (!studentId || !teacherId) {
         return new Response(JSON.stringify({ error: 'Missing studentId or teacherId' }), { status: 400 });
+    }
+
+    const getProfileRole = async (profileId: string) => {
+        const { data } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', profileId)
+            .maybeSingle();
+
+        return data?.role;
+    };
+
+    const [studentRole, teacherRole] = await Promise.all([
+        getProfileRole(studentId),
+        getProfileRole(teacherId),
+    ]);
+
+    if (studentRole !== 'student') {
+        return new Response(JSON.stringify({ error: 'studentId must belong to a student profile' }), { status: 400 });
+    }
+
+    if (teacherRole !== 'teacher') {
+        return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+    }
+
+    if (!isPrimary) {
+        const { data: existingNonPrimaryAssignment, error: existingNonPrimaryError } = await supabase
+            .from('student_teachers')
+            .select('id')
+            .eq('student_id', studentId)
+            .eq('teacher_id', teacherId)
+            .maybeSingle();
+
+        if (existingNonPrimaryError) {
+            return new Response(JSON.stringify({ error: 'Error comprobando asignaciones previas' }), { status: 500 });
+        }
+
+        if (existingNonPrimaryAssignment) {
+            const { error: updateError } = await supabase
+                .from('student_teachers')
+                .update({ is_primary: false, assigned_at: new Date().toISOString() })
+                .eq('id', existingNonPrimaryAssignment.id);
+
+            if (updateError) {
+                return new Response(JSON.stringify({ error: 'Failed to update teacher assignment' }), { status: 500 });
+            }
+        } else {
+            const { error: insertError } = await supabase
+                .from('student_teachers')
+                .insert({
+                    student_id: studentId,
+                    teacher_id: teacherId,
+                    is_primary: false
+                });
+
+            if (insertError) {
+                return new Response(JSON.stringify({ error: 'Failed to assign teacher' }), { status: 500 });
+            }
+        }
+
+        return new Response(JSON.stringify({ success: true, message: 'Teacher successfully assigned' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+        });
     }
 
     // 1. Verificar si el estudiante ya tiene un profesor primario asignado

@@ -190,7 +190,7 @@ git bisect bad HEAD
 git bisect good v2.1.0
 
 # Git checks out middle commit - run tests
-npm test
+pnpm test
 
 # If tests fail
 git bisect bad
@@ -203,7 +203,7 @@ git bisect good
 
 # Automated version
 git bisect start HEAD v2.1.0
-git bisect run npm test
+git bisect run pnpm test
 ```
 
 ### Workflow 4: Multi-Branch Development

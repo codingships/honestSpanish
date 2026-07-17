@@ -1,11 +1,22 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../../i18n/utils';
+import CrmTaskList from '../../../../components/admin/CrmTaskList';
+import PaymentRecoveryActions from '../../../../components/admin/PaymentRecoveryActions';
+import SubscriptionRenewalActions from '../../../../components/admin/SubscriptionRenewalActions';
+import SupportTicketQuickActions from '../../../../components/admin/SupportTicketQuickActions';
+import ProgressBar from '../../../../components/ProgressBar.astro';
+import { getLangFromParam, useTranslations } from '../../../../i18n/utils';
+import {
+    emptyCrmAdminDashboardSummary,
+    getCrmAdminDashboardSummary,
+} from '../../../../lib/crm/admin-dashboard';
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+import type { Json } from '../../../../types/database.types';
 
 export const prerender = false;
 
-const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 // Get Supabase client and verify user
@@ -27,6 +38,8 @@ const { data: profile } = await supabase
 if (!profile || profile.role !== 'admin') {
     return Astro.redirect(`/${lang}/campus`);
 }
+
+const supabaseAdmin = createSupabaseAdminClient();
 
 // Fetch metrics
 
@@ -69,9 +82,16 @@ for (const pkg of packages || []) {
         .eq('package_id', pkg.id)
         .eq('status', 'active');
     
+    const displayName = pkg.display_name && typeof pkg.display_name === 'object' && !Array.isArray(pkg.display_name)
+        ? (typeof pkg.display_name[lang] === 'string'
+            ? pkg.display_name[lang]
+            : typeof pkg.display_name.es === 'string'
+                ? pkg.display_name.es
+                : pkg.name)
+        : pkg.name;
     subscriptionsByPlan.push({
         name: pkg.name,
-        displayName: pkg.display_name[lang] || pkg.display_name['es'] || pkg.name,
+        displayName,
         count: count || 0,
     });
 }
@@ -101,15 +121,131 @@ const { data: recentRegistrations } = await supabase
     .order('created_at', { ascending: false })
     .limit(5);
 
+let crmSummary = emptyCrmAdminDashboardSummary;
+try {
+    crmSummary = await getCrmAdminDashboardSummary(supabaseAdmin);
+} catch (error) {
+    console.error('[AdminDashboard] Could not load CRM summary:', error);
+}
+
 // Format helpers
 const formatCurrency = (cents: number) => `€${(cents / 100).toLocaleString(lang === 'es' ? 'es-ES' : 'en-US')}`;
-const formatDate = (dateStr: string) => {
+const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '—';
     const date = new Date(dateStr);
     return date.toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
         day: 'numeric',
         month: 'short',
     });
 };
+
+const crmStageLabels: Record<string, string> = {
+    new: 'Nueva',
+    to_contact: 'Por contactar',
+    contacted: 'Contactada',
+    qualified: 'Cualificada',
+    proposal: 'Propuesta',
+    nurture: 'Pospuesta',
+    won: 'Ganada',
+    lost: 'Perdida',
+};
+
+const crmContactLabel = (item: { crm_contacts?: { full_name: string | null; primary_email: string } | null }) =>
+    item.crm_contacts?.full_name || item.crm_contacts?.primary_email || 'Contacto sin nombre';
+
+const campusProfileLabel = (profile: { full_name: string | null; email: string } | null | undefined) =>
+    profile?.full_name || profile?.email || 'Sin nombre';
+
+const crmContactHref = (item: { crm_contacts?: { id?: string | null; profile_id: string | null } | null }) =>
+    item.crm_contacts?.profile_id
+        ? `/${lang}/campus/admin/student/${item.crm_contacts.profile_id}`
+        : item.crm_contacts?.id
+            ? `/${lang}/campus/admin/crm/contact/${item.crm_contacts.id}`
+            : `/${lang}/campus/admin/leads`;
+
+const leadHref = (lead: { crm_contact_id: string | null }) =>
+    lead.crm_contact_id ? `/${lang}/campus/admin/crm/contact/${lead.crm_contact_id}` : `/${lang}/campus/admin/leads`;
+
+const studentHref = (studentId: string | null | undefined) =>
+    studentId ? `/${lang}/campus/admin/student/${studentId}` : `/${lang}/campus/admin/students`;
+
+const formatDateTime = (dateStr: string | null) => {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', {
+        day: 'numeric',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
+};
+
+const daysUntil = (dateStr: string) => {
+    const diff = new Date(dateStr).getTime() - Date.now();
+    return Math.ceil(diff / (24 * 60 * 60 * 1000));
+};
+
+const getPackageName = (pkg: { name: string; display_name: Json } | null) => {
+    if (!pkg?.display_name) return pkg?.name || 'Plan';
+    if (typeof pkg.display_name !== 'object' || Array.isArray(pkg.display_name)) return pkg.name;
+    const localized = pkg.display_name[lang];
+    if (typeof localized === 'string') return localized;
+    const spanish = pkg.display_name.es;
+    return typeof spanish === 'string' ? spanish : pkg.name;
+};
+
+const retentionRiskLevelLabels: Record<string, string> = {
+    urgent: 'Urgente',
+    high: 'Alto',
+    watch: 'Vigilar',
+};
+
+const commercialPulseItems = [
+    {
+        label: 'Leads >24h',
+        value: crmSummary.commercialPulse.staleNewLeads,
+        href: `/${lang}/campus/admin/leads`,
+    },
+    {
+        label: 'Diagnosticos enviados',
+        value: crmSummary.commercialPulse.levelChecksSent,
+        href: `/${lang}/campus/admin/leads`,
+    },
+    {
+        label: 'Diagnosticos recibidos',
+        value: crmSummary.commercialPulse.levelChecksReceived,
+        href: `/${lang}/campus/admin/leads`,
+    },
+    {
+        label: 'Propuestas',
+        value: crmSummary.commercialPulse.proposalOpportunities,
+        href: `/${lang}/campus/admin/leads`,
+    },
+    {
+        label: 'Pospuestos',
+        value: crmSummary.commercialPulse.postponedOpportunities,
+        href: `/${lang}/campus/admin/leads`,
+    },
+    {
+        label: 'Seguimientos ventas',
+        value: crmSummary.commercialPulse.salesFollowUpPending,
+        href: `/${lang}/campus/admin`,
+    },
+    {
+        label: 'Revisiones diagnostico',
+        value: crmSummary.commercialPulse.levelCheckReviewPending,
+        href: `/${lang}/campus/admin/leads`,
+    },
+    {
+        label: 'Primera clase pendiente',
+        value: crmSummary.commercialPulse.firstClassPending,
+        href: `/${lang}/campus/admin`,
+    },
+    {
+        label: 'No-shows pendientes',
+        value: crmSummary.commercialPulse.noShowFollowUpPending,
+        href: `/${lang}/campus/admin`,
+    },
+];
 
 // Revenue calculation
 ---
@@ -146,6 +282,275 @@ const formatDate = (dateStr: string) => {
         </div>
     </div>
 
+    <!-- CRM Command Center -->
+    <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] mb-8">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-5">
+            <div>
+                <h2 class="font-display text-xl text-[#006064] uppercase">Centro de mando CRM</h2>
+                <p class="text-sm text-[#006064]/70 font-mono mt-1">Trabajo comercial y operativo que necesita atencion.</p>
+            </div>
+            <a href={`/${lang}/campus/admin/leads`} class="inline-flex w-fit px-4 py-2 bg-[#6A131C] text-white text-xs font-bold uppercase border-2 border-[#6A131C] hover:bg-[#8A1924] transition-colors">
+                Ver leads
+            </a>
+        </div>
+
+        <div class="space-y-6">
+            <div class="grid grid-cols-2 lg:grid-cols-6 gap-4">
+                <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                    <p class="text-2xl font-display text-[#006064]">{crmSummary.urgentQueueCount}</p>
+                    <p class="text-xs font-mono uppercase text-[#006064] mt-1">Urgencias</p>
+                </div>
+                <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                    <p class="text-2xl font-display text-[#006064]">{crmSummary.dueTasks}</p>
+                    <p class="text-xs font-mono uppercase text-[#006064] mt-1">Tareas vencidas</p>
+                </div>
+                <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                    <p class="text-2xl font-display text-[#006064]">{crmSummary.newLeadCount}</p>
+                    <p class="text-xs font-mono uppercase text-[#006064] mt-1">Leads nuevos</p>
+                </div>
+                <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                    <p class="text-2xl font-display text-[#006064]">{crmSummary.openSupportTicketCount}</p>
+                    <p class="text-xs font-mono uppercase text-[#006064] mt-1">Soporte abierto</p>
+                </div>
+                <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                    <p class="text-2xl font-display text-[#006064]">{crmSummary.failedPaymentCount}</p>
+                    <p class="text-xs font-mono uppercase text-[#006064] mt-1">Pagos fallidos</p>
+                </div>
+                <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                    <p class="text-2xl font-display text-[#006064]">{crmSummary.todaySessionCount}</p>
+                    <p class="text-xs font-mono uppercase text-[#006064] mt-1">Clases hoy</p>
+                </div>
+            </div>
+
+            {!crmSummary.isReady && (
+            <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                <p class="font-bold text-[#006064]">CRM pendiente de migracion</p>
+                <p class="text-sm text-[#006064]/70 mt-1">Las colas operativas siguen visibles; las tareas, oportunidades y actividad CRM apareceran cuando la migracion este aplicada.</p>
+            </div>
+            )}
+
+            <div class="border-t border-[#006064]/20 pt-5">
+                <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <h3 class="font-display text-lg text-[#006064] uppercase">Pulso operativo</h3>
+                    <p class="font-mono text-xs uppercase text-[#006064]/60">Embudo, diagnostico y primera clase</p>
+                </div>
+                <div class="grid grid-cols-1 gap-x-6 gap-y-2 md:grid-cols-2 xl:grid-cols-3">
+                    {commercialPulseItems.map((item) => (
+                        <a href={item.href} class="flex items-center justify-between border-b border-[#006064]/10 py-2 hover:bg-[#E0F7FA]/40">
+                            <span class="text-sm font-bold text-[#006064]">{item.label}</span>
+                            <span class={`font-display text-2xl ${item.value > 0 ? 'text-[#6A131C]' : 'text-[#006064]'}`}>{item.value}</span>
+                        </a>
+                    ))}
+                </div>
+            </div>
+
+            <div class="border-t border-[#006064]/20 pt-5">
+                <div class="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <h3 class="font-display text-lg text-[#006064] uppercase">Riesgo retencion</h3>
+                    <div class="flex flex-wrap gap-2 font-mono text-xs uppercase text-[#006064]/70">
+                        <span>{crmSummary.retentionRiskSummary.atRiskContacts} contactos</span>
+                        <span>{crmSummary.retentionRiskSummary.highRiskContacts} alta prioridad</span>
+                        <span>{formatCurrency(crmSummary.retentionRiskSummary.revenueAtRiskCents)} en riesgo</span>
+                    </div>
+                </div>
+                {crmSummary.retentionRisks.length > 0 ? (
+                    <div class="divide-y divide-[#006064]/10">
+                        {crmSummary.retentionRisks.map((risk) => (
+                            <a href={studentHref(risk.studentId)} class="block py-3 hover:bg-[#E0F7FA]/40">
+                                <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                        <p class="font-bold text-[#006064] text-sm">{campusProfileLabel(risk.profile)}</p>
+                                        <p class="text-xs text-[#006064]/70">{risk.reasons.join(' - ')}</p>
+                                    </div>
+                                    <div class="font-mono text-xs md:text-right">
+                                        <p class="font-bold uppercase text-[#6A131C]">{retentionRiskLevelLabels[risk.level] || risk.level}</p>
+                                        <p class="text-[#006064]/70">{risk.score}/100 - {formatCurrency(risk.revenueAtRiskCents)}</p>
+                                    </div>
+                                </div>
+                            </a>
+                        ))}
+                    </div>
+                ) : (
+                    <p class="text-[#006064]/60 font-mono text-sm">Sin riesgo operativo destacado.</p>
+                )}
+            </div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+                <div class="border-t border-[#006064]/20 pt-5">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <h3 class="font-display text-lg text-[#006064] uppercase">Tareas CRM</h3>
+                        <span class="font-mono text-xs uppercase text-[#006064]/60">{crmSummary.todayTasks} para hoy</span>
+                    </div>
+                    <CrmTaskList
+                        client:load
+                        tasks={crmSummary.priorityTasks}
+                        showContact
+                        emptyText={crmSummary.isReady ? 'No hay tareas abiertas.' : 'CRM pendiente de migracion.'}
+                    />
+                </div>
+
+                <div class="border-t border-[#006064]/20 pt-5">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <h3 class="font-display text-lg text-[#006064] uppercase">Leads nuevos</h3>
+                        <a href={`/${lang}/campus/admin/leads`} class="text-xs font-bold uppercase text-[#006064] hover:underline">Abrir</a>
+                    </div>
+                    {crmSummary.newLeads.length > 0 ? (
+                        <div class="divide-y divide-[#006064]/10">
+                            {crmSummary.newLeads.map((lead) => (
+                                <a href={leadHref(lead)} class="block py-3 hover:bg-[#E0F7FA]/40">
+                                    <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                        <div>
+                                            <p class="font-bold text-[#006064] text-sm">{lead.name || lead.email}</p>
+                                            <p class="text-xs text-[#006064]/70">{lead.interest || 'Sin interes declarado'}{lead.current_level ? ` - ${lead.current_level.toUpperCase()}` : ''}</p>
+                                        </div>
+                                        <span class="font-mono text-xs text-[#006064]/70">{lead.created_at ? formatDate(lead.created_at) : '-'}</span>
+                                    </div>
+                                    {lead.availability && <p class="text-xs text-[#006064]/70 mt-1">{lead.availability}</p>}
+                                </a>
+                            ))}
+                        </div>
+                    ) : (
+                        <p class="text-[#006064]/60 font-mono text-sm">No hay leads nuevos.</p>
+                    )}
+                </div>
+
+                <div class="border-t border-[#006064]/20 pt-5">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <h3 class="font-display text-lg text-[#006064] uppercase">Soporte abierto</h3>
+                        <a href={`/${lang}/campus/admin/support`} class="text-xs font-bold uppercase text-[#006064] hover:underline">Abrir</a>
+                    </div>
+                    {crmSummary.openSupportTickets.length > 0 ? (
+                        <div class="divide-y divide-[#006064]/10">
+                            {crmSummary.openSupportTickets.map((ticket) => (
+                                <div class="flex flex-col gap-3 py-3 hover:bg-[#E0F7FA]/40 md:flex-row md:items-start md:justify-between">
+                                    <a href={`/${lang}/campus/admin/support`} class="block">
+                                        <p class="font-bold text-[#006064] text-sm">{ticket.issue_title}</p>
+                                        <p class="text-xs text-[#006064]/70">{campusProfileLabel(ticket.user)} - {ticket.issue_type}</p>
+                                        <p class="mt-1 font-mono text-xs text-[#006064]/70">{ticket.created_at ? formatDateTime(ticket.created_at) : '-'}</p>
+                                    </a>
+                                    <SupportTicketQuickActions client:load ticketId={ticket.id} status={ticket.status} />
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p class="text-[#006064]/60 font-mono text-sm">Sin tickets abiertos.</p>
+                    )}
+                </div>
+
+                <div class="border-t border-[#006064]/20 pt-5">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <h3 class="font-display text-lg text-[#006064] uppercase">Pagos fallidos</h3>
+                        <a href={`/${lang}/campus/admin/payments`} class="text-xs font-bold uppercase text-[#006064] hover:underline">Abrir</a>
+                    </div>
+                    {crmSummary.failedPayments.length > 0 ? (
+                        <div class="divide-y divide-[#006064]/10">
+                            {crmSummary.failedPayments.map((payment) => (
+                                <div class="flex flex-col gap-3 py-3 hover:bg-[#E0F7FA]/40 md:flex-row md:items-start md:justify-between">
+                                    <a href={studentHref(payment.student_id)} class="block">
+                                        <p class="font-bold text-[#006064] text-sm">{campusProfileLabel(payment.profiles)}</p>
+                                        <p class="text-xs text-[#006064]/70">{payment.created_at ? formatDateTime(payment.created_at) : '-'}</p>
+                                        <span class="mt-1 inline-block font-mono font-bold text-[#6A131C]">{formatCurrency(payment.amount)}</span>
+                                    </a>
+                                    <PaymentRecoveryActions client:load paymentId={payment.id} status={payment.status} />
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p class="text-[#006064]/60 font-mono text-sm">Sin pagos fallidos recientes.</p>
+                    )}
+                </div>
+
+                <div class="border-t border-[#006064]/20 pt-5">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <h3 class="font-display text-lg text-[#006064] uppercase">Suscripciones que vencen</h3>
+                        <a href={`/${lang}/campus/admin/students`} class="text-xs font-bold uppercase text-[#006064] hover:underline">Abrir</a>
+                    </div>
+                    {crmSummary.endingSubscriptions.length > 0 ? (
+                        <div class="divide-y divide-[#006064]/10">
+                            {crmSummary.endingSubscriptions.map((subscription) => (
+                                <div class="flex flex-col gap-3 py-3 hover:bg-[#E0F7FA]/40 md:flex-row md:items-start md:justify-between">
+                                    <a href={studentHref(subscription.student_id)} class="block">
+                                        <div>
+                                            <p class="font-bold text-[#006064] text-sm">{campusProfileLabel(subscription.profiles)}</p>
+                                            <p class="text-xs text-[#006064]/70">{getPackageName(subscription.packages)} - {subscription.sessions_used ?? 0}/{subscription.sessions_total} sesiones</p>
+                                        </div>
+                                        <span class="font-mono text-xs text-[#006064]/70">{daysUntil(subscription.ends_at)} dias</span>
+                                    </a>
+                                    <SubscriptionRenewalActions client:load subscriptionId={subscription.id} status={subscription.status} />
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p class="text-[#006064]/60 font-mono text-sm">No vencen planes en 14 dias.</p>
+                    )}
+                </div>
+
+                <div class="border-t border-[#006064]/20 pt-5">
+                    <div class="mb-3 flex items-center justify-between gap-3">
+                        <h3 class="font-display text-lg text-[#006064] uppercase">Clases de hoy</h3>
+                        <a href={`/${lang}/campus/admin/calendar`} class="text-xs font-bold uppercase text-[#006064] hover:underline">Abrir</a>
+                    </div>
+                    {crmSummary.todaySessions.length > 0 ? (
+                        <div class="divide-y divide-[#006064]/10">
+                            {crmSummary.todaySessions.map((session) => (
+                                <a href={`/${lang}/campus/admin/calendar`} class="block py-3 hover:bg-[#E0F7FA]/40">
+                                    <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                        <div>
+                                            <p class="font-bold text-[#006064] text-sm">{campusProfileLabel(session.student)}</p>
+                                            <p class="text-xs text-[#006064]/70">Profesor: {campusProfileLabel(session.teacher)}</p>
+                                        </div>
+                                        <span class="font-mono text-xs text-[#006064]/70">{formatDateTime(session.scheduled_at)}</span>
+                                    </div>
+                                </a>
+                            ))}
+                        </div>
+                    ) : (
+                        <p class="text-[#006064]/60 font-mono text-sm">No hay clases programadas hoy.</p>
+                    )}
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 border-t border-[#006064]/20 pt-5">
+                <div>
+                    <h3 class="font-display text-lg text-[#006064] uppercase mb-3">Pipeline reciente</h3>
+                    {crmSummary.newestOpportunities.length > 0 ? (
+                        <div class="space-y-2">
+                            {crmSummary.newestOpportunities.map((opportunity) => (
+                                <a href={crmContactHref(opportunity)} class="block border-b border-[#006064]/10 pb-2 last:border-0 hover:bg-[#E0F7FA]/40">
+                                    <p class="font-bold text-[#006064] text-sm">{crmContactLabel(opportunity)}</p>
+                                    <p class="text-xs text-[#006064]/70">
+                                        {crmStageLabels[opportunity.stage] || opportunity.stage}
+                                        {opportunity.current_level ? ` - ${opportunity.current_level.toUpperCase()}` : ''}
+                                    </p>
+                                    <p class="text-xs font-mono text-[#006064]/70">{formatDate(opportunity.opened_at)}</p>
+                                </a>
+                            ))}
+                        </div>
+                    ) : (
+                        <p class="text-[#006064]/60 font-mono text-sm">No hay oportunidades abiertas.</p>
+                    )}
+                </div>
+
+                <div>
+                    <h3 class="font-display text-lg text-[#006064] uppercase mb-3">Actividad CRM</h3>
+                    {crmSummary.recentActivities.length > 0 ? (
+                        <div class="space-y-2">
+                            {crmSummary.recentActivities.map((activity) => (
+                                <a href={crmContactHref(activity)} class="block border-b border-[#006064]/10 pb-2 last:border-0 hover:bg-[#E0F7FA]/40">
+                                    <p class="font-bold text-[#006064] text-sm">{activity.subject || activity.activity_type}</p>
+                                    <p class="text-xs text-[#006064]/70">{crmContactLabel(activity)}</p>
+                                    <p class="text-xs font-mono text-[#006064]/70">{formatDate(activity.occurred_at)}</p>
+                                </a>
+                            ))}
+                        </div>
+                    ) : (
+                        <p class="text-[#006064]/60 font-mono text-sm">Sin actividad CRM reciente.</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Subscriptions & Revenue Goal Row -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <!-- Subscriptions by Plan -->
@@ -153,19 +558,13 @@ const formatDate = (dateStr: string) => {
             <h2 class="font-display text-xl text-[#006064] uppercase mb-4">{t('campus.admin.subscriptionsByPlan')}</h2>
             <div class="space-y-4">
                 {subscriptionsByPlan.map((plan) => {
-                    const percentage = totalActiveSubs > 0 ? Math.round((plan.count / totalActiveSubs) * 100) : 0;
                     return (
                         <div>
                             <div class="flex justify-between text-sm mb-1">
                                 <span class="font-bold text-[#006064]">{plan.displayName}</span>
                                 <span class="font-mono text-[#006064]/70">{plan.count}</span>
                             </div>
-                            <div class="w-full bg-[#E0F7FA] h-3 border border-[#006064]">
-                                <div 
-                                    class="bg-[#006064] h-full transition-all"
-                                    style={`width: ${percentage}%`}
-                                ></div>
-                            </div>
+                            <ProgressBar value={plan.count} max={totalActiveSubs} label={plan.displayName} />
                         </div>
                     );
                 })}
@@ -186,7 +585,7 @@ const formatDate = (dateStr: string) => {
             
             {recentPayments && recentPayments.length > 0 ? (
                 <div class="space-y-3">
-                    {recentPayments.map((payment: any) => (
+                    {recentPayments.map((payment) => (
                         <div class="flex items-center justify-between py-2 border-b border-[#006064]/10 last:border-0">
                             <div>
                                 <p class="font-bold text-[#006064] text-sm">
@@ -194,7 +593,7 @@ const formatDate = (dateStr: string) => {
                                 </p>
                                 <p class="text-xs text-[#006064]/60">{formatDate(payment.created_at)}</p>
                             </div>
-                            <span class="font-mono font-bold text-green-600">{formatCurrency(payment.amount)}</span>
+                            <span class="font-mono font-bold text-green-800">{formatCurrency(payment.amount)}</span>
                         </div>
                     ))}
                 </div>

@@ -9,6 +9,12 @@ import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 
+type FullClassFlowRequest = {
+    studentId?: unknown;
+    teacherId?: unknown;
+    startTime?: unknown;
+};
+
 export const POST: APIRoute = async (context) => {
     const supabase = createSupabaseServerClient(context);
 
@@ -44,9 +50,9 @@ export const POST: APIRoute = async (context) => {
     }
 
     // Get request body
-    let body;
+    let body: FullClassFlowRequest;
     try {
-        body = await context.request.json();
+        body = await context.request.json() as FullClassFlowRequest;
     } catch {
         return new Response(JSON.stringify({
             error: 'Invalid JSON body',
@@ -61,7 +67,9 @@ export const POST: APIRoute = async (context) => {
         });
     }
 
-    const { studentId, teacherId, startTime } = body;
+    const studentId = typeof body.studentId === 'string' ? body.studentId : '';
+    const teacherId = typeof body.teacherId === 'string' ? body.teacherId : '';
+    const startTime = typeof body.startTime === 'string' ? body.startTime : '';
 
     if (!studentId || !teacherId || !startTime) {
         return new Response(JSON.stringify({
@@ -105,11 +113,11 @@ export const POST: APIRoute = async (context) => {
             .select('id, full_name, email')
             .eq('id', studentId)
             .single();
-        const studentPrivate = await getPrivateProfile(studentId, supabaseAdmin);
 
         if (studentError || !student) {
             results.errors.push(`Student not found: ${studentError?.message || 'No data'}`);
         } else {
+            const studentPrivate = await getPrivateProfile(studentId, supabaseAdmin);
             results.step5_studentData = {
                 id: student.id,
                 name: student.full_name,
@@ -134,6 +142,28 @@ export const POST: APIRoute = async (context) => {
                 name: teacher.full_name,
                 email: teacher.email,
             };
+        }
+
+        if (!student || !teacher) {
+            return new Response(JSON.stringify(results, null, 2), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
+        }
+
+        const { data: assignment, error: assignmentError } = await supabaseAdmin
+            .from('student_teachers')
+            .select('student_id, teacher_id')
+            .eq('student_id', studentId)
+            .eq('teacher_id', teacherId)
+            .single();
+
+        if (assignmentError || !assignment) {
+            results.errors.push(`Teacher is not assigned to student: ${assignmentError?.message || 'No assignment'}`);
+            return new Response(JSON.stringify(results, null, 2), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
         }
 
         // Step 3: Get active subscription
@@ -162,7 +192,7 @@ export const POST: APIRoute = async (context) => {
                 student_id: studentId,
                 teacher_id: teacherId,
                 scheduled_at: startTime,
-                duration_minutes: 60,
+                duration_minutes: 50,
                 status: 'scheduled',
             })
             .select()

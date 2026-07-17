@@ -1,16 +1,28 @@
 import type { APIRoute } from 'astro';
+import { callInternalJobService } from '../../../lib/internal-job-service';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import { appendToDocument } from '../../../lib/google/drive';
-
-export const config = {
-    runtime: 'nodejs',
-};
 
 function extractDocIdFromUrl(url: string): string | null {
-    // Matches https://docs.google.com/document/d/XXXXX/edit
-    const match = url.match(/\/d\/([a-zA-Z0-9-_]+)/);
+    let parsedUrl: URL;
+    try {
+        parsedUrl = new URL(url);
+    } catch {
+        return null;
+    }
+
+    if (!['docs.google.com', 'drive.google.com'].includes(parsedUrl.hostname)) {
+        return null;
+    }
+
+    const match = parsedUrl.pathname.match(/\/d\/([a-zA-Z0-9-_]+)/);
     return match ? match[1] : null;
 }
+
+type AppendHomeworkRequest = {
+    docUrl?: unknown;
+    text?: unknown;
+    classDate?: unknown;
+};
 
 export const POST: APIRoute = async (context) => {
     try {
@@ -21,7 +33,6 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
         }
 
-        // RBAC: only teachers and admins can append homework
         const { data: profile } = await supabase
             .from('profiles')
             .select('role')
@@ -32,8 +43,10 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
         }
 
-        const body = await context.request.json();
-        const { docUrl, text, classDate } = body;
+        const body = await context.request.json() as AppendHomeworkRequest;
+        const docUrl = typeof body.docUrl === 'string' ? body.docUrl : '';
+        const text = typeof body.text === 'string' ? body.text : '';
+        const classDate = typeof body.classDate === 'string' ? body.classDate : null;
 
         if (!docUrl || !text) {
             return new Response(JSON.stringify({ error: 'Missing docUrl or text' }), { status: 400 });
@@ -44,35 +57,43 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Invalid Google Doc URL format' }), { status: 400 });
         }
 
-        // Ownership check: verify this doc belongs to a session assigned to this teacher
         if (profile.role !== 'admin') {
-            const { data: ownerSession } = await supabase
+            const { data: ownerSessionById } = await supabase
                 .from('sessions')
                 .select('id')
-                .or(`drive_doc_id.eq.${docId},drive_doc_url.eq.${docUrl}`)
+                .eq('drive_doc_id', docId)
                 .eq('teacher_id', user.id)
                 .limit(1)
-                .single();
+                .maybeSingle();
 
-            if (!ownerSession) {
+            const { data: ownerSessionByUrl } = ownerSessionById
+                ? { data: null }
+                : await supabase
+                    .from('sessions')
+                    .select('id')
+                    .eq('drive_doc_url', docUrl)
+                    .eq('teacher_id', user.id)
+                    .limit(1)
+                    .maybeSingle();
+
+            if (!ownerSessionById && !ownerSessionByUrl) {
                 return new Response(JSON.stringify({ error: 'Forbidden: doc not assigned to you' }), { status: 403 });
             }
         }
 
-        // Formatear el contenido para que se vea claro como "Deberes"
         const formatter = new Intl.DateTimeFormat('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
         const dateStr = classDate ? formatter.format(new Date(classDate)) : formatter.format(new Date());
-
         const formattedContent = `\n\n--- Deberes de la clase del ${dateStr} ---\n\n${text}\n`;
 
-        // Añadir el contenido usando la API de Docs
-        await appendToDocument(docId, formattedContent);
+        await callInternalJobService('/internal/drive/append-homework', {
+            docId,
+            content: formattedContent,
+        }, { context });
 
         return new Response(JSON.stringify({ success: true }), {
             status: 200,
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
         });
-
     } catch (error: unknown) {
         console.error('Append homework error:', error);
         return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });

@@ -19,6 +19,8 @@ const mockTranslations = {
     slotRemoved: 'Horario eliminado',
     errorAdding: 'Error al añadir el horario',
     errorRemoving: 'Error al eliminar el horario',
+    invalidTimeRange: 'La hora final debe ser posterior a la inicial',
+    timezoneNotice: 'Todos los horarios se muestran en Europe/Madrid.',
 };
 
 const makeSlot = (overrides: Record<string, unknown> = {}) => ({
@@ -74,6 +76,14 @@ describe('AvailabilityManager — add slot form', () => {
         fireEvent.click(screen.getByText(/Añadir horario/));
         expect(screen.getByText('Guardar')).toBeDefined();
         expect(screen.getByText('Cancelar')).toBeDefined();
+        expect(screen.getByLabelText(mockTranslations.day)).toBeDefined();
+        expect(screen.getByLabelText(mockTranslations.from)).toBeDefined();
+        expect(screen.getByLabelText(mockTranslations.to)).toBeDefined();
+    });
+
+    it('makes the academy time zone explicit', () => {
+        render(<AvailabilityManager {...defaultProps} />);
+        expect(screen.getByRole('note')).toHaveTextContent('Europe/Madrid');
     });
 
     it('clicking "Cancelar" in form hides the form', () => {
@@ -81,6 +91,17 @@ describe('AvailabilityManager — add slot form', () => {
         fireEvent.click(screen.getByText(/Añadir horario/));
         fireEvent.click(screen.getByText('Cancelar'));
         expect(screen.queryByText('Guardar')).toBeNull();
+    });
+
+    it('blocks an invalid time range before submitting', () => {
+        render(<AvailabilityManager {...defaultProps} />);
+        fireEvent.click(screen.getByText(/Añadir horario/));
+
+        fireEvent.change(screen.getByLabelText(mockTranslations.from), { target: { value: '11:00' } });
+        fireEvent.change(screen.getByLabelText(mockTranslations.to), { target: { value: '10:00' } });
+
+        expect(screen.getByRole('alert')).toHaveTextContent(mockTranslations.invalidTimeRange);
+        expect(screen.getByRole('button', { name: mockTranslations.save })).toBeDisabled();
     });
 
     it('submitting form calls POST /api/teacher/availability and shows success message', async () => {
@@ -103,7 +124,7 @@ describe('AvailabilityManager — add slot form', () => {
         fireEvent.click(screen.getByText('Guardar'));
 
         await waitFor(() => {
-            expect(screen.getByText(mockTranslations.slotAdded)).toBeDefined();
+            expect(screen.getByRole('status')).toHaveTextContent(mockTranslations.slotAdded);
         });
     });
 
@@ -119,7 +140,7 @@ describe('AvailabilityManager — add slot form', () => {
         fireEvent.click(screen.getByText('Guardar'));
 
         await waitFor(() => {
-            expect(screen.getByText(mockTranslations.errorAdding)).toBeDefined();
+            expect(screen.getByRole('alert')).toHaveTextContent(mockTranslations.errorAdding);
         });
     });
 });
@@ -146,11 +167,11 @@ describe('AvailabilityManager — remove slot', () => {
         expect(screen.getByText('09:00 - 10:00')).toBeDefined();
 
         // Click the × button
-        const removeBtn = screen.getByTitle(mockTranslations.removeSlot);
+        const removeBtn = screen.getByRole('button', { name: `${mockTranslations.removeSlot}: 09:00 - 10:00` });
         fireEvent.click(removeBtn);
 
         await waitFor(() => {
-            expect(screen.getByText(mockTranslations.slotRemoved)).toBeDefined();
+            expect(screen.getByRole('status')).toHaveTextContent(mockTranslations.slotRemoved);
         });
     });
 
@@ -164,10 +185,10 @@ describe('AvailabilityManager — remove slot', () => {
         const slot = makeSlot({ id: 'slot-fail', day_of_week: 2, start_time: '11:00:00', end_time: '12:00:00' });
         render(<AvailabilityManager {...defaultProps} initialAvailability={[slot]} />);
 
-        fireEvent.click(screen.getByTitle(mockTranslations.removeSlot));
+        fireEvent.click(screen.getByRole('button', { name: `${mockTranslations.removeSlot}: 11:00 - 12:00` }));
 
         await waitFor(() => {
-            expect(screen.getByText(mockTranslations.errorRemoving)).toBeDefined();
+            expect(screen.getByRole('alert')).toHaveTextContent(mockTranslations.errorRemoving);
         });
     });
 });

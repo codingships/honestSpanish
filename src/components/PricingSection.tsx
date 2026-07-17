@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import PricingModal from './PricingModal';
+import { CLASS_DURATION_OPTIONS_MINUTES } from '../lib/class-duration';
+import { formatPackagePrice } from '../lib/package-pricing';
 
 interface Package {
     id: string;
@@ -18,6 +20,7 @@ interface PricingSectionProps {
     packages: Package[];
     lang: 'es' | 'en' | 'ru';
     isLoggedIn: boolean;
+    checkoutMode?: 'application' | 'checkout';
     translations: {
         title: string;
         subtitle: string;
@@ -30,6 +33,7 @@ interface PricingSectionProps {
         month: string;
         select: string;
         recommended: string;
+        applicationNote?: string;
         plans: Record<string, { name: string; description: string; features: string[] }>;
         modal: {
             title: string;
@@ -46,11 +50,26 @@ interface PricingSectionProps {
             close: string;
             contact: string;
             contactMessage: string;
+            adultConfirmation?: string;
+            termsAcceptance?: string;
+            termsLink?: string;
+            and?: string;
+            privacyLink?: string;
+            serviceStartRequest?: string;
+            withdrawalLossAcknowledgement?: string;
+            renewalDisclosure?: string;
+            sessionBankDisclosure?: string;
+            policyError?: string;
         };
     };
 }
 
 type PlanKey = string;
+
+type PreferredPackageDetail = {
+    preferredPackage: string;
+    preferredPackageLabel: string;
+};
 
 const s = {
     bg: 'bg-[#E0F7FA]',
@@ -61,22 +80,69 @@ const s = {
     secondaryBg: 'bg-white',
 };
 
-export default function PricingSection({ packages, lang, isLoggedIn, translations: t }: PricingSectionProps) {
+export default function PricingSection({ packages, lang, isLoggedIn, checkoutMode = 'application', translations: t }: PricingSectionProps) {
     const [selectedPlan, setSelectedPlan] = useState<{
         name: string;
         displayName: string;
-        priceMonthly: number;
+        priceMonthlyCents: number;
+        sessionsPerMonth: number;
         stripe_price_1m: string | null;
         stripe_price_3m: string | null;
         stripe_price_6m: string | null;
     } | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const copy = {
+        title: t.title || 'Planes',
+        subtitle: t.subtitle || '',
+        headers: {
+            name: t.headers?.name || 'Plan',
+            price: t.headers?.price || 'Precio',
+            includes: t.headers?.includes || 'Incluye',
+            action: t.headers?.action || 'Accion',
+        },
+        month: t.month || 'al mes',
+        select: t.select || 'Seleccionar',
+        recommended: t.recommended || 'Recomendado',
+        applicationNote: t.applicationNote || {
+            es: 'La solicitud de plaza se revisa antes de activar compra o pago.',
+            en: 'Your application is reviewed before purchase or payment is enabled.',
+            ru: 'Заявка рассматривается до включения покупки или оплаты.',
+        }[lang],
+        plans: t.plans || {},
+        modal: {
+            title: t.modal?.title || 'Elige duracion',
+            duration1: t.modal?.duration1 || '1 mes',
+            duration3: t.modal?.duration3 || '3 meses',
+            duration6: t.modal?.duration6 || '6 meses',
+            save: t.modal?.save || 'Ahorra',
+            total: t.modal?.total || 'Total',
+            perMonth: t.modal?.perMonth || 'al mes',
+            continue: t.modal?.continue || 'Continuar',
+            login: t.modal?.login || 'Iniciar sesion',
+            loading: t.modal?.loading || 'Cargando...',
+            error: t.modal?.error || 'No se pudo continuar',
+            close: t.modal?.close || 'Cerrar',
+            contact: t.modal?.contact || 'Consultar',
+            contactMessage: t.modal?.contactMessage || 'Escribenos para confirmar disponibilidad.',
+            adultConfirmation: t.modal?.adultConfirmation || 'Confirmo que tengo 18 años o más.',
+            termsAcceptance: t.modal?.termsAcceptance || 'He leído y acepto los',
+            termsLink: t.modal?.termsLink || 'Términos',
+            and: t.modal?.and || 'y la',
+            privacyLink: t.modal?.privacyLink || 'Política de Privacidad',
+            serviceStartRequest: t.modal?.serviceStartRequest || 'Solicito que el servicio pueda comenzar durante el periodo legal de desistimiento.',
+            withdrawalLossAcknowledgement: t.modal?.withdrawalLossAcknowledgement || 'Reconozco que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.',
+            renewalDisclosure: t.modal?.renewalDisclosure || 'El total se cobra ahora y la suscripción se renueva automáticamente por el mismo periodo hasta que la canceles.',
+            sessionBankDisclosure: t.modal?.sessionBankDisclosure || 'Este periodo incluye {sessions} sesiones para usar durante {months} mes(es), sin tope mensual. Las no usadas caducan al terminar.',
+            policyError: t.modal?.policyError || 'Debes confirmar y aceptar las condiciones antes de continuar.',
+        },
+    };
 
     const handleSelectPlan = (pkg: Package) => {
         setSelectedPlan({
             name: pkg.name,
             displayName: pkg.display_name?.[lang] || pkg.display_name?.['es'] || pkg.name,
-            priceMonthly: pkg.price_monthly / 100, // Convert from cents to euros
+            priceMonthlyCents: pkg.price_monthly,
+            sessionsPerMonth: pkg.sessions_per_month,
             stripe_price_1m: pkg.stripe_price_1m,
             stripe_price_3m: pkg.stripe_price_3m,
             stripe_price_6m: pkg.stripe_price_6m,
@@ -85,73 +151,171 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
     };
 
     // Get package data or use fallback
-    const getPriceDisplay = (pkg: Package | undefined): string => {
-        if (!pkg || !pkg.price_monthly) return 'Consultar';
-        return `${(pkg.price_monthly / 100).toFixed(0)}€`;
+    const getPriceDisplay = (pkg: Package | undefined): { label: string; hasPrice: boolean } => {
+        if (!pkg || !pkg.price_monthly) return { label: copy.modal.contact, hasPrice: false };
+        return { label: formatPackagePrice(pkg.price_monthly, lang), hasPrice: true };
     };
 
     const recommendedPlanName = packages.some(pkg => pkg.name === 'hybrid')
         ? 'hybrid'
         : packages[Math.min(1, Math.max(packages.length - 1, 0))]?.name;
 
-    const getFallbackFeatures = (pkg: Package): string[] => {
+    const isGroupOnlyPackage = (pkg: Package): boolean => pkg.name === 'group';
+
+    const getLaunchFeatures = (pkg: Package): string[] => {
+        const durationLabel = CLASS_DURATION_OPTIONS_MINUTES.join('/');
         const labels = {
             es: {
-                sessions: `${pkg.sessions_per_month} sesiones/mes`,
-                duration: '55 minutos por clase',
-                group: 'Sesiones grupales incluidas',
+                sessions: `${pkg.sessions_per_month} clases privadas al mes`,
+                groupSessions: `${pkg.sessions_per_month} sesiones grupales de conversacion al mes si hay grupo compatible`,
+                duration: `Clases de ${durationLabel} minutos`,
+                materials: 'Documento vivo, worksheets y carpeta de Drive',
+                calendar: 'Meet y Calendar preparados desde el campus',
+                support: 'Soporte dentro del campus',
+                groupMatch: 'Grupo formado por compatibilidad de nivel e intereses',
+                group: 'Conversación grupal cuando haya compatibilidad',
                 dual: 'Seguimiento con dos profesores',
             },
             en: {
-                sessions: `${pkg.sessions_per_month} sessions/month`,
-                duration: '55 minutes per class',
-                group: 'Group sessions included',
+                sessions: `${pkg.sessions_per_month} private classes per month`,
+                groupSessions: `${pkg.sessions_per_month} group conversation sessions per month when a compatible group exists`,
+                duration: `${durationLabel}-minute classes`,
+                materials: 'Live document, worksheets and Drive folder',
+                calendar: 'Meet and Calendar prepared from the campus',
+                support: 'In-campus support',
+                groupMatch: 'Group formed by compatible level and interests',
+                group: 'Group conversation when compatible',
                 dual: 'Two-teacher follow-up',
             },
             ru: {
-                sessions: `${pkg.sessions_per_month} занятий в месяц`,
-                duration: '55 минут за занятие',
-                group: 'Групповые занятия включены',
+                sessions: `${pkg.sessions_per_month} индивидуальных занятий в месяц`,
+                groupSessions: `${pkg.sessions_per_month} групповых разговорных занятий в месяц при совместимой группе`,
+                duration: `Занятия по ${durationLabel} минут`,
+                materials: 'Живой документ, worksheets и папка Drive',
+                calendar: 'Meet и Calendar готовятся из кампуса',
+                support: 'Поддержка внутри кампуса',
+                groupMatch: 'Группа подбирается по уровню и интересам',
+                group: 'Групповая беседа при совместимости',
                 dual: 'Сопровождение двух преподавателей',
             },
         }[lang];
 
+        if (isGroupOnlyPackage(pkg)) {
+            return [
+                labels.groupSessions,
+                labels.duration,
+                labels.groupMatch,
+                labels.calendar,
+                labels.support,
+            ];
+        }
+
         return [
             labels.sessions,
             labels.duration,
+            labels.materials,
+            labels.calendar,
+            labels.support,
             ...(pkg.has_group_session ? [labels.group] : []),
             ...(pkg.has_dual_teacher ? [labels.dual] : []),
         ];
     };
 
+    const getPlanFeatures = (pkg: Package, translatedFeatures: string[] | undefined): string[] => {
+        const visibleTranslatedFeatures = (translatedFeatures || []).filter((feature) => !/\b55\b/.test(feature));
+        const launchFeatures = getLaunchFeatures(pkg);
+        const normalized = new Set(visibleTranslatedFeatures.map((feature) => feature.toLocaleLowerCase(lang)));
+
+        return [
+            ...visibleTranslatedFeatures,
+            ...launchFeatures.filter((feature) => !normalized.has(feature.toLocaleLowerCase(lang))),
+        ];
+    };
+
+    const requestApplication = (pkg: Package) => {
+        if (typeof window === 'undefined') return;
+
+        const preferredPackageLabel = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
+        const detail: PreferredPackageDetail = {
+            preferredPackage: pkg.name,
+            preferredPackageLabel,
+        };
+
+        try {
+            window.sessionStorage.setItem('eh_preferred_package', JSON.stringify(detail));
+        } catch {
+            // Session storage can be unavailable in strict privacy modes.
+        }
+
+        window.dispatchEvent(new CustomEvent<PreferredPackageDetail>('eh:preferred-package-selected', { detail }));
+
+        const contactSection = document.getElementById('contacto');
+        if (contactSection) {
+            contactSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.history.replaceState(null, '', '#contacto');
+        } else {
+            window.location.href = `/${lang}#contacto`;
+        }
+    };
+
     return (
         <>
-            <section id="pricing" className={`bg-white py-24 px-4 md:px-8 border-b-2 ${s.border}`}>
+            <section id="planes" aria-labelledby="plans-heading" className={`bg-white py-24 px-4 md:px-8 border-b-2 ${s.border}`}>
+                <span id="pricing" className="block scroll-mt-20" aria-hidden="true" />
                 <div className="max-w-7xl mx-auto">
                     <div className={`flex items-end justify-between mb-12 border-b-4 ${s.border} pb-4`}>
-                        <h2 className="font-display text-6xl md:text-8xl tracking-tighter">{t.title}</h2>
-                        <span className="font-mono text-sm mb-2 hidden md:block">{t.subtitle}</span>
+                        <h2 id="plans-heading" className="font-display text-6xl md:text-8xl tracking-tighter">{copy.title}</h2>
+                        <span className="font-mono text-sm mb-2 hidden md:block">{copy.subtitle}</span>
                     </div>
 
                     <div className={`border-t-2 ${s.border}`}>
                         {/* Headers - Desktop */}
-                        <div className="hidden md:grid grid-cols-12 gap-4 py-4 font-mono text-xs uppercase tracking-widest opacity-60">
-                            <div className="col-span-3">{t.headers.name}</div>
-                            <div className="col-span-2">{t.headers.price}</div>
-                            <div className="col-span-5">{t.headers.includes}</div>
-                            <div className="col-span-2 text-center">{t.headers.action}</div>
+                        <div className="hidden md:grid grid-cols-12 gap-4 py-4 font-mono text-xs uppercase tracking-widest text-[#006064]">
+                            <div className="col-span-3">{copy.headers.name}</div>
+                            <div className="col-span-2">{copy.headers.price}</div>
+                            <div className="col-span-5">{copy.headers.includes}</div>
+                            <div className="col-span-2 text-center">{copy.headers.action}</div>
                         </div>
 
-                        {packages.map((pkg, index) => {
+                        {packages.length === 0 ? (
+                            <div className={`border-t-2 ${s.border} py-10 text-center`} role="status" aria-live="polite">
+                                <p className="mx-auto max-w-2xl text-sm font-bold text-[#006064]">
+                                    {copy.modal.contactMessage}
+                                </p>
+                                <a
+                                    href={`/${lang}#contacto`}
+                                    className={`mt-4 inline-block border ${s.border} px-6 py-2 text-xs font-bold uppercase transition-all hover:bg-[#006064] hover:text-white`}
+                                >
+                                    {copy.modal.contact}
+                                </a>
+                            </div>
+                        ) : packages.map((pkg, index) => {
                             const key = pkg.name || `plan-${index}`;
                             const highlight = pkg.name === recommendedPlanName;
                             const isRecommended = highlight;
                             const checkoutReady = Boolean(pkg.stripe_price_1m && pkg.stripe_price_3m && pkg.stripe_price_6m);
-                            const planTranslations = t.plans[key as PlanKey] ?? {
+                            const checkoutEnabled = checkoutMode === 'checkout' && checkoutReady;
+                            const planTranslations = copy.plans[key as PlanKey] ?? {
                                 name: pkg.display_name?.[lang] || pkg.display_name?.es || key,
                                 description: '',
-                                features: getFallbackFeatures(pkg),
+                                features: [],
                             };
+                            const canonicalPlanName = pkg.display_name?.[lang]
+                                || pkg.display_name?.es
+                                || pkg.name;
+                            const planFeatures = getPlanFeatures(pkg, planTranslations.features);
+                            const priceDisplay = getPriceDisplay(pkg);
+                            const preferredPackageLabel = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
+                            const applicationHref = `/${lang}?preferredPackage=${encodeURIComponent(pkg.name)}&preferredPackageLabel=${encodeURIComponent(preferredPackageLabel)}#contacto`;
+                            const actionClass = `
+                                w-auto px-6 ${highlight ? 'py-4' : 'py-2'}
+                                ${highlight
+                                    ? `${s.accent} ${s.accentText} text-sm shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px]`
+                                    : `hover:bg-[#006064] hover:text-white text-xs`
+                                }
+                                border ${s.border} font-bold uppercase transition-all
+                                disabled:opacity-50 disabled:cursor-not-allowed
+                            `;
 
                             return (
                                 <div
@@ -167,55 +331,83 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
                                 >
                                     {isRecommended && (
                                         <div className={`absolute top-0 left-0 ${s.accent} ${s.accentText} px-2 py-1 text-[10px] font-bold uppercase tracking-widest`}>
-                                            {t.recommended}
+                                            {copy.recommended}
                                         </div>
                                     )}
 
                                     {/* Name & Description */}
                                     <div className="col-span-3">
                                         <h3 className={`font-display ${highlight ? 'text-4xl' : 'text-3xl'}`}>
-                                            {planTranslations.name}
+                                            {canonicalPlanName}
                                         </h3>
-                                        <p className="text-sm opacity-70 mt-1">{planTranslations.description}</p>
+                                        <p className="text-sm mt-1">{planTranslations.description}</p>
                                     </div>
 
-                                    {/* Price - TEMPORALMENTE: Solo mostrar "Consultar" */}
+                                    {/* Price */}
                                     <div className={`col-span-2 font-mono ${highlight ? 'text-3xl' : 'text-2xl'} font-bold`}>
-                                        {getPriceDisplay(pkg)}
+                                        {priceDisplay.label}
+                                        {priceDisplay.hasPrice && (
+                                            <span className="block text-[11px] uppercase tracking-wide">
+                                                {copy.month}
+                                            </span>
+                                        )}
                                     </div>
 
                                     {/* Features */}
                                     <div className={`col-span-5 text-sm ${highlight ? 'font-bold' : 'font-medium'} space-y-1`}>
-                                        {planTranslations.features.map((feature, idx) => (
-                                            <p key={idx}>• {feature}</p>
+                                        {planFeatures.map((feature, idx) => (
+                                            <p key={idx}><span aria-hidden="true">{'\u2022'}</span> {feature}</p>
                                         ))}
                                     </div>
 
                                     {/* Action Button */}
                                     <div className="col-span-2 flex justify-center">
-                                        <button
-                                            onClick={() => pkg && handleSelectPlan(pkg)}
-                                            disabled={!pkg || !checkoutReady}
-                                            data-plan={key}
-                                            data-testid={`select-plan-${key}`}
-                                            className={`
-                                                w-auto px-6 ${highlight ? 'py-4' : 'py-2'} 
-                                                ${highlight
-                                                    ? `${s.accent} ${s.accentText} text-sm shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px]`
-                                                    : `hover:bg-[#006064] hover:text-white text-xs`
-                                                }
-                                                border ${s.border} font-bold uppercase transition-all
-                                                disabled:opacity-50 disabled:cursor-not-allowed
-                                            `}
-                                        >
-                                            {checkoutReady ? t.select : t.modal.contact}
-                                        </button>
+                                        {checkoutMode === 'application' ? (
+                                            <a
+                                                href={applicationHref}
+                                                onClick={(event) => {
+                                                    event.preventDefault();
+                                                    requestApplication(pkg);
+                                                }}
+                                                data-plan={key}
+                                                data-preferred-package={pkg.name}
+                                                data-preferred-package-label={preferredPackageLabel}
+                                                data-testid={`select-plan-${key}`}
+                                                aria-describedby="pricing-application-note"
+                                                className={actionClass}
+                                            >
+                                                {copy.select}
+                                            </a>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (!pkg) return;
+                                                    if (checkoutEnabled) {
+                                                        handleSelectPlan(pkg);
+                                                        return;
+                                                    }
+                                                    requestApplication(pkg);
+                                                }}
+                                                disabled={!pkg}
+                                                data-plan={key}
+                                                data-testid={`select-plan-${key}`}
+                                                className={actionClass}
+                                            >
+                                                {checkoutReady ? copy.select : copy.modal.contact}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
                 </div>
+                {checkoutMode === 'application' && (
+                    <p id="pricing-application-note" className="sr-only">
+                        {copy.applicationNote}
+                    </p>
+                )}
             </section>
 
             {/* Modal */}
@@ -225,7 +417,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, translation
                 plan={selectedPlan}
                 lang={lang}
                 isLoggedIn={isLoggedIn}
-                translations={t.modal}
+                translations={copy.modal}
             />
         </>
     );

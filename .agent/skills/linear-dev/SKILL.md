@@ -49,8 +49,8 @@ This skill enforces a **Linear Workflow** (Plan -> Define -> Code -> Done) to pr
     *   **No Console Logs**: Use a logger or remove before saving.
 
 ### 3. ✅ The Verification Phase (Gate)
-1.  **Run `npm run typecheck`**: It must pass.
-2.  **Run `npm run lint`**: It must pass.
+1.  **Run `pnpm typecheck`**: It must pass.
+2.  **Run `pnpm lint`**: It must pass.
 3.  **Run Tests**: If logic is complex, write a unit test.
 
 ## Usage

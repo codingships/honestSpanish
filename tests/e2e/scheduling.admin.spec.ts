@@ -4,7 +4,7 @@ test.describe('Fase 2 y 3 UAT: Agendamiento de Clases (Admin)', () => {
 
     test('2.1.A a 2.1.C: Agendar clase individual desde modal', async ({ page }) => {
         // Ir al calendario (asumiendo que admin puede visitar /campus/teacher/calendar o hay ruta global)
-        await page.goto('/es/campus/teacher/calendar');
+        await page.goto('/es/campus/teacher/calendar', { waitUntil: 'domcontentloaded' });
 
         // Modal de programar clase
         const scheduleBtn = page.locator('button:has-text("Programar clase"), button:has-text("Programar"), button:has-text("Nueva Clase")').first();
@@ -56,7 +56,7 @@ test.describe('Fase 2 y 3 UAT: Agendamiento de Clases (Admin)', () => {
     });
 
     test('3.1.A a 3.2.B: Agendamiento masivo (Bulk Scheduler)', async ({ page }) => {
-        await page.goto('/es/campus/teacher/calendar');
+        await page.goto('/es/campus/teacher/calendar', { waitUntil: 'domcontentloaded' });
 
         // Pulsar agendar curso completo
         const bulkBtn = page.locator('button:has-text("Agendar Curso Completo"), button:has-text("Masivo"), button:has-text("Bulk")').first();

@@ -60,6 +60,12 @@ BEGIN
     END IF;
 END $$;
 
+-- CRM backfills introduced later read this timestamp. Some early databases
+-- received it from a dashboard-era schema export, so make the migration chain
+-- self-contained for clean bootstrap and keep existing values untouched.
+ALTER TABLE public.leads
+    ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+
 DO $$
 BEGIN
     IF NOT EXISTS (

@@ -1,29 +1,30 @@
-/**
- * API: Send Test Email
- * Admin-only endpoint for testing email templates
- */
 import type { APIRoute } from 'astro';
+import { z } from 'zod';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import {
-    sendWelcomeEmail,
-    sendClassConfirmation,
-    sendClassReminder,
-    sendClassCancelled,
-} from '../../../lib/email';
+    buildEmailPreview,
+    emailPreviewLocales,
+    emailPreviewTypes,
+    isEmailPreviewLocale,
+    isEmailPreviewType,
+    sendEmailPreview,
+} from '../../../lib/email/previews';
+import { describeEmailSendError } from '../../../lib/email/errors';
 
-export const POST: APIRoute = async (context) => {
+const sendTestSchema = z.object({
+    type: z.enum(emailPreviewTypes),
+    email: z.string().trim().email(),
+    locale: z.enum(emailPreviewLocales).optional(),
+});
+
+async function requireAdmin(context: Parameters<APIRoute>[0]) {
     const supabase = createSupabaseServerClient(context);
-
-    // Check authentication
     const { data: { user } } = await supabase.auth.getUser();
+
     if (!user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-            status: 401,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        return { error: 'Unauthorized', status: 401 as const };
     }
 
-    // Check admin role
     const { data: profile } = await supabase
         .from('profiles')
         .select('role')
@@ -31,106 +32,65 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (!profile || profile.role !== 'admin') {
-        return new Response(JSON.stringify({ error: 'Forbidden' }), {
-            status: 403,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        return { error: 'Forbidden', status: 403 as const };
     }
 
-    // Get request body
-    let body;
+    return { user };
+}
+
+function json(body: Record<string, unknown>, status = 200) {
+    return new Response(JSON.stringify(body), {
+        status,
+        headers: { 'Content-Type': 'application/json' },
+    });
+}
+
+export const GET: APIRoute = async (context) => {
+    const auth = await requireAdmin(context);
+    if ('error' in auth) return json({ error: auth.error }, auth.status);
+
+    const type = new URL(context.request.url).searchParams.get('type') || 'welcome';
+    const locale = new URL(context.request.url).searchParams.get('locale') || 'en';
+    if (!isEmailPreviewType(type)) {
+        return json({ error: `Invalid type. Must be one of: ${emailPreviewTypes.join(', ')}` }, 400);
+    }
+    if (!isEmailPreviewLocale(locale)) {
+        return json({ error: `Invalid locale. Must be one of: ${emailPreviewLocales.join(', ')}` }, 400);
+    }
+
+    return json(buildEmailPreview(type, locale));
+};
+
+export const POST: APIRoute = async (context) => {
+    const auth = await requireAdmin(context);
+    if ('error' in auth) return json({ error: auth.error }, auth.status);
+
+    let rawBody: unknown;
     try {
-        body = await context.request.json();
+        rawBody = await context.request.json();
     } catch {
-        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        return json({ error: 'Invalid JSON body' }, 400);
     }
 
-    const { type, email } = body;
-
-    if (!type || !email) {
-        return new Response(JSON.stringify({ error: 'type and email are required' }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-        });
+    const parsed = sendTestSchema.safeParse(rawBody);
+    if (!parsed.success) {
+        return json({ error: 'Invalid email test payload' }, 400);
     }
-
-    const validTypes = ['welcome', 'confirmation', 'reminder', 'cancelled'];
-    if (!validTypes.includes(type)) {
-        return new Response(JSON.stringify({
-            error: `Invalid type. Must be one of: ${validTypes.join(', ')}`
-        }), {
-            status: 400,
-            headers: { 'Content-Type': 'application/json' }
-        });
-    }
-
-    let success = false;
 
     try {
-        switch (type) {
-            case 'welcome':
-                success = await sendWelcomeEmail(email, {
-                    studentName: 'Usuario de Prueba',
-                    packageName: 'Español Intensivo (6 clases/mes)',
-                    loginUrl: 'https://espanolhonesto.com/es/login',
-                    driveFolderUrl: 'https://drive.google.com/example',
-                });
-                break;
-
-            case 'confirmation':
-                success = await sendClassConfirmation(email, {
-                    recipientName: 'Usuario de Prueba',
-                    isTeacher: false,
-                    otherPartyName: 'Alejandro García',
-                    date: 'Lunes, 15 de enero de 2026',
-                    time: '10:00',
-                    duration: 60,
-                    meetLink: 'https://meet.google.com/abc-defg-hij',
-                    documentLink: 'https://docs.google.com/example',
-                });
-                break;
-
-            case 'reminder':
-                success = await sendClassReminder(email, {
-                    recipientName: 'Usuario de Prueba',
-                    teacherName: 'Alejandro García',
-                    date: 'Martes, 16 de enero de 2026',
-                    time: '10:00',
-                    meetLink: 'https://meet.google.com/abc-defg-hij',
-                    documentLink: 'https://docs.google.com/example',
-                });
-                break;
-
-            case 'cancelled':
-                success = await sendClassCancelled(email, {
-                    recipientName: 'Usuario de Prueba',
-                    date: 'Lunes, 15 de enero de 2026',
-                    time: '10:00',
-                    cancelledBy: 'student',
-                    reason: 'Motivo de la cancelación de prueba',
-                });
-                break;
-        }
-
-        return new Response(JSON.stringify({
+        const success = await sendEmailPreview(
+            parsed.data.type,
+            parsed.data.email,
+            parsed.data.locale ?? 'en',
+        );
+        return json({
             success,
-            message: success ? `Test email (${type}) sent to ${email}` : 'Failed to send email'
-        }), {
-            status: success ? 200 : 500,
-            headers: { 'Content-Type': 'application/json' }
-        });
-
+            message: success
+                ? `Test email (${parsed.data.type}) sent to ${parsed.data.email}`
+                : 'Failed to send email',
+        }, success ? 200 : 500);
     } catch (error) {
-        console.error('[Email Test] Error:', error);
-        return new Response(JSON.stringify({
-            error: 'Failed to send test email',
-            details: error instanceof Error ? error.message : 'Unknown error'
-        }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-        });
+        console.error('[EmailTest] Error sending preview:', describeEmailSendError(error));
+        return json({ error: 'Failed to send test email' }, 500);
     }
 };

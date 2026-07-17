@@ -1,150 +1,197 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import HeroSection from '../../components/landing/HeroSection.astro';
-import ProblemsSection from '../../components/landing/ProblemsSection.astro';
-import MethodSection from '../../components/landing/MethodSection.astro';
-import PricingSection from '../../components/PricingSection';
-import { createSupabaseServerClient } from '../../lib/supabase-server';
+import SegmentLandingPage from '../../components/landing/SegmentLandingPage.astro';
+import { getLandingPageData } from '../../lib/landing-data';
+import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
 
 const lang = 'es';
-
-// Fetch packages for pricing 
-// (In a real scenario, you might filter specific business packages here)
-const supabase = createSupabaseServerClient(Astro);
-const { data: packages } = await supabase
-    .from('packages')
-    .select('id, name, display_name, price_monthly, sessions_per_month, has_group_session, has_dual_teacher, stripe_price_1m, stripe_price_3m, stripe_price_6m')
-    .eq('is_active', true)
-    .order('price_monthly', { ascending: true });
-
-const { data: { user } } = await supabase.auth.getUser();
-const isLoggedIn = !!user;
+const { packages, isLoggedIn } = await getLandingPageData(Astro);
 
 const schema = {
-    "@context": "https://schema.org",
-    "@type": "WebPage",
-    "name": "Clases de Español para Profesionales y Expatriados | Español Honesto",
-    "description": "Potencia tu carrera dominando el español de negocios. Clases hiperespecíficas para superar entrevistas, liderar reuniones y mandar emails formales sin errores."
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: 'Español para profesionales en España | Español Honesto',
+    description: 'Clases de español para profesionales adultos que necesitan hablar con confianza en trabajo, reuniones, ciudad y vida real en España.',
+    inLanguage: 'es-ES',
 };
 
-// Specialized translations (Hardcoded to prove the satellite architecture)
-const heroContent = {
-    headline1: "Impulsa tu",
-    headline2: "carrera con",
-    headline3: "español de negocios",
-    manifesto: "ESPAÑOL PARA PROFESIONALES • EXPATRIADOS • IT",
-    subtitle: "Comunícate con confianza, lidera equipos en España y expande tus oportunidades en el ecosistema hispanohablante.",
-    ready: "¿Listo para ascender?",
-    ctaText: "VER PLANES EMPRESARIALES"
-};
-
-const problemsContent = {
-    headline: "El español general no te sirve en la oficina",
-    subtext: "Conocemos los obstáculos exactos a los que te enfrentas liderando en un segundo idioma.",
-    statements: [
-        "Sufres el 'síndrome del impostor' en reuniones importantes o negociaciones salariales por falta de vocabulario.",
-        "Redactar correos técnicos o informes formales te consume demasiadas horas revisando cada palabra.",
-        "Te pierdes las bromas y matices culturales en la máquina de café, quedando al margen de la dinámica del equipo."
-    ]
-};
-
-const methodContent = {
-    headline: "Un enfoque láser hacia tus objetivos laborales",
-    manifesto: "100% PRÁCTICO • ROL-PLAYING • CERO RELLENO",
-    closing: "Aprendes únicamente lo que vas a usar el lunes por la mañana en tu empresa.",
-    subtitle: "Sustituimos la gramática teórica por simulaciones de tu entorno real: entrevistas, presentaciones de producto y gestión de conflictos.",
-    columns: [
-        { 
-            number: "01", 
-            title: "Auditoría de Necesidades", 
-            description: "Analizamos tus emails pasados, tu jerga técnica y los documentos que usas para basar las clases en TI." 
+const answers = {
+    title: 'Respuestas rápidas',
+    intro: 'Lo esencial antes de solicitar plaza si necesitas español para trabajo y vida profesional.',
+    items: [
+        {
+            question: '¿Qué es español para profesionales?',
+            answer: 'Es una ruta de Español Honesto para adultos que necesitan usar el español en reuniones, entrevistas, clientes, equipo y vida diaria en España. No separa el trabajo de la cultura, porque una conversación profesional también depende del contexto.',
         },
-        { 
-            number: "02", 
-            title: "Simulación de Escenarios", 
-            description: "Practicamos cómo defender una idea, negociar un contrato o dar feedback a un compañero (role-playing)." 
+        {
+            question: '¿Qué se trabaja en las clases?',
+            answer: 'Se trabaja conversación guiada, registro, claridad al intervenir, vocabulario de tu contexto y revisión de errores. También usamos ciudad, burocracia, humor y referencias culturales como material para sonar menos rígido y participar mejor.',
         },
-        { 
-            number: "03", 
-            title: "Registro Formal", 
-            description: "Pulimos las expresiones coloquiales hacia un español asertivo, corporativo y tremendamente educado." 
-        }
-    ]
+        {
+            question: '¿Qué incluye el curso?',
+            answer: 'Incluye clases online en directo, documento de clase con errores y vocabulario, deberes, worksheets, carpeta de Drive, calendario, Meet, recordatorios y soporte desde el campus. En planes compatibles puede añadirse conversación grupal con otros alumnos y un profesor.',
+        },
+        {
+            question: '¿Para quién encaja?',
+            answer: 'Encaja con profesionales +30, normalmente desde A2/B1, que entienden bastante pero quieren hablar con más precisión y presencia. No está pensada para quien busca sólo una clase barata o una lista de frases para memorizar.',
+        },
+        {
+            question: '¿Cómo se decide el plan?',
+            answer: 'Primero solicitas plaza y compartes nivel, objetivo y disponibilidad. Después revisamos si conviene clase privada, intensivo, plan híbrido o conversación grupal cuando haya alumnos compatibles.',
+        },
+    ],
 };
 
-// Pricing translations fallback (Using hardcoded ES basics for the standalone test)
+const faqSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: answers.items.map((item) => ({
+        '@type': 'Question',
+        name: item.question,
+        acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.answer,
+        },
+    })),
+};
+const schemaJson = serializeJsonForHtml(schema);
+const faqSchemaJson = serializeJsonForHtml(faqSchema);
+Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
+Astro.csp?.insertScriptHash(await sha256CspHash(faqSchemaJson));
+
 const pricingTranslations = {
-    title: "Planes Intensivos",
-    subtitle: "Escoge el nivel de inmersión que necesita tu carrera.",
-    monthly: "Mensual",
-    quarterly: "Trimestral",
-    biannual: "Semestral",
-    perMonth: "/mes",
-    choosePlan: "Seleccionar",
-    popular: "Más Popular",
+    title: 'Planes',
+    subtitle: 'Primero encaje y disponibilidad; después propuesta.',
+    headers: {
+        name: 'Plan',
+        price: 'Precio',
+        includes: 'Incluye',
+        action: 'Acción',
+    },
+    month: '/mes',
+    select: 'Solicitar plaza',
+    recommended: 'Recomendado',
     plans: {
-        essential: { name: "Profesional", description: "Mantenimiento y dudas puntuales", features: ["1 clase semanal", "Material técnico básico", "Soporte email 48h"] },
-        intensive: { name: "Directivo", description: "Ascensos y expatriación rápida", features: ["2 clases semanales", "Preparación de entrevistas", "Corrección de emails", "Simulación de reuniones"] },
-        premium: { name: "Inmersión VIP", description: "Alto rendimiento corporativo", features: ["3 clases semanales", "Soporte Telegram 24/7", "Preparación de presentaciones clave", "Material hiper-personalizado"] }
-    }
+        group: { name: 'Grupo compatible', description: 'Conversación guiada con otros alumnos cuando haya grupo adecuado.', features: [] },
+        standard: { name: 'Profesional mensual', description: 'Clase privada semanal para trabajo, vida diaria y conversaciones reales.', features: [] },
+        hybrid: { name: 'Híbrido profesional', description: 'Privadas, grupo compatible y seguimiento con dos profesores.', features: [] },
+        bootcamp: { name: 'Intensivo profesional', description: 'Ritmo intensivo para una entrevista, presentación, mudanza o cambio laboral.', features: [] },
+    },
+    modal: {
+        title: 'Elige duración',
+        duration1: '1 mes',
+        duration3: '3 meses',
+        duration6: '6 meses',
+        save: 'Ahorras',
+        total: 'Total',
+        perMonth: 'al mes',
+        continue: 'Continuar',
+        login: 'Inicia sesión para continuar',
+        loading: 'Procesando...',
+        error: 'No se pudo continuar.',
+        close: 'Cerrar',
+        contact: 'Contactar',
+        contactMessage: 'Antes de pagar confirmamos encaje, nivel y disponibilidad.',
+    },
 };
 ---
 
-<BaseLayout 
-  title="Español para Profesionales e IT | Español Honesto" 
-  description="Domina el español de negocios. Clases para expatriados, managers y programadores en España." 
-  lang={lang}
-  canonicalPath="/espanol-para-profesionales"
+<BaseLayout
+    title="Español para profesionales en España | Español Honesto"
+    description="Español online para profesionales adultos que necesitan hablar con confianza en reuniones, trabajo, vida diaria y conversaciones culturales en España."
+    lang={lang}
+    canonicalPath="/espanol-para-profesionales"
+    alternateLangs={['es']}
 >
-    <!-- Schema Especializado -->
-    <script is:inline type="application/ld+json" set:html={JSON.stringify(schema)} />
-    
-    <div class="bg-[#E0F7FA] min-h-screen text-[#006064] font-sans selection:bg-black selection:text-white">
+    <script is:inline type="application/ld+json" set:html={schemaJson} />
+    <script is:inline type="application/ld+json" set:html={faqSchemaJson} />
 
-        {/* Navbar Simplificado (Orientado a Venta Satélite) */}
-        <nav class="h-16 border-b-2 border-[#006064] flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 bg-[#E0F7FA]">
-            <a href="/es" class="font-display text-lg md:text-xl tracking-tighter truncate mr-2 hover:opacity-70 transition-opacity">
-                Español Honesto <span class="text-xs uppercase font-mono bg-[#006064] text-white px-2 py-1 ml-2 rounded-sm hidden md:inline-block">/ Profesionales</span>
-            </a>
-            <div class="flex items-center gap-4">
-                 <a href="/es" class="font-mono text-xs uppercase font-bold border-b border-transparent hover:border-[#006064] transition-all">Volver al Inicio</a>
-            </div>
-        </nav>
-
-        <HeroSection 
-            headline1={heroContent.headline1}
-            headline2={heroContent.headline2}
-            headline3={heroContent.headline3}
-            manifesto={heroContent.manifesto}
-            subtitle={heroContent.subtitle}
-            ready={heroContent.ready}
-            ctaText={heroContent.ctaText}
-        />
-
-        <ProblemsSection 
-            headline={problemsContent.headline}
-            subtext={problemsContent.subtext}
-            statements={problemsContent.statements}
-        />
-
-        <MethodSection 
-            headline={methodContent.headline}
-            manifesto={methodContent.manifesto}
-            closing={methodContent.closing}
-            subtitle={methodContent.subtitle}
-            columns={methodContent.columns}
-        />
-
-        {/* Pricing Adaptado a Negocios */}
-        <div id="contacto">
-            <PricingSection 
-                client:load
-                packages={packages || []}
-                lang={lang}
-                isLoggedIn={isLoggedIn}
-                translations={pricingTranslations}
-            />
-        </div>
-
-    </div>
+    <SegmentLandingPage
+        lang={lang}
+        navLabel="/ Profesionales"
+        packages={packages}
+        isLoggedIn={isLoggedIn}
+        pricingTranslations={pricingTranslations}
+        hero={{
+            headline1: 'ESPAÑOL',
+            headline2: 'PARA',
+            headline3: 'PROFESIONALES',
+            manifesto: 'Trabajo, cultura y conversación adulta',
+            subtitle: 'Para profesionales que viven o quieren vivir en España y necesitan hablar con criterio, no sólo sobrevivir en reuniones.',
+            ready: '¿Quieres trabajar mejor en español?',
+            ctaText: 'SOLICITAR PLAZA',
+        }}
+        problems={{
+            headline: 'EL ESPAÑOL GENERAL SE QUEDA CORTO',
+            subtext: 'Tu vida profesional no cabe en ejercicios genéricos.',
+            statements: [
+                'Puedes entender una reunión, pero te cuesta intervenir sin preparar cada frase.',
+                'Sabes vocabulario, pero te falta registro para sonar claro, educado y natural.',
+                'El trabajo no termina en la sala de reuniones: también está la comida, el café, la broma y el contexto.',
+                'Quieres participar en España, no estar siempre traduciendo desde fuera.',
+            ],
+        }}
+        method={{
+            headline: 'Español para trabajar y estar presente',
+            manifesto: 'REUNIONES • CIUDAD • CULTURA • CRITERIO',
+            closing: 'No prometemos fluidez sin esfuerzo. Practicamos el español que usas con personas reales.',
+            subtitle: 'Combinamos conversación guiada, corrección precisa y materiales conectados con tu vida profesional y cultural en España.',
+            columns: [
+                { number: '01', title: 'Tu contexto', description: 'Trabajamos con tus temas: reuniones, clientes, emails, entrevistas, equipo, ciudad o mudanza.' },
+                { number: '02', title: 'Registro y presencia', description: 'Practicamos cómo pedir, discrepar, explicar, negociar o participar sin sonar rígido.' },
+                { number: '03', title: 'España real', description: 'Madrid, Oviedo, Toledo, Barcelona, burocracia, humor y vida diaria como material de conversación.' },
+            ],
+        }}
+        fit={{
+            title: 'Para quién encaja',
+            intro: 'No es una clase barata ni un método milagro. Es para gente con base, curiosidad y ganas de trabajar.',
+            items: [
+                'Profesionales +30 con nivel A2/B1 o superior.',
+                'Personas con poder adquisitivo medio-alto que valoran profundidad y seguimiento.',
+                'Alumnos que quieren hablar de trabajo, ciudad, cultura y vida real.',
+                'Personas que aceptan que mejorar exige esfuerzo, constancia y conversación exigente.',
+            ],
+        }}
+        community={{
+            title: 'Comunidad, pero bien hecha',
+            body: 'La parte grupal tiene sentido cuando conocemos a los alumnos y podemos emparejarlos por nivel, intereses y ritmo.',
+            notes: [
+                'No metemos a cualquiera en cualquier grupo sólo para llenar plazas.',
+                'La conversación grupal es una capa de contacto con España y con otros alumnos, no un sustituto barato de la clase privada.',
+                'Primero vemos encaje y disponibilidad. Después proponemos el plan adecuado.',
+            ],
+        }}
+        contexts={{
+            title: 'Situaciones profesionales que sí practicamos',
+            intro: 'La página responde a búsquedas de español para trabajar en España, pero el contenido baja a escenas concretas: reuniones, clientes, entrevistas, trámites y conversación social.',
+            items: [
+                {
+                    label: 'Reuniones',
+                    title: 'Intervenir sin preparar cada frase',
+                    body: 'Practicamos cómo resumir, pedir aclaraciones, discrepar con educación, cerrar acuerdos y recuperar la palabra cuando la conversación va rápido.',
+                },
+                {
+                    label: 'Clientes y equipo',
+                    title: 'Registro profesional sin sonar rígido',
+                    body: 'Trabajamos emails, llamadas, seguimiento, explicaciones de problemas y formas naturales de pedir, proponer o negociar en español.',
+                },
+                {
+                    label: 'Entrevistas y presentaciones',
+                    title: 'Contar tu experiencia con precisión',
+                    body: 'Preparas respuestas, ejemplos, logros, dudas y cambios de tema para entrevistas, presentaciones internas o conversaciones con dirección.',
+                },
+                {
+                    label: 'Vida profesional en España',
+                    title: 'La parte que ocurre fuera de la reunión',
+                    body: 'También practicamos café, comida, burocracia, ciudad, humor y referencias culturales, porque eso decide muchas conversaciones reales.',
+                },
+            ],
+        }}
+        answers={answers}
+        lead={{
+            title: 'SOLICITA PLAZA',
+            subtitle: 'Cuéntanos tu nivel, tu trabajo y qué tipo de relación quieres construir con España.',
+            interest: 'Español profesional',
+        }}
+    />
 </BaseLayout>

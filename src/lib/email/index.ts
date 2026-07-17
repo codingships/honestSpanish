@@ -1,29 +1,65 @@
 /**
  * Email Module - Main exports
  */
-export { resend, getEmailFrom, getResend } from './client';
+export {
+    deliverEmail,
+    deliverIdempotentEmail,
+    getEmailDeliveryPolicy,
+    normalizeEmailAddressForDelivery,
+    PRODUCTION_EMAIL_DAILY_RECIPIENT_LIMIT,
+    PRODUCTION_EMAIL_MONTHLY_RECIPIENT_LIMIT,
+    STAGING_EMAIL_DAILY_RECIPIENT_LIMIT,
+    STAGING_EMAIL_MONTHLY_RECIPIENT_LIMIT,
+    type BudgetedEmail,
+    type EmailDeliveryFailureReason,
+    type EmailDeliveryMode,
+    type EmailDeliveryPolicy,
+    type EmailDeliveryResult,
+    type IdempotentBudgetedEmail,
+    type IdempotentEmailDeliveryResult,
+} from './delivery';
 
 export {
     baseTemplate,
     welcomeEmailTemplate,
+    renewalNoticeEmailTemplate,
+    renewalNoticeSubject,
     classConfirmationTemplate,
     classReminderTemplate,
     classCancelledTemplate,
     leadWelcomeTemplate,
+    levelCheckInviteTemplate,
+    missingInfoEmailTemplate,
+    proposalNextStepEmailTemplate,
+    supportTicketReceivedTemplate,
+    supportTicketUpdatedTemplate,
     type WelcomeEmailData,
+    type RenewalNoticeEmailData,
+    type RenewalNoticeLocale,
     type ClassConfirmationData,
     type ClassReminderData,
     type ClassCancelledData,
     type LeadWelcomeEmailData,
+    type LevelCheckInviteEmailData,
+    type MissingInfoEmailData,
+    type ProposalNextStepEmailData,
+    type SupportTicketReceivedEmailData,
+    type SupportTicketUpdatedEmailData,
 } from './templates';
 
 export {
     sendWelcomeEmail,
+    sendRenewalNoticeEmail,
     sendClassConfirmation,
     sendClassReminder,
     sendClassCancelled,
     sendClassConfirmationToBoth,
     sendClassCancelledToBoth,
     sendLeadWelcomeEmail,
+    sendLevelCheckInviteEmail,
+    sendMissingInfoEmail,
+    sendProposalNextStepEmail,
+    sendSupportTicketReceivedEmail,
+    sendSupportTicketUpdatedEmail,
+    type TransactionalEmailSendOptions,
 } from './send';
-

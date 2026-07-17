@@ -118,16 +118,16 @@ declare namespace App {
 
 ```bash
 # Node.js
-npx astro add node
+pnpm exec astro add node
 
 # Vercel
-npx astro add vercel
+pnpm exec astro add vercel
 
 # Netlify
-npx astro add netlify
+pnpm exec astro add netlify
 
 # Cloudflare
-npx astro add cloudflare
+pnpm exec astro add cloudflare
 ```
 
 ## Response Headers

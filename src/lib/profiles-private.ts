@@ -8,6 +8,8 @@ type ProfilePrivateUpdate = Database['public']['Tables']['profiles_private']['Up
 const PROFILE_PRIVATE_SELECT = `
     profile_id,
     stripe_customer_id,
+    stripe_customer_account_id,
+    stripe_customer_livemode,
     drive_folder_id,
     drive_folder_url,
     google_account_email,

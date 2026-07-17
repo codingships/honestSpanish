@@ -1,26 +1,15 @@
 ---
-import { getCollection } from 'astro:content';
+import { getCollection, render } from 'astro:content';
 import BlogLayout from '../../../layouts/BlogLayout.astro';
+import { getBlogEntryParts, isPublishedBlogPost } from '../../../lib/blog-routes';
 
 export const prerender = true;
 
 export async function getStaticPaths() {
   const posts = await getCollection('blog');
   
-  return posts.map(post => {
-      // En Astro Content Collections con directorios, 'post.slug' a menudo incluye la carpeta
-      // por ejemplo: "en/spanish-for-expats-truth" o "es/primer-post"
-      
-      const slugParts = post.slug.split('/');
-      let lang = 'es';
-      let slug = post.slug;
-
-      if (slugParts.length > 1) {
-          lang = slugParts[0];
-          slug = slugParts.slice(1).join('/');
-      } else if (post.data && post.data.lang) {
-          lang = post.data.lang;
-      }
+  return posts.filter(isPublishedBlogPost).map(post => {
+      const { lang, slug } = getBlogEntryParts(post);
 
       return {
         params: { 
@@ -33,7 +22,7 @@ export async function getStaticPaths() {
 }
 
 const { post } = Astro.props;
-const { Content, headings } = await post.render();
+const { Content, headings } = await render(post);
 ---
 
 <BlogLayout post={post} lang={Astro.params.lang as any} headings={headings}>

@@ -1,0 +1,1146 @@
+import os from 'node:os';
+import path from 'node:path';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { describe, expect, it } from 'vitest';
+import {
+    FIXTURE_CLEANUP_TARGET,
+    sha256,
+} from '../../scripts/launch/production-fixture-cleanup-shared';
+import {
+    PRODUCTION_ROLLOUT_APPROVAL_ENV,
+    PRODUCTION_ROLLOUT_MIGRATIONS,
+    PRODUCTION_ROLLOUT_WAVES,
+    PRODUCTION_ROLLOUT_PSQL_GATE,
+    STAGING_HARDENING_CANONICALIZATION,
+    STAGING_HARDENING_CONNECTOR_EVIDENCE_KIND,
+    STAGING_HARDENING_CONNECTOR_MIGRATIONS,
+    STAGING_HARDENING_CONNECTOR_QUERY_PATH,
+    STAGING_HARDENING_CONNECTOR_STATUS,
+    buildProductionRolloutApproval,
+    deriveWaveHistoryStates,
+    expectedProductionWaveVerificationFacts,
+    readAuthPolicyEvidence,
+    readBackupReceiptEvidence,
+    readFixtureCleanupEvidence,
+    readGoogleFixturePolicyEvidence,
+    readProductionPreflightEvidence,
+    readSentryProductionHardeningEvidence,
+    readStagingHardeningEvidence,
+    renderProductionLivePreflightSql,
+    renderProductionWaveApplySql,
+    renderProductionWaveVerifySql,
+    selectedWavesThrough,
+    validateLiveHistoryFacts,
+    validateProductionRolloutAllowlist,
+    type ProductionPreflightEvidence,
+    type ProductionRolloutMigration,
+} from '../../scripts/launch/supabase-production-rollout-runner-shared';
+import {
+    approvedSqlBytesMatch,
+    parseProductionRolloutArgs,
+} from '../../scripts/launch/supabase-production-rollout-runner';
+import {
+    PRODUCTION_PROJECT,
+    STAGING_ONLY_MIGRATIONS,
+    STAGING_ONLY_VERSIONS,
+    type MigrationHistoryMapping,
+} from '../../scripts/launch/supabase-production-rollout-shared';
+
+const runnerSource = readFileSync('scripts/launch/supabase-production-rollout-runner.ts', 'utf8');
+const sharedSource = readFileSync('scripts/launch/supabase-production-rollout-runner-shared.ts', 'utf8');
+
+describe('Supabase production wave rollout runner', () => {
+    it('pins the exact 25 migrations in seven dependency-ordered waves and excludes staging smoke', () => {
+        expect(PRODUCTION_ROLLOUT_WAVES.map((wave) => wave.migrations.length)).toEqual([1, 1, 7, 7, 4, 1, 4]);
+        expect(PRODUCTION_ROLLOUT_MIGRATIONS).toHaveLength(25);
+        expect(new Set(PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => entry.version)).size).toBe(25);
+        expect(STAGING_ONLY_MIGRATIONS).toHaveLength(2);
+        for (const version of STAGING_ONLY_VERSIONS) {
+            expect(PRODUCTION_ROLLOUT_MIGRATIONS.some((entry) => entry.version === version)).toBe(false);
+        }
+        expect(validateProductionRolloutAllowlist()).toMatchObject({ valid: true, errors: [] });
+        expect(selectedWavesThrough('billing_contract').map((wave) => wave.id)).toEqual([
+            'processed_at_small_fix',
+            'base_model_reconciliation',
+            'application_schema',
+            'runtime_and_policy',
+            'billing_contract',
+        ]);
+    });
+
+    it('defaults to a local plan and makes execute intent explicit and non-ambiguous', () => {
+        expect(parseProductionRolloutArgs([])).toMatchObject({
+            executeApproved: false,
+            checkoutDisabledConfirmed: false,
+            through: 'deferred_rc_hardening',
+            throughExplicit: false,
+        });
+        expect(parseProductionRolloutArgs([
+            '--execute-approved',
+            '--checkout-disabled-confirmed',
+            '--through',
+            'billing_contract',
+            '--preflight',
+            'preflight.json',
+            '--auth-inert-evidence',
+            'auth-inert-receipt.json',
+            '--preservation-policy',
+            'preservation-policy.json',
+            '--backup-artifact',
+            'production.dump',
+            '--sentry-hardening-source-receipt',
+            'sentry-source.json',
+        ])).toMatchObject({
+            executeApproved: true,
+            checkoutDisabledConfirmed: true,
+            through: 'billing_contract',
+            throughExplicit: true,
+            backupArtifact: path.resolve('production.dump'),
+            authInertEvidence: path.resolve('auth-inert-receipt.json'),
+            preservationPolicy: path.resolve('preservation-policy.json'),
+            sentryHardeningSourceReceipt: path.resolve('sentry-source.json'),
+        });
+        expect(() => parseProductionRolloutArgs(['--checkout-disabled-confirmed'])).toThrow();
+        expect(() => parseProductionRolloutArgs(['--through', 'unknown'])).toThrow();
+    });
+
+    it('requires one coherent fresh preflight and rejects partial-wave or staging-only history', () => {
+        withTempDirectory((directory) => {
+            const now = new Date('2026-07-12T12:00:00.000Z');
+            const preflight = preflightEvidence('2026-07-12T11:30:00.000Z');
+            const validPath = writeJson(directory, 'preflight.json', preflight);
+            expect(readProductionPreflightEvidence(validPath, now)).toMatchObject({ valid: true, errors: [] });
+            expect(deriveWaveHistoryStates(preflight).map((entry) => entry.state)).toEqual(Array(7).fill('pending'));
+
+            const partial = structuredClone(preflight);
+            partial.migrationInventory.localMigrations[1].historyStatus = 'exact';
+            partial.migrationInventory.semanticMissingCountExcludingStagingOnly = 24;
+            const partialPath = writeJson(directory, 'partial.json', partial);
+            expect(readProductionPreflightEvidence(partialPath, now)).toMatchObject({ valid: false });
+
+            for (const version of STAGING_ONLY_VERSIONS) {
+                const stagingPresent = structuredClone(preflight);
+                stagingPresent.migrationInventory.localMigrations
+                    .find((migration) => migration.version === version)!.historyStatus = 'exact';
+                const stagingPath = writeJson(directory, `staging-present-${version}.json`, stagingPresent);
+                expect(readProductionPreflightEvidence(stagingPath, now)).toMatchObject({ valid: false });
+            }
+
+            const stagingMisclassified = structuredClone(preflight);
+            stagingMisclassified.migrationInventory.localMigrations
+                .find((migration) => migration.version === STAGING_ONLY_VERSIONS[1])!.stagingOnly = false;
+            expect(readProductionPreflightEvidence(
+                writeJson(directory, 'staging-misclassified.json', stagingMisclassified),
+                now,
+            )).toMatchObject({ valid: false });
+
+            const malformed = structuredClone(preflight) as unknown as {
+                migrationInventory: Record<string, unknown>;
+            };
+            malformed.migrationInventory.localMigrations = null;
+            expect(readProductionPreflightEvidence(writeJson(directory, 'malformed.json', malformed), now))
+                .toMatchObject({ valid: false });
+
+            const aliased = structuredClone(preflight);
+            aliased.migrationInventory.localMigrations[0].historyStatus = 'alias';
+            aliased.migrationInventory.semanticMissingCountExcludingStagingOnly = 24;
+            expect(readProductionPreflightEvidence(writeJson(directory, 'aliased.json', aliased), now))
+                .toMatchObject({ valid: false });
+
+            const mismatchedHistory = structuredClone(preflight);
+            mismatchedHistory.migrationInventory.versionNameMismatchCount = 1;
+            mismatchedHistory.migrationInventory.localMigrations[0].versionNameMismatch = true;
+            expect(readProductionPreflightEvidence(
+                writeJson(directory, 'version-name-drift.json', mismatchedHistory),
+                now,
+            )).toMatchObject({ valid: false });
+
+            const duplicateHistory = structuredClone(preflight);
+            duplicateHistory.migrationInventory.duplicateSemanticHistoryCount = 1;
+            duplicateHistory.migrationInventory.localMigrations[0].duplicateSemanticHistory = true;
+            expect(readProductionPreflightEvidence(
+                writeJson(directory, 'duplicate-semantic-history.json', duplicateHistory),
+                now,
+            )).toMatchObject({ valid: false });
+        });
+    });
+
+    it('renders each wave as one exact gated transaction with source-bound history', () => {
+        const allowlist = validateProductionRolloutAllowlist();
+        const wave = PRODUCTION_ROLLOUT_WAVES[1];
+        const scopeSha256 = 'a'.repeat(64);
+        const sql = renderProductionWaveApplySql({ wave, sources: allowlist.sources, scopeSha256 });
+        expect(sql).toContain('\\set ON_ERROR_STOP on');
+        expect(sql).toContain('BEGIN;');
+        expect(sql).toContain('COMMIT;');
+        expect(sql).toContain(PRODUCTION_ROLLOUT_PSQL_GATE);
+        expect(sql).toContain(PRODUCTION_PROJECT.ref);
+        expect(sql).toContain(`PRODUCTION_ROLLOUT_WAVE_COMMITTED|wave=${wave.id}|scope=${scopeSha256}`);
+        expect(sql.match(/INSERT INTO supabase_migrations\.schema_migrations/gu)).toHaveLength(wave.migrations.length);
+        for (const entry of wave.migrations) {
+            expect(sql).toContain(entry.file);
+            expect(sql).toContain(`-- sha256 ${entry.sha256}`);
+            expect(sql).toContain(`$production_rollout_${entry.version}$`);
+            expect(sql.indexOf(entry.file)).toBeLessThan(sql.indexOf(`VALUES ('${entry.version}'`));
+        }
+        expect(sql).not.toContain('staging_integration_smoke_runs.sql');
+        expect(sql).not.toContain('allow_staging_custom_hostname.sql');
+        for (const { version, name } of STAGING_ONLY_MIGRATIONS) {
+            expect(sql).toContain(version);
+            expect(sql).toContain(name);
+        }
+        expect(sql).not.toContain('supabase db push');
+        expect(sql).not.toContain('supabase migration repair');
+    });
+
+    it('rechecks the current inert database state immediately before any operational wave', () => {
+        const preflight = preflightEvidence('2026-07-12T11:30:00.000Z');
+        const sql = renderProductionLivePreflightSql();
+        for (const { version, name } of STAGING_ONLY_MIGRATIONS) {
+            expect(sql).toContain(version);
+            expect(sql).toContain(name);
+        }
+        for (const key of [
+            'inert_auth_users',
+            'inert_auth_sessions',
+            'inert_auth_refresh_tokens',
+            'inert_profiles',
+            'inert_profiles_private',
+            'inert_legacy_jobs_absent',
+            'inert_public_fixture_rows',
+            'inert_packages_clean',
+        ]) expect(sql).toContain(`'${key}'`);
+
+        const facts = new Map<string, string>([
+            ['current_database', 'postgres'],
+            ['history_columns', 'name,statements,version'],
+            ['staging_only_count', '0'],
+            ['inert_auth_users', '2'],
+            ['inert_auth_sessions', '0'],
+            ['inert_auth_refresh_tokens', '0'],
+            ['inert_profiles', '0'],
+            ['inert_profiles_private', '0'],
+            ['inert_legacy_jobs_absent', 'true'],
+            ['inert_public_fixture_rows', '0'],
+            ['inert_packages_clean', 'true'],
+            ...PRODUCTION_ROLLOUT_MIGRATIONS.map((entry) => [`history:${entry.version}`, '0'] as [string, string]),
+        ]);
+        expect(validateLiveHistoryFacts(facts, preflight, true)).toEqual([]);
+        facts.set('inert_auth_users', '3');
+        expect(validateLiveHistoryFacts(facts, preflight, true)).toContain(
+            'inert_auth_users: expected 2, observed 3.',
+        );
+    });
+
+    it('verifies exact history source hashes and wave-specific schema effects read-only', () => {
+        const waves = selectedWavesThrough('fulfillment_ledger');
+        const sql = renderProductionWaveVerifySql(waves);
+        const expected = expectedProductionWaveVerificationFacts(waves);
+        expect(sql).toContain('BEGIN READ ONLY;');
+        expect(sql).toContain("history.statements[1]");
+        expect(sql).toContain("extensions.digest(convert_to(history.statements[1], 'UTF8'), 'sha256')");
+        expect(sql).toContain("'billing_fixture_rows_absent'");
+        expect(sql).toContain("'fulfillment_effects_empty'");
+        expect(sql).toContain("'model_leads_status_contract'");
+        expect(sql).toContain("'model_leads_acl_valid'");
+        expect(sql).toContain("'model_sessions_reminder_contract'");
+        expect(sql).toContain("'model_student_teacher_profile_policy'");
+        expect(expected.get('model_reconciliation_indexes')).toBe('2');
+        expect(expected.get('model_public_is_admin_absent')).toBe('true');
+        expect(expected.get('history_verified_count')).toBe('21');
+        expect(expected.get('staging_only_absent')).toBe('true');
+    });
+
+    it('verifies the final availability trigger and all required operational indexes', () => {
+        const waves = selectedWavesThrough('deferred_rc_hardening');
+        const sql = renderProductionWaveVerifySql(waves);
+        const expected = expectedProductionWaveVerificationFacts(waves);
+        expect(sql).toContain("'hardening_availability_updated_at_trigger'");
+        expect(sql).toContain("'hardening_session_duration_contract'");
+        expect(sql).toContain("'hardening_session_status_contract'");
+        expect(sql).toContain("'hardening_required_indexes'");
+        expect(sql).toContain("'hardening_data_api_grants_exact'");
+        for (const { version, name } of STAGING_ONLY_MIGRATIONS) {
+            expect(sql).toContain(version);
+            expect(sql).toContain(name);
+        }
+        expect(sql).toContain('table_row.relrowsecurity');
+        expect(sql).toContain('defaults.defaclnamespace=0');
+        expect(expected.get('hardening_availability_updated_at_trigger')).toBe('true');
+        expect(expected.get('hardening_session_duration_contract')).toBe('true');
+        expect(expected.get('hardening_session_status_contract')).toBe('true');
+        expect(expected.get('hardening_required_indexes')).toBe('13');
+        expect(expected.get('hardening_data_api_grants_exact')).toBe('true');
+        expect(expected.get('history_verified_count')).toBe('25');
+    });
+
+    it('chains encrypted backup, public cleanup, active Auth quarantine, Google policy and staging proof', () => {
+        withTempDirectory((directory) => {
+            const now = new Date('2026-07-12T12:00:00.000Z');
+            const backupPath = writeJson(directory, 'backup.json', backupReceipt('2026-07-12T11:00:00.000Z'));
+            const backup = readBackupReceiptEvidence(backupPath, now);
+            expect(backup).toMatchObject({ valid: true });
+
+            const manifest = JSON.parse(readFileSync('scripts/launch/production-fixture-cleanup-manifest.json', 'utf8')) as {
+                sql: { execute: { sha256: string } };
+            };
+            const policyPath = writeJson(
+                directory,
+                'preservation-policy.json',
+                preservationPolicy('2026-07-12T11:10:00.000Z'),
+            );
+            const policySha256 = sha256(readFileSync(policyPath));
+            const cleanupPath = writeJson(directory, 'public-cleanup-receipt.json', {
+                schemaVersion: 2,
+                status: 'PUBLIC_FIXTURE_CLEANUP_EXECUTED_AND_VERIFIED',
+                targetProjectRef: PRODUCTION_PROJECT.ref,
+                completedAt: '2026-07-12T11:15:00.000Z',
+                aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
+                approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
+                executeSqlSha256: manifest.sql.execute.sha256,
+                backupReceiptSha256: backup.sha256,
+                authInertEvidenceSha256: 'e'.repeat(64),
+                packageStripeReferenceSha256: 'c'.repeat(64),
+                preservationPolicySha256: policySha256,
+                freezeCutoff: '2026-07-02T18:29:27.580Z',
+                postconditions: {
+                    authUsers: 138,
+                    profiles: 0,
+                    profilesPrivate: 0,
+                    legacyJobsTableAbsent: true,
+                    supportTickets: 0,
+                    packages: 4,
+                },
+                packagesPreserved: ['group', 'standard', 'hybrid', 'bootcamp'],
+                localPackageStripeFieldsCleared: true,
+                inactiveEssentialDeleted: true,
+                externalStripeGoogleStorage: 'UNTOUCHED',
+                authNextStep: 'SEPARATE_AUTH_REDUCTION_REQUIRED',
+            });
+            const cleanup = readFixtureCleanupEvidence(
+                cleanupPath,
+                backup.sha256,
+                now,
+                process.cwd(),
+                policyPath,
+            );
+            expect(cleanup).toMatchObject({ valid: true });
+            expect(readFixtureCleanupEvidence(
+                cleanupPath,
+                backup.sha256,
+                now,
+                directory,
+                policyPath,
+            )).toMatchObject({
+                valid: false,
+                errors: expect.arrayContaining([expect.stringContaining('contract')]),
+            });
+            const unboundCleanup = JSON.parse(readFileSync(cleanupPath, 'utf8')) as Record<string, unknown>;
+            delete unboundCleanup.preservationPolicySha256;
+            expect(readFixtureCleanupEvidence(
+                writeJson(directory, 'public-cleanup-unbound.json', unboundCleanup),
+                backup.sha256,
+                now,
+                process.cwd(),
+                policyPath,
+            )).toMatchObject({ valid: false });
+            const invalidPolicy = preservationPolicy('2026-07-12T11:10:00.000Z');
+            invalidPolicy.decisions.support_tickets = 'untouched_cleanup_separately';
+            expect(readFixtureCleanupEvidence(
+                cleanupPath,
+                backup.sha256,
+                now,
+                process.cwd(),
+                writeJson(directory, 'preservation-policy-invalid.json', invalidPolicy),
+            )).toMatchObject({ valid: false });
+
+            const authPath = writeJson(directory, 'auth-reduced-quarantined-receipt.json', {
+                schemaVersion: 1,
+                status: 'AUTH_REDUCED_QUARANTINED',
+                targetProjectRef: PRODUCTION_PROJECT.ref,
+                completedAt: '2026-07-12T11:30:00.000Z',
+                publicCleanupReceiptSha256: cleanup.sha256,
+                backupReceiptSha256: backup.sha256,
+                authUsers: 2,
+                profiles: 0,
+                fixtureStudents: 0,
+                passwordsRotatedUnretained: true,
+                quarantineUntil: '2026-07-12T13:00:00.000Z',
+                storageObjectsTouched: false,
+                externalProvidersTouched: false,
+                preservedSetSha256: 'd'.repeat(64),
+                deletedCandidateSetSha256: 'e'.repeat(64),
+                freezeCutoff: '2026-07-02T18:29:27.580Z',
+                jwtExpirySeconds: 3600,
+                jwtExpirySource: 'management_api',
+                refreshSessionsRemaining: 0,
+                resetEmailsSent: false,
+                googleDriveFixtureFolders: 'UNTOUCHED_110_OBSERVED',
+            });
+            expect(readAuthPolicyEvidence(authPath, cleanup.sha256, now, backup.sha256)).toMatchObject({ valid: true });
+            expect(readAuthPolicyEvidence(authPath, cleanup.sha256, new Date('2026-07-12T13:01:00.000Z'), backup.sha256))
+                .toMatchObject({ valid: false });
+            expect(readAuthPolicyEvidence(authPath, cleanup.sha256, new Date('2026-07-12T12:50:01.000Z'), backup.sha256))
+                .toMatchObject({ valid: false });
+
+            const googlePath = writeJson(directory, 'google-fixture-policy-evidence.json', {
+                schemaVersion: 2,
+                environment: 'production',
+                status: 'TRASHED_AND_VERIFIED',
+                completedAt: '2026-07-12T11:45:00.000Z',
+                observedActiveRootChildrenBefore: 110,
+                observedFoldersBefore: 110,
+                activeRootChildrenAfter: 0,
+                permanentlyDeleted: 0,
+                rootIdStored: false,
+                baselineFingerprintSha256: '1'.repeat(64),
+                recoveryStateSha256: '2'.repeat(64),
+                recoveredAfterInterruptedRun: false,
+            });
+            expect(readGoogleFixturePolicyEvidence(googlePath, now)).toMatchObject({ valid: true });
+            const validGoogleEvidence = JSON.parse(readFileSync(googlePath, 'utf8')) as Record<string, unknown>;
+            for (const [name, evidence] of [
+                ['bad-baseline-hash', { ...validGoogleEvidence, baselineFingerprintSha256: 'not-a-hash' }],
+                ['bad-recovery-hash', { ...validGoogleEvidence, recoveryStateSha256: 'not-a-hash' }],
+                ['bad-recovery-flag', { ...validGoogleEvidence, recoveredAfterInterruptedRun: 'false' }],
+            ] as const) {
+                expect(readGoogleFixturePolicyEvidence(
+                    writeJson(directory, `google-fixture-policy-${name}.json`, evidence),
+                    now,
+                )).toMatchObject({ valid: false });
+            }
+            expect(readGoogleFixturePolicyEvidence(writeJson(directory, 'google-fixture-policy-legacy.json', {
+                schemaVersion: 1,
+                environment: 'production',
+                status: 'TRASHED_AND_VERIFIED',
+                completedAt: '2026-07-12T11:45:00.000Z',
+                observedActiveRootChildrenBefore: 110,
+                observedFoldersBefore: 110,
+                activeRootChildrenAfter: 0,
+                permanentlyDeleted: 0,
+                rootIdStored: false,
+            }), now)).toMatchObject({ valid: false });
+            expect(readGoogleFixturePolicyEvidence(writeJson(directory, 'google-fixture-policy-deferred.json', {
+                schemaVersion: 1,
+                environment: 'production',
+                status: 'EXPLICITLY_DEFERRED_APPROVED',
+                completedAt: '2026-07-12T11:45:00.000Z',
+                observedActiveRootChildrenBefore: 110,
+                observedFoldersBefore: 110,
+                activeRootChildrenAfter: 110,
+                permanentlyDeleted: 0,
+                rootIdStored: false,
+            }), now)).toMatchObject({ valid: true });
+
+            const stagingPath = writeJson(directory, 'staging-hardening.json', stagingEvidence());
+            expect(readStagingHardeningEvidence(stagingPath, now)).toMatchObject({ valid: true });
+            const merelyAlready = { ...stagingEvidence(), closureStatus: 'ALREADY_APPLIED_AND_VERIFIED' };
+            expect(readStagingHardeningEvidence(writeJson(directory, 'staging-already.json', merelyAlready), now))
+                .toMatchObject({ valid: false });
+            expect(readStagingHardeningEvidence(writeJson(
+                directory,
+                'staging-malformed.json',
+                { ...stagingEvidence(), migrations: null },
+            ), now)).toMatchObject({ valid: false });
+
+            withGeneratedTypesConnectorEvidence((generatedTypesPath) => {
+                const connectorEvidence = () => connectorStagingEvidence(
+                    generatedTypesPath,
+                    sha256(readFileSync(generatedTypesPath)),
+                );
+                const connectorPath = writeJson(directory, 'staging-connector-consolidated.json', connectorEvidence());
+                expect(readStagingHardeningEvidence(connectorPath, now)).toMatchObject({ valid: true, errors: [] });
+
+                const singleMigrationClaim = {
+                schemaVersion: 1,
+                recordedAt: '2026-07-12T11:45:00.000Z',
+                source: 'authenticated Supabase connector post-apply verification',
+                target: { environment: 'staging', projectRef: 'mzjyvmlxfpzdfdjzxxyj' },
+                migration: {
+                    version: '20260712195500',
+                    sourceAndStoredStatementSha256: STAGING_HARDENING_CONNECTOR_MIGRATIONS.at(-1)!.sourceSha256,
+                    historyPrefixCount: 5,
+                },
+                };
+                expect(readStagingHardeningEvidence(
+                    writeJson(directory, 'staging-single-migration-prefix-claim.json', singleMigrationClaim),
+                    now,
+                )).toMatchObject({ valid: false });
+
+                const generatedTypesValue = JSON.parse(readFileSync(generatedTypesPath, 'utf8')) as Record<string, unknown>;
+                const invalidGeneratedTypesPath = writeJson(path.dirname(generatedTypesPath), 'invalid-summary.json', {
+                    ...generatedTypesValue,
+                    migration: {
+                        ...(generatedTypesValue.migration as Record<string, unknown>),
+                        historyPrefixCount: 4,
+                    },
+                });
+                expect(readStagingHardeningEvidence(writeJson(
+                    directory,
+                    'staging-connector-invalid-local-types.json',
+                    connectorStagingEvidence(invalidGeneratedTypesPath, sha256(readFileSync(invalidGeneratedTypesPath))),
+                ), now)).toMatchObject({ valid: false });
+                const outsideGeneratedTypesPath = writeJson(directory, 'outside-generated-types.json', generatedTypesValue);
+                expect(readStagingHardeningEvidence(writeJson(
+                    directory,
+                    'staging-connector-outside-local-types.json',
+                    connectorStagingEvidence(outsideGeneratedTypesPath, sha256(readFileSync(outsideGeneratedTypesPath))),
+                ), now)).toMatchObject({ valid: false });
+
+                const adversarialConnectorClaims = [
+                { ...connectorEvidence(), target: { environment: 'staging', projectRef: 'wrong' } },
+                { ...connectorEvidence(), collection: { ...connectorEvidence().collection, querySha256: 'a'.repeat(64) } },
+                { ...connectorEvidence(), migrations: connectorEvidence().migrations.slice(1) },
+                {
+                    ...connectorEvidence(),
+                    migrations: connectorEvidence().migrations.map((entry, index) => (
+                        index === 0 ? { ...entry, storedStatementSha256: 'a'.repeat(64) } : entry
+                    )),
+                },
+                {
+                    ...connectorEvidence(),
+                    migrations: connectorEvidence().migrations.map((entry, index) => (
+                        index === 0 ? { ...entry, storedCanonicalSha256: 'b'.repeat(64) } : entry
+                    )),
+                },
+                {
+                    ...connectorEvidence(),
+                    migrations: connectorEvidence().migrations.map((entry, index) => (
+                        index === 0 ? { ...entry, statementCount: 2 } : entry
+                    )),
+                },
+                { ...connectorEvidence(), sessionsStatus: { ...connectorEvidence().sessionsStatus, nullable: true } },
+                { ...connectorEvidence(), posture: { publicTables: 24, rlsDisabledTables: 0, unsafeClientGrants: 0 } },
+                { ...connectorEvidence(), posture: { ...connectorEvidence().posture, requiredClientGrantsMissing: 1, unsafeClientGrants: 1 } },
+                { ...connectorEvidence(), posture: { ...connectorEvidence().posture, unexpectedClientGrants: 1, unsafeClientGrants: 1 } },
+                { ...connectorEvidence(), localVerification: { ...connectorEvidence().localVerification, generatedTypesEvidenceSha256: 'c'.repeat(64) } },
+                { ...connectorEvidence(), scope: { ...connectorEvidence().scope, rawStatementsPersisted: true } },
+                ];
+                for (const [index, claim] of adversarialConnectorClaims.entries()) {
+                    expect(readStagingHardeningEvidence(
+                        writeJson(directory, `staging-connector-adversarial-${index}.json`, claim),
+                        now,
+                    )).toMatchObject({ valid: false });
+                }
+                expect(readStagingHardeningEvidence(
+                    writeJson(directory, 'staging-connector-stale.json', connectorEvidence()),
+                    new Date('2026-07-13T12:00:01.000Z'),
+                )).toMatchObject({ valid: false });
+            });
+
+            const sentryPath = writeJson(directory, 'sentry-hardening.json', sentryExecutedSourceReceipt());
+            expect(readSentryProductionHardeningEvidence(sentryPath, now)).toMatchObject({ valid: true });
+            const sentrySourcePath = writeJson(
+                directory,
+                'sentry-executed-source.json',
+                sentryExecutedSourceReceipt(),
+            );
+            const sentrySourceSha256 = sha256(readFileSync(sentrySourcePath));
+            const getOnlyReattestation = {
+                ...sentryEvidence(),
+                closureStatus: 'REATTESTED_AND_VERIFIED',
+                mode: 'reattestation',
+                executeRequested: false,
+                externalWriteAttempted: false,
+                externalWritePerformed: false,
+                createdWorkflowCount: 0,
+                evidenceContract: {
+                    rolloutEligible: true,
+                    requiredArtifactKind: 'sentry_production_hardening_receipt',
+                    attestationMode: 'live_get_only_revalidation',
+                    rawIdentifiersPersistedInReports: false,
+                },
+                reattestation: {
+                    schemaVersion: 1,
+                    sourceReceiptSha256: sentrySourceSha256,
+                    sourceReceiptEndedAt: '2026-07-12T11:50:00.000Z',
+                    sourceClosureStatus: 'HARDENED_AND_VERIFIED',
+                    requestMethod: 'GET',
+                    sourceExecutedWriteProof: true,
+                    detectorFingerprintMatched: true,
+                    ownerFingerprintMatched: true,
+                    workflowIdFingerprintsMatched: true,
+                },
+            };
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested.json', getOnlyReattestation),
+                now,
+                sentrySourcePath,
+            )).toMatchObject({ valid: true, errors: [], sourceReceiptSha256: sentrySourceSha256 });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested-without-source.json', getOnlyReattestation),
+                now,
+            )).toMatchObject({ valid: false });
+            const tamperedSourcePath = writeJson(directory, 'sentry-executed-source-tampered.json', {
+                ...sentryExecutedSourceReceipt(),
+                ownerFingerprint: 'f'.repeat(64),
+            });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested-tampered-source.json', getOnlyReattestation),
+                now,
+                tamperedSourcePath,
+            )).toMatchObject({ valid: false });
+            for (const field of ['executeRequested', 'externalWriteAttempted', 'externalWritePerformed'] as const) {
+                const missingBoolean = { ...getOnlyReattestation } as Record<string, unknown>;
+                delete missingBoolean[field];
+                expect(readSentryProductionHardeningEvidence(
+                    writeJson(directory, `sentry-reattested-missing-${field}.json`, missingBoolean),
+                    now,
+                    sentrySourcePath,
+                )).toMatchObject({ valid: false });
+            }
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-reattested-unanchored.json', {
+                    ...getOnlyReattestation,
+                    reattestation: {
+                        ...getOnlyReattestation.reattestation,
+                        workflowIdFingerprintsMatched: false,
+                    },
+                }),
+                now,
+                sentrySourcePath,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-plan.json', { ...sentryEvidence(), closureStatus: 'PLAN_READY' }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-malformed.json', { ...sentryEvidence(), expectedChanges: null }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-ambiguous.json', { ...sentryEvidence(), externalWriteOutcomeAmbiguous: true }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-lock-retained.json', { ...sentryEvidence(), executionLockRetainedForRecovery: true }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-summary-not-receipt.json', {
+                    ...sentryEvidence(),
+                    artifactKind: 'sentry_production_hardening_report',
+                }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-wrong-actions.json', {
+                    ...sentryEvidence(),
+                    expectedChanges: { ...sentryExpectedChanges(), actions: 'email to a different target' },
+                }),
+                now,
+            )).toMatchObject({ valid: false });
+            expect(readSentryProductionHardeningEvidence(
+                writeJson(directory, 'sentry-wrong-spike.json', {
+                    ...sentryEvidence(),
+                    expectedChanges: { ...sentryExpectedChanges(), spikeThreshold: '11 events in 5 minutes' },
+                }),
+                now,
+            )).toMatchObject({ valid: false });
+        });
+    });
+
+    it('pins the connector-consolidation query to read-only, aggregate-only remote proof', () => {
+        const query = readFileSync(STAGING_HARDENING_CONNECTOR_QUERY_PATH, 'utf8');
+        expect(query).toContain('BEGIN READ ONLY;');
+        expect(query).toContain("current_setting('transaction_read_only')");
+        expect(query).toContain("cardinality(history.statements)");
+        expect(query).toContain("btrim(replace(history.statements[1], E'\\r\\n', E'\\n'), E' \\t\\r\\n')");
+        expect(query).toContain('stored_canonical_sha256');
+        expect(query).toContain('sessions_status');
+        expect(query).toContain('posture');
+        expect(query).toContain('expected_grants(grantee, table_name, privilege_type)');
+        expect(query).toContain('missing_grants AS');
+        expect(query).toContain('unexpected_grants AS');
+        expect(query).toContain('SELECT grantee, table_name, privilege_type FROM expected_grants\n        EXCEPT\n        SELECT grantee, table_name, privilege_type FROM observed_client_grants');
+        expect(query).toContain('SELECT grantee, table_name, privilege_type FROM observed_client_grants\n        EXCEPT\n        SELECT grantee, table_name, privilege_type FROM expected_grants');
+        expect(query).not.toMatch(/^\s*(?:INSERT|UPDATE|DELETE|ALTER|DROP|TRUNCATE)\b/imu);
+        expect(query).not.toContain('history.statements[1] AS');
+    });
+
+    it('binds the exact approval to all evidence, migration hashes, SQL hashes and exclusions', () => {
+        const approval = buildProductionRolloutApproval({
+            scopeSha256: '1'.repeat(64),
+            allowlistSha256: '2'.repeat(64),
+            through: 'deferred_rc_hardening',
+            preflightSha256: '3'.repeat(64),
+            historyReconciliationSha256: '0'.repeat(64),
+            liveHistoryReconciliationSqlSha256: '1'.repeat(64),
+            authInertEvidenceSha256: 'e'.repeat(64),
+            backupReceiptSha256: '4'.repeat(64),
+            backupArtifactSha256: 'f'.repeat(64),
+            cleanupEvidenceSha256: '5'.repeat(64),
+            preservationPolicySha256: 'f'.repeat(64),
+            authPolicyEvidenceSha256: '6'.repeat(64),
+            stagingEvidenceSha256: '7'.repeat(64),
+            stagingLiveVerifySqlSha256: 'e'.repeat(64),
+            googleFixturePolicySha256: '8'.repeat(64),
+            sentryHardeningEvidenceSha256: 'a'.repeat(64),
+            sentryHardeningSourceReceiptSha256: '0'.repeat(64),
+            pendingMigrations: [PRODUCTION_ROLLOUT_MIGRATIONS[0]],
+            waveSqlSha256: { processed_at_small_fix: '9'.repeat(64) },
+            livePreflightSqlSha256: 'b'.repeat(64),
+            waveVerifySqlSha256: { processed_at_small_fix: 'c'.repeat(64) },
+            finalVerifySqlSha256: 'd'.repeat(64),
+        });
+        for (const token of [
+            `target=${PRODUCTION_PROJECT.ref}`,
+            'through=deferred_rc_hardening',
+            `exclude=${STAGING_ONLY_VERSIONS.join(',')}`,
+            'checkout=DISABLED',
+            'db_push=FORBIDDEN',
+            'migration_repair=FORBIDDEN',
+            `sentry_hardening=${'a'.repeat(64)}`,
+            `sentry_hardening_source=${'0'.repeat(64)}`,
+            `backup_artifact=${'f'.repeat(64)}`,
+            `preservation_policy=${'f'.repeat(64)}`,
+            `staging_live_verify_sql=${'e'.repeat(64)}`,
+            `history_reconciliation=${'0'.repeat(64)}`,
+            `live_history_reconciliation_sql=${'1'.repeat(64)}`,
+            `auth_inert_evidence=${'e'.repeat(64)}`,
+            `live_preflight_sql=${'b'.repeat(64)}`,
+            `wave_verify_sql=processed_at_small_fix@${'c'.repeat(64)}`,
+            `final_verify_sql=${'d'.repeat(64)}`,
+            `${PRODUCTION_ROLLOUT_MIGRATIONS[0].version}@${PRODUCTION_ROLLOUT_MIGRATIONS[0].sha256}`,
+        ]) expect(approval).toContain(token);
+        expect(PRODUCTION_ROLLOUT_APPROVAL_ENV).toBe('SUPABASE_PRODUCTION_ROLLOUT_APPROVAL');
+        expect(() => buildProductionRolloutApproval({
+            scopeSha256: 'not-a-hash',
+            allowlistSha256: '2'.repeat(64),
+            through: 'processed_at_small_fix',
+            preflightSha256: '3'.repeat(64),
+            historyReconciliationSha256: '0'.repeat(64),
+            liveHistoryReconciliationSqlSha256: '1'.repeat(64),
+            authInertEvidenceSha256: 'e'.repeat(64),
+            backupReceiptSha256: null,
+            backupArtifactSha256: null,
+            cleanupEvidenceSha256: null,
+            preservationPolicySha256: null,
+            authPolicyEvidenceSha256: null,
+            stagingEvidenceSha256: null,
+            stagingLiveVerifySqlSha256: null,
+            googleFixturePolicySha256: null,
+            sentryHardeningEvidenceSha256: null,
+            sentryHardeningSourceReceiptSha256: null,
+            pendingMigrations: [],
+            waveSqlSha256: {},
+            livePreflightSqlSha256: 'b'.repeat(64),
+            waveVerifySqlSha256: {},
+            finalVerifySqlSha256: 'd'.repeat(64),
+        })).toThrow('non-SHA-256');
+    });
+
+    it('does not open a connection before every local gate and never auto-restores or switches', () => {
+        const localGate = runnerSource.indexOf('if (executionErrors.length > 0)');
+        const databaseCredentialRead = runnerSource.indexOf('const databaseUrl = process.env[PRODUCTION_ROLLOUT_DB_URL_ENV]');
+        const psqlCall = runnerSource.indexOf("runPsql(\n        'live-preflight'");
+        expect(localGate).toBeGreaterThan(-1);
+        expect(databaseCredentialRead).toBeGreaterThan(localGate);
+        expect(psqlCall).toBeGreaterThan(databaseCredentialRead);
+        expect(runnerSource).toContain("status: 'BLOCKED_BEFORE_CONNECTION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_BACKUP_ARTIFACT_REVALIDATION'");
+        expect(runnerSource.indexOf('const immediateBackupArtifact = await revalidateProductionBackupArtifact'))
+            .toBeLessThan(runnerSource.indexOf('let writeCommandInvoked = false'));
+        const credentialScope = runnerSource.indexOf('await withSupabaseAuthManagementClient(');
+        const liveAuthReadback = runnerSource.indexOf(
+            'verifyLiveProductionAuthInert(client)',
+            credentialScope,
+        );
+        const firstProductionWrite = runnerSource.indexOf('runPsql(`apply-${wave.id}`');
+        expect(credentialScope).toBeGreaterThan(-1);
+        expect(liveAuthReadback).toBeGreaterThan(-1);
+        expect(liveAuthReadback).toBeGreaterThan(credentialScope);
+        expect(firstProductionWrite).toBeGreaterThan(liveAuthReadback);
+        expect(runnerSource).not.toContain('SUPABASE_ACCESS_TOKEN');
+        expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_PRESERVATION_POLICY_REVALIDATION'");
+        expect(runnerSource).toContain("status: 'BLOCKED_LIVE_AUTH_NOT_INERT'");
+        expect(runnerSource).toContain('backupArtifactPathPersisted: false');
+        expect(runnerSource).toContain("status: 'STOPPED_AMBIGUOUS_WAVE_RESULT'");
+        expect(runnerSource).toContain("status: 'STOPPED_AUTH_QUARANTINE_EXPIRED'");
+        expect(runnerSource).toContain('authFinalizeRequired: true');
+        expect(runnerSource).toContain('sentryProductionHardeningEvidenceSha256');
+        expect(runnerSource).toContain("status: 'PRODUCTION_ROLLOUT_ALL_WAVES_APPLIED_AND_VERIFIED'");
+        expect(runnerSource).not.toContain("spawnSync('supabase'");
+        expect(runnerSource).not.toMatch(/runTool\([^)]*supabase/iu);
+        expect(sharedSource).toContain('automatic_down_or_restore=FORBIDDEN');
+    });
+
+    it('executes the exact approved SQL bytes from memory and fails closed on hash drift', () => {
+        const approvedContents = 'SELECT 1;\n';
+        const approvedSha256 = sha256(approvedContents);
+        expect(approvedSqlBytesMatch(approvedContents, approvedSha256)).toBe(true);
+        expect(approvedSqlBytesMatch(`${approvedContents}SELECT 2;\n`, approvedSha256)).toBe(false);
+        expect(approvedSqlBytesMatch(approvedContents, 'not-a-sha')).toBe(false);
+
+        const hashCheck = runnerSource.indexOf('if (!approvedSqlBytesMatch(approvedSql.contents, approvedSql.sha256))');
+        const psqlInvocation = runnerSource.indexOf("const result = spawnSync('psql'");
+        expect(hashCheck).toBeGreaterThan(-1);
+        expect(psqlInvocation).toBeGreaterThan(hashCheck);
+        expect(runnerSource).toContain('input: approvedSql.contents');
+        expect(runnerSource).toContain('psql was not invoked');
+        expect(runnerSource).not.toContain("args.push('-f', sqlPath)");
+        expect(runnerSource).not.toMatch(/runPsql\([^)]*artifacts\.(?:live|wave|final|staging)/su);
+    });
+
+    it('requires an exact live staging hardening readback before any production write', () => {
+        const stagingReadback = runnerSource.indexOf("runPsql(\n            'live-staging-hardening'");
+        const productionLivePreflight = runnerSource.indexOf("runPsql(\n        'live-preflight'");
+        const firstProductionWrite = runnerSource.indexOf('runPsql(`apply-${wave.id}`');
+        expect(stagingReadback).toBeGreaterThan(-1);
+        expect(productionLivePreflight).toBeGreaterThan(stagingReadback);
+        expect(firstProductionWrite).toBeGreaterThan(productionLivePreflight);
+        expect(runnerSource).toContain('validateStagingDatabaseUrl(process.env[STAGING_HARDENING_DB_URL_ENV])');
+        expect(runnerSource).toContain('renderStagingHardeningPostVerifySql()');
+        expect(runnerSource).toContain('validateStagingHardeningPostVerifyFacts');
+        expect(runnerSource).toContain('liveStagingHardeningReadback');
+        expect(runnerSource).toContain('stagingHardeningPostVerifySqlSha256');
+        expect(runnerSource).toContain('staging-hardening-live-verification-readonly.sql');
+        expect(runnerSource).toContain("status: 'BLOCKED_LIVE_STAGING_HARDENING'");
+        expect(runnerSource).toContain('writeCommandInvoked: false');
+    });
+});
+
+function preflightEvidence(endedAt: string): ProductionPreflightEvidence {
+    return {
+        schemaVersion: 1,
+        endedAt,
+        status: 'OK',
+        target: { ref: PRODUCTION_PROJECT.ref },
+        migrationInventory: {
+            localMigrations: [
+                ...PRODUCTION_ROLLOUT_MIGRATIONS.map((entry, index) => mappedMigration(entry, index)),
+                ...STAGING_ONLY_MIGRATIONS.map((entry, index) => ({
+                    ...mappedMigration({
+                        ...entry,
+                        file: `supabase/migrations/${entry.version}_${entry.name}.sql`,
+                        sha256: String(index + 1).repeat(64),
+                    }, 25 + index),
+                    stagingOnly: true,
+                })),
+            ],
+            semanticMissingCountExcludingStagingOnly: 25,
+            ambiguousCount: 0,
+            versionNameMismatchCount: 0,
+            duplicateSemanticHistoryCount: 0,
+        },
+        aggregates: {},
+        safety: {
+            noExternalWrite: true,
+            noPrivateRowsSelected: true,
+            noSecretsStored: true,
+        },
+    };
+}
+
+function mappedMigration(entry: ProductionRolloutMigration, index: number): MigrationHistoryMapping {
+    return {
+        order: index + 1,
+        version: entry.version,
+        name: entry.name,
+        file: entry.file,
+        sha256: entry.sha256,
+        bytes: 1,
+        stagingOnly: false,
+        plannedWave: null,
+        historyStatus: 'missing',
+        remoteVersions: [],
+        versionNameMismatch: false,
+        duplicateSemanticHistory: false,
+    };
+}
+
+function backupReceipt(createdAt: string): Record<string, unknown> {
+    return {
+        schemaVersion: 1,
+        receiptKind: 'supabase_production_logical_backup',
+        targetProjectRef: PRODUCTION_PROJECT.ref,
+        authInertEvidenceSha256: 'e'.repeat(64),
+        aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
+        approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
+        createdAt,
+        method: 'logical_dump',
+        backupCompleted: true,
+        artifactStoredOutsideRepository: true,
+        atRestProtection: 'windows_efs',
+        atRestProtectionVerified: true,
+        artifactSha256: 'a'.repeat(64),
+        includedSchemas: ['public', 'auth'],
+        verification: 'dump_hash_recorded',
+        restoreProcedureReviewed: true,
+        limitationsAcknowledged: [
+            'storage_objects_not_included',
+            'custom_role_passwords_not_included',
+            'external_stripe_google_not_included',
+            'selected_schemas_only',
+        ],
+        backupFormat: 'pg_dump_custom',
+        archiveListVerified: true,
+        archiveRequiredTableDataVerified: true,
+        archiveTocEntryCount: 42,
+        artifactBytes: 1_024,
+        artifactPathRecorded: false,
+        toolVersions: { pgDump: 'pg_dump 17', pgRestore: 'pg_restore 17' },
+    };
+}
+
+function preservationPolicy(approvedAt: string): {
+    schemaVersion: number;
+    policyKind: string;
+    targetProjectRef: string;
+    aggregateSnapshotSha256: string;
+    approvalScopeSha256: string;
+    approvedAt: string;
+    observedCounts: Record<string, number | null>;
+    decisions: Record<string, string>;
+} {
+    const contract = JSON.parse(readFileSync(
+        'scripts/launch/production-fixture-cleanup-contract-v3.json',
+        'utf8',
+    )) as {
+        classActions: Record<string, { expectedCount: number | null; decision: string }>;
+    };
+    return {
+        schemaVersion: 2,
+        policyKind: 'production_fixture_preservation',
+        targetProjectRef: PRODUCTION_PROJECT.ref,
+        aggregateSnapshotSha256: FIXTURE_CLEANUP_TARGET.aggregateSnapshotSha256,
+        approvalScopeSha256: FIXTURE_CLEANUP_TARGET.approvalScopeSha256,
+        approvedAt,
+        observedCounts: Object.fromEntries(
+            Object.entries(contract.classActions).map(([fixtureClass, action]) => [fixtureClass, action.expectedCount]),
+        ),
+        decisions: Object.fromEntries(
+            Object.entries(contract.classActions).map(([fixtureClass, action]) => [fixtureClass, action.decision]),
+        ),
+    };
+}
+
+function stagingEvidence(): Record<string, unknown> {
+    const migrations = PRODUCTION_ROLLOUT_WAVES
+        .filter((wave) => ['base_model_reconciliation', 'deferred_rc_hardening'].includes(wave.id))
+        .flatMap((wave) => wave.migrations);
+    return {
+        schemaVersion: 1,
+        endedAt: '2026-07-12T11:45:00.000Z',
+        status: 'OK',
+        closureStatus: 'APPLIED_AND_VERIFIED',
+        target: { projectRef: 'mzjyvmlxfpzdfdjzxxyj' },
+        writeCommandInvoked: true,
+        externalWritePerformed: true,
+        migrations,
+        checks: [{ status: 'ok' }],
+    };
+}
+
+function connectorStagingEvidence(generatedTypesEvidencePath: string, generatedTypesEvidenceSha256: string) {
+    return {
+        schemaVersion: 1 as const,
+        evidenceKind: STAGING_HARDENING_CONNECTOR_EVIDENCE_KIND,
+        endedAt: '2026-07-12T11:45:00.000Z',
+        status: STAGING_HARDENING_CONNECTOR_STATUS,
+        target: { environment: 'staging' as const, projectRef: 'mzjyvmlxfpzdfdjzxxyj' },
+        collection: {
+            provider: 'authenticated_supabase_connector' as const,
+            operation: 'read_only_query' as const,
+            querySha256: sha256(readFileSync(STAGING_HARDENING_CONNECTOR_QUERY_PATH)),
+            transactionReadOnly: true as const,
+            externalWritePerformed: false as const,
+        },
+        migrations: STAGING_HARDENING_CONNECTOR_MIGRATIONS.map((entry) => ({
+            version: entry.version,
+            name: entry.name,
+            file: entry.file,
+            sourceSha256: entry.sourceSha256,
+            storedStatementSha256: entry.storedStatementSha256,
+            canonicalization: STAGING_HARDENING_CANONICALIZATION,
+            sourceCanonicalSha256: entry.canonicalSha256,
+            storedCanonicalSha256: entry.canonicalSha256,
+            statementCount: 1,
+            historyRowCount: 1,
+        })),
+        sessionsStatus: {
+            dataType: 'text' as const,
+            nullable: false as const,
+            default: 'scheduled' as const,
+            constraint: 'sessions_status_check' as const,
+            constraintValidated: true as const,
+            allowedValues: ['scheduled', 'completed', 'cancelled', 'no_show'],
+            nullOrInvalidRows: 0 as const,
+        },
+        posture: {
+            publicTables: 24 as const,
+            rlsDisabledTables: 0 as const,
+            requiredClientGrantsMissing: 0 as const,
+            unexpectedClientGrants: 0 as const,
+            unsafeDefaultGrants: 0 as const,
+            unsafeClientGrants: 0 as const,
+        },
+        localVerification: {
+            generatedTypesEvidencePath,
+            generatedTypesEvidenceSha256,
+            generatedTypesSemanticDifferences: 0 as const,
+        },
+        scope: {
+            productionWritePerformed: false as const,
+            otherMigrationApplied: false as const,
+            secretValuesRecorded: false as const,
+            rawStatementsPersisted: false as const,
+        },
+    };
+}
+
+function withGeneratedTypesConnectorEvidence(run: (filePath: string) => void): void {
+    const root = path.join(process.cwd(), 'outputs', 'launch-supabase-staging-hardening-connector');
+    mkdirSync(root, { recursive: true });
+    const directory = mkdtempSync(path.join(root, 'unit-test-'));
+    const filePath = writeJson(directory, 'summary.json', {
+        schemaVersion: 1,
+        recordedAt: '2026-07-12T11:40:00.000Z',
+        source: 'authenticated Supabase connector post-apply verification',
+        target: { environment: 'staging', projectRef: 'mzjyvmlxfpzdfdjzxxyj' },
+        migration: {
+            version: '20260712195500',
+            name: 'harden_sessions_status_contract',
+            sourceFile: 'supabase/migrations/20260712195500_harden_sessions_status_contract.sql',
+            sourceAndStoredStatementSha256: STAGING_HARDENING_CONNECTOR_MIGRATIONS.at(-1)!.sourceSha256,
+            statementCount: 1,
+            historyPrefixCount: 5,
+        },
+        sessionsStatus: {
+            dataType: 'text',
+            nullable: false,
+            default: 'scheduled',
+            constraint: 'sessions_status_check',
+            constraintValidated: true,
+            allowedValues: ['scheduled', 'completed', 'cancelled', 'no_show'],
+            nullOrInvalidRows: 0,
+        },
+        posture: {
+            publicTables: 24,
+            rlsDisabledTables: 0,
+            unsafeClientGrants: 0,
+            generatedTypesSemanticDifferences: 0,
+        },
+        scope: {
+            productionWritePerformed: false,
+            otherMigrationApplied: false,
+            secretValuesRecorded: false,
+        },
+    });
+    try {
+        run(filePath);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+}
+
+function sentryEvidence(): Record<string, unknown> {
+    return {
+        schemaVersion: 1,
+        evidenceContractVersion: 2,
+        artifactKind: 'sentry_production_hardening_receipt',
+        endedAt: '2026-07-12T11:50:00.000Z',
+        status: 'OK',
+        closureStatus: 'HARDENED_AND_VERIFIED',
+        target: {
+            organization: 'honestspanish',
+            project: 'espanol-honesto-astro',
+            environment: 'production',
+        },
+        executeRequested: true,
+        externalWriteAttempted: true,
+        externalWritePerformed: true,
+        externalWriteOutcomeAmbiguous: false,
+        executionLockRetainedForRecovery: false,
+        rollbackAttempted: false,
+        rollbackComplete: false,
+        createdWorkflowCount: 2,
+        detectorFingerprint: 'd'.repeat(64),
+        ownerFingerprint: 'e'.repeat(64),
+        rawIdentifiersPersistedInReports: false,
+        terminalProof: {
+            stableReadbacks: 2,
+            exactWorkflowDefinitionsVerified: true,
+            workflowCount: 2,
+            legacyIssueRuleCount: 0,
+            scrubIPAddresses: true,
+            executionLockAbsent: true,
+            ambiguousOutcomeOutstanding: false,
+            rawIdentifiersPersistedInReports: false,
+        },
+        evidenceContract: {
+            rolloutEligible: true,
+            requiredArtifactKind: 'sentry_production_hardening_receipt',
+            rawIdentifiersPersistedInReports: false,
+        },
+        expectedChanges: sentryExpectedChanges(),
+        checks: [{ status: 'ok' }],
+    };
+}
+
+function sentryExecutedSourceReceipt(): Record<string, unknown> {
+    const base = sentryEvidence();
+    const detectorFingerprint = String(base.detectorFingerprint);
+    const ownerFingerprint = String(base.ownerFingerprint);
+    const workflowIdFingerprints = [
+        {
+            name: 'EH Production - Error spike 10 events in 5 minutes',
+            idFingerprint: 'a'.repeat(64),
+            ownershipSource: 'post_response',
+        },
+        {
+            name: 'EH Production - New and regressed errors',
+            idFingerprint: 'b'.repeat(64),
+            ownershipSource: 'post_response',
+        },
+    ];
+    return {
+        ...base,
+        finalizationProof: {
+            stateFingerprint: 'c'.repeat(64),
+            sourceFingerprint: sha256(stableSentryJson({
+                ownershipSource: 'post_response',
+                workflowIdFingerprints,
+                detectorFingerprint,
+                ownerFingerprint,
+            })),
+            workflowIdFingerprints,
+        },
+    };
+}
+
+function stableSentryJson(value: unknown): string {
+    if (Array.isArray(value)) return `[${value.map(stableSentryJson).join(',')}]`;
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableSentryJson(record[key])}`).join(',')}}`;
+}
+
+function sentryExpectedChanges(): Record<string, unknown> {
+    return {
+        scrubIPAddresses: true,
+        workflows: [
+            'EH Production - New and regressed errors',
+            'EH Production - Error spike 10 events in 5 minutes',
+        ],
+        environment: 'production',
+        actions: 'email to exact organization owner',
+        spikeThreshold: '10 events in 5 minutes',
+    };
+}
+
+function writeJson(directory: string, fileName: string, value: unknown): string {
+    const filePath = path.join(directory, fileName);
+    writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+    return filePath;
+}
+
+function withTempDirectory(run: (directory: string) => void): void {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'eh-production-rollout-test-'));
+    try {
+        run(directory);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+}

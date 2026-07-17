@@ -1,11 +1,43 @@
 import type { APIRoute } from 'astro';
 import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
-import { runAfterResponse } from '../../../lib/cloudflare-runtime';
-import { enqueueBulkSessionFulfillment, processDueFulfillmentJobs } from '../../../lib/fulfillment/jobs';
-import { fulfillSessionBatch } from '../../../lib/fulfillment/session-fulfillment';
+import { checkTeacherAvailabilitySlots } from '../../../lib/calendar/availability';
+import { normalizeManualMeetingLink } from '../../../lib/calendar/meeting-link';
+import {
+    addDaysToDateKey,
+    compareDateKeys,
+    dayOfWeekForDateKey,
+    madridDateTimeToUtcIso,
+    normalizeDateInputToDateKey,
+} from '../../../lib/calendar/madrid-time';
+import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
+import { recordFirstClassScheduledSafe } from '../../../lib/crm/onboarding';
+import { enqueueBulkSessionFulfillment } from '../../../lib/fulfillment/queue';
+import {
+    checkTeacherAvailabilityViaInternalService,
+    isInternalJobServiceConfigured,
+    triggerFulfillmentProcessing,
+} from '../../../lib/internal-job-service';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import { shouldDisableExternalIntegrations } from '../../../lib/external-integrations';
+
+function isValidDateInput(value: unknown): value is string {
+    return typeof value === 'string' && normalizeDateInputToDateKey(value) !== null;
+}
+
+function isValidTimeInput(value: unknown): value is string {
+    return typeof value === 'string' && /^([01]\d|2[0-3]):([0-5]\d)$/.test(value);
+}
+
+function findEarliestScheduledSession<T extends { scheduled_at: string | null }>(sessions: T[]) {
+    return sessions.reduce<T | null>((earliest, session) => {
+        if (!session.scheduled_at) return earliest;
+        if (!earliest?.scheduled_at) return session;
+        return new Date(session.scheduled_at).getTime() < new Date(earliest.scheduled_at).getTime()
+            ? session
+            : earliest;
+    }, null);
+}
 
 /**
  * POST /api/calendar/recurring-sessions
@@ -31,7 +63,13 @@ export const POST: APIRoute = async (context) => {
         return new Response(JSON.stringify({ error: 'Forbidden: only admin or teacher' }), { status: 403 });
     }
 
-    const body = await context.request.json();
+    let body: Record<string, unknown>;
+    try {
+        body = await context.request.json();
+    } catch {
+        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+    }
+
     const {
         studentId,
         teacherId,
@@ -44,7 +82,38 @@ export const POST: APIRoute = async (context) => {
         autoCreateMeeting = true,
     } = body;
     const durationMinutes = normalizeClassDurationMinutes(rawDurationMinutes);
+    const safeMeetLink = normalizeManualMeetingLink(meetLink);
+    const shouldAutoCreateMeeting = typeof autoCreateMeeting === 'boolean' ? autoCreateMeeting : true;
     const externalIntegrationsDisabled = shouldDisableExternalIntegrations();
+
+    if (!safeMeetLink.ok) {
+        return new Response(JSON.stringify({ error: safeMeetLink.error }), { status: 400 });
+    }
+
+    // Validate required fields
+    if (typeof studentId !== 'string' || !studentId.trim() || dayOfWeek === undefined || !time || !startDate) {
+        return new Response(JSON.stringify({
+            error: 'Required: studentId, dayOfWeek, time, startDate'
+        }), { status: 400 });
+    }
+
+    if (profile.role === 'admin' && (typeof teacherId !== 'string' || !teacherId.trim())) {
+        return new Response(JSON.stringify({ error: 'teacherId is required for admin scheduling' }), { status: 400 });
+    }
+
+    if (typeof dayOfWeek !== 'number' || !Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6) {
+        return new Response(JSON.stringify({ error: 'dayOfWeek must be 0-6' }), { status: 400 });
+    }
+
+    if (!isValidTimeInput(time)) {
+        return new Response(JSON.stringify({ error: 'time must be HH:mm' }), { status: 400 });
+    }
+
+    if (!isValidDateInput(startDate) || (endDate !== undefined && endDate !== null && !isValidDateInput(endDate))) {
+        return new Response(JSON.stringify({ error: 'startDate and endDate must be valid dates' }), { status: 400 });
+    }
+
+    const finalTeacherId = profile.role === 'admin' ? (teacherId as string).trim() : user.id;
 
     // IDOR Protection: verify teacher owns this student
     if (profile.role !== 'admin') {
@@ -52,7 +121,7 @@ export const POST: APIRoute = async (context) => {
             .from('student_teachers')
             .select('id')
             .eq('teacher_id', user.id)
-            .eq('student_id', studentId)
+            .eq('student_id', studentId.trim())
             .single();
 
         if (!assignment) {
@@ -60,24 +129,33 @@ export const POST: APIRoute = async (context) => {
         }
     }
 
-    // Validate required fields
-    if (!studentId || !teacherId || dayOfWeek === undefined || !time || !startDate) {
-        return new Response(JSON.stringify({
-            error: 'Required: studentId, teacherId, dayOfWeek, time, startDate'
-        }), { status: 400 });
+    const { data: targetStudentProfile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', studentId.trim())
+        .maybeSingle();
+
+    if (targetStudentProfile?.role !== 'student') {
+        return new Response(JSON.stringify({ error: 'studentId must belong to a student profile' }), { status: 400 });
     }
 
-    if (dayOfWeek < 0 || dayOfWeek > 6) {
-        return new Response(JSON.stringify({ error: 'dayOfWeek must be 0-6' }), { status: 400 });
-    }
+    if (profile.role === 'admin') {
+        const { data: targetTeacherProfile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', finalTeacherId)
+            .maybeSingle();
 
-    const finalTeacherId = profile.role === 'admin' && teacherId ? teacherId : user.id;
+        if (targetTeacherProfile?.role !== 'teacher') {
+            return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+        }
+    }
 
     // Verify student has active subscription
     const { data: subscription } = await supabase
         .from('subscriptions')
         .select('id, sessions_used, sessions_total, ends_at')
-        .eq('student_id', studentId)
+        .eq('student_id', studentId.trim())
         .eq('status', 'active')
         .gte('ends_at', new Date().toISOString())
         .order('created_at', { ascending: false })
@@ -91,29 +169,48 @@ export const POST: APIRoute = async (context) => {
     const sessionsUsed = subscription.sessions_used ?? 0;
     const sessionsTotal = subscription.sessions_total ?? 0;
     const sessionsRemaining = sessionsTotal - sessionsUsed;
+    const shouldRecordFirstClass = sessionsUsed === 0;
 
     if (sessionsRemaining <= 0) {
         return new Response(JSON.stringify({ error: 'No sessions remaining in subscription' }), { status: 400 });
     }
 
-    // Determine end boundary
-    const finalEndDate = endDate ? new Date(endDate) : new Date(subscription.ends_at);
+    const startDateKey = normalizeDateInputToDateKey(startDate);
+    const subscriptionEndDateKey = normalizeDateInputToDateKey(subscription.ends_at);
+    const endDateKey = typeof endDate === 'string' && endDate.trim()
+        ? normalizeDateInputToDateKey(endDate)
+        : subscriptionEndDateKey;
 
-    // Generate all ISO date strings for the given day of week
-    const scheduledDates: string[] = [];
-    const current = new Date(startDate);
-
-    // Find first occurrence of dayOfWeek on or after startDate
-    while (current.getDay() !== dayOfWeek) {
-        current.setDate(current.getDate() + 1);
+    if (!subscriptionEndDateKey) {
+        return new Response(JSON.stringify({ error: 'Subscription end date is invalid' }), { status: 500 });
     }
 
-    const [hours, minutes] = time.split(':').map(Number);
-    while (current <= finalEndDate && scheduledDates.length < sessionsRemaining) {
-        const d = new Date(current);
-        d.setHours(hours, minutes, 0, 0);
-        scheduledDates.push(d.toISOString());
-        current.setDate(current.getDate() + 7);
+    if (!startDateKey || !endDateKey) {
+        return new Response(JSON.stringify({ error: 'startDate and endDate must be valid dates' }), { status: 400 });
+    }
+
+    if (compareDateKeys(endDateKey, subscriptionEndDateKey) > 0) {
+        return new Response(JSON.stringify({
+            error: 'Recurring sessions cannot be scheduled after the subscription end date',
+        }), { status: 400 });
+    }
+
+    // Generate all ISO date strings for the given Madrid calendar day/time.
+    const scheduledDates: string[] = [];
+    let currentDateKey = startDateKey;
+
+    // Find first occurrence of dayOfWeek on or after startDate
+    while (dayOfWeekForDateKey(currentDateKey) !== dayOfWeek) {
+        currentDateKey = addDaysToDateKey(currentDateKey, 1);
+    }
+
+    while (compareDateKeys(currentDateKey, endDateKey) <= 0 && scheduledDates.length < sessionsRemaining) {
+        const scheduledAt = madridDateTimeToUtcIso(currentDateKey, time);
+        if (!scheduledAt) {
+            return new Response(JSON.stringify({ error: 'time must be HH:mm' }), { status: 400 });
+        }
+        scheduledDates.push(scheduledAt);
+        currentDateKey = addDaysToDateKey(currentDateKey, 7);
     }
 
     if (scheduledDates.length === 0) {
@@ -136,9 +233,12 @@ export const POST: APIRoute = async (context) => {
         .eq('id', finalTeacherId)
         .single();
     const teacherEmail = teacherProfile?.email;
-    const checkTeacherAvailability = externalIntegrationsDisabled
-        ? null
-        : (await import('../../../lib/google/calendar')).checkTeacherAvailability;
+
+    if (!externalIntegrationsDisabled && teacherEmail && !isInternalJobServiceConfigured(context)) {
+        return new Response(JSON.stringify({
+            error: 'Calendar availability service is not configured'
+        }), { status: 503 });
+    }
 
     // 1. VERIFY ALL CONFLICTS BEFORE INSERTING (atomicity)
     for (const dateStr of scheduledDates) {
@@ -161,10 +261,14 @@ export const POST: APIRoute = async (context) => {
         }
 
         // Google Calendar conflict check
-        if (!externalIntegrationsDisabled && teacherEmail && checkTeacherAvailability) {
+        if (!externalIntegrationsDisabled && teacherEmail) {
             let isFree = false;
             try {
-                isFree = await checkTeacherAvailability(teacherEmail, scheduledDate, endTime);
+                isFree = await checkTeacherAvailabilityViaInternalService(context, {
+                    teacherEmail,
+                    startTime: scheduledDate.toISOString(),
+                    endTime: endTime.toISOString(),
+                });
             } catch (availabilityError) {
                 console.error('[RecurringSessions] Availability check failed:', availabilityError);
                 return new Response(JSON.stringify({
@@ -180,21 +284,35 @@ export const POST: APIRoute = async (context) => {
         }
     }
 
+    const campusAvailability = await checkTeacherAvailabilitySlots(supabaseAdmin, {
+        teacherId: finalTeacherId,
+        scheduledAts: scheduledDates,
+        durationMinutes,
+    });
+
+    if (!campusAvailability.ok) {
+        return new Response(JSON.stringify({ error: campusAvailability.error }), { status: campusAvailability.status });
+    }
+
     // 2. BULK INSERT all sessions
     const sessionsToInsert = scheduledDates.map(dateStr => ({
         subscription_id: subscription.id,
-        student_id: studentId,
+        student_id: studentId.trim(),
         teacher_id: finalTeacherId,
         scheduled_at: dateStr,
         duration_minutes: durationMinutes,
-        meet_link: meetLink || null,
+        meet_link: safeMeetLink.value,
         status: 'scheduled' as const,
     }));
 
-    const { data: createdSessions, error: insertError } = await supabase
+    const { data: createdSessions, error: insertError } = await supabaseAdmin
         .from('sessions')
         .insert(sessionsToInsert)
-        .select('*');
+        .select(`
+            *,
+            student:profiles!sessions_student_id_fkey(id, full_name, email),
+            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+        `);
 
     if (insertError || !createdSessions) {
         if (insertError?.code === '23P01') {
@@ -218,27 +336,56 @@ export const POST: APIRoute = async (context) => {
         }
         // Concurrency abort — cancel all created sessions
         const createdIds = createdSessions.map(s => s.id);
-        await supabase.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
+        await supabaseAdmin.from('sessions').update({ status: 'cancelled' }).in('id', createdIds);
         return new Response(JSON.stringify({ error: 'Concurrency error: quota changed' }), { status: 409 });
+    }
+
+    await Promise.all(createdSessions.map((session) => recordCrmActivityForProfileSafe(supabaseAdmin, {
+        profileId: session.student_id,
+        email: session.student?.email ?? null,
+        fullName: session.student?.full_name ?? null,
+        actorId: user.id,
+        lifecycleStage: 'customer',
+        source: 'calendar_recurring',
+        activityType: 'class',
+        subject: 'Clase recurrente programada',
+        body: session.teacher?.full_name || session.teacher?.email || null,
+        occurredAt: session.scheduled_at,
+        relatedEntityType: 'session_scheduled',
+        relatedEntityId: session.id,
+        metadata: {
+            session_id: session.id,
+            teacher_id: session.teacher_id,
+            scheduled_at: session.scheduled_at,
+            duration_minutes: session.duration_minutes,
+            status: session.status,
+        },
+    })));
+
+    const firstScheduledSession = shouldRecordFirstClass ? findEarliestScheduledSession(createdSessions) : null;
+    if (firstScheduledSession) {
+        await recordFirstClassScheduledSafe(supabaseAdmin, {
+            profileId: firstScheduledSession.student_id,
+            email: firstScheduledSession.student?.email ?? null,
+            fullName: firstScheduledSession.student?.full_name ?? null,
+            subscriptionId: subscription.id,
+            sessionId: firstScheduledSession.id,
+            teacherId: firstScheduledSession.teacher_id,
+            scheduledAt: firstScheduledSession.scheduled_at,
+        });
     }
 
     let fulfillment: 'queued' | 'fallback' | 'skipped' = 'skipped';
     if (!externalIntegrationsDisabled) {
         const fulfillmentQueued = await enqueueBulkSessionFulfillment(supabaseAdmin, createdSessions, {
-            autoCreateMeeting,
+            autoCreateMeeting: shouldAutoCreateMeeting,
             sendEmail: true,
         });
 
-        fulfillment = fulfillmentQueued ? 'queued' : 'fallback';
-        runAfterResponse(
-            context,
-            fulfillmentQueued
-                ? processDueFulfillmentJobs({ limit: 3, supabaseAdmin })
-                : fulfillSessionBatch(supabaseAdmin, createdSessions.map((session) => session.id), {
-                    autoCreateMeeting,
-                    sendEmail: true,
-                })
-        );
+        fulfillment = fulfillmentQueued ? 'queued' : 'skipped';
+        if (fulfillmentQueued) {
+            triggerFulfillmentProcessing(context, 3);
+        }
     }
 
     return new Response(JSON.stringify({

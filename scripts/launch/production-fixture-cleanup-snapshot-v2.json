@@ -1,0 +1,81 @@
+{
+  "schemaVersion": 2,
+  "targetProjectRef": "vkkahxsybhbutszerawz",
+  "observedFreezeCutoff": "2026-07-02T18:29:27.580Z",
+  "counts": {
+    "auth_users": 138,
+    "profiles": 138,
+    "profiles_private": 138,
+    "packages": 5,
+    "subscriptions": 84,
+    "student_teachers": 127,
+    "sessions": 700,
+    "payments": 108,
+    "processed_webhook_events": 184,
+    "admin_audit_log": 3,
+    "teacher_availability": 5,
+    "jobs": 111,
+    "support_tickets": 2,
+    "leads": 0,
+    "fulfillment_jobs": 0
+  },
+  "distributions": {
+    "profiles": { "admin": 1, "student": 136, "teacher": 1 },
+    "subscriptions": { "active": 58, "cancelled": 26 },
+    "sessions": { "no_show": 13, "cancelled": 653, "completed": 16, "scheduled": 18 },
+    "payments": { "failed": 26, "succeeded": 82 },
+    "stripeLinkedSubscriptions": 27,
+    "activeStandard6mStripeLinked": 1,
+    "cancelledEssential3mStripeLinked": 26
+  },
+  "canonicalPackages": {
+    "count": 4,
+    "names": ["group", "standard", "hybrid", "bootcamp"],
+    "catalogSha256": "6d17a17ca7bd8a99c2f0ba17522780546b473e49c386cee83d1da9acf08da38e",
+    "stripeReferenceNonNullFields": 16
+  },
+  "legacyJobs": {
+    "rowCount": 111,
+    "shapeSha256": "b707ddc341370795c975b8eddff2ae1394afed9f121ab116306fea2db3e1b1ec",
+    "status": { "succeeded": 111 },
+    "kinds": {
+      "scheduling.cancel_session": 20,
+      "billing.send_welcome_email": 22,
+      "scheduling.provision_session": 42,
+      "scheduling.send_session_reminder": 5,
+      "billing.create_student_drive_folder": 22
+    },
+    "aggregateTypes": { "session": 67, "subscription": 44 },
+    "createdDateUtc": "2026-04-17",
+    "maximumObservedRangeSeconds": 10800,
+    "outboundForeignKeys": 0,
+    "inboundReferences": 0,
+    "constraintNames": ["jobs_pkey", "jobs_status_check"],
+    "indexNames": [
+      "jobs_aggregate_idx",
+      "jobs_dedupe_key_unique",
+      "jobs_kind_status_idx",
+      "jobs_pkey",
+      "jobs_status_run_after_idx"
+    ],
+    "policyCount": 0,
+    "userTriggerCount": 0
+  },
+  "supportTickets": {
+    "rowCount": 2,
+    "closed": 2,
+    "linkedStudentProfiles": 2,
+    "createdDateUtc": "2026-06-11",
+    "outboundForeignKeys": 1
+  },
+  "schemaPosture": {
+    "package_prices_absent": true,
+    "checkout_intents_absent": true,
+    "email_recipient_budget_usage_absent": true,
+    "fulfillment_effects_absent": true,
+    "staging_smoke_runs_absent": true,
+    "staging_smoke_leases_absent": true,
+    "package_price_id_column_absent": true,
+    "unexpected_public_tables": []
+  }
+}

@@ -1,13 +1,5 @@
 import type { APIContext } from 'astro';
-
-type RuntimeEnv = Record<string, string | undefined>;
-type RuntimeLocals = {
-    runtime?: {
-        env?: RuntimeEnv;
-    };
-};
-
-let currentRuntimeEnv: RuntimeEnv | null = null;
+import { getSecret } from 'astro:env/server';
 
 function getProcessEnvValue(key: string): string | undefined {
     const processLike = globalThis as typeof globalThis & {
@@ -17,21 +9,17 @@ function getProcessEnvValue(key: string): string | undefined {
     return processLike.process?.env?.[key];
 }
 
-function getContextEnv(context?: Pick<APIContext, 'locals'>): RuntimeEnv | null {
-    const runtime = (context?.locals as RuntimeLocals | undefined)?.runtime;
-    return runtime?.env ?? null;
-}
-
-export function setRuntimeEnvFromContext(context: Pick<APIContext, 'locals'>): void {
-    const env = getContextEnv(context);
-    if (env) {
-        currentRuntimeEnv = env;
+function getAstroSecretValue(key: string): string | undefined {
+    try {
+        return getSecret(key);
+    } catch {
+        return undefined;
     }
 }
 
-export function readRuntimeEnv(key: string, context?: Pick<APIContext, 'locals'>): string | undefined {
-    const contextEnv = getContextEnv(context);
-    const value = contextEnv?.[key] ?? currentRuntimeEnv?.[key] ?? getProcessEnvValue(key);
+export function readRuntimeEnv(key: string, _context?: Pick<APIContext, 'locals'>): string | undefined {
+    const value = getAstroSecretValue(key) ??
+        getProcessEnvValue(key);
 
     if (value === undefined || value === '') {
         return undefined;

@@ -14,6 +14,15 @@ const makeContext = (body: Record<string, unknown> = {}) => ({
     cookies: { set: vi.fn(), get: vi.fn() },
 });
 
+const makeInvalidJsonContext = () => ({
+    request: {
+        json: vi.fn().mockRejectedValue(new Error('bad json')),
+        headers: { get: vi.fn().mockReturnValue('') },
+        url: 'http://localhost:4321/api/account/update-profile',
+    },
+    cookies: { set: vi.fn(), get: vi.fn() },
+});
+
 describe('POST /api/account/update-profile', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -33,6 +42,19 @@ describe('POST /api/account/update-profile', () => {
         expect(response.status).toBe(401);
     });
 
+    it('returns 400 for invalid JSON after authentication', async () => {
+        const mockSupabase = createMockSupabaseClient();
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+
+        const { POST } = await import('../../src/pages/api/account/update-profile');
+        const response = await POST(makeInvalidJsonContext() as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toBe('Invalid JSON body');
+    });
+
     it('returns 200 on successful profile update', async () => {
         const mockSupabase = createMockSupabaseClient();
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
@@ -42,7 +64,7 @@ describe('POST /api/account/update-profile', () => {
         const response = await POST(makeContext({ fullName: 'New Name' }) as any);
 
         expect(response.status).toBe(200);
-        const body = await response.json();
+        const body = await response.json() as JsonBody;
         expect(body.success).toBe(true);
     });
 

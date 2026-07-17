@@ -1,5 +1,7 @@
 ---
 // 404 page - detects language or defaults to Spanish
+Astro.response.status = 404;
+Astro.response.headers.set('x-robots-tag', 'noindex, nofollow');
 ---
 
 <!DOCTYPE html>
@@ -7,6 +9,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
     <title>Página no encontrada | Español Honesto</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
@@ -56,7 +59,6 @@
         .message {
             font-size: 16px;
             color: #006064;
-            opacity: 0.8;
             margin-bottom: 30px;
             line-height: 1.6;
         }
@@ -88,7 +90,6 @@
             font-family: 'Boldonse', sans-serif;
             font-size: 14px;
             color: #006064;
-            opacity: 0.5;
             letter-spacing: 3px;
         }
         
@@ -99,7 +100,7 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <main class="container">
         <div class="emoji">🤷‍♂️</div>
         <div class="error-code">404</div>
         <h1 class="title">Página no encontrada</h1>
@@ -109,18 +110,22 @@
         </p>
         <a href="/es" class="btn" id="home-btn">Volver al inicio</a>
         <p class="brand">ESPAÑOL HONESTO</p>
-    </div>
+    </main>
 
     <script>
         // Try to detect language from URL or browser
         const path = window.location.pathname;
         const langMatch = path.match(/^\/(es|en|ru)/);
-        const lang = langMatch ? langMatch[1] : 
+        type PageLang = 'es' | 'en' | 'ru';
+        const detectedLang = langMatch?.[1];
+        const lang: PageLang = detectedLang === 'es' || detectedLang === 'en' || detectedLang === 'ru'
+            ? detectedLang
+            :
             (navigator.language.startsWith('ru') ? 'ru' : 
              navigator.language.startsWith('en') ? 'en' : 'es');
         
         const btn = document.getElementById('home-btn');
-        if (btn) {
+        if (btn instanceof HTMLAnchorElement) {
             btn.href = '/' + lang;
         }
         
@@ -143,11 +148,15 @@
             }
         };
         
-        const t = texts[lang] || texts.es;
-        document.querySelector('.title').textContent = t.title;
-        document.querySelector('.message').textContent = t.message;
-        document.getElementById('home-btn').textContent = t.btn;
+        const t = texts[lang];
+        const title = document.querySelector<HTMLElement>('.title');
+        const message = document.querySelector<HTMLElement>('.message');
+        const homeButton = document.getElementById('home-btn');
+        if (title) title.textContent = t.title;
+        if (message) message.textContent = t.message;
+        if (homeButton) homeButton.textContent = t.btn;
         document.documentElement.lang = lang;
+        document.title = `${t.title} | Español Honesto`;
     </script>
 </body>
 </html>

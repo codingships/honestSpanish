@@ -1,12 +1,12 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import StudentClassList from '../../../components/calendar/StudentClassList';
 
 export const prerender = false;
 
-const { lang } = Astro.params as { lang: string };
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 const supabase = createSupabaseServerClient(Astro);
@@ -39,13 +39,38 @@ const { data: sessions } = await supabase
     .eq('student_id', user.id)
     .order('scheduled_at', { ascending: false });
 
+type ClassSession = {
+    id: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    status: string;
+    meet_link: string | null;
+    drive_doc_url: string | null;
+    teacher_notes: string | null;
+    teacher: { id: string; full_name: string | null; email: string } | null;
+};
+
+const classSessions: ClassSession[] = (sessions ?? []).flatMap((session) => {
+    if (!session.scheduled_at) return [];
+    return [{
+        id: session.id,
+        scheduled_at: session.scheduled_at,
+        duration_minutes: session.duration_minutes ?? 50,
+        status: session.status ?? 'scheduled',
+        meet_link: session.meet_link,
+        drive_doc_url: session.drive_doc_url,
+        teacher_notes: session.teacher_notes,
+        teacher: session.teacher,
+    }];
+});
+
 // Separar en futuras y pasadas
 const now = new Date();
-const upcomingSessions = (sessions || [])
+const upcomingSessions = classSessions
     .filter(s => new Date(s.scheduled_at) >= now && s.status === 'scheduled')
     .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime());
 
-const pastSessions = (sessions || [])
+const pastSessions = classSessions
     .filter(s => new Date(s.scheduled_at) < now || s.status !== 'scheduled')
     .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
 
@@ -59,6 +84,8 @@ const classTranslations = {
     cancelClass: t('campus.student.classes.cancelClass'),
     cancelConfirm: t('campus.student.classes.cancelConfirm'),
     cancelWarning: t('campus.student.classes.cancelWarning'),
+    cancelLateWarning: t('campus.student.classes.cancelLateWarning'),
+    cancelLateNotice: t('campus.student.classes.cancelLateNotice'),
     with: t('campus.student.classes.with'),
     duration: t('campus.student.classes.duration'),
     minutes: t('campus.teacher.calendar.minutes'),
@@ -75,6 +102,7 @@ const classTranslations = {
     linkAvailableSoon: t('campus.student.classes.linkAvailableSoon'),
     cancelUnavailable: t('campus.student.classes.cancelUnavailable'),
     unassigned: t('campus.student.classes.unassigned'),
+    viewDocument: t('campus.student.classes.viewDocument'),
     cancelReason: t('campus.student.classes.cancelReason'),
     cancelReasonPlaceholder: t('campus.student.classes.cancelReasonPlaceholder'),
     cancelError: t('campus.student.classes.cancelError'),

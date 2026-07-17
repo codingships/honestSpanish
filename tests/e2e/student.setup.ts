@@ -1,10 +1,11 @@
 import { test as setup, expect } from '@playwright/test';
+import { saveVerifiedStagingAuthState } from './helpers/auth';
 
 const authFile = 'tests/e2e/.auth/student.json';
 
 setup('authenticate as student', async ({ page }) => {
     // Ir a login
-    await page.goto('/es/login');
+    await page.goto('/es/login', { waitUntil: 'domcontentloaded' });
 
     // Esperar hidratación del componente AuthForm
     await page.waitForFunction(() => {
@@ -20,11 +21,11 @@ setup('authenticate as student', async ({ page }) => {
     await page.click('button[type="submit"]');
 
     // Esperar a que redirija al campus
-    await page.waitForURL(/\/campus/, { timeout: 15000 });
+    await page.waitForURL(/\/campus/, { timeout: 15000, waitUntil: 'domcontentloaded' });
 
     // Verificar que estamos logueados
     await expect(page).toHaveURL(/\/campus/);
 
     // Guardar estado de autenticación (cookies, localStorage)
-    await page.context().storageState({ path: authFile });
+    await saveVerifiedStagingAuthState(page, authFile);
 });

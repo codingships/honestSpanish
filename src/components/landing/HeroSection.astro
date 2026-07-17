@@ -9,9 +9,10 @@ interface Props {
   subtitle: string;
   ready: string;
   ctaText: string;
+  imageAlt: string;
 }
 
-const { headline1, headline2, headline3, manifesto, subtitle, ready, ctaText } = Astro.props;
+const { headline1, headline2, headline3, manifesto, subtitle, ready, ctaText, imageAlt } = Astro.props;
 
 const s = {
     bg: 'bg-[#E0F7FA]',
@@ -42,7 +43,7 @@ const s = {
             <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
                 <img
                     src={heroImage.src}
-                    alt="Estudiante practicando español" 
+                    alt={imageAlt}
                     class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
                     loading="eager"
                     decoding="async"

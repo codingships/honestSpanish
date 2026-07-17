@@ -2,6 +2,7 @@
 import BaseLayout from '../../../layouts/BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
 import { getCollection } from 'astro:content';
+import { getBlogEntrySlug, isPublishedBlogPost } from '../../../lib/blog-routes';
 
 export const prerender = true;
 
@@ -18,14 +19,34 @@ const t = useTranslations(lang as any);
 
 const posts = await getCollection('blog', ({ data }) => {
     return data.lang === lang;
-});
+}).then((entries) => entries.filter(isPublishedBlogPost));
 
 const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf());
 
-const getCleanSlug = (slug: string) => {
-    const parts = slug.split('/');
-    return parts.length > 1 ? parts.slice(1).join('/') : slug;
-};
+const blogIndexCta = {
+    es: {
+        heading: '¿Quieres hablar de estos temas en español?',
+        body: 'Si estos artículos encajan con lo que necesitas, solicita plaza y cuéntanos tu nivel, objetivo y disponibilidad.',
+        button: 'Solicitar plaza',
+    },
+    en: {
+        heading: 'Want to discuss these topics in Spanish?',
+        body: 'If these articles match what you need, apply for a place and tell us your level, goal and availability.',
+        button: 'Apply for a place',
+    },
+    ru: {
+        heading: 'Хотите говорить об этом по-испански?',
+        body: 'Если эти статьи похожи на то, что вам нужно, оставьте заявку и расскажите о своем уровне, цели и расписании.',
+        button: 'Оставить заявку',
+    },
+}[lang as 'es' | 'en' | 'ru'];
+
+const accessibilityCopy = {
+    es: { skip: 'Saltar al contenido principal', breadcrumb: 'Ruta de navegación' },
+    en: { skip: 'Skip to main content', breadcrumb: 'Breadcrumb' },
+    ru: { skip: 'Перейти к основному содержанию', breadcrumb: 'Навигационная цепочка' },
+}[lang as 'es' | 'en' | 'ru'];
+
 ---
 
 <BaseLayout 
@@ -33,18 +54,22 @@ const getCleanSlug = (slug: string) => {
     description={t('meta.description')} 
     lang={lang}
 >
+    <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
+        {accessibilityCopy.skip}
+    </a>
     <div class="bg-white min-h-screen font-sans text-[#006064]">
+        <main id="main-content" tabindex="-1">
         
         {/* Header */}
         <header class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
             <div class="max-w-6xl mx-auto text-center">
-                <nav class="flex justify-center text-sm font-mono uppercase tracking-wide opacity-70 mb-8">
+                <nav aria-label={accessibilityCopy.breadcrumb} class="flex justify-center text-sm font-mono uppercase tracking-wide text-[#006064] mb-8">
                      <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
-                     <span class="mx-2">/</span>
-                     <span>{t('common.blog')}</span>
+                     <span aria-hidden="true" class="mx-2">/</span>
+                     <span aria-current="page">{t('common.blog')}</span>
                 </nav>
                 <h1 class="font-display text-5xl md:text-7xl mb-4 text-[#006064] tracking-tighter">{t('common.blog')}</h1>
-                <p class="text-xl max-w-2xl mx-auto opacity-70">
+                <p class="text-xl max-w-2xl mx-auto text-[#006064]">
                     {lang === 'es' ? 'Artículos sobre aprendizaje, cultura y vida en España.' : 
                      lang === 'en' ? 'Articles about learning, culture, and life in Spain.' : 
                      'Статьи об обучении, культуре и жизни в Испании.'}
@@ -58,7 +83,7 @@ const getCleanSlug = (slug: string) => {
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
                     {sortedPosts.map((post) => (
                         <article class="flex flex-col group">
-                            <a href={getLocalizedPath(`/blog/${getCleanSlug(post.slug)}`, lang)} class="block mb-6 overflow-hidden border-2 border-[#006064] rounded-lg aspect-[4/3]">
+                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} class="block mb-6 overflow-hidden border-2 border-[#006064] rounded-lg aspect-[4/3]">
                                 {post.data.image ? (
                                     <img
                                         src={post.data.image.src}
@@ -76,23 +101,23 @@ const getCleanSlug = (slug: string) => {
                                 )}
                             </a>
                             
-                            <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wide opacity-60">
+                            <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wide text-[#006064]">
                                 <span class="bg-[#006064]/10 px-2 py-1 rounded">{post.data.category}</span>
                                 <span>•</span>
                                 <span>{new Date(post.data.publishedAt).toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                             </div>
 
-                            <a href={getLocalizedPath(`/blog/${getCleanSlug(post.slug)}`, lang)} class="group-hover:opacity-70 transition-opacity">
+                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} class="group-hover:opacity-70 transition-opacity">
                                 <h2 class="font-display text-2xl mb-3 leading-snug text-[#006064]">
                                     {post.data.title}
                                 </h2>
                             </a>
                             
-                            <p class="text-[#006064]/70 mb-6 line-clamp-3">
+                            <p class="text-[#006064] mb-6 line-clamp-3">
                                 {post.data.description}
                             </p>
 
-                            <a href={getLocalizedPath(`/blog/${getCleanSlug(post.slug)}`, lang)} class="mt-auto inline-flex items-center text-sm font-bold uppercase tracking-wider hover:underline">
+                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} class="mt-auto inline-flex items-center text-sm font-bold uppercase tracking-wider hover:underline">
                                 {t('common.readMore')} →
                             </a>
                         </article>
@@ -108,6 +133,21 @@ const getCleanSlug = (slug: string) => {
                 </div>
             )}
         </div>
+
+        <section class="bg-[#006064] text-white py-20 px-6 border-t-2 border-[#006064]">
+            <div class="max-w-4xl mx-auto text-center">
+                <h2 class="font-display text-4xl md:text-5xl leading-tight">{blogIndexCta.heading}</h2>
+                <p class="mt-4 text-lg font-bold text-white/85">{blogIndexCta.body}</p>
+                <a
+                    href={`/${lang}#contacto`}
+                    class="mt-8 inline-block bg-white text-[#006064] px-8 py-4 text-sm font-bold uppercase tracking-widest border-2 border-white hover:bg-[#E0F7FA] transition-all"
+                >
+                    {blogIndexCta.button}
+                </a>
+            </div>
+        </section>
+
+        </main>
 
     </div>
 </BaseLayout>

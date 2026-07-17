@@ -1,127 +1,188 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '../supabase-admin';
+import { recordPostPaymentOnboardingSafe } from '../crm/onboarding';
 import { createStudentFolderStructure } from '../google/student-folder';
 import { getPrivateProfile, upsertPrivateProfile } from '../profiles-private';
-import { sendWelcomeEmail } from '../email';
+import { sendRenewalNoticeEmail, sendWelcomeEmail } from '../email';
 import { getSiteUrl } from '../site-url';
 import { fulfillSessionBatch, fulfillSingleSession } from './session-fulfillment';
-import type { Database, Json } from '../../types/database.types';
+import { cancelClassEvent } from '../google/calendar';
+import { sendClassCancelled } from '../email';
+import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
+import type { Database } from '../../types/database.types';
+import {
+    FulfillmentEffectError,
+    isFulfillmentEffectManualReviewError,
+} from './effects';
+import {
+    asFulfillmentPayload,
+    enqueueBulkSessionFulfillment,
+    enqueueFulfillmentJob,
+    enqueueSessionCancellation,
+    enqueueSessionFulfillment,
+    enqueueWelcomeFulfillment,
+    enqueueRenewalNotice,
+    isMissingJobsTable,
+    type FulfillmentJobRow,
+    type FulfillmentJobType,
+    type FulfillmentJobPayload,
+} from './queue';
 
-export type FulfillmentJobType =
-    | 'session_fulfillment'
-    | 'bulk_session_fulfillment'
-    | 'welcome_fulfillment';
-
-type FulfillmentJobPayload = {
-    sessionId?: string;
-    sessionIds?: string[];
-    userId?: string;
-    packageId?: string;
-    autoCreateMeeting?: boolean;
-    sendEmail?: boolean;
+export {
+    enqueueBulkSessionFulfillment,
+    enqueueFulfillmentJob,
+    enqueueSessionCancellation,
+    enqueueSessionFulfillment,
+    enqueueWelcomeFulfillment,
+    enqueueRenewalNotice,
+    type FulfillmentJobPayload,
+    type FulfillmentJobRow,
+    type FulfillmentJobType,
 };
 
-type FulfillmentJobRow = Database['public']['Tables']['fulfillment_jobs']['Row'];
+export type ExactFulfillmentJobErrorCode =
+    | 'EXACT_JOB_EXECUTION_FAILED'
+    | 'EXACT_JOB_IDENTITY_MISMATCH'
+    | 'EXACT_JOB_LEASE_INVALID'
+    | 'EXACT_JOB_LOCK_FAILED'
+    | 'EXACT_JOB_NOT_FOUND'
+    | 'EXACT_JOB_NOT_PROCESSABLE';
 
-function asPayload(value: Json | null): FulfillmentJobPayload {
-    return value && typeof value === 'object' && !Array.isArray(value)
-        ? value as FulfillmentJobPayload
-        : {};
+export class ExactFulfillmentJobError extends Error {
+    constructor(public readonly code: ExactFulfillmentJobErrorCode) {
+        super(code);
+        this.name = 'ExactFulfillmentJobError';
+    }
 }
+
+const supportedWelcomeLocales = new Set(['es', 'en', 'ru']);
+const STALE_PROCESSING_AFTER_MS = 20 * 60 * 1000;
+const MANUAL_RECONCILIATION_RUN_AT = '9999-12-31T23:59:59.999Z';
+export const STALE_PROCESSING_ERROR = 'STALE_PROCESSING_REQUIRES_RECONCILIATION';
+export const POST_EFFECT_FINALIZATION_ERROR = 'POST_EFFECT_FINALIZATION_REQUIRES_RECONCILIATION';
 
 function nextRunAt(attempts: number): string {
     const delaySeconds = Math.min(30 * Math.pow(2, Math.max(attempts - 1, 0)), 30 * 60);
     return new Date(Date.now() + delaySeconds * 1000).toISOString();
 }
 
-function isMissingJobsTable(error: { code?: string; message?: string } | null): boolean {
-    return error?.code === '42P01' || error?.message?.includes('fulfillment_jobs') === true;
-}
-
-export async function enqueueFulfillmentJob(
-    supabaseAdmin: SupabaseClient<Database>,
-    input: {
-        jobType: FulfillmentJobType;
-        sessionId?: string | null;
-        subscriptionId?: string | null;
-        studentId?: string | null;
-        payload: FulfillmentJobPayload;
-        runAt?: string;
-    }
-): Promise<boolean> {
-    const { error } = await supabaseAdmin
+export async function quarantineStaleFulfillmentJobs(options: {
+    supabaseAdmin?: SupabaseClient<Database>;
+    now?: Date;
+} = {}): Promise<number> {
+    const supabaseAdmin = options.supabaseAdmin ?? createSupabaseAdminClient();
+    const now = options.now ?? new Date();
+    const staleBefore = new Date(now.getTime() - STALE_PROCESSING_AFTER_MS).toISOString();
+    const { data, error } = await supabaseAdmin
         .from('fulfillment_jobs')
-        .insert({
-            job_type: input.jobType,
-            session_id: input.sessionId ?? null,
-            subscription_id: input.subscriptionId ?? null,
-            student_id: input.studentId ?? null,
-            payload: input.payload as Json,
-            run_at: input.runAt ?? new Date().toISOString(),
-        });
+        .update({
+            status: 'failed',
+            run_at: MANUAL_RECONCILIATION_RUN_AT,
+            locked_at: null,
+            locked_by: null,
+            last_error: STALE_PROCESSING_ERROR,
+        })
+        .eq('status', 'processing')
+        .or(`locked_at.is.null,locked_at.lt.${staleBefore}`)
+        .select('id');
 
     if (error) {
-        if (isMissingJobsTable(error)) {
-            console.warn('[Fulfillment] fulfillment_jobs table is missing; using direct fallback');
-            return false;
-        }
+        if (isMissingJobsTable(error)) return 0;
         throw error;
     }
 
-    return true;
+    const quarantined = data?.length ?? 0;
+    if (quarantined > 0) {
+        console.error(JSON.stringify({
+            event: 'fulfillment_stale_jobs_quarantined',
+            count: quarantined,
+        }));
+    }
+    return quarantined;
 }
 
-export async function enqueueSessionFulfillment(
-    supabaseAdmin: SupabaseClient<Database>,
-    session: Pick<Database['public']['Tables']['sessions']['Row'], 'id' | 'subscription_id' | 'student_id'>,
-    options: { autoCreateMeeting?: boolean; sendEmail?: boolean } = {}
-): Promise<boolean> {
-    return enqueueFulfillmentJob(supabaseAdmin, {
-        jobType: 'session_fulfillment',
-        sessionId: session.id,
-        subscriptionId: session.subscription_id,
-        studentId: session.student_id,
-        payload: {
-            sessionId: session.id,
-            autoCreateMeeting: options.autoCreateMeeting ?? true,
-            sendEmail: options.sendEmail ?? true,
-        },
-    });
+function normalizeWelcomeLocale(value: unknown) {
+    return typeof value === 'string' && supportedWelcomeLocales.has(value) ? value : 'en';
 }
 
-export async function enqueueBulkSessionFulfillment(
-    supabaseAdmin: SupabaseClient<Database>,
-    sessions: Pick<Database['public']['Tables']['sessions']['Row'], 'id' | 'subscription_id' | 'student_id'>[],
-    options: { autoCreateMeeting?: boolean; sendEmail?: boolean } = {}
-): Promise<boolean> {
-    if (sessions.length === 0) return true;
-
-    return enqueueFulfillmentJob(supabaseAdmin, {
-        jobType: 'bulk_session_fulfillment',
-        subscriptionId: sessions[0].subscription_id,
-        studentId: sessions[0].student_id,
-        payload: {
-            sessionIds: sessions.map((session) => session.id),
-            autoCreateMeeting: options.autoCreateMeeting ?? true,
-            sendEmail: options.sendEmail ?? true,
-        },
-    });
+function localizedPackageName(
+    displayName: Database['public']['Tables']['packages']['Row']['display_name'],
+    fallback: string,
+    locale: 'es' | 'en' | 'ru'
+): string {
+    if (!displayName || typeof displayName !== 'object' || Array.isArray(displayName)) return fallback;
+    const names = displayName as Record<string, unknown>;
+    const localized = names[locale];
+    return typeof localized === 'string' && localized.trim() ? localized : fallback;
 }
 
-export async function enqueueWelcomeFulfillment(
+async function processRenewalNotice(
     supabaseAdmin: SupabaseClient<Database>,
-    input: { userId: string; packageId: string }
-): Promise<boolean> {
-    return enqueueFulfillmentJob(supabaseAdmin, {
-        jobType: 'welcome_fulfillment',
-        studentId: input.userId,
-        payload: input,
-    });
+    payload: FulfillmentJobPayload,
+    job: FulfillmentJobRow,
+) {
+    if (
+        !payload.userId
+        || !payload.packageId
+        || !payload.subscriptionId
+        || !payload.renewalAt
+        || !payload.cancelBy
+        || !Number.isInteger(payload.durationMonths)
+        || !Number.isInteger(payload.amountTotal)
+        || !payload.currency
+    ) {
+        throw new Error('renewal_notice requires subscription, renewal and charge details');
+    }
+
+    const { data: student, error: studentError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, full_name, email, preferred_language')
+        .eq('id', payload.userId)
+        .single();
+    if (studentError || !student?.email) {
+        throw studentError ?? new Error('Student email not found for renewal notice');
+    }
+
+    let packageKey = payload.packageKey;
+    let packageDisplayName = payload.packageDisplayName;
+    if (!packageKey || !packageDisplayName) {
+        const { data: pkg, error: packageError } = await supabaseAdmin
+            .from('packages')
+            .select('name, display_name')
+            .eq('id', payload.packageId)
+            .single();
+        if (packageError || !pkg) {
+            throw packageError ?? new Error('Package not found for renewal notice');
+        }
+        packageKey = pkg.name;
+        packageDisplayName = pkg.display_name;
+    }
+
+    const locale = normalizeWelcomeLocale(student.preferred_language) as 'es' | 'en' | 'ru';
+    const siteUrl = getSiteUrl('https://espanolhonesto.com');
+    const emailSent = await sendRenewalNoticeEmail(student.email, {
+        locale,
+        studentName: student.full_name || { es: 'Estudiante', en: 'Student', ru: 'Ученик' }[locale],
+        packageName: localizedPackageName(packageDisplayName, packageKey, locale),
+        renewalAt: payload.renewalAt,
+        cancelBy: payload.cancelBy,
+        durationMonths: payload.durationMonths as number,
+        amountTotal: payload.amountTotal as number,
+        currency: payload.currency,
+        accountUrl: `${siteUrl}/${locale}/campus/account`,
+        supportUrl: `${siteUrl}/${locale}/campus/support`,
+        termsUrl: `${siteUrl}/${locale}/legal/terminos`,
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.renewal_notice.student'));
+
+    if (!emailSent) {
+        throw new Error('Resend did not accept renewal notice email');
+    }
 }
 
 async function processWelcomeFulfillment(
     supabaseAdmin: SupabaseClient<Database>,
-    payload: FulfillmentJobPayload
+    payload: FulfillmentJobPayload,
+    job: FulfillmentJobRow,
 ) {
     if (!payload.userId || !payload.packageId) {
         throw new Error('welcome_fulfillment requires userId and packageId');
@@ -133,6 +194,7 @@ async function processWelcomeFulfillment(
             id,
             full_name,
             email,
+            preferred_language,
             student_teachers!student_teachers_student_id_fkey(
                 is_primary,
                 teacher:profiles!student_teachers_teacher_id_fkey(full_name)
@@ -145,14 +207,22 @@ async function processWelcomeFulfillment(
         throw studentError ?? new Error('Student not found for welcome fulfillment');
     }
 
-    const { data: pkg, error: packageError } = await supabaseAdmin
-        .from('packages')
-        .select('name, display_name')
-        .eq('id', payload.packageId)
-        .single();
+    let packageKey = payload.packageKey;
+    let packageDisplayName = payload.packageDisplayName;
+    if (!packageKey || !packageDisplayName) {
+        // Compatibility for jobs queued before contractual package snapshots
+        // were embedded in the durable payload.
+        const { data: pkg, error: packageError } = await supabaseAdmin
+            .from('packages')
+            .select('name, display_name')
+            .eq('id', payload.packageId)
+            .single();
 
-    if (packageError || !pkg) {
-        throw packageError ?? new Error('Package not found for welcome fulfillment');
+        if (packageError || !pkg) {
+            throw packageError ?? new Error('Package not found for welcome fulfillment');
+        }
+        packageKey = pkg.name;
+        packageDisplayName = pkg.display_name;
     }
 
     const studentPrivate = await getPrivateProfile(payload.userId, supabaseAdmin);
@@ -181,28 +251,179 @@ async function processWelcomeFulfillment(
         driveFolderUrl = result.rootFolderLink;
     }
 
-    const displayName = pkg.display_name;
-    const packageName = typeof displayName === 'object' && displayName && !Array.isArray(displayName)
-        ? String((displayName as { es?: string }).es || pkg.name)
-        : pkg.name;
+    const welcomeLocale = normalizeWelcomeLocale(student.preferred_language) as 'es' | 'en' | 'ru';
+    const packageName = localizedPackageName(packageDisplayName, packageKey, welcomeLocale);
 
     const emailSent = await sendWelcomeEmail(student.email, {
-        studentName: student.full_name || 'Estudiante',
+        locale: welcomeLocale,
+        studentName: student.full_name || { es: 'Estudiante', en: 'Student', ru: 'Ученик' }[welcomeLocale],
         packageName,
-        loginUrl: `${getSiteUrl('https://espanolhonesto.com')}/es/login`,
+        loginUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/login`,
         driveFolderUrl: driveFolderUrl ?? undefined,
-    });
+        durationMonths: payload.durationMonths,
+        startsAt: payload.startsAt,
+        endsAt: payload.endsAt,
+        sessionsTotal: payload.sessionsTotal,
+        amountTotal: payload.amountTotal,
+        currency: payload.currency,
+        legalPolicyVersion: payload.legalPolicyVersion,
+        policyAcceptedAt: payload.policyAcceptedAt,
+        termsUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/legal/terminos`,
+        supportUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/campus/support`,
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.welcome.student'));
 
     if (!emailSent) {
         throw new Error('Resend did not accept welcome email');
     }
+
+    await recordPostPaymentOnboardingSafe(supabaseAdmin, {
+        profileId: payload.userId,
+        email: student.email,
+        fullName: student.full_name,
+        subscriptionId: payload.subscriptionId ?? null,
+        packageId: payload.packageId,
+        packageName,
+        driveFolderUrl,
+    });
+}
+
+async function processSessionCancellation(
+    supabaseAdmin: SupabaseClient<Database>,
+    payload: FulfillmentJobPayload,
+    job: FulfillmentJobRow
+) {
+    const sessionId = payload.sessionId || job.session_id;
+    if (!sessionId) throw new Error('session_cancellation requires sessionId');
+
+    const { data: session, error } = await supabaseAdmin
+        .from('sessions')
+        .select(`
+            id,
+            subscription_id,
+            student_id,
+            teacher_id,
+            scheduled_at,
+            duration_minutes,
+            meet_link,
+            drive_doc_url,
+            calendar_event_id,
+            student:profiles!sessions_student_id_fkey(id, full_name, email),
+            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+        `)
+        .eq('id', sessionId)
+        .single();
+
+    if (error || !session) {
+        throw error ?? new Error('Session not found for cancellation fulfillment');
+    }
+
+    if (session.calendar_event_id) {
+        const cancelled = await cancelClassEvent(session.calendar_event_id);
+        if (!cancelled) {
+            throw new Error('Google Calendar event cancellation failed');
+        }
+
+        const { error: cancellationStateError } = await supabaseAdmin
+            .from('sessions')
+            .update({
+                calendar_event_id: null,
+                meet_link: null,
+            })
+            .eq('id', sessionId);
+
+        if (cancellationStateError) {
+            throw cancellationStateError;
+        }
+    }
+
+    if (payload.sendEmail === false || !session.scheduled_at) return;
+
+    const student = Array.isArray(session.student) ? session.student[0] : session.student;
+    const teacher = Array.isArray(session.teacher) ? session.teacher[0] : session.teacher;
+
+    if (!student?.email || !teacher?.email) {
+        throw new Error('Cancellation email is missing student or teacher email');
+    }
+
+    const classDetails = {
+        date: new Date(session.scheduled_at).toLocaleDateString('en-GB', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+            timeZone: 'Europe/Madrid',
+        }),
+        time: new Date(session.scheduled_at).toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Europe/Madrid',
+            timeZoneName: 'short',
+        }),
+        reason: payload.reason || 'No reason provided',
+        cancelledBy: payload.cancelledBy || 'admin',
+    };
+
+    const studentEmailSent = await sendClassCancelled(student.email, {
+        recipientName: student.full_name || 'Student',
+        ...classDetails,
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.class_cancelled.student'));
+    const teacherEmailSent = await sendClassCancelled(teacher.email, {
+        recipientName: teacher.full_name || 'Teacher',
+        ...classDetails,
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.class_cancelled.teacher'));
+
+    if (!studentEmailSent || !teacherEmailSent) {
+        throw new Error('Resend did not accept one or more cancellation emails');
+    }
+
+    await recordClassEmailOutInCrmSafe(supabaseAdmin, {
+        template: 'class_cancelled',
+        sessionId,
+        studentId: session.student_id,
+        studentEmail: student.email,
+        studentName: student.full_name,
+        teacherId: session.teacher_id,
+        teacherEmail: teacher.email,
+        teacherName: teacher.full_name,
+        subscriptionId: session.subscription_id,
+        scheduledAt: session.scheduled_at,
+        durationMinutes: session.duration_minutes,
+        dateLabel: classDetails.date,
+        timeLabel: classDetails.time,
+        meetLink: session.meet_link,
+        documentLink: session.drive_doc_url,
+        source: 'session_cancellation',
+        extraMetadata: {
+            cancelled_by: payload.cancelledBy || 'admin',
+            cancellation_reason: payload.reason || null,
+        },
+    });
+}
+
+function fulfillmentEmailOptions(
+    supabaseAdmin: SupabaseClient<Database>,
+    job: FulfillmentJobRow,
+    effectKey: string,
+) {
+    if (!job.locked_by) {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_INVALID_CONTEXT', true);
+    }
+    return {
+        fulfillmentEffect: {
+            effectKey,
+            jobId: job.id,
+            leaseOwner: job.locked_by,
+            supabaseAdmin,
+        },
+    };
 }
 
 async function processJob(
     supabaseAdmin: SupabaseClient<Database>,
     job: FulfillmentJobRow
 ) {
-    const payload = asPayload(job.payload);
+    const payload = asFulfillmentPayload(job.payload);
 
     switch (job.job_type as FulfillmentJobType) {
         case 'session_fulfillment': {
@@ -210,6 +431,7 @@ async function processJob(
             if (!sessionId) throw new Error('session_fulfillment requires sessionId');
             await fulfillSingleSession(supabaseAdmin, sessionId, {
                 autoCreateMeeting: payload.autoCreateMeeting,
+                emailEffectJob: fulfillmentEmailJob(job),
                 sendEmail: payload.sendEmail,
             });
             return;
@@ -219,16 +441,30 @@ async function processJob(
             if (sessionIds.length === 0) throw new Error('bulk_session_fulfillment requires sessionIds');
             await fulfillSessionBatch(supabaseAdmin, sessionIds, {
                 autoCreateMeeting: payload.autoCreateMeeting,
+                emailEffectJob: fulfillmentEmailJob(job),
                 sendEmail: payload.sendEmail,
             });
             return;
         }
         case 'welcome_fulfillment':
-            await processWelcomeFulfillment(supabaseAdmin, payload);
+            await processWelcomeFulfillment(supabaseAdmin, payload, job);
+            return;
+        case 'session_cancellation':
+            await processSessionCancellation(supabaseAdmin, payload, job);
+            return;
+        case 'renewal_notice':
+            await processRenewalNotice(supabaseAdmin, payload, job);
             return;
         default:
             throw new Error(`Unsupported fulfillment job type: ${job.job_type}`);
     }
+}
+
+function fulfillmentEmailJob(job: FulfillmentJobRow) {
+    if (!job.locked_by) {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_INVALID_CONTEXT', true);
+    }
+    return { jobId: job.id, leaseOwner: job.locked_by };
 }
 
 export async function processDueFulfillmentJobs(options: {
@@ -260,7 +496,7 @@ export async function processDueFulfillmentJobs(options: {
         if (job.attempts >= job.max_attempts) continue;
 
         const attempts = job.attempts + 1;
-        const { error: lockError } = await supabaseAdmin
+        const { data: lockedJob, error: lockError } = await supabaseAdmin
             .from('fulfillment_jobs')
             .update({
                 status: 'processing',
@@ -270,7 +506,9 @@ export async function processDueFulfillmentJobs(options: {
                 last_error: null,
             })
             .eq('id', job.id)
-            .in('status', ['pending', 'failed']);
+            .in('status', ['pending', 'failed'])
+            .select('id')
+            .maybeSingle();
 
         if (lockError) {
             console.error('[Fulfillment] Could not lock job:', lockError);
@@ -278,44 +516,221 @@ export async function processDueFulfillmentJobs(options: {
             continue;
         }
 
-        try {
-            await processJob(supabaseAdmin, { ...job, attempts, status: 'processing' });
-            const { error: successError } = await supabaseAdmin
-                .from('fulfillment_jobs')
-                .update({
-                    status: 'succeeded',
-                    locked_at: null,
-                    locked_by: null,
-                    last_error: null,
-                })
-                .eq('id', job.id);
+        if (!lockedJob) continue;
 
-            if (successError) throw successError;
-            succeeded += 1;
+        let processingError: unknown = null;
+        try {
+            await processJob(supabaseAdmin, {
+                ...job,
+                attempts,
+                locked_by: workerId,
+                status: 'processing',
+            });
         } catch (jobError) {
-            const message = jobError instanceof Error ? jobError.message : 'Unknown fulfillment error';
-            const exhausted = attempts >= job.max_attempts;
-            const { error: failError } = await supabaseAdmin
+            processingError = jobError;
+        }
+
+        if (processingError) {
+            const message = processingError instanceof Error ? processingError.message : 'Unknown fulfillment error';
+            const manualReview = isFulfillmentEffectManualReviewError(processingError);
+            const observationRetry = processingError instanceof FulfillmentEffectError
+                && (
+                    processingError.code === 'FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS'
+                    || processingError.code === 'FULFILLMENT_EFFECT_IN_PROGRESS'
+                );
+            const exhausted = !observationRetry && attempts >= job.max_attempts;
+            const { data: failedJob, error: failError } = await supabaseAdmin
                 .from('fulfillment_jobs')
                 .update({
-                    status: exhausted ? 'failed' : 'pending',
-                    run_at: exhausted ? job.run_at : nextRunAt(attempts),
+                    ...(observationRetry ? { attempts: job.attempts } : {}),
+                    status: manualReview || exhausted ? 'failed' : 'pending',
+                    run_at: manualReview
+                        ? MANUAL_RECONCILIATION_RUN_AT
+                        : exhausted ? job.run_at : nextRunAt(attempts),
                     locked_at: null,
                     locked_by: null,
                     last_error: message,
                 })
-                .eq('id', job.id);
+                .eq('id', job.id)
+                .eq('status', 'processing')
+                .eq('locked_by', workerId)
+                .eq('attempts', attempts)
+                .select('id')
+                .maybeSingle();
 
             if (failError) {
                 console.error('[Fulfillment] Could not mark failed job:', failError);
+            } else if (!failedJob) {
+                console.error(JSON.stringify({
+                    event: 'fulfillment_job_finalization_conflict',
+                    jobId: job.id,
+                }));
             }
             failed += 1;
+            continue;
         }
+
+        const { data: finalizedJob, error: successError } = await supabaseAdmin
+            .from('fulfillment_jobs')
+            .update({
+                status: 'succeeded',
+                locked_at: null,
+                locked_by: null,
+                last_error: null,
+            })
+            .eq('id', job.id)
+            .eq('status', 'processing')
+            .eq('locked_by', workerId)
+            .eq('attempts', attempts)
+            .select('id')
+            .maybeSingle();
+
+        if (!successError && finalizedJob) {
+            succeeded += 1;
+            continue;
+        }
+
+        const { data: quarantinedJob, error: quarantineError } = await supabaseAdmin
+            .from('fulfillment_jobs')
+            .update({
+                status: 'failed',
+                run_at: MANUAL_RECONCILIATION_RUN_AT,
+                locked_at: null,
+                locked_by: null,
+                last_error: POST_EFFECT_FINALIZATION_ERROR,
+            })
+            .eq('id', job.id)
+            .eq('status', 'processing')
+            .eq('locked_by', workerId)
+            .eq('attempts', attempts)
+            .select('id')
+            .maybeSingle();
+
+        console.error(JSON.stringify({
+            event: 'fulfillment_post_effect_finalization_requires_reconciliation',
+            jobId: job.id,
+            finalizationError: successError ? successError.message : 'ownership_conflict',
+            quarantineError: quarantineError?.message ?? null,
+            quarantined: Boolean(quarantinedJob),
+        }));
+        failed += 1;
     }
 
     return {
         processed: succeeded + failed,
         succeeded,
         failed,
+    };
+}
+
+export async function processExactFulfillmentJob(options: {
+    dedupeKey: string;
+    jobId: string;
+    leaseGeneration: number;
+    leaseName: string;
+    ownerToken: string;
+    runId: string;
+    smokeMarker: string;
+    studentId: string;
+    workerId?: string;
+    supabaseAdmin?: SupabaseClient<Database>;
+}) {
+    const supabaseAdmin = options.supabaseAdmin ?? createSupabaseAdminClient();
+    const workerId = options.workerId ?? `smoke:${options.runId}:${options.leaseGeneration}`;
+    const { data: claimRows, error: claimError } = await supabaseAdmin.rpc(
+        'claim_staging_integration_smoke_job',
+        {
+            p_dedupe_key: options.dedupeKey,
+            p_generation: options.leaseGeneration,
+            p_job_id: options.jobId,
+            p_lease_name: options.leaseName,
+            p_owner_token: options.ownerToken,
+            p_run_id: options.runId,
+            p_smoke_marker: options.smokeMarker,
+            p_student_id: options.studentId,
+            p_worker_id: workerId,
+        },
+    );
+    if (claimError) {
+        const message = claimError.message ?? '';
+        if (message.includes('exact_job_lease_invalid')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_LEASE_INVALID');
+        }
+        if (message.includes('exact_job_not_found')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_NOT_FOUND');
+        }
+        if (message.includes('exact_job_not_processable')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_NOT_PROCESSABLE');
+        }
+        if (message.includes('exact_job_claim_conflict')) {
+            throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+        }
+        throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
+    }
+    const claim = claimRows?.[0];
+    if (!claim) throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+    if (!claim.claimed && claim.job_status === 'succeeded') {
+        return {
+            dedupeKey: options.dedupeKey,
+            jobId: options.jobId,
+            runId: options.runId,
+            smokeMarker: options.smokeMarker,
+            status: 'succeeded' as const,
+        };
+    }
+    if (!claim.claimed || claim.job_status !== 'processing') {
+        throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+    }
+    const claimedAttempts = claim.attempts;
+
+    const { data: job, error: jobError } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .select('*')
+        .eq('id', options.jobId)
+        .eq('dedupe_key', options.dedupeKey)
+        .eq('student_id', options.studentId)
+        .eq('status', 'processing')
+        .eq('locked_by', workerId)
+        .maybeSingle();
+    if (jobError || !job) throw new ExactFulfillmentJobError('EXACT_JOB_LOCK_FAILED');
+
+    try {
+        await processJob(supabaseAdmin, job);
+    } catch {
+        await supabaseAdmin.rpc('finalize_staging_integration_smoke_job', {
+            p_attempts: claimedAttempts,
+            p_generation: options.leaseGeneration,
+            p_job_id: job.id,
+            p_lease_name: options.leaseName,
+            p_owner_token: options.ownerToken,
+            p_run_id: options.runId,
+            p_succeeded: false,
+            p_worker_id: workerId,
+        });
+        throw new ExactFulfillmentJobError('EXACT_JOB_EXECUTION_FAILED');
+    }
+    const { data: finalized, error: finalizeError } = await supabaseAdmin.rpc(
+        'finalize_staging_integration_smoke_job',
+        {
+            p_attempts: claimedAttempts,
+            p_generation: options.leaseGeneration,
+            p_job_id: job.id,
+            p_lease_name: options.leaseName,
+            p_owner_token: options.ownerToken,
+            p_run_id: options.runId,
+            p_succeeded: true,
+            p_worker_id: workerId,
+        },
+    );
+    if (finalizeError || finalized !== true) {
+        throw new ExactFulfillmentJobError('EXACT_JOB_LEASE_INVALID');
+    }
+
+    return {
+        dedupeKey: job.dedupe_key,
+        jobId: job.id,
+        runId: options.runId,
+        smokeMarker: options.smokeMarker,
+        status: 'succeeded' as const,
     };
 }

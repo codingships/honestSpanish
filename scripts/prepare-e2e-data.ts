@@ -1,18 +1,35 @@
 /**
  * Prepare Supabase data required by Playwright E2E tests.
  *
- * Reads Supabase credentials from .env and test user credentials from .env.test.
+ * Selects the allowlisted staging Supabase project through the Playwright
+ * environment guard. It refuses the base/production-labelled project.
  * This script writes only Supabase auth/database records and does not call
  * Stripe, Google Workspace, or Resend.
  *
- * Run: pnpm exec tsx scripts/prepare-e2e-data.ts
+ * Run after explicit staging write approval:
+ * E2E_STAGING_WRITE_CONFIRMATION=writes-ok:mzjyvmlxfpzdfdjzxxyj \
+ *   pnpm exec tsx scripts/prepare-e2e-data.ts
  */
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import * as dotenv from 'dotenv';
 import type { Database } from '../src/types/database.types';
+import {
+    configurePlaywrightEnvironment,
+    STAGING_SUPABASE_PROJECT_REF,
+} from '../tests/e2e/environment-guard';
 
-dotenv.config({ path: '.env' });
-dotenv.config({ path: '.env.test', override: true });
+const selectedEnvironment = configurePlaywrightEnvironment();
+const expectedConfirmation = `writes-ok:${STAGING_SUPABASE_PROJECT_REF}`;
+
+if (
+    selectedEnvironment.target !== 'staging' ||
+    selectedEnvironment.supabaseRef !== STAGING_SUPABASE_PROJECT_REF
+) {
+    throw new Error('E2E data preparation is allowed only on the approved staging Supabase project');
+}
+
+if (process.env.E2E_STAGING_WRITE_CONFIRMATION !== expectedConfirmation) {
+    throw new Error(`Refusing staging writes without E2E_STAGING_WRITE_CONFIRMATION=${expectedConfirmation}`);
+}
 
 const supabaseUrl = process.env.PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -142,7 +159,7 @@ async function ensureProfile(user: TestUser, id: string) {
 }
 
 async function choosePackage(): Promise<PackageRow> {
-    const preferred = ['standard', 'hybrid', 'essential'];
+    const preferred = ['standard', 'bootcamp'];
 
     for (const name of preferred) {
         const { data, error } = await supabase
@@ -155,17 +172,7 @@ async function choosePackage(): Promise<PackageRow> {
         if (data) return data;
     }
 
-    const { data, error } = await supabase
-        .from('packages')
-        .select('*')
-        .eq('is_active', true)
-        .order('price_monthly', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-
-    if (error) throw error;
-    if (!data) throw new Error('No active package found for E2E subscription');
-    return data;
+    throw new Error('No checkout-eligible Standard or Bootcamp package exists for the E2E subscription');
 }
 
 async function ensureAssignment(studentId: string, teacherId: string) {
@@ -286,7 +293,7 @@ async function clearE2eSessions(studentId: string, teacherId: string) {
 async function findFreeSessionTime(teacherId: string, startOffsetDays: number, hour: number): Promise<string> {
     for (let offset = startOffsetDays; offset < startOffsetDays + 60; offset++) {
         const candidate = daysFromNow(offset, hour, 10);
-        const end = new Date(candidate.getTime() + 55 * 60 * 1000);
+        const end = new Date(candidate.getTime() + 50 * 60 * 1000);
 
         const { data, error } = await supabase
             .from('sessions')
@@ -321,7 +328,7 @@ async function seedSessions(input: {
                 student_id: input.studentId,
                 teacher_id: input.teacherId,
                 scheduled_at: futureAt,
-                duration_minutes: 55,
+                duration_minutes: 50,
                 meet_link: 'https://meet.google.com/e2e-seed-future',
                 status: 'scheduled',
                 teacher_notes: 'E2E seed: future scheduled class',
@@ -331,7 +338,7 @@ async function seedSessions(input: {
                 student_id: input.studentId,
                 teacher_id: input.teacherId,
                 scheduled_at: pastAt,
-                duration_minutes: 55,
+                duration_minutes: 50,
                 meet_link: 'https://meet.google.com/e2e-seed-past',
                 status: 'completed',
                 teacher_notes: 'E2E seed: completed class',

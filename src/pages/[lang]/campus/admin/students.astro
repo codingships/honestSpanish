@@ -1,12 +1,12 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
-import { useTranslations } from '../../../../i18n/utils';
+import { getLangFromParam, useTranslations } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 import StudentFilters from '../../../../components/admin/StudentFilters';
 
 export const prerender = false;
 
-const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 // Get Supabase client and verify user
@@ -36,49 +36,77 @@ const { data: studentsRaw } = await supabase
     .eq('role', 'student')
     .order('created_at', { ascending: false });
 
-// For each student, get their active subscription and primary teacher
-const students = await Promise.all(
-    (studentsRaw || []).map(async (student) => {
-        // Get active subscription
-        const { data: subscription } = await supabase
-            .from('subscriptions')
-            .select(`
-                status,
-                ends_at,
-                packages (
-                    name,
-                    display_name
-                )
-            `)
-            .eq('student_id', student.id)
-            .eq('status', 'active')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+const studentIds = (studentsRaw || []).map((student) => student.id);
 
-        // Get primary teacher
-        const { data: assignment } = await supabase
-            .from('student_teachers')
-            .select(`
-                profiles!student_teachers_teacher_id_fkey (
-                    full_name
-                )
-            `)
-            .eq('student_id', student.id)
-            .eq('is_primary', true)
-            .limit(1)
-            .single();
+const { data: subscriptionsRaw } = studentIds.length
+    ? await supabase
+        .from('subscriptions')
+        .select(`
+            student_id,
+            status,
+            ends_at,
+            created_at,
+            packages (
+                name,
+                display_name
+            )
+        `)
+        .in('student_id', studentIds)
+        .eq('status', 'active')
+        .order('created_at', { ascending: false })
+    : { data: [] };
 
-        return {
-            ...student,
-            subscription_status: subscription?.status || null,
-            subscription_ends: subscription?.ends_at || null,
-            package_name: subscription?.packages?.name || null,
-            package_display_name: subscription?.packages?.display_name || null,
-            teacher_name: (assignment as any)?.profiles?.full_name || null,
-        };
-    })
-);
+const { data: assignmentsRaw } = studentIds.length
+    ? await supabase
+        .from('student_teachers')
+        .select(`
+            student_id,
+            profiles!student_teachers_teacher_id_fkey (
+                full_name
+            )
+        `)
+        .in('student_id', studentIds)
+        .eq('is_primary', true)
+    : { data: [] };
+
+type SubscriptionSummary = NonNullable<typeof subscriptionsRaw>[number];
+
+const localizedStringRecord = (value: unknown): Record<string, string> | null => {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+    const localized: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(value)) {
+        if (typeof entry === 'string') localized[key] = entry;
+    }
+    return Object.keys(localized).length > 0 ? localized : null;
+};
+
+const subscriptionByStudent = new Map<string, SubscriptionSummary>();
+for (const subscription of subscriptionsRaw ?? []) {
+    if (!subscriptionByStudent.has(subscription.student_id)) {
+        subscriptionByStudent.set(subscription.student_id, subscription);
+    }
+}
+
+const teacherByStudent = new Map<string, string | null>();
+for (const assignment of assignmentsRaw ?? []) {
+    const relatedProfile = Array.isArray(assignment.profiles)
+        ? assignment.profiles[0]
+        : assignment.profiles;
+    teacherByStudent.set(assignment.student_id, relatedProfile?.full_name ?? null);
+}
+
+const students = (studentsRaw || []).map((student) => {
+    const subscription = subscriptionByStudent.get(student.id);
+
+    return {
+        ...student,
+        subscription_status: subscription?.status || null,
+        subscription_ends: subscription?.ends_at || null,
+        package_name: subscription?.packages?.name || null,
+        package_display_name: localizedStringRecord(subscription?.packages?.display_name),
+        teacher_name: teacherByStudent.get(student.id) ?? null,
+    };
+});
 
 // Get packages for filter dropdown
 const { data: packages } = await supabase
@@ -86,10 +114,13 @@ const { data: packages } = await supabase
     .select('name, display_name')
     .eq('is_active', true);
 
-const packagesList = (packages || []).map(pkg => ({
-    name: pkg.name,
-    displayName: pkg.display_name[lang] || pkg.display_name['es'] || pkg.name,
-}));
+const packagesList = (packages ?? []).map((pkg) => {
+    const displayName = localizedStringRecord(pkg.display_name);
+    return {
+        name: pkg.name,
+        displayName: displayName?.[lang] ?? displayName?.es ?? pkg.name,
+    };
+});
 
 const studentCount = students?.length || 0;
 
@@ -105,6 +136,16 @@ const filterTranslations = {
     assignTeacher: t('campus.admin.students.assignTeacher'),
     registered: t('campus.admin.students.registered'),
     viewDetails: t('campus.teacher.viewDetails'),
+    count: t('campus.admin.students.count'),
+    name: t('campus.admin.students.name'),
+    email: t('campus.admin.students.email'),
+    plan: t('campus.admin.students.plan'),
+    status: t('campus.admin.students.status'),
+    teacher: t('campus.admin.students.teacher'),
+    actions: t('campus.admin.students.actions'),
+    active: t('campus.admin.students.active'),
+    unassigned: t('campus.admin.students.unassigned'),
+    noResults: t('campus.admin.students.noResults'),
 };
 ---
 

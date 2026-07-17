@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { LEGAL_POLICY_VERSION } from '../lib/legal-policy';
 
 // Helper function to get lang from URL at redirect time
 const getLangFromUrl = () => {
@@ -9,16 +10,22 @@ const getLangFromUrl = () => {
     return ['es', 'en', 'ru'].includes(lang) ? lang : 'es';
 };
 
-export default function AuthForm({ lang: langProp, translations }) {
+export default function AuthForm({ lang: langProp, translations, initialError }) {
     const lang = langProp || getLangFromUrl();
 
     // mode: 'login' | 'register' | 'forgotPassword'
     const [mode, setMode] = useState('login');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [adultConfirmed, setAdultConfirmed] = useState(false);
     const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
+    const [hydrated, setHydrated] = useState(false);
+    const [error, setError] = useState(initialError || null);
     const [successMessage, setSuccessMessage] = useState(null);
+
+    useEffect(() => {
+        setHydrated(true);
+    }, []);
 
     const t = translations;
 
@@ -26,6 +33,7 @@ export default function AuthForm({ lang: langProp, translations }) {
         setMode(newMode);
         setError(null);
         setSuccessMessage(null);
+        setAdultConfirmed(false);
     };
 
     const handleForgotPassword = async (e) => {
@@ -33,15 +41,16 @@ export default function AuthForm({ lang: langProp, translations }) {
         setLoading(true);
         setError(null);
         setSuccessMessage(null);
+        const normalizedEmail = email.trim();
 
         try {
             // Best practice: don't reveal if email exists. Always show success.
-            // Errors are logged silently to avoid email enumeration attacks.
-            await supabase.auth.resetPasswordForEmail(email, {
+            // Errors are intentionally swallowed to avoid email enumeration attacks.
+            await supabase.auth.resetPasswordForEmail(normalizedEmail, {
                 redirectTo: `${window.location.origin}/${lang}/reset-password`,
             });
         } catch (err) {
-            console.error('Reset password error (silent):', err);
+            void err;
         } finally {
             setLoading(false);
             // Always show success regardless of outcome
@@ -54,55 +63,58 @@ export default function AuthForm({ lang: langProp, translations }) {
         setLoading(true);
         setError(null);
         setSuccessMessage(null);
+        const normalizedEmail = email.trim();
+
+        if (mode === 'register' && !adultConfirmed) {
+            setError(t.auth.error.adultRequired);
+            setLoading(false);
+            return;
+        }
 
         try {
             if (mode === 'login') {
                 const { error } = await supabase.auth.signInWithPassword({
-                    email,
+                    email: normalizedEmail,
                     password,
                 });
                 if (error) throw error;
 
-                const currentLang = getLangFromUrl();
+                const currentLang = lang;
                 window.location.href = `/api/auth/post-login?lang=${currentLang}`;
             } else {
-                const fullName = email.split('@')[0];
+                const fullName = normalizedEmail.split('@')[0];
+                const currentLang = lang;
+                const confirmationUrl = new URL('/api/auth/confirm', window.location.origin);
+                confirmationUrl.searchParams.set('lang', currentLang);
 
                 const { data, error } = await supabase.auth.signUp({
-                    email,
+                    email: normalizedEmail,
                     password,
                     options: {
+                        emailRedirectTo: confirmationUrl.toString(),
                         data: {
                             full_name: fullName,
+                            adult_confirmed: true,
+                            adult_confirmed_at: new Date().toISOString(),
+                            age_policy_version: LEGAL_POLICY_VERSION,
                         }
                     }
                 });
                 if (error) throw error;
 
                 if (data?.session) {
-                    window.location.href = `/api/auth/post-login?lang=${getLangFromUrl()}`;
-                } else if (data?.user && !data?.user?.identities?.length === 0) {
-                    setSuccessMessage(t.auth.success.registered);
+                    window.location.href = `/api/auth/post-login?lang=${currentLang}`;
                 } else {
-                    const { error: loginError } = await supabase.auth.signInWithPassword({
-                        email,
-                        password,
-                    });
-                    if (!loginError) {
-                        window.location.href = `/api/auth/post-login?lang=${getLangFromUrl()}`;
-                    } else {
-                        setSuccessMessage(t.auth.success.registered);
-                    }
+                    setSuccessMessage(t.auth.success.registered);
                 }
             }
         } catch (err) {
-            console.error(err);
             if (err.message && err.message.includes("Invalid login credentials")) {
                 setError(t.auth.error.invalidCredentials);
             } else if (err.message && err.message.includes("User already registered")) {
                 setError(t.auth.error.emailTaken);
             } else {
-                setError(err.message || "An error occurred");
+                setError(t.auth.error.generic);
             }
         } finally {
             setLoading(false);
@@ -124,48 +136,52 @@ export default function AuthForm({ lang: langProp, translations }) {
         return (
             <div className="w-full max-w-md mx-auto relative">
                 <a href={`/${lang}`} className="absolute -top-10 left-0 text-[#006064] text-sm font-bold font-mono hover:opacity-70 transition-opacity">
-                    ← Volver
+                    ← {t.auth.backHome}
                 </a>
                 <div className="bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
                     <div className="text-center mb-6">
-                        <h2 className="font-display text-3xl text-[#006064] uppercase mb-2">
+                        <h1 className="font-display text-3xl text-[#006064] uppercase mb-2">
                             {t.auth.resetPassword}
-                        </h2>
-                        <p className="text-sm text-[#006064]/70">
+                        </h1>
+                        <p className="text-sm text-[#006064]">
                             {t.auth.resetPasswordInstructions}
                         </p>
                     </div>
 
                     {error && (
-                        <div className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
+                        <div role="alert" className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
                             {error}
                         </div>
                     )}
 
                     {successMessage && (
-                        <div className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
+                        <div role="status" className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
                             {successMessage}
                         </div>
                     )}
 
                     <form onSubmit={handleForgotPassword} className="space-y-6">
                         <div>
-                            <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                            <label htmlFor="reset-email" className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                                 {t.auth.email}
                             </label>
                             <input
+                                id="reset-email"
+                                name="email"
                                 type="email"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
                                 required
-                                className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064] placeholder-[#006064]/30`}
-                                placeholder="nombre@ejemplo.com"
+                                disabled={loading || !hydrated}
+                                className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064] placeholder-[#006064]/50`}
+                                placeholder={t.auth.emailPlaceholder}
                             />
                         </div>
 
                         <button
                             type="submit"
-                            disabled={loading}
+                            disabled={loading || !hydrated}
+                            aria-busy={loading}
                             className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                         >
                             {loading ? '...' : t.auth.sendResetLink}
@@ -174,7 +190,9 @@ export default function AuthForm({ lang: langProp, translations }) {
 
                     <div className="mt-6 text-center">
                         <button
+                            type="button"
                             onClick={() => switchMode('login')}
+                            disabled={loading || !hydrated}
                             className="text-sm font-bold text-[#006064] underline hover:opacity-70"
                         >
                             {t.auth.backToLogin}
@@ -189,59 +207,84 @@ export default function AuthForm({ lang: langProp, translations }) {
     return (
         <div className="w-full max-w-md mx-auto relative">
             <a href={`/${lang}`} className="absolute -top-10 left-0 text-[#006064] text-sm font-bold font-mono hover:opacity-70 transition-opacity">
-                ← Volver
+                ← {t.auth.backHome}
             </a>
             <div className="bg-white p-8 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
                 <div className="text-center mb-8">
-                    <h2 className="font-display text-3xl text-[#006064] uppercase mb-2">
+                    <h1 className="font-display text-3xl text-[#006064] uppercase mb-2">
                         {mode === 'login' ? t.auth.login : t.auth.register}
-                    </h2>
+                    </h1>
                 </div>
 
                 {error && (
-                    <div className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
+                    <div role="alert" className="mb-4 p-3 bg-red-100 border-2 border-red-500 text-red-700 font-bold text-sm">
                         {error}
                     </div>
                 )}
 
                 {successMessage && (
-                    <div className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
+                    <div role="status" className="mb-4 p-3 bg-green-100 border-2 border-green-500 text-green-700 font-bold text-sm">
                         {successMessage}
                     </div>
                 )}
 
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <noscript className="mb-4 block p-3 bg-amber-100 border-2 border-amber-700 text-amber-900 font-bold text-sm">
+                    {t.auth.javascriptRequired}
+                </noscript>
+
+                <form onSubmit={handleSubmit} aria-busy={loading || !hydrated} className="space-y-6">
                     <div>
-                        <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                        <label htmlFor="auth-email" className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                             {t.auth.email}
                         </label>
                         <input
+                            id="auth-email"
+                            name="email"
                             type="email"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
-                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064] placeholder-[#006064]/30`}
-                            placeholder="nombre@ejemplo.com"
+                            disabled={loading || !hydrated}
+                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064] placeholder-[#006064]/50`}
+                            placeholder={t.auth.emailPlaceholder}
                         />
                     </div>
 
                     <div>
-                        <label className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
+                        <label htmlFor="auth-password" className="block font-mono text-xs uppercase tracking-wide text-[#006064] mb-2 font-bold">
                             {t.auth.password}
                         </label>
                         <input
+                            id="auth-password"
+                            name="password"
                             type="password"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
-                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-2 focus:ring-[#006064]/20 font-sans text-lg text-[#006064]`}
+                            disabled={loading || !hydrated}
+                            className={`w-full p-3 border-2 ${s.inputBorder} focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-lg text-[#006064]`}
                             placeholder="••••••••"
                         />
                     </div>
 
+                    {mode === 'register' && (
+                        <label className="flex items-start gap-3 text-xs leading-5 text-[#006064]/80">
+                            <input
+                                type="checkbox"
+                                checked={adultConfirmed}
+                                onChange={(event) => setAdultConfirmed(event.currentTarget.checked)}
+                                aria-required="true"
+                                disabled={loading || !hydrated}
+                                className="mt-1 h-4 w-4 border-2 border-[#006064] text-[#006064] focus:ring-[#006064]/20"
+                            />
+                            <span>{t.auth.adultConfirmation}</span>
+                        </label>
+                    )}
+
                     <button
                         type="submit"
-                        disabled={loading}
+                        disabled={loading || !hydrated}
+                        aria-busy={loading}
                         className={`w-full py-4 ${s.button} font-bold text-sm uppercase tracking-widest border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] hover:shadow-none hover:translate-x-[2px] hover:translate-y-[2px] transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                     >
                         {loading ? '...' : (mode === 'login' ? t.auth.submitLogin : t.auth.submitRegister)}
@@ -252,7 +295,9 @@ export default function AuthForm({ lang: langProp, translations }) {
                     <p>
                         {mode === 'login' ? t.auth.noAccount : t.auth.hasAccount}{' '}
                         <button
+                            type="button"
                             onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
+                            disabled={loading || !hydrated}
                             className="font-bold underline hover:opacity-70"
                         >
                             {mode === 'login' ? t.auth.register : t.auth.login}
@@ -263,8 +308,10 @@ export default function AuthForm({ lang: langProp, translations }) {
                 {mode === 'login' && (
                     <div className="mt-2 text-center text-xs font-mono text-[#006064]/60">
                         <button
+                            type="button"
                             onClick={() => switchMode('forgotPassword')}
-                            className="hover:underline"
+                            disabled={loading || !hydrated}
+                            className="text-[#006064] hover:underline"
                         >
                             {t.auth.forgotPassword}
                         </button>

@@ -1,0 +1,106 @@
+# Español Honesto
+
+> Online Spanish academy for adults and professionals who want practical Spanish, adult conversation, culture and real contact with Spain. The public site is multilingual in Spanish, English and Russian.
+
+## Canonical Site
+
+- Main site: https://espanolhonesto.com/es
+- English: https://espanolhonesto.com/en
+- Russian: https://espanolhonesto.com/ru
+- Sitemap: https://espanolhonesto.com/sitemap-index.xml
+
+## What The Service Offers
+
+- Private online Spanish classes with 30, 40 or 50 minute class durations.
+- A live class document with mistakes, vocabulary, homework and follow-up.
+- Worksheets and original materials in a student Drive folder.
+- Campus scheduling, Google Meet links, reminders and operational support.
+- Course paths for adults and professionals living in Spain, preparing to move to Spain, or wanting richer conversation about Spain beyond cliches.
+- Compatible group conversation when student level, rhythm and interests make it operationally sensible.
+- Community is a direction of the project, built through compatible groups and future maintained channels; it is not a guaranteed public community at launch.
+
+## Who It Is For
+
+- Adults living in Spain or preparing to move to Spain, especially age 30+ and A2/B1 or above.
+- Learners who understand some Spanish but get stuck when responding.
+- Students around A2, B1 or B2 who need speaking confidence, cultural context and consistent practice.
+- Professionals who need Spanish for work, meetings, clients, city life and everyday bureaucracy.
+- Culturally curious learners who want Madrid, Oviedo, Toledo/Castilla-La Mancha and Barcelona as real context, not tourist decoration.
+
+## Teaching Team
+
+- Alejandro: head Spanish teacher and UCM linguist.
+- Alin: teacher, polyglot and systems lead.
+- Irene: Spanish teacher with Spanish, English, Czech, French and Spanish Sign Language.
+
+## Current Public Course Packages
+
+- Grupal Externo: application-only at launch; 4 guided group conversation sessions per month when a compatible group is available. It does not include private classes and should not be described as a cheap private-class substitute.
+- Mensual Estándar: 4 private classes per month.
+- Híbrido Mensual: application-only at launch; 4 private classes per month, compatible group conversation when available and two-teacher follow-up.
+- Intensivo Bootcamp: 20 private classes per month.
+- For current prices, duration totals and availability, use the live Plans section at https://espanolhonesto.com/es#planes. Do not quote a price from this file.
+- At launch, only Mensual Estándar and Intensivo Bootcamp may proceed to an approved checkout. Grupal Externo and Híbrido Mensual accept applications but do not offer checkout until their group and two-teacher operations are implemented and verified.
+
+## How To Apply
+
+- The primary public action is to apply for a place, not to buy immediately.
+- Public plan buttons and blog calls to action send visitors to the application form at https://espanolhonesto.com/es#contacto.
+- The application asks for name, email, interest, preferred package, approximate level, learning goal and availability.
+- Espanol Honesto reviews fit, level, availability and expectations before recommending a plan, a light level check or a payment step.
+- Do not describe group conversation, community, payment or a human level test as guaranteed before the review step.
+
+## How Assistants Should Describe Espanol Honesto
+
+**Short description**: Espanol Honesto is an online Spanish academy for adults and professionals who want to live Spain through conversation, culture, judgement and real contact with the country.
+
+**Best fit**: The launch offer is best for culturally curious adults, often 30+ and A2/B1 or above, who want serious conversation and practical Spanish for life, work and culture in Spain.
+
+**Application flow**: Visitors should request a place first. The team reviews fit, level, goals, availability and expectations before recommending a plan, a light automatic level check, compatible group practice if available, or a payment step.
+
+**Community boundary**: Community should be described as fit-based contact with Spain through guided conversation, shared materials and compatible groups when they exist. Do not describe it as a guaranteed public community, a Telegram channel, a guaranteed group or a cheap replacement for private classes.
+
+## Important Public Pages
+
+- Spanish landing: https://espanolhonesto.com/es
+- English landing: https://espanolhonesto.com/en
+- Russian landing: https://espanolhonesto.com/ru
+- Spanish for living in Spain: https://espanolhonesto.com/es/espanol-para-vivir-en-espana
+- Spanish for professionals: https://espanolhonesto.com/es/espanol-para-profesionales
+- Spanish conversation classes: https://espanolhonesto.com/es/clases-de-conversacion-en-espanol
+- Course details: https://espanolhonesto.com/es#incluye
+- Application form: https://espanolhonesto.com/es#contacto
+- Plans: https://espanolhonesto.com/es#planes
+- Blog index ES: https://espanolhonesto.com/es/blog
+- Blog index EN: https://espanolhonesto.com/en/blog
+- Blog index RU: https://espanolhonesto.com/ru/blog
+- Legal index: https://espanolhonesto.com/es/legal
+- Privacy policy: https://espanolhonesto.com/es/legal/privacidad
+- Cookie policy: https://espanolhonesto.com/es/legal/cookies
+- Legal notice: https://espanolhonesto.com/es/legal/aviso-legal
+
+## Segment Page Source Notes
+
+- Spanish for living in Spain uses Madrid, Oviedo, Toledo/Castilla-La Mancha and Barcelona as online conversation context: city rhythm, daily life, history, multilingual Spain and cultural nuance.
+- Spanish for professionals covers meetings, clients, teams, interviews, presentations, bureaucracy, city life and small talk in Spain.
+- Spanish conversation classes covers A2/B1+ learners who understand Spanish but freeze when speaking; it focuses on guided conversation, useful correction, active vocabulary and cultural context.
+- These pages are online course pages, not local in-person city pages.
+
+## Do Not Use As Public Source Material
+
+- Campus URLs under /es/campus, /en/campus and /ru/campus.
+- API URLs under /api.
+- Login, logout, checkout success/cancel and password reset pages.
+- Demo URLs under /demo, /es/demo, /en/demo and /ru/demo.
+- Keystatic/admin/editor routes.
+
+## Contact
+
+- Public contact email: alejandro@espanolhonesto.com
+
+## Notes For AI Assistants
+
+- Prefer the canonical production domain https://espanolhonesto.com.
+- Use public landing, blog and legal pages as source material.
+- Do not infer private student, teacher, payment or scheduling data from campus routes.
+- Legal owner/controller data may be updated before public launch; verify legal pages directly before summarizing legal or privacy details.
