@@ -5,6 +5,7 @@ import {
     createReadStream,
     existsSync,
     fstatSync,
+    ftruncateSync,
     fsyncSync,
     mkdirSync,
     openSync,
@@ -12,6 +13,7 @@ import {
     readdirSync,
     realpathSync,
     statSync,
+    writeSync,
     writeFileSync,
     type Dirent,
     type Stats,
@@ -480,6 +482,52 @@ export function assertReservedArtifactFingerprint(
     return observed;
 }
 
+const EFS_RESERVATION_SENTINEL = Buffer.from([0x45]);
+
+export function prepareReservedArtifactForEncryptedDump(
+    descriptor: number,
+    destination: string,
+    verifyArtifactEfs: (artifactPath: string) => { valid: boolean } = verifyWindowsEfsArtifact,
+): ReservedArtifactFingerprint {
+    const reservedArtifact = captureReservedArtifactFingerprint(descriptor, destination);
+    if (reservedArtifact.size !== 0) {
+        throw new Error('Exclusive backup reservation was not created as an empty file.');
+    }
+
+    try {
+        const bytesWritten = writeSync(
+            descriptor,
+            EFS_RESERVATION_SENTINEL,
+            0,
+            EFS_RESERVATION_SENTINEL.length,
+            0,
+        );
+        if (bytesWritten !== EFS_RESERVATION_SENTINEL.length) {
+            throw new Error('The EFS reservation sentinel was not written completely.');
+        }
+        fsyncSync(descriptor);
+
+        const sentinelArtifact = captureReservedArtifactFingerprint(descriptor, destination);
+        if (!samePinnedArtifactIdentity(reservedArtifact, sentinelArtifact)
+            || sentinelArtifact.size !== EFS_RESERVATION_SENTINEL.length) {
+            throw new Error('Reserved backup artifact identity changed while proving Windows EFS protection.');
+        }
+        if (!verifyArtifactEfs(destination).valid) {
+            throw new Error('The exclusive backup artifact did not inherit verifiable Windows EFS protection.');
+        }
+    } finally {
+        ftruncateSync(descriptor, 0);
+        fsyncSync(descriptor);
+    }
+
+    const restoredArtifact = captureReservedArtifactFingerprint(descriptor, destination);
+    if (!samePinnedArtifactIdentity(reservedArtifact, restoredArtifact)
+        || restoredArtifact.size !== 0) {
+        throw new Error('Reserved backup artifact was not restored safely after proving Windows EFS protection.');
+    }
+    return restoredArtifact;
+}
+
 export async function sha256PinnedReservedArtifact(
     descriptor: number,
     destination: string,
@@ -909,14 +957,7 @@ async function main(): Promise<void> {
     let receiptPersisted = false;
     let deferredError: unknown = null;
     try {
-        const emptyArtifact = captureReservedArtifactFingerprint(descriptor, destination);
-        if (emptyArtifact.size !== 0) {
-            throw new Error('Exclusive backup reservation was not created as an empty file.');
-        }
-        if (!verifyWindowsEfsArtifact(destination).valid) {
-            throw new Error('The empty exclusive backup artifact did not inherit verifiable Windows EFS protection.');
-        }
-        assertReservedArtifactFingerprint(descriptor, destination, emptyArtifact);
+        const emptyArtifact = prepareReservedArtifactForEncryptedDump(descriptor, destination);
         artifactPhase = 'EMPTY_ARTIFACT_EFS_VERIFIED';
 
     // Deliberately load local environment only after every non-network execution gate above.
