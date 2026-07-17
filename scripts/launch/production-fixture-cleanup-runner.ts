@@ -25,9 +25,9 @@ import {
 import {
     readProductionAuthInertEvidence,
     safeErrorMessage,
-    SUPABASE_ACCESS_TOKEN_ENV,
     verifyLiveProductionAuthInert,
 } from './supabase-auth-config-shared';
+import { withSupabaseAuthManagementClient } from './supabase-cli-windows-credential';
 
 type Mode = 'plan' | 'preview' | 'execute';
 
@@ -221,8 +221,6 @@ async function main(): Promise<void> {
 
     const databaseUrl = process.env[FIXTURE_CLEANUP_DATABASE_ENV];
     if (!databaseUrl) throw new Error(`${FIXTURE_CLEANUP_DATABASE_ENV} is required for execute mode.`);
-    const accessToken = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
-    if (!accessToken) throw new Error(`${SUPABASE_ACCESS_TOKEN_ENV} is required for the final read-only Auth inert verification.`);
     const databaseEnvironment = buildPsqlEnvironment(databaseUrl);
     const receiptSha256 = sha256(receiptBytes);
     const preview = runPreview(outputDir, databaseEnvironment);
@@ -301,7 +299,10 @@ async function main(): Promise<void> {
         throw new Error('Production Auth inert receipt expired, changed or failed immediate revalidation.');
     }
     try {
-        await verifyLiveProductionAuthInert(accessToken);
+        await withSupabaseAuthManagementClient(
+            FIXTURE_CLEANUP_TARGET.projectRef,
+            async (client) => await verifyLiveProductionAuthInert(client),
+        );
     } catch (error) {
         writeSummary(outputDir, {
             status: 'BLOCKED_LIVE_AUTH_NOT_INERT',

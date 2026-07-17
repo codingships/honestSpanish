@@ -9,8 +9,11 @@ import {
     STAGING_AUTH_REDIRECTS,
     STAGING_AUTH_URLS_APPROVAL,
     STAGING_SITE_URL,
-    SUPABASE_ACCESS_TOKEN_ENV,
 } from './supabase-auth-config-shared';
+import {
+    SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET,
+    withSupabaseAuthManagementClient,
+} from './supabase-cli-windows-credential';
 
 const startedAt = new Date();
 const executeRequested = process.argv.includes('--execute-approved');
@@ -36,7 +39,6 @@ if (unknownArgs.length > 0) {
     }, 1);
 } else {
     const approvalMatched = exactApprovalMatched(approval, process.argv, process.env);
-    const token = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
 
     if (!executeRequested) {
         finish({
@@ -54,12 +56,13 @@ if (unknownArgs.length > 0) {
                 flag: '--execute-approved',
                 matched: false,
             },
-            tokenAvailable: Boolean(token),
+            credentialSource: SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET,
+            credentialReadDeferred: true,
             preservation: 'site_url is pinned to the canonical staging origin. Every existing exact uri_allow_list entry is retained; the six exact confirmation and reset-password redirects are added once.',
             wildcardPolicy: 'Execution fails before PATCH if any existing or required redirect contains broad Supabase glob syntax.',
             rollback: 'The exact prior site_url and uri_allow_list values from the redacted GET baseline are restored on failure.',
         }, 0);
-    } else if (!approvalMatched || !token) {
+    } else if (!approvalMatched) {
         finish({
             schemaVersion: 1,
             status: 'BLOCKED',
@@ -72,33 +75,35 @@ if (unknownArgs.length > 0) {
                 flag: '--execute-approved',
                 matched: approvalMatched,
             },
-            tokenAvailable: Boolean(token),
-            error: !approvalMatched ? 'Exact approval did not match' : `Missing ${SUPABASE_ACCESS_TOKEN_ENV}`,
+            credentialReadDeferred: true,
+            error: 'Exact approval did not match',
         }, 1);
     } else {
         try {
-            const result = await applyVerifiedAuthConfigChange({
-                projectRef: approval.projectRef,
-                token,
-                buildDesiredPatch: (before) => ({
-                    site_url: STAGING_SITE_URL,
-                    uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_REDIRECTS),
+            const result = await withSupabaseAuthManagementClient(
+                approval.projectRef,
+                async (client) => await applyVerifiedAuthConfigChange({
+                    client,
+                    buildDesiredPatch: (before) => ({
+                        site_url: STAGING_SITE_URL,
+                        uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_REDIRECTS),
+                    }),
+                    verifyDesired: (before, after, desiredPatch) => (
+                        after.disable_signup === before.disable_signup
+                        && after.mailer_autoconfirm === before.mailer_autoconfirm
+                        && desiredPatch.site_url === STAGING_SITE_URL
+                        && after.site_url === STAGING_SITE_URL
+                        && typeof desiredPatch.uri_allow_list === 'string'
+                        && allowListExactlyMatches(after.uri_allow_list, desiredPatch.uri_allow_list)
+                    ),
+                    verifyRollback: (before, after) => (
+                        after.disable_signup === before.disable_signup
+                        && after.mailer_autoconfirm === before.mailer_autoconfirm
+                        && after.site_url === before.site_url
+                        && allowListExactlyMatches(after.uri_allow_list, before.uri_allow_list)
+                    ),
                 }),
-                verifyDesired: (before, after, desiredPatch) => (
-                    after.disable_signup === before.disable_signup
-                    && after.mailer_autoconfirm === before.mailer_autoconfirm
-                    && desiredPatch.site_url === STAGING_SITE_URL
-                    && after.site_url === STAGING_SITE_URL
-                    && typeof desiredPatch.uri_allow_list === 'string'
-                    && allowListExactlyMatches(after.uri_allow_list, desiredPatch.uri_allow_list)
-                ),
-                verifyRollback: (before, after) => (
-                    after.disable_signup === before.disable_signup
-                    && after.mailer_autoconfirm === before.mailer_autoconfirm
-                    && after.site_url === before.site_url
-                    && allowListExactlyMatches(after.uri_allow_list, before.uri_allow_list)
-                ),
-            });
+            );
             const ok = result.status === 'applied' || result.status === 'already_applied';
             finish({
                 schemaVersion: 1,

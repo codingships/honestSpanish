@@ -223,8 +223,19 @@ Secrets por environment:
 - `CRON_SECRET`
 - `FULFILLMENT_WORKER_URL`
 - `INTERNAL_JOB_SECRET`
-- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_API_TOKEN` (solo para el workflow GitHub de staging; los runners locales no lo aceptan)
 - `CLOUDFLARE_ACCOUNT_ID`
+
+Los runners Cloudflare locales usan la sesion OAuth de Wrangler cifrada con una clave en el Administrador de credenciales de Windows. No requieren copiar un token al portapapeles ni guardarlo en `.env`; mantienen la cuenta `d1a22bcf6477ff2ff31d2bfb83084e44` fijada y verificada antes de cualquier operacion.
+
+Alta y rotacion segura de esa sesion local:
+
+1. Desde este repositorio, ejecutar `pnpm exec wrangler login --use-keyring` y completar OAuth en el navegador.
+2. Ejecutar `pnpm exec wrangler auth keyring`; debe indicar almacenamiento cifrado con clave en Windows Credential Manager. Si no lo indica, detener los runners externos.
+3. Ejecutar `pnpm exec wrangler whoami --json` y comprobar que aparece la cuenta exacta, sin copiar el token ni guardar esa salida en el repositorio.
+4. Para rotar o revocar: `pnpm exec wrangler logout`, volver a ejecutar el login con `--use-keyring` y repetir ambas comprobaciones. No usar `CLOUDFLARE_API_TOKEN` como fallback local.
+
+No ejecutar manualmente `wrangler auth token --json`: Wrangler puede persistir esa salida en sus logs de diagnostico. El proveedor local obtiene el valor solo dentro de su callback, fija `WRANGLER_WRITE_LOGS=false`, no lo devuelve a los runners y elimina cualquier referencia en memoria al cerrar el alcance.
 
 Variables por environment:
 
@@ -267,7 +278,14 @@ Operativo:
 Usar `SUPABASE_DB_URL` solo para migraciones/SQL. No lo usa la app.
 Los runners de navegador y `pnpm dev` validan la identidad staging pero eliminan `SUPABASE_DB_URL`, `SUPABASE_*_DB_URL`, `DATABASE_URL` y `PG*` antes de arrancar Astro o Playwright.
 
-Auth staging usa `site_url` canónico y un allowlist exacto, separados del rollout SQL. `pnpm launch:supabase-auth-staging-callbacks` es plan-only por defecto y fija `site_url=https://staging.espanolhonesto.com` junto con seis destinos en `es`, `en` y `ru`: confirmación en `/api/auth/confirm?lang=<lang>` y recuperación en `/<lang>/reset-password`. La ejecución exige aprobación literal y `SUPABASE_ACCESS_TOKEN`; conserva únicamente entradas exactas existentes y falla antes del PATCH si detecta `*`, `**`, clases, llaves, escapes o equivalentes codificados. Ambos campos quedaron aplicados y verificados el 2026-07-13 con `wildcardPolicy=exact_only`, signup/autoconfirm sin cambios y evidencia en `outputs/launch-supabase-auth-staging-callbacks-gate/2026-07-13T16-45-36-736Z/summary.json`. El 2026-07-15 se cerró además el E2E de alta, confirmación, acceso, recuperación, cambio de contraseña y cleanup de una única identidad temporal; quedaron cero sesiones/refresh tokens y las tres cuentas operativas conservaron una huella idéntica. Evidencia redacted: `outputs/launch-staging-auth-e2e/2026-07-15T09-59-37-663Z/summary.json`. El envío GET nativo posible antes de hidratar React quedó corregido y desplegado en la versión web staging `156f1d74-29e0-4f6f-9c1c-37af27728d3a`: SSR/no-JS falla cerrado y, tras hidratar, el submit usa POST sin modificar URL ni historial. Evidencia: `outputs/launch-staging-auth-deploy-verification/2026-07-15T11-36-53-183Z/summary.md`.
+Alta y rotacion segura de la credencial Management local de Supabase:
+
+1. Ejecutar `supabase login` y completar el flujo interactivo; no usar `--token` en historial, scripts o `.env`.
+2. Confirmar en el Administrador de credenciales de Windows que existe el destino generico exacto `Supabase CLI:supabase`; no abrir ni copiar su valor.
+3. Verificar con un preflight GET del proyecto permitido, por ejemplo `pnpm launch:supabase-auth-preflight staging`.
+4. Para rotar o revocar: `supabase logout`, repetir `supabase login`, confirmar de nuevo el destino y repetir el preflight. Si falta el destino o el GET falla, no existe fallback a `SUPABASE_ACCESS_TOKEN`.
+
+Auth staging usa `site_url` canónico y un allowlist exacto, separados del rollout SQL. `pnpm launch:supabase-auth-staging-callbacks` es plan-only por defecto y fija `site_url=https://staging.espanolhonesto.com` junto con seis destinos en `es`, `en` y `ru`: confirmación en `/api/auth/confirm?lang=<lang>` y recuperación en `/<lang>/reset-password`. La ejecución exige aprobación literal y la credencial `Supabase CLI:supabase` ya guardada en el Administrador de credenciales de Windows; el runner la obtiene automáticamente y no admite token por portapapeles, `.env` ni argumento. Conserva únicamente entradas exactas existentes y falla antes del PATCH si detecta `*`, `**`, clases, llaves, escapes o equivalentes codificados. Ambos campos quedaron aplicados y verificados el 2026-07-13 con `wildcardPolicy=exact_only`, signup/autoconfirm sin cambios y evidencia en `outputs/launch-supabase-auth-staging-callbacks-gate/2026-07-13T16-45-36-736Z/summary.json`. El 2026-07-15 se cerró además el E2E de alta, confirmación, acceso, recuperación, cambio de contraseña y cleanup de una única identidad temporal; quedaron cero sesiones/refresh tokens y las tres cuentas operativas conservaron una huella idéntica. Evidencia redacted: `outputs/launch-staging-auth-e2e/2026-07-15T09-59-37-663Z/summary.json`. El envío GET nativo posible antes de hidratar React quedó corregido y desplegado en la versión web staging `156f1d74-29e0-4f6f-9c1c-37af27728d3a`: SSR/no-JS falla cerrado y, tras hidratar, el submit usa POST sin modificar URL ni historial. Evidencia: `outputs/launch-staging-auth-deploy-verification/2026-07-15T11-36-53-183Z/summary.md`.
 
 Production Supabase se prepara con runners separados y fail-closed:
 

@@ -27,7 +27,11 @@ import {
     type ProductionInertFinalReceipt,
     type ProductionInertSourceChain,
 } from './production-inert-final-readonly-shared';
-import { SUPABASE_ACCESS_TOKEN_ENV, verifyLiveProductionAuthInert } from './supabase-auth-config-shared';
+import { SUPABASE_AUTH_TARGETS, verifyLiveProductionAuthInert } from './supabase-auth-config-shared';
+import {
+    SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET,
+    withSupabaseAuthManagementClient,
+} from './supabase-cli-windows-credential';
 import type { FinalAuthPolicyReceipt } from './supabase-production-auth-cleanup-shared';
 
 const root = process.cwd();
@@ -98,8 +102,6 @@ async function captureProductionInertFinal(
     if (!databaseUrl) {
         throw new Error(`${PRODUCTION_INERT_FINAL_DB_URL_ENV} (or SUPABASE_DB_URL) is required for capture.`);
     }
-    const managementToken = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
-    if (!managementToken) throw new Error(`${SUPABASE_ACCESS_TOKEN_ENV} is required for capture.`);
     const expectedAdminEmail = requiredExpectedEmail(
         'TEST_ADMIN_EMAIL',
         process.env.TEST_ADMIN_EMAIL ?? testEmailEnv.TEST_ADMIN_EMAIL,
@@ -125,7 +127,10 @@ async function captureProductionInertFinal(
     if (firstErrors.length > 0) throw new Error(`First database readback failed: ${firstErrors.join(' ')}`);
 
     // This exact Management API GET is deliberately sequenced between the two independent DB reads.
-    await verifyLiveProductionAuthInert(managementToken);
+    await withSupabaseAuthManagementClient(
+        SUPABASE_AUTH_TARGETS.production.projectRef,
+        async (client) => await verifyLiveProductionAuthInert(client),
+    );
 
     const secondReadback = runDatabaseReadback(connection, sql, expectedAdminEmail, expectedTeacherEmail);
     const secondErrors = validateProductionInertFinalReadback(
@@ -252,7 +257,7 @@ function writePlan(outputDir: string, startedAt: Date): void {
         stableDatabaseReadbacksRequired: 2,
         requiredSecureInputs: [
             PRODUCTION_INERT_FINAL_DB_URL_ENV,
-            SUPABASE_ACCESS_TOKEN_ENV,
+            `Windows Credential Manager: ${SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET}`,
             'TEST_ADMIN_EMAIL',
             'TEST_TEACHER_EMAIL',
         ],

@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
@@ -22,6 +21,10 @@ import {
     recordOneShotCloudflareReadback,
     type OneShotCloudflareReadbackResult,
 } from './cloudflare-production-one-shot-write';
+import {
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'failed';
 type ClosureStatus = 'PLAN_READY' | 'VERIFIED_EXISTING' | 'PROVISIONED' | 'RECONCILED_STOP' | 'BLOCKED' | 'PARTIAL_WRITE_STOP';
@@ -87,7 +90,18 @@ checks.push(validateLocalConfig());
 checks.push(validateLocalAccountEnvironment());
 
 if (checks.every((check) => check.status === 'ok')) {
-    await runRemotePreflightAndMaybeProvision();
+    try {
+        await withCloudflareWranglerOAuth({
+            accountId: PRODUCTION_QUEUE_TARGET.accountId,
+            consume: async () => await runRemotePreflightAndMaybeProvision(),
+        });
+    } catch {
+        checks.push(failed('cloudflare_oauth_keyring_gate', 'The encrypted Wrangler OAuth session could not run the Queue operation.', [
+            'credentialSource=wrangler_keyring',
+            `externalWriteAttempted=${String(externalWriteAttempted)}`,
+            'writeState=unchanged_or_checkpointed',
+        ]));
+    }
 } else {
     checks.push(failed('local_preflight_gate', 'Local config/account validation failed; no Cloudflare command was run.', [
         'remoteReadPerformed=false',
@@ -543,14 +557,11 @@ function validateLocalConfig(): Check {
 
 function validateLocalAccountEnvironment(): Check {
     const configured = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
-    const valid = executeRequested
-        ? configured === PRODUCTION_QUEUE_TARGET.accountId
-        : !configured || configured === PRODUCTION_QUEUE_TARGET.accountId;
+    const valid = !configured || configured === PRODUCTION_QUEUE_TARGET.accountId;
     return valid
-        ? ok('local_account_environment', executeRequested
-            ? 'The write-capable run explicitly selects the exact production account.'
-            : 'Local account override is absent or matches the exact production account.', [
+        ? ok('local_account_environment', 'Any local account hint is absent or matches; the encrypted provider independently pins the exact account.', [
             `expected=${PRODUCTION_QUEUE_TARGET.accountId}`,
+            'credentialSource=wrangler_keyring',
         ])
         : failed('local_account_environment', 'CLOUDFLARE_ACCOUNT_ID points at a different account; no remote command may run.', [
             `expected=${PRODUCTION_QUEUE_TARGET.accountId}`,
@@ -570,21 +581,8 @@ function runCommand(spec: CommandSpec): CommandCapture {
     assertCommandScope(spec);
     const wranglerArgs = [...spec.args, '--install-skills=false'];
     const display = `pnpm --config.verify-deps-before-run=false exec wrangler ${wranglerArgs.join(' ')}`;
-    const result = spawnSync(pnpmCommand(), [
-        '--config.verify-deps-before-run=false',
-        'exec',
-        'wrangler',
-        ...wranglerArgs,
-    ], {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: {
-            ...process.env,
-            CLOUDFLARE_ACCOUNT_ID: PRODUCTION_QUEUE_TARGET.accountId,
-        },
-        timeout: 90_000,
-        windowsHide: true,
-        shell: process.platform === 'win32',
+    const result = runCloudflareWranglerFromKeyring(wranglerArgs, {
+        timeoutMs: 90_000,
     });
     const status: CheckStatus = result.status === 0 && !result.error ? 'ok' : 'failed';
     const outputPath = path.join(outputDir, `${spec.id}.txt`);
@@ -734,10 +732,6 @@ function failed(name: string, message: string, details: string[]): Check {
 
 function relative(filePath: string): string {
     return path.relative(process.cwd(), filePath).split(path.sep).join('/');
-}
-
-function pnpmCommand(): string {
-    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function stamp(date: Date): string {

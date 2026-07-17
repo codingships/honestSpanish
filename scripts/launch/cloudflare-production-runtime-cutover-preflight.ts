@@ -7,6 +7,10 @@ import {
     validateCloudflareProductionSourceIdentity,
     type CloudflareProductionSourceIdentity,
 } from './cloudflare-production-evidence';
+import {
+    buildCloudflareCredentialFreeChildEnvironment,
+    buildSanitizedWranglerOAuthEnvironment,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -279,12 +283,12 @@ function runCapture(config: CaptureConfig): Capture {
         };
     }
 
+    const childEnvironment = isWranglerPnpmInvocation(config.args)
+        ? buildSanitizedWranglerOAuthEnvironment(process.env, target.accountId)
+        : buildCloudflareCredentialFreeChildEnvironment(process.env, target.accountId);
+    childEnvironment.CI = 'true';
     const result = spawnSync(pnpmCommand(), config.args, {
-        env: {
-            ...process.env,
-            CI: 'true',
-            WRANGLER_SEND_METRICS: 'false',
-        },
+        env: childEnvironment,
         encoding: 'utf8',
         timeout: config.timeoutMs ?? 60_000,
         windowsHide: true,
@@ -327,6 +331,10 @@ function runCapture(config: CaptureConfig): Capture {
         parsedJson,
         summary: summarizeCapture(config.id, parsedJson, stdout, stderr, exitCode),
     };
+}
+
+function isWranglerPnpmInvocation(args: readonly string[]): boolean {
+    return args.some((value, index) => value === 'exec' && args[index + 1] === 'wrangler');
 }
 
 function cleanupDistAfterDryRun(): Capture {

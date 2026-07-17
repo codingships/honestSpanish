@@ -349,11 +349,20 @@ describe('production fixture-cleanup safety package', () => {
             gateIndex,
         );
         const executePsqlIndex = runnerSource.indexOf('sqlPath: path.join(root, FIXTURE_CLEANUP_PATHS.executeSql)');
-        const liveAuthIndex = runnerSource.indexOf('await verifyLiveProductionAuthInert(accessToken)', executePreviewIndex);
+        const credentialScopeIndex = runnerSource.indexOf(
+            'await withSupabaseAuthManagementClient(',
+            executePreviewIndex,
+        );
+        const liveAuthIndex = runnerSource.indexOf(
+            'verifyLiveProductionAuthInert(client)',
+            credentialScopeIndex,
+        );
         expect(gateIndex).toBeGreaterThan(-1);
         expect(executePreviewIndex).toBeGreaterThan(gateIndex);
-        expect(liveAuthIndex).toBeGreaterThan(executePreviewIndex);
+        expect(credentialScopeIndex).toBeGreaterThan(executePreviewIndex);
+        expect(liveAuthIndex).toBeGreaterThan(credentialScopeIndex);
         expect(executePsqlIndex).toBeGreaterThan(liveAuthIndex);
+        expect(runnerSource).not.toContain('SUPABASE_ACCESS_TOKEN');
         expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
         expect(runnerSource).toContain("status: 'BLOCKED_PRESERVATION_POLICY_REVALIDATION'");
     });

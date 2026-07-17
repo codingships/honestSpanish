@@ -22,6 +22,7 @@ export const CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS = [
     'scripts/dev/production.ts',
     'scripts/launch/cloudflare-deployment-order.ts',
     'scripts/launch/cloudflare-production-evidence.ts',
+    'scripts/launch/cloudflare-wrangler-oauth.ts',
     'scripts/launch/cloudflare-production-fulfillment-bootstrap-secrets.ts',
     'scripts/launch/cloudflare-production-fulfillment-enable-state.ts',
     'scripts/launch/cloudflare-production-fulfillment-lifecycle-shared.ts',
@@ -248,7 +249,7 @@ export function validateCloudflareRuntimeReadonlySummary(
     errors.push(...validateCloudflareProductionSourceIdentity(report.sourceIdentity, currentSourceIdentity));
 
     const apiInventory = asRecord(report.apiInventory);
-    if (apiInventory.tokenAvailable !== true) errors.push('Cloudflare API token read scope was not proven');
+    if (apiInventory.oauthKeyringAttested !== true) errors.push('Cloudflare encrypted OAuth keyring read scope was not proven');
     const workerScripts = asRecord(apiInventory.workerScripts);
     if (workerScripts.state !== 'ready') errors.push('account-wide Worker script inventory is not ready');
     const flaggedScripts = arrayOfRecords(workerScripts.flagged);
@@ -264,7 +265,7 @@ export function validateCloudflareRuntimeReadonlySummary(
     }
     for (const call of apiCalls) {
         const outcome = stringValue(call.outcome);
-        if (['permission-gap', 'api-error', 'token-missing'].includes(outcome)) {
+        if (['permission-gap', 'api-error'].includes(outcome)) {
             errors.push(`ambiguous Cloudflare API read: ${stringValue(call.id) || 'unnamed'}:${outcome}`);
         }
     }

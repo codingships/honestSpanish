@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -37,11 +36,15 @@ import {
     type RollbackVersions,
     type VersionShape,
 } from './cloudflare-staging-fulfillment-rollback-drill-shared';
+import {
+    requestAllowlistedCloudflareAccount,
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type RunnerStatus =
     | 'READY_FOR_APPROVAL'
     | 'BLOCKED'
-    | 'BLOCKED_NO_TOKEN'
     | 'DRILL_EXECUTED_AND_CURRENT_RESTORED'
     | 'DRILL_FAILED_BUT_CURRENT_RESTORED'
     | 'RESTORATION_UNPROVEN';
@@ -209,17 +212,20 @@ const commandOutput = new Map<string, string>();
 if (invokedDirectly) {
     mkdirSync(outputDir, { recursive: true });
     persistWriteReceipts();
-    await run();
+    try {
+        await withCloudflareWranglerOAuth({
+            accountId: STAGING_FULFILLMENT_ROLLBACK_TARGET.accountId,
+            consume: run,
+        });
+    } catch (error) {
+        report.errors.push(safeError(error));
+        report.status = 'BLOCKED';
+        finalizeReport();
+    }
 }
 
 async function run(): Promise<void> {
     try {
-        if (!cloudflareToken()) {
-            report.status = 'BLOCKED_NO_TOKEN';
-            report.errors.push('CLOUDFLARE_API_TOKEN is required in process memory for exact Queue, metrics and Cron API reads; it is never logged or persisted.');
-            return;
-        }
-
         const initial = await runLivePreflight('preflight_initial');
         report.preflights.push(initial);
         if (!initial.valid || !initial.approval || !initial.versions || !initial.snapshotSha256) {
@@ -704,11 +710,10 @@ async function cloudflareRequestOnce(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
-        const response = await fetch(`https://api.cloudflare.com/client/v4${apiPath}`, {
+        const response = await requestAllowlistedCloudflareAccount(apiPath, {
             method,
             signal: controller.signal,
             headers: {
-                authorization: `Bearer ${cloudflareToken()}`,
                 accept: 'application/json',
                 ...(body === undefined ? {} : { 'content-type': 'application/json' }),
             },
@@ -805,25 +810,11 @@ function runWranglerJson(id: string, args: string[]): unknown {
 }
 
 function runWrangler(id: string, args: string[], readOnly: boolean): CommandCapture {
-    const childEnv: NodeJS.ProcessEnv = {
-        ...minimalWranglerEnvironment(),
-        CI: 'true',
-        FORCE_COLOR: '0',
-        WRANGLER_SEND_METRICS: 'false',
-        CLOUDFLARE_ACCOUNT_ID: STAGING_FULFILLMENT_ROLLBACK_TARGET.accountId,
-    };
-    delete childEnv[STAGING_FULFILLMENT_ROLLBACK_APPROVAL_ENV];
-    delete childEnv.CLOUDFLARE_API_TOKEN;
-    const scopedArgs = [...args, ...WRANGLER_SCOPE_ARGS];
-    const pnpmArgs = ['--config.verify-deps-before-run=false', 'exec', 'wrangler', ...scopedArgs];
-    const result = spawnSync(pnpmCommand(), pnpmArgs, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: childEnv,
-        maxBuffer: 10 * 1024 * 1024,
-        shell: process.platform === 'win32',
-        windowsHide: true,
-        timeout: readOnly ? 60_000 : 120_000,
+    const scopedArgs = readOnly
+        ? [...args, '--install-skills=false']
+        : [...args, ...WRANGLER_SCOPE_ARGS];
+    const result = runCloudflareWranglerFromKeyring(scopedArgs, {
+        timeoutMs: readOnly ? 60_000 : 120_000,
     });
     const stdout = result.stdout ?? '';
     const stderr = result.stderr ?? '';
@@ -1000,7 +991,7 @@ function renderSummary(value: RunnerReport): string {
         '',
         '## Safety Boundary',
         '',
-        'Plan mode uses only GET/health and Wrangler read commands. It requires `CLOUDFLARE_API_TOKEN` in process memory because Wrangler does not expose Queue `delivery_paused`; the token is removed from Wrangler children and never logged or persisted.',
+        'Plan mode uses only GET/health and Wrangler read commands through the encrypted Wrangler OAuth keyring. No Cloudflare token is read from the process, clipboard or project files.',
         '',
         'Approved execution persists a write-ahead receipt before every change, normalizes Queue delivery active, removes the exact hourly Cron, pauses the Queue, rolls back, and then restores current version, Cron and Queue. If Cron or Queue restoration is not proven, conditional compensation disables Cron and pauses Queue again, then verifies Cron OFF, Queue paused and zero backlog. A durable lock survives process termination and is removed only when the forward drill and all three normal final states are proven; any failed phase keeps it for manual reconciliation.',
         '',
@@ -1045,32 +1036,6 @@ function queuePath(): string {
 
 function schedulesPath(): string {
     return `/accounts/${report.target.accountId}/workers/scripts/${encodeURIComponent(report.target.worker)}/schedules`;
-}
-
-function cloudflareToken(): string {
-    return process.env.CLOUDFLARE_API_TOKEN?.trim() ?? '';
-}
-
-function minimalWranglerEnvironment(): NodeJS.ProcessEnv {
-    const allowed = [
-        'APPDATA',
-        'COMSPEC',
-        'HOME',
-        'LOCALAPPDATA',
-        'NODE_OPTIONS',
-        'PATH',
-        'PATHEXT',
-        'PNPM_HOME',
-        'SYSTEMDRIVE',
-        'SYSTEMROOT',
-        'TEMP',
-        'TMP',
-        'USERPROFILE',
-        'WINDIR',
-    ];
-    return Object.fromEntries(allowed
-        .map((name) => [name, process.env[name]])
-        .filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
 }
 
 function persistJsonAtomic(targetPath: string, value: unknown): void {
@@ -1123,10 +1088,6 @@ function sha256(value: string): string {
 
 function relative(value: string): string {
     return path.relative(process.cwd(), value).replace(/\\/gu, '/');
-}
-
-function pnpmCommand(): string {
-    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function delay(milliseconds: number): Promise<void> {

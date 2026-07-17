@@ -6,9 +6,12 @@ import {
     PRODUCTION_AUTH_APPROVALS,
     productionDesiredPatch,
     safeErrorMessage,
-    SUPABASE_ACCESS_TOKEN_ENV,
     verifyExactSafePatch,
 } from './supabase-auth-config-shared';
+import {
+    SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET,
+    withSupabaseAuthManagementClient,
+} from './supabase-cli-windows-credential';
 
 type Phase = keyof typeof PRODUCTION_AUTH_APPROVALS;
 
@@ -38,7 +41,6 @@ if (!approval || !['inert', 'final'].includes(phase ?? '') || unknownArgs.length
 } else {
     const desiredPatch = productionDesiredPatch(phase);
     const approvalMatched = exactApprovalMatched(approval, process.argv, process.env);
-    const token = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
 
     if (!executeRequested) {
         finish({
@@ -56,10 +58,11 @@ if (!approval || !['inert', 'final'].includes(phase ?? '') || unknownArgs.length
                 flag: '--execute-approved',
                 matched: false,
             },
-            tokenAvailable: Boolean(token),
+            credentialSource: SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET,
+            credentialReadDeferred: true,
             rollback: 'Only disable_signup and mailer_autoconfirm are restored from the redacted GET baseline.',
         }, 0);
-    } else if (!approvalMatched || !token) {
+    } else if (!approvalMatched) {
         finish({
             schemaVersion: 1,
             status: 'BLOCKED',
@@ -74,17 +77,19 @@ if (!approval || !['inert', 'final'].includes(phase ?? '') || unknownArgs.length
                 flag: '--execute-approved',
                 matched: approvalMatched,
             },
-            tokenAvailable: Boolean(token),
-            error: !approvalMatched ? 'Exact approval did not match' : `Missing ${SUPABASE_ACCESS_TOKEN_ENV}`,
+            credentialReadDeferred: true,
+            error: 'Exact approval did not match',
         }, 1);
     } else {
         try {
-            const result = await applyVerifiedAuthConfigChange({
-                projectRef: approval.projectRef,
-                token,
-                buildDesiredPatch: () => desiredPatch,
-                verifyDesired: verifyExactSafePatch,
-            });
+            const result = await withSupabaseAuthManagementClient(
+                approval.projectRef,
+                async (client) => await applyVerifiedAuthConfigChange({
+                    client,
+                    buildDesiredPatch: () => desiredPatch,
+                    verifyDesired: verifyExactSafePatch,
+                }),
+            );
             const ok = result.status === 'applied' || result.status === 'already_applied';
             finish({
                 schemaVersion: 1,

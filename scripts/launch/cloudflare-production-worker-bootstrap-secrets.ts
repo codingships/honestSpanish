@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -31,6 +30,10 @@ import {
     readCloudflareProductionInertCompositeEvidence,
     type CloudflareProductionInertEvidenceValidation,
 } from './cloudflare-production-inert-composite-evidence';
+import {
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -45,7 +48,6 @@ interface Check {
 interface CommandSpec {
     id: string;
     display: string;
-    bin: string;
     args: string[];
     timeoutMs: number;
     writesCloudflare: boolean;
@@ -176,7 +178,23 @@ async function main(): Promise<void> {
         });
         const inputCheck = validateExecutionInputs();
         checks.push(inputCheck);
-        if (inputCheck.status === 'ok') checks.push(...await runApprovedExecution());
+        if (inputCheck.status === 'ok') {
+            try {
+                await withCloudflareWranglerOAuth({
+                    accountId: target.accountId,
+                    consume: async () => {
+                        checks.push(...await runApprovedExecution());
+                    },
+                });
+            } catch {
+                checks.push({
+                    status: 'failed',
+                    name: 'cloudflare_oauth_keyring_gate',
+                    message: 'The encrypted Wrangler OAuth session could not run the approved bootstrap-secret operation.',
+                    details: ['credentialSource=wrangler_keyring', 'externalWriteState=unchanged_or_checkpointed'],
+                });
+            }
+        }
     } else {
         checks.push({
             status: 'ok',
@@ -1005,11 +1023,9 @@ function buildCommands(): Record<string, CommandSpec> & {
     secretsAfter: CommandSpec;
     deploymentsAfter: CommandSpec;
 } {
-    const pnpm = pnpmCommand();
     const read = (id: string, display: string, args: string[]): CommandSpec => ({
         id,
         display,
-        bin: pnpm,
         args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', ...args],
         timeoutMs: 120_000,
         writesCloudflare: false,
@@ -1027,7 +1043,6 @@ function buildSecretPutCommand(name: string): CommandSpec {
     return {
         id: `web-bootstrap-secret-put-${name.toLowerCase().replace(/_/g, '-')}`,
         display: `pnpm --config.verify-deps-before-run=false exec wrangler secret put ${name} --config wrangler.toml --env production_bootstrap`,
-        bin: pnpmCommand(),
         args: ['--config.verify-deps-before-run=false', 'exec', 'wrangler', 'secret', 'put', name, '--config', 'wrangler.toml', '--env', 'production_bootstrap'],
         timeoutMs: 120_000,
         writesCloudflare: true,
@@ -1036,14 +1051,9 @@ function buildSecretPutCommand(name: string): CommandSpec {
 
 function runCommand(command: CommandSpec, input?: string): CommandCapture {
     if (command.writesCloudflare) externalWriteAttempted = true;
-    const result = spawnSync(command.bin, command.args, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: process.env,
+    const result = runCloudflareWranglerFromKeyring(scopedWranglerArgs(command.args), {
         input,
-        shell: process.platform === 'win32',
-        timeout: command.timeoutMs,
-        windowsHide: true,
+        timeoutMs: command.timeoutMs,
     });
     const exitCode = result.status;
     const status: CheckStatus = exitCode === 0 && !result.error ? 'ok' : 'failed';
@@ -1066,8 +1076,12 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
     return { id: command.id, display: command.display, path: capturePath, exitCode, status, writesCloudflare: command.writesCloudflare };
 }
 
-function pnpmCommand(): string {
-    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+function scopedWranglerArgs(args: readonly string[]): string[] {
+    const prefix = ['--config.verify-deps-before-run=false', 'exec', 'wrangler'];
+    if (!prefix.every((value, index) => args[index] === value)) {
+        throw new Error('Refusing a command outside the scoped Wrangler command boundary.');
+    }
+    return args.slice(prefix.length);
 }
 
 function checkForCapture(capture: CommandCapture): Check {

@@ -28,7 +28,7 @@ const executableCorepackPatterns = [
 ] as const;
 
 describe('Cloudflare production runner pnpm policy', () => {
-    it.each(productionRunnerPaths)('%s executes the installed pnpm binary directly', (runnerPath) => {
+    it.each(productionRunnerPaths)('%s uses direct pnpm or the scoped Wrangler keyring runner', (runnerPath) => {
         const source = readFileSync(runnerPath, 'utf8');
 
         for (const pattern of executableCorepackPatterns) {
@@ -36,9 +36,13 @@ describe('Cloudflare production runner pnpm policy', () => {
         }
 
         expect(source).not.toMatch(/\bcorepack\s+pnpm\b/iu);
-        expect(source).toContain("process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'");
-        expect(source).toContain("shell: process.platform === 'win32'");
-        expect(source).toMatch(/(?:spawnSync\(pnpmCommand\(\)|\bbin:\s*(?:pnpmCommand\(\)|pnpm\b))/u);
+        const usesScopedWranglerKeyring = source.includes('runCloudflareWranglerFromKeyring');
+        const usesDirectPnpm = /(?:spawnSync\(pnpmCommand\(\)|\bbin:\s*(?:pnpmCommand\(\)|pnpm\b))/u.test(source);
+        expect(usesScopedWranglerKeyring || usesDirectPnpm).toBe(true);
+        if (usesDirectPnpm) {
+            expect(source).toContain("process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'");
+            expect(source).toContain("shell: process.platform === 'win32'");
+        }
     });
 
     it.each(productionPlanManifestPaths)('%s does not generate obsolete Corepack commands', (runnerPath) => {

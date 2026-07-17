@@ -1,6 +1,12 @@
 import * as dotenv from 'dotenv';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+    withCloudflareWranglerOAuth,
+    type CloudflareAccountApi,
+} from './cloudflare-wrangler-oauth';
+import { TURNSTILE_CLOUDFLARE_REQUEST_TIMEOUT_MS } from './turnstile-cloudflare-request';
 
 type Status = 'ok' | 'warning' | 'failed';
 
@@ -49,8 +55,7 @@ const siteKey = process.env.PUBLIC_TURNSTILE_SITE_KEY;
 const secretKey = process.env.TURNSTILE_SECRET_KEY;
 const officialTestMode = siteKey === '1x00000000000000000000AA'
     && secretKey === '1x0000000000000000000000000000000AA';
-const cloudflareApiToken = process.env.CLOUDFLARE_API_TOKEN;
-const cloudflareAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+const cloudflareAccountId = ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID;
 const expectedDomains = expectedTurnstileDomains();
 
 const checks: Check[] = [checkEnvironment()];
@@ -59,10 +64,18 @@ if (secretKey) {
     checks.push(await checkFakeTokenRejection());
 }
 
-if (!officialTestMode && cloudflareApiToken && cloudflareAccountId) {
-    checks.push(await checkCloudflareToken());
-    const widgetCheck = await checkTurnstileWidgetList();
-    checks.push(widgetCheck);
+if (!officialTestMode && siteKey) {
+    try {
+        await withCloudflareWranglerOAuth({
+            accountId: ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+            consume: async (api) => {
+                checks.push(cloudflareOAuthSessionCheck('ok'));
+                checks.push(await checkTurnstileWidgetList(api));
+            },
+        });
+    } catch (error) {
+        checks.push(cloudflareOAuthSessionCheck('failed', error));
+    }
 }
 
 const failed = checks.filter((check) => check.status === 'failed');
@@ -94,23 +107,19 @@ function checkEnvironment(): Check {
         ['PUBLIC_TURNSTILE_SITE_KEY', siteKey],
         ['TURNSTILE_SECRET_KEY', secretKey],
     ].filter(([, value]) => !value).map(([key]) => key);
-    const missingCloudflareApi = [
-        ['CLOUDFLARE_ACCOUNT_ID', cloudflareAccountId],
-        ['CLOUDFLARE_API_TOKEN', cloudflareApiToken],
-    ].filter(([, value]) => !value).map(([key]) => key);
     const siteKeyShape = officialTestMode ? 'official_test_always_pass' : siteKey?.startsWith('0x') ? 'present_turnstile_shape' : siteKey ? 'present_unrecognized' : 'missing';
     const secretShape = officialTestMode ? 'official_test_always_pass' : secretKey?.startsWith('0x') ? 'present_turnstile_shape' : secretKey ? 'present_unrecognized' : 'missing';
 
     return {
-        status: missingRequired.length > 0 ? 'failed' : !officialTestMode && missingCloudflareApi.length > 0 ? 'warning' : 'ok',
+        status: missingRequired.length > 0 ? 'failed' : 'ok',
         name: 'environment_shape',
-        message: missingRequired.length === 0 && (officialTestMode || missingCloudflareApi.length === 0)
-            ? 'Turnstile runtime and Cloudflare read-only API inputs are present.'
-            : 'Turnstile runtime or Cloudflare read-only API inputs are incomplete.',
+        message: missingRequired.length === 0
+            ? 'Turnstile runtime inputs are present; Cloudflare reads use the encrypted Wrangler OAuth session.'
+            : 'Turnstile runtime inputs are incomplete.',
         details: [
             `env_file=${envFile}`,
             `missing_required=${missingRequired.length === 0 ? 'none' : missingRequired.join(', ')}`,
-            `missing_cloudflare_api=${missingCloudflareApi.length === 0 ? 'none' : missingCloudflareApi.join(', ')}`,
+            'cloudflare_credential_source=wrangler_keyring_oauth',
             `site_key=${compactId(siteKey)}`,
             `site_key_shape=${siteKeyShape}`,
             `secret_key=${secretShape}`,
@@ -165,37 +174,26 @@ async function checkFakeTokenRejection(): Promise<Check> {
     }
 }
 
-async function checkCloudflareToken(): Promise<Check> {
-    try {
-        const payload = await cloudflareGet('/user/tokens/verify');
-        const result = isRecord(payload.result) ? payload.result : {};
-        const active = result.status === 'active';
-
-        return {
-            status: payload.success && active ? 'ok' : 'failed',
-            name: 'cloudflare_api_token_readonly',
-            message: payload.success && active
-                ? 'Cloudflare API token verifies as active.'
-                : 'Cloudflare API token verification did not return active.',
-            details: [
-                `token_id=${compactId(stringValue(result.id))}`,
-                `status=${stringValue(result.status) || 'unknown'}`,
-                `errors=${formatApiErrors(payload)}`,
-            ],
-        };
-    } catch (error) {
-        return {
-            status: 'failed',
-            name: 'cloudflare_api_token_readonly',
-            message: 'Cloudflare API token could not be verified.',
-            details: [safeErrorMessage(error)],
-        };
-    }
+function cloudflareOAuthSessionCheck(status: 'ok' | 'failed', error?: unknown): Check {
+    return {
+        status,
+        name: 'cloudflare_wrangler_oauth_readonly',
+        message: status === 'ok'
+            ? 'Wrangler attested an encrypted OAuth session for the exact Cloudflare account.'
+            : 'Wrangler could not attest an encrypted OAuth session for the exact Cloudflare account.',
+        details: status === 'ok'
+            ? [
+                `account=${compactId(cloudflareAccountId)}`,
+                'credential_source=wrangler_keyring_oauth',
+                'external_write_performed=false',
+            ]
+            : [safeErrorMessage(error)],
+    };
 }
 
-async function checkTurnstileWidgetList(): Promise<Check> {
+async function checkTurnstileWidgetList(api: CloudflareAccountApi): Promise<Check> {
     try {
-        const payload = await cloudflareGet(`/accounts/${cloudflareAccountId}/challenges/widgets`);
+        const payload = await cloudflareGet(api, '/challenges/widgets');
         const widgets = normalizeWidgets(payload.result);
         const matchedWidget = widgets.find((widget) => widget.sitekey === siteKey);
         const domains = matchedWidget?.domains?.map(normalizeDomain).filter(Boolean) ?? [];
@@ -257,13 +255,11 @@ async function checkTurnstileWidgetList(): Promise<Check> {
     }
 }
 
-async function cloudflareGet(pathname: string): Promise<ApiResult> {
-    const response = await fetch(`https://api.cloudflare.com/client/v4${pathname}`, {
+async function cloudflareGet(api: CloudflareAccountApi, pathname: string): Promise<ApiResult> {
+    const response = await api.request(pathname, {
         method: 'GET',
-        headers: {
-            Authorization: `Bearer ${cloudflareApiToken}`,
-            'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(TURNSTILE_CLOUDFLARE_REQUEST_TIMEOUT_MS),
     });
     const payload = await response.json() as ApiResult;
     if (!response.ok && payload.success !== false) {
@@ -342,10 +338,14 @@ function safeName(value: string | null | undefined): string {
 
 function safeErrorMessage(error: unknown): string {
     let message = error instanceof Error ? error.message : String(error);
-    for (const secret of [cloudflareApiToken, secretKey]) {
+    for (const secret of [secretKey]) {
         if (secret) message = message.replaceAll(secret, '[redacted]');
     }
-    return message.replace(/\r?\n/g, ' ').slice(0, 500);
+    return message
+        .replace(/Bearer\s+[A-Za-z0-9._~-]+/giu, 'Bearer [redacted]')
+        .replace(/CLOUDFLARE_API_TOKEN\s*=\s*\S+/giu, 'CLOUDFLARE_API_TOKEN=[redacted]')
+        .replace(/\r?\n/g, ' ')
+        .slice(0, 500);
 }
 
 function formatApiErrors(payload: ApiResult): string {
@@ -374,7 +374,7 @@ function renderMarkdown(report: Report): string {
         '',
         '## Scope',
         '',
-        'This check is read-only for Cloudflare configuration. It verifies the Cloudflare API token status, lists Turnstile widgets, compares the configured public site key with the Cloudflare widget list, checks expected hostnames, and sends one deliberately invalid token to Turnstile siteverify to confirm rejection without a secret-key error. It does not create, update, rotate, delete, deploy, tail logs, change hostnames, retrieve secret values, or write Supabase.',
+        'This check is read-only for Cloudflare configuration. It attests the encrypted Wrangler OAuth session for the exact account, lists Turnstile widgets, compares the configured public site key with the Cloudflare widget list, checks expected hostnames, and sends one deliberately invalid token to Turnstile siteverify to confirm rejection without a secret-key error. It does not create, update, rotate, delete, deploy, tail logs, change hostnames, retrieve secret values, or write Supabase.',
         '',
         '## Checks',
         '',

@@ -70,7 +70,7 @@ function runtimeSummary(): Record<string, unknown> {
             ...cloneSourceIdentity(currentSourceIdentity),
         },
         apiInventory: {
-            tokenAvailable: true,
+            oauthKeyringAttested: true,
             workerScripts: {
                 state: 'ready',
                 flagged: [
@@ -325,6 +325,8 @@ describe('structured Cloudflare production evidence gates', () => {
     it('hashes the structured web+fulfillment evidence contract as production-critical source', () => {
         expect(CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS)
             .toContain('scripts/launch/cloudflare-production-inert-composite-evidence.ts');
+        expect(CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS)
+            .toContain('scripts/launch/cloudflare-wrangler-oauth.ts');
     });
 
     it('rejects a runtime report generated from another Git HEAD', () => {

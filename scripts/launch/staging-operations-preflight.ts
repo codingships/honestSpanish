@@ -1,6 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    buildSanitizedWranglerOAuthEnvironment,
+    ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'failed' | 'warning';
 
@@ -152,6 +156,10 @@ function runWranglerVersionViewCheck(): CheckResult {
     const status = spawnSync(pnpmCommand(), ['exec', 'wrangler', 'deployments', 'status', '--env', 'staging', '--json'], {
         cwd: workerCwd,
         encoding: 'utf8',
+        env: buildSanitizedWranglerOAuthEnvironment(
+            process.env,
+            ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+        ),
         shell: process.platform === 'win32',
         maxBuffer: 10 * 1024 * 1024,
     });
@@ -183,6 +191,10 @@ function runWranglerVersionViewCheck(): CheckResult {
     const version = spawnSync(pnpmCommand(), ['exec', 'wrangler', 'versions', 'view', versionId, '--env', 'staging', '--json'], {
         cwd: workerCwd,
         encoding: 'utf8',
+        env: buildSanitizedWranglerOAuthEnvironment(
+            process.env,
+            ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+        ),
         shell: process.platform === 'win32',
         maxBuffer: 10 * 1024 * 1024,
     });
@@ -253,6 +265,10 @@ function runWranglerCommand(name: string, args: string[], expectedSnippets: stri
     const result = spawnSync(pnpmCommand(), args, {
         cwd,
         encoding: 'utf8',
+        env: buildSanitizedWranglerOAuthEnvironment(
+            process.env,
+            ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+        ),
         shell: process.platform === 'win32',
         maxBuffer: 10 * 1024 * 1024,
     });

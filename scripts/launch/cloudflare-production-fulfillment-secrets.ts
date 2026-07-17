@@ -1,5 +1,4 @@
 import * as dotenv from 'dotenv';
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -10,6 +9,10 @@ import {
     type RuntimeAttestationEnvelope,
 } from '../../src/lib/runtime-attestation';
 import { verifyCloudflareWhoamiOutput } from '../ci/verify-cloudflare-identity';
+import {
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -88,7 +91,23 @@ if (executeRequested && checks.some((check) => check.status === 'failed')) {
 } else if (executeRequested) {
     const envFile = process.env[envFileEnvVar]?.trim() || '.env.production';
     dotenv.config({ path: envFile, override: false, quiet: true });
-    await executeApproved();
+    const localGate = validateExecutionEnvironment();
+    checks.push(localGate);
+    if (localGate.status !== 'failed') {
+        try {
+            await withCloudflareWranglerOAuth({
+                accountId: target.accountId,
+                consume: executeApproved,
+            });
+        } catch (error) {
+            checks.push({
+                status: 'failed',
+                name: 'secure_cloudflare_oauth_gate',
+                message: 'Wrangler could not attest the encrypted OAuth keyring and exact Cloudflare account.',
+                details: [safeError(error), 'externalWritePerformed=false'],
+            });
+        }
+    }
 } else {
     checks.push({
         status: 'ok',
@@ -163,10 +182,6 @@ console.log(`[launch:cloudflare-production-fulfillment-secrets] Summary: ${path.
 if (checks.some((check) => check.status === 'failed')) process.exit(1);
 
 async function executeApproved(): Promise<void> {
-    const localGate = validateExecutionEnvironment();
-    checks.push(localGate);
-    if (localGate.status === 'failed') return;
-
     const staticCommands = commands();
     for (const command of [staticCommands.whoami, staticCommands.deployments, staticCommands.secretList]) {
         const capture = runCommand(command);
@@ -497,14 +512,9 @@ function secretPutCommand(name: string): CommandSpec {
 }
 
 function runCommand(command: CommandSpec, input?: string): CommandCapture {
-    const result = spawnSync(pnpmCommand(), command.args, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: process.env,
+    const result = runCloudflareWranglerFromKeyring(scopedWranglerArgs(command.args), {
         input,
-        timeout: 120_000,
-        windowsHide: true,
-        shell: process.platform === 'win32',
+        timeoutMs: 120_000,
     });
     const stdout = sanitize(result.stdout ?? '');
     const stderr = sanitize(result.stderr ?? '');
@@ -525,8 +535,12 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
     return { id: command.id, display: command.display, outputPath, exitCode: result.status, status, writesCloudflare: command.writesCloudflare };
 }
 
-function pnpmCommand(): string {
-    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+function scopedWranglerArgs(args: readonly string[]): string[] {
+    const prefix = ['--config.verify-deps-before-run=false', 'exec', 'wrangler'];
+    if (!prefix.every((value, index) => args[index] === value)) {
+        throw new Error('Refusing a command outside the scoped Wrangler command boundary.');
+    }
+    return args.slice(prefix.length);
 }
 
 function commandCheck(capture: CommandCapture): Check {
@@ -665,7 +679,6 @@ function sanitize(value: string): string {
 
     const knownValues = new Set([
         ...requiredSecretNames.map((name) => secretValue(name)),
-        process.env.CLOUDFLARE_API_TOKEN?.trim() ?? '',
     ]);
     for (const knownValue of knownValues) {
         if (knownValue) {

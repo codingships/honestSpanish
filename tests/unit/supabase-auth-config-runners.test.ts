@@ -24,9 +24,15 @@ import {
     verifyLiveProductionAuthInert,
     validateProductionAuthInertReceipt,
     getSafeAuthConfig,
-    type Fetcher,
     type SafeAuthConfig,
 } from '../../scripts/launch/supabase-auth-config-shared';
+import {
+    supabaseAuthManagementTestOnly,
+    type AllowedSupabaseManagementProjectRef,
+    type SupabaseAuthManagementClient,
+    type SupabaseCredentialProcessRunner,
+    type SupabaseManagementFetcher,
+} from '../../scripts/launch/supabase-cli-windows-credential';
 
 const productionRunner = readFileSync(
     'scripts/launch/supabase-auth-production-gate.ts',
@@ -40,6 +46,16 @@ const preflightRunner = readFileSync(
     'scripts/launch/supabase-auth-config-preflight.ts',
     'utf8',
 );
+const scopedManagementRunnerPaths = [
+    'scripts/launch/supabase-auth-config-preflight.ts',
+    'scripts/launch/supabase-auth-production-gate.ts',
+    'scripts/launch/supabase-auth-staging-callbacks-gate.ts',
+    'scripts/launch/production-inert-final-readonly.ts',
+    'scripts/launch/production-fixture-cleanup-runner.ts',
+    'scripts/launch/supabase-production-logical-backup.ts',
+    'scripts/launch/supabase-production-rollout-runner.ts',
+    'scripts/launch/supabase-production-auth-cleanup.ts',
+] as const;
 
 const baseConfig: SafeAuthConfig = {
     disable_signup: false,
@@ -47,6 +63,14 @@ const baseConfig: SafeAuthConfig = {
     site_url: 'https://example.com',
     uri_allow_list: 'https://example.com/auth/callback',
 };
+const testManagementToken = ['sbp_', 'a'.repeat(40)].join('');
+
+const successfulCredentialReader: SupabaseCredentialProcessRunner = vi.fn(async () => ({
+    exitCode: 0,
+    signal: null,
+    stdout: Buffer.from(testManagementToken, 'utf8'),
+    stderr: Buffer.alloc(0),
+}));
 
 function jsonResponse(payload: unknown, status = 200): Response {
     return new Response(JSON.stringify(payload), {
@@ -56,12 +80,25 @@ function jsonResponse(payload: unknown, status = 200): Response {
 }
 
 function sequenceFetcher(responses: Response[]) {
-    const fetcher = vi.fn(async () => {
+    const fetcher = vi.fn(async (_input: string, _init: RequestInit) => {
         const response = responses.shift();
         if (!response) throw new Error('Unexpected fetch');
         return response;
-    }) as unknown as Fetcher;
+    }) as unknown as SupabaseManagementFetcher;
     return fetcher;
+}
+
+async function withTestManagementClient<T>(
+    projectRef: AllowedSupabaseManagementProjectRef,
+    fetcher: SupabaseManagementFetcher,
+    operation: (client: Readonly<SupabaseAuthManagementClient>) => T | Promise<T>,
+): Promise<T> {
+    return await supabaseAuthManagementTestOnly.withDependencies(projectRef, operation, {
+        platform: 'win32',
+        env: { SystemRoot: 'C:\\Windows' },
+        runProcess: successfulCredentialReader,
+        fetcher,
+    });
 }
 
 describe('Supabase Auth config runners', () => {
@@ -125,13 +162,15 @@ describe('Supabase Auth config runners', () => {
 
     it('re-reads live production Auth and rejects drift before an operation', async () => {
         const inert = { ...baseConfig, disable_signup: true, mailer_autoconfirm: false };
-        await expect(verifyLiveProductionAuthInert(
-            'test-management-token',
+        await expect(withTestManagementClient(
+            SUPABASE_AUTH_TARGETS.production.projectRef,
             sequenceFetcher([jsonResponse(inert)]),
+            async (client) => await verifyLiveProductionAuthInert(client),
         )).resolves.toEqual(inert);
-        await expect(verifyLiveProductionAuthInert(
-            'test-management-token',
+        await expect(withTestManagementClient(
+            SUPABASE_AUTH_TARGETS.production.projectRef,
             sequenceFetcher([jsonResponse({ ...inert, disable_signup: false })]),
+            async (client) => await verifyLiveProductionAuthInert(client),
         )).rejects.toThrow('Supabase production Auth is not inert');
     });
 
@@ -249,13 +288,15 @@ describe('Supabase Auth config runners', () => {
             jsonResponse(after),
         ]);
 
-        const result = await applyVerifiedAuthConfigChange({
-            projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
-            token: 'test-management-token',
-            buildDesiredPatch: () => productionDesiredPatch('inert'),
-            verifyDesired: verifyExactSafePatch,
+        const result = await withTestManagementClient(
+            SUPABASE_AUTH_TARGETS.production.projectRef,
             fetcher,
-        });
+            async (client) => await applyVerifiedAuthConfigChange({
+                client,
+                buildDesiredPatch: () => productionDesiredPatch('inert'),
+                verifyDesired: verifyExactSafePatch,
+            }),
+        );
 
         expect(result.status).toBe('applied');
         expect(fetcher).toHaveBeenCalledTimes(3);
@@ -297,13 +338,15 @@ describe('Supabase Auth config runners', () => {
             jsonResponse(before),
         ]);
 
-        const result = await applyVerifiedAuthConfigChange({
-            projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
-            token: 'test-management-token',
-            buildDesiredPatch: () => productionDesiredPatch('inert'),
-            verifyDesired: verifyExactSafePatch,
+        const result = await withTestManagementClient(
+            SUPABASE_AUTH_TARGETS.production.projectRef,
             fetcher,
-        });
+            async (client) => await applyVerifiedAuthConfigChange({
+                client,
+                buildDesiredPatch: () => productionDesiredPatch('inert'),
+                verifyDesired: verifyExactSafePatch,
+            }),
+        );
 
         expect(result.status).toBe('failed_rolled_back');
         expect(result.rollback).toMatchObject({
@@ -334,13 +377,15 @@ describe('Supabase Auth config runners', () => {
             jsonResponse(baseConfig),
         ]);
 
-        const result = await applyVerifiedAuthConfigChange({
-            projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
-            token: 'test-management-token',
-            buildDesiredPatch: () => productionDesiredPatch('inert'),
-            verifyDesired: verifyExactSafePatch,
+        const result = await withTestManagementClient(
+            SUPABASE_AUTH_TARGETS.production.projectRef,
             fetcher,
-        });
+            async (client) => await applyVerifiedAuthConfigChange({
+                client,
+                buildDesiredPatch: () => productionDesiredPatch('inert'),
+                verifyDesired: verifyExactSafePatch,
+            }),
+        );
 
         expect(result.status).toBe('failed_no_change');
         expect(result.rollback.attempted).toBe(false);
@@ -360,23 +405,25 @@ describe('Supabase Auth config runners', () => {
             jsonResponse(after),
         ]);
 
-        const result = await applyVerifiedAuthConfigChange({
-            projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
-            token: 'test-management-token',
-            buildDesiredPatch: (before) => ({
-                site_url: STAGING_SITE_URL,
-                uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_REDIRECTS),
-            }),
-            verifyDesired: (before, observed, patch) => (
-                observed.disable_signup === before.disable_signup
-                && observed.mailer_autoconfirm === before.mailer_autoconfirm
-                && patch.site_url === STAGING_SITE_URL
-                && observed.site_url === STAGING_SITE_URL
-                && typeof patch.uri_allow_list === 'string'
-                && allowListExactlyMatches(observed.uri_allow_list, patch.uri_allow_list)
-            ),
+        const result = await withTestManagementClient(
+            SUPABASE_AUTH_TARGETS.staging.projectRef,
             fetcher,
-        });
+            async (client) => await applyVerifiedAuthConfigChange({
+                client,
+                buildDesiredPatch: (before) => ({
+                    site_url: STAGING_SITE_URL,
+                    uri_allow_list: mergeUriAllowList(before.uri_allow_list, STAGING_AUTH_REDIRECTS),
+                }),
+                verifyDesired: (before, observed, patch) => (
+                    observed.disable_signup === before.disable_signup
+                    && observed.mailer_autoconfirm === before.mailer_autoconfirm
+                    && patch.site_url === STAGING_SITE_URL
+                    && observed.site_url === STAGING_SITE_URL
+                    && typeof patch.uri_allow_list === 'string'
+                    && allowListExactlyMatches(observed.uri_allow_list, patch.uri_allow_list)
+                ),
+            }),
+        );
 
         expect(result.status).toBe('applied');
         expect(fetcher).toHaveBeenNthCalledWith(
@@ -416,29 +463,31 @@ describe('Supabase Auth config runners', () => {
             jsonResponse(before),
         ]);
 
-        const result = await applyVerifiedAuthConfigChange({
-            projectRef: SUPABASE_AUTH_TARGETS.staging.projectRef,
-            token: 'test-management-token',
-            buildDesiredPatch: () => ({
-                site_url: STAGING_SITE_URL,
-                uri_allow_list: desiredAllowList,
-            }),
-            verifyDesired: (baseline, observed, patch) => (
-                observed.disable_signup === baseline.disable_signup
-                && observed.mailer_autoconfirm === baseline.mailer_autoconfirm
-                && patch.site_url === STAGING_SITE_URL
-                && observed.site_url === STAGING_SITE_URL
-                && typeof patch.uri_allow_list === 'string'
-                && allowListExactlyMatches(observed.uri_allow_list, patch.uri_allow_list)
-            ),
-            verifyRollback: (baseline, observed) => (
-                observed.disable_signup === baseline.disable_signup
-                && observed.mailer_autoconfirm === baseline.mailer_autoconfirm
-                && observed.site_url === baseline.site_url
-                && allowListExactlyMatches(observed.uri_allow_list, baseline.uri_allow_list)
-            ),
+        const result = await withTestManagementClient(
+            SUPABASE_AUTH_TARGETS.staging.projectRef,
             fetcher,
-        });
+            async (client) => await applyVerifiedAuthConfigChange({
+                client,
+                buildDesiredPatch: () => ({
+                    site_url: STAGING_SITE_URL,
+                    uri_allow_list: desiredAllowList,
+                }),
+                verifyDesired: (baseline, observed, patch) => (
+                    observed.disable_signup === baseline.disable_signup
+                    && observed.mailer_autoconfirm === baseline.mailer_autoconfirm
+                    && patch.site_url === STAGING_SITE_URL
+                    && observed.site_url === STAGING_SITE_URL
+                    && typeof patch.uri_allow_list === 'string'
+                    && allowListExactlyMatches(observed.uri_allow_list, patch.uri_allow_list)
+                ),
+                verifyRollback: (baseline, observed) => (
+                    observed.disable_signup === baseline.disable_signup
+                    && observed.mailer_autoconfirm === baseline.mailer_autoconfirm
+                    && observed.site_url === baseline.site_url
+                    && allowListExactlyMatches(observed.uri_allow_list, baseline.uri_allow_list)
+                ),
+            }),
+        );
 
         expect(result.status).toBe('failed_rolled_back');
         expect(result.rollback).toMatchObject({
@@ -465,27 +514,44 @@ describe('Supabase Auth config runners', () => {
     it('keeps plan and blocked branches before the only write-capable call sites', () => {
         for (const source of [productionRunner, stagingRunner]) {
             const planBranch = source.indexOf('if (!executeRequested)');
-            const blockedBranch = source.indexOf('else if (!approvalMatched || !token)');
+            const blockedBranch = source.indexOf('else if (!approvalMatched)');
+            const credentialScope = source.indexOf('await withSupabaseAuthManagementClient');
             const applyCall = source.indexOf('await applyVerifiedAuthConfigChange');
 
             expect(planBranch).toBeGreaterThan(-1);
             expect(blockedBranch).toBeGreaterThan(planBranch);
-            expect(applyCall).toBeGreaterThan(blockedBranch);
+            expect(credentialScope).toBeGreaterThan(blockedBranch);
+            expect(applyCall).toBeGreaterThan(credentialScope);
+            expect(source).not.toContain('SUPABASE_ACCESS_TOKEN');
             expect(source).not.toMatch(/console\.log\([^\n]*(?:token|Authorization)/u);
         }
+        expect(preflightRunner).toContain('withSupabaseAuthManagementClient');
         expect(preflightRunner).toContain('getSafeAuthConfig');
         expect(preflightRunner).not.toContain('patchAuthConfig');
         expect(preflightRunner).not.toContain("method: 'PATCH'");
+        expect(preflightRunner).not.toContain('SUPABASE_ACCESS_TOKEN');
     });
 
-    it('rejects any project ref outside the staging/production allowlist before fetch', async () => {
-        const fetcher = vi.fn() as unknown as Fetcher;
-        await expect(getSafeAuthConfig({
+    it('routes every Management API runner through the scoped Windows credential client', () => {
+        for (const runnerPath of scopedManagementRunnerPaths) {
+            const source = readFileSync(runnerPath, 'utf8');
+            expect(source, runnerPath).toContain('withSupabaseAuthManagementClient');
+            expect(source, runnerPath).not.toContain('SUPABASE_ACCESS_TOKEN');
+            expect(source, runnerPath).not.toContain('SUPABASE_MANAGEMENT_API_BASE');
+            expect(source, runnerPath).not.toMatch(/Authorization\s*:\s*[`'"]Bearer/iu);
+        }
+    });
+
+    it('rejects any project ref outside the staging/production allowlist before client I/O', async () => {
+        const getAuthConfig = vi.fn();
+        const client = {
             projectRef: 'attacker-controlled-ref',
-            token: 'test-management-token',
-            fetcher,
-        })).rejects.toThrow('target is not allowlisted');
-        expect(fetcher).not.toHaveBeenCalled();
+            getAuthConfig,
+            patchAuthConfig: vi.fn(),
+        } as unknown as Readonly<SupabaseAuthManagementClient>;
+
+        await expect(getSafeAuthConfig(client)).rejects.toThrow('target is not allowlisted');
+        expect(getAuthConfig).not.toHaveBeenCalled();
     });
 
     it('redacts management tokens from controlled error text', () => {

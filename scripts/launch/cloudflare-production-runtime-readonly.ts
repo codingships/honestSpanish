@@ -14,6 +14,13 @@ import {
     productionBootstrapSecretInventoryErrors,
     productionInertBindingNameErrors,
 } from './cloudflare-production-worker-safety';
+import {
+    discoverAllowlistedCloudflareZone,
+    requestAllowlistedCloudflareAccount,
+    requestAllowlistedCloudflareZoneRead,
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -72,7 +79,7 @@ interface Report {
     summaryPath: string;
 }
 
-type ApiReadOutcome = 'ok' | 'expected-not-ready' | 'token-missing' | 'permission-gap' | 'api-error';
+type ApiReadOutcome = 'ok' | 'expected-not-ready' | 'permission-gap' | 'api-error';
 
 interface ApiReadCapture {
     id: string;
@@ -139,7 +146,7 @@ interface WorkerScriptInventory {
 }
 
 interface ApiInventory {
-    tokenAvailable: boolean;
+    oauthKeyringAttested: boolean;
     calls: ApiReadCapture[];
     workerScripts: WorkerScriptInventory;
     fulfillmentSchedules: {
@@ -325,7 +332,10 @@ const startedAt = new Date();
 const outputDir = path.join(process.cwd(), 'outputs', 'launch-cloudflare-production-runtime-readonly', stamp(startedAt));
 mkdirSync(outputDir, { recursive: true });
 
-void main().catch((error: Error) => {
+void withCloudflareWranglerOAuth({
+    accountId: target.accountId,
+    consume: main,
+}).catch((error: Error) => {
     console.error(`[launch:cloudflare-production-runtime-readonly] ${safeErrorMessage(error)}`);
     process.exitCode = 1;
 });
@@ -375,23 +385,11 @@ function runProbe(config: ProbeConfig): ProbeResult {
         throw new Error(`Wrangler read scope rejected for probe ${config.id}.`);
     }
     const outputPath = path.join(outputDir, `${config.id}.txt`);
-    const result = spawnSync(pnpmCommand(), [
-        '--config.verify-deps-before-run=false',
-        'exec',
-        'wrangler',
+    const result = runCloudflareWranglerFromKeyring([
         ...config.args,
         '--install-skills=false',
     ], {
-        env: {
-            ...process.env,
-            CLOUDFLARE_ACCOUNT_ID: target.accountId,
-            CI: 'true',
-            WRANGLER_SEND_METRICS: 'false',
-        },
-        encoding: 'utf8',
-        timeout: 45_000,
-        windowsHide: true,
-        shell: process.platform === 'win32',
+        timeoutMs: 45_000,
     });
 
     const stdout = sanitizeOutput(typeof result.stdout === 'string' ? result.stdout : String(result.stdout ?? ''));
@@ -556,7 +554,6 @@ interface ApiGetResult {
 
 async function captureApiInventory(): Promise<ApiInventory> {
     const calls: ApiReadCapture[] = [];
-    const token = process.env.CLOUDFLARE_API_TOKEN?.trim() ?? '';
     const legacyHeadDeployment = captureLegacyHeadDeploymentPosture();
     const emptyQueue = (name: string): QueueInventorySnapshot => ({
         name,
@@ -570,7 +567,7 @@ async function captureApiInventory(): Promise<ApiInventory> {
         gaps: [],
     });
     const inventory: ApiInventory = {
-        tokenAvailable: Boolean(token),
+        oauthKeyringAttested: true,
         calls,
         workerScripts: {
             state: 'gap',
@@ -589,18 +586,8 @@ async function captureApiInventory(): Promise<ApiInventory> {
         gaps: [],
     };
 
-    if (!token) {
-        const gap = 'CLOUDFLARE_API_TOKEN is unavailable; Worker script names, subdomain flags, Queue, metrics and Cron GET inventory were not attempted.';
-        inventory.gaps.push(gap);
-        inventory.workerScripts.gaps.push(gap);
-        inventory.fulfillmentSchedules.gaps.push(gap);
-        inventory.queue.gaps.push(gap);
-        inventory.deadLetterQueue.gaps.push(gap);
-        return inventory;
-    }
-
     const scriptsPath = `/accounts/${target.accountId}/workers/scripts`;
-    const scripts = await cloudflareGet('worker_scripts_list', scriptsPath, token, calls);
+    const scripts = await cloudflareGet('worker_scripts_list', scriptsPath, calls);
     if (scripts.ok) {
         const names = asArray(scripts.payload.result)
             .map(asRecord)
@@ -615,7 +602,7 @@ async function captureApiInventory(): Promise<ApiInventory> {
             gaps: [],
         };
         for (const name of flaggedLegacyWorkerNames) {
-            inventory.workerScripts.flagged.push(await readFlaggedWorkerScriptSnapshot(name, names, token, calls));
+            inventory.workerScripts.flagged.push(await readFlaggedWorkerScriptSnapshot(name, names, calls));
         }
         inventory.workerScripts.gaps.push(...inventory.workerScripts.flagged.flatMap((snapshot) =>
             snapshot.gaps
@@ -628,7 +615,7 @@ async function captureApiInventory(): Promise<ApiInventory> {
     }
 
     const schedulesPath = `/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(target.productionFulfillmentWorker)}/schedules`;
-    const schedules = await cloudflareGet('production_fulfillment_schedules', schedulesPath, token, calls);
+    const schedules = await cloudflareGet('production_fulfillment_schedules', schedulesPath, calls);
     if (schedules.ok) {
         const rawResult = schedules.payload.result;
         const rows = Array.isArray(rawResult) ? rawResult : asArray(asRecord(rawResult).schedules);
@@ -647,7 +634,7 @@ async function captureApiInventory(): Promise<ApiInventory> {
     let totalPages = 1;
     while (page <= totalPages && page <= 100) {
         const queueListPath = `/accounts/${target.accountId}/queues?page=${page}&per_page=100`;
-        const pageResult = await cloudflareGet(`production_queues_page_${page}`, queueListPath, token, calls);
+        const pageResult = await cloudflareGet(`production_queues_page_${page}`, queueListPath, calls);
         if (!pageResult.ok) {
             const gap = `queue-list-page-${page}:${pageResult.outcome}`;
             inventory.gaps.push(gap);
@@ -676,7 +663,6 @@ async function captureApiInventory(): Promise<ApiInventory> {
         inventory.workerScripts.flagged,
         inventory.workerScripts.names,
         queueRows,
-        token,
         calls,
     );
     inventory.workerScripts.gaps.push(...inventory.workerScripts.flagged.flatMap((snapshot) =>
@@ -685,8 +671,8 @@ async function captureApiInventory(): Promise<ApiInventory> {
             .map((gap) => `${snapshot.name}:${gap}`)));
     if (inventory.workerScripts.gaps.length > 0) inventory.workerScripts.state = 'gap';
 
-    inventory.queue = await readExactQueueSnapshot(target.productionQueue, queueRows, token, calls);
-    inventory.deadLetterQueue = await readExactQueueSnapshot(target.productionDeadLetterQueue, queueRows, token, calls);
+    inventory.queue = await readExactQueueSnapshot(target.productionQueue, queueRows, calls);
+    inventory.deadLetterQueue = await readExactQueueSnapshot(target.productionDeadLetterQueue, queueRows, calls);
     inventory.gaps.push(
         ...inventory.workerScripts.gaps,
         ...inventory.queue.gaps.map((gap) => `${target.productionQueue}:${gap}`),
@@ -721,7 +707,6 @@ function emptyFlaggedWorkerScript(name: string): FlaggedWorkerScriptSnapshot {
 async function readFlaggedWorkerScriptSnapshot(
     name: string,
     scriptNames: string[],
-    token: string,
     calls: ApiReadCapture[],
 ): Promise<FlaggedWorkerScriptSnapshot> {
     const snapshot = emptyFlaggedWorkerScript(name);
@@ -734,7 +719,6 @@ async function readFlaggedWorkerScriptSnapshot(
     const schedules = await cloudflareGet(
         `${safeId(name)}_schedules`,
         `/accounts/${target.accountId}/workers/scripts/${encodedName}/schedules`,
-        token,
         calls,
     );
     if (schedules.ok) {
@@ -750,7 +734,6 @@ async function readFlaggedWorkerScriptSnapshot(
     const subdomain = await cloudflareGet(
         `${safeId(name)}_subdomain`,
         `/accounts/${target.accountId}/workers/scripts/${encodedName}/subdomain`,
-        token,
         calls,
     );
     if (subdomain.ok) {
@@ -773,7 +756,6 @@ async function enrichFlaggedWorkerInvocationSurfaces(
     snapshots: FlaggedWorkerScriptSnapshot[],
     scriptNames: string[],
     queueRows: Record<string, unknown>[],
-    token: string,
     calls: ApiReadCapture[],
 ): Promise<void> {
     const present = snapshots.filter((snapshot) => snapshot.present);
@@ -795,7 +777,6 @@ async function enrichFlaggedWorkerInvocationSurfaces(
         const domains = await cloudflareGet(
             `${safeId(snapshot.name)}_custom_domains`,
             `/accounts/${target.accountId}/workers/domains?service=${encodeURIComponent(snapshot.name)}`,
-            token,
             calls,
         );
         if (!domains.ok) {
@@ -810,8 +791,7 @@ async function enrichFlaggedWorkerInvocationSurfaces(
 
     const zones = await readPaginatedApiRows(
         'account_zones',
-        (page) => `/zones?account.id=${target.accountId}&page=${page}&per_page=50`,
-        token,
+        (page) => `/zones?name=espanolhonesto.com&account.id=${target.accountId}&page=${page}&per_page=50`,
         calls,
     );
     if (!zones.ok) {
@@ -826,7 +806,6 @@ async function enrichFlaggedWorkerInvocationSurfaces(
             const routes = await cloudflareGet(
                 `zone_${safeId(zoneId)}_worker_routes`,
                 `/zones/${zoneId}/workers/routes`,
-                token,
                 calls,
             );
             if (!routes.ok) {
@@ -851,7 +830,6 @@ async function enrichFlaggedWorkerInvocationSurfaces(
         const consumers = await cloudflareGet(
             `queue_${safeId(queueId)}_consumers`,
             `/accounts/${target.accountId}/queues/${queueId}/consumers`,
-            token,
             calls,
         );
         if (!consumers.ok) {
@@ -871,7 +849,6 @@ async function enrichFlaggedWorkerInvocationSurfaces(
         const settings = await cloudflareGet(
             `${safeId(scriptName)}_settings`,
             `/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(scriptName)}/settings`,
-            token,
             calls,
         );
         if (!settings.ok) {
@@ -898,7 +875,6 @@ async function enrichFlaggedWorkerInvocationSurfaces(
             const rules = await readPaginatedApiRows(
                 `zone_${safeId(zoneId)}_email_routing_rules`,
                 (page) => `/zones/${zoneId}/email/routing/rules?page=${page}&per_page=50`,
-                token,
                 calls,
             );
             if (!rules.ok) markAll(`email-routing:${rules.gap}`);
@@ -907,7 +883,6 @@ async function enrichFlaggedWorkerInvocationSurfaces(
             const catchAll = await cloudflareGet(
                 `zone_${safeId(zoneId)}_email_routing_catch_all`,
                 `/zones/${zoneId}/email/routing/rules/catch_all`,
-                token,
                 calls,
             );
             if (!catchAll.ok) {
@@ -936,14 +911,13 @@ interface PaginatedApiRows {
 async function readPaginatedApiRows(
     idPrefix: string,
     pathForPage: (page: number) => string,
-    token: string,
     calls: ApiReadCapture[],
 ): Promise<PaginatedApiRows> {
     const rows: Record<string, unknown>[] = [];
     let page = 1;
     let totalPages = 1;
     while (page <= totalPages && page <= 100) {
-        const result = await cloudflareGet(`${idPrefix}_page_${page}`, pathForPage(page), token, calls);
+        const result = await cloudflareGet(`${idPrefix}_page_${page}`, pathForPage(page), calls);
         if (!result.ok) return { ok: false, rows: [], gap: `${idPrefix}:page-${page}:${result.outcome}` };
         const raw = result.payload.result;
         const record = asRecord(raw);
@@ -1001,7 +975,6 @@ function referencesWorker(value: unknown, workerName: string): boolean {
 async function readExactQueueSnapshot(
     name: string,
     rows: Record<string, unknown>[],
-    token: string,
     calls: ApiReadCapture[],
 ): Promise<QueueInventorySnapshot> {
     const matches = rows.filter((row) => queueName(row) === name);
@@ -1047,7 +1020,7 @@ async function readExactQueueSnapshot(
     }
 
     const basePath = `/accounts/${target.accountId}/queues/${queueId}`;
-    const detail = await cloudflareGet(`${safeId(name)}_detail`, basePath, token, calls);
+    const detail = await cloudflareGet(`${safeId(name)}_detail`, basePath, calls);
     if (!detail.ok) {
         return {
             name,
@@ -1080,7 +1053,7 @@ async function readExactQueueSnapshot(
         snapshot.state = 'gap';
         snapshot.gaps.push(`detail-name-mismatch=${queueName(result)}`);
     }
-    const metrics = await cloudflareGet(`${safeId(name)}_metrics`, `${basePath}/metrics`, token, calls);
+    const metrics = await cloudflareGet(`${safeId(name)}_metrics`, `${basePath}/metrics`, calls);
     if (metrics.ok) {
         const backlog = finiteNumber(asRecord(metrics.payload.result).backlog_count);
         if (backlog !== null && Number.isInteger(backlog) && backlog >= 0) {
@@ -1099,7 +1072,6 @@ async function readExactQueueSnapshot(
 async function cloudflareGet(
     id: string,
     apiPath: string,
-    token: string,
     calls: ApiReadCapture[],
 ): Promise<ApiGetResult> {
     if (!isAllowlistedCloudflareGetPath(apiPath)) {
@@ -1117,16 +1089,36 @@ async function cloudflareGet(
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 30_000);
     try {
-        const response = await fetch(`https://api.cloudflare.com/client/v4${apiPath}`, {
-            method: 'GET',
-            signal: controller.signal,
-            headers: {
-                authorization: `Bearer ${token}`,
-                accept: 'application/json',
-            },
-        });
-        const raw = await response.text();
-        capture.httpStatus = response.status;
+        let responseStatus: number;
+        let responseOk: boolean;
+        let raw: string;
+        if (isExactZoneDiscoveryPath(apiPath)) {
+            const zone = await discoverAllowlistedCloudflareZone();
+            responseStatus = 200;
+            responseOk = true;
+            raw = JSON.stringify({
+                success: true,
+                result: [{ id: zone.id, name: zone.name, account: { id: zone.accountId } }],
+                result_info: { page: 1, per_page: 50, total_pages: 1 },
+            });
+        } else {
+            const zoneResource = parseExactZoneResourcePath(apiPath);
+            const response = zoneResource
+                ? await requestAllowlistedCloudflareZoneRead(
+                    zoneResource.zoneId,
+                    zoneResource.resourcePath,
+                    { method: 'GET', signal: controller.signal, headers: { accept: 'application/json' } },
+                )
+                : await requestAllowlistedCloudflareAccount(apiPath, {
+                    method: 'GET',
+                    signal: controller.signal,
+                    headers: { accept: 'application/json' },
+                });
+            responseStatus = response.status;
+            responseOk = response.ok;
+            raw = await response.text();
+        }
+        capture.httpStatus = responseStatus;
         capture.responseSha256 = sha256(raw);
         let payload: Record<string, unknown> = {};
         try {
@@ -1135,13 +1127,13 @@ async function cloudflareGet(
             capture.outcome = 'api-error';
             return { ok: false, outcome: capture.outcome, payload: {} };
         }
-        const success = response.ok && payload.success === true;
+        const success = responseOk && payload.success === true;
         capture.success = success;
         capture.outcome = success
             ? 'ok'
-            : response.status === 404
+            : responseStatus === 404
                 ? 'expected-not-ready'
-                : response.status === 401 || response.status === 403
+                : responseStatus === 401 || responseStatus === 403
                     ? 'permission-gap'
                     : 'api-error';
         return { ok: success, outcome: capture.outcome, payload };
@@ -1151,6 +1143,17 @@ async function cloudflareGet(
     } finally {
         clearTimeout(timeout);
     }
+}
+
+function isExactZoneDiscoveryPath(apiPath: string): boolean {
+    return apiPath === `/zones?name=espanolhonesto.com&account.id=${target.accountId}&page=1&per_page=50`;
+}
+
+function parseExactZoneResourcePath(apiPath: string): { zoneId: string; resourcePath: string } | null {
+    const match = /^\/zones\/([0-9a-f]{32})(\/.*)$/iu.exec(apiPath);
+    return match?.[1] && match[2]
+        ? { zoneId: match[1], resourcePath: match[2] }
+        : null;
 }
 
 function isAllowlistedCloudflareGetPath(apiPath: string): boolean {
@@ -1163,7 +1166,7 @@ function isAllowlistedCloudflareGetPath(apiPath: string): boolean {
         if (apiPath === `${accountPrefix}/workers/domains?service=${encodeURIComponent(name)}`) return true;
     }
     if (new RegExp(`^${escapeRegExp(accountPrefix)}/workers/scripts/[a-z0-9_][a-z0-9_-]*/settings$`, 'iu').test(apiPath)) return true;
-    if (new RegExp(`^/zones\\?account\\.id=${target.accountId}&page=\\d+&per_page=50$`, 'u').test(apiPath)) return true;
+    if (isExactZoneDiscoveryPath(apiPath)) return true;
     if (/^\/zones\/[0-9a-f]{32}\/workers\/routes$/iu.test(apiPath)) return true;
     if (/^\/zones\/[0-9a-f]{32}\/email\/routing\/rules\?page=\d+&per_page=50$/iu.test(apiPath)) return true;
     if (/^\/zones\/[0-9a-f]{32}\/email\/routing\/rules\/catch_all$/iu.test(apiPath)) return true;
@@ -1338,7 +1341,7 @@ function buildChecks(
                 : 'A direct Cloudflare API request fell outside the exact GET-only allowlist.',
             details: apiInventory.calls.length > 0
                 ? apiInventory.calls.map((call) => `${call.id}=GET ${call.path}:${call.outcome}`)
-                : ['apiCalls=0', `tokenAvailable=${apiInventory.tokenAvailable}`],
+                : ['apiCalls=0', `oauthKeyringAttested=${apiInventory.oauthKeyringAttested}`],
         },
         {
             status: authSummary.loggedIn && authSummary.targetAccountFound ? 'ok' : 'failed',
@@ -2234,7 +2237,7 @@ function renderMarkdown(report: Report): string {
         '',
         '## Direct Cloudflare GET Inventory',
         '',
-        `- API token available to this process: ${report.apiInventory.tokenAvailable}.`,
+        `- Encrypted Wrangler OAuth keyring attested: ${report.apiInventory.oauthKeyringAttested}.`,
         `- Worker scripts: state=${report.apiInventory.workerScripts.state}; names=${report.apiInventory.workerScripts.names.join(',') || 'none'}.`,
         ...report.apiInventory.workerScripts.flagged.map((snapshot) =>
             `- Flagged Worker ${snapshot.name}: present=${snapshot.present}; crons=${snapshot.crons.join(',') || 'none'}; workers.dev=${String(snapshot.workersDevEnabled)}; previews=${String(snapshot.previewsEnabled)}; invocation surfaces=${snapshot.invocationSurfaces.state} (domains=${snapshot.invocationSurfaces.customDomains}, routes=${snapshot.invocationSurfaces.workerRoutes}, queues=${snapshot.invocationSurfaces.queueConsumers}, service bindings=${snapshot.invocationSurfaces.inboundServiceBindings}, tails=${snapshot.invocationSurfaces.inboundTailConsumerReferences}, email routing=${snapshot.invocationSurfaces.emailRoutingReferences}); gaps=${snapshot.gaps.join(',') || 'none'}.`),
@@ -2349,10 +2352,6 @@ function finiteNumber(value: unknown): number | null {
 
 function stringValue(value: unknown): string {
     return typeof value === 'string' ? value : typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
-}
-
-function pnpmCommand(): string {
-    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
 }
 
 function sanitizeOutput(value: string): string {

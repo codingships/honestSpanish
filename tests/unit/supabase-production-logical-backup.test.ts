@@ -165,11 +165,18 @@ describe('Supabase production logical-backup runner', () => {
 
     it('requires a fresh receipt and repeats the Auth GET immediately before pg_dump', () => {
         const receiptIndex = runnerSource.indexOf('readProductionAuthInertEvidence(options.authInertEvidencePath');
-        const liveGetIndex = runnerSource.indexOf('await verifyLiveProductionAuthInert(accessToken)');
+        const credentialScopeIndex = runnerSource.indexOf('await withSupabaseAuthManagementClient(');
+        const liveGetIndex = runnerSource.indexOf(
+            'verifyLiveProductionAuthInert(client)',
+            credentialScopeIndex,
+        );
         const pgDumpIndex = runnerSource.indexOf("const dumpResult = runTool('pg_dump'");
         expect(receiptIndex).toBeGreaterThan(-1);
-        expect(liveGetIndex).toBeGreaterThan(receiptIndex);
+        expect(credentialScopeIndex).toBeGreaterThan(receiptIndex);
+        expect(liveGetIndex).toBeGreaterThan(credentialScopeIndex);
         expect(pgDumpIndex).toBeGreaterThan(liveGetIndex);
+        expect(runnerSource).not.toContain('SUPABASE_ACCESS_TOKEN');
+        expect(runnerSource).toContain('Windows Credential Manager');
         expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
         expect(runnerSource).toContain("status: 'BLOCKED_LIVE_AUTH_NOT_INERT'");
     });

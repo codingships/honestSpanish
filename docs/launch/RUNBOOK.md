@@ -222,11 +222,15 @@ pnpm launch:supabase-production-auth-cleanup -- finalize \
   --execute-approved
 ```
 
-El preflight toma `PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_DB_URL` de variables de proceso o `.env`; `SUPABASE_ACCESS_TOKEN` solo de proceso; y resuelve exclusivamente `TEST_ADMIN_EMAIL`/`TEST_TEACHER_EMAIL` desde proceso o `.env.test`. Nunca lee sus passwords. Cada write exige además el valor exacto de `SUPABASE_PRODUCTION_AUTH_INERT_CONFIRMATION` y uno de cinco envs de aprobacion independientes (`..._DELETE_APPROVAL`, `..._RESUME_DELETE_APPROVAL`, `..._FINALIZE_APPROVAL`, `..._RESUME_FINALIZE_APPROVAL`, `..._REQUARANTINE_APPROVAL`). Copiar esos valores desde `exact-approval-required.txt`, no reconstruirlos manualmente.
+El preflight toma `PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `SUPABASE_DB_URL` de variables de proceso o `.env`, y resuelve exclusivamente `TEST_ADMIN_EMAIL`/`TEST_TEACHER_EMAIL` desde proceso o `.env.test`. Nunca lee sus passwords. Para la API de Management, los runners leen automáticamente la credencial `Supabase CLI:supabase` del Administrador de credenciales de Windows: no se copia al portapapeles, no se guarda en `.env`, no se persiste en el repositorio y solo se expone a un cliente temporal limitado al endpoint Auth del proyecto autorizado. Cada write exige además el valor exacto de `SUPABASE_PRODUCTION_AUTH_INERT_CONFIRMATION` y uno de cinco envs de aprobacion independientes (`..._DELETE_APPROVAL`, `..._RESUME_DELETE_APPROVAL`, `..._FINALIZE_APPROVAL`, `..._RESUME_FINALIZE_APPROVAL`, `..._REQUARANTINE_APPROVAL`). Copiar esos valores de aprobación desde `exact-approval-required.txt`, no reconstruirlos manualmente.
 
 La ruta `re-quarantine` solo es admisible tras validar el receipt Auth anterior contra el mismo backup y cleanup publico y volver a observar live `auth=2`, `candidates=0`, `profiles=0`, `profiles_private=0`, signup desactivado, freeze intacto, cero fixtures y cero ownership Storage. La ejecución exige `SUPABASE_PRODUCTION_AUTH_REQUARANTINE_LEDGER_DIR` en variables de proceso: debe ser una ruta absoluta que resuelva físicamente fuera del repositorio. Allí consume de forma atómica y permanente la pareja `evidenceSha256 + priorReceiptSha256`; limpiar `outputs` no reabre la aprobación. Persiste además un checkpoint write-ahead antes de cada una de las dos rotaciones aleatorias no retenidas; `externalWritePerformed=true` nunca vuelve a `unknown` y `pendingWriteAttempt` registra por separado una llamada ambigua. No borra usuarios, no genera links/reset y no toca Storage, Stripe, Google ni otros servicios. Solo emite `auth-requarantined-receipt.json` si el post-check conserva exactamente los dos IDs agregados y demuestra que `auth.sessions=0` y `auth.refresh_tokens=0`; el receipt declara ausencia verificada tras la rotación, no una revocación causal por API. El receipt nuevo incluye el SHA-256 del preflight, del receipt previo, del backup y del cleanup publico y abre otra ventana `JWT TTL + 5 minutos`. Ante fallo parcial no hay autoretry del mismo par: preflight fresco, nueva aprobación exacta y, tras un cierre correcto, el último receipt debe ser el nuevo predecesor.
 
 Un fallo parcial termina el proceso y deja `auth-cleanup-checkpoint.json` solo con conteos y hashes agregados. No reejecutar el mismo comando: generar un preflight nuevo con `--checkpoint`, revisar el estado y usar `resume-delete` o `resume-finalize` con otra aprobacion. Se bloquea si aparece un usuario posterior al freeze, si los dos preservados no son exactos, si hay ownership en Supabase Storage, si signup no esta desactivado, si JWT supera una hora, si queda cualquier fixture o si el receipt de las 25 migraciones en siete olas no coincide. No envia reset ni ningun otro email, no toca Stripe y deja expresamente intactas las 110 carpetas fixture observadas en Google Drive.
+
+### Credenciales Locales Cifradas
+
+Cloudflare se da de alta con `pnpm exec wrangler login --use-keyring`, se atestigua con `pnpm exec wrangler auth keyring` y `pnpm exec wrangler whoami --json`, y se rota con `pnpm exec wrangler logout` seguido de un login nuevo. No ejecutar manualmente `wrangler auth token --json`: el proveedor es la unica frontera autorizada para leerlo y desactiva los logs de disco de Wrangler durante todo su alcance. Supabase se da de alta con `supabase login`, se comprueba mediante el destino de Windows Credential Manager `Supabase CLI:supabase` y un preflight GET, y se rota con `supabase logout` seguido de un login nuevo. Nunca sustituir un fallo de estos almacenes por tokens en portapapeles, `.env`, argumentos, logs u outputs.
 
 ### Activacion Stripe Live En La Ventana Final
 
@@ -350,7 +354,7 @@ Simulacro controlado de rollback del Fulfillment Worker staging:
 
 ```bash
 # Por defecto: Wrangler + API Cloudflare GET + /health; cero writes.
-# Requiere CLOUDFLARE_API_TOKEN solo en memoria; nunca se guarda en outputs.
+# Usa la sesion OAuth cifrada de Wrangler; no acepta token por env, archivo o portapapeles.
 pnpm launch:cloudflare-staging-fulfillment-rollback-drill
 
 # Solo con la frase exacta generada en exact-approval-required.txt.

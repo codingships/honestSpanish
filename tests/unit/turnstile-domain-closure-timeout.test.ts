@@ -119,6 +119,17 @@ describe('Turnstile production domain closure timeout safety', () => {
 
     it('persists the ambiguous checkpoint before the bounded PUT and classifies every thrown result', () => {
         const source = readFileSync('scripts/launch/turnstile-domain-closure-runner.ts', 'utf8');
+        const executeGatePosition = source.indexOf('if (executeRequested)');
+        const oauthInvocationPosition = source.indexOf('const executionChecks = await withCloudflareWranglerOAuth');
+
+        expect(executeGatePosition).toBeGreaterThanOrEqual(0);
+        expect(oauthInvocationPosition).toBeGreaterThan(executeGatePosition);
+        expect(source).toContain('ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID');
+        expect(source).toContain('fetchImpl: createCloudflareOAuthFetch(api, pathname)');
+        expect(source).toContain("headers.delete('Authorization')");
+        expect(source).toContain("credentialSource: 'wrangler_keyring_oauth'");
+        expect(source).not.toContain('process.env.CLOUDFLARE_API_TOKEN');
+        expect(source).not.toContain('const apiToken = process.env.CLOUDFLARE_API_TOKEN');
         expect(source).toMatch(
             /markExternalWriteAttemptStarted\(externalWriteReceipt\);\s+persistExternalWriteReceipt\('put_started_awaiting_provider_confirmation'\);\s+\s*try \{\s+const payload = await cloudflareRequest/,
         );

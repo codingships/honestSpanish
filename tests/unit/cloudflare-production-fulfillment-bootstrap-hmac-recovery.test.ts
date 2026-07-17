@@ -76,7 +76,7 @@ describe('Cloudflare fulfillment bootstrap HMAC recovery', () => {
             'scripts/launch/cloudflare-production-fulfillment-bootstrap-hmac-recovery.ts',
             'utf8',
         );
-        expect(source.match(/cloudflareRequest\(token, 'DELETE'/gu)).toHaveLength(1);
+        expect(source.match(/cloudflareRequest\('DELETE'/gu)).toHaveLength(1);
         expect(source).toContain("beginOneShotCloudflareWrite(recoveryGuard, deleteCommandId)");
         expect(source).toContain("'deleteRetried=false'");
         expect(source).toContain("retryCloudflareReadonlyEvidence<RecoveryRemoteProof>");
@@ -169,6 +169,8 @@ describe('Cloudflare fulfillment bootstrap HMAC recovery', () => {
         );
         expect(source).not.toContain('process.env.INTERNAL_JOB_SECRET');
         expect(source).not.toContain('secret put');
-        expect(source).toContain('CLOUDFLARE_API_TOKEN');
+        expect(source).not.toContain('CLOUDFLARE_API_TOKEN');
+        expect(source).toContain('withCloudflareWranglerOAuth');
+        expect(source).toContain('requestAllowlistedCloudflareAccount');
     });
 });

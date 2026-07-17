@@ -22,9 +22,12 @@ import {
 import {
     readProductionAuthInertEvidence,
     safeErrorMessage,
-    SUPABASE_ACCESS_TOKEN_ENV,
     verifyLiveProductionAuthInert,
 } from './supabase-auth-config-shared';
+import {
+    SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET,
+    withSupabaseAuthManagementClient,
+} from './supabase-cli-windows-credential';
 
 export { archiveContainsRequiredTableData, cipherOutputShowsEncrypted } from './supabase-production-backup-artifact';
 
@@ -148,7 +151,7 @@ async function main(): Promise<void> {
                 'destination parent verified encrypted by cipher.exe /c (Windows EFS)',
                 `${PRODUCTION_LOGICAL_BACKUP_APPROVAL_ENV}=<exact approval from this plan>`,
                 `${FIXTURE_CLEANUP_DATABASE_ENV}=<exact ${FIXTURE_CLEANUP_TARGET.projectRef} database URL>`,
-                `${SUPABASE_ACCESS_TOKEN_ENV}=<token with auth_config_read>`,
+                `Windows Credential Manager contains ${SUPABASE_CLI_WINDOWS_CREDENTIAL_TARGET}`,
             ],
             authInertEvidence: evidenceSummary(authInert),
             receiptContainsArtifactPath: false,
@@ -222,8 +225,6 @@ async function main(): Promise<void> {
 
     const databaseUrl = process.env[FIXTURE_CLEANUP_DATABASE_ENV];
     if (!databaseUrl) throw new Error(`${FIXTURE_CLEANUP_DATABASE_ENV} is required for execute mode.`);
-    const accessToken = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
-    if (!accessToken) throw new Error(`${SUPABASE_ACCESS_TOKEN_ENV} is required for the final read-only Auth inert verification.`);
     const connection = buildPsqlEnvironment(databaseUrl);
     const databaseToolEnvironment = buildDatabaseToolProcessEnvironment(connection, {
         PGOPTIONS: '-c default_transaction_read_only=on -c statement_timeout=120000 -c lock_timeout=10000',
@@ -252,7 +253,10 @@ async function main(): Promise<void> {
         throw new Error('Production Auth inert receipt expired, changed or failed immediate revalidation.');
     }
     try {
-        await verifyLiveProductionAuthInert(accessToken);
+        await withSupabaseAuthManagementClient(
+            FIXTURE_CLEANUP_TARGET.projectRef,
+            async (client) => await verifyLiveProductionAuthInert(client),
+        );
     } catch (error) {
         writeSummary(outputDir, {
             status: 'BLOCKED_LIVE_AUTH_NOT_INERT',

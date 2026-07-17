@@ -1,5 +1,4 @@
 import * as dotenv from 'dotenv';
-import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -27,6 +26,11 @@ import {
     type CloudflareReadonlyAttemptResult,
     type CloudflareReadonlyRetryResult,
 } from './cloudflare-readonly-retry';
+import {
+    requestAllowlistedCloudflareAccount,
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'failed';
 
@@ -120,7 +124,22 @@ if (executeRequested && checks.some((check) => check.status === 'failed')) {
         override: false,
         quiet: true,
     });
-    await runApprovedExecution();
+    const localGate = validateExecutionEnvironment();
+    checks.push(localGate);
+    if (localGate.status !== 'failed') {
+        try {
+            await withCloudflareWranglerOAuth({
+                accountId: target.accountId,
+                consume: runApprovedExecution,
+            });
+        } catch (error) {
+            checks.push(failed(
+                'secure_cloudflare_oauth_gate',
+                'Wrangler could not attest the encrypted OAuth keyring and exact Cloudflare account.',
+                [safeError(error), 'externalWritePerformed=false'],
+            ));
+        }
+    }
 } else {
     checks.push(ok('plan_mode_no_external_write', 'Plan mode generated local evidence only.', [
         'executeRequested=false',
@@ -177,10 +196,6 @@ console.log(`[launch:cloudflare-production-fulfillment-bootstrap-secrets] Summar
 if (status === 'FAILED') process.exit(1);
 
 async function runApprovedExecution(): Promise<void> {
-    const localGate = validateExecutionEnvironment();
-    checks.push(localGate);
-    if (localGate.status === 'failed') return;
-
     const commandSet = commands();
     for (const command of [commandSet.whoami, commandSet.deployments, commandSet.secretList]) {
         const capture = runCommand(command);
@@ -393,7 +408,6 @@ function validateExecutionEnvironment(): Check {
         process.env.WORKER_IDENTITY?.trim() === target.worker ? null : 'WORKER_IDENTITY',
         normalizeOrigin(process.env.PUBLIC_SITE_URL) === target.site ? null : 'PUBLIC_SITE_URL',
         normalizeDirectUrl(process.env[directUrlEnvVar]) ? null : directUrlEnvVar,
-        process.env.CLOUDFLARE_API_TOKEN?.trim() ? null : 'CLOUDFLARE_API_TOKEN',
         secret && !isPlaceholder(secret) ? null : 'INTERNAL_JOB_SECRET',
     ].filter((value): value is string => Boolean(value));
     return mismatches.length === 0
@@ -401,7 +415,7 @@ function validateExecutionEnvironment(): Check {
             'requiredSecretNames=INTERNAL_JOB_SECRET',
             `withheld=${explicitlyWithheldSecretNames.join(',')}`,
         ])
-        : failed('execution_environment_gate', 'Approval, HMAC input, remote-read token or target facts are incomplete.', [
+        : failed('execution_environment_gate', 'Approval, HMAC input or target facts are incomplete.', [
             `mismatches=${mismatches.join(',') || 'none'}`,
             'externalWritePerformed=false',
         ]);
@@ -611,18 +625,11 @@ async function directRuntimeAttestation(baseUrl: string, expectedVersionId: stri
 }
 
 async function noCronProbe(): Promise<Check> {
-    if (!process.env.CLOUDFLARE_API_TOKEN?.trim()) {
-        return failed('fulfillment_bootstrap_no_cron', 'Remote Cron state cannot be proven without the Cloudflare API token.', [
-            'verificationMode=remote_api_required',
-            'configFallbackAccepted=false',
-        ]);
-    }
     let httpStatus: number | null = null;
     try {
-        const response = await fetch(
-            `https://api.cloudflare.com/client/v4/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(target.worker)}/schedules`,
+        const response = await requestAllowlistedCloudflareAccount(
+            `/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(target.worker)}/schedules`,
             {
-                headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` },
                 redirect: 'error',
                 signal: AbortSignal.timeout(20_000),
             },
@@ -711,14 +718,9 @@ function secretPutCommand(name: (typeof requiredSecretNames)[number]): CommandSp
 }
 
 function runCommand(command: CommandSpec, input?: string): CommandCapture {
-    const result = spawnSync(pnpmCommand(), command.args, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: process.env,
+    const result = runCloudflareWranglerFromKeyring(scopedWranglerArgs(command.args), {
         input,
-        timeout: 120_000,
-        windowsHide: true,
-        shell: process.platform === 'win32',
+        timeoutMs: 120_000,
     });
     const stdout = sanitize(String(result.stdout ?? ''));
     const stderr = sanitize(String(result.stderr ?? ''));
@@ -739,8 +741,12 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
     return { id: command.id, display: command.display, outputPath, exitCode: result.status, status, writesCloudflare: command.writesCloudflare };
 }
 
-function pnpmCommand(): string {
-    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+function scopedWranglerArgs(args: readonly string[]): string[] {
+    const prefix = ['--config.verify-deps-before-run=false', 'exec', 'wrangler'];
+    if (!prefix.every((value, index) => args[index] === value)) {
+        throw new Error('Refusing a command outside the scoped Wrangler command boundary.');
+    }
+    return args.slice(prefix.length);
 }
 
 function validateSecretName(value: unknown): value is string {
@@ -823,7 +829,6 @@ function sanitize(value: string): string {
         .replace(/Bearer\s+[A-Za-z0-9._-]{12,}/giu, 'Bearer [redacted]');
     for (const raw of [
         secretValue('INTERNAL_JOB_SECRET'),
-        process.env.CLOUDFLARE_API_TOKEN?.trim() ?? '',
         ...explicitlyWithheldSecretNames.map((name) => process.env[name]?.trim() ?? ''),
     ]) {
         if (raw) sanitized = sanitized.replaceAll(raw, '[redacted-known-value]');

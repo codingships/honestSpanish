@@ -6,9 +6,9 @@ import {
     productionAuthConfigIsInert,
     redactedPreflight,
     safeErrorMessage,
-    SUPABASE_ACCESS_TOKEN_ENV,
     SUPABASE_AUTH_TARGETS,
 } from './supabase-auth-config-shared';
+import { withSupabaseAuthManagementClient } from './supabase-cli-windows-credential';
 
 type TargetName = keyof typeof SUPABASE_AUTH_TARGETS;
 
@@ -34,55 +34,45 @@ if (!target || !['staging', 'production'].includes(targetName ?? '') || process.
         error: 'Usage: pnpm exec tsx scripts/launch/supabase-auth-config-preflight.ts <staging|production>',
     }, 1);
 } else {
-    const token = process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim() ?? '';
-    if (!token) {
+    try {
+        const config = await withSupabaseAuthManagementClient(
+            target.projectRef,
+            async (client) => await getSafeAuthConfig(client),
+        );
+        const observedAt = new Date();
+        const productionAuthInert = targetName === 'production' && productionAuthConfigIsInert(config);
+        const receiptPath = productionAuthInert
+            ? path.join(outputDir, 'auth-inert-receipt.json')
+            : null;
+        if (receiptPath) {
+            writeFileSync(
+                receiptPath,
+                `${JSON.stringify(createProductionAuthInertReceipt(config, observedAt), null, 2)}\n`,
+                'utf8',
+            );
+        }
+        finish({
+            ...redactedPreflight(target, config),
+            status: targetName === 'production'
+                ? productionAuthInert ? 'AUTH_INERT_VERIFIED' : 'AUTH_NOT_INERT'
+                : 'OK',
+            startedAt: startedAt.toISOString(),
+            endedAt: observedAt.toISOString(),
+            authInertReceiptIssued: productionAuthInert,
+            authInertReceiptFile: receiptPath ? path.basename(receiptPath) : null,
+            externalWritePerformed: false,
+        }, targetName === 'production' && !productionAuthInert ? 2 : 0);
+    } catch (error) {
         finish({
             schemaVersion: 1,
-            status: 'BLOCKED',
+            redacted: true,
+            status: 'FAILED',
             startedAt: startedAt.toISOString(),
             endedAt: new Date().toISOString(),
             externalWritePerformed: false,
             target,
-            error: `Missing ${SUPABASE_ACCESS_TOKEN_ENV}`,
+            error: safeErrorMessage(error),
         }, 1);
-    } else {
-        try {
-            const config = await getSafeAuthConfig({ projectRef: target.projectRef, token });
-            const observedAt = new Date();
-            const productionAuthInert = targetName === 'production' && productionAuthConfigIsInert(config);
-            const receiptPath = productionAuthInert
-                ? path.join(outputDir, 'auth-inert-receipt.json')
-                : null;
-            if (receiptPath) {
-                writeFileSync(
-                    receiptPath,
-                    `${JSON.stringify(createProductionAuthInertReceipt(config, observedAt), null, 2)}\n`,
-                    'utf8',
-                );
-            }
-            finish({
-                ...redactedPreflight(target, config),
-                status: targetName === 'production'
-                    ? productionAuthInert ? 'AUTH_INERT_VERIFIED' : 'AUTH_NOT_INERT'
-                    : 'OK',
-                startedAt: startedAt.toISOString(),
-                endedAt: observedAt.toISOString(),
-                authInertReceiptIssued: productionAuthInert,
-                authInertReceiptFile: receiptPath ? path.basename(receiptPath) : null,
-                externalWritePerformed: false,
-            }, targetName === 'production' && !productionAuthInert ? 2 : 0);
-        } catch (error) {
-            finish({
-                schemaVersion: 1,
-                redacted: true,
-                status: 'FAILED',
-                startedAt: startedAt.toISOString(),
-                endedAt: new Date().toISOString(),
-                externalWritePerformed: false,
-                target,
-                error: safeErrorMessage(error),
-            }, 1);
-        }
     }
 }
 

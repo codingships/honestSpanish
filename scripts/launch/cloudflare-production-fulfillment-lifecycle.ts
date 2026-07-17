@@ -1,4 +1,3 @@
-import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -58,6 +57,11 @@ import {
 } from './cloudflare-production-one-shot-write';
 import { parseCloudflareCronSchedulesResponse } from './cloudflare-cron-schedules-response';
 import { inspectStripeLiveReadiness } from './stripe-live-readiness';
+import {
+    requestAllowlistedCloudflareAccount,
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type Phase = 'bootstrap' | 'enable';
 type CheckStatus = 'ok' | 'failed';
@@ -177,7 +181,22 @@ if (!executeRequested) {
     if (phase === 'enable') {
         dotenv.config({ path: process.env[envFileEnvVar]?.trim() || '.env.production', override: false, quiet: true });
     }
-    await executeApproved();
+    const localGate = validateExecutionEnvironment();
+    checks.push(localGate);
+    if (localGate.status !== 'failed') {
+        try {
+            await withCloudflareWranglerOAuth({
+                accountId: target.accountId,
+                consume: executeApproved,
+            });
+        } catch (error) {
+            checks.push(failed(
+                'secure_cloudflare_oauth_gate',
+                'Wrangler could not attest the encrypted OAuth keyring and exact Cloudflare account.',
+                [safeError(error), 'externalWriteAttempted=false'],
+            ));
+        }
+    }
 }
 
 const status = checks.some((check) => check.status === 'failed') ? 'FAILED' : 'OK';
@@ -218,10 +237,6 @@ console.log(`[launch:cloudflare-production-fulfillment-${phase}] Summary: ${path
 if (status === 'FAILED') process.exit(1);
 
 async function executeApproved(): Promise<void> {
-    const localGate = validateExecutionEnvironment();
-    checks.push(localGate);
-    if (localGate.status === 'failed') return;
-
     const whoami = runCommand(command('whoami', ['whoami', '--json'], false));
     captures.push(whoami);
     checks.push(commandCheck(whoami));
@@ -1137,7 +1152,6 @@ function validateExecutionEnvironment(): Check {
     const mismatches = [
         initialApprovalValue === exactApprovalSentence ? null : `${approvalEnvVar} (initial process environment only)`,
         process.env.CLOUDFLARE_ACCOUNT_ID?.trim() === target.accountId ? null : 'CLOUDFLARE_ACCOUNT_ID',
-        process.env.CLOUDFLARE_API_TOKEN?.trim() ? null : 'CLOUDFLARE_API_TOKEN',
         normalizeDirectUrl(process.env[directUrlEnvVar]) ? null : directUrlEnvVar,
     ];
     if (phase === 'enable') {
@@ -1345,12 +1359,9 @@ async function productionQueueRuntimeProbe(expectedMode: ProductionQueueRuntimeM
 }
 
 async function cloudflareApiGetResult(apiPath: string): Promise<unknown> {
-    const token = secretValue('CLOUDFLARE_API_TOKEN');
-    if (!token) throw new Error('CLOUDFLARE_API_TOKEN is required for exact remote Queue readback.');
     if (!isAllowlistedQueueGetPath(apiPath)) throw new Error('Cloudflare Queue GET path is outside the exact allowlist.');
-    const response = await fetch(`https://api.cloudflare.com/client/v4${apiPath}`, {
+    const response = await requestAllowlistedCloudflareAccount(apiPath, {
         method: 'GET',
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
         redirect: 'error',
         signal: AbortSignal.timeout(20_000),
     });
@@ -1578,10 +1589,9 @@ async function webRuntimeAttestation(expectedVersionId: string): Promise<Check> 
 }
 
 async function cronScheduleProbe(expectedMode: 'bootstrap' | 'active'): Promise<Check> {
-    const url = `https://api.cloudflare.com/client/v4/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(target.worker)}/schedules`;
+    const apiPath = `/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(target.worker)}/schedules`;
     try {
-        const response = await fetch(url, {
-            headers: { Authorization: `Bearer ${secretValue('CLOUDFLARE_API_TOKEN')}` },
+        const response = await requestAllowlistedCloudflareAccount(apiPath, {
             redirect: 'error',
             signal: AbortSignal.timeout(20_000),
         });
@@ -1703,13 +1713,8 @@ function versionViewCommand(id: string, versionId: string): CommandSpec {
 }
 
 function runCommand(spec: CommandSpec): CommandCapture {
-    const result = spawnSync(pnpmCommand(), spec.args, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        env: process.env,
-        timeout: 180_000,
-        windowsHide: true,
-        shell: process.platform === 'win32',
+    const result = runCloudflareWranglerFromKeyring(scopedWranglerArgs(spec.args), {
+        timeoutMs: 180_000,
     });
     const status: CheckStatus = result.status === 0 && !result.error ? 'ok' : 'failed';
     const outputPath = path.join(outputDir, `${spec.id}.txt`);
@@ -1730,8 +1735,12 @@ function runCommand(spec: CommandSpec): CommandCapture {
     };
 }
 
-function pnpmCommand(): string {
-    return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+function scopedWranglerArgs(args: readonly string[]): string[] {
+    const prefix = ['--config.verify-deps-before-run=false', 'exec', 'wrangler'];
+    if (!prefix.every((value, index) => args[index] === value)) {
+        throw new Error('Refusing a command outside the scoped Wrangler command boundary.');
+    }
+    return args.slice(prefix.length);
 }
 
 function commandCheck(capture: CommandCapture): Check {
@@ -1805,7 +1814,7 @@ function sanitize(value: string): string {
     let sanitized = value
         .replace(new RegExp('-----BEGIN [A-Z ]+' + 'PRIVATE KEY-----[\\s\\S]*?-----END [A-Z ]+' + 'PRIVATE KEY-----', 'gu'), '[redacted-private-key]')
         .replace(/Bearer\s+[A-Za-z0-9._-]{12,}/giu, 'Bearer [redacted]');
-    for (const secret of [process.env.CLOUDFLARE_API_TOKEN ?? '', ...requiredSecretNames.map(secretValue)]) {
+    for (const secret of requiredSecretNames.map(secretValue)) {
         if (secret) sanitized = sanitized.replaceAll(secret, '[redacted-known-value]');
     }
     return sanitized;

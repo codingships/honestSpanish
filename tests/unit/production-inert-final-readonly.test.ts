@@ -440,11 +440,14 @@ describe('production inert final read-only runner', () => {
             scripts: Record<string, string>;
         };
         const firstRead = runner.indexOf('const firstReadback = runDatabaseReadback');
-        const managementGet = runner.indexOf('await verifyLiveProductionAuthInert');
+        const credentialScope = runner.indexOf('await withSupabaseAuthManagementClient');
+        const managementGet = runner.indexOf('verifyLiveProductionAuthInert(client)', credentialScope);
         const secondRead = runner.indexOf('const secondReadback = runDatabaseReadback');
         expect(firstRead).toBeGreaterThan(-1);
-        expect(managementGet).toBeGreaterThan(firstRead);
+        expect(credentialScope).toBeGreaterThan(firstRead);
+        expect(managementGet).toBeGreaterThan(credentialScope);
         expect(secondRead).toBeGreaterThan(managementGet);
+        expect(runner).not.toContain('SUPABASE_ACCESS_TOKEN');
         expect(runner).not.toContain("method: 'PATCH'");
         expect(runner).not.toContain("method: 'PUT'");
         expect(runner).toContain('default_transaction_read_only=on');

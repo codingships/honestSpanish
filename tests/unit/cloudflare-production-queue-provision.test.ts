@@ -171,7 +171,8 @@ describe('Cloudflare production Queue provisioning', () => {
         expect(runner).not.toContain("['queues', 'consumer'");
         expect(runner).not.toContain('dotenv.config');
         expect(runner).not.toContain('captureText(whoami).includes');
-        expect(runner).toContain("const valid = executeRequested\n        ? configured === PRODUCTION_QUEUE_TARGET.accountId");
+        expect(runner).toContain('const valid = !configured || configured === PRODUCTION_QUEUE_TARGET.accountId;');
+        expect(runner).toContain('accountId: PRODUCTION_QUEUE_TARGET.accountId');
     });
 
     it('keeps package wiring for the parent integration step', () => {

@@ -442,6 +442,22 @@ describe('Supabase production Auth cleanup runner', () => {
         expect(runnerSource).not.toMatch(/DELETE\s+FROM\s+auth\.|DELETE\s+FROM\s+storage\./iu);
     });
 
+    it('scopes the Management API credential to the exact production Auth config read', () => {
+        const authReadStart = runnerSource.indexOf('async function getAuthQuarantineConfig()');
+        const authReadEnd = runnerSource.indexOf('function collectDatabaseAggregate(', authReadStart);
+        const authReadSource = runnerSource.slice(authReadStart, authReadEnd);
+
+        expect(authReadStart).toBeGreaterThan(-1);
+        expect(authReadEnd).toBeGreaterThan(authReadStart);
+        expect(authReadSource).toContain('withSupabaseAuthManagementClient(');
+        expect(authReadSource).toContain('PRODUCTION_AUTH_CLEANUP_TARGET.projectRef');
+        expect(authReadSource).toContain('client.getAuthConfig()');
+        expect(authReadSource).not.toContain('patchAuthConfig');
+        expect(runnerSource).not.toContain('SUPABASE_ACCESS_TOKEN');
+        expect(runnerSource).not.toContain('managementToken');
+        expect(runnerSource).not.toMatch(/Authorization\s*:\s*[`'"]Bearer/iu);
+    });
+
     it('re-quarantines only the exact preserved pair with write-ahead state and zero-session readback', () => {
         const start = runnerSource.indexOf('async function runRequarantinePhase(');
         const end = runnerSource.indexOf('async function runFinalizePhase(', start);

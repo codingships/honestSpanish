@@ -63,15 +63,11 @@ describe('Cloudflare production runtime read-only evidence', () => {
 
     it('uses only Wrangler read/list/version probes and disables the skill-install prompt noise', () => {
         for (const snippet of [
-            "spawnSync(pnpmCommand()",
-            "'pnpm.cmd' : 'pnpm'",
-            "'--config.verify-deps-before-run=false'",
+            'withCloudflareWranglerOAuth',
+            'runCloudflareWranglerFromKeyring',
+            'requestAllowlistedCloudflareAccount',
+            'requestAllowlistedCloudflareZoneRead',
             "'--install-skills=false'",
-            "'exec'",
-            "'wrangler'",
-            "CI: 'true'",
-            "WRANGLER_SEND_METRICS: 'false'",
-            'CLOUDFLARE_ACCOUNT_ID: target.accountId',
             "'whoami', '--json'",
             "'pages', 'project', 'list', '--json'",
             "'pages', 'deployment', 'list'",
@@ -210,9 +206,9 @@ describe('Cloudflare production runtime read-only evidence', () => {
             'onlyGetApiCalls',
             "'expected-not-ready'",
             'exact-resource-absent',
-            'response.status === 404',
+            'responseStatus === 404',
             "? 'expected-not-ready'",
-            'tokenAvailable',
+            'oauthKeyringAttested',
             'permission-gap',
             'api-error',
         ]) {

@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    assertAllowedSupabaseManagementProjectRef,
+    type SupabaseAuthManagementClient,
+    type SupabaseAuthManagementPatch,
+} from './supabase-cli-windows-credential';
 
-export const SUPABASE_MANAGEMENT_API_BASE = 'https://api.supabase.com';
-export const SUPABASE_ACCESS_TOKEN_ENV = 'SUPABASE_ACCESS_TOKEN';
 export const PRODUCTION_AUTH_INERT_RECEIPT_KIND = 'supabase_production_auth_inert_readonly';
 export const PRODUCTION_AUTH_INERT_RECEIPT_MAX_AGE_MS = 15 * 60 * 1_000;
 
@@ -38,7 +41,7 @@ export type SafeAuthConfig = {
 };
 
 export type SafeAuthConfigKey = keyof SafeAuthConfig;
-export type AuthConfigPatch = Partial<SafeAuthConfig>;
+export type AuthConfigPatch = SupabaseAuthManagementPatch;
 
 export interface ProductionAuthInertReceipt {
     schemaVersion: 1;
@@ -72,11 +75,6 @@ export interface ProductionAuthInertValidation {
     errors: string[];
     value: ProductionAuthInertReceipt | null;
 }
-
-export type Fetcher = (
-    input: string | URL | Request,
-    init?: RequestInit,
-) => Promise<Response>;
 
 export type ApprovalSpec = {
     environment: 'staging' | 'production';
@@ -121,8 +119,7 @@ export type ChangeResult = {
 };
 
 type VerifiedChangeSpec = {
-    projectRef: string;
-    token: string;
+    client: Readonly<SupabaseAuthManagementClient>;
     buildDesiredPatch: (before: SafeAuthConfig) => AuthConfigPatch;
     verifyDesired: (
         before: SafeAuthConfig,
@@ -134,7 +131,6 @@ type VerifiedChangeSpec = {
         after: SafeAuthConfig,
         rollbackPatch: AuthConfigPatch,
     ) => boolean;
-    fetcher?: Fetcher;
 };
 
 export function selectSafeAuthConfig(payload: unknown): SafeAuthConfig {
@@ -307,14 +303,12 @@ export function readProductionAuthInertEvidence(
 }
 
 export async function verifyLiveProductionAuthInert(
-    token: string,
-    fetcher: Fetcher = fetch,
+    client: Readonly<SupabaseAuthManagementClient>,
 ): Promise<SafeAuthConfig> {
-    const config = await getSafeAuthConfig({
-        projectRef: SUPABASE_AUTH_TARGETS.production.projectRef,
-        token,
-        fetcher,
-    });
+    if (client.projectRef !== SUPABASE_AUTH_TARGETS.production.projectRef) {
+        throw new Error('Supabase production Auth verification requires the exact production project');
+    }
+    const config = await getSafeAuthConfig(client);
     assertProductionAuthConfigInert(config);
     return config;
 }
@@ -368,7 +362,7 @@ export function hasBroadAuthRedirectWildcard(value: string): boolean {
     // exact-path only: reject raw or percent-encoded globstar, character-class,
     // brace and escape syntax. A literal query delimiter remains valid for the
     // three exact `?lang=` confirmation callbacks.
-    if (/[*\[\]{}\\]/u.test(entry)
+    if (/[*[\]{}\\]/u.test(entry)
         || /%(?:2a|5b|5d|7b|7d|5c)/iu.test(entry)) {
         return true;
     }
@@ -419,24 +413,11 @@ export function verifyExactSafePatch(
     return true;
 }
 
-export async function getSafeAuthConfig({
-    projectRef,
-    token,
-    fetcher = fetch,
-}: {
-    projectRef: string;
-    token: string;
-    fetcher?: Fetcher;
-}): Promise<SafeAuthConfig> {
-    assertKnownProjectRef(projectRef);
-    assertToken(token);
-
-    const response = await fetcher(authConfigUrl(projectRef), {
-        method: 'GET',
-        headers: managementHeaders(token),
-        redirect: 'error',
-        signal: AbortSignal.timeout(20_000),
-    });
+export async function getSafeAuthConfig(
+    client: Readonly<SupabaseAuthManagementClient>,
+): Promise<SafeAuthConfig> {
+    assertKnownProjectRef(client.projectRef);
+    const response = await client.getAuthConfig();
 
     if (!response.ok) {
         throw new Error(`Supabase Management API GET failed with HTTP ${response.status}`);
@@ -445,28 +426,13 @@ export async function getSafeAuthConfig({
     return selectSafeAuthConfig(await response.json());
 }
 
-export async function patchAuthConfig({
-    projectRef,
-    token,
-    patch,
-    fetcher = fetch,
-}: {
-    projectRef: string;
-    token: string;
-    patch: AuthConfigPatch;
-    fetcher?: Fetcher;
-}): Promise<void> {
-    assertKnownProjectRef(projectRef);
-    assertToken(token);
+export async function patchAuthConfig(
+    client: Readonly<SupabaseAuthManagementClient>,
+    patch: AuthConfigPatch,
+): Promise<void> {
+    assertKnownProjectRef(client.projectRef);
     assertSafePatch(patch);
-
-    const response = await fetcher(authConfigUrl(projectRef), {
-        method: 'PATCH',
-        headers: managementHeaders(token),
-        body: JSON.stringify(patch),
-        redirect: 'error',
-        signal: AbortSignal.timeout(20_000),
-    });
+    const response = await client.patchAuthConfig(patch);
 
     if (!response.ok) {
         throw new Error(`Supabase Management API PATCH failed with HTTP ${response.status}`);
@@ -474,14 +440,12 @@ export async function patchAuthConfig({
 }
 
 export async function applyVerifiedAuthConfigChange({
-    projectRef,
-    token,
+    client,
     buildDesiredPatch,
     verifyDesired,
     verifyRollback = verifyPatchValues,
-    fetcher = fetch,
 }: VerifiedChangeSpec): Promise<ChangeResult> {
-    const before = await getSafeAuthConfig({ projectRef, token, fetcher });
+    const before = await getSafeAuthConfig(client);
     const desiredPatch = buildDesiredPatch(before);
     assertSafePatch(desiredPatch);
     const rollbackPatch = patchFromBefore(before, Object.keys(desiredPatch) as SafeAuthConfigKey[]);
@@ -493,8 +457,8 @@ export async function applyVerifiedAuthConfigChange({
     let afterFailure: SafeAuthConfig | null = null;
 
     try {
-        await patchAuthConfig({ projectRef, token, patch: desiredPatch, fetcher });
-        const after = await getSafeAuthConfig({ projectRef, token, fetcher });
+        await patchAuthConfig(client, desiredPatch);
+        const after = await getSafeAuthConfig(client);
         if (verifyDesired(before, after, desiredPatch)) {
             return result('applied', before, desiredPatch, after, false, true, rollbackPatch, null);
         }
@@ -506,7 +470,7 @@ export async function applyVerifiedAuthConfigChange({
 
     if (!afterFailure) {
         try {
-            afterFailure = await getSafeAuthConfig({ projectRef, token, fetcher });
+            afterFailure = await getSafeAuthConfig(client);
         } catch {
             afterFailure = null;
         }
@@ -517,8 +481,8 @@ export async function applyVerifiedAuthConfigChange({
     }
 
     try {
-        await patchAuthConfig({ projectRef, token, patch: rollbackPatch, fetcher });
-        const afterRollback = await getSafeAuthConfig({ projectRef, token, fetcher });
+        await patchAuthConfig(client, rollbackPatch);
+        const afterRollback = await getSafeAuthConfig(client);
         const rollbackVerified = verifyRollback(before, afterRollback, rollbackPatch);
         return result(
             rollbackVerified ? 'failed_rolled_back' : 'failed_rollback_unverified',
@@ -585,16 +549,11 @@ function assertProductionAuthConfigInert(
 }
 
 function assertKnownProjectRef(projectRef: string): void {
-    const knownRefs = new Set<string>(
-        Object.values(SUPABASE_AUTH_TARGETS).map((target) => target.projectRef),
-    );
-    if (!knownRefs.has(projectRef)) {
+    try {
+        assertAllowedSupabaseManagementProjectRef(projectRef);
+    } catch {
         throw new Error('Supabase Auth config target is not allowlisted');
     }
-}
-
-function assertToken(token: string): void {
-    if (!token.trim()) throw new Error(`Missing ${SUPABASE_ACCESS_TOKEN_ENV}`);
 }
 
 function assertSafePatch(patch: AuthConfigPatch): void {
@@ -612,18 +571,6 @@ function assertSafePatch(patch: AuthConfigPatch): void {
             throw new Error('Supabase Auth URL patch has an invalid value');
         }
     }
-}
-
-function managementHeaders(token: string): Record<string, string> {
-    return {
-        Accept: 'application/json',
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-    };
-}
-
-function authConfigUrl(projectRef: string): string {
-    return `${SUPABASE_MANAGEMENT_API_BASE}/v1/projects/${projectRef}/config/auth`;
 }
 
 function patchFromBefore(before: SafeAuthConfig, keys: SafeAuthConfigKey[]): AuthConfigPatch {

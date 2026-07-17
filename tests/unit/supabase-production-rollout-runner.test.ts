@@ -741,10 +741,17 @@ describe('Supabase production wave rollout runner', () => {
         expect(runnerSource).toContain("status: 'BLOCKED_BACKUP_ARTIFACT_REVALIDATION'");
         expect(runnerSource.indexOf('const immediateBackupArtifact = await revalidateProductionBackupArtifact'))
             .toBeLessThan(runnerSource.indexOf('let writeCommandInvoked = false'));
-        const liveAuthReadback = runnerSource.indexOf('await verifyLiveProductionAuthInert(');
+        const credentialScope = runnerSource.indexOf('await withSupabaseAuthManagementClient(');
+        const liveAuthReadback = runnerSource.indexOf(
+            'verifyLiveProductionAuthInert(client)',
+            credentialScope,
+        );
         const firstProductionWrite = runnerSource.indexOf('runPsql(`apply-${wave.id}`');
+        expect(credentialScope).toBeGreaterThan(-1);
         expect(liveAuthReadback).toBeGreaterThan(-1);
+        expect(liveAuthReadback).toBeGreaterThan(credentialScope);
         expect(firstProductionWrite).toBeGreaterThan(liveAuthReadback);
+        expect(runnerSource).not.toContain('SUPABASE_ACCESS_TOKEN');
         expect(runnerSource).toContain("status: 'BLOCKED_AUTH_INERT_EVIDENCE_REVALIDATION'");
         expect(runnerSource).toContain("status: 'BLOCKED_PRESERVATION_POLICY_REVALIDATION'");
         expect(runnerSource).toContain("status: 'BLOCKED_LIVE_AUTH_NOT_INERT'");

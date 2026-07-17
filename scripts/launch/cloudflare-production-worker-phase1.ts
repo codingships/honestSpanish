@@ -31,6 +31,12 @@ import {
     type CloudflareReadonlyRetryResult,
 } from './cloudflare-readonly-retry';
 import { buildCloudflareProductionInertCompositeEvidence } from './cloudflare-production-inert-composite-evidence';
+import {
+    buildCloudflareCredentialFreeChildEnvironment,
+    requestAllowlistedCloudflareAccount,
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -221,7 +227,28 @@ if (executeRequested && checks.some((check) => check.status === 'failed')) {
     });
 } else if (executeRequested && approvalMatched) {
     dotenv.config({ path: process.env.CLOUDFLARE_FULFILLMENT_ENV_FILE?.trim() || '.env.production', override: false, quiet: true });
-    checks.push(...await runApprovedExecution(captures));
+    if (process.env.CLOUDFLARE_ACCOUNT_ID?.trim() !== target.accountId) {
+        checks.push({
+            status: 'failed',
+            name: 'exact_local_account_pre_write_gate',
+            message: 'The write-capable process does not explicitly select the exact approved Cloudflare account.',
+            details: [`expectedAccount=${target.accountId}`, 'externalWriteAttempted=false'],
+        });
+    } else {
+        try {
+            checks.push(...await withCloudflareWranglerOAuth({
+                accountId: target.accountId,
+                consume: async () => await runApprovedExecution(captures),
+            }));
+        } catch (error) {
+            checks.push({
+                status: 'failed',
+                name: 'secure_cloudflare_oauth_gate',
+                message: 'Wrangler could not attest the encrypted OAuth keyring and exact Cloudflare account.',
+                details: [sanitizeError(error instanceof Error ? error : new Error(String(error)))],
+            });
+        }
+    }
 } else {
     checks.push({
         status: 'ok',
@@ -1351,27 +1378,33 @@ function bootstrapAssetProbePath(): string {
 
 function runCommand(command: CommandSpec): CommandCapture {
     if (command.writesCloudflare) externalWriteAttempted = true;
-    const result = spawnSync(command.bin, command.args, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        shell: process.platform === 'win32',
-        timeout: command.timeoutMs,
-        env: {
-            ...process.env,
-            CLOUDFLARE_ACCOUNT_ID: target.accountId,
-        },
-    });
+    const result = isScopedWranglerCommand(command.args)
+        ? runCloudflareWranglerFromKeyring(scopedWranglerArgs(command.args), {
+            timeoutMs: command.timeoutMs,
+        })
+        : spawnSync(command.bin, command.args, {
+            cwd: process.cwd(),
+            encoding: 'utf8',
+            shell: process.platform === 'win32',
+            timeout: command.timeoutMs,
+            env: buildCloudflareCredentialFreeChildEnvironment(process.env, target.accountId),
+        });
     const stdout = sanitizeOutput(typeof result.stdout === 'string' ? result.stdout : String(result.stdout ?? ''));
     const stderr = sanitizeOutput(typeof result.stderr === 'string' ? result.stderr : String(result.stderr ?? ''));
     const exitCode = result.status;
-    const timedOut = Boolean(result.error && result.error.message.includes('ETIMEDOUT'));
+    const resultError = result.error instanceof Error
+        ? result.error
+        : result.error === undefined
+            ? undefined
+            : new Error('Cloudflare command failed without exposing provider details.');
+    const timedOut = Boolean(resultError?.message.includes('ETIMEDOUT'));
     const status: CheckStatus = exitCode === 0 && !timedOut ? 'ok' : 'failed';
     const capturePath = path.join(outputDir, `${command.id}.txt`);
     const body = [
         `command=${command.display}`,
         `writesCloudflare=${String(command.writesCloudflare)}`,
         `exitCode=${String(exitCode)}`,
-        `error=${result.error ? sanitizeError(result.error) : 'none'}`,
+        `error=${resultError ? sanitizeError(resultError) : 'none'}`,
         '',
         '## stdout',
         '',
@@ -1393,6 +1426,19 @@ function runCommand(command: CommandSpec): CommandCapture {
         status,
         writesCloudflare: command.writesCloudflare,
     };
+}
+
+function isScopedWranglerCommand(args: readonly string[]): boolean {
+    return args[0] === '--config.verify-deps-before-run=false'
+        && args[1] === 'exec'
+        && args[2] === 'wrangler';
+}
+
+function scopedWranglerArgs(args: readonly string[]): string[] {
+    if (!isScopedWranglerCommand(args)) {
+        throw new Error('Refusing a command outside the scoped Wrangler command boundary.');
+    }
+    return args.slice(3);
 }
 
 function checkForCapture(capture: CommandCapture): PhaseOneCheck {
@@ -1428,7 +1474,6 @@ function captureIsWorkerNotFound(capture: CommandCapture): boolean {
 async function verifyFreshFulfillmentBootstrap(expectedVersionId: string): Promise<PhaseOneCheck[]> {
     const missing = [
         ...fulfillmentBootstrapSecretNames.filter((name) => !process.env[name]?.trim()),
-        ...(!process.env.CLOUDFLARE_API_TOKEN?.trim() ? ['CLOUDFLARE_API_TOKEN'] : []),
     ];
     if (missing.length > 0) {
         return [{
@@ -1548,9 +1593,9 @@ async function verifyFreshFulfillmentBootstrap(expectedVersionId: string): Promi
         });
         if (!attested) return proofChecks;
 
-        const schedulesResponse = await fetch(
-            `https://api.cloudflare.com/client/v4/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(fulfillmentWorker)}/schedules`,
-            { headers: { Authorization: `Bearer ${process.env.CLOUDFLARE_API_TOKEN}` }, redirect: 'error', signal: AbortSignal.timeout(20_000) },
+        const schedulesResponse = await requestAllowlistedCloudflareAccount(
+            `/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(fulfillmentWorker)}/schedules`,
+            { redirect: 'error', signal: AbortSignal.timeout(20_000) },
         );
         httpStatus = schedulesResponse.status;
         const schedulesBody = await schedulesResponse.json() as unknown;

@@ -2,6 +2,10 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    buildSanitizedWranglerOAuthEnvironment,
+    ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 
@@ -544,6 +548,10 @@ function runWranglerWorkerReadOnly(name: string, args: string[], expectedSnippet
     const result = spawnSync(pnpmCommand(), args, {
         cwd: process.cwd(),
         encoding: 'utf8',
+        env: buildSanitizedWranglerOAuthEnvironment(
+            process.env,
+            ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+        ),
         shell: process.platform === 'win32',
         maxBuffer: 20 * 1024 * 1024,
     });

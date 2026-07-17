@@ -287,10 +287,10 @@ describe('Cloudflare production web bootstrap safety', () => {
             runner.indexOf('function validateExecutionEnvironment()'),
             runner.indexOf('function validatePackageScript()'),
         );
-        expect(executionGate).toContain("'CLOUDFLARE_API_TOKEN'");
-        expect(runner).toContain('verificationMode=remote_api_required');
-        expect(runner).toContain('configFallbackAccepted=false');
-        expect(runner).not.toContain('verificationMode=wrangler_oauth_plus_connector_followup');
+        expect(executionGate).not.toContain('CLOUDFLARE_API_TOKEN');
+        expect(runner).toContain('withCloudflareWranglerOAuth');
+        expect(runner).toContain('requestAllowlistedCloudflareAccount');
+        expect(runner).toContain('runCloudflareWranglerFromKeyring');
 
         expect(finalRunner).toContain('GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');
         expect(finalRunner).toContain('RESEND_API_KEY');

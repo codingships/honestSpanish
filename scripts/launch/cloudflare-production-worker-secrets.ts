@@ -41,6 +41,11 @@ import {
     type WorkerWriteLockOwner,
     type WorkerWriteReceiptSummary,
 } from './cloudflare-production-worker-safety';
+import {
+    buildCloudflareCredentialFreeChildEnvironment,
+    runCloudflareWranglerFromKeyring,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -276,13 +281,25 @@ async function main(): Promise<void> {
         checks.push(env.check);
 
         if (env.value) {
-            const executionChecks = reconcileRequested
-                ? await runApprovedReconciliation(env.value, captures, probes)
-                : await runApprovedExecution(env.value, captures, probes);
-            approvalMatched = executionChecks.some((check) =>
-                ['exact_approval_gate', 'exact_reconciliation_approval_gate'].includes(check.name)
-                && check.status === 'ok');
-            checks.push(...executionChecks);
+            try {
+                const executionChecks = await withCloudflareWranglerOAuth({
+                    accountId: target.accountId,
+                    consume: async () => reconcileRequested
+                        ? await runApprovedReconciliation(env.value!, captures, probes)
+                        : await runApprovedExecution(env.value!, captures, probes),
+                });
+                approvalMatched = executionChecks.some((check) =>
+                    ['exact_approval_gate', 'exact_reconciliation_approval_gate'].includes(check.name)
+                    && check.status === 'ok');
+                checks.push(...executionChecks);
+            } catch (error) {
+                checks.push({
+                    status: 'failed',
+                    name: 'secure_cloudflare_oauth_gate',
+                    message: 'Wrangler could not attest the encrypted OAuth keyring and exact Cloudflare account.',
+                    details: [sanitizeError(error instanceof Error ? error : new Error(String(error)))],
+                });
+            }
         }
     } else {
         checks.push({
@@ -2168,25 +2185,35 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         nextWriteCheckpointSequence += 1;
         recordWriteCheckpoint(writeCheckpoint);
     }
-    const result = spawnSync(command.bin, command.args, {
-        cwd: process.cwd(),
-        encoding: 'utf8',
-        input,
-        shell: process.platform === 'win32',
-        timeout: command.timeoutMs,
-        windowsHide: true,
-        env: process.env,
-    });
+    const result = isScopedWranglerCommand(command.args)
+        ? runCloudflareWranglerFromKeyring(scopedWranglerArgs(command.args), {
+            input,
+            timeoutMs: command.timeoutMs,
+        })
+        : spawnSync(command.bin, command.args, {
+            cwd: process.cwd(),
+            encoding: 'utf8',
+            input,
+            shell: process.platform === 'win32',
+            timeout: command.timeoutMs,
+            windowsHide: true,
+            env: buildCloudflareCredentialFreeChildEnvironment(process.env, target.accountId),
+        });
     const stdout = sanitizeOutput(result.stdout ?? '');
     const stderr = sanitizeOutput(result.stderr ?? '');
     const exitCode = result.status;
-    const timedOut = Boolean(result.error?.message.includes('ETIMEDOUT'));
-    const status: CheckStatus = exitCode === 0 && !timedOut && !result.error ? 'ok' : 'failed';
+    const resultError = result.error instanceof Error
+        ? result.error
+        : result.error === undefined
+            ? undefined
+            : new Error('Cloudflare command failed without exposing provider details.');
+    const timedOut = Boolean(resultError?.message.includes('ETIMEDOUT'));
+    const status: CheckStatus = exitCode === 0 && !timedOut && !resultError ? 'ok' : 'failed';
     if (writeCheckpoint) {
         writeCheckpoint = classifyWorkerWriteProviderResult(writeCheckpoint, {
             exitCode,
             timedOut,
-            errorPresent: Boolean(result.error),
+            errorPresent: Boolean(resultError),
         });
         recordWriteCheckpoint(writeCheckpoint);
     }
@@ -2195,7 +2222,7 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         `command=${command.display}`,
         `writesCloudflare=${String(command.writesCloudflare)}`,
         `exitCode=${String(exitCode)}`,
-        `error=${result.error ? sanitizeError(result.error) : 'none'}`,
+        `error=${resultError ? sanitizeError(resultError) : 'none'}`,
         '',
         '## stdout',
         '',
@@ -2218,6 +2245,19 @@ function runCommand(command: CommandSpec, input?: string): CommandCapture {
         writesCloudflare: command.writesCloudflare,
         ...(writeCheckpoint ? { writeCheckpointSequence: writeCheckpoint.sequence } : {}),
     };
+}
+
+function isScopedWranglerCommand(args: readonly string[]): boolean {
+    return args[0] === '--config.verify-deps-before-run=false'
+        && args[1] === 'exec'
+        && args[2] === 'wrangler';
+}
+
+function scopedWranglerArgs(args: readonly string[]): string[] {
+    if (!isScopedWranglerCommand(args)) {
+        throw new Error('Refusing a command outside the scoped Wrangler command boundary.');
+    }
+    return args.slice(3);
 }
 
 function recordWriteCheckpoint(checkpoint: WorkerWriteCheckpoint): void {
@@ -2963,7 +3003,6 @@ function sanitizeOutput(value: string): string {
 
     const knownValues = new Set([
         ...requiredSecretNames.map((name) => secretValueFor(name)),
-        process.env.CLOUDFLARE_API_TOKEN?.trim() || null,
     ]);
     for (const knownValue of knownValues) {
         if (knownValue) {

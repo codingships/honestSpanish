@@ -14,17 +14,21 @@ describe('Turnstile launch evidence', () => {
             'siteverify_official_test_key_acceptance',
             'official_staging_test',
             'turnstile_widgets_readonly',
-            'cloudflare_api_token_readonly',
+            'cloudflare_wrangler_oauth_readonly',
+            'withCloudflareWranglerOAuth',
+            'ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID',
+            'cloudflare_credential_source=wrangler_keyring_oauth',
             'expected_domains',
             'PUBLIC_TURNSTILE_SITE_KEY',
             'TURNSTILE_SECRET_KEY',
-            'CLOUDFLARE_ACCOUNT_ID',
-            'CLOUDFLARE_API_TOKEN',
             'does not create, update, rotate, delete, deploy, tail logs, change hostnames, retrieve secret values, or write Supabase',
         ]) {
             expect(source).toContain(snippet);
         }
 
+        expect(source).not.toContain('process.env.CLOUDFLARE_API_TOKEN');
+        expect(source).not.toContain('process.env.CLOUDFLARE_ACCOUNT_ID');
+        expect(source).not.toContain('Authorization: `Bearer ${cloudflareApiToken}`');
         expect(source).toContain("method: 'GET'");
         expect(source).toContain("method: 'POST'");
         expect(source).not.toContain("method: 'PUT'");
@@ -53,7 +57,9 @@ describe('Turnstile launch evidence', () => {
         }
 
         expect(closureSource).not.toContain('fetch(');
-        expect(closureSource).not.toContain('wrangler');
+        expect(closureSource).not.toContain('withCloudflareWranglerOAuth');
+        expect(closureSource).not.toContain('runCloudflareWranglerFromKeyring');
+        expect(closureSource).not.toContain('requestAllowlistedCloudflare');
         expect(closureSource).not.toContain("method: 'PUT'");
         expect(closureSource).not.toContain("method: 'PATCH'");
         expect(closureSource).not.toContain("method: 'DELETE'");

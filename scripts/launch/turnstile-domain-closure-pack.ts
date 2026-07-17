@@ -47,7 +47,7 @@ interface Report {
     expectedDomains: string[];
     configuredDomains: string[];
     missingExpectedDomains: string[];
-    missingCloudflareApiInputs: string[];
+    cloudflareOAuthStatus: string;
     runtimeSiteverifyStatus: string;
     widgetReadonlyStatus: string;
     checks: Check[];
@@ -81,6 +81,7 @@ const turnstileSummary = readJsonIfExists<TurnstileReadonlySummary>(latestTurnst
 const environmentCheck = turnstileSummary?.checks?.find((check) => check.name === 'environment_shape');
 const siteverifyCheck = turnstileSummary?.checks?.find((check) => check.name === 'siteverify_fake_token_rejection');
 const widgetCheck = turnstileSummary?.checks?.find((check) => check.name === 'turnstile_widgets_readonly');
+const oauthCheck = turnstileSummary?.checks?.find((check) => check.name === 'cloudflare_wrangler_oauth_readonly');
 
 const envFile = turnstileSummary?.envFile ?? '.env';
 const account = detailValue(widgetCheck?.details, 'account') || detailValue(environmentCheck?.details, 'account') || 'missing';
@@ -101,7 +102,7 @@ const configuredDomains = unique(detailList(widgetCheck?.details, 'domains')).so
 const missingExpectedDomains = widgetCheck
     ? unique(detailList(widgetCheck.details, 'missing_expected_domains')).sort()
     : expectedDomains;
-const missingCloudflareApiInputs = unique(detailList(environmentCheck?.details, 'missing_cloudflare_api')).sort();
+const cloudflareOAuthStatus = oauthCheck?.status ?? 'missing';
 const runtimeSiteverifyStatus = siteverifyCheck?.status ?? 'missing';
 const widgetReadonlyStatus = widgetCheck?.status ?? 'missing';
 
@@ -148,7 +149,7 @@ function createReport(reportChecks: Check[]): Report {
         ? 'MISSING_TURNSTILE_READONLY_EVIDENCE'
         : turnstileSummary?.status === 'FAILED'
             ? 'BLOCKED_BY_TURNSTILE_READONLY_FAILURE'
-            : widgetReadonlyStatus === 'ok'
+            : widgetReadonlyStatus === 'ok' && cloudflareOAuthStatus === 'ok'
                 ? 'READY_FOR_FINAL_REVIEW'
                 : 'READY_FOR_CLOUDFLARE_DASHBOARD_REVIEW';
 
@@ -171,7 +172,7 @@ function createReport(reportChecks: Check[]): Report {
         expectedDomains,
         configuredDomains,
         missingExpectedDomains,
-        missingCloudflareApiInputs,
+        cloudflareOAuthStatus,
         runtimeSiteverifyStatus,
         widgetReadonlyStatus,
         checks: reportChecks,
@@ -211,7 +212,7 @@ function validateReadonlyEvidence(): Check {
             status: 'warning',
             name: 'turnstile_readonly_evidence_available',
             message: 'No Turnstile read-only summary is available yet.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:turnstile-readonly'],
         };
     }
 
@@ -224,7 +225,7 @@ function validateReadonlyEvidence(): Check {
         };
     }
 
-    const needsDashboardReview = widgetReadonlyStatus !== 'ok';
+    const needsDashboardReview = widgetReadonlyStatus !== 'ok' || cloudflareOAuthStatus !== 'ok';
 
     return {
         status: needsDashboardReview ? 'warning' : 'ok',
@@ -237,6 +238,7 @@ function validateReadonlyEvidence(): Check {
             `turnstile_status=${turnstileSummary.status ?? 'unknown'}`,
             `env_file=${envFile}`,
             `runtime_siteverify=${runtimeSiteverifyStatus}`,
+            `cloudflare_oauth=${cloudflareOAuthStatus}`,
             `widget_readonly=${widgetReadonlyStatus}`,
             `account=${account}`,
             `site_key=${siteKeyPrefix}`,
@@ -244,7 +246,6 @@ function validateReadonlyEvidence(): Check {
             `configured_domains=${configuredDomains.join('|') || 'unknown'}`,
             `expected_domains=${expectedDomains.join('|') || 'unknown'}`,
             `missing_expected_domains=${missingExpectedDomains.join('|') || 'none'}`,
-            `missing_cloudflare_api=${missingCloudflareApiInputs.join('|') || 'none'}`,
         ],
     };
 }
@@ -376,7 +377,7 @@ function renderApprovalRequest(report: Report): string {
         '',
         '## Exact Approval Sentence For Dashboard Review',
         '',
-        `Apruebo revisar y, si falta algun dominio, actualizar manualmente en Cloudflare Turnstile account ${report.account} el widget asociado al site key ${report.siteKeyPrefix} para que cubra exactamente estos dominios: ${domains}. La accion permitida es confirmar el widget existente o ajustar solo la lista de dominios de ese widget; no autorizo cambiar secret keys, site keys, modo de desafio, WAF, DNS, Pages, Workers, API tokens, cuentas, analytics ni ningun otro servicio externo. Despues hay que verificar con corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly y registrar dashboard evidence sin secret values, sin Turnstile secret key y sin Cloudflare API token.`,
+        `Apruebo revisar y, si falta algun dominio, actualizar manualmente en Cloudflare Turnstile account ${report.account} el widget asociado al site key ${report.siteKeyPrefix} para que cubra exactamente estos dominios: ${domains}. La accion permitida es confirmar el widget existente o ajustar solo la lista de dominios de ese widget; no autorizo cambiar secret keys, site keys, modo de desafio, WAF, DNS, Pages, Workers, API tokens, cuentas, analytics ni ningun otro servicio externo. Despues hay que verificar con pnpm --config.verify-deps-before-run=false launch:turnstile-readonly y registrar dashboard evidence sin secret values, sin Turnstile secret key y sin Cloudflare API token.`,
         '',
         '## Forbidden Scope',
         '',
@@ -412,12 +413,12 @@ function renderVerificationChecklist(report: Report): string {
         '',
         'After dashboard/API review or correction:',
         '',
-        `- [ ] Rerun \`corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly -- --env-file ${report.envFile}\`.`,
-        '- [ ] If Cloudflare API inputs are available, confirm `cloudflare_api_token_readonly` is OK.',
-        '- [ ] If Cloudflare API inputs are available, confirm `turnstile_widgets_readonly` is OK.',
-        '- [ ] If API inputs are unavailable, attach dashboard evidence with the same facts: account, widget name, site key prefix and allowed domains.',
+        `- [ ] Rerun \`pnpm --config.verify-deps-before-run=false launch:turnstile-readonly -- --env-file ${report.envFile}\`.`,
+        '- [ ] Confirm `cloudflare_wrangler_oauth_readonly` is OK; no API token or clipboard input is accepted.',
+        '- [ ] Confirm `turnstile_widgets_readonly` is OK.',
+        '- [ ] If OAuth evidence cannot be produced, stop and repair the encrypted Wrangler keyring session before closure.',
         '- [ ] Confirm `siteverify_fake_token_rejection` remains OK.',
-        '- [ ] Run `corepack pnpm --config.verify-deps-before-run=false launch:integration-final-package` and confirm the Turnstile warning is gone or explicitly represented by accepted-risk evidence.',
+        '- [ ] Run `pnpm --config.verify-deps-before-run=false launch:integration-final-package` and confirm the Turnstile warning is gone or explicitly represented by accepted-risk evidence.',
         '- [ ] Record non-secret evidence in `integration_readiness` before marking the launch gate pass.',
         '',
         'This checklist does not replace the final browser form smoke with a real Turnstile browser token.',
@@ -442,7 +443,7 @@ function renderRollbackPlan(report: Report): string {
         '',
         `1. Restore the Turnstile widget allowed domains to: ${priorDomains}.`,
         '2. Revert only the dashboard/API domain edit made under the exact approval.',
-        `3. Rerun \`corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly -- --env-file ${report.envFile}\`.`,
+        `3. Rerun \`pnpm --config.verify-deps-before-run=false launch:turnstile-readonly -- --env-file ${report.envFile}\`.`,
         '4. Record the rollback as non-secret dashboard evidence with owner, date and reason.',
         '5. If the issue affects public forms during launch, keep checkout/lead capture disabled or route traffic back to the previously verified runtime until fixed.',
         '',
@@ -456,7 +457,7 @@ function renderManualEvidenceDryRun(report: Report): string {
     const verificationPath = `../../${toPosix(path.relative(process.cwd(), report.verificationChecklistPath))}`;
 
     return `${[
-        'corepack pnpm --config.verify-deps-before-run=false launch:manual-evidence:record --',
+        'pnpm --config.verify-deps-before-run=false launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
         '  --summary "Turnstile widget/domain posture verified for final launch domains."',
@@ -510,7 +511,7 @@ function renderManifest(report: Report, renderedFiles: Omit<RenderedArtifacts, '
         expectedDomains: report.expectedDomains,
         configuredDomains: report.configuredDomains,
         missingExpectedDomains: report.missingExpectedDomains,
-        missingCloudflareApiInputs: report.missingCloudflareApiInputs,
+        cloudflareOAuthStatus: report.cloudflareOAuthStatus,
         runtimeSiteverifyStatus: report.runtimeSiteverifyStatus,
         widgetReadonlyStatus: report.widgetReadonlyStatus,
         doesNotCallCloudflare: true,

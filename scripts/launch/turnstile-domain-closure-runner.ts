@@ -15,6 +15,11 @@ import {
     TURNSTILE_CLOUDFLARE_REQUEST_TIMEOUT_MS,
     type CloudflareApiResponse,
 } from './turnstile-cloudflare-request';
+import {
+    ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+    withCloudflareWranglerOAuth,
+    type CloudflareAccountApi,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'warning' | 'failed';
 type ReportStatus = 'OK' | 'WARNING' | 'FAILED';
@@ -67,7 +72,6 @@ interface ExecutionCapture {
 
 interface ExecutionEnv {
     accountId: string;
-    apiToken: string;
     siteKey: string;
     approvalSentence: string;
     expectedDomains: string[];
@@ -115,7 +119,7 @@ interface RenderedArtifacts {
 
 const approvalEnvVar = 'TURNSTILE_DOMAIN_CLOSURE_APPROVAL';
 const expectedDomainsEnvVar = 'TURNSTILE_EXPECTED_DOMAINS';
-const requiredEnv = ['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN', 'PUBLIC_TURNSTILE_SITE_KEY', approvalEnvVar];
+const requiredEnv = ['PUBLIC_TURNSTILE_SITE_KEY', approvalEnvVar];
 const allowedDomains = ['espanolhonesto.com', 'staging.espanolhonesto.com', 'www.espanolhonesto.com'];
 const executeRequested = process.argv.includes('--execute-approved');
 
@@ -153,9 +157,22 @@ async function main(): Promise<void> {
         checks.push(env.check);
 
         if (env.value) {
-            const executionChecks = await runApprovedExecution(env.value, captures);
-            approvalMatched = executionChecks.some((check) => check.name === 'exact_approval_gate' && check.status === 'ok');
-            checks.push(...executionChecks);
+            try {
+                const executionEnv = env.value;
+                const executionChecks = await withCloudflareWranglerOAuth({
+                    accountId: ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID,
+                    consume: async (api) => await runApprovedExecution(executionEnv, captures, api),
+                });
+                approvalMatched = executionChecks.some((check) => check.name === 'exact_approval_gate' && check.status === 'ok');
+                checks.push(...executionChecks);
+            } catch (error) {
+                checks.push({
+                    status: 'failed',
+                    name: 'cloudflare_wrangler_oauth_gate',
+                    message: 'The encrypted Wrangler OAuth session could not be attested for the exact Cloudflare account, so no Turnstile update can run.',
+                    details: [safeErrorMessage(error), 'externalWritePerformed=false'],
+                });
+            }
         }
     } else {
         checks.push({
@@ -281,7 +298,7 @@ function validateClosurePack(): Check {
             status: 'failed',
             name: 'turnstile_closure_pack_exists',
             message: 'The Turnstile domain closure pack must exist before using the gated runner.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-pack'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-pack'],
         };
     }
 
@@ -328,7 +345,7 @@ function validateTurnstileReadonlyEvidence(): Check {
             status: 'failed',
             name: 'turnstile_readonly_evidence_exists',
             message: 'Turnstile read-only evidence is missing before preparing a write-capable runner.',
-            details: ['run=corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly'],
+            details: ['run=pnpm --config.verify-deps-before-run=false launch:turnstile-readonly'],
         };
     }
 
@@ -351,7 +368,7 @@ function validateTurnstileReadonlyEvidence(): Check {
                 `status=${latestTurnstileReadonlySummary.status ?? 'unknown'}`,
                 `envFile=${latestTurnstileReadonlySummary.envFile ?? 'unknown'}`,
                 `siteverify=${siteverifyCheck?.status ?? 'missing'}`,
-                `missingCloudflareApi=${detailValue(environmentCheck?.details, 'missing_cloudflare_api') ?? 'unknown'}`,
+                `credentialSource=${detailValue(environmentCheck?.details, 'cloudflare_credential_source') ?? 'unknown'}`,
             ]
             : problems,
     };
@@ -374,6 +391,9 @@ function validateApprovalGateSource(): Check {
         expectedDomainsEnvVar,
         '--execute-approved',
         'runApprovedExecution',
+        'withCloudflareWranglerOAuth',
+        'ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID',
+        'wrangler_keyring_oauth',
         'buildExactApprovalSentence',
         'cloudflareRequest',
         'requestTurnstileCloudflareApi',
@@ -427,19 +447,16 @@ function validateForbiddenScopeSource(): Check {
 }
 
 function validateExecutionEnv(): { check: Check; value: ExecutionEnv | null } {
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ?? '';
-    const apiToken = process.env.CLOUDFLARE_API_TOKEN ?? '';
+    const accountId = ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID;
+    const configuredAccountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim() ?? '';
     const siteKey = process.env.PUBLIC_TURNSTILE_SITE_KEY ?? '';
     const approvalSentence = process.env[approvalEnvVar] ?? '';
     const expectedDomains = expectedTurnstileDomains();
     const missing = requiredEnv.filter((name) => !process.env[name]);
     const problems = [...missing.map((name) => `missing=${name}`)];
 
-    if (accountId && !/^[a-f0-9]{32}$/i.test(accountId)) {
-        problems.push('CLOUDFLARE_ACCOUNT_ID must look like a Cloudflare account id');
-    }
-    if (apiToken && apiToken.length < 20) {
-        problems.push('CLOUDFLARE_API_TOKEN is too short to be a real token');
+    if (configuredAccountId && configuredAccountId !== ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID) {
+        problems.push('CLOUDFLARE_ACCOUNT_ID override does not match the exact allowlisted account');
     }
     if (siteKey && !siteKey.startsWith('0x')) {
         problems.push('PUBLIC_TURNSTILE_SITE_KEY must look like a Turnstile site key');
@@ -454,11 +471,12 @@ function validateExecutionEnv(): { check: Check; value: ExecutionEnv | null } {
             status: problems.length === 0 ? 'ok' : 'failed',
             name: 'execution_env_shape',
             message: problems.length === 0
-                ? 'Execution environment has Cloudflare account/token, Turnstile site key, approval variable and allowed expected domains.'
+                ? 'Execution targets the exact Cloudflare account through encrypted Wrangler OAuth and has the Turnstile site key, approval variable and allowed expected domains.'
                 : 'Execution environment is missing required values or attempts a forbidden Turnstile target.',
             details: problems.length === 0
                 ? [
                     `account=${compactId(accountId)}`,
+                    'credentialSource=wrangler_keyring_oauth',
                     `siteKey=${compactId(siteKey)}`,
                     `expectedDomains=${expectedDomains.join('|')}`,
                     `approvalProvided=${String(Boolean(approvalSentence))}`,
@@ -466,19 +484,21 @@ function validateExecutionEnv(): { check: Check; value: ExecutionEnv | null } {
                 : problems,
         },
         value: problems.length === 0
-            ? { accountId, apiToken, siteKey, approvalSentence, expectedDomains }
+            ? { accountId, siteKey, approvalSentence, expectedDomains }
             : null,
     };
 }
 
-async function runApprovedExecution(env: ExecutionEnv, reportCaptures: ExecutionCapture[]): Promise<Check[]> {
+async function runApprovedExecution(
+    env: ExecutionEnv,
+    reportCaptures: ExecutionCapture[],
+    api: CloudflareAccountApi,
+): Promise<Check[]> {
     const executionChecks: Check[] = [];
 
-    const tokenCheck = await cloudflareTokenPreflight(env, reportCaptures);
-    executionChecks.push(tokenCheck);
-    if (tokenCheck.status === 'failed') return executionChecks;
+    executionChecks.push(cloudflareOAuthSessionPreflight(env, reportCaptures));
 
-    const before = await retrieveWidget(env, 'turnstile_widget_before_update_readonly', reportCaptures);
+    const before = await retrieveWidget(api, env, 'turnstile_widget_before_update_readonly', reportCaptures);
     executionChecks.push(before.check);
     if (!before.widget || before.check.status === 'failed') return executionChecks;
 
@@ -528,6 +548,7 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
 
     try {
         const payload = await cloudflareRequest<TurnstileWidget>(
+            api,
             env,
             'PUT',
             `/accounts/${env.accountId}/challenges/widgets/${env.siteKey}`,
@@ -609,7 +630,7 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
         return executionChecks;
     }
 
-    const after = await retrieveWidget(env, 'turnstile_widget_after_update_readonly', reportCaptures);
+    const after = await retrieveWidget(api, env, 'turnstile_widget_after_update_readonly', reportCaptures);
     executionChecks.push(after.check);
     if (!after.widget || after.check.status === 'failed') {
         externalWriteReceipt = requireReadonlyReconciliation(externalWriteReceipt);
@@ -645,56 +666,36 @@ async function runApprovedExecution(env: ExecutionEnv, reportCaptures: Execution
     return executionChecks;
 }
 
-async function cloudflareTokenPreflight(env: ExecutionEnv, reportCaptures: ExecutionCapture[]): Promise<Check> {
-    try {
-        const payload = await cloudflareRequest<{ id?: string; status?: string }>(env, 'GET', '/user/tokens/verify');
-        const active = payload.success === true && payload.result?.status === 'active';
-        const capture = writeExecutionCapture(
-            'cloudflare_token_readonly_preflight',
-            active ? 'ok' : 'failed',
-            false,
-            'Read-only Cloudflare token verification before any Turnstile widget update.',
-            {
-                success: Boolean(payload.success),
-                tokenId: compactId(payload.result?.id),
-                status: payload.result?.status ?? 'unknown',
-                errors: formatApiErrors(payload),
-            },
-        );
-        reportCaptures.push(capture);
-        return {
-            status: active ? 'ok' : 'failed',
-            name: 'cloudflare_token_readonly_preflight',
-            message: active
-                ? 'Cloudflare API token verifies as active before any Turnstile write.'
-                : 'Cloudflare API token verification failed; no Turnstile update can run.',
-            details: [`capture=${capture.path}`, `status=${payload.result?.status ?? 'unknown'}`, `errors=${formatApiErrors(payload)}`],
-        };
-    } catch (error) {
-        const capture = writeExecutionCapture(
-            'cloudflare_token_readonly_preflight',
-            'failed',
-            false,
-            'Read-only Cloudflare token verification failed before any Turnstile update.',
-            { error: safeErrorMessage(error) },
-        );
-        reportCaptures.push(capture);
-        return {
-            status: 'failed',
-            name: 'cloudflare_token_readonly_preflight',
-            message: 'Cloudflare API token could not be verified.',
-            details: [`capture=${capture.path}`, safeErrorMessage(error)],
-        };
-    }
+function cloudflareOAuthSessionPreflight(env: ExecutionEnv, reportCaptures: ExecutionCapture[]): Check {
+    const capture = writeExecutionCapture(
+        'cloudflare_wrangler_oauth_preflight',
+        'ok',
+        false,
+        'Wrangler keyring OAuth and exact-account attestation completed before any Turnstile widget update.',
+        {
+            account: compactId(env.accountId),
+            credentialSource: 'wrangler_keyring_oauth',
+            externalWritePerformed: false,
+        },
+    );
+    reportCaptures.push(capture);
+    return {
+        status: 'ok',
+        name: 'cloudflare_wrangler_oauth_preflight',
+        message: 'Encrypted Wrangler OAuth is active for the exact Cloudflare account before any Turnstile write.',
+        details: [`capture=${capture.path}`, `account=${compactId(env.accountId)}`, 'credentialSource=wrangler_keyring_oauth'],
+    };
 }
 
 async function retrieveWidget(
+    api: CloudflareAccountApi,
     env: ExecutionEnv,
     captureId: string,
     reportCaptures: ExecutionCapture[],
 ): Promise<{ check: Check; widget: TurnstileWidget | null }> {
     try {
         const payload = await cloudflareRequest<TurnstileWidget>(
+            api,
             env,
             'GET',
             `/accounts/${env.accountId}/challenges/widgets/${env.siteKey}`,
@@ -782,22 +783,49 @@ function validateWidgetBeforeUpdate(widget: TurnstileWidget, env: ExecutionEnv):
 }
 
 function buildExactApprovalSentence(widget: TurnstileWidget, env: ExecutionEnv): string {
-    return `Apruebo actualizar en Cloudflare Turnstile account ${env.accountId} el widget con site key ${env.siteKey} para que sus dominios sean exactamente ${env.expectedDomains.join(', ')}, preservando name "${widget.name}", mode "${widget.mode}" y clearance_level "${widget.clearance_level}", sin cambiar secret keys, site keys, modo de desafio, clearance level, WAF, DNS, Pages, Workers, API tokens, analytics ni ningun otro servicio externo. Despues hay que verificar con corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly y registrar evidencia sin secret values, sin Turnstile secret key y sin Cloudflare API token. No autorizo ningun otro cambio de Cloudflare ni servicios externos.`;
+    return `Apruebo actualizar en Cloudflare Turnstile account ${env.accountId} el widget con site key ${env.siteKey} para que sus dominios sean exactamente ${env.expectedDomains.join(', ')}, preservando name "${widget.name}", mode "${widget.mode}" y clearance_level "${widget.clearance_level}", sin cambiar secret keys, site keys, modo de desafio, clearance level, WAF, DNS, Pages, Workers, API tokens, analytics ni ningun otro servicio externo. Despues hay que verificar con pnpm --config.verify-deps-before-run=false launch:turnstile-readonly y registrar evidencia sin secret values, sin Turnstile secret key y sin Cloudflare API token. No autorizo ningun otro cambio de Cloudflare ni servicios externos.`;
 }
 
 async function cloudflareRequest<T>(
+    api: CloudflareAccountApi,
     env: ExecutionEnv,
     method: 'GET' | 'PUT',
     pathname: string,
     body?: unknown,
 ): Promise<CloudflareApiResponse<T>> {
     return requestTurnstileCloudflareApi<T>({
-        apiToken: env.apiToken,
+        apiToken: 'wrangler-oauth-scoped-capability',
         method,
         pathname,
         body,
         timeoutMs: TURNSTILE_CLOUDFLARE_REQUEST_TIMEOUT_MS,
+        fetchImpl: createCloudflareOAuthFetch(api, pathname),
     });
+}
+
+function createCloudflareOAuthFetch(
+    api: CloudflareAccountApi,
+    pathname: string,
+): typeof fetch {
+    const expectedUrl = `https://api.cloudflare.com/client/v4${pathname}`;
+    return (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const actualUrl = input instanceof Request
+            ? input.url
+            : input instanceof URL
+                ? input.href
+                : input;
+        if (actualUrl !== expectedUrl) {
+            throw new Error('Turnstile OAuth transport refused an unexpected Cloudflare resource URL.');
+        }
+        const headers = new Headers(init?.headers);
+        headers.delete('Authorization');
+        headers.delete('X-Auth-Email');
+        headers.delete('X-Auth-Key');
+        return await api.request(pathname, {
+            ...init,
+            headers,
+        });
+    }) as typeof fetch;
 }
 
 function writeExecutionCapture(
@@ -877,7 +905,7 @@ function renderCommandManifest(report: RunnerReport): string {
         },
         approvedExecutionOnly: {
             cloudflareReadOnlyPreflight: [
-                'GET /user/tokens/verify',
+                'Wrangler keyring OAuth and exact-account attestation',
                 'GET /accounts/{account_id}/challenges/widgets/{sitekey}',
             ],
             cloudflareWrite: 'PUT /accounts/{account_id}/challenges/widgets/{sitekey}',
@@ -916,16 +944,16 @@ function renderExecutionPlan(report: RunnerReport): string {
         '- Plan mode is local-only and does not call Cloudflare.',
         '- Approved execution is limited to one Cloudflare Turnstile widget domain list update.',
         '- The runner allows only `espanolhonesto.com`, `www.espanolhonesto.com` and `staging.espanolhonesto.com`.',
-        '- Before any update, the runner verifies the API token, retrieves the widget read-only, confirms the site key, captures current domains, and builds the exact approval sentence from that live preflight.',
+        '- Before any update, the runner attests encrypted Wrangler OAuth for the exact account, retrieves the widget read-only, confirms the site key, captures current domains, and builds the exact approval sentence from that live preflight.',
         '- The update preserves `name`, `mode` and `clearance_level`; it does not rotate keys or touch WAF, DNS, Pages, Workers, analytics or logs.',
         '',
         '## Sequence',
         '',
-        '1. Run `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and review the read-only evidence.',
-        '2. Run `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-pack` and review the approval request, dashboard checklist, verification checklist and rollback plan.',
-        '3. Export `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_DOMAIN_CLOSURE_APPROVAL` outside repo files.',
-        '4. Execute only after exact approval: `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`.',
-        '5. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and confirm `turnstile_widgets_readonly` is OK.',
+        '1. Run `pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and review the read-only evidence.',
+        '2. Run `pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-pack` and review the approval request, dashboard checklist, verification checklist and rollback plan.',
+        '3. Confirm Wrangler is logged in with encrypted keyring storage for the fixed account, then provide only `PUBLIC_TURNSTILE_SITE_KEY` and `TURNSTILE_DOMAIN_CLOSURE_APPROVAL`; no Cloudflare API token or clipboard transfer is required.',
+        '4. Execute only after exact approval: `pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`.',
+        '5. Rerun `pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and confirm `turnstile_widgets_readonly` is OK.',
         '6. If the receipt says `ambiguous_needs_readonly_reconciliation`, do not retry the PUT: retrieve the widget read-only, compare it with both the before-capture and intended domains, then either record that the target landed or obtain separate approval to roll back.',
         '',
         '## Before And After Ledger',
@@ -936,7 +964,7 @@ function renderExecutionPlan(report: RunnerReport): string {
         '',
         'After this runner:',
         '',
-        '- The same operation is commandized behind a token/account/sitekey env shape, live read-only widget preflight, exact approval comparison, domain allowlist, redacted captures and rollback instructions.',
+        '- The same operation is commandized behind an encrypted Wrangler OAuth capability, fixed account, site-key check, live read-only widget preflight, exact approval comparison, domain allowlist, redacted captures and rollback instructions.',
         '- No external write occurs unless `--execute-approved` is passed and the approval sentence matches the live widget facts.',
         '',
         'Cost/benefit:',
@@ -963,12 +991,12 @@ function renderApprovalGate(report: RunnerReport): string {
         '',
         '## Required Command',
         '',
-        '`corepack pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`',
+        '`pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`',
         '',
         '## Required Environment',
         '',
-        '- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account id for the Espanol Honesto account.',
-        '- `CLOUDFLARE_API_TOKEN`: token with Turnstile widget read/write scope; never store the value in repo files.',
+        '- Cloudflare account: fixed and fail-closed to `' + ESPANOL_HONESTO_CLOUDFLARE_ACCOUNT_ID + '`; a different `CLOUDFLARE_ACCOUNT_ID` override is rejected.',
+        '- Cloudflare credential: encrypted Wrangler OAuth keyring session. `CLOUDFLARE_API_TOKEN` and clipboard transfer are not accepted as operational inputs.',
         '- `PUBLIC_TURNSTILE_SITE_KEY`: existing Turnstile site key for the app.',
         `- \`${expectedDomainsEnvVar}\`: optional comma-separated override; every domain must stay inside the allowlist below.`,
         `- \`${approvalEnvVar}\`: the exact approval sentence generated from the live read-only widget preflight.`,
@@ -981,7 +1009,7 @@ function renderApprovalGate(report: RunnerReport): string {
         '',
         'The runner retrieves the widget read-only first and then compares this exact sentence shape in memory:',
         '',
-        '`Apruebo actualizar en Cloudflare Turnstile account <CLOUDFLARE_ACCOUNT_ID> el widget con site key <PUBLIC_TURNSTILE_SITE_KEY> para que sus dominios sean exactamente <EXPECTED_DOMAINS>, preservando name "<LIVE_WIDGET_NAME>", mode "<LIVE_WIDGET_MODE>" y clearance_level "<LIVE_WIDGET_CLEARANCE_LEVEL>", sin cambiar secret keys, site keys, modo de desafio, clearance level, WAF, DNS, Pages, Workers, API tokens, analytics ni ningun otro servicio externo. Despues hay que verificar con corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly y registrar evidencia sin secret values, sin Turnstile secret key y sin Cloudflare API token. No autorizo ningun otro cambio de Cloudflare ni servicios externos.`',
+        '`Apruebo actualizar en Cloudflare Turnstile account <CLOUDFLARE_ACCOUNT_ID> el widget con site key <PUBLIC_TURNSTILE_SITE_KEY> para que sus dominios sean exactamente <EXPECTED_DOMAINS>, preservando name "<LIVE_WIDGET_NAME>", mode "<LIVE_WIDGET_MODE>" y clearance_level "<LIVE_WIDGET_CLEARANCE_LEVEL>", sin cambiar secret keys, site keys, modo de desafio, clearance level, WAF, DNS, Pages, Workers, API tokens, analytics ni ningun otro servicio externo. Despues hay que verificar con pnpm --config.verify-deps-before-run=false launch:turnstile-readonly y registrar evidencia sin secret values, sin Turnstile secret key y sin Cloudflare API token. No autorizo ningun otro cambio de Cloudflare ni servicios externos.`',
         '',
         'Do not write the full API token, Turnstile secret key, dashboard screenshots containing secrets, private user data, analytics exports or logs into repo files, `.codex-ops`, summaries or chat.',
         '',
@@ -1000,8 +1028,8 @@ function renderRollbackAfterClosure(report: RunnerReport): string {
         '',
         '1. Identify the prior domain list from the pre-update read-only capture and Cloudflare dashboard, without copying API tokens or Turnstile secret keys.',
         '2. Set `TURNSTILE_EXPECTED_DOMAINS` to that prior list and use the same runner only after a new exact approval sentence is generated from the live read-only widget preflight.',
-        '3. Run `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`.',
-        '4. Rerun `corepack pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and confirm the intended widget/domain posture.',
+        '3. Run `pnpm --config.verify-deps-before-run=false launch:turnstile-domain-closure-runner -- --execute-approved`.',
+        '4. Rerun `pnpm --config.verify-deps-before-run=false launch:turnstile-readonly` and confirm the intended widget/domain posture.',
         '5. If public forms were affected, keep launch traffic on the previous verified runtime or keep form submission disabled until a browser-token smoke passes.',
         '',
         '## Ambiguous Write Receipt',
@@ -1027,7 +1055,7 @@ function renderManualEvidenceAfterClosure(report: RunnerReport): string {
     const rollbackPath = `../../${toRelative(report.rollbackAfterClosurePath)}`;
 
     return `${[
-        'corepack pnpm --config.verify-deps-before-run=false launch:manual-evidence:record --',
+        'pnpm --config.verify-deps-before-run=false launch:manual-evidence:record --',
         '  --id integration_readiness',
         '  --status pass',
         '  --summary "Turnstile domain closure runner reviewed/executed with non-secret evidence."',

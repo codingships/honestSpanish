@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { buildSanitizedWranglerOAuthEnvironment } from './cloudflare-wrangler-oauth';
 import {
     parseStagingSmokeEmailBudget,
     parseWranglerWhoamiSummary,
@@ -702,7 +703,7 @@ function runWranglerWhoamiCapture() {
     const capturePath = path.join(outputDir, `${id}.txt`);
     const result = runDirectNodeCommand(wranglerCliArgs(['whoami', '--json']), {
         cwd: process.cwd(),
-        env: process.env,
+        env: buildSanitizedWranglerOAuthEnvironment(process.env, cloudflareAccountId),
         maxBuffer: 10 * 1024 * 1024,
         timeoutMs: 180_000,
     });
@@ -740,7 +741,10 @@ function runWranglerCapture(input: {
     const capturePath = path.join(outputDir, `${input.id}.txt`);
     const result = runDirectNodeCommand(wranglerCliArgs(input.args), {
         cwd: process.cwd(),
-        env: { ...process.env, ...input.env },
+        env: buildSanitizedWranglerOAuthEnvironment(
+            { ...process.env, ...input.env },
+            cloudflareAccountId,
+        ),
         input: input.input,
         maxBuffer: 10 * 1024 * 1024,
         timeoutMs: 180_000,

@@ -67,9 +67,9 @@ import {
 import {
     readProductionAuthInertEvidence,
     safeErrorMessage,
-    SUPABASE_ACCESS_TOKEN_ENV,
     verifyLiveProductionAuthInert,
 } from './supabase-auth-config-shared';
+import { withSupabaseAuthManagementClient } from './supabase-cli-windows-credential';
 
 interface RunnerArgs {
     executeApproved: boolean;
@@ -447,9 +447,6 @@ async function main(): Promise<void> {
         executionErrors.push('Execute mode requires --backup-artifact for every pending production write.');
     }
     if (!args.checkoutDisabledConfirmed) executionErrors.push('Execute mode requires --checkout-disabled-confirmed.');
-    if (destructiveRolloutSelected && !(process.env[SUPABASE_ACCESS_TOKEN_ENV]?.trim())) {
-        executionErrors.push(`${SUPABASE_ACCESS_TOKEN_ENV} is required for the final read-only Auth inert verification.`);
-    }
     if (!evidenceReady) executionErrors.push('One or more local evidence gates are blocked.');
     if (stagingHardeningSelected && !stagingTarget?.valid) {
         executionErrors.push(`Exact staging database target is required: ${stagingTarget?.reason ?? 'validation failed'}.`);
@@ -638,7 +635,10 @@ async function main(): Promise<void> {
             throw new Error('Production Auth inert receipt expired, changed or failed immediate revalidation.');
         }
         try {
-            await verifyLiveProductionAuthInert(process.env[SUPABASE_ACCESS_TOKEN_ENV] as string);
+            await withSupabaseAuthManagementClient(
+                PRODUCTION_PROJECT.ref,
+                async (client) => await verifyLiveProductionAuthInert(client),
+            );
         } catch (error) {
             writeSummary(artifacts.summaryJson, {
                 ...reportBase,

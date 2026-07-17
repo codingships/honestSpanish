@@ -22,6 +22,10 @@ import {
     retryCloudflareReadonlyEvidence,
     type CloudflareReadonlyAttemptResult,
 } from './cloudflare-readonly-retry';
+import {
+    requestAllowlistedCloudflareAccount,
+    withCloudflareWranglerOAuth,
+} from './cloudflare-wrangler-oauth';
 
 type CheckStatus = 'ok' | 'failed';
 
@@ -240,11 +244,9 @@ async function main(): Promise<void> {
             checks.push(failed('exact_approval_gate', 'Exact recovery approval did not match.', ['externalWriteAttempted=false']));
             return;
         }
-        const token = process.env.CLOUDFLARE_API_TOKEN?.trim();
-        if (!token || process.env.CLOUDFLARE_ACCOUNT_ID?.trim() !== target.accountId) {
-            checks.push(failed('execution_environment_gate', 'Exact account or Cloudflare token is missing.', [
+        if (process.env.CLOUDFLARE_ACCOUNT_ID?.trim() !== target.accountId) {
+            checks.push(failed('execution_environment_gate', 'The exact Cloudflare account is missing.', [
                 `account=${target.accountId}`,
-                'tokenPresent=' + String(Boolean(token)),
             ]));
             return;
         }
@@ -255,13 +257,16 @@ async function main(): Promise<void> {
             'D-E=forbidden',
         ]));
 
+        await withCloudflareWranglerOAuth({
+            accountId: target.accountId,
+            consume: async () => {
         const staleRecovery = await reconcileOneShotCloudflareWriteGuard(
             target.recoveryScope,
             outputDir,
             {
                 readback: async (checkpoint) => {
                     if (recoveryDeleteCheckpointMismatch(checkpoint)) return 'not_proven';
-                    const proof = await retryRemoteProof(token, 'either', null);
+                    const proof = await retryRemoteProof('either', null);
                     if (proof.state !== 'proven') return 'not_proven';
                     return proof.value.secretNames.length === 0
                         ? 'intended_state_proven'
@@ -287,7 +292,7 @@ async function main(): Promise<void> {
         checks.push(originalState);
         if (originalState.status === 'failed') return;
 
-        const preflight = await retryRemoteProof(token, 'either', null);
+        const preflight = await retryRemoteProof('either', null);
         checks.push(retryCheck('remote_preflight', preflight));
         if (preflight.state !== 'proven') return;
         const before = preflight.value;
@@ -296,7 +301,7 @@ async function main(): Promise<void> {
         const recoveryGuard = openOneShotCloudflareWriteGuard(target.recoveryScope, outputDir);
         let recoveryGuardClosed = false;
         try {
-            const guardedPreflight = await retryRemoteProof(token, 'either', null);
+            const guardedPreflight = await retryRemoteProof('either', null);
             checks.push(retryCheck('guarded_remote_preflight', guardedPreflight));
             if (guardedPreflight.state !== 'proven') return;
             const guardedInventory = guardedPreflight.value.secretNames.length === 0 ? 'empty' : 'exact_hmac';
@@ -321,7 +326,7 @@ async function main(): Promise<void> {
                 externalWritePerformed = 'unknown';
                 let deleteResult: HttpObservation;
                 try {
-                    deleteResult = await cloudflareRequest(token, 'DELETE',
+                    deleteResult = await cloudflareRequest('DELETE',
                         `/accounts/${target.accountId}/workers/scripts/${encodeURIComponent(target.worker)}/secrets/INTERNAL_JOB_SECRET`);
                 } catch (error) {
                     checkpoint = recordOneShotCloudflareProviderResult(recoveryGuard, checkpoint, {
@@ -358,7 +363,7 @@ async function main(): Promise<void> {
                     ]));
                 if (!deleteSucceeded) return;
 
-                const postDelete = await retryRemoteProof(token, 'empty', before.versionId);
+                const postDelete = await retryRemoteProof('empty', before.versionId);
                 checks.push(retryCheck('post_delete_remote_proof', postDelete));
                 checkpoint = recordOneShotCloudflareReadback(recoveryGuard, checkpoint, postDelete.state === 'proven');
                 if (postDelete.state !== 'proven') return;
@@ -378,7 +383,7 @@ async function main(): Promise<void> {
                         if (!checkpoint || checkpoint.commandId !== 'fulfillment-bootstrap-secret-put-internal-job-secret') {
                             return 'not_proven';
                         }
-                        const proof = await retryRemoteProof(token, 'empty', null);
+                        const proof = await retryRemoteProof('empty', null);
                         checks.push(retryCheck('original_scope_safe_state_readback', proof));
                         return proof.state === 'proven' ? 'safe_state_proven' : 'not_proven';
                     },
@@ -411,6 +416,8 @@ async function main(): Promise<void> {
                 ]));
             }
         }
+            },
+        });
     } catch (error) {
         checks.push(failed('unexpected_recovery_error', 'Recovery stopped on an unexpected error.', [safeError(error)]));
     } finally {
@@ -444,27 +451,25 @@ function validateOriginalPendingState(): Check {
 }
 
 async function retryRemoteProof(
-    token: string,
     expectedSecrets: 'either' | 'empty',
     requireVersionChangeFrom: string | null,
 ) {
     return retryCloudflareReadonlyEvidence<RecoveryRemoteProof>({
         operation: 'readback',
-        read: () => readRemoteProofAttempt(token, expectedSecrets, requireVersionChangeFrom),
+        read: () => readRemoteProofAttempt(expectedSecrets, requireVersionChangeFrom),
     });
 }
 
 async function readRemoteProofAttempt(
-    token: string,
     expectedSecrets: 'either' | 'empty',
     requireVersionChangeFrom: string | null,
 ): Promise<CloudflareReadonlyAttemptResult<RecoveryRemoteProof>> {
     try {
         const encodedWorker = encodeURIComponent(target.worker);
         const [deployments, secrets, schedules, health, operation] = await Promise.all([
-            cloudflareRequest(token, 'GET', `/accounts/${target.accountId}/workers/scripts/${encodedWorker}/deployments`),
-            cloudflareRequest(token, 'GET', `/accounts/${target.accountId}/workers/scripts/${encodedWorker}/secrets`),
-            cloudflareRequest(token, 'GET', `/accounts/${target.accountId}/workers/scripts/${encodedWorker}/schedules`),
+            cloudflareRequest('GET', `/accounts/${target.accountId}/workers/scripts/${encodedWorker}/deployments`),
+            cloudflareRequest('GET', `/accounts/${target.accountId}/workers/scripts/${encodedWorker}/secrets`),
+            cloudflareRequest('GET', `/accounts/${target.accountId}/workers/scripts/${encodedWorker}/schedules`),
             directRequest('GET', `${target.directUrl}/health`),
             directRequest('POST', `${target.directUrl}/internal/jobs/process`, {}),
         ]);
@@ -512,7 +517,6 @@ async function readRemoteProofAttempt(
         }
 
         const version = await cloudflareRequest(
-            token,
             'GET',
             `/accounts/${target.accountId}/workers/scripts/${encodedWorker}/versions/${encodeURIComponent(versionId)}`,
         );
@@ -547,13 +551,11 @@ async function readRemoteProofAttempt(
 }
 
 async function cloudflareRequest(
-    token: string,
     method: 'GET' | 'DELETE',
     apiPath: string,
 ): Promise<HttpObservation> {
-    const response = await fetch(`https://api.cloudflare.com/client/v4${apiPath}`, {
+    const response = await requestAllowlistedCloudflareAccount(apiPath, {
         method,
-        headers: { Authorization: `Bearer ${token}` },
         redirect: 'error',
         signal: AbortSignal.timeout(20_000),
     });

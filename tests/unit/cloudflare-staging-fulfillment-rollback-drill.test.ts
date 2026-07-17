@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
-    cloudflareGetWithRetry,
     retryCloudflareReadonlyGet,
 } from '../../scripts/launch/cloudflare-staging-fulfillment-rollback-drill';
 import {
@@ -331,25 +330,18 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
         expect(abortedRequest).toHaveBeenCalledTimes(2);
         expect(abortWait).toHaveBeenCalledWith(250);
 
-        const fetchMock = vi.fn()
-            .mockResolvedValueOnce(new Response('<html>temporary upstream failure</html>', { status: 503 }))
-            .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, result: {} }), {
-                status: 200,
-                headers: { 'content-type': 'application/json' },
-            }));
+        const requestOnce = vi.fn()
+            .mockResolvedValueOnce({ ok: false, status: 503 })
+            .mockResolvedValueOnce({ ok: true, status: 200 });
         const providerWait = vi.fn().mockResolvedValue(undefined);
-        vi.stubEnv('CLOUDFLARE_API_TOKEN', 'test-token');
-        vi.stubGlobal('fetch', fetchMock);
-        try {
-            await expect(cloudflareGetWithRetry('test_get_503', '/test', providerWait))
-                .resolves.toMatchObject({ ok: true, status: 200 });
-            expect(fetchMock).toHaveBeenCalledTimes(2);
-            expect(providerWait).toHaveBeenCalledTimes(1);
-            expect(providerWait).toHaveBeenCalledWith(250);
-        } finally {
-            vi.unstubAllGlobals();
-            vi.unstubAllEnvs();
-        }
+        await expect(retryCloudflareReadonlyGet(requestOnce, providerWait))
+            .resolves.toEqual({ ok: true, status: 200 });
+        expect(providerWait).toHaveBeenCalledWith(250);
+
+        const retryableStatus = runnerSource.indexOf('const retryableReadStatus');
+        const parseBody = runnerSource.indexOf('JSON.parse(raw)', retryableStatus);
+        expect(retryableStatus).toBeGreaterThan(-1);
+        expect(retryableStatus).toBeLessThan(parseBody);
     });
 
     it('keeps GET retries structurally separate from single-attempt PATCH, PUT and Wrangler writes', () => {
@@ -454,15 +446,15 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
             'noSecretValuesStored: true',
             'stdoutSha256',
             'stderrSha256',
-            "delete childEnv[STAGING_FULFILLMENT_ROLLBACK_APPROVAL_ENV]",
             'RESTORATION_UNPROVEN',
-            'BLOCKED_NO_TOKEN',
             '--install-skills=false',
             'markExternalWriteAttemptStarted',
             'requireReadonlyReconciliation',
             'manualReconciliationRequired',
             'executionLockMayBeReleased(orchestration)',
-            'minimalWranglerEnvironment()',
+            'withCloudflareWranglerOAuth',
+            'requestAllowlistedCloudflareAccount',
+            'runCloudflareWranglerFromKeyring',
         ]) {
             expect(runnerSource).toContain(snippet);
         }
@@ -479,7 +471,7 @@ describe('Cloudflare staging Fulfillment rollback drill', () => {
 
     it('initializes all top-level mutable command state before starting the runner', () => {
         const commandOutputInitialization = runnerSource.indexOf('const commandOutput = new Map<string, string>();');
-        const topLevelRun = runnerSource.indexOf('await run();');
+        const topLevelRun = runnerSource.indexOf('consume: run');
 
         expect(commandOutputInitialization).toBeGreaterThan(-1);
         expect(topLevelRun).toBeGreaterThan(-1);

@@ -47,7 +47,7 @@ import {
     type FinalAuthPolicyReceipt,
     type ProductionAuthDatabaseAggregate,
 } from './supabase-production-auth-cleanup-shared';
-import { SUPABASE_ACCESS_TOKEN_ENV, SUPABASE_MANAGEMENT_API_BASE } from './supabase-auth-config-shared';
+import { withSupabaseAuthManagementClient } from './supabase-cli-windows-credential';
 
 type Mode = 'plan' | 'preflight' | 'requarantine-preflight' | AuthCleanupPhase;
 
@@ -66,7 +66,6 @@ interface SecureInputs {
     supabaseUrl: string;
     serviceRoleKey: string;
     databaseUrl: string;
-    managementToken: string;
     adminEmail: string;
     teacherEmail: string;
 }
@@ -1192,7 +1191,7 @@ async function collectLiveState(
 ): Promise<LiveState> {
     const [users, configuration, database] = await Promise.all([
         listAllAuthUsers(client),
-        getAuthQuarantineConfig(inputs.managementToken),
+        getAuthQuarantineConfig(),
         Promise.resolve(collectDatabaseAggregate(inputs.databaseUrl)),
     ]);
     return {
@@ -1242,20 +1241,17 @@ function exactEmailUser(users: User[], email: string, label: string): User {
     return matches[0];
 }
 
-async function getAuthQuarantineConfig(token: string): Promise<AuthQuarantineConfig> {
-    const response = await fetch(
-        `${SUPABASE_MANAGEMENT_API_BASE}/v1/projects/${PRODUCTION_AUTH_CLEANUP_TARGET.projectRef}/config/auth`,
-        {
-            method: 'GET',
-            headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-            redirect: 'error',
-            signal: AbortSignal.timeout(20_000),
+async function getAuthQuarantineConfig(): Promise<AuthQuarantineConfig> {
+    return await withSupabaseAuthManagementClient(
+        PRODUCTION_AUTH_CLEANUP_TARGET.projectRef,
+        async (client) => {
+            const response = await client.getAuthConfig();
+            if (!response.ok) throw new Error(`Supabase Auth config GET failed with HTTP ${response.status}.`);
+            const validation = selectAuthQuarantineConfig(await response.json());
+            if (!validation.ok || !validation.value) throw new Error(validation.errors.join(' '));
+            return validation.value;
         },
     );
-    if (!response.ok) throw new Error(`Supabase Auth config GET failed with HTTP ${response.status}.`);
-    const validation = selectAuthQuarantineConfig(await response.json());
-    if (!validation.ok || !validation.value) throw new Error(validation.errors.join(' '));
-    return validation.value;
 }
 
 function collectDatabaseAggregate(databaseUrl: string): ProductionAuthDatabaseAggregate {
@@ -1669,7 +1665,6 @@ function loadSecureInputs(): SecureInputs {
         supabaseUrl,
         serviceRoleKey: requiredInput('SUPABASE_SERVICE_ROLE_KEY', production),
         databaseUrl: requiredInput(FIXTURE_CLEANUP_DATABASE_ENV, production),
-        managementToken: requiredInput(SUPABASE_ACCESS_TOKEN_ENV, {}),
         adminEmail,
         teacherEmail,
     };
