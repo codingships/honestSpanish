@@ -259,6 +259,8 @@ describe('production inert final read-only runner', () => {
         expect(sql).toContain('canonical_package_catalog_sha256');
         expect(sql).toContain('package_catalog_version_one_count');
         expect(sql).toContain('migration_history_total_count');
+        expect(sql).toContain("coalesce(min(id::text), '')");
+        expect(sql).not.toContain('min(id)');
         for (const table of PRODUCTION_INERT_ZERO_ROW_TABLES) {
             expect(sql).toContain(`row_count_public_${table}`);
         }

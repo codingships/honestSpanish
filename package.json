@@ -140,6 +140,8 @@
     "launch:supabase-production-history-reconciliation": "tsx scripts/launch/supabase-production-history-reconciliation.ts",
     "launch:supabase-production-rollout-plan": "tsx scripts/launch/supabase-production-rollout-plan.ts",
     "launch:supabase-production-logical-backup": "tsx scripts/launch/supabase-production-logical-backup.ts",
+    "launch:supabase-production-post-closure-backup": "tsx scripts/launch/supabase-production-post-closure-backup.ts",
+    "launch:supabase-production-post-closure-backup:verify": "tsx scripts/launch/supabase-production-post-closure-backup-verify.ts",
     "launch:supabase-production-fixture-cleanup": "tsx scripts/launch/production-fixture-cleanup-runner.ts",
     "launch:supabase-production-rollout": "tsx scripts/launch/supabase-production-rollout-runner.ts",
     "launch:supabase-auth-preflight": "tsx scripts/launch/supabase-auth-config-preflight.ts",

@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Fase 1 UAT: Onboarding y Seguridad', () => {
 
     test('1.1.A: el registro exige la confirmación 18+ sin crear usuarios', async ({ page }) => {
-        await page.goto('/es/login');
+        await page.goto('/es/login', { waitUntil: 'domcontentloaded' });
 
         // Esperar hidratación del componente AuthForm
         await page.waitForFunction(() => {
@@ -32,7 +32,7 @@ test.describe('Fase 1 UAT: Onboarding y Seguridad', () => {
     });
 
     test('1.3.A y B: recuperar contraseña muestra el formulario sin enviar email', async ({ page }) => {
-        await page.goto('/es/login');
+        await page.goto('/es/login', { waitUntil: 'domcontentloaded' });
 
         // Esperar hidratación del componente AuthForm
         await page.waitForFunction(() => {
@@ -54,7 +54,7 @@ test.describe('Fase 1 UAT: Onboarding y Seguridad', () => {
     });
 
     test('1.3.C: Reset password sin sesión muestra recuperación de enlace inválido', async ({ page }) => {
-        await page.goto('/es/reset-password');
+        await page.goto('/es/reset-password', { waitUntil: 'domcontentloaded' });
 
         await expect(page.getByRole('heading', { name: 'Restablecer contraseña' })).toBeVisible();
         await expect(page.getByRole('alert')).toContainText('Este enlace no es válido o ha caducado');

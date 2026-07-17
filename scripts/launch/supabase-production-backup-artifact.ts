@@ -32,6 +32,42 @@ const REQUIRED_ARCHIVE_TABLE_DATA = [
     ['public', 'teacher_availability'],
 ] as const;
 
+const POST_CLOSURE_PUBLIC_TABLE_DATA = [
+    'leads',
+    'profiles',
+    'profiles_private',
+    'packages',
+    'package_prices',
+    'subscriptions',
+    'student_teachers',
+    'sessions',
+    'payments',
+    'processed_webhook_events',
+    'fulfillment_jobs',
+    'fulfillment_effects',
+    'email_recipient_budget_usage',
+    'support_tickets',
+    'crm_contacts',
+    'crm_opportunities',
+    'checkout_intents',
+    'crm_tasks',
+    'crm_activities',
+    'crm_consents',
+    'admin_audit_log',
+    'teacher_availability',
+] as const;
+
+const POST_CLOSURE_FORBIDDEN_PUBLIC_TABLE_DATA = [
+    'public.jobs',
+    'public.staging_integration_smoke_runs',
+    'public.staging_integration_smoke_leases',
+] as const;
+
+const POST_CLOSURE_REQUIRED_TABLE_DATA = [
+    'auth.users',
+    ...POST_CLOSURE_PUBLIC_TABLE_DATA.map((table) => `public.${table}`),
+] as const;
+
 interface ArchiveListResult {
     ok: boolean;
     stdout: string;
@@ -74,6 +110,68 @@ export function archiveContainsRequiredTableData(archiveList: string): {
         .filter((line) => line.length > 0 && !line.startsWith(';'))
         .length;
     return { ok: missing.length === 0 && tocEntryCount > 0, missing, tocEntryCount };
+}
+
+export interface PostClosureArchiveInventoryValidation {
+    ok: boolean;
+    missing: string[];
+    unexpected: string[];
+    forbidden: string[];
+    tocEntryCount: number;
+}
+
+/**
+ * Validates the post-closure backup inventory without changing the historical
+ * pre-rollout contract used by archiveContainsRequiredTableData.
+ *
+ * Other auth TABLE DATA entries are intentionally allowed because a dump of
+ * the auth schema contains Supabase-managed tables. When supplied, the live
+ * inventory must contain fully-qualified public table names.
+ */
+export function validatePostClosureArchiveInventory(
+    archiveList: string,
+    livePublicTableInventory?: readonly string[],
+): PostClosureArchiveInventoryValidation {
+    const archiveInventory = parseArchiveTableDataInventory(archiveList);
+    const archiveRelevant = new Set([
+        ...(archiveInventory.has('auth.users') ? ['auth.users'] : []),
+        ...[...archiveInventory].filter((entry) => entry.startsWith('public.')),
+    ]);
+    const liveInventory = livePublicTableInventory === undefined
+        ? null
+        : new Set(livePublicTableInventory.map((entry) => entry.trim()));
+
+    const missing = POST_CLOSURE_REQUIRED_TABLE_DATA.filter((entry) => {
+        if (!archiveRelevant.has(entry)) return true;
+        return entry.startsWith('public.') && liveInventory !== null && !liveInventory.has(entry);
+    });
+    const observedPublic = new Set([
+        ...[...archiveRelevant].filter((entry) => entry.startsWith('public.')),
+        ...[...(liveInventory ?? [])],
+    ]);
+    const forbidden = POST_CLOSURE_FORBIDDEN_PUBLIC_TABLE_DATA
+        .filter((entry) => observedPublic.has(entry));
+    const required = new Set<string>(POST_CLOSURE_REQUIRED_TABLE_DATA);
+    const forbiddenSet = new Set<string>(POST_CLOSURE_FORBIDDEN_PUBLIC_TABLE_DATA);
+    const unexpected = [...observedPublic]
+        .filter((entry) => !required.has(entry) && !forbiddenSet.has(entry))
+        .sort();
+    const tocEntryCount = archiveList
+        .split(/\r?\n/u)
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0 && !line.startsWith(';'))
+        .length;
+
+    return {
+        ok: tocEntryCount > 0
+            && missing.length === 0
+            && unexpected.length === 0
+            && forbidden.length === 0,
+        missing: [...missing],
+        unexpected,
+        forbidden: [...forbidden],
+        tocEntryCount,
+    };
 }
 
 export async function revalidateProductionBackupArtifact(input: {
@@ -242,4 +340,13 @@ async function sha256File(filePath: string): Promise<string> {
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+function parseArchiveTableDataInventory(archiveList: string): Set<string> {
+    const inventory = new Set<string>();
+    for (const line of archiveList.split(/\r?\n/u)) {
+        const match = line.match(/(?:^|\s)TABLE DATA\s+(\S+)\s+(\S+)(?:\s|$)/u);
+        if (match?.[1] && match[2]) inventory.add(`${match[1]}.${match[2]}`);
+    }
+    return inventory;
 }

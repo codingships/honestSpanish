@@ -136,13 +136,28 @@ Recuperacion:
 
 Este modo ya no es la postura comercial final: queda como rollback inmediato si Stripe live, legal, webhook, portal o fulfillment presentan un incidente.
 
+### Backup Lógico Post-Cierre Del RC
+
+Estado: pendiente de ejecutarse una sola vez después de integrar el `RC_BASE_SHA` técnico en `main`. Es distinto del backup histórico previo al cleanup/rollout y no autoriza ninguna escritura en Supabase.
+
+1. Desde `main` limpio, demostrar `HEAD = origin/main = RC_BASE_SHA` y CI verde.
+2. Renovar `pnpm launch:production-inert-final-readonly -- --capture-readonly` mediante las dos consultas SQL `READ ONLY` y el GET Auth intermedio; usar ese receipt fresco, no el Auth receipt histórico del rollout.
+3. Ejecutar primero el plan y después la ejecución aprobada de `pnpm launch:supabase-production-post-closure-backup` con un destino absoluto nuevo dentro del directorio EFS externo al repositorio.
+4. El runner comprueba target production exacto, Auth inerte, inventario live antes/después, las 22 tablas públicas actuales, `auth.users`, EFS, hash y `pg_restore --list`. Rechaza `public.jobs`, `staging_integration_smoke_runs`, `staging_integration_smoke_leases`, rutas dentro del repo y cualquier destino ya existente.
+5. La creación del archivo usa apertura exclusiva (`wx`) y vuelca `pg_dump` por stdout; nunca usa `--file` después de una comprobación separada. Si falla, el parcial no se reutiliza ni se sobrescribe: se conserva para diagnóstico seguro o se elimina manualmente fuera de este runner y se elige otro nombre.
+6. El receipt nuevo se liga a `RC_BASE_SHA`, al SHA de la atestación inerte, a `databaseStateSha256`, al inventario y al hash del dump. No contiene la ruta ni credenciales. `pg_restore --list` es un tabletop de restauración, no una restauración real.
+
+Consultar `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` para la aprobación exacta y las limitaciones. El runner histórico `launch:supabase-production-logical-backup` permanece reservado a la trazabilidad pre-rollout y no debe reutilizarse para este snapshot mínimo post-cierre.
+
 ### Rollout Supabase Production Inerte
+
+Estado: ejecutado y verificado el 2026-07-17. Este procedimiento se conserva para auditoría, recuperación y trazabilidad; no debe repetirse para renovar evidencias temporales. El cierre histórico incluye cleanup público, 25 migraciones en siete olas, Auth mínimo admin+profesor, cinco franjas de disponibilidad y atestación final DB/Auth. Antes de una futura escritura solo se renuevan las lecturas pre-write exigidas por el runner.
 
 Objetivo: llevar `espanol-honesto` (`vkkahxsybhbutszerawz`) al esquema RC sin abrir checkout y sin ocultar el historial divergente.
 
-Estado de partida reconciliado por lectura: production contiene 24 entradas historicas y tiene pendientes las 25 migraciones RC del allowlist; staging contiene el RC completo mas `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`, ambas staging-only y excluidas de production. Este inventario no prueba ni autoriza la ejecucion de ninguna operacion pendiente.
+Estado de partida histórico previo al rollout: production contenía 24 entradas y tenía pendientes las 25 migraciones RC del allowlist; staging contenía el RC completo más `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`, ambas staging-only. El receipt final del 2026-07-17 prueba 49 entradas, las 25 migraciones aplicadas y cero staging-only en production.
 
-Precondicion no cerrada: ejecutar `pnpm launch:supabase-auth-preflight -- production` por Management API GET y obtener `auth-inert-receipt.json` con target production exacto, `disable_signup=true`, `mailer_autoconfirm=false`, antiguedad maxima de 15 minutos y `externalWritePerformed=false`. Backup, cleanup publico y rollout exigen su ruta explicita mediante `--auth-inert-evidence`; cada operacion bindea el SHA-256 y repite el GET inmediatamente antes de `pg_dump` o del primer SQL write. Un receipt caducado, alterado o seguido de deriva live bloquea sin escribir.
+Contrato historico ejecutado: cada backup, cleanup y rollout exigio `pnpm launch:supabase-auth-preflight -- production` por Management API GET y un `auth-inert-receipt.json` fresco para el target exacto, con `disable_signup=true`, `mailer_autoconfirm=false` y `externalWritePerformed=false`. Para una escritura futura se genera otro receipt y se liga por SHA-256; el vencimiento del anterior no reabre ni autoriza repetir el rollout ya cerrado.
 
 1. Ejecutar `pnpm launch:supabase-production-readonly-preflight`. Debe confirmar el ref exacto, usar `default_transaction_read_only=on`, terminar sin ambiguedades y no seleccionar identificadores, emails, IDs Stripe, payloads ni secretos. Conservar su `summary.json`; caduca a las 24 horas para este flujo.
 2. Capturar inmediatamente antes del plan el manifiesto historico fresco con `pnpm launch:supabase-production-history-reconciliation -- --capture-readonly`. El comando valida por separado que `PUBLIC_SUPABASE_URL` y `SUPABASE_DB_URL` identifican exactamente `vkkahxsybhbutszerawz`, fija el SHA-256 del unico SQL permitido, fuerza `default_transaction_read_only=on` y ese SQL abre ademas `BEGIN READ ONLY`. El snapshot existe solo en memoria: no persiste URL, SQL crudo, statements remotos ni archivo temporal; escribe unicamente el manifiesto agregado y su resumen. El manifiesto caduca a los 15 minutos y su ruta explicita debe pasarse como `--history-reconciliation-manifest <immutable-review-manifest.json>` tanto a `pnpm launch:supabase-production-rollout-plan` como a `pnpm launch:supabase-production-rollout`. Revisar ambos planes antes de continuar. El segundo comando no conecta en su modo por defecto: fija los 25 hashes, las siete olas, los efectos que se verificaran y la exclusion de `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`, ambas exclusivas de staging. `fixture-preservation-policy.template.json` debe completarse contra `scripts/launch/production-fixture-cleanup-contract-v3.json`: las 18 clases, conteos y decisiones deben coincidir exactamente y la aprobacion caduca a las 24 horas. La politica no autoriza por si sola ninguna escritura.
@@ -247,43 +262,26 @@ Precondiciones obligatorias:
 7. `STRIPE_PORTAL_CONFIGURATION_ID` es live, permite actualizar pago/ver facturas/cancelar al final del periodo y no permite cambiar de plan; aviso de renovacion y desistimiento estan operativos.
 8. Fiscalidad y facturación validadas: los importes públicos tienen tratamiento documentado como precio final, el asesor ha confirmado impuestos/exención y datos de factura, y Stripe no puede añadir un total inesperado que el webhook rechazaría.
 
-Secuencia:
+Secuencia canónica:
 
-Antes de entrar en los secrets activos de esta ventana, la preparacion inerte C-D-E pendiente debe cerrarse como el ultimo bloque continuo del RC y quedar seguida inmediatamente por `pnpm launch:status`. Su evidencia compuesta tiene TTL de 5 minutos; no pausar ni intercalar otras validaciones, y no presentar este paso como ejecutado hasta obtener los readbacks finales. Los comandos exactos aparecen, en su orden canonico, en los pasos siguientes.
+La única secuencia vigente de activación es `docs/launch/FINAL_CLOSURE.md`, sección `Secuencia Exacta De Activación Ligada A LAUNCH_SHA`. No mantener ni ejecutar una segunda lista desde este runbook.
 
-1. Ejecutar preflight read-only y declarar la cuenta Cloudflare, ambos Workers, cuenta/mode Stripe live y proyecto Supabase production que se van a tocar.
-2. Crear primero fulfillment inerte con `pnpm launch:cloudflare-production-fulfillment-bootstrap -- --execute-approved`; verificar `operationMode=bootstrap`, `crons=[]` y `503 FULFILLMENT_DISABLED`.
-3. Cargar/verificar únicamente `INTERNAL_JOB_SECRET` con `pnpm launch:cloudflare-production-fulfillment-bootstrap-secrets -- --execute-approved`; debe rechazar cualquier provider secret y atestiguar Supabase/Google/Resend/cron ausentes.
-4. Desplegar después el Worker web con `pnpm launch:cloudflare-production-worker-phase1 -- --execute-approved`, que revalida inmediatamente el bootstrap HMAC-only, manteniendo `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false`; luego cargar solo su HMAC con `pnpm launch:cloudflare-production-worker-bootstrap-secrets -- --execute-approved`.
-5. En la ventana final, cargar primero los secrets completos de fulfillment con `pnpm launch:cloudflare-production-fulfillment-secrets -- --execute-approved`, manteniéndolo en `production_bootstrap`; después `pnpm launch:cloudflare-production-worker-secrets -- --execute-approved` carga los secrets web, genera desde cero y despliega el paquete web `production` con checkout falso, y compensa automáticamente al bootstrap si la versión activa no queda probada. En el web, la aprobación solo puede llegar en el entorno inicial; antes de escribir debe probar phase-1 ejecutada, inventario bootstrap exacto, versión sin bindings Google y atestación bootstrap. Su build desactiva la subida de sourcemaps a Sentry y cada write usa lock + checkpoint canónico write-ahead; timeout/error queda `unknown` y bloquea reinicios hasta conciliación read-only. Tras secrets, activo y compensación repite inventario exacto, `versions view` sin Google y atestación. Habilitar fulfillment solo con `pnpm launch:cloudflare-production-fulfillment-enable -- --execute-approved`: la aprobación exacta debe llegar en el entorno inicial, no en dotenv; el preflight separado de Queues es evidencia temprana y el propio enable vuelve a validar ambos Workers por versión/HMAC, inventario + `info` de Queue/DLQ y Stripe Live read-only inmediatamente antes del write. Confirmar que adquirió el lock canónico de owner único. El checkpoint durable y revisionado debe pasar por CAS de `pending` a `proven` o `compensated`; `ambiguous` bloquea el lanzamiento, `compensationAttempted=true` obliga a cerrar bootstrap y un `proven` histórico solo vale tras readback fresco exacto de versión + health + HMAC + Cron.
-   Si el runner web se interrumpe, no borrar su lock/checkpoint: usar su aprobación separada de recovery y `pnpm launch:cloudflare-production-worker-secrets -- --reconcile-approved`. Ese modo exige que el owner original sea del mismo host y tenga PID definitivamente muerto, hace readbacks frescos, no carga secrets, revalida ambos owners antes de compensar, excluye recuperaciones concurrentes y solo puede redesplegar el bootstrap inerte si no logra probar `active` o `bootstrap`. La liberación es owner-CAS y mantiene el lock secundario hasta haber retirado con seguridad el primario, de modo que normal no entra entre ambas operaciones.
-6. Sincronizar desde Admin los paquetes production con Prices live; verificar las 12 ofertas `package_prices` (4 x 3), account/mode y snapshots de Customer separados de staging.
-7. Probar por URL directa production con checkout cerrado, luego fijar el secret runtime `CHECKOUT_ENABLED_OVERRIDE=true` solo en el Worker `espanolhonesto` con aprobacion exacta.
-8. Confirmar que la landing sigue en `solicitar plaza`; aprobar un alumno/plan controlado y comprobar que solo Campus abre checkout, que falta de aceptaciones devuelve 400 y que la compra recorre intent, webhook, confirmacion y fulfillment.
-9. Registrar evidencia no secreta y abrir trafico. No imprimir keys, Checkout URLs privadas, emails, IDs de Google ni payloads completos.
+La preparación inerte C-D-E ya quedó ejecutada y atestiguada el 2026-07-17. Fulfillment production vigente es `c4854b76-a245-4afd-b42c-8ce6a8b5a36c` y web production vigente es `8087b6dc-ff94-4af0-8de0-2a923e58e99f`, ambos HMAC-only/bootstrap. Los comandos de creación/bootstrap se conservan solo como trazabilidad y recuperación; no se repiten por caducidad de un GET.
+
+La ventana final empieza desde ese baseline inerte y exige `LAUNCH_SHA`, preflight fresco y aprobaciones separadas para secrets activos, web activo con checkout cerrado, enable fulfillment, tráfico/domains, Auth production, catálogo Stripe Live, signup, checkout y una única compra propia. Si falta una de esas fronteras o su rollback, `integration_readiness` permanece pendiente.
 
 Rollback financiero inmediato:
 
 1. Fijar `CHECKOUT_ENABLED_OVERRIDE=false` en el Worker production; esto oculta el checkout y hace que la API devuelva 403 antes de Supabase/Stripe.
-2. Mantener webhook y fulfillment activos para terminar/reconciliar compras ya cobradas.
+2. Si todavía no hubo cobros, se puede compensar a bootstrap. Si ya hubo un cobro, mantener webhook y la última versión activa segura de fulfillment para terminar/reconciliar; no desactivar jobs pendientes ciegamente.
 3. No borrar Prices, clientes ni eventos; investigar y reembolsar desde Stripe cuando corresponda.
-4. Si el problema es fulfillment, pausar nuevas compras, recuperar jobs desde Admin &gt; Jobs y mantener trazabilidad de pagos.
+4. Seguir el orden completo y las condiciones de dominio/Auth/tráfico de `docs/launch/FINAL_CLOSURE.md`; no abrir tráfico antes del smoke propio satisfactorio.
 
 ### Smoke Integral Staging Y Smoke Minimo Production
 
-El arnes `scripts/smoke/real-env-smoke.ts` es exclusivo de staging. Reutiliza las tres cuentas existentes `TEST_ADMIN_EMAIL`, `TEST_TEACHER_EMAIL` y `TEST_STUDENT_EMAIL`; `EMAIL_RECIPIENT_ALLOWLIST` debe contener exactamente esas tres direcciones. No crea usuarios Auth, no resetea contrasenas, no usa destinatarios `example.com` y no requiere abrir el buzon del alumno.
+El arnés `scripts/smoke/real-env-smoke.ts`, el ciclo billing Stripe test y el rehearsal integral son exclusivos de staging y quedaron ejecutados/cerrados el 2026-07-12. Sus evidencias prueban checkout test, webhook, billing, seis emails allowlisted, Drive/Docs/Calendar/Meet, scheduling, jobs y cleanup con checkout desplegado cerrado. No repetirlos por antigüedad de la evidencia; solo una deriva material de código/configuración y otra autorización exacta justificarían una nueva ejecución.
 
-Antes del primer write, `pnpm launch:staging-smoke-rehearsal-runner -- --execute-approved` ejecuta un subprocess `--preflight-only` que comprueba Supabase staging, Stripe test, catalogo contractual, roles/allowlist, un `SMOKE_COMPLETED_CHECKOUT_SESSION_ID` real, su `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH` canonica, la revalidacion terminal viva y el gate desplegado. Si falla algo, el comando de writes no comienza.
-
-Checkout staging permanece cerrado durante todo el smoke. El runner atestigua en read-only la cuenta/Worker y los runtimes web/fulfillment con `CHECKOUT_ENABLED_OVERRIDE=false`, exige `403 Checkout is disabled`, reutiliza la Checkout completada y no realiza escrituras Cloudflare. El child con writes no tiene timeout duro impuesto por el runner para que su `finally` complete el cleanup; una interrupcion forzada exige conciliacion manual. El bootstrap estrecho queda fuera del flujo activo y solo puede usarse como excepcion manual con un propietario externo que abra y restaure/verifique el gate, porque ese script no escribe Cloudflare.
-
-Antes del smoke integral, el ciclo Stripe test canonico se ejecuta y conserva por separado. Con `STAGING_BILLING_CHECKOUT_SESSION_ID=cs_test_...`, ejecutar primero `pnpm launch:staging-billing-lifecycle:preflight`. Si pasa, autorizar el write fijando exactamente `STAGING_BILLING_LIFECYCLE_CONFIRMATION=I_CONFIRM_STAGING_BILLING_LIFECYCLE:<same-session>` y ejecutar `pnpm launch:staging-billing-lifecycle`. Este runner solo acepta la Sandbox Espana/EUR y Supabase staging exactos; avanza el Test Clock exclusivo, verifica `invoice.upcoming`, fallo y recuperacion de renovacion, cancelacion al final del periodo y reembolso parcial+completo unicamente de la renovacion recuperada, preservando el pago inicial.
-
-La evidencia canonica es `outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json`. Debe terminar `status=OK`, checkpoint `phase=complete`, mutacion autorizada, cuenta/sesion exactas, estados terminales y revalidacion final. Pasar su ruta explicita mediante `SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH`; esa evidencia validada sustituye cualquier frase manual de “eventos revisados”. Si el proceso se interrumpe despues de crear `outputs/launch-staging-billing-lifecycle/checkpoints/<session>.json`, no borrar ni editar el checkpoint: revisar el summary fallido y usar `pnpm launch:staging-billing-lifecycle:resume` con la misma sesion y confirmacion de mutacion. `--resume` falla cerrado sin un checkpoint valido y ligado a los mismos recursos.
-
-El cleanup del harness integral elimina unicamente su disponibilidad temporal de profesor, suscripcion/sesiones de scheduling, Docs/eventos y job/audits temporales; restaura notas, enlace Google y asignaciones; conserva el usuario/folder reutilizable y preserva la Checkout, oportunidad, intent, suscripcion y pagos que constituyen la evidencia real. Cualquier fallo de cleanup deja el smoke fallido. Si el proceso se interrumpe a la fuerza, la conciliacion manual debe incluir las filas `teacher_availability` creadas dentro de la ventana exacta del runner, sin borrar disponibilidad preexistente de forma amplia. Esto evita acumular usuarios y filas temporales en Supabase Free.
-
-En production no ejecutar este arnes. Usar `production-minimal-smoke-checklist.md`: paginas publicas/legales, login con cuentas existentes, salud de proveedores, estado intencional del checkout y, solo con aprobacion Stripe live separada, una unica compra deliberadamente propia.
+En production no ejecutar ese arnés. Usar únicamente `production-minimal-smoke-checklist.md` sobre `LAUNCH_SHA`, después de cerrar los otros cuatro gates finales y bajo la frontera temporal de tráfico definida en `docs/launch/FINAL_CLOSURE.md`. La comprobación cubre páginas/legales, login admin/profesor recuperado, Auth redirects, salud de proveedores, catálogo Live, signup tras Go/No-Go y una sola compra propia aprobada. Checkout no se hace público hasta que esa compra termine y se verifiquen webhook, Supabase, contrato, fulfillment, email, Drive/Calendar y Portal.
 
 ## Deploy
 
@@ -296,7 +294,7 @@ En production no ejecutar este arnes. Usar `production-minimal-smoke-checklist.m
 5. Tras ambos dry-runs despliega primero el Cloudflare Fulfillment Worker staging y después el Astro Worker staging con `FULFILLMENT_SERVICE` apuntando al target ya existente. Si el segundo falla, detener retries y reconciliar el estado mixto con el runbook/rollback de staging.
 6. Exigir `launch:staging-operations -- --include-wrangler` y el probe final `403 Checkout is disabled`; después validar el ciclo billing canónico y el smoke integral staging con checkout cerrado, preflight read-only, evidencia explícita y cleanup completo.
 7. Revisar la PR y fusionar a `main` solo cuando el Release Candidate esté aprobado. No existe ni se necesita una rama permanente `staging`.
-8. Production no se despliega por push ni desde el workflow de staging. Ejecutar manualmente los gates en orden: fulfillment bootstrap inerte; luego C-D-E como bloque continuo final (HMAC fulfillment aún inerte, web bootstrap y HMAC web), atestación dual fresca y `pnpm launch:status` dentro de su TTL de 5 minutos. Secrets activos, enable fulfillment y dominios quedan en sus ventanas exactas. Los dominios se mueven desde Pages legado solo después del probe directo y la aprobación de cutover.
+8. Production no se despliega por push ni desde el workflow de staging. El baseline bootstrap inerte y C-D-E ya están cerrados; al comenzar la ventana final se reatestan en modo read-only Cloudflare y Supabase y, sin repetir esos writes, se ejecutan bajo aprobaciones separadas secrets activos, enable fulfillment y dominios. Los dominios se mueven desde Pages legado solo después del probe directo y la aprobación de cutover.
 
 La secuencia Cloudflare completa, sus nombres base seguros y los gates separados de web/fulfillment estan en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Astro 6 fija el entorno web durante el build: un deploy web que no use el `dist/server/wrangler.json` generado y validado no es un comando válido. Fulfillment sigue exigiendo su config y `--env` explícitos; los nombres base `espanolhonesto-env-required` y `espanol-honesto-fulfillment-env-required` mantienen los comandos ambiguos en fallo cerrado.
 
@@ -337,12 +335,9 @@ pnpm exec wrangler queues info espanol-honesto-fulfillment-staging-queue
 # Desplegar solo el Fulfillment Worker staging con sus bindings declarados.
 pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars --strict
 
-# Producción: plan primero; cada write exige su aprobación exacta separada.
-pnpm launch:cloudflare-production-fulfillment-bootstrap
-pnpm launch:cloudflare-production-fulfillment-secrets
-pnpm launch:cloudflare-production-worker-phase1
-pnpm launch:cloudflare-production-worker-secrets
-pnpm launch:cloudflare-production-fulfillment-enable
+# Producción no se ejecuta desde esta lista. C-D-E ya está cerrado.
+# Seguir únicamente docs/launch/FINAL_CLOSURE.md sobre LAUNCH_SHA;
+# el runner de secrets fulfillment debe endurecerse antes de poder usarse.
 ```
 
 Antes de provisionar, ejecutar `wrangler whoami`, `wrangler queues list` y
@@ -390,7 +385,7 @@ Un job marcado `STALE_PROCESSING_REQUIRES_RECONCILIATION` o
 reejecuta automáticamente: revisar primero Drive, Calendar y Resend, y usar
 Admin > Jobs > Reintentar solo cuando se haya descartado o corregido un efecto duplicado.
 
-La secuencia completa está en `docs/launch/CLOUDFLARE_PRODUCTION.md`. Bootstrap, HMAC mínimo de fulfillment, web, HMAC mínimo web, secrets activos finales y enable fulfillment son aprobaciones distintas. El runner de web se niega a desplegar sin un bootstrap ejecutado, con exactamente el HMAC compartido y providers ausentes, verificado de nuevo contra su versión remota actual. El runner completo de secrets fulfillment se reserva para la ventana final y mantiene `production_bootstrap`; no envía emails ni procesa jobs. El runner enable es el único que despliega `--env production` y activa runtime/email/cron; si el resultado es fallido o ambiguo, restaura y verifica el bootstrap inerte. Las fases deben terminar con atestación autenticada de identidad, versión Cloudflare, modo operativo y ref Supabase exactos.
+La secuencia completa está en `docs/launch/CLOUDFLARE_PRODUCTION.md` y el orden canónico de activación/rollback está únicamente en `docs/launch/FINAL_CLOSURE.md`. Bootstrap, HMAC mínimo de fulfillment, web y HMAC mínimo web son cierres históricos; no se repiten. Secrets activos finales y enable fulfillment requieren aprobaciones distintas. Antes de usar el runner de secrets fulfillment hay que añadir lock/checkpoint write-ahead y reconciliación GET ante timeout/ambigüedad; hasta entonces `integration_readiness` permanece pendiente. El runner enable es el único que despliega `--env production` y activa runtime/email/cron; antes de cualquier cobro un fallo puede restaurar bootstrap, pero después de un cobro se debe mantener la última versión activa segura para reconciliar. Todas las fases deben terminar con atestación autenticada de identidad, versión Cloudflare, modo operativo y ref Supabase exactos.
 
 ## Cutover Del Dominio Staging
 

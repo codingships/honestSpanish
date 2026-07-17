@@ -2,6 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+    productionBootstrapVersionBindingTypes,
+    productionBootstrapSecretNames,
+    productionInertBindingNameErrors,
+} from './cloudflare-production-worker-safety';
 
 export const CLOUDFLARE_PRODUCTION_EVIDENCE_MAX_AGE_MS = 30 * 60 * 1_000;
 const FUTURE_CLOCK_SKEW_MS = 2 * 60 * 1_000;
@@ -36,6 +41,7 @@ export const CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS = [
     'scripts/launch/cloudflare-production-runtime-cutover-preflight.ts',
     'scripts/launch/cloudflare-production-runtime-cutover.ts',
     'scripts/launch/cloudflare-production-runtime-readonly.ts',
+    'scripts/launch/rc-production-inert-evidence.ts',
     'scripts/launch/cloudflare-production-web-active-orchestrator.ts',
     'scripts/launch/cloudflare-production-worker-bootstrap-secrets.ts',
     'scripts/launch/cloudflare-production-worker-phase1.ts',
@@ -81,6 +87,18 @@ export interface CloudflareProductionEvidenceValidation {
     valid: boolean;
     errors: string[];
     evidenceTimestamp: string | null;
+}
+
+export interface CloudflareProductionInertRuntimeExpectation {
+    observedAfter: string;
+    webWorker: string;
+    webVersionId: string;
+    fulfillmentWorker: string;
+    fulfillmentVersionId: string;
+    productionQueue: string;
+    productionQueueId: string;
+    productionDeadLetterQueue: string;
+    productionDeadLetterQueueId: string;
 }
 
 const runtimeCriticalChecks = [
@@ -273,6 +291,133 @@ export function validateCloudflareRuntimeReadonlySummary(
     return { valid: errors.length === 0, errors, evidenceTimestamp: endedAt };
 }
 
+export function validateCloudflareRuntimeReadonlyInertAttestation(
+    value: unknown,
+    target: CloudflareProductionEvidenceTarget,
+    expectation: CloudflareProductionInertRuntimeExpectation,
+    now = new Date(),
+    currentSourceIdentity = captureCloudflareProductionSourceIdentity(),
+): CloudflareProductionEvidenceValidation {
+    const base = validateCloudflareRuntimeReadonlySummary(
+        value,
+        target,
+        now,
+        currentSourceIdentity,
+    );
+    const errors = [...base.errors];
+    const report = asRecord(value);
+    const evidenceTarget = asRecord(report.target);
+    for (const [field, expected] of [
+        ['productionWorker', expectation.webWorker],
+        ['productionFulfillmentWorker', expectation.fulfillmentWorker],
+        ['productionQueue', expectation.productionQueue],
+        ['productionDeadLetterQueue', expectation.productionDeadLetterQueue],
+    ] as const) {
+        if (evidenceTarget[field] !== expected) errors.push(`target.${field} mismatch for inert attestation`);
+    }
+
+    const observedAfter = Date.parse(expectation.observedAfter);
+    const startedAtValue = stringValue(report.startedAt);
+    const startedAt = Date.parse(startedAtValue);
+    const endedAt = base.evidenceTimestamp ? Date.parse(base.evidenceTimestamp) : Number.NaN;
+    if (!Number.isFinite(observedAfter)) errors.push('inert expectation observedAfter is invalid');
+    if (!Number.isFinite(startedAt)) errors.push('runtime readback startedAt is invalid');
+    else if (Number.isFinite(observedAfter) && startedAt <= observedAfter) {
+        errors.push('runtime readback did not start after the immutable HMAC composite');
+    }
+    if (Number.isFinite(startedAt) && Number.isFinite(endedAt) && endedAt < startedAt) {
+        errors.push('runtime readback ended before it started');
+    }
+
+    const checks = arrayOfRecords(report.checks);
+    for (const name of [
+        'production_web_current_traffic',
+        'production_fulfillment_current_traffic',
+        'production_worker_secret_names',
+        'production_fulfillment_secret_names',
+        'production_web_inert_bindings',
+        'production_fulfillment_inert_bindings',
+        'production_fulfillment_schedules',
+        'production_queue_and_dlq_inventory',
+    ]) {
+        const check = exactlyOneByName(checks, 'name', name, 'inert runtime check', errors);
+        if (check && check.status !== 'ok') errors.push(`inert runtime check is not ok: ${name}`);
+    }
+
+    const probes = arrayOfRecords(report.probes);
+    validateCurrentDeploymentProbe(
+        exactlyOneByName(probes, 'id', 'production_worker_status', 'inert runtime probe', errors),
+        expectation.webVersionId,
+        'production web',
+        errors,
+    );
+    validateCurrentDeploymentProbe(
+        exactlyOneByName(probes, 'id', 'production_fulfillment_status', 'inert runtime probe', errors),
+        expectation.fulfillmentVersionId,
+        'production fulfillment',
+        errors,
+    );
+    validateExactSecretProbe(
+        exactlyOneByName(probes, 'id', 'production_worker_secrets', 'inert runtime probe', errors),
+        'production web',
+        errors,
+    );
+    validateExactSecretProbe(
+        exactlyOneByName(probes, 'id', 'production_fulfillment_secrets', 'inert runtime probe', errors),
+        'production fulfillment',
+        errors,
+    );
+    validateInertVersionProbe(
+        exactlyOneByName(probes, 'id', 'production_worker_current_version', 'inert runtime probe', errors),
+        'web',
+        expectation.webWorker,
+        expectation.webVersionId,
+        expectation.fulfillmentWorker,
+        errors,
+    );
+    validateInertVersionProbe(
+        exactlyOneByName(probes, 'id', 'production_fulfillment_current_version', 'inert runtime probe', errors),
+        'fulfillment',
+        expectation.fulfillmentWorker,
+        expectation.fulfillmentVersionId,
+        expectation.fulfillmentWorker,
+        errors,
+    );
+
+    const apiInventory = asRecord(report.apiInventory);
+    const schedules = asRecord(apiInventory.fulfillmentSchedules);
+    if (schedules.state !== 'ready') errors.push('production fulfillment schedule inventory is not ready');
+    if (!Array.isArray(schedules.crons) || schedules.crons.length !== 0) {
+        errors.push('production fulfillment Cron inventory must be exactly empty');
+    }
+    if (!Array.isArray(schedules.gaps) || schedules.gaps.length !== 0) {
+        errors.push('production fulfillment schedule evidence gaps remain');
+    }
+    validateInertQueueInventory(
+        apiInventory.queue,
+        expectation.productionQueue,
+        expectation.productionQueueId,
+        'production Queue',
+        errors,
+    );
+    validateInertQueueInventory(
+        apiInventory.deadLetterQueue,
+        expectation.productionDeadLetterQueue,
+        expectation.productionDeadLetterQueueId,
+        'production DLQ',
+        errors,
+    );
+    if (!Array.isArray(apiInventory.gaps) || apiInventory.gaps.length !== 0) {
+        errors.push('Cloudflare production API inventory gaps remain');
+    }
+
+    return {
+        valid: errors.length === 0,
+        errors: uniqueStrings(errors),
+        evidenceTimestamp: base.evidenceTimestamp,
+    };
+}
+
 export function validateCloudflareRuntimeCutoverPreflightSummary(
     value: unknown,
     target: Pick<CloudflareProductionEvidenceTarget, 'accountId' | 'productionWorker'>,
@@ -433,6 +578,189 @@ function validateLegacyHeadDeploymentPosture(value: Record<string, unknown>, err
     }
     if (!Array.isArray(value.gaps) || value.gaps.length !== 0) {
         errors.push('legacy Worker HEAD deployment evidence gaps remain');
+    }
+}
+
+function validateCurrentDeploymentProbe(
+    probe: Record<string, unknown> | null,
+    expectedVersionId: string,
+    label: string,
+    errors: string[],
+): void {
+    if (!probe) return;
+    if (probe.status !== 'ok' || probe.exitCode !== 0) errors.push(`${label} status probe is not an exact success`);
+    const summary = asRecord(probe.summary);
+    if (summary.state !== 'ready') errors.push(`${label} deployment state is not ready`);
+    if (summary.primaryVersionId !== expectedVersionId) errors.push(`${label} primary version mismatch`);
+    if (summary.notFound !== false || summary.errorPreview !== null) {
+        errors.push(`${label} deployment status is missing or ambiguous`);
+    }
+    const currentVersions = arrayOfRecords(summary.currentVersions);
+    if (currentVersions.length !== 1
+        || currentVersions[0]?.versionId !== expectedVersionId
+        || currentVersions[0]?.percentage !== 100) {
+        errors.push(`${label} traffic must be exactly 100% on the immutable HMAC version`);
+    }
+}
+
+function validateExactSecretProbe(
+    probe: Record<string, unknown> | null,
+    label: string,
+    errors: string[],
+): void {
+    if (!probe) return;
+    if (probe.status !== 'ok' || probe.exitCode !== 0) errors.push(`${label} secret probe is not an exact success`);
+    const summary = asRecord(probe.summary);
+    const names = strictStringArray(summary.names, `${label} secret names`, errors);
+    if (summary.count !== productionBootstrapSecretNames.length
+        || !sameStringArray(names, productionBootstrapSecretNames)) {
+        errors.push(`${label} secrets must be exactly ${productionBootstrapSecretNames.join(',')}`);
+    }
+    if (summary.notFound !== false || summary.errorPreview !== null) {
+        errors.push(`${label} secret inventory is missing or ambiguous`);
+    }
+}
+
+function validateInertVersionProbe(
+    probe: Record<string, unknown> | null,
+    kind: 'web' | 'fulfillment',
+    expectedWorker: string,
+    expectedVersionId: string,
+    expectedFulfillmentWorker: string,
+    errors: string[],
+): void {
+    if (!probe) return;
+    const label = `production ${kind}`;
+    if (probe.status !== 'ok' || probe.exitCode !== 0) errors.push(`${label} version probe is not an exact success`);
+    const summary = asRecord(probe.summary);
+    if (summary.state !== 'ready' || summary.versionId !== expectedVersionId) {
+        errors.push(`${label} version readback does not match the immutable HMAC version`);
+    }
+    if (summary.notFound !== false || summary.errorPreview !== null || summary.rawBindingValuesStored !== false) {
+        errors.push(`${label} version readback is missing, ambiguous or stored raw binding values`);
+    }
+
+    const bindingNames = strictStringArray(summary.bindingNames, `${label} bindingNames`, errors);
+    const expectedBindingTypes = productionBootstrapVersionBindingTypes[kind];
+    const expectedBindingNames = Object.keys(expectedBindingTypes);
+    if (!sameStringArray(bindingNames, expectedBindingNames)) {
+        errors.push(`${label} binding inventory does not match the exact inert bootstrap allowlist`);
+    }
+    validateExactBindingTypes(summary.bindings, expectedBindingTypes, label, errors);
+    for (const bindingError of productionInertBindingNameErrors(kind, bindingNames)) {
+        errors.push(`${label} binding inventory: ${bindingError}`);
+    }
+
+    const safeValues = asRecord(summary.safeValues);
+    const expectedSafeValues: Record<string, string> = kind === 'web'
+        ? {
+            CHECKOUT_ENABLED: 'false',
+            CHECKOUT_ENABLED_OVERRIDE: 'false',
+            EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+            EMAIL_DELIVERY_MODE: 'disabled',
+            EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+            NODE_ENV: 'production',
+            PUBLIC_APP_ENV: 'production',
+            SENTRY_ENVIRONMENT: 'production-bootstrap',
+            WEB_RUNTIME_MODE: 'bootstrap',
+            WORKER_IDENTITY: expectedWorker,
+        }
+        : {
+            CHECKOUT_ENABLED: 'false',
+            CHECKOUT_ENABLED_OVERRIDE: 'false',
+            EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+            EMAIL_DELIVERY_MODE: 'disabled',
+            EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+            FULFILLMENT_RUNTIME_MODE: 'bootstrap',
+            NODE_ENV: 'production',
+            PUBLIC_APP_ENV: 'production',
+            WORKER_IDENTITY: expectedWorker,
+        };
+    validateExactStringRecord(safeValues, expectedSafeValues, `${label} safeValues`, errors);
+    const safeTargets = asRecord(summary.safeTargets);
+    validateExactStringRecord(
+        safeTargets,
+        kind === 'web' ? { FULFILLMENT_SERVICE: expectedFulfillmentWorker } : {},
+        `${label} safeTargets`,
+        errors,
+    );
+}
+
+function validateExactBindingTypes(
+    value: unknown,
+    expectedTypes: Record<string, string>,
+    label: string,
+    errors: string[],
+): void {
+    if (!Array.isArray(value)) {
+        errors.push(`${label} bindings must be an exact projected array`);
+        return;
+    }
+    const projected = value.flatMap((entry) => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return [];
+        const binding = entry as Record<string, unknown>;
+        return typeof binding.name === 'string' && typeof binding.type === 'string'
+            ? [{ name: binding.name, type: binding.type }]
+            : [];
+    });
+    if (projected.length !== value.length) {
+        errors.push(`${label} bindings contain a malformed name/type projection`);
+        return;
+    }
+    const names = projected.map((binding) => binding.name);
+    if (new Set(names).size !== names.length) errors.push(`${label} bindings contain duplicate names`);
+    const expectedNames = Object.keys(expectedTypes);
+    if (!sameStringArray(names, expectedNames)) {
+        errors.push(`${label} binding type inventory does not match the exact inert bootstrap allowlist`);
+    }
+    for (const [name, expectedType] of Object.entries(expectedTypes)) {
+        const matches = projected.filter((binding) => binding.name === name);
+        if (matches.length !== 1 || matches[0]?.type !== expectedType) {
+            errors.push(`${label} binding ${name} must have type ${expectedType}`);
+        }
+    }
+}
+
+function validateInertQueueInventory(
+    value: unknown,
+    expectedName: string,
+    expectedId: string,
+    label: string,
+    errors: string[],
+): void {
+    const queue = asRecord(value);
+    if (queue.state !== 'ready' || queue.name !== expectedName || queue.id !== expectedId) {
+        errors.push(`${label} identity or state mismatch`);
+    }
+    const settings = asRecord(queue.settings);
+    if (settings.delivery_paused !== false
+        || settings.delivery_delay !== 0
+        || settings.message_retention_period !== 86_400) {
+        errors.push(`${label} settings do not match the proven inert inventory`);
+    }
+    if (!Array.isArray(queue.producers) || queue.producers.length !== 0
+        || !Array.isArray(queue.consumers) || queue.consumers.length !== 0) {
+        errors.push(`${label} must have zero producers and zero consumers`);
+    }
+    if (queue.backlogAvailable !== true || queue.backlog !== 0) {
+        errors.push(`${label} backlog must be proven as zero`);
+    }
+    if (!Array.isArray(queue.gaps) || queue.gaps.length !== 0) {
+        errors.push(`${label} evidence gaps remain`);
+    }
+}
+
+function validateExactStringRecord(
+    actual: Record<string, unknown>,
+    expected: Record<string, string>,
+    label: string,
+    errors: string[],
+): void {
+    const actualKeys = Object.keys(actual).sort();
+    const expectedKeys = Object.keys(expected).sort();
+    if (!sameStringArray(actualKeys, expectedKeys)
+        || expectedKeys.some((key) => actual[key] !== expected[key])) {
+        errors.push(`${label} does not match the exact inert bootstrap values`);
     }
 }
 

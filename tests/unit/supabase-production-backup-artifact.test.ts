@@ -10,6 +10,7 @@ import {
     archiveContainsRequiredTableData,
     revalidateProductionBackupArtifact,
     type BackupArtifactRuntime,
+    validatePostClosureArchiveInventory,
 } from '../../scripts/launch/supabase-production-backup-artifact';
 
 const temporaryDirectories: string[] = [];
@@ -33,6 +34,30 @@ const tableData = [
 const archiveList = tableData
     .map(([schema, table], index) => `${index + 1}; 0 0 TABLE DATA ${schema} ${table} postgres`)
     .join('\n');
+const postClosurePublicTables = [
+    'public.leads',
+    'public.profiles',
+    'public.profiles_private',
+    'public.packages',
+    'public.package_prices',
+    'public.subscriptions',
+    'public.student_teachers',
+    'public.sessions',
+    'public.payments',
+    'public.processed_webhook_events',
+    'public.fulfillment_jobs',
+    'public.fulfillment_effects',
+    'public.email_recipient_budget_usage',
+    'public.support_tickets',
+    'public.crm_contacts',
+    'public.crm_opportunities',
+    'public.checkout_intents',
+    'public.crm_tasks',
+    'public.crm_activities',
+    'public.crm_consents',
+    'public.admin_audit_log',
+    'public.teacher_availability',
+] as const;
 
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) {
@@ -113,7 +138,89 @@ describe('Supabase production backup artifact revalidation', () => {
             tocEntryCount: tableData.length,
         });
     });
+
+    it('validates the exact post-closure public inventory while allowing managed auth tables', () => {
+        expect(postClosurePublicTables).toHaveLength(22);
+        const toc = buildPostClosureArchiveList([
+            'auth.identities',
+            'auth.sessions',
+        ]);
+
+        const expected = {
+            ok: true,
+            missing: [],
+            unexpected: [],
+            forbidden: [],
+            tocEntryCount: 25,
+        };
+        expect(validatePostClosureArchiveInventory(toc)).toEqual(expected);
+        expect(validatePostClosureArchiveInventory(toc, postClosurePublicTables)).toEqual(expected);
+    });
+
+    it('reports post-closure TOC and live-inventory drift deterministically', () => {
+        const archiveTables = [
+            ...postClosurePublicTables.filter((entry) => entry !== 'public.package_prices'),
+            'public.zzz_extra',
+            'public.aaa_extra',
+            'public.staging_integration_smoke_leases',
+            'public.jobs',
+        ];
+        const liveTables = [
+            ...postClosurePublicTables.filter((entry) => entry !== 'public.checkout_intents'),
+            'public.zeta_live',
+            'public.staging_integration_smoke_runs',
+        ];
+        const toc = archiveTables
+            .map((entry, index) => tocTableDataLine(entry, index))
+            .join('\n');
+
+        expect(validatePostClosureArchiveInventory(toc, liveTables)).toEqual({
+            ok: false,
+            missing: [
+                'auth.users',
+                'public.package_prices',
+                'public.checkout_intents',
+            ],
+            unexpected: [
+                'public.aaa_extra',
+                'public.zeta_live',
+                'public.zzz_extra',
+            ],
+            forbidden: [
+                'public.jobs',
+                'public.staging_integration_smoke_runs',
+                'public.staging_integration_smoke_leases',
+            ],
+            tocEntryCount: archiveTables.length,
+        });
+    });
+
+    it('keeps the historical pre-rollout archive contract unchanged', () => {
+        expect(archiveContainsRequiredTableData(archiveList)).toEqual({
+            ok: true,
+            missing: [],
+            tocEntryCount: tableData.length,
+        });
+        expect(archiveList).toContain('TABLE DATA public jobs');
+    });
 });
+
+function buildPostClosureArchiveList(additionalTables: readonly string[] = []): string {
+    return [
+        'auth.users',
+        ...postClosurePublicTables,
+        ...additionalTables,
+    ]
+        .map((entry, index) => tocTableDataLine(entry, index))
+        .join('\n');
+}
+
+function tocTableDataLine(entry: string, index: number): string {
+    const separator = entry.indexOf('.');
+    const schema = entry.slice(0, separator);
+    const table = entry.slice(separator + 1);
+    return `${index + 1}; 0 0 TABLE DATA ${schema} ${table} postgres`;
+}
 
 function createArtifact(): string {
     const directory = mkdtempSync(path.join(os.tmpdir(), 'eh-production-backup-artifact-'));

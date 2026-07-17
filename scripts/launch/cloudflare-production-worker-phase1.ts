@@ -30,6 +30,7 @@ import {
     type CloudflareReadonlyAttemptResult,
     type CloudflareReadonlyRetryResult,
 } from './cloudflare-readonly-retry';
+import { validateProductionBootstrapDryRun } from './cloudflare-production-worker-safety';
 import { buildCloudflareProductionInertCompositeEvidence } from './cloudflare-production-inert-composite-evidence';
 import {
     buildCloudflareCredentialFreeChildEnvironment,
@@ -774,13 +775,18 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
     if (dryRunCapture.status === 'failed') return executionChecks;
 
     const dryRunOutput = readFileSync(dryRunCapture.path, 'utf8');
-    const dryRunIsSafe = [
-        'WEB_RUNTIME_MODE', 'bootstrap',
-        'CHECKOUT_ENABLED', 'CHECKOUT_ENABLED_OVERRIDE', 'false',
-        'EMAIL_DELIVERY_MODE', 'disabled',
-        'EMAIL_DAILY_RECIPIENT_LIMIT', 'EMAIL_MONTHLY_RECIPIENT_LIMIT', '0',
-    ].every((snippet) => dryRunOutput.includes(snippet)) &&
-        !target.customDomains.some((domain) => dryRunOutput.includes(domain));
+    const dryRunErrors = validateProductionBootstrapDryRun(
+        dryRunOutput,
+        {
+            customDomains: target.customDomains,
+            publicSiteUrl: 'https://espanolhonesto.com',
+            fulfillmentService: 'espanol-honesto-fulfillment-production',
+            fulfillmentWorkerUrl: 'https://espanol-honesto-fulfillment-production.alindev95.workers.dev',
+            supabaseRef: 'vkkahxsybhbutszerawz',
+            workerIdentity: target.productionWorker,
+        },
+    );
+    const dryRunIsSafe = dryRunErrors.length === 0;
 
     executionChecks.push({
         status: dryRunIsSafe ? 'ok' : 'failed',
@@ -792,7 +798,7 @@ async function runApprovedExecution(reportCaptures: CommandCapture[]): Promise<P
             ? [`capture=${dryRunCapture?.path ?? 'missing'}`]
             : [
                 `capture=${dryRunCapture?.path ?? 'missing'}`,
-                'required=WEB_RUNTIME_MODE bootstrap, checkout false, email disabled/zero and no espanolhonesto.com/www mention',
+                ...dryRunErrors,
             ],
     });
 

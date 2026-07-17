@@ -1,18 +1,18 @@
 # RC Evidence Refresh
 
-Estado: histórico. Esta guía conserva el cierre de los antiguos scopes de staging `database_readiness` y `operations_external`; no es una fuente de estado actual ni debe reutilizar sus conteos, URLs Pages o aprobaciones.
+Estado: **ARCHIVADO**. Esta guía conserva la crónica de antiguos scopes y no es una lista de trabajo viva. No reutilizar sus conteos, aprobaciones, referencias Pages ni instrucciones de cierre.
 
-Fuente viva: ejecutar `pnpm launch:status` y seguir `production_inert_preparation`. Desde 2026-07-16 Fase 1/staging están cerrados; el trabajo RC restante es Cloudflare production en bootstrap inerte más Supabase production/Auth/disponibilidad. Legal real, Stripe Live, proveedores activos, DNS, SEO/LLM y smoke siguen final-only.
+`production_inert_preparation` quedó cerrada el 2026-07-17: Cloudflare C-D-E está atestiguado; Supabase production tiene las 25 migraciones, cleanup, Auth mínimo y disponibilidad aplicados; la atestación final DB/Auth fue verificada. Una lectura renovable caducada solo exige repetir GET/read-only antes de una futura escritura y no reabre el RC.
 
-Estado que debe comprobarse antes de cerrar:
+Fuente viva: ejecutar `pnpm launch:status`. El resultado esperado del corte técnico es `Release Candidate Status: RC_READY_WITH_FINAL_BLOCKERS`, con Fase 1 = 0, RC = 0 y exactamente cinco gates final-only:
 
-- `corepack pnpm launch:phase1`: `BLOCKED` por 2 evidencias manuales/externas abiertas.
-- `corepack pnpm launch:rc`: `RC_BLOCKED_BY_PHASE_1`.
-- `corepack pnpm launch:status`: usar la ultima salida real como fuente de verdad; el refresh estricto de 2026-07-03 queda en `BLOCKED`, 6 blockers, 0 warnings, 7 Open Go/No-Go.
-- RC no se puede congelar mientras sigan abiertos `database_readiness` u `operations_external`.
-- `no_real_payments_staging` esta cerrado en Cloudflare Pages staging mientras el deployed probe siga probando `403 Checkout is disabled`; si se redepliega o cambia runtime/config, repetir la verificacion. Si vuelve `400 priceId is required`, un guard local o un cambio sin desplegar no basta para cerrar RC.
-- Revision Supabase read-only de 2026-06-26: staging `espanol-staging` y production `espanol-honesto` estan activos, pero ambos schemas alojados van por detras del codigo actual; production ademas muestra logs Postgres recientes por drift de schema en `public.leads` (`current_level` y `level_check_status` no existen).
-- La fuente de verdad no es esta lista copiada: es la ultima salida real de `corepack pnpm launch:status` y el ultimo `phase-1-closure-pack.md` generado por `corepack pnpm launch:manual-evidence`.
+- `legal_owner_controller`
+- `legal_human_review`
+- `integration_readiness`
+- `seo_llm_final`
+- `final_smoke`
+
+Todo el contenido situado bajo este aviso describe estados históricos anteriores al cierre del 17 de julio.
 
 ## Corte Actual
 

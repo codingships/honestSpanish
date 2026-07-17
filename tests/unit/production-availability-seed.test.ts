@@ -79,8 +79,14 @@ describe('production availability seed', () => {
             endTime: '18:00:00',
         })));
         const sql = renderProductionAvailabilityApplySql();
-        expect(renderProductionAvailabilityPreflightSql()).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
-        expect(renderProductionAvailabilityVerifySql()).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        const preflightSql = renderProductionAvailabilityPreflightSql();
+        const verifySql = renderProductionAvailabilityVerifySql();
+        expect(preflightSql).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        expect(verifySql).toContain('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        expect(preflightSql).toContain("coalesce(min(id::text), '')");
+        expect(verifySql).toContain("coalesce(min(id::text), '')");
+        expect(preflightSql).not.toContain('min(id)');
+        expect(verifySql).not.toContain('min(id)');
         expect(sql).toContain('BEGIN;');
         expect(sql).toContain('Expected exact finalized two-profile Auth policy state');
         expect(sql).toContain('Expected zero existing availability rows for the production teacher');

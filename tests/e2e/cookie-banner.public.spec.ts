@@ -7,12 +7,12 @@ const bannerAppearTimeoutMs = 5000;
 
 test.describe('Cookie banner', () => {
     test('appears, links the cookie policy and persists the accepted state', async ({ page }) => {
-        await page.goto('/es');
+        await page.goto('/es', { waitUntil: 'domcontentloaded' });
         await page.evaluate(() => {
             window.localStorage.removeItem('cookie_consent');
             window.localStorage.removeItem('cookie_consent_date');
         });
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
 
         const banner = page.locator('#cookie-banner');
         await expect(banner).toBeHidden();
@@ -31,7 +31,7 @@ test.describe('Cookie banner', () => {
         expect(await page.evaluate(() => window.localStorage.getItem('cookie_consent'))).toBe('accepted');
         expect(await page.evaluate(() => window.localStorage.getItem('cookie_consent_date'))).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 
-        await page.reload();
+        await page.reload({ waitUntil: 'domcontentloaded' });
         await page.waitForTimeout(1200);
         await expect(banner).toBeHidden();
         await expect(banner).toHaveAttribute('aria-hidden', 'true');
@@ -53,7 +53,7 @@ test.describe('Cookie banner', () => {
             });
         });
 
-        await page.goto('/en');
+        await page.goto('/en', { waitUntil: 'domcontentloaded' });
 
         const banner = page.locator('#cookie-banner');
         await expect(banner).toBeVisible({ timeout: bannerAppearTimeoutMs });

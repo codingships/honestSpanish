@@ -5,10 +5,16 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
     RC_PRODUCTION_INERT_BLOCKER_ID,
-    assessRcProductionInertEvidence,
+    assessRcProductionInertEvidence as assessRcProductionInertEvidenceWithSource,
 } from '../../scripts/launch/rc-production-inert-evidence';
 import {
+    CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS,
+    computeCloudflareProductionSourceSha256,
+    type CloudflareProductionSourceIdentity,
+} from '../../scripts/launch/cloudflare-production-evidence';
+import {
     classifyWorkerWriteProviderResult,
+    productionBootstrapVersionBindingTypes,
     reconcileWorkerWriteCheckpoint,
     startWorkerWriteCheckpoint,
 } from '../../scripts/launch/cloudflare-production-worker-safety';
@@ -32,6 +38,81 @@ const WEB_PHASE1_VERSION = '11111111-1111-4111-8111-111111111111';
 const WEB_HMAC_VERSION = '22222222-2222-4222-8222-222222222222';
 const FULFILLMENT_VERSION = '33333333-3333-4333-8333-333333333333';
 const temporaryDirectories: string[] = [];
+const cloudflareSourceIdentity = testCloudflareSourceIdentity();
+const cloudflarePlanCheckNames = [
+    'bootstrap_secret_runner_source',
+    'wrangler_production_bootstrap',
+    'bootstrap_runtime_inertness_source',
+    'final_live_route_preserved',
+    'phase1_web_fulfillment_composite_before_secrets',
+    'plan_mode_no_external_write',
+] as const;
+const cloudflarePlanWithheldNames = [
+    'PUBLIC_SUPABASE_URL',
+    'PUBLIC_SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'PUBLIC_STRIPE_PUBLISHABLE_KEY',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
+    'RESEND_API_KEY',
+    'EMAIL_FROM',
+    'RESEND_FROM_EMAIL',
+    'EMAIL_RECIPIENT_ALLOWLIST',
+    'PUBLIC_TURNSTILE_SITE_KEY',
+    'TURNSTILE_SECRET_KEY',
+    'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
+    'PUBLIC_SENTRY_DSN',
+    'SENTRY_DSN',
+    'SENTRY_AUTH_TOKEN',
+] as const;
+
+function cloudflarePlanOnlySummary(
+    options: {
+        status?: 'OK' | 'WARNING';
+        checks?: Array<Record<string, unknown>>;
+        captures?: Array<Record<string, unknown>>;
+    } = {},
+): Record<string, unknown> {
+    const status = options.status ?? 'OK';
+    return {
+        schemaVersion: 1,
+        status,
+        executeRequested: false,
+        approvalMatched: false,
+        externalWriteAttempted: false,
+        externalWritePerformed: false,
+        closureStatus: 'PLAN_ONLY_READY',
+        target: {
+            accountId: 'd1a22bcf6477ff2ff31d2bfb83084e44',
+            worker: 'espanolhonesto',
+            environment: 'production_bootstrap',
+            directUrl: 'https://espanolhonesto.alindev95.workers.dev',
+            supabaseRef: 'vkkahxsybhbutszerawz',
+            fulfillmentUrl: 'https://espanol-honesto-fulfillment-production.alindev95.workers.dev',
+            customDomains: ['espanolhonesto.com', 'www.espanolhonesto.com'],
+        },
+        requiredSecretNames: ['INTERNAL_JOB_SECRET'],
+        explicitlyWithheldSecretNames: cloudflarePlanWithheldNames,
+        startedAt: '2026-07-15T11:59:00.000Z',
+        endedAt: '2026-07-15T11:59:00.001Z',
+        checks: options.checks ?? cloudflarePlanCheckNames.map((name) => ({
+            name,
+            status: status === 'WARNING' && name === 'phase1_web_fulfillment_composite_before_secrets'
+                ? 'warning'
+                : 'ok',
+            message: 'canonical plan check',
+            details: [],
+        })),
+        captures: options.captures ?? [],
+    };
+}
+
+function assessRcProductionInertEvidence(outputsRoot: string, at = now) {
+    return assessRcProductionInertEvidenceWithSource(outputsRoot, at, cloudflareSourceIdentity);
+}
 
 afterEach(() => {
     for (const directory of temporaryDirectories.splice(0)) {
@@ -53,6 +134,12 @@ describe('computed RC production-inert evidence', () => {
             'supabase_production_availability',
             'supabase_auth_inert_after_preparation',
         ]);
+        expect(assessment.renewableReadbacks.map(({ status }) => status)).toEqual([
+            'unavailable',
+            'unavailable',
+        ]);
+        expect(assessment.refreshRequiredBeforeExternalWrite).toBe(true);
+        expect(assessment.cloudflareResolution).toBe('historical_closure_required');
     });
 
     it('closes only a hash-bound Cloudflare + Supabase inert preparation chain', () => {
@@ -64,7 +151,10 @@ describe('computed RC production-inert evidence', () => {
         expect(assessment.ready).toBe(true);
         expect(assessment.blocker).toBeNull();
         expect(assessment.requirements.every((requirement) => requirement.status === 'closed')).toBe(true);
-        expect(assessment.latestEvidenceAt).toBe('2026-07-15T11:58:00.000Z');
+        expect(assessment.renewableReadbacks.map(({ status }) => status)).toEqual(['fresh', 'fresh']);
+        expect(assessment.refreshRequiredBeforeExternalWrite).toBe(false);
+        expect(assessment.cloudflareResolution).toBe('closed');
+        expect(assessment.latestEvidenceAt).toBe('2026-07-15T11:58:30.000Z');
     });
 
     it('accepts a read-only Cloudflare reconciliation that re-attests the same HMAC-only bootstrap', () => {
@@ -108,6 +198,25 @@ describe('computed RC production-inert evidence', () => {
 
         expect(openRequirementIds(assessment)).toEqual(['cloudflare_bootstrap_hmac']);
         expect(assessment.requirements[0]?.reason).toContain('pending checkpoint or lock');
+        expect(assessment.cloudflareResolution).toBe('write_state_reconciliation_required');
+    });
+
+    it('prioritizes reconciliation when write state exists even if no immutable closure exists', () => {
+        const root = temporaryOutputs();
+        const stateRoot = path.join(
+            root,
+            'launch-cloudflare-production-write-state',
+            'web-bootstrap-hmac-secret',
+        );
+        const pending = path.join(stateRoot, 'write-checkpoints-pending');
+        mkdirSync(pending, { recursive: true });
+        mkdirSync(path.join(stateRoot, 'execution.lock'), { recursive: true });
+        writeFileSync(path.join(pending, 'unknown-write.json'), '{}\n', 'utf8');
+
+        const assessment = assessRcProductionInertEvidence(root, now);
+
+        expect(assessment.cloudflareResolution).toBe('write_state_reconciliation_required');
+        expect(assessment.requirements[0]?.reason).toContain('pending checkpoint or lock');
     });
 
     it('keeps Cloudflare open when a resolved checkpoint is newer than its summary until later reconciliation', () => {
@@ -126,6 +235,108 @@ describe('computed RC production-inert evidence', () => {
         writeCloudflareCompositeClosure(root, true, '2026-07-15T11:59:30.000Z');
 
         expect(assessRcProductionInertEvidence(root, now).ready).toBe(true);
+    });
+
+    it.each([
+        'fulfillment-bootstrap-deploy',
+        'fulfillment-bootstrap-hmac-secret',
+        'fulfillment-bootstrap-hmac-secret-recovery-delete',
+        'production-queue-provision',
+        'web-bootstrap-deploy',
+        'web-bootstrap-hmac-secret',
+    ])('invalidates a readback when scope %s writes at or after readback start', (scope) => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+        writeResolvedCloudflareCheckpoint(root, '2026-07-15T11:58:20.000Z', scope);
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'cloudflare_bootstrap_hmac',
+        ]);
+    });
+
+    it('does not fall back after a newer incomplete Cloudflare closure attempt', () => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+        mkdirSync(path.join(
+            root,
+            'launch-cloudflare-production-worker-bootstrap-secrets',
+            '2026-07-15T11-59-00-000Z',
+        ), { recursive: true });
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'cloudflare_bootstrap_hmac',
+        ]);
+    });
+
+    it('does not fall back after a newer incomplete Cloudflare runtime readback', () => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+        mkdirSync(path.join(
+            root,
+            'launch-cloudflare-production-runtime-readonly',
+            '2026-07-15T11-59-00-000Z',
+        ), { recursive: true });
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'cloudflare_bootstrap_hmac',
+        ]);
+    });
+
+    it.each(['OK', 'WARNING'] as const)(
+        'ignores a newer exact %s plan-only Cloudflare attempt because it performs no write',
+        (status) => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+        writeEvidence(
+            root,
+            'launch-cloudflare-production-worker-bootstrap-secrets',
+            '2026-07-15T11-59-00-000Z',
+            'summary.json',
+            cloudflarePlanOnlySummary({ status }),
+        );
+
+        expect(assessRcProductionInertEvidence(root, now).ready).toBe(true);
+        },
+    );
+
+    it.each([
+        [[{}]],
+        [[{ name: 'plan_mode_no_external_write', status: 'unknown' }]],
+        [[
+            { name: 'plan_mode_no_external_write', status: 'ok' },
+            { name: 'plan_mode_no_external_write', status: 'ok' },
+        ]],
+        [[{ name: 'some_other_gate', status: 'ok' }]],
+    ])('does not ignore a malformed newer plan-only Cloudflare attempt %#', (checks) => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+        writeEvidence(
+            root,
+            'launch-cloudflare-production-worker-bootstrap-secrets',
+            '2026-07-15T11-59-00-000Z',
+            'summary.json',
+            cloudflarePlanOnlySummary({ status: 'WARNING', checks }),
+        );
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'cloudflare_bootstrap_hmac',
+        ]);
+    });
+
+    it('does not ignore a plan-only summary that claims a command capture', () => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+        writeEvidence(
+            root,
+            'launch-cloudflare-production-worker-bootstrap-secrets',
+            '2026-07-15T11-59-00-000Z',
+            'summary.json',
+            cloudflarePlanOnlySummary({ captures: [{ id: 'unexpected-command' }] }),
+        );
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'cloudflare_bootstrap_hmac',
+        ]);
     });
 
     it('rejects plan-only Cloudflare evidence and broken Supabase receipt bindings', () => {
@@ -231,7 +442,7 @@ describe('computed RC production-inert evidence', () => {
         expect(assessRcProductionInertEvidence(root, now).ready).toBe(true);
     });
 
-    it('expires only renewable final-state attestations, not immutable operation receipts', () => {
+    it('keeps historical closure valid when only the renewable Supabase readback expires', () => {
         const root = temporaryOutputs();
         writeCompleteEvidenceChain(root);
 
@@ -240,10 +451,85 @@ describe('computed RC production-inert evidence', () => {
             new Date('2026-07-15T12:21:00.000Z'),
         );
 
-        expect(staleAssessment.ready).toBe(false);
-        expect(openRequirementIds(staleAssessment)).toEqual([
+        expect(staleAssessment.ready).toBe(true);
+        expect(openRequirementIds(staleAssessment)).toEqual([]);
+        expect(staleAssessment.renewableReadbacks).toMatchObject([
+            { id: 'cloudflare_runtime_readback', status: 'fresh' },
+            { id: 'supabase_inert_final_readback', status: 'refresh_required' },
+        ]);
+        expect(staleAssessment.refreshRequiredBeforeExternalWrite).toBe(true);
+    });
+
+    it('keeps historical closure valid when both renewable readbacks expire', () => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+
+        const assessment = assessRcProductionInertEvidence(
+            root,
+            new Date('2026-07-15T12:31:00.000Z'),
+        );
+
+        expect(assessment.ready).toBe(true);
+        expect(assessment.blocker).toBeNull();
+        expect(assessment.renewableReadbacks.map(({ status }) => status)).toEqual([
+            'refresh_required',
+            'refresh_required',
+        ]);
+        expect(assessment.refreshRequiredBeforeExternalWrite).toBe(true);
+    });
+
+    it('requires a renewable GET-only Cloudflare readback after the immutable HMAC receipt', () => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root, { omitCloudflareRuntime: true });
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
             'cloudflare_bootstrap_hmac',
-            'supabase_auth_inert_after_preparation',
+        ]);
+        expect(assessRcProductionInertEvidence(root, now).renewableReadbacks[0]).toMatchObject({
+            id: 'cloudflare_runtime_readback',
+            status: 'unavailable',
+        });
+        expect(assessRcProductionInertEvidence(root, now).cloudflareResolution).toBe('readback_only');
+    });
+
+    it('renews an old immutable HMAC receipt without another Cloudflare write', () => {
+        const root = temporaryOutputs();
+        const chain = writeCompleteEvidenceChain(root);
+        writeCloudflareRuntimeReadback(root, '2026-07-15T12:20:00.000Z');
+        writeFinalSupabaseCapture(
+            root,
+            '2026-07-15T12-20-00-000Z',
+            {
+                ...finalSupabaseReceipt(
+                    chain.rolloutSha256,
+                    chain.authPolicySha256,
+                    createHash('sha256').update(readFileSync(chain.availabilityPath)).digest('hex'),
+                ),
+                observedAt: '2026-07-15T12:20:00.000Z',
+                expiresAt: '2026-07-15T12:35:00.000Z',
+            },
+        );
+
+        const renewed = assessRcProductionInertEvidence(
+            root,
+            new Date('2026-07-15T12:21:00.000Z'),
+        );
+        expect(renewed.ready).toBe(true);
+        expect(renewed.renewableReadbacks.map(({ status }) => status)).toEqual(['fresh', 'fresh']);
+        expect(renewed.refreshRequiredBeforeExternalWrite).toBe(false);
+    });
+
+    it('does not accept a newer Cloudflare readback whose version drifts from the HMAC receipt', () => {
+        const root = temporaryOutputs();
+        writeCompleteEvidenceChain(root);
+        writeCloudflareRuntimeReadback(
+            root,
+            '2026-07-15T11:59:00.000Z',
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+
+        expect(openRequirementIds(assessRcProductionInertEvidence(root, now))).toEqual([
+            'cloudflare_bootstrap_hmac',
         ]);
     });
 
@@ -447,6 +733,7 @@ describe('computed RC production-inert evidence', () => {
 function writeCompleteEvidenceChain(root: string, options: {
     cloudflarePlanOnly?: boolean;
     cloudflareReconciled?: boolean;
+    omitCloudflareRuntime?: boolean;
     omitFinalSupabase?: boolean;
 } = {}): {
     availability: Record<string, unknown>;
@@ -513,6 +800,7 @@ function writeCompleteEvidenceChain(root: string, options: {
             root,
             options.cloudflareReconciled === true,
             '2026-07-15T11:58:00.000Z',
+            options.omitCloudflareRuntime !== true,
         );
     }
     return {
@@ -532,6 +820,7 @@ function writeCloudflareCompositeClosure(
     outputsRoot: string,
     reconciled: boolean,
     generatedAt: string,
+    writeRuntime = true,
 ): void {
     const workspaceRoot = path.dirname(outputsRoot);
     const finalAt = new Date(generatedAt);
@@ -638,6 +927,220 @@ function writeCloudflareCompositeClosure(
         'production-inert-web-fulfillment-evidence.json',
         finalEvidence as unknown as Record<string, unknown>,
     );
+    if (writeRuntime) {
+        writeCloudflareRuntimeReadback(
+            outputsRoot,
+            new Date(finalAt.getTime() + 30_000).toISOString(),
+        );
+    }
+}
+
+function writeCloudflareRuntimeReadback(
+    outputsRoot: string,
+    endedAt: string,
+    webVersionId = WEB_HMAC_VERSION,
+): void {
+    const startedAt = new Date(Date.parse(endedAt) - 10_000).toISOString();
+    writeEvidence(
+        outputsRoot,
+        'launch-cloudflare-production-runtime-readonly',
+        endedAt.replace(/[:.]/gu, '-'),
+        'summary.json',
+        {
+            schemaVersion: 2,
+            startedAt,
+            endedAt,
+            status: 'WARNING',
+            target: {
+                accountId: CLOUDFLARE_PRODUCTION_INERT_TARGET.accountId,
+                pagesProject: 'espanolhonesto',
+                productionWorker: CLOUDFLARE_PRODUCTION_INERT_TARGET.webWorker,
+                productionFulfillmentWorker: CLOUDFLARE_PRODUCTION_INERT_TARGET.fulfillmentWorker,
+                stagingWorker: 'espanolhonesto-staging',
+                customDomains: ['espanolhonesto.com', 'www.espanolhonesto.com'],
+                productionQueue: 'espanol-honesto-fulfillment-production-queue',
+                productionDeadLetterQueue: 'espanol-honesto-fulfillment-production-dlq',
+            },
+            safety: {
+                readOnly: true,
+                noExternalWrites: true,
+                noSecretValuesStored: true,
+                noWorkerCodeDownloaded: true,
+                rawVersionBindingValuesStored: false,
+            },
+            checks: [
+                'readonly_command_scope',
+                'cloudflare_api_get_scope',
+                'cloudflare_account_auth',
+                'pages_project_current_domain_owner',
+                'legacy_reminder_worker_neutralized',
+                'evidence_source_identity',
+                'local_wrangler_config_fail_closed',
+                'generated_output_secret_posture',
+                'production_web_current_traffic',
+                'production_fulfillment_current_traffic',
+                'production_worker_secret_names',
+                'production_fulfillment_secret_names',
+                'production_web_inert_bindings',
+                'production_fulfillment_inert_bindings',
+                'production_fulfillment_schedules',
+                'production_queue_and_dlq_inventory',
+            ].map((name) => ({ name, status: 'ok', message: 'proven', details: [] })),
+            probes: [
+                {
+                    id: 'pages_projects',
+                    status: 'ok',
+                    summary: {
+                        projectFound: true,
+                        requiredDomainsPresent: true,
+                        domainNames: [
+                            'espanolhonesto.com',
+                            'www.espanolhonesto.com',
+                            'espanolhonesto.pages.dev',
+                        ],
+                    },
+                },
+                runtimeDeploymentProbe('production_worker_status', webVersionId),
+                runtimeDeploymentProbe('production_fulfillment_status', FULFILLMENT_VERSION),
+                runtimeSecretProbe('production_worker_secrets'),
+                runtimeSecretProbe('production_fulfillment_secrets'),
+                runtimeVersionProbe('production_worker_current_version', 'web', webVersionId),
+                runtimeVersionProbe(
+                    'production_fulfillment_current_version',
+                    'fulfillment',
+                    FULFILLMENT_VERSION,
+                ),
+            ],
+            sourceIdentity: JSON.parse(JSON.stringify(cloudflareSourceIdentity)),
+            apiInventory: {
+                oauthKeyringAttested: true,
+                workerScripts: {
+                    state: 'ready',
+                    flagged: [
+                        { name: 'espanol-honesto-reminders', present: false },
+                        { name: 'espanolhonesto-staging-staging', present: false },
+                    ],
+                    legacyHeadDeployment: {
+                        state: 'ready',
+                        trackedLegacyPackagePaths: [],
+                        workingTreePackagePresent: false,
+                        automaticDeployReferences: [],
+                        gaps: [],
+                    },
+                },
+                calls: [{ id: 'worker_scripts_list', method: 'GET', success: true, outcome: 'ok' }],
+                fulfillmentSchedules: { state: 'ready', crons: [], gaps: [] },
+                queue: runtimeQueue(
+                    'espanol-honesto-fulfillment-production-queue',
+                    'f00c0885eadb475cb9b513a4a7a8fcff',
+                ),
+                deadLetterQueue: runtimeQueue(
+                    'espanol-honesto-fulfillment-production-dlq',
+                    'e59a210ecfe243ddba945accee9f4b5a',
+                ),
+                gaps: [],
+            },
+        },
+    );
+}
+
+function runtimeDeploymentProbe(id: string, versionId: string): Record<string, unknown> {
+    return {
+        id,
+        status: 'ok',
+        exitCode: 0,
+        summary: {
+            state: 'ready',
+            primaryVersionId: versionId,
+            currentVersions: [{ versionId, percentage: 100 }],
+            notFound: false,
+            errorPreview: null,
+        },
+    };
+}
+
+function runtimeSecretProbe(id: string): Record<string, unknown> {
+    return {
+        id,
+        status: 'ok',
+        exitCode: 0,
+        summary: {
+            count: 1,
+            names: ['INTERNAL_JOB_SECRET'],
+            notFound: false,
+            errorPreview: null,
+        },
+    };
+}
+
+function runtimeVersionProbe(
+    id: string,
+    kind: 'web' | 'fulfillment',
+    versionId: string,
+): Record<string, unknown> {
+    const web = kind === 'web';
+    const bindingTypes = productionBootstrapVersionBindingTypes[kind];
+    const bindingNames = Object.keys(bindingTypes);
+    return {
+        id,
+        status: 'ok',
+        exitCode: 0,
+        summary: {
+            state: 'ready',
+            versionId,
+            bindingNames,
+            bindings: bindingNames.map((name) => ({
+                name,
+                type: bindingTypes[name as keyof typeof bindingTypes],
+            })),
+            safeValues: web ? {
+                CHECKOUT_ENABLED: 'false',
+                CHECKOUT_ENABLED_OVERRIDE: 'false',
+                EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+                EMAIL_DELIVERY_MODE: 'disabled',
+                EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+                NODE_ENV: 'production',
+                PUBLIC_APP_ENV: 'production',
+                SENTRY_ENVIRONMENT: 'production-bootstrap',
+                WEB_RUNTIME_MODE: 'bootstrap',
+                WORKER_IDENTITY: CLOUDFLARE_PRODUCTION_INERT_TARGET.webWorker,
+            } : {
+                CHECKOUT_ENABLED: 'false',
+                CHECKOUT_ENABLED_OVERRIDE: 'false',
+                EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+                EMAIL_DELIVERY_MODE: 'disabled',
+                EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+                FULFILLMENT_RUNTIME_MODE: 'bootstrap',
+                NODE_ENV: 'production',
+                PUBLIC_APP_ENV: 'production',
+                WORKER_IDENTITY: CLOUDFLARE_PRODUCTION_INERT_TARGET.fulfillmentWorker,
+            },
+            safeTargets: web
+                ? { FULFILLMENT_SERVICE: CLOUDFLARE_PRODUCTION_INERT_TARGET.fulfillmentWorker }
+                : {},
+            notFound: false,
+            errorPreview: null,
+            rawBindingValuesStored: false,
+        },
+    };
+}
+
+function runtimeQueue(name: string, id: string): Record<string, unknown> {
+    return {
+        name,
+        id,
+        state: 'ready',
+        settings: {
+            delivery_paused: false,
+            delivery_delay: 0,
+            message_retention_period: 86_400,
+        },
+        producers: [],
+        consumers: [],
+        backlog: 0,
+        backlogAvailable: true,
+        gaps: [],
+    };
 }
 
 function okCheck(name: string, details: string[] = []): Record<string, unknown> {
@@ -927,6 +1430,22 @@ function writeResolvedCloudflareCheckpoint(
     }, new Date('2026-07-15T11:19:00.000Z'));
     checkpoint = reconcileWorkerWriteCheckpoint(checkpoint, true, new Date(recordedAt));
     writeFileSync(path.join(stateDirectory, 'resolved.json'), `${JSON.stringify(checkpoint, null, 2)}\n`, 'utf8');
+}
+
+function testCloudflareSourceIdentity(): CloudflareProductionSourceIdentity {
+    const files = CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS.map((filePath) => ({
+        path: filePath,
+        sha256: 'a'.repeat(64),
+    }));
+    return {
+        schemaVersion: 1,
+        gitHead: 'b'.repeat(40),
+        gitWorktreeDirty: false,
+        dirtyPaths: [],
+        unhashedDirtyPaths: [],
+        sourceSha256: computeCloudflareProductionSourceSha256(files),
+        files,
+    };
 }
 
 function temporaryOutputs(): string {

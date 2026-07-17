@@ -356,18 +356,26 @@ describe('Cloudflare launch environment safety', () => {
 
     it('documents the canonical production manual order without loading final providers before web bootstrap', () => {
         const runbook = read('docs/launch/RUNBOOK.md');
-        const orderedCommands = [
-            'launch:cloudflare-production-fulfillment-bootstrap',
-            'launch:cloudflare-production-fulfillment-bootstrap-secrets',
-            'launch:cloudflare-production-worker-phase1',
-            'launch:cloudflare-production-worker-bootstrap-secrets',
-            'launch:cloudflare-production-fulfillment-secrets',
-            'launch:cloudflare-production-worker-secrets',
-            'launch:cloudflare-production-fulfillment-enable',
+        const finalClosure = read('docs/launch/FINAL_CLOSURE.md');
+        expect(runbook).toContain('La única secuencia vigente de activación es `docs/launch/FINAL_CLOSURE.md`');
+        expect(runbook).toContain('No mantener ni ejecutar una segunda lista desde este runbook.');
+
+        const orderedBoundaries = [
+            'cargar los secretos activos de fulfillment',
+            'Desplegar el Worker web activo',
+            'Habilitar fulfillment',
+            'Mover los dominios al Worker',
+            'Recuperar de forma deliberada el acceso del admin y profesor',
+            'Sincronizar desde Admin los cuatro paquetes y doce ofertas Stripe Live',
+            'Ejecutar revisión legal/SEO/live-domain/readiness',
+            'Celebrar Go/No-Go',
+            'override de checkout a `true`',
+            'Ejecutar una única compra propia aprobada',
         ];
 
-        for (let index = 1; index < orderedCommands.length; index += 1) {
-            expect(runbook.indexOf(orderedCommands[index - 1])).toBeLessThan(runbook.indexOf(orderedCommands[index]));
+        for (let index = 1; index < orderedBoundaries.length; index += 1) {
+            expect(finalClosure.indexOf(orderedBoundaries[index - 1]))
+                .toBeLessThan(finalClosure.indexOf(orderedBoundaries[index]));
         }
     });
 

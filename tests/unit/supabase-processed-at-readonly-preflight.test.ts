@@ -9,8 +9,11 @@ const manualRunbook = readFileSync('docs/launch/MANUAL_EVIDENCE_RUNBOOK.md', 'ut
 describe('Supabase processed_at read-only preflight', () => {
     it('is wired as a pnpm launch command and final-window read-only refresh', () => {
         expect(packageJson).toContain('"launch:supabase-processed-at-readonly-preflight": "tsx scripts/launch/supabase-processed-at-readonly-preflight.ts"');
-        expect(finalApprovalQueue).toContain('launch:supabase-processed-at-readonly-preflight');
-        expect(manualRunbook).toContain('pnpm launch:supabase-processed-at-readonly-preflight');
+        expect(finalApprovalQueue).toContain("id: 'history_supabase_production_closure'");
+        expect(finalApprovalQueue).toContain('Do not repeat rollout, Auth reduction or availability writes because a renewable readback expired');
+        expect(finalApprovalQueue).not.toContain("id: 'supabase_processed_at_cleanup'");
+        expect(manualRunbook).toContain('El P3 `ERR-QA-SUPABASE-PROCESSED-AT-DEFAULT-149` quedó cerrado el 2026-07-17');
+        expect(manualRunbook).toContain('Para comprobarlo de nuevo usar solo preflight/readback; no repetir la ola.');
         expect(manualRunbook).toContain('outputs/supabase-processed-at-readonly-preflight/<timestamp>/summary.md');
     });
 

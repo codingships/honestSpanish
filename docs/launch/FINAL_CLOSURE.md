@@ -17,9 +17,16 @@ Entrar en cierre final solo cuando:
 - Alin confirma si se compra/licencia la fuente oficial con soporte cirilico o si acepta mantener el fallback actual para el lanzamiento.
 - Hay tiempo para rotar claves, validar staging, validar production y hacer rollback si algo falla.
 
-El ultimo cierre tecnico del RC debe respetar este orden y no se considera ejecutado por estar documentado: despues de crear y verificar la disponibilidad production, ejecutar `pnpm launch:production-inert-final-readonly -- --capture-readonly` con las tres rutas de evidencia explicitas para generar la atestacion renovable de Supabase/Auth mediante Management API `GET` entre dos consultas SQL `READ ONLY`; despues ejecutar Cloudflare C-D-E como un unico bloque continuo (HMAC fulfillment inerte, web bootstrap y HMAC web inerte) y lanzar inmediatamente `pnpm launch:status`. La atestacion Supabase/Auth demuestra de nuevo el estado inerte completo, no solo Auth: dos perfiles minimos con roles admin/profesor ligados a sus identidades por hash de rol; tablas transaccionales/CRM/billing/fulfillment vacias; exactamente cuatro paquetes cuyo hash de catalogo coincide con el `catalogSha256` del manifiesto de cleanup aprobado (identificador, nombres localizados, precio mensual en centimos EUR, sesiones, flags grupal/dual y estado activo), todos con `catalog_version=1` y referencias Stripe locales nulas; cero objetos Storage con propietario; cinco franjas del profesor; y las 25 migraciones RC exactas dentro de un historial cerrado de 49 entradas. La evidencia compuesta de Cloudflare caduca a los 5 minutos, por lo que no se intercala ningun otro trabajo entre C-D-E y `launch:status`.
+La preparación técnica inerte quedó ejecutada y atestiguada el 2026-07-17. No repetir Cloudflare C-D-E, el rollout, Auth ni disponibilidad para refrescar un TTL. Tras integrar el RC en `main`, el cierre técnico canónico consiste únicamente y en este orden en: renovar `pnpm launch:production-inert-final-readonly -- --capture-readonly` mediante Management API `GET` entre dos consultas SQL `READ ONLY`; generar el backup lógico fresco post-cierre ligado a esa atestación y al SHA; renovar la atestación Cloudflare con GET/readbacks; y ejecutar `pnpm launch:status`/`pnpm launch:rc` sobre el SHA limpio. La atestación Supabase/Auth demuestra el estado inerte completo: dos perfiles mínimos con roles admin/profesor ligados a sus identidades por hash de rol; tablas transaccionales/CRM/billing/fulfillment vacías; exactamente cuatro paquetes cuyo hash de catálogo coincide con el `catalogSha256` aprobado, todos con `catalog_version=1` y referencias Stripe locales nulas; cero objetos Storage con propietario; cinco franjas del profesor; y las 25 migraciones RC exactas dentro de un historial cerrado de 49 entradas. El vencimiento de estas lecturas renovables bloquea una futura escritura, pero no invalida los cierres históricos.
 
 Cada captura real requiere en el entorno local `TEST_ADMIN_EMAIL` y `TEST_TEACHER_EMAIL`, distintos entre si, para probar que el email esperado de cada rol coincide simultaneamente en `auth.users` y `public.profiles`; los valores se descartan y nunca se persisten en la atestacion, resumen ni logs. La captura deja primero un resumen durable. Si el intento real mas reciente queda `CAPTURE_FAILED` o `CAPTURE_IN_PROGRESS`, invalida cualquier exito anterior aunque este siga dentro de su TTL; hay que reconciliar y ejecutar una captura nueva. Un plan local `PLAN_ONLY_NO_NETWORK` se ignora para esta precedencia y nunca sustituye una captura real.
+
+## Dos SHA Y Dos Cierres Distintos
+
+- `RC_BASE_SHA` es el commit técnico canónico que se integra ahora en `main`: código, tests, documentación y producción inerte reconciliados. El goal RC puede terminar con los cinco gates deliberadamente finales todavía abiertos: `legal_owner_controller`, `legal_human_review`, `integration_readiness`, `seo_llm_final` y `final_smoke`.
+- `LAUNCH_SHA` será un descendiente de `RC_BASE_SHA` creado después de sustituir la identidad legal de ejemplo y aplicar cualquier cambio SEO/contenido final. Es el único SHA que puede desplegarse como versión pública activa.
+- Toda aprobación de la ventana final debe nombrar `LAUNCH_SHA`, demostrar `HEAD = origin/main = GitHub main`, CI verde y worktree limpio. Una aprobación ligada a `RC_BASE_SHA` no autoriza activar un descendiente ni reutilizar un bundle anterior.
+- El build production continúa bloqueado mientras `LEGAL_IDENTITY_MODE` no sea `verified`; por tanto, terminar el RC técnico no equivale a aceptar alumnos todavía.
 
 ## No Hacer En Esta Secuencia
 
@@ -53,10 +60,11 @@ La ventana final debe tratarse como una checklist con responsables, orden y hora
 | T-48h | Alin | Confirmar que no entran reviews, Telegram, telemetria ni prueba de nivel definitiva salvo decision nueva documentada. | Checklist y evidencia manual. |
 | T-48h | Alin | Confirmar fuente rusa premium: comprar/licenciar la familia oficial con cirilico o aceptar mantener fallback actual. | `seo_llm_final`, `final_smoke`. |
 | T-24h | Alin | Completar datos legales reales y revision humana legal. | `legal_owner_controller`, `legal_human_review`. |
-| T-24h | Alin/Codex | Ejecutar backup/export Supabase fuera del repo o confirmar upgrade Pro/accepted risk. | `database_readiness`, Go/No-Go. |
+| Tras integrar `RC_BASE_SHA` | Codex | Generar el backup lógico post-cierre desde `main` limpio y ligado al SHA; verificar EFS, hash, TOC e inventario. | Cierre técnico RC. |
+| T-24h | Alin/Codex | Repetir el backup solo si Supabase cambió después del backup post-cierre, o confirmar upgrade Pro/accepted risk. | `database_readiness`, Go/No-Go. |
 | T-12h | Alin/Codex | Rotar claves finales y validar secretos en Cloudflare, Supabase, Stripe, Google, Resend, Turnstile y Sentry. | `security_external`, `integration_readiness`. |
 | T-6h | Codex | Ejecutar checks locales: `pnpm secrets:check`, `pnpm launch:security`, `pnpm launch:operations`, `pnpm launch:payments`, `pnpm launch:seo`, `pnpm launch:final-readiness`. | Evidencia manual final. |
-| T-3h | Alin/Codex | Ejecutar smoke final staging/production segun decision de pagos y servicios reales. | `final_smoke`. |
+| T-3h | Alin/Codex | Usar la evidencia integral staging ya cerrada salvo deriva de código/configuración; ejecutar el smoke production final sobre `LAUNCH_SHA` y servicios reales. | `final_smoke`. |
 | T-1h | Alin | Revisar `docs/launch/MANUAL_EVIDENCE.local.json`, aceptar riesgos no criticos si los hay y decidir Go/No-Go. | `launchDecision`. |
 | T-0 | Codex | Ejecutar `pnpm launch:gate`, `pnpm launch:secondary-review` y `pnpm launch:status`. | Declarar `READY` o `NO-GO`. |
 
@@ -101,23 +109,23 @@ Evidencia manual:
 
 Usar `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`.
 
-Como production esta en Supabase Free, antes de deploy publico, migracion destructiva o Go/No-Go:
+Como production está en Supabase Free, el cierre de `RC_BASE_SHA` genera un dump post-cierre nuevo desde `main` limpio. Antes de deploy público, migración destructiva o Go/No-Go:
 
-- Ejecutar backup logico/manual fuera del repo, o
+- Ejecutar `pnpm launch:supabase-production-post-closure-backup` con el destino EFS nuevo, la atestación inerte fresca y el SHA canónico, o
 - Subir a Pro si se quiere backup programado gestionado.
 
 Evidencia aceptable:
 
-- Nota con fecha, proyecto, metodo y responsable.
-- Captura redactada sin connection strings ni tokens.
+- Receipt no secreto ligado al SHA, atestación inerte, hash del artefacto, inventario exacto y comprobación `pg_restore --list`.
+- Nota explícita de que esta comprobación es tabletop y no una restauración completa.
 
-No guardar dumps en el repo.
+No guardar dumps, rutas privadas ni credenciales en el repo. El contrato post-cierre exige las 22 tablas públicas actuales y `auth.users`, rechaza `public.jobs` y las dos tablas exclusivas de staging, y nunca sobrescribe un destino existente.
 
-Inventario reconciliado read-only del RC (no implica que las operaciones production pendientes esten ejecutadas):
+Inventario reconciliado del RC a 2026-07-17:
 
 - Supabase tiene dos proyectos separados activos: `espanol-staging` y `espanol-honesto`.
-- Production contiene 24 entradas historicas y mantiene pendientes las 25 migraciones RC incluidas en el allowlist production. Tras el rollout, el cierre final exige exactamente esas 25 entradas por version, nombre y SHA-256 del unico statement, y exactamente 49 entradas historicas en total. Staging contiene el RC completo y, ademas, `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`; esas dos migraciones son staging-only y estan excluidas deliberadamente de production.
-- Las tablas criticas existen con RLS activado en ambos proyectos, pero production conserva `public.jobs` como tabla legacy con RLS sin policies. Confirmar que no forma parte del runtime actual o decidir limpieza/accepted risk.
+- Production partía de 24 entradas históricas y aplicó/verificó las 25 migraciones RC incluidas en el allowlist; contiene exactamente 49 entradas. Staging contiene el RC completo y, además, `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`; esas dos migraciones son staging-only y están excluidas deliberadamente de production.
+- Las tablas críticas existen con RLS activado en ambos proyectos. La limpieza production retiró `public.jobs` sin `CASCADE` y la atestación final confirmó `legacy_jobs_absent=true`.
 - Supabase Advisor marca `btree_gist` instalado en `public` en ambos proyectos y leaked password protection desactivado. Antes del lanzamiento publico, habilitar leaked password protection o registrar riesgo aceptado; mover `btree_gist` fuera de `public` solo con migracion probada, o dejarlo como backlog/riesgo aceptado si no bloquea el lanzamiento.
 
 ### 4. Rotacion Final De Claves
@@ -157,7 +165,7 @@ Revisar dashboards y endpoints reales sin exponer secretos:
 
 - Cloudflare Pages production.
 - Cloudflare Fulfillment Worker production `/health`.
-- Cloudflare Workers legacy: confirmar que `espanol-honesto-reminders` no interfiere con el Worker actual o desactivarlo/eliminarlo en ventana controlada.
+- Cloudflare Worker legacy `espanol-honesto-reminders`: conservar como cierre histórico neutralizado (Cron vacío, `workers.dev=false`, Preview URLs desactivadas, sin dominios ni rutas); no reabrirlo salvo deriva demostrada por GET.
 - Supabase production, RLS, migraciones y tablas criticas.
 - Google Drive root folder, template, Calendar/Meet, admin email y decision de cuenta en `docs/launch/GOOGLE_CALENDAR_ACCOUNT.md`.
 - Resend domain/sender y entrega.
@@ -165,10 +173,10 @@ Revisar dashboards y endpoints reales sin exponer secretos:
 - Sentry alerts/issues.
 - Cron y Workers Logs.
 
-Preflight read-only 2026-06-12:
+Antecedentes read-only:
 
 - Cloudflare lista `espanol-honesto-fulfillment-staging` con cron horario y secretos esperados por nombre, sin valores expuestos.
-- Cloudflare lista `espanol-honesto-reminders` con cron horario y sin secrets listados. Tratarlo como recurso legacy hasta que se decida mantener/desactivar/eliminar.
+- La lectura antigua del 2026-06-12 encontró Cron en `espanol-honesto-reminders`; el recurso fue neutralizado y verificado el 2026-07-14 con Cron vacío, `workers.dev=false`, Preview URLs desactivadas, cero custom domains y cero Worker Routes. La evidencia antigua no representa el estado vigente.
 - Stripe autentica la cuenta `espanolhonesto`, pero los listados del MCP de Stripe fallaron con `Unknown tool`. El cierre de pagos no debe depender de esos listados; usar dashboard Stripe, flujo checkout test/live segun decision, webhook delivery y reconciliacion Supabase como evidencia.
 
 Evidencia manual:
@@ -176,6 +184,34 @@ Evidencia manual:
 - `integration_readiness`
 - `operations_external` si hay cambios finales de operacion.
 - `database_readiness` si hubo migraciones, backup o cambios de Supabase.
+
+### 5.1. Secuencia Exacta De Activación Ligada A `LAUNCH_SHA`
+
+No iniciar esta secuencia hasta que `integration_readiness` documente y pruebe las fronteras todavía no automatizadas: hardening del runner de secrets fulfillment con lock/checkpoint write-ahead y reconciliación GET ante ambigüedad; configuración production de `site_url`/redirects Auth; recuperación deliberada del acceso admin/profesor; sincronización de los cuatro paquetes y doce ofertas Stripe Live; movimiento Pages → Worker; apertura/cierre de checkout; una frontera temporal de tráfico que permita el smoke propio sin aceptar alumnos antes de tiempo; y evidencia Cloudflare compatible con estado activo.
+
+1. Integrar identidad legal real y SEO final; congelar `LAUNCH_SHA`; exigir `main` limpio, remoto idéntico y CI verde.
+2. Con todo inerte, renovar Supabase/Auth y Cloudflare mediante lecturas, verificar backup vigente, credenciales por nombre, Stripe Live/Portal/webhook, Turnstile y redirects Auth production.
+3. Solo después de endurecer y validar su runner, cargar los secretos activos de fulfillment manteniendo el runtime bootstrap. Ante timeout o ambigüedad, el checkpoint queda abierto: detenerse y reconciliar por GET antes de cualquier reintento.
+4. Desplegar el Worker web activo desde `LAUNCH_SHA` con checkout todavía `false`; verificar versión, HMAC, Supabase production y probes directos.
+5. Habilitar fulfillment y verificar Queue/DLQ, productor/consumidor, Cron horario, email y HMAC. Cualquier fallo debe compensar a bootstrap y bloquear compras.
+6. Mover los dominios al Worker con checkout y signup todavía cerrados y con una frontera temporal de tráfico/operador que impida aceptar alumnos antes del smoke; verificar propietario, TLS, rutas, webhook, canonical y hreflang. Si esa frontera no existe, `integration_readiness` sigue pendiente y el cutover se pospone.
+7. Recuperar de forma deliberada el acceso del admin y profesor mediante sus dos correos y confirmar ambos logins sin persistir contraseñas en el repo/evidencias.
+8. Sincronizar desde Admin los cuatro paquetes y doce ofertas Stripe Live bajo una aprobación ligada al hash de catálogo; verificar cuenta, modo live, EUR y referencias en Supabase.
+9. Ejecutar revisión legal/SEO/live-domain/readiness con signup y checkout todavía cerrados.
+10. Celebrar Go/No-Go; solo entonces activar signup con el runner final y verificar `site_url` y todos los redirects production sin retirar todavía la frontera temporal de tráfico.
+11. Como última escritura de capacidad de cobro, cambiar únicamente el override de checkout a `true`; comprobar que desaparece el bloqueo 403 solo para el operador autorizado, no para tráfico público aún.
+12. Ejecutar una única compra propia aprobada y verificar webhook, Supabase, confirmación contractual, fulfillment, email, Drive/Calendar y Portal. Solo después de ese éxito se retira la frontera de tráfico, se cierra `final_smoke` y se aceptan alumnos.
+
+La preparación inerte C-D-E, el rollout/Auth/disponibilidad Supabase, Stripe test, el smoke integral staging y el simulacro de rollback son antecedentes cerrados: no forman parte de esta secuencia salvo que exista deriva demostrada.
+
+### 5.2. Orden De Rollback
+
+1. Antes de la primera compra, mantener checkout y signup cerrados; si falla el cutover, devolver el dominio a Pages y conservar Workers inertes.
+2. Si falla Auth después de abrir signup, cerrar signup primero y reconciliar por lectura antes de reintentar.
+3. Si falla el Worker web antes de pagos, usar su compensación a bootstrap. Después de aceptar pagos, cerrar primero checkout y volver solo a una versión activa conocida; no usar bootstrap como destino mientras haya operaciones por procesar.
+4. Si falla fulfillment antes de cualquier cobro, cerrar checkout y aceptar la compensación a bootstrap. Si ya existe un cobro, cerrar checkout pero mantener webhook y la última versión activa conocida de fulfillment para drenar/reconciliar; no compensar ciegamente a bootstrap ni detener jobs pendientes. Escalar a reconciliación manual bajo otra aprobación si no existe una versión activa segura.
+5. Si el catálogo es incorrecto, cerrar checkout, retirar/resincronizar ofertas bajo nueva aprobación y no borrar Prices inmutables.
+6. Después de una compra real, no devolver el dominio a Pages salvo que el webhook se mueva simultáneamente a un endpoint Worker seguro. Preservar recibos, logs y jobs para la reconciliación.
 
 ### 6. Cerrar SEO/LLM Final
 
@@ -281,7 +317,9 @@ Antes de declarar `READY`, Alin debe confirmar:
 
 ## Salida
 
-El goal solo puede cerrarse cuando:
+El goal técnico de `RC_BASE_SHA` termina cuando el commit canónico está en `main`, CI está verde, el backup post-cierre y las reatestaciones inertes son válidos y `launch:status` enumera únicamente los cinco gates finales. No requiere ni autoriza ejecutar esta ventana de activación.
+
+El lanzamiento público de `LAUNCH_SHA` solo puede cerrarse cuando:
 
 - `pnpm launch:gate` pasa sin bloqueos o con riesgos aceptados explicitamente.
 - `pnpm launch:secondary-review` pasa.

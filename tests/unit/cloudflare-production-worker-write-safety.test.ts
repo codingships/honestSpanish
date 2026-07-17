@@ -11,6 +11,7 @@ import {
     assertNoGoogleWebBindings,
     captureInitialApprovalSentence,
     classifyWorkerWriteProviderResult,
+    dryRunProjectedValueMatches,
     findUnresolvedWorkerWriteCheckpoints,
     forbiddenGoogleWebBindingNames,
     persistCanonicalWorkerWriteCheckpoint,
@@ -25,6 +26,7 @@ import {
     productionBootstrapSecretInventoryErrors,
     productionCanonicalInertProviderBindingNames,
     productionInertBindingNameErrors,
+    validateProductionBootstrapDryRun,
     startWorkerWriteCheckpoint,
     summarizeWorkerWriteCheckpoints,
 } from '../../scripts/launch/cloudflare-production-worker-safety';
@@ -53,6 +55,94 @@ function productionBootstrapBindingNames(relativeTomlPath: string): string[] {
 }
 
 describe('Cloudflare production web write safety', () => {
+    it('accepts only an identity-bearing Wrangler URL truncation prefix', () => {
+        const expected = 'https://espanol-honesto-fulfillment-production.alindev95.workers.dev';
+        expect(dryRunProjectedValueMatches(expected, expected, true)).toBe(true);
+        expect(dryRunProjectedValueMatches(
+            'https://espanol-honesto-fulfillment-p...',
+            expected,
+            true,
+        )).toBe(true);
+        expect(dryRunProjectedValueMatches('...', expected, true)).toBe(false);
+        expect(dryRunProjectedValueMatches('https://...', expected, true)).toBe(false);
+        expect(dryRunProjectedValueMatches(
+            'https://espanol-honesto-fulfillment-s...',
+            expected,
+            true,
+        )).toBe(false);
+        expect(dryRunProjectedValueMatches(
+            'https://espanol-honesto-fulfillment-p...',
+            expected,
+            false,
+        )).toBe(false);
+    });
+
+    it('accepts the approved PUBLIC_SITE_URL binding but rejects route-like domain attachment evidence', () => {
+        const expectation = {
+            customDomains: ['espanolhonesto.com', 'www.espanolhonesto.com'],
+            publicSiteUrl: 'https://espanolhonesto.com',
+            fulfillmentService: 'espanol-honesto-fulfillment-production',
+            fulfillmentWorkerUrl: 'https://espanol-honesto-fulfillment-production.alindev95.workers.dev',
+            supabaseRef: 'vkkahxsybhbutszerawz',
+            workerIdentity: 'espanolhonesto',
+        } as const;
+        const dryRun = [
+            'env.FULFILLMENT_SERVICE (espanol-honesto-fulfillment-production)  Worker',
+            'env.ASSETS                                                    Assets',
+            'env.CF_VERSION_METADATA                                       Worker Version Metadata',
+            'env.NODE_ENV ("production")                                  Environment Variable',
+            'env.PUBLIC_APP_ENV ("production")                            Environment Variable',
+            'env.WEB_RUNTIME_MODE ("bootstrap")                           Environment Variable',
+            'env.SUPABASE_EXPECTED_PROJECT_REF ("vkkahxsybhbutszerawz")   Environment Variable',
+            'env.WORKER_IDENTITY ("espanolhonesto")                       Environment Variable',
+            'env.PUBLIC_SITE_URL ("https://espanolhonesto.com")           Environment Variable',
+            'env.FULFILLMENT_WORKER_URL ("https://espanol-honesto-fulfillment-p...") Environment Variable',
+            'env.CHECKOUT_ENABLED ("false")                               Environment Variable',
+            'env.CHECKOUT_ENABLED_OVERRIDE ("false")                      Environment Variable',
+            'env.EMAIL_DELIVERY_MODE ("disabled")                         Environment Variable',
+            'env.EMAIL_DAILY_RECIPIENT_LIMIT ("0")                        Environment Variable',
+            'env.EMAIL_MONTHLY_RECIPIENT_LIMIT ("0")                      Environment Variable',
+            'env.SENTRY_ENVIRONMENT ("production-bootstrap")              Environment Variable',
+        ].join('\n');
+
+        expect(validateProductionBootstrapDryRun(dryRun, expectation)).toEqual([]);
+        expect(validateProductionBootstrapDryRun(
+            `${dryRun}\nRoute: https://espanolhonesto.com/*`,
+            expectation,
+        )).toContain('dry-run contains a custom-domain reference outside the exact PUBLIC_SITE_URL binding');
+        expect(validateProductionBootstrapDryRun(
+            `${dryRun}\nCustom Domain: https://www.espanolhonesto.com`,
+            expectation,
+        )).toContain('dry-run contains a custom-domain reference outside the exact PUBLIC_SITE_URL binding');
+        expect(validateProductionBootstrapDryRun(
+            dryRun.replace('env.CHECKOUT_ENABLED ("false")', 'env.CHECKOUT_ENABLED ("true")'),
+            expectation,
+        )).toContain('dry-run binding CHECKOUT_ENABLED must equal false');
+        expect(validateProductionBootstrapDryRun(
+            `${dryRun}\nenv.CHECKOUT_ENABLED ("true") Environment Variable`,
+            expectation,
+        )).toContain('dry-run binding CHECKOUT_ENABLED must appear exactly once');
+        expect(validateProductionBootstrapDryRun(
+            `prefix ${dryRun}`,
+            expectation,
+        )).toContain('dry-run binding FULFILLMENT_SERVICE must appear exactly once');
+        expect(validateProductionBootstrapDryRun(
+            dryRun.replace('env.ASSETS                                                    Assets', 'env.ASSETS                                                    KV Namespace'),
+            expectation,
+        )).toContain('dry-run binding ASSETS must have resource type Assets');
+        expect(validateProductionBootstrapDryRun(
+            dryRun.replace(
+                'env.FULFILLMENT_SERVICE (espanol-honesto-fulfillment-production)  Worker',
+                'env.FULFILLMENT_SERVICE (unexpected-worker)  Worker',
+            ),
+            expectation,
+        )).toContain('dry-run binding FULFILLMENT_SERVICE must equal espanol-honesto-fulfillment-production');
+        expect(validateProductionBootstrapDryRun(
+            `${dryRun}\nenv.UNEXPECTED_QUEUE (unexpected-queue)  Queue`,
+            expectation,
+        )).toContainEqual(expect.stringContaining('dry-run binding inventory mismatch'));
+    });
+
     it('captures approval from the initial process environment and ignores later dotenv-like mutation', () => {
         const environment: NodeJS.ProcessEnv = { APPROVAL: ' initial approval ' };
         const captured = captureInitialApprovalSentence(environment, 'APPROVAL');
@@ -330,6 +420,25 @@ describe('Cloudflare production web write safety', () => {
                 () => 'dead',
             )).toEqual(owner);
             releaseWorkerWriteExecutionLock(lock, owner);
+        } finally {
+            rmSync(root, { force: true, recursive: true });
+        }
+    });
+
+    it('resumes an interrupted same-owner release claim after the owner is proven dead', () => {
+        const root = mkdtempSync(path.join(tmpdir(), 'worker-write-release-claim-'));
+        const lock = path.join(root, 'write.lock');
+        try {
+            const owner = acquireWorkerWriteExecutionLock(lock, 'interrupted-release');
+            mkdirSync(path.join(lock, '.release-claim'));
+            expect(requireRecoverableWorkerWriteExecutionLock(
+                lock,
+                hostname(),
+                () => 'dead',
+            )).toEqual(owner);
+
+            expect(() => releaseWorkerWriteExecutionLock(lock, owner)).not.toThrow();
+            expect(existsSync(lock)).toBe(false);
         } finally {
             rmSync(root, { force: true, recursive: true });
         }

@@ -268,12 +268,35 @@ describe('Supabase production history reconciliation manifest', () => {
         }
     });
 
-    it('requires a five-minute production-rollout provenance for the live snapshot', () => {
+    it('requires a five-minute live snapshot and seals the Supabase connector fallback', () => {
         const live = snapshot();
         live.provenance = 'production_rollout_psql_readonly';
         const liveNow = new Date('2026-07-14T18:53:00.000Z');
-        expect(validateLiveHistoryReconciliationSnapshot(JSON.stringify(live), liveNow).target.ref).toBe('vkkahxsybhbutszerawz');
+        expect(validateLiveHistoryReconciliationSnapshot(JSON.stringify(live), liveNow)).toMatchObject({
+            provenance: 'production_rollout_psql_readonly',
+            observedProvenance: 'production_rollout_psql_readonly',
+            provenanceNormalization: 'none',
+        });
         live.provenance = 'supabase_connector_execute_sql';
+        expect(validateLiveHistoryReconciliationSnapshot(JSON.stringify(live), liveNow)).toMatchObject({
+            provenance: 'production_rollout_psql_readonly',
+            observedProvenance: 'supabase_connector_execute_sql',
+            provenanceNormalization: 'connector_fallback_sealed',
+        });
+
+        const tamperedFallback = snapshot();
+        tamperedFallback.provenance = 'supabase_connector_execute_sql';
+        tamperedFallback.effectChecks[0].passed = false;
+        expect(() => validateLiveHistoryReconciliationSnapshot(JSON.stringify(tamperedFallback), liveNow))
+            .toThrow(/schema validation/i);
+
+        const staleFallback = snapshot();
+        staleFallback.provenance = 'supabase_connector_execute_sql';
+        staleFallback.capturedAt = '2026-07-14T18:47:59.000Z';
+        expect(() => validateLiveHistoryReconciliationSnapshot(JSON.stringify(staleFallback), liveNow))
+            .toThrow();
+
+        live.provenance = 'supabase_history_capture_psql_readonly';
         expect(() => validateLiveHistoryReconciliationSnapshot(JSON.stringify(live), liveNow)).toThrow(/provenance/i);
     });
 });

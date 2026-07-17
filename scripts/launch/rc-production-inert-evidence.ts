@@ -26,6 +26,12 @@ import {
     type CloudflareProductionInertCompositeEvidence,
 } from './cloudflare-production-inert-composite-evidence';
 import {
+    CLOUDFLARE_PRODUCTION_EVIDENCE_MAX_AGE_MS,
+    validateCloudflareRuntimeReadonlyInertAttestation,
+    type CloudflareProductionSourceIdentity,
+} from './cloudflare-production-evidence';
+import { PRODUCTION_QUEUE_TARGET } from './cloudflare-production-queue-shared';
+import {
     PRODUCTION_INERT_FINAL_ATTEMPT_FILE,
     PRODUCTION_INERT_FINAL_OUTPUT_FILE,
     PRODUCTION_INERT_FINAL_STATUS,
@@ -52,6 +58,20 @@ export interface RcProductionInertRequirement {
     evidencePath: string | null;
 }
 
+export type RcProductionInertRenewableReadbackId =
+    | 'cloudflare_runtime_readback'
+    | 'supabase_inert_final_readback';
+
+export interface RcProductionInertRenewableReadback {
+    id: RcProductionInertRenewableReadbackId;
+    status: 'fresh' | 'refresh_required' | 'unavailable';
+    reason: string;
+    evidencePath: string | null;
+    observedAt: string | null;
+    expiresAt: string | null;
+    requiredBefore: 'external_write';
+}
+
 export interface RcProductionInertAssessment {
     ready: boolean;
     blocker: {
@@ -59,6 +79,13 @@ export interface RcProductionInertAssessment {
         line: string;
     } | null;
     requirements: RcProductionInertRequirement[];
+    renewableReadbacks: RcProductionInertRenewableReadback[];
+    refreshRequiredBeforeExternalWrite: boolean;
+    cloudflareResolution:
+        | 'closed'
+        | 'readback_only'
+        | 'historical_closure_required'
+        | 'write_state_reconciliation_required';
     sourcePath: string | null;
     latestEvidenceAt: string | null;
 }
@@ -108,14 +135,47 @@ interface ProductionAuthInertReceipt {
     observedAt: string;
 }
 
+interface CloudflareRuntimeReadonlyReceipt {
+    startedAt: string;
+    endedAt: string;
+}
+
+interface LatestAttempt<T> {
+    candidate: JsonCandidate<T> | null;
+    attemptDirectory: string | null;
+    invalidAttempt: boolean;
+}
+
 const futureClockSkewMs = 5 * 60 * 1_000;
 const sha256Pattern = /^[a-f0-9]{64}$/u;
+const cloudflarePlanOnlyWithheldNames = [
+    'PUBLIC_SUPABASE_URL',
+    'PUBLIC_SUPABASE_ANON_KEY',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'PUBLIC_STRIPE_PUBLISHABLE_KEY',
+    'STRIPE_SECRET_KEY',
+    'STRIPE_WEBHOOK_SECRET',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
+    'STRIPE_PORTAL_CONFIGURATION_ID',
+    'RESEND_API_KEY',
+    'EMAIL_FROM',
+    'RESEND_FROM_EMAIL',
+    'EMAIL_RECIPIENT_ALLOWLIST',
+    'PUBLIC_TURNSTILE_SITE_KEY',
+    'TURNSTILE_SECRET_KEY',
+    'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
+    'PUBLIC_SENTRY_DSN',
+    'SENTRY_DSN',
+    'SENTRY_AUTH_TOKEN',
+];
 
 const evidenceLocations = {
     cloudflare: [
         'launch-cloudflare-production-worker-bootstrap-secrets',
         'production-inert-web-fulfillment-evidence.json',
     ],
+    cloudflareRuntime: ['launch-cloudflare-production-runtime-readonly', 'summary.json'],
     publicCleanup: ['launch-production-fixture-cleanup', 'public-cleanup-receipt.json'],
     rollout: ['launch-supabase-production-rollout-runner', 'production-rollout-receipt.json'],
     authPolicy: ['launch-supabase-production-auth-cleanup', 'auth-policy-receipt.json'],
@@ -127,33 +187,83 @@ const evidenceLocations = {
 export function assessRcProductionInertEvidence(
     outputsRoot = path.join(process.cwd(), 'outputs'),
     now = new Date(),
+    currentCloudflareSourceIdentity?: CloudflareProductionSourceIdentity,
 ): RcProductionInertAssessment {
     const workspaceRoot = path.dirname(path.resolve(outputsRoot));
-    const cloudflareAttempts = readJsonCandidates(outputsRoot, ...evidenceLocations.cloudflare)
-        .flatMap((candidate): Array<JsonCandidate<CloudflareProductionInertCompositeEvidence>> => {
-            if (!isRecord(candidate.value)
-                || candidate.value.stage !== 'web_hmac_closed'
-                || typeof candidate.value.generatedAt !== 'string'
-                || !Number.isFinite(Date.parse(candidate.value.generatedAt))) return [];
-            return [{ ...candidate, value: candidate.value as unknown as CloudflareProductionInertCompositeEvidence }];
-        });
-    const latestCloudflareAttempt = newest(cloudflareAttempts, (value) => value.generatedAt);
+    const cloudflareAttemptSelection = readLatestCloudflareCompositeAttempt(outputsRoot);
+    const latestCloudflareAttempt = cloudflareAttemptSelection.candidate
+        && isRecord(cloudflareAttemptSelection.candidate.value)
+        && cloudflareAttemptSelection.candidate.value.stage === 'web_hmac_closed'
+        && typeof cloudflareAttemptSelection.candidate.value.generatedAt === 'string'
+        && Number.isFinite(Date.parse(cloudflareAttemptSelection.candidate.value.generatedAt))
+        ? {
+            ...cloudflareAttemptSelection.candidate,
+            value: cloudflareAttemptSelection.candidate.value as unknown as CloudflareProductionInertCompositeEvidence,
+        }
+        : null;
     const latestAcceptedCloudflareClosure = latestCloudflareAttempt
         && validateCloudflareProductionInertCompositeEvidence(latestCloudflareAttempt.value, {
             workspaceRoot,
-            now,
+            now: new Date(latestCloudflareAttempt.value.generatedAt),
         }).valid
         ? latestCloudflareAttempt
         : null;
-    const cloudflareWriteStateOpen = [
-        'fulfillment-bootstrap-hmac-secret',
-        'web-bootstrap-hmac-secret',
-    ].some((scope) => hasOpenCloudflareWriteState(
+    const cloudflareRuntimeAttemptSelection = readLatestJsonAttempt<CloudflareRuntimeReadonlyReceipt>(
         outputsRoot,
-        scope,
-        latestAcceptedCloudflareClosure?.value.generatedAt ?? null,
-    ));
-    const cloudflare = cloudflareWriteStateOpen ? null : latestAcceptedCloudflareClosure;
+        ...evidenceLocations.cloudflareRuntime,
+    );
+    const latestCloudflareRuntimeAttempt = cloudflareRuntimeAttemptSelection.candidate
+        && isRecord(cloudflareRuntimeAttemptSelection.candidate.value)
+        && typeof cloudflareRuntimeAttemptSelection.candidate.value.startedAt === 'string'
+        && Number.isFinite(Date.parse(cloudflareRuntimeAttemptSelection.candidate.value.startedAt))
+        && typeof cloudflareRuntimeAttemptSelection.candidate.value.endedAt === 'string'
+        && Number.isFinite(Date.parse(cloudflareRuntimeAttemptSelection.candidate.value.endedAt))
+        ? {
+            ...cloudflareRuntimeAttemptSelection.candidate,
+            value: cloudflareRuntimeAttemptSelection.candidate.value as unknown as CloudflareRuntimeReadonlyReceipt,
+        }
+        : null;
+    const latestAcceptedCloudflareRuntime = latestAcceptedCloudflareClosure
+        && latestCloudflareRuntimeAttempt
+        && timestampIsHistoricallyUsable(latestCloudflareRuntimeAttempt.value.endedAt, now)
+        && validateCloudflareRuntimeReadonlyInertAttestation(
+            latestCloudflareRuntimeAttempt.value,
+            {
+                accountId: latestAcceptedCloudflareClosure.value.target.accountId,
+                productionWorker: latestAcceptedCloudflareClosure.value.target.webWorker,
+                pagesProject: 'espanolhonesto',
+                customDomains: ['espanolhonesto.com', 'www.espanolhonesto.com'],
+            },
+            {
+                observedAfter: latestAcceptedCloudflareClosure.value.generatedAt,
+                webWorker: latestAcceptedCloudflareClosure.value.target.webWorker,
+                webVersionId: latestAcceptedCloudflareClosure.value.web.versionId,
+                fulfillmentWorker: latestAcceptedCloudflareClosure.value.target.fulfillmentWorker,
+                fulfillmentVersionId: latestAcceptedCloudflareClosure.value.fulfillment.versionId,
+                productionQueue: PRODUCTION_QUEUE_TARGET.queue,
+                productionQueueId: PRODUCTION_QUEUE_TARGET.queueId,
+                productionDeadLetterQueue: PRODUCTION_QUEUE_TARGET.deadLetterQueue,
+                productionDeadLetterQueueId: PRODUCTION_QUEUE_TARGET.deadLetterQueueId,
+            },
+            new Date(latestCloudflareRuntimeAttempt.value.endedAt),
+            currentCloudflareSourceIdentity,
+        ).valid
+        ? latestCloudflareRuntimeAttempt
+        : null;
+    const cloudflareWriteStateOpen = hasAnyOpenCloudflareWriteState(
+        outputsRoot,
+        latestCloudflareRuntimeAttempt?.value.startedAt
+            ?? latestAcceptedCloudflareClosure?.value.generatedAt
+            ?? '1970-01-01T00:00:00.000Z',
+    );
+    const cloudflare = cloudflareWriteStateOpen ? null : latestAcceptedCloudflareRuntime;
+    const cloudflareResolution: RcProductionInertAssessment['cloudflareResolution'] = cloudflare
+        ? 'closed'
+        : cloudflareWriteStateOpen
+            ? 'write_state_reconciliation_required'
+            : latestAcceptedCloudflareClosure
+                ? 'readback_only'
+                : 'historical_closure_required';
 
     const authInertArtifacts = readJsonCandidates(outputsRoot, ...evidenceLocations.authInert);
     const historicalAuthInertCandidates = validCandidates<ProductionAuthInertReceipt>(
@@ -225,15 +335,29 @@ export function assessRcProductionInertEvidence(
     const latestFinalSupabaseAttempt = finalSupabaseAttempts[0] ?? null;
     const latestFinalSupabaseSummary = latestFinalSupabaseAttempt?.summary ?? null;
     const latestFinalSupabaseReceipt = latestFinalSupabaseAttempt?.receipt ?? null;
+    const finalSupabaseHistoricalClock = latestFinalSupabaseSummary
+        && latestFinalSupabaseReceipt
+        ? historicalValidationClock([
+            latestFinalSupabaseSummary.value.finishedAt,
+            latestFinalSupabaseReceipt.value.observedAt,
+        ], now)
+        : null;
     const finalSupabase = latestFinalSupabaseSummary
         && latestFinalSupabaseReceipt
-        && validateProductionInertFinalAttemptSummary(latestFinalSupabaseSummary.value, now).length === 0
+        && finalSupabaseHistoricalClock
+        && validateProductionInertFinalAttemptSummary(
+            latestFinalSupabaseSummary.value,
+            finalSupabaseHistoricalClock,
+        ).length === 0
         && latestFinalSupabaseSummary.value.status === PRODUCTION_INERT_FINAL_STATUS
         && latestFinalSupabaseSummary.value.receiptSha256 === latestFinalSupabaseReceipt.sha256
         && latestFinalSupabaseSummary.value.receiptFile === PRODUCTION_INERT_FINAL_OUTPUT_FILE
         && latestFinalSupabaseSummary.value.receiptObservedAt === latestFinalSupabaseReceipt.value.observedAt
         && latestFinalSupabaseSummary.value.receiptExpiresAt === latestFinalSupabaseReceipt.value.expiresAt
-        && validateProductionInertFinalReceipt(latestFinalSupabaseReceipt.value, now).length === 0
+        && validateProductionInertFinalReceipt(
+            latestFinalSupabaseReceipt.value,
+            finalSupabaseHistoricalClock,
+        ).length === 0
         && rollout !== null
             && authPolicy !== null
             && availability !== null
@@ -251,10 +375,18 @@ export function assessRcProductionInertEvidence(
         requirement(
             'cloudflare_bootstrap_hmac',
             cloudflare,
-            'Cloudflare production fulfillment + web bootstrap and HMAC-only attestation are closed.',
+            'The immutable Cloudflare HMAC closure is bound to a historically valid GET-only readback of the exact inert web and fulfillment versions.',
             cloudflareWriteStateOpen
                 ? 'Cloudflare web bootstrap HMAC has a pending checkpoint or lock, or a resolved checkpoint newer than the accepted closure, requiring read-only reconciliation.'
-                : 'No executed-and-attested Cloudflare production bootstrap HMAC closure was found.',
+                : latestAcceptedCloudflareClosure === null
+                    ? cloudflareAttemptSelection.invalidAttempt
+                        ? 'The latest Cloudflare bootstrap HMAC attempt is incomplete, malformed or lacks its immutable closure.'
+                        : 'No valid executed-and-attested Cloudflare production bootstrap HMAC closure was found.'
+                    : latestCloudflareRuntimeAttempt === null
+                        ? cloudflareRuntimeAttemptSelection.invalidAttempt
+                            ? 'The latest Cloudflare production GET-only readback attempt is incomplete or malformed.'
+                            : 'No Cloudflare production GET-only runtime readback was found after the immutable HMAC closure.'
+                        : 'The latest Cloudflare production GET-only readback is invalid or does not match the immutable HMAC versions exactly.',
         ),
         requirement(
             'supabase_production_rollout',
@@ -279,14 +411,55 @@ export function assessRcProductionInertEvidence(
         requirement(
             'supabase_auth_inert_after_preparation',
             finalSupabase,
-            'A fresh final read-only sandwich proves the exact database state plus disable_signup=true and mailer_autoconfirm=false.',
-            'No fresh final Supabase/Auth read-only receipt bound to rollout, final Auth and availability was found.',
+            'A completed final read-only sandwich proves the exact database state plus disable_signup=true and mailer_autoconfirm=false.',
+            'No valid final Supabase/Auth read-only receipt bound to rollout, final Auth and availability was found.',
         ),
+    ];
+    const cloudflareExpiresAt = cloudflare
+        ? new Date(
+            Date.parse(cloudflare.value.endedAt) + CLOUDFLARE_PRODUCTION_EVIDENCE_MAX_AGE_MS,
+        ).toISOString()
+        : null;
+    const renewableReadbacks: RcProductionInertRenewableReadback[] = [
+        {
+            id: 'cloudflare_runtime_readback',
+            status: cloudflare
+                ? now.getTime() <= Date.parse(cloudflareExpiresAt as string)
+                    ? 'fresh'
+                    : 'refresh_required'
+                : 'unavailable',
+            reason: cloudflare
+                ? now.getTime() <= Date.parse(cloudflareExpiresAt as string)
+                    ? 'The exact inert Cloudflare runtime readback remains inside its operational freshness window.'
+                    : 'The historical Cloudflare closure remains valid, but its GET-only runtime readback must be renewed before any external write.'
+                : 'No exact historical Cloudflare runtime readback is available; this is an RC blocker, not a freshness-only warning.',
+            evidencePath: cloudflare?.file ?? null,
+            observedAt: cloudflare?.value.endedAt ?? null,
+            expiresAt: cloudflareExpiresAt,
+            requiredBefore: 'external_write',
+        },
+        {
+            id: 'supabase_inert_final_readback',
+            status: finalSupabase
+                ? now.getTime() <= Date.parse(finalSupabase.value.expiresAt)
+                    ? 'fresh'
+                    : 'refresh_required'
+                : 'unavailable',
+            reason: finalSupabase
+                ? now.getTime() <= Date.parse(finalSupabase.value.expiresAt)
+                    ? 'The exact inert Supabase DB/Auth readback remains inside its operational freshness window.'
+                    : 'The historical Supabase closure remains valid, but its read-only DB/Auth sandwich must be renewed before any external write.'
+                : 'No exact historical Supabase DB/Auth readback is available; this is an RC blocker, not a freshness-only warning.',
+            evidencePath: finalSupabase?.file ?? null,
+            observedAt: finalSupabase?.value.observedAt ?? null,
+            expiresAt: finalSupabase?.value.expiresAt ?? null,
+            requiredBefore: 'external_write',
+        },
     ];
     const open = requirements.filter((item) => item.status === 'open');
     const ready = open.length === 0;
     const evidenceTimestamps = [
-        cloudflare?.value.generatedAt,
+        cloudflare?.value.endedAt,
         rollout?.value.completedAt,
         authPolicy?.value.closedAt,
         availability?.value.verifiedAt,
@@ -302,6 +475,9 @@ export function assessRcProductionInertEvidence(
                 line: `- [ ] ${RC_PRODUCTION_INERT_BLOCKER_ID} (computed): missing ${open.map((item) => item.id).join(', ')}.`,
             },
         requirements,
+        renewableReadbacks,
+        refreshRequiredBeforeExternalWrite: renewableReadbacks.some((item) => item.status !== 'fresh'),
+        cloudflareResolution,
         sourcePath: finalSupabase?.file
             ?? availability?.file
             ?? authPolicy?.file
@@ -469,6 +645,117 @@ function readJsonCandidate<T>(file: string): JsonCandidate<T> | null {
     }
 }
 
+function readLatestCloudflareCompositeAttempt(
+    outputsRoot: string,
+): LatestAttempt<CloudflareProductionInertCompositeEvidence> {
+    const directory = path.join(outputsRoot, evidenceLocations.cloudflare[0]);
+    const attempts = readAttemptDirectories(directory);
+    if (attempts === null) return { candidate: null, attemptDirectory: directory, invalidAttempt: true };
+    for (const attemptDirectory of attempts) {
+        const evidencePath = path.join(attemptDirectory, evidenceLocations.cloudflare[1]);
+        if (existsSync(evidencePath)) {
+            const candidate = readJsonCandidate<CloudflareProductionInertCompositeEvidence>(evidencePath);
+            return { candidate, attemptDirectory, invalidAttempt: candidate === null };
+        }
+        const summary = readJsonCandidate<Record<string, unknown>>(path.join(attemptDirectory, 'summary.json'));
+        if (summary && isExactCloudflarePlanOnlySummary(summary.value)) continue;
+        return { candidate: null, attemptDirectory, invalidAttempt: true };
+    }
+    return { candidate: null, attemptDirectory: null, invalidAttempt: false };
+}
+
+function readLatestJsonAttempt<T>(
+    outputsRoot: string,
+    outputName: string,
+    fileName: string,
+): LatestAttempt<T> {
+    const directory = path.join(outputsRoot, outputName);
+    const attempts = readAttemptDirectories(directory);
+    if (attempts === null) return { candidate: null, attemptDirectory: directory, invalidAttempt: true };
+    const attemptDirectory = attempts[0] ?? null;
+    if (!attemptDirectory) return { candidate: null, attemptDirectory: null, invalidAttempt: false };
+    const candidate = readJsonCandidate<T>(path.join(attemptDirectory, fileName));
+    return { candidate, attemptDirectory, invalidAttempt: candidate === null };
+}
+
+function readAttemptDirectories(directory: string): string[] | null {
+    if (!existsSync(directory)) return [];
+    try {
+        const entries = readdirSync(directory, { withFileTypes: true });
+        if (entries.some((entry) => !entry.isDirectory())) return null;
+        return entries
+            .map((entry) => path.join(directory, entry.name))
+            .sort((left, right) => right.localeCompare(left));
+    } catch {
+        return null;
+    }
+}
+
+function isExactCloudflarePlanOnlySummary(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    const startedAt = typeof value.startedAt === 'string' ? Date.parse(value.startedAt) : Number.NaN;
+    const endedAt = typeof value.endedAt === 'string' ? Date.parse(value.endedAt) : Number.NaN;
+    const checks = Array.isArray(value.checks) ? value.checks : [];
+    const normalizedChecks = checks.flatMap((check) => isRecord(check)
+        && typeof check.name === 'string'
+        && check.name.trim().length > 0
+        && (check.status === 'ok' || check.status === 'warning')
+        && typeof check.message === 'string'
+        && Array.isArray(check.details)
+        && check.details.every((detail) => typeof detail === 'string')
+        ? [{ name: check.name.trim(), status: check.status }]
+        : []);
+    const names = normalizedChecks.map((check) => check.name);
+    const expectedNames = [
+        'bootstrap_secret_runner_source',
+        'wrangler_production_bootstrap',
+        'bootstrap_runtime_inertness_source',
+        'final_live_route_preserved',
+        'phase1_web_fulfillment_composite_before_secrets',
+        'plan_mode_no_external_write',
+    ];
+    const expectedStatus = normalizedChecks.some((check) => check.status === 'warning') ? 'WARNING' : 'OK';
+    const target = isRecord(value.target) ? value.target : {};
+    return value.schemaVersion === 1
+        && value.status === expectedStatus
+        && value.executeRequested === false
+        && typeof value.approvalMatched === 'boolean'
+        && value.externalWriteAttempted === false
+        && value.externalWritePerformed === false
+        && value.closureStatus === 'PLAN_ONLY_READY'
+        && target.accountId === 'd1a22bcf6477ff2ff31d2bfb83084e44'
+        && target.worker === 'espanolhonesto'
+        && target.environment === 'production_bootstrap'
+        && target.directUrl === 'https://espanolhonesto.alindev95.workers.dev'
+        && target.supabaseRef === PRODUCTION_PROJECT.ref
+        && target.fulfillmentUrl === 'https://espanol-honesto-fulfillment-production.alindev95.workers.dev'
+        && sameStringArray(target.customDomains, ['espanolhonesto.com', 'www.espanolhonesto.com'])
+        && sameStringArray(value.requiredSecretNames, ['INTERNAL_JOB_SECRET'])
+        && sameStringArray(value.explicitlyWithheldSecretNames, cloudflarePlanOnlyWithheldNames)
+        && Array.isArray(value.captures)
+        && value.captures.length === 0
+        && Number.isFinite(startedAt)
+        && Number.isFinite(endedAt)
+        && endedAt >= startedAt
+        && normalizedChecks.length === checks.length
+        && new Set(names).size === names.length
+        && sameStringArray(names, expectedNames)
+        && normalizedChecks.at(-1)?.status === 'ok';
+}
+
+function timestampIsHistoricallyUsable(value: string, now: Date): boolean {
+    const timestamp = Date.parse(value);
+    return Number.isFinite(timestamp) && timestamp <= now.getTime() + futureClockSkewMs;
+}
+
+function historicalValidationClock(values: unknown[], now: Date): Date | null {
+    const timestamps = values.map((value) => typeof value === 'string' ? Date.parse(value) : Number.NaN);
+    if (timestamps.some((timestamp) => (
+        !Number.isFinite(timestamp) || timestamp > now.getTime() + futureClockSkewMs
+    ))) return null;
+    return new Date(Math.max(...timestamps));
+}
+
 function readJsonCandidates(outputsRoot: string, outputName: string, fileName: string): JsonCandidate[] {
     const directory = path.join(outputsRoot, outputName);
     if (!existsSync(directory)) return [];
@@ -492,10 +779,29 @@ function readJsonCandidates(outputsRoot: string, outputName: string, fileName: s
     });
 }
 
+function hasAnyOpenCloudflareWriteState(
+    outputsRoot: string,
+    acceptedReadbackStartedAt: string,
+): boolean {
+    const stateRoot = path.join(outputsRoot, 'launch-cloudflare-production-write-state');
+    if (!existsSync(stateRoot)) return false;
+    try {
+        const scopes = readdirSync(stateRoot, { withFileTypes: true });
+        if (scopes.some((entry) => !entry.isDirectory())) return true;
+        return scopes.some((entry) => hasOpenCloudflareWriteState(
+            outputsRoot,
+            entry.name,
+            acceptedReadbackStartedAt,
+        ));
+    } catch {
+        return true;
+    }
+}
+
 function hasOpenCloudflareWriteState(
     outputsRoot: string,
     scope: string,
-    acceptedClosureEndedAt: string | null,
+    acceptedReadbackStartedAt: string,
 ): boolean {
     const stateRoot = path.join(outputsRoot, 'launch-cloudflare-production-write-state', scope);
     if (existsSync(path.join(stateRoot, 'execution.lock'))
@@ -508,13 +814,11 @@ function hasOpenCloudflareWriteState(
     try {
         const resolved = findUnresolvedWorkerWriteCheckpoints(resolvedDirectory);
         if (resolved.length === 0) return false;
-        const acceptedClosureAt = acceptedClosureEndedAt === null
-            ? Number.NaN
-            : Date.parse(acceptedClosureEndedAt);
-        return !Number.isFinite(acceptedClosureAt)
+        const acceptedReadbackAt = Date.parse(acceptedReadbackStartedAt);
+        return !Number.isFinite(acceptedReadbackAt)
             || resolved.some((checkpoint) => {
                 const recordedAt = Date.parse(checkpoint.recordedAt);
-                return !Number.isFinite(recordedAt) || recordedAt > acceptedClosureAt;
+                return !Number.isFinite(recordedAt) || recordedAt >= acceptedReadbackAt;
             });
     } catch {
         return true;

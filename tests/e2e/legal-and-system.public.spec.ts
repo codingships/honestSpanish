@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 // Route coverage for src/pages/[lang]/logout.astro, src/pages/404.astro, /:lang/logout and /404.
 test.describe('Legal and system public pages', () => {
     test('/es/legal renders the legal index with document links', async ({ page }) => {
-        const response = await page.goto('/es/legal');
+        const response = await page.goto('/es/legal', { waitUntil: 'domcontentloaded' });
 
         expect(response?.status()).toBe(200);
         await expect(page.locator('article header h1')).toHaveText('Información legal');
@@ -20,7 +20,7 @@ test.describe('Legal and system public pages', () => {
 
     for (const slug of ['aviso-legal', 'cookies', 'privacidad', 'terminos']) {
         test(`/es/legal/${slug} renders as a noindex legal page`, async ({ page }) => {
-            const response = await page.goto(`/es/legal/${slug}`);
+            const response = await page.goto(`/es/legal/${slug}`, { waitUntil: 'domcontentloaded' });
 
             expect(response?.status()).toBe(200);
             await expect(page.locator('article header h1')).toBeVisible();
@@ -37,14 +37,14 @@ test.describe('Legal and system public pages', () => {
             await route.fulfill({ status: 204, body: '' });
         });
 
-        await page.goto('/en/logout');
+        await page.goto('/en/logout', { waitUntil: 'domcontentloaded' });
 
-        await page.waitForURL(/\/en$/, { timeout: 10000 });
+        await page.waitForURL(/\/en$/, { timeout: 10000, waitUntil: 'domcontentloaded' });
         await expect(page).toHaveURL(/\/en$/);
     });
 
     test('404 page returns not found status and keeps localized home link', async ({ page }) => {
-        const response = await page.goto('/en/strict-qa-missing-page');
+        const response = await page.goto('/en/strict-qa-missing-page', { waitUntil: 'domcontentloaded' });
 
         expect(response?.status()).toBe(404);
         expect(response?.headers()['x-robots-tag']).toContain('noindex');

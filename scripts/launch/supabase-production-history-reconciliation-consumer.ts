@@ -44,6 +44,11 @@ export interface HistoryDriftPreflight {
     };
 }
 
+export interface ValidatedLiveHistoryReconciliationSnapshot extends HistoryReconciliationSnapshot {
+    observedProvenance: HistoryReconciliationSnapshot['provenance'];
+    provenanceNormalization: 'none' | 'connector_fallback_sealed';
+}
+
 const allowlistedDrift = [
     drift('009', 'launch_catalog_and_fulfillment', 'supabase/migrations/009_launch_catalog_and_fulfillment.sql', 4_994, 'a7d9481607efc62188585419aa765400add2cffaec37f8d4fac18768ede91ffd', ['009'], true, false),
     drift('021', 'harden_session_write_policies', 'supabase/migrations/021_harden_session_write_policies.sql', 769, '5a547504b82208552751412368fd46ed7bf3efa9ab5f0f8ad8a9f11c528d21c5', ['021', '20260703192245'], false, true),
@@ -207,13 +212,42 @@ export function validateAllowlistedHistoryDrift(
 export function validateLiveHistoryReconciliationSnapshot(
     raw: string,
     now = new Date(),
-): HistoryReconciliationSnapshot {
-    return parseHistoryReconciliationSnapshot(
-        raw.trim(),
-        now,
-        'production_rollout_psql_readonly',
-        5 * 60 * 1_000,
-    );
+): ValidatedLiveHistoryReconciliationSnapshot {
+    const normalized = raw.trim();
+    try {
+        const direct = parseHistoryReconciliationSnapshot(
+            normalized,
+            now,
+            'production_rollout_psql_readonly',
+            5 * 60 * 1_000,
+        );
+        return {
+            ...direct,
+            observedProvenance: direct.provenance,
+            provenanceNormalization: 'none',
+        };
+    } catch (rolloutProvenanceError) {
+        try {
+            // Supabase can strip custom startup GUCs while preserving the exact
+            // read-only SQL contract. Accept only the connector fallback after
+            // every schema, safety, history, descriptor, effect and freshness
+            // check passes, then seal the trusted wrapper provenance locally.
+            const fallback = parseHistoryReconciliationSnapshot(
+                normalized,
+                now,
+                'supabase_connector_execute_sql',
+                5 * 60 * 1_000,
+            );
+            return {
+                ...fallback,
+                provenance: 'production_rollout_psql_readonly',
+                observedProvenance: fallback.provenance,
+                provenanceNormalization: 'connector_fallback_sealed',
+            };
+        } catch {
+            throw rolloutProvenanceError;
+        }
+    }
 }
 
 export function buildHistoryExceptionApproval(input: {

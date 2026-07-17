@@ -37,7 +37,9 @@ describe('Cloudflare production runtime read-only evidence', () => {
 
     it('is wired into pnpm scripts, final queue, integration package and launch status', () => {
         expect(packageJson).toContain('"launch:cloudflare-production-runtime-readonly": "tsx scripts/launch/cloudflare-production-runtime-readonly.ts"');
-        expect(finalApprovalQueue).toContain('launch:cloudflare-production-runtime-readonly');
+        expect(finalApprovalQueue).toContain("id: 'history_cloudflare_production_bootstrap'");
+        expect(finalApprovalQueue).toContain('A renewable evidence TTL may require a read-only reattestation immediately before an approved write.');
+        expect(finalApprovalQueue).not.toContain("id: 'cloudflare_worker_create'");
         expect(integrationFinalPackage).toContain('cloudflare_runtime_readonly');
         expect(integrationFinalPackage).toContain('launch-cloudflare-production-runtime-readonly');
         expect(finalReadiness).toContain('pnpm launch:cloudflare-production-runtime-readonly');

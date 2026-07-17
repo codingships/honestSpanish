@@ -599,13 +599,29 @@ function reviewSupabaseBackupRunbook(): Finding {
         ...missingSnippets(file, content, [
             'Supabase Backup Runbook',
             'Supabase Free',
-            'Backup logico/manual',
+            'launch:supabase-production-post-closure-backup',
+            'launch:supabase-production-post-closure-backup:verify',
+            'production-inert-final-receipt.json',
+            'RC_BASE_SHA',
+            'HEAD = origin/main =',
+            'último intento real',
+            'al menos 5 minutos',
+            "apertura exclusiva `wx`",
+            '22 tablas públicas',
+            'Windows EFS',
             'Upgrade Pro',
-            'accepted_risk',
-            'No guardar dumps',
+            'Riesgo aceptado',
+            'Nunca guardar dumps',
             'pg_dump',
+            'pg_dump --no-owner --no-privileges',
+            'segundo GET Auth',
+            'lecturas SQL exactas',
+            'ownership/privilegios',
+            'networkAccessPerformed=false',
+            'credentialEnvironmentRead=false',
+            'databaseReadPerformed=false',
             'pg_restore --list',
-            'Restore Drill O Tabletop',
+            'tabletop',
             'database_readiness',
             'pnpm launch:operations',
         ]),
@@ -621,8 +637,8 @@ function reviewSupabaseBackupRunbook(): Finding {
         status: details.length === 0 ? 'ok' : 'failed',
         area: 'Supabase Free backup/export runbook',
         message: details.length === 0
-            ? 'Supabase Free backup/export has a final-only runbook with no-secret evidence, pg_dump/restore checks and accepted-risk fallback.'
-            : 'Supabase Free backup/export runbook is missing launch-critical final closure guidance.',
+            ? 'Supabase Free has a SHA-bound post-closure backup runner with fresh inert evidence, exclusive EFS output, exact inventory/TOC checks and a documented fallback.'
+            : 'Supabase Free backup/export runbook is missing the current post-closure safety contract.',
         details,
     };
 }
@@ -738,7 +754,7 @@ function renderMarkdown(report: OperationsReport): string {
     lines.push('');
     lines.push('## Scope');
     lines.push('');
-    lines.push('This automated audit checks launch-critical operational configuration, recovery hooks and documentation. It does not replace live staging checks, final production smoke of Cloudflare, Stripe, Google Workspace, Resend, cron execution, final backup/export action or rollback drills.');
+    lines.push('This automated audit checks launch-critical operational configuration, recovery hooks and documentation. It does not replace the already closed live staging evidence, the SHA-bound post-closure backup, or the final production smoke of Cloudflare, Stripe, Google Workspace, Resend and cron execution.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;
@@ -769,18 +785,18 @@ function renderOperationsReadinessWorksheet(report: OperationsReport): string {
     lines.push('');
     lines.push('| Check | How To Verify | Evidence To Record |');
     lines.push('| --- | --- | --- |');
-    lines.push('| Cloudflare fulfillment Worker | For RC, check the staging Worker, `/health`, deploy settings, secrets, logs, Astro-Worker-to-fulfillment URL alignment and `workers/fulfillment/wrangler.toml`. Read-only support commands: `corepack pnpm exec wrangler deployments status --env staging --json`, `corepack pnpm exec wrangler deployments list --env staging --json`, `corepack pnpm exec wrangler versions list --env staging --json`, `corepack pnpm exec wrangler secret list --env staging`. Track production Worker in final-only closure unless Alin expands RC scope. | `dashboard` plus `manual_note` with service names, environments and result; secret names are OK, secret values are not. |');
+    lines.push('| Cloudflare fulfillment Worker | Staging and production bootstrap are already closed. For a fresh pre-write readback, use `pnpm launch:cloudflare-production-runtime-readonly`; verify the exact account, both production Worker names, current versions, HMAC-only posture, zero Cron/providers and inactive Queue wiring. Do not replay C-D-E because a GET receipt expired. | `dashboard` plus `manual_note` with service names, environments and result; secret names are OK, secret values are not. |');
     lines.push('| fulfillment_jobs | Inspect a due or test job, run process_due, retry and cancel from Admin > Jobs, and confirm `admin_audit_log` records the action. | `dashboard`, `path` to runbook, or `manual_note`; no private user data. |');
     lines.push('| Google Workspace | For RC, confirm only the staging/read-only checks already in scope. If Google Drive/templates are unclear or risky, keep them in final-only closure and do not block RC on them. | `dashboard` or `manual_note` with IDs shortened/redacted. |');
     lines.push('| Resend email | Verify sender/domain, test delivery, event visibility, bounce/suppression handling and reply/support route. | `dashboard`, `screenshot` redacted or `manual_note`. |');
     lines.push('| cron and reminders | Verify Cloudflare cron/API path, `CRON_SECRET`, `INTERNAL_JOB_SECRET`, `FULFILLMENT_WORKER_URL`, site URL alignment and reminder logs. | `dashboard` or `manual_note` with environment and timestamp. |');
-    lines.push('| backups and rollback | Confirm Supabase Free backup posture, Cloudflare Worker rollback route, and the rollback section in `docs/launch/RUNBOOK.md`. If Supabase stays Free, follow `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`: final manual logical backup/export, Pro upgrade, or accepted risk before production deploy/destructive migration. | `dashboard`, `screenshot`, `path` to `docs/launch/RUNBOOK.md`, `path` to `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`, or `manual_note`. |');
+    lines.push('| backups and rollback | Confirm Supabase Free backup posture, Cloudflare Worker rollback route, and the rollback section in `docs/launch/RUNBOOK.md`. After merging the RC, follow `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`: fresh inert receipt, SHA-bound post-closure logical backup to a new EFS destination, exact TOC/inventory verification, Pro upgrade, or an explicit accepted risk. | `command_output` receipt without path, `path` to `docs/launch/RUNBOOK.md`, `path` to `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`, or `manual_note`; never the dump or connection string. |');
     lines.push('| incident and rollback drill | Confirm the `Simulacro De Incidente Y Rollback` in `docs/launch/RUNBOOK.md` has been walked through: staging job/ticket incident, owner decision, recovery action, rollback tabletop or real rollback, and post-checks. | `manual_note`, redacted screenshots, or accepted risk with rollback plan; no secrets or private data. |');
     lines.push('| incidents and monitoring | Confirm Sentry alerts, support process, owner escalation and where launch incidents are tracked. Use `docs/launch/OBSERVABILITY.md` for minimum alert coverage and fallback rules. | `dashboard` or `manual_note`. |');
     lines.push('');
     lines.push('## Completion');
     lines.push('');
-    lines.push('Mark `operations_external` as `pass` only when the RC operations baseline above has been checked. Command output from `pnpm launch:operations` is support evidence, not a replacement for external verification. Production Worker, final Drive smoke and final backup/export action stay under final-only checks unless Alin decides otherwise.');
+    lines.push('Mark `operations_external` as `pass` only when the RC operations baseline above has been checked. Command output from `pnpm launch:operations` is support evidence, not a replacement for external verification. Production bootstrap is closed; the post-closure backup belongs to the technical RC goal, while active providers, domains, checkout and final Drive smoke remain final-only.');
     lines.push('');
 
     return `${lines.join('\n')}\n`;
@@ -818,7 +834,7 @@ function renderDatabaseReadinessWorksheet(report: OperationsReport): string {
         '| RLS | Review policies for `profiles`, `profiles_private`, `payments`, `subscriptions`, `sessions`, `student_teachers`, `fulfillment_jobs` and `admin_audit_log`. | `dashboard` or `manual_note` with tables reviewed and result. |',
         '| staging assignments | Confirm a staging teacher-student assignment exists and works without production data. | `manual_note` with test account aliases, not private data. |',
         '| subscriptions | Confirm staging active subscription/payment state is coherent for a test student. | `dashboard` or `manual_note`; no card/customer private data. |',
-        '| backups | Confirm Supabase plan/posture for the launch environment. On Free, follow `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` and record final manual logical backup/export, Pro-upgrade action or accepted risk before production deploy/destructive migration. | `dashboard`, `screenshot`, `path` to `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` or `manual_note`. |',
+        '| backups | On Supabase Free, follow `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`: bind a fresh inert receipt and canonical SHA to a new EFS destination, then record only the post-closure receipt/hash/TOC result, a Pro-upgrade action or explicit accepted risk. | `command_output` receipt without path, `path` to `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` or `manual_note`; never the dump or credentials. |',
         '| auditability | Confirm `admin_audit_log` and `fulfillment_jobs` are visible to admins and useful for recovery. | `dashboard`, `path` or `manual_note`. |',
         '| service role exposure | Confirm service role is server-only and dashboard/API keys are scoped to the intended environments. | `manual_note` or `dashboard`; never paste key values. |',
         '| monitoring | Confirm slow/error query visibility, database logs and escalation owner. | `dashboard` or `manual_note`. |',
@@ -848,7 +864,7 @@ function renderHostedSchemaClosurePlan(report: OperationsReport): string {
     const checkSqlPath = toPosix(path.relative(process.cwd(), report.hostedSchemaCheckSqlPath));
     const driftWorksheetPath = toPosix(path.relative(process.cwd(), report.hostedSchemaDriftWorksheetPath));
     const lines = [
-        '# Hosted Supabase Schema Closure Plan',
+        '# Hosted Supabase Schema Closure Record (Read-Only)',
         '',
         `- Status: ${report.status}`,
         `- Generated: ${report.endedAt}`,
@@ -858,50 +874,43 @@ function renderHostedSchemaClosurePlan(report: OperationsReport): string {
         '',
         '## Scope',
         '',
-        'This plan closes hosted Supabase schema drift for the no-real-payments RC. It does not authorize any remote write by itself. Use it only after Alin explicitly confirms the target project and the write window.',
+        'This record summarizes the hosted Supabase schema closure already completed for the no-real-payments RC. It is diagnostic and read-only: it must not be used to apply or replay migrations, Auth reduction, availability or any other remote write.',
         '',
         '## Current Known Drift',
         '',
-        '- Read-only Supabase metadata showed both hosted projects are behind the current app schema: staging and production do not yet have the current lead enrichment, CRM core, language capture or lightweight diagnostic migrations reflected in hosted metadata.',
-        '- Read-only Supabase logs showed production queries failing for missing `public.leads.current_level` and `public.leads.level_check_status`.',
-        '- The current app uses those fields and CRM tables in lead capture, lightweight diagnostics, commercial emails, CRM admin, dashboard counts, follow-up tasks and post-payment onboarding.',
-        '- Because those fields and tables are part of local migrations, `database_readiness` must stay pending until the hosted schema is verified and any missing migrations are applied or explicitly scoped out.',
+        '- Staging records the full RC plus its two staging-only migrations. Production completed the 25-migration allowlist on 2026-07-17 and now has 49 historical entries, with both staging-only migrations absent by design.',
+        '- Production contains the current lead enrichment, CRM, billing and fulfillment schema, but its transactional/CRM/billing/fulfillment rows are empty while the environment remains inert.',
+        '- Production retains exactly the minimal admin and teacher identities/profiles, four canonical packages and five teacher availability rows; signup and checkout remain disabled.',
+        '- The remaining database task for this technical RC is the fresh SHA-bound post-closure `public + auth` backup. Do not reopen rollout, Auth reduction or availability because a read-only receipt expired.',
         '',
         '## Guardrails',
         '',
         '- Do not paste database URLs, passwords, service role keys, JWTs or private screenshots into repo files, outputs or manual evidence.',
-        '- Apply and verify staging before production. Do not run production writes before confirming the exact Supabase project ref, environment and owner approval.',
-        '- Before production writes or destructive changes, follow `docs/launch/SUPABASE_BACKUP_RUNBOOK.md`: logical backup/export, Pro upgrade or explicit accepted risk.',
-        '- Prefer applying complete committed migration files in order, not hand-picked fragments, unless the hosted schema inspection proves only a narrower idempotent repair is needed and Alin confirms that path.',
-        '- After any write, rerun the read-only schema check SQL and inspect recent Postgres/API logs for missing-column errors.',
+        '- Do not replay the completed 25-migration production rollout, Auth reduction or five availability rows merely because renewable evidence expired.',
+        '- Use `docs/launch/SUPABASE_BACKUP_RUNBOOK.md` only for the SHA-bound post-closure logical backup and its offline revalidation; it does not authorize database writes.',
+        '- If a new read-only mismatch is proven, stop and prepare a new narrowly scoped incident/repair proposal with its own target, backup, approval, verification and rollback. This record is not that proposal.',
         '',
         '## Read-Only Preflight',
         '',
-        '1. Confirm target: staging `espanol-staging` first; production `espanol-honesto` only after staging passes and Alin confirms the production write window.',
-        `2. Run \`${checkSqlPath}\` in the Supabase SQL editor or via ` + '`psql` with credentials managed outside this repo.',
+        '1. Confirm the exact target before reading: staging `espanol-staging` and production `espanol-honesto` remain separate projects with separate histories.',
+        `2. Run \`${checkSqlPath}\` under a read-only transaction in the Supabase SQL editor or via ` + '`psql` with credentials managed outside this repo.',
         '3. Record only non-secret aggregate evidence: target project/ref, timestamp, missing count and missing metadata names.',
-        '4. If staging has missing critical metadata, do not advance to production. If production has any missing critical metadata, keep `database_readiness` pending.',
+        '4. If either project has missing critical metadata, keep `database_readiness` pending and stop; do not apply migrations from this generated record.',
         '',
-        '## Candidate Migration Order',
+        '## Completed Migration History (Non-Executable)',
         '',
-        'Apply or verify these committed migrations in dependency order if the hosted project is missing their objects:',
+        'The 2026-07-17 production receipt proves the completed 25-migration allowlist and the required lead, CRM, billing and fulfillment objects. The committed files remain the source history, not an execution queue. Do not replay any migration from this worksheet.',
         '',
-        '| Order | Migration | Why It Matters |',
-        '| ---: | --- | --- |',
-        '| 1 | `supabase/migrations/018_enrich_leads_for_application.sql` | Adds lead fit fields such as `current_level`, `learning_goal`, `availability` and `source_path`. |',
-        '| 2 | `supabase/migrations/019_capture_preferred_package_on_leads.sql` | Preserves selected public plan before application review. |',
-        '| 3 | `supabase/migrations/020_enforce_profile_role_links.sql` | Keeps student/teacher/profile relationship guards aligned with the current schema. |',
-        '| 4 | `supabase/migrations/20260624163423_add_crm_core.sql` | Creates CRM contacts, opportunities, tasks, activities, consents and lead-to-CRM links. |',
-        '| 5 | `supabase/migrations/20260624185757_add_crm_task_related_entity.sql` | Adds task related-entity fields used by follow-up cleanup and dashboards. |',
-        '| 6 | `supabase/migrations/20260625213116_capture_lead_languages.sql` | Adds language background and Russian-speaker flags for lead fit. |',
-        '| 7 | `supabase/migrations/20260625215008_add_lightweight_level_check_to_leads.sql` | Adds lightweight diagnostic status/context/summary/retention fields and indexes. |',
+        '- Production: 49 history entries, including the 25 RC migrations, with both staging-only migrations absent by design.',
+        '- Staging: full RC history plus its two staging-only migrations.',
+        '- Current production row posture: minimal admin/teacher identities, four packages, five availability rows and empty transactional/CRM/billing/fulfillment tables while inert.',
         '',
-        '## Post-Write Verification',
+        '## Read-Only Follow-Up',
         '',
-        '1. Rerun the hosted schema check SQL in staging and confirm missing critical metadata is `0`; repeat in production only after explicit production confirmation.',
+        '1. Rerun the hosted schema check SQL independently in staging and production and confirm missing critical metadata is `0` without writes.',
         '2. Review Supabase Advisors for security and performance. Security issues must be fixed, explicitly accepted or moved to a dated final-only/post-launch decision.',
         '3. Check recent Postgres/API logs for absence of missing-column or missing-relation errors involving `leads.current_level`, `leads.level_check_status`, CRM tables or task related-entity fields.',
-        '4. Rerun local support gates: `corepack pnpm launch:operations`, `corepack pnpm launch:manual-evidence`, `corepack pnpm launch:phase1`, `corepack pnpm launch:status`.',
+        '4. Rerun local support gates: `pnpm launch:operations`, `pnpm launch:manual-evidence`, `pnpm launch:phase1`, `pnpm launch:status`.',
         '5. Record only non-secret evidence in `docs/launch/MANUAL_EVIDENCE.local.json`.',
         '',
         '## Evidence Template',
@@ -914,7 +923,7 @@ function renderHostedSchemaClosurePlan(report: OperationsReport): string {
         '  "status": "pass",',
         '  "owner": "Alin",',
         '  "environment": "staging-first-then-production-if-in-scope",',
-        '  "summary": "Hosted schema drift closed for RC: staging schema check passed, production was either verified after explicit approval or explicitly scoped out, migration/RLS/backup posture reviewed, and final backup/export remains tracked for final closure.",',
+        '  "summary": "Hosted schema closed for RC: staging and production verified in their separate migration histories; production rollout/Auth/availability remain closed and the SHA-bound post-closure backup is tracked separately.",',
         '  "evidence": [',
         '    {',
         '      "type": "manual_note",',

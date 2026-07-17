@@ -4,6 +4,7 @@ import {
     closeSync,
     existsSync,
     fsyncSync,
+    lstatSync,
     mkdirSync,
     openSync,
     readFileSync,
@@ -76,6 +77,52 @@ export const productionCanonicalInertProviderBindingNames = {
     ],
 } as const satisfies Record<'web' | 'fulfillment', readonly string[]>;
 
+export const productionBootstrapVersionBindingTypes = {
+    web: {
+        ASSETS: 'assets',
+        CF_VERSION_METADATA: 'version_metadata',
+        CHECKOUT_ENABLED: 'plain_text',
+        CHECKOUT_ENABLED_OVERRIDE: 'plain_text',
+        EMAIL_DAILY_RECIPIENT_LIMIT: 'plain_text',
+        EMAIL_DELIVERY_MODE: 'plain_text',
+        EMAIL_MONTHLY_RECIPIENT_LIMIT: 'plain_text',
+        FULFILLMENT_SERVICE: 'service',
+        FULFILLMENT_WORKER_URL: 'plain_text',
+        INTERNAL_JOB_SECRET: 'secret_text',
+        NODE_ENV: 'plain_text',
+        PUBLIC_APP_ENV: 'plain_text',
+        PUBLIC_SITE_URL: 'plain_text',
+        SENTRY_ENVIRONMENT: 'plain_text',
+        SUPABASE_EXPECTED_PROJECT_REF: 'plain_text',
+        WEB_RUNTIME_MODE: 'plain_text',
+        WORKER_IDENTITY: 'plain_text',
+    },
+    fulfillment: {
+        CF_VERSION_METADATA: 'version_metadata',
+        CHECKOUT_ENABLED: 'plain_text',
+        CHECKOUT_ENABLED_OVERRIDE: 'plain_text',
+        EMAIL_DAILY_RECIPIENT_LIMIT: 'plain_text',
+        EMAIL_DELIVERY_MODE: 'plain_text',
+        EMAIL_MONTHLY_RECIPIENT_LIMIT: 'plain_text',
+        FULFILLMENT_RUNTIME_MODE: 'plain_text',
+        INTERNAL_JOB_SECRET: 'secret_text',
+        NODE_ENV: 'plain_text',
+        PUBLIC_APP_ENV: 'plain_text',
+        PUBLIC_SITE_URL: 'plain_text',
+        SUPABASE_EXPECTED_PROJECT_REF: 'plain_text',
+        WORKER_IDENTITY: 'plain_text',
+    },
+} as const satisfies Record<'web' | 'fulfillment', Record<string, string>>;
+
+export interface ProductionBootstrapDryRunExpectation {
+    customDomains: readonly string[];
+    publicSiteUrl: string;
+    fulfillmentService: string;
+    fulfillmentWorkerUrl: string;
+    supabaseRef: string;
+    workerIdentity: string;
+}
+
 export type WorkerWriteCheckpointStage =
     | 'write_ahead'
     | 'provider_succeeded_needs_readback'
@@ -137,6 +184,122 @@ export function captureInitialApprovalSentence(
     name: string,
 ): string {
     return environment[name]?.trim() ?? '';
+}
+
+export function validateProductionBootstrapDryRun(
+    output: string,
+    expectation: ProductionBootstrapDryRunExpectation,
+): string[] {
+    const errors: string[] = [];
+    const bindingLines = output.split(/\r?\n/u).filter((line) => /^\s*env\./u.test(line));
+    const bindingRows = bindingLines.flatMap((line) => {
+        const match = line.match(
+            /^\s*env\.([A-Z][A-Z0-9_]*)(?:\s+\((?:"([^"\r\n]*)"|([^()\r\n]*))\))?\s+([^\r\n]+?)\s*$/u,
+        );
+        if (!match) {
+            errors.push(`dry-run contains an unparseable binding row: ${line.trim()}`);
+            return [];
+        }
+        return [{
+            name: match[1],
+            value: match[2] ?? match[3] ?? null,
+            resource: match[4].trim(),
+        }];
+    });
+    const bindings = new Map<string, { value: string | null; resource: string }>();
+    const bindingCounts = new Map<string, number>();
+    for (const binding of bindingRows) {
+        bindingCounts.set(binding.name, (bindingCounts.get(binding.name) ?? 0) + 1);
+        bindings.set(binding.name, { value: binding.value, resource: binding.resource });
+    }
+    const expectedValues: Record<string, string | null> = {
+        ASSETS: null,
+        CF_VERSION_METADATA: null,
+        CHECKOUT_ENABLED: 'false',
+        CHECKOUT_ENABLED_OVERRIDE: 'false',
+        EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+        EMAIL_DELIVERY_MODE: 'disabled',
+        EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+        FULFILLMENT_SERVICE: expectation.fulfillmentService,
+        FULFILLMENT_WORKER_URL: expectation.fulfillmentWorkerUrl,
+        NODE_ENV: 'production',
+        PUBLIC_APP_ENV: 'production',
+        PUBLIC_SITE_URL: expectation.publicSiteUrl,
+        SENTRY_ENVIRONMENT: 'production-bootstrap',
+        SUPABASE_EXPECTED_PROJECT_REF: expectation.supabaseRef,
+        WEB_RUNTIME_MODE: 'bootstrap',
+        WORKER_IDENTITY: expectation.workerIdentity,
+    };
+    const resourceForType: Record<string, string> = {
+        assets: 'Assets',
+        plain_text: 'Environment Variable',
+        service: 'Worker',
+        version_metadata: 'Worker Version Metadata',
+    };
+    const expectedTypes = Object.fromEntries(Object.entries(productionBootstrapVersionBindingTypes.web)
+        .filter(([name]) => name !== 'INTERNAL_JOB_SECRET'));
+    const expectedNames = Object.keys(expectedTypes).sort();
+    const actualNames = [...bindingCounts.keys()].sort();
+    if (actualNames.length !== expectedNames.length
+        || actualNames.some((name, index) => name !== expectedNames[index])) {
+        errors.push(`dry-run binding inventory mismatch: actual=${actualNames.join(',') || 'none'} expected=${expectedNames.join(',')}`);
+    }
+    for (const [name, expectedType] of Object.entries(expectedTypes)) {
+        if ((bindingCounts.get(name) ?? 0) !== 1) {
+            errors.push(`dry-run binding ${name} must appear exactly once`);
+            continue;
+        }
+        const binding = bindings.get(name);
+        const expectedResource = resourceForType[expectedType];
+        if (!binding || binding.resource !== expectedResource) {
+            errors.push(`dry-run binding ${name} must have resource type ${expectedResource}`);
+            continue;
+        }
+        const expectedValue = expectedValues[name];
+        if (!dryRunProjectedValueMatches(
+            binding.value,
+            expectedValue,
+            name === 'FULFILLMENT_WORKER_URL',
+        )) {
+            errors.push(`dry-run binding ${name} must equal ${expectedValue ?? 'no projected value'}`);
+        }
+    }
+
+    const allowedSiteBinding = `env.PUBLIC_SITE_URL ("${expectation.publicSiteUrl}")`;
+    for (const line of output.split(/\r?\n/u)) {
+        const withoutAllowedBinding = line.replace(allowedSiteBinding, '').toLowerCase();
+        if (!expectation.customDomains.some((domain) => withoutAllowedBinding.includes(domain.toLowerCase()))) continue;
+        errors.push('dry-run contains a custom-domain reference outside the exact PUBLIC_SITE_URL binding');
+        break;
+    }
+    return [...new Set(errors)];
+}
+
+const MIN_WRANGLER_TRUNCATED_URL_PREFIX_LENGTH = 32;
+
+export function dryRunProjectedValueMatches(
+    actual: string | null,
+    expected: string | null,
+    allowWranglerTruncation: boolean,
+): boolean {
+    if (actual === expected) return true;
+    if (!allowWranglerTruncation
+        || typeof actual !== 'string'
+        || typeof expected !== 'string'
+        || !actual.endsWith('...')) {
+        return false;
+    }
+    const prefix = actual.slice(0, -3);
+    if (prefix.length < MIN_WRANGLER_TRUNCATED_URL_PREFIX_LENGTH
+        || !prefix.startsWith('https://')) {
+        return false;
+    }
+    try {
+        if (new URL(expected).protocol !== 'https:') return false;
+    } catch {
+        return false;
+    }
+    return expected.startsWith(prefix);
 }
 
 function isRecord(value: unknown): value is JsonRecord {
@@ -523,7 +686,18 @@ export function releaseWorkerWriteExecutionLock(
 ): void {
     assertWorkerWriteExecutionLockOwned(lockDirectory, expectedOwner);
     const releaseClaim = path.join(lockDirectory, '.release-claim');
-    mkdirSync(releaseClaim);
+    try {
+        mkdirSync(releaseClaim);
+    } catch (error) {
+        const code = error && typeof error === 'object' && 'code' in error
+            ? String(error.code)
+            : '';
+        if (code !== 'EEXIST') throw error;
+        const existingClaim = lstatSync(releaseClaim);
+        if (!existingClaim.isDirectory() || existingClaim.isSymbolicLink()) {
+            throw new Error('Cloudflare write lock release claim is not a resumable directory.');
+        }
+    }
     assertWorkerWriteExecutionLockOwned(lockDirectory, expectedOwner);
 
     const releasedDirectory = `${lockDirectory}.released.${expectedOwner.lockId}.${randomUUID()}`;

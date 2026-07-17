@@ -15,14 +15,14 @@ test.describe('Residual public routes', () => {
         expect(response.status()).toBe(301);
         expect(response.headers().location).toBe('/es/');
 
-        await page.goto('/');
+        await page.goto('/', { waitUntil: 'domcontentloaded' });
         await expect(page).toHaveURL(/\/es\/?$/);
         await expect(page.locator('html')).toHaveAttribute('lang', 'es');
         await expectPageHasNoMojibake(page);
     });
 
     test('blog index lists localized posts and links to article pages', async ({ page }) => {
-        const response = await page.goto('/es/blog/');
+        const response = await page.goto('/es/blog/', { waitUntil: 'domcontentloaded' });
 
         expect(response?.status()).toBe(200);
         const main = page.locator('main#main-content');
@@ -41,12 +41,12 @@ test.describe('Residual public routes', () => {
     });
 
     test('blog article renders content, canonical metadata and CTA', async ({ page }) => {
-        await page.goto('/es/blog/');
+        await page.goto('/es/blog/', { waitUntil: 'domcontentloaded' });
         const articleHref = await page.locator('article a[href^="/es/blog/"]').first().getAttribute('href');
 
         expect(articleHref).toBeTruthy();
 
-        const response = await page.goto(articleHref!);
+        const response = await page.goto(articleHref!, { waitUntil: 'domcontentloaded' });
 
         expect(response?.status()).toBe(200);
         const main = page.locator('main#main-content');
@@ -91,7 +91,7 @@ test.describe('Residual public routes', () => {
 
         for (const localized of localizedBlogRoutes) {
             for (const route of [localized.index, localized.article]) {
-                await page.goto(route);
+                await page.goto(route, { waitUntil: 'domcontentloaded' });
                 const main = page.locator('main#main-content');
                 await expect(main).toHaveCount(1);
                 await expect(page.getByRole('navigation', { name: localized.breadcrumb })).toBeVisible();
@@ -103,7 +103,7 @@ test.describe('Residual public routes', () => {
             }
         }
 
-        await page.goto('/es/espanol-para-vivir-en-espana');
+        await page.goto('/es/espanol-para-vivir-en-espana', { waitUntil: 'domcontentloaded' });
         const segmentMain = page.locator('main#main-content');
         await expect(segmentMain).toHaveCount(1);
         await expect(page.getByRole('navigation', { name: 'Navegación principal' })).toBeVisible();
@@ -127,14 +127,14 @@ test.describe('Residual public routes', () => {
     });
 
     test('checkout success and cancel result pages are noindex and link to the right next step', async ({ page }) => {
-        const success = await page.goto('/es/success');
+        const success = await page.goto('/es/success', { waitUntil: 'domcontentloaded' });
         expect(success?.status()).toBe(200);
         await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
         await expect(page.getByRole('heading', { level: 1, name: 'Pago completado' })).toBeVisible();
         await expect(page.getByRole('link', { name: 'Ir al campus' })).toHaveAttribute('href', '/es/campus');
         await expectPageHasNoMojibake(page);
 
-        const cancel = await page.goto('/es/cancel');
+        const cancel = await page.goto('/es/cancel', { waitUntil: 'domcontentloaded' });
         expect(cancel?.status()).toBe(200);
         await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
         await expect(page.getByRole('heading', { level: 1, name: 'Pago cancelado' })).toBeVisible();
@@ -150,7 +150,7 @@ test.describe('Residual public routes', () => {
             expect(requestResponse.status()).toBe(404);
             expect(requestResponse.headers()['x-robots-tag']).toContain('noindex');
 
-            const response = await page.goto(route);
+            const response = await page.goto(route, { waitUntil: 'domcontentloaded' });
             expect(response?.status()).toBe(404);
             expect(response?.headers()['x-robots-tag']).toContain('noindex');
             await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
@@ -159,7 +159,7 @@ test.describe('Residual public routes', () => {
     });
 
     test('Russian landing page renders with Cyrillic text and no mojibake', async ({ page }) => {
-        const response = await page.goto('/ru/');
+        const response = await page.goto('/ru/', { waitUntil: 'domcontentloaded' });
 
         expect(response?.status()).toBe(200);
         await expect(page.locator('html')).toHaveAttribute('lang', 'ru');

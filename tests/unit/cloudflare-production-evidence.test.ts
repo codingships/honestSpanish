@@ -9,9 +9,11 @@ import {
     captureCloudflareProductionSourceIdentity,
     computeCloudflareProductionSourceSha256,
     validateCloudflareRuntimeCutoverPreflightSummary,
+    validateCloudflareRuntimeReadonlyInertAttestation,
     validateCloudflareRuntimeReadonlySummary,
     type CloudflareProductionSourceIdentity,
 } from '../../scripts/launch/cloudflare-production-evidence';
+import { productionBootstrapVersionBindingTypes } from '../../scripts/launch/cloudflare-production-worker-safety';
 
 const now = new Date('2026-07-14T19:00:00.000Z');
 const target = {
@@ -21,6 +23,17 @@ const target = {
     customDomains: ['espanolhonesto.com', 'www.espanolhonesto.com'],
 } as const;
 const currentSourceIdentity = cleanCurrentSourceIdentity();
+const inertExpectation = {
+    observedAfter: '2026-07-14T18:50:00.000Z',
+    webWorker: 'espanolhonesto',
+    webVersionId: '11111111-1111-4111-8111-111111111111',
+    fulfillmentWorker: 'espanol-honesto-fulfillment-production',
+    fulfillmentVersionId: '22222222-2222-4222-8222-222222222222',
+    productionQueue: 'espanol-honesto-fulfillment-production-queue',
+    productionQueueId: 'f00c0885eadb475cb9b513a4a7a8fcff',
+    productionDeadLetterQueue: 'espanol-honesto-fulfillment-production-dlq',
+    productionDeadLetterQueueId: 'e59a210ecfe243ddba945accee9f4b5a',
+} as const;
 
 function check(name: string, status: 'ok' | 'warning' | 'failed' = 'ok', message = 'proven') {
     return { name, status, message, details: [] };
@@ -29,6 +42,7 @@ function check(name: string, status: 'ok' | 'warning' | 'failed' = 'ok', message
 function runtimeSummary(): Record<string, unknown> {
     return {
         schemaVersion: 2,
+        startedAt: '2026-07-14T18:54:30.000Z',
         endedAt: '2026-07-14T18:55:00.000Z',
         status: 'WARNING',
         target: {
@@ -90,6 +104,133 @@ function runtimeSummary(): Record<string, unknown> {
                 { id: 'queues', outcome: 'expected-not-ready' },
             ],
         },
+    };
+}
+
+function inertRuntimeSummary(): Record<string, unknown> {
+    const report = runtimeSummary();
+    report.checks = [
+        ...((report.checks as Array<Record<string, unknown>>)
+            .filter((entry) => entry.name !== 'production_web_current_traffic')),
+        check('production_web_current_traffic'),
+        check('production_fulfillment_current_traffic'),
+        check('production_worker_secret_names'),
+        check('production_fulfillment_secret_names'),
+        check('production_web_inert_bindings'),
+        check('production_fulfillment_inert_bindings'),
+        check('production_fulfillment_schedules'),
+        check('production_queue_and_dlq_inventory'),
+    ];
+    report.probes = [
+        ...(report.probes as Array<Record<string, unknown>>),
+        currentDeploymentProbe('production_worker_status', inertExpectation.webVersionId),
+        currentDeploymentProbe('production_fulfillment_status', inertExpectation.fulfillmentVersionId),
+        secretProbe('production_worker_secrets'),
+        secretProbe('production_fulfillment_secrets'),
+        inertVersionProbe('production_worker_current_version', 'web'),
+        inertVersionProbe('production_fulfillment_current_version', 'fulfillment'),
+    ];
+    const apiInventory = report.apiInventory as Record<string, unknown>;
+    apiInventory.fulfillmentSchedules = { state: 'ready', crons: [], gaps: [] };
+    apiInventory.queue = inertQueue(
+        inertExpectation.productionQueue,
+        inertExpectation.productionQueueId,
+    );
+    apiInventory.deadLetterQueue = inertQueue(
+        inertExpectation.productionDeadLetterQueue,
+        inertExpectation.productionDeadLetterQueueId,
+    );
+    apiInventory.gaps = [];
+    return report;
+}
+
+function currentDeploymentProbe(id: string, versionId: string): Record<string, unknown> {
+    return {
+        id,
+        status: 'ok',
+        exitCode: 0,
+        summary: {
+            state: 'ready',
+            primaryVersionId: versionId,
+            currentVersions: [{ versionId, percentage: 100 }],
+            notFound: false,
+            errorPreview: null,
+        },
+    };
+}
+
+function secretProbe(id: string): Record<string, unknown> {
+    return {
+        id,
+        status: 'ok',
+        exitCode: 0,
+        summary: {
+            count: 1,
+            names: ['INTERNAL_JOB_SECRET'],
+            notFound: false,
+            errorPreview: null,
+        },
+    };
+}
+
+function inertVersionProbe(id: string, kind: 'web' | 'fulfillment'): Record<string, unknown> {
+    const web = kind === 'web';
+    const bindingTypes = productionBootstrapVersionBindingTypes[kind];
+    const bindingNames = Object.keys(bindingTypes);
+    return {
+        id,
+        status: 'ok',
+        exitCode: 0,
+        summary: {
+            state: 'ready',
+            versionId: web ? inertExpectation.webVersionId : inertExpectation.fulfillmentVersionId,
+            bindingNames,
+            bindings: bindingNames.map((name) => ({ name, type: bindingTypes[name as keyof typeof bindingTypes] })),
+            safeValues: web ? {
+                CHECKOUT_ENABLED: 'false',
+                CHECKOUT_ENABLED_OVERRIDE: 'false',
+                EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+                EMAIL_DELIVERY_MODE: 'disabled',
+                EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+                NODE_ENV: 'production',
+                PUBLIC_APP_ENV: 'production',
+                SENTRY_ENVIRONMENT: 'production-bootstrap',
+                WEB_RUNTIME_MODE: 'bootstrap',
+                WORKER_IDENTITY: inertExpectation.webWorker,
+            } : {
+                CHECKOUT_ENABLED: 'false',
+                CHECKOUT_ENABLED_OVERRIDE: 'false',
+                EMAIL_DAILY_RECIPIENT_LIMIT: '0',
+                EMAIL_DELIVERY_MODE: 'disabled',
+                EMAIL_MONTHLY_RECIPIENT_LIMIT: '0',
+                FULFILLMENT_RUNTIME_MODE: 'bootstrap',
+                NODE_ENV: 'production',
+                PUBLIC_APP_ENV: 'production',
+                WORKER_IDENTITY: inertExpectation.fulfillmentWorker,
+            },
+            safeTargets: web ? { FULFILLMENT_SERVICE: inertExpectation.fulfillmentWorker } : {},
+            notFound: false,
+            errorPreview: null,
+            rawBindingValuesStored: false,
+        },
+    };
+}
+
+function inertQueue(name: string, id: string): Record<string, unknown> {
+    return {
+        name,
+        id,
+        state: 'ready',
+        settings: {
+            delivery_paused: false,
+            delivery_delay: 0,
+            message_retention_period: 86_400,
+        },
+        producers: [],
+        consumers: [],
+        backlog: 0,
+        backlogAvailable: true,
+        gaps: [],
     };
 }
 
@@ -156,6 +297,92 @@ describe('structured Cloudflare production evidence gates', () => {
             errors: [],
             evidenceTimestamp: '2026-07-14T18:55:00.000Z',
         });
+    });
+
+    it('binds a fresh GET-only inert readback to the exact immutable HMAC versions', () => {
+        expect(validateCloudflareRuntimeReadonlyInertAttestation(
+            inertRuntimeSummary(),
+            target,
+            inertExpectation,
+            now,
+            currentSourceIdentity,
+        )).toEqual({
+            valid: true,
+            errors: [],
+            evidenceTimestamp: '2026-07-14T18:55:00.000Z',
+        });
+    });
+
+    it.each([
+        '2026-07-14T18:49:59.999Z',
+        '2026-07-14T18:50:00.000Z',
+    ])('rejects a readback that did not start strictly after its immutable HMAC receipt (%s)', (startedAt) => {
+        const report = inertRuntimeSummary();
+        report.startedAt = startedAt;
+
+        const result = validateCloudflareRuntimeReadonlyInertAttestation(
+            report,
+            target,
+            inertExpectation,
+            now,
+            currentSourceIdentity,
+        );
+
+        expect(result.valid).toBe(false);
+        expect(result.errors).toContain(
+            'runtime readback did not start after the immutable HMAC composite',
+        );
+    });
+
+    it.each([
+        ['web version drift', (report: Record<string, unknown>) => {
+            const probe = (report.probes as Array<Record<string, unknown>>)
+                .find((entry) => entry.id === 'production_worker_status');
+            (probe?.summary as Record<string, unknown>).primaryVersionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        }, 'production web primary version mismatch'],
+        ['secret expansion', (report: Record<string, unknown>) => {
+            const probe = (report.probes as Array<Record<string, unknown>>)
+                .find((entry) => entry.id === 'production_worker_secrets');
+            const summary = probe?.summary as Record<string, unknown>;
+            summary.count = 2;
+            summary.names = ['INTERNAL_JOB_SECRET', 'STRIPE_SECRET_KEY'];
+        }, 'production web secrets must be exactly INTERNAL_JOB_SECRET'],
+        ['split traffic', (report: Record<string, unknown>) => {
+            const probe = (report.probes as Array<Record<string, unknown>>)
+                .find((entry) => entry.id === 'production_fulfillment_status');
+            const summary = probe?.summary as Record<string, unknown>;
+            summary.currentVersions = [{ versionId: inertExpectation.fulfillmentVersionId, percentage: 50 }];
+        }, 'production fulfillment traffic must be exactly 100% on the immutable HMAC version'],
+        ['binding type drift', (report: Record<string, unknown>) => {
+            const probe = (report.probes as Array<Record<string, unknown>>)
+                .find((entry) => entry.id === 'production_worker_current_version');
+            const summary = probe?.summary as Record<string, unknown>;
+            const binding = (summary.bindings as Array<Record<string, unknown>>)
+                .find((entry) => entry.name === 'FULFILLMENT_SERVICE');
+            if (binding) binding.type = 'queue';
+        }, 'production web binding FULFILLMENT_SERVICE must have type service'],
+        ['queue attachment', (report: Record<string, unknown>) => {
+            const inventory = report.apiInventory as Record<string, unknown>;
+            (inventory.queue as Record<string, unknown>).consumers = [{ worker: 'unexpected' }];
+        }, 'production Queue must have zero producers and zero consumers'],
+        ['queue backlog', (report: Record<string, unknown>) => {
+            const inventory = report.apiInventory as Record<string, unknown>;
+            (inventory.deadLetterQueue as Record<string, unknown>).backlog = 1;
+        }, 'production DLQ backlog must be proven as zero'],
+    ])('rejects an inert runtime readback with %s', (_label, mutate, expectedError) => {
+        const report = inertRuntimeSummary();
+        mutate(report);
+
+        const result = validateCloudflareRuntimeReadonlyInertAttestation(
+            report,
+            target,
+            inertExpectation,
+            now,
+            currentSourceIdentity,
+        );
+
+        expect(result.valid).toBe(false);
+        expect(result.errors).toContain(expectedError);
     });
 
     it('rejects stale, failed, ambiguous, duplicate and unhashed runtime evidence', () => {
@@ -327,6 +554,8 @@ describe('structured Cloudflare production evidence gates', () => {
             .toContain('scripts/launch/cloudflare-production-inert-composite-evidence.ts');
         expect(CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS)
             .toContain('scripts/launch/cloudflare-wrangler-oauth.ts');
+        expect(CLOUDFLARE_PRODUCTION_SOURCE_IDENTITY_PATHS)
+            .toContain('scripts/launch/rc-production-inert-evidence.ts');
     });
 
     it('rejects a runtime report generated from another Git HEAD', () => {

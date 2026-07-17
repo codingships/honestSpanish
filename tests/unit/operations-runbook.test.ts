@@ -563,8 +563,8 @@ describe('operations runbook launch readiness', () => {
         expect(manualRunbook).toContain('pnpm launch:staging-db-rollout');
         expect(manualRunbook).toContain('outputs/launch-staging-database-rollout/<timestamp>/rollout-plan.md');
         expect(manualRunbook).toContain('outputs/launch-staging-database-rollout/<timestamp>/staging-migration-manifest.json');
-        expect(statusScript).toContain('pnpm launch:operations + pnpm launch:staging-db-rollout + pnpm launch:supabase-security-rollout');
-        expect(statusScript).toContain('Open the latest staging schema rollout pack for CRM/schema drift');
+        expect(statusScript).toContain('pnpm launch:operations + pnpm launch:production-inert-final-readonly + pnpm launch:supabase-production-post-closure-backup');
+        expect(statusScript).toContain('Treat rollout, Auth reduction/finalization and five availability rows as completed history.');
     });
 
     it('keeps the Supabase security rollout pack narrow and approval-gated', () => {
@@ -623,8 +623,8 @@ describe('operations runbook launch readiness', () => {
 
         expect(manualAudit).toContain("case 'security_external':");
         expect(manualAudit).toContain("return 'launch-supabase-security-rollout';");
-        expect(statusScript).toContain('SEC-014/SEC-015 security migrations');
-        expect(statusScript).toContain('the latest Supabase security rollout pack for migrations 021/022/20260702124757');
+        expect(statusScript).toContain('Strict QA tracker still has');
+        expect(statusScript).toContain('generated Supabase security rollout is approved, applied staging-first and verified read-only');
         expect(statusScript).toContain('readLatestStrictQaResults');
         expect(statusScript).toContain('strict-qa-results.json');
         expect(statusScript).toContain('collectStrictQaOpenFindings');
@@ -865,17 +865,11 @@ describe('operations runbook launch readiness', () => {
             expect(statusScript).toContain(snippet);
         }
 
-        for (const snippet of [
-            "latestGeneratedPath('launch-stripe-webhook-cutover-runner', 'summary.md')",
-            "latestGeneratedPath('launch-stripe-webhook-cutover-runner', 'stripe-webhook-cutover-command-manifest.json')",
-            "latestGeneratedPath('launch-stripe-webhook-cutover-runner', 'stripe-webhook-cutover-execution-plan.md')",
-            "latestGeneratedPath('launch-stripe-webhook-cutover-runner', 'approval-gate.md')",
-            "latestGeneratedPath('launch-stripe-webhook-cutover-runner', 'rollback-after-webhook-cutover.md')",
-            'No Stripe live mode',
-            'No product/price/customer/subscription changes',
-        ]) {
-            expect(finalApprovalQueue).toContain(snippet);
-        }
+        expect(finalApprovalQueue).toContain("id: 'history_stripe_test_closure'");
+        expect(finalApprovalQueue).toContain('Stripe test cutover (history)');
+        expect(finalApprovalQueue).toContain('Do not repeat Stripe test cutover as a release-candidate prerequisite');
+        expect(finalApprovalQueue).toContain('No Stripe live-mode, product, price, customer, subscription or real-charge write');
+        expect(finalApprovalQueue).not.toContain("id: 'stripe_webhook_test_cutover'");
 
         for (const snippet of [
             'stripe_webhook_cutover_runner',
@@ -964,17 +958,9 @@ describe('operations runbook launch readiness', () => {
             expect(statusScript).toContain(snippet);
         }
 
-        for (const snippet of [
-            "latestGeneratedPath('launch-turnstile-domain-closure-runner', 'summary.md')",
-            "latestGeneratedPath('launch-turnstile-domain-closure-runner', 'turnstile-domain-closure-command-manifest.json')",
-            "latestGeneratedPath('launch-turnstile-domain-closure-runner', 'turnstile-domain-closure-execution-plan.md')",
-            "latestGeneratedPath('launch-turnstile-domain-closure-runner', 'approval-gate.md')",
-            "latestGeneratedPath('launch-turnstile-domain-closure-runner', 'rollback-after-turnstile-domain-closure.md')",
-            'No DNS/domain move',
-            'No key rotation unless separately approved',
-        ]) {
-            expect(finalApprovalQueue).toContain(snippet);
-        }
+        expect(finalApprovalQueue).toContain("id: 'integration_readiness'");
+        expect(finalApprovalQueue).toContain('No checkout, signup, email, Cron, Queue, DNS, domain or Stripe Live activation from this command');
+        expect(finalApprovalQueue).not.toContain("id: 'turnstile_domain_closure'");
 
         for (const snippet of [
             'turnstile_domain_closure_runner',
@@ -1062,17 +1048,9 @@ describe('operations runbook launch readiness', () => {
             expect(statusScript).toContain(snippet);
         }
 
-        for (const snippet of [
-            "latestGeneratedPath('launch-sentry-issue-triage-runner', 'summary.md')",
-            "latestGeneratedPath('launch-sentry-issue-triage-runner', 'sentry-issue-triage-command-manifest.json')",
-            "latestGeneratedPath('launch-sentry-issue-triage-runner', 'sentry-issue-triage-execution-plan.md')",
-            "latestGeneratedPath('launch-sentry-issue-triage-runner', 'approval-gate.md')",
-            "latestGeneratedPath('launch-sentry-issue-triage-runner', 'rollback-after-sentry-issue-triage.md')",
-            'No alert-rule/project/DSN/token/sourcemap/release changes',
-            'No event payload, stack trace, title or private user data in evidence',
-        ]) {
-            expect(finalApprovalQueue).toContain(snippet);
-        }
+        expect(finalApprovalQueue).toContain("id: 'integration_readiness'");
+        expect(finalApprovalQueue).toContain('No secret values in generated evidence');
+        expect(finalApprovalQueue).not.toContain("id: 'sentry_issue_triage'");
 
         for (const snippet of [
             'sentry_issue_triage_runner',
@@ -1178,8 +1156,8 @@ describe('operations runbook launch readiness', () => {
         }
 
         for (const snippet of [
-            'wrangler deployments status --env staging --json',
-            'wrangler secret list --env staging',
+            'pnpm launch:cloudflare-production-runtime-readonly',
+            'Do not replay C-D-E',
         ]) {
             expect(audit).toContain(snippet);
         }
@@ -1229,19 +1207,50 @@ describe('operations runbook launch readiness', () => {
         for (const snippet of [
             'Supabase Backup Runbook',
             'Supabase Free',
-            'Backup logico/manual',
+            'launch:supabase-production-post-closure-backup',
+            'launch:supabase-production-post-closure-backup:verify',
+            'production-inert-final-receipt.json',
+            'RC_BASE_SHA',
+            'HEAD = origin/main =',
+            'último intento real',
+            'al menos 5 minutos',
+            "apertura exclusiva `wx`",
+            '22 tablas públicas',
+            'Windows EFS',
             'Upgrade Pro',
-            'accepted_risk',
-            'No guardar dumps',
+            'Riesgo aceptado',
+            'guardar dumps',
             'pg_dump',
+            'pg_dump --no-owner --no-privileges',
+            'segundo GET Auth',
+            'lecturas SQL exactas',
+            'ownership/privilegios',
+            'networkAccessPerformed=false',
+            'credentialEnvironmentRead=false',
+            'databaseReadPerformed=false',
             'pg_restore --list',
-            'Restore Drill O Tabletop',
+            'tabletop',
             'database_readiness',
             'pnpm launch:operations',
         ]) {
             expect(backupRunbook).toContain(snippet);
             expect(audit).toContain(snippet);
         }
+
+        for (const snippet of [
+            '```powershell',
+            '--destination',
+            '--production-inert-evidence',
+            '--canonical-sha',
+            '--execute-approved',
+            '--restore-procedure-reviewed',
+            '--artifact',
+            '--receipt',
+        ]) expect(backupRunbook).toContain(snippet);
+
+        expect(read('package.json')).toContain('launch:supabase-production-post-closure-backup:verify');
+        expect(read('scripts/launch/supabase-production-post-closure-backup-verify.ts'))
+            .toContain('POST_CLOSURE_BACKUP_REVALIDATED_LOCALLY');
 
         for (const snippet of [
             'hosted-schema-drift-worksheet.md',
@@ -1262,60 +1271,48 @@ describe('operations runbook launch readiness', () => {
         ]) {
             expect(audit).toContain(snippet);
         }
+        expect(audit).toContain('Hosted Supabase Schema Closure Record (Read-Only)');
+        expect(audit).toContain('Do not replay the completed 25-migration production rollout');
+        expect(audit).toContain('Completed Migration History (Non-Executable)');
+        expect(audit).not.toContain('Candidate Migration Order');
+        expect(audit).not.toContain('production write window');
+        expect(audit).not.toContain('Post-Write Verification');
 
         expect(finalClosure).toContain('docs/launch/SUPABASE_BACKUP_RUNBOOK.md');
         expect(backlog).toContain('docs/launch/SUPABASE_BACKUP_RUNBOOK.md');
-        expect(statusScript).toContain('docs/launch/SUPABASE_BACKUP_RUNBOOK.md');
+        expect(statusScript).toContain('pnpm launch:supabase-production-post-closure-backup');
 
-        const backupStepIndex = statusScript.indexOf('6. Run Supabase backup/export outside the repo');
-        const keyRotationStepIndex = statusScript.indexOf('Rotate keys only in the final deployment window');
+        const backupStepIndex = statusScript.indexOf('fresh post-closure Supabase backup tied to the canonical technical RC');
+        const launchShaStepIndex = statusScript.indexOf('Freeze `LAUNCH_SHA` as the reviewed descendant of `RC_BASE_SHA`');
 
         expect(backupStepIndex).toBeGreaterThan(-1);
-        expect(keyRotationStepIndex).toBeGreaterThan(-1);
-        expect(backupStepIndex).toBeLessThan(keyRotationStepIndex);
+        expect(launchShaStepIndex).toBeGreaterThan(-1);
+        expect(backupStepIndex).toBeLessThan(launchShaStepIndex);
     });
 
-    it('keeps the RC evidence refresh guide focused on current manual evidence instead of stale copied paths', () => {
+    it('marks the RC evidence refresh guide as historical and points to the five live final gates', () => {
         const refreshGuide = read('docs/launch/RC_EVIDENCE_REFRESH.md');
         const statusScript = read('scripts/launch/status.ts');
 
         for (const snippet of [
-            'database_readiness',
-            'operations_external',
-            'no_real_payments_staging',
-            '403 Checkout is disabled',
-            '400 priceId is required',
-            'un guard local o un cambio sin desplegar no basta',
-            'Quedan dos checks inmediatos antes de congelar RC',
-            'Esta hoja no congela RC por si sola',
-            'dejar estas tareas como trabajo inmediato',
-            'drift de schema',
-            'leads.current_level',
-            'leads.level_check_status',
-            'outputs/launch-staging-database-rollout/<timestamp>/manual-evidence-dry-run.txt',
-            'outputs/launch-staging-database-rollout/<timestamp>/staging-migration-manifest.json',
-            'Usar el `manual-evidence-dry-run.txt` generado por `launch:staging-db-rollout`',
-            'Usar el `manual-evidence-dry-run.txt` generado por `launch:operations-external-closure`',
-            'outputs/launch-operations/<timestamp>/summary.md',
-            'outputs/launch-operations/<timestamp>/hosted-schema-drift-worksheet.md',
-            'outputs/launch-operations/<timestamp>/hosted-schema-check.sql',
-            'outputs/launch-operations/<timestamp>/hosted-schema-closure-plan.md',
-            'staging `espanol-staging`',
-            'outputs/launch-manual-evidence/<timestamp>/phase-1-closure-pack.md',
-            'No marcar `pass`',
-            'no se ha hecho',
-            'Usar siempre el ultimo `<timestamp>` impreso por cada comando',
+            'ARCHIVADO',
+            '`production_inert_preparation` quedó cerrada el 2026-07-17',
+            'Una lectura renovable caducada',
+            '`pnpm launch:status`',
+            'RC_READY_WITH_FINAL_BLOCKERS',
+            '`legal_owner_controller`',
+            '`legal_human_review`',
+            '`integration_readiness`',
+            '`seo_llm_final`',
+            '`final_smoke`',
         ]) {
             expect(refreshGuide).toContain(snippet);
         }
 
-        expect(statusScript).toContain('database_readiness sigue abierto hasta resolver o verificar migraciones/RLS/backup posture');
-        expect(statusScript).toContain('la verificacion externa fresca sigue en operations_external');
-        expect(statusScript).toContain('Open the latest staging schema rollout pack');
-        expect(statusScript).toContain('pnpm launch:operations + pnpm launch:staging-db-rollout + pnpm launch:supabase-security-rollout');
-        expect(statusScript).toContain('pnpm launch:operations + pnpm launch:operations-external-closure');
-        expect(statusScript).toContain('tables/columns/indexes/RLS/policies/privileges');
-        expect(refreshGuide).not.toMatch(/outputs\/launch-(operations|manual-evidence|status)\/20\d{2}-/);
+        expect(statusScript).toContain('Launch Status:');
+        expect(statusScript).toContain('Release Candidate Status:');
+        expect(statusScript).toContain('Production Inert Readback Freshness');
+        expect(statusScript).toContain('do not repeat rollout, Auth reduction, availability, C-D-E');
     });
 
     it('keeps generated final closure pack aligned with the level-check decision', () => {
@@ -1431,7 +1428,7 @@ describe('operations runbook launch readiness', () => {
         expect(finalReadiness).toContain('Production: live mode');
         expect(environmentDoc).toContain('`CHECKOUT_ENABLED_OVERRIDE=true` es el interruptor final');
         expect(checklist).toContain('Stripe live production en la ventana final');
-        expect(statusScript).toContain('prepare Stripe live for real payments from day one');
+        expect(statusScript).toContain('Stripe live ready for day-one payments');
         expect(statusScript).toContain('checkout rollback proven');
 
         expect(manualAudit).not.toContain('Stripe live, Google, Resend, Turnstile domains and fulfillment/reminder worker configuration are verified.');
@@ -1609,6 +1606,15 @@ describe('operations runbook launch readiness', () => {
             'outputs/launch-integration-final-package/<timestamp>/service-evidence-matrix.md',
         ]) {
             expect(manualEvidenceDoc).toContain(snippet);
+        }
+
+        for (const snippet of [
+            'pnpm launch:integration-final-package',
+            'outputs/launch-integration-final-package/<timestamp>/integration-final-manifest.json',
+            'outputs/launch-integration-final-package/<timestamp>/service-evidence-matrix.md',
+            'Tratar C-D-E como historia cerrada del 2026-07-17',
+            'El P3 `ERR-QA-SUPABASE-PROCESSED-AT-DEFAULT-149` quedó cerrado el 2026-07-17',
+        ]) {
             expect(manualRunbook).toContain(snippet);
         }
 
@@ -1620,7 +1626,7 @@ describe('operations runbook launch readiness', () => {
         expect(manualExample).toContain('outputs/launch-cloudflare-production-worker-secrets/<timestamp>/summary.md');
     });
 
-    it('keeps the final approval queue local-only and wired into launch status', () => {
+    it('keeps the final approval queue local-only, canonical and wired into launch status', () => {
         const packageJson = read('package.json');
         const finalApprovalQueue = read('scripts/launch/final-approval-queue.ts');
         const statusScript = read('scripts/launch/status.ts');
@@ -1635,62 +1641,51 @@ describe('operations runbook launch readiness', () => {
             'final-approval-queue-manifest.json',
             'final-approval-next-action.md',
             'final-window-execution-board.md',
-            'nextActionPath',
-            'executionBoardPath',
             'This queue is not approval.',
             'No external services are called or changed by this command.',
             'No secret values are stored here.',
             'Use the linked approval request for the exact scope.',
             'Final Approval Next Action Cursor',
-            'First Non-Legal Operational Action',
-            'Legal remains final-only by project decision',
-            'The first non-legal blocker that can move before final smoke is the Supabase processed_at decision below.',
             'Final Window Execution Board',
             'Safe Now: Local Only',
-            'Safe With Care: Read-Only Refresh',
-            'launch:supabase-processed-at-readonly-preflight',
-            'launch:cloudflare-production-runtime-readonly',
-            'launch:cloudflare-production-runtime-cutover-preflight',
-            'launch:cloudflare-production-worker-secrets',
-            'cloudflare-production-worker-variable-matrix.md',
+            'Read-Only Refresh Before An Approved External Write',
             'Final Execution Modes',
+            'RC_BASE_SHA',
+            'LAUNCH_SHA',
             'requires_exact_approval',
             'human_input_required',
             'must_wait',
-            'ARTIFACTS_COMPLETE_WITH_MUST_WAIT',
-            'waitReason',
-            'prerequisiteItemIds',
-            'Items marked `must_wait` are blocked by prerequisites even when all local artifacts exist.',
-            'Items marked `requires_exact_approval` still need explicit resource/action approval before any write.',
-            'Items marked `human_input_required` need human-owned final values or review.',
+            'completed',
+            'FIVE_FINAL_GATES_PENDING',
+            'Items marked `completed` are history-only and must not be reopened by evidence expiry.',
             'Critical Path',
             'criticalPath',
             'critical_path_dependency_coverage',
-            'launch-stripe-webhook-cutover-runner',
-            'stripe-webhook-cutover-execution-plan.md',
-            'launch-turnstile-domain-closure-runner',
-            'turnstile-domain-closure-execution-plan.md',
-            'Create production Worker without domains',
-            'Move production domains after direct proof',
-            'Final write-capable lifecycle smoke',
-            'supabase_processed_at_cleanup',
-            'cloudflare_worker_create',
-            'cloudflare_worker_secrets',
-            'cloudflare-worker-secrets-execution-plan.md',
-            'rollback-after-worker-secrets.md',
-            'cloudflare_domain_move',
-            'stripe_webhook_test_cutover',
-            'turnstile_domain_closure',
-            'sentry_issue_triage',
-            'final_write_capable_smoke',
-            'legal_final_inputs',
-            'seo_llm_live_domain_review',
-            'SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:<host>',
-            'No Stripe live mode',
-            'No secret value output',
+            'canonical_five_final_gates',
+            'history_supabase_production_closure',
+            'history_cloudflare_production_bootstrap',
+            'history_stripe_test_closure',
+            'history_staging_smoke_and_rollback',
+            'legal_owner_controller',
+            'legal_human_review',
+            'integration_readiness',
+            'seo_llm_final',
+            'final_smoke',
+            'No checkout, signup, email, Cron, Queue, DNS, domain or Stripe Live activation from this command',
+            'No secret values in generated evidence',
             'No invented legal values',
         ]) {
             expect(finalApprovalQueue).toContain(snippet);
+        }
+
+        for (const retiredPendingId of [
+            "id: 'supabase_processed_at_cleanup'",
+            "id: 'cloudflare_worker_create'",
+            "id: 'cloudflare_worker_secrets'",
+            "id: 'stripe_webhook_test_cutover'",
+            "id: 'staging_write_capable_smoke_rehearsal'",
+        ]) {
+            expect(finalApprovalQueue).not.toContain(retiredPendingId);
         }
 
         for (const snippet of [
@@ -1710,13 +1705,11 @@ describe('operations runbook launch readiness', () => {
             "readLatestJson<FinalApprovalQueueManifest>('launch-final-approval-queue', 'final-approval-queue-manifest.json')",
             'Final Approval Critical Path',
             'Final Approval Item Posture',
-            'Final Window Execution Board',
             'renderFinalApprovalCriticalPath',
             'renderFinalApprovalItemPosture',
             'FinalApprovalQueueItem',
             'approvalQueueStatus',
-            'Items marked `requires_exact_approval` still need explicit resource/action approval before any write.',
-            'Items marked `human_input_required` need human-owned final values or review.',
+            'Items marked `completed` are history-only and must not be reopened by evidence expiry.',
         ]) {
             expect(statusScript).toContain(snippet);
         }
@@ -1768,8 +1761,17 @@ describe('operations runbook launch readiness', () => {
             'cloudflare-production-runtime-cutover-manifest.json',
         ]) {
             expect(manualEvidenceDoc).toContain(snippet);
-            expect(manualRunbook).toContain(snippet);
             expect(manualExample).toContain(snippet);
+        }
+
+        for (const snippet of [
+            'Tratar C-D-E como historia cerrada del 2026-07-17',
+            'sin volver a ejecutar sus planes ni writes',
+            'outputs/launch-cloudflare-production-runtime-cutover-preflight/<timestamp>/summary.md',
+            'outputs/launch-cloudflare-production-runtime-cutover/<timestamp>/cloudflare-production-runtime-cutover-manifest.json',
+            'evidencia histórica de Worker phase 1 ya ejecutada; no como trabajo pendiente',
+        ]) {
+            expect(manualRunbook).toContain(snippet);
         }
 
         for (const snippet of [
@@ -2037,16 +2039,16 @@ describe('operations runbook launch readiness', () => {
         }
 
         for (const snippet of [
-            'staging_write_capable_smoke_rehearsal',
-            'launch-staging-smoke-rehearsal-runner',
-            'staging-smoke-command-manifest.json',
-            'rollback-after-staging-smoke.md',
-            'SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:staging.espanolhonesto.com',
-            'launch-staging-billing-lifecycle',
-            'CHECKOUT_ENABLED_OVERRIDE remains false throughout',
+            "id: 'history_staging_smoke_and_rollback'",
+            'Staging full smoke and rollback drill (history)',
+            'Do not repeat staging writes or the rollback drill merely to refresh status evidence',
+            "id: 'final_smoke'",
+            'Minimal final production smoke',
+            'Last gate: wait for legal_owner_controller, legal_human_review, integration_readiness and seo_llm_final.',
         ]) {
             expect(finalApprovalQueue).toContain(snippet);
         }
+        expect(finalApprovalQueue).not.toContain("id: 'staging_write_capable_smoke_rehearsal'");
 
         for (const snippet of [
             'pnpm launch:final-smoke-execution-pack',
@@ -2077,9 +2079,7 @@ describe('operations runbook launch readiness', () => {
             'outputs/launch-final-smoke-execution-pack/<timestamp>/final-smoke-execution-manifest.json',
             'outputs/launch-final-smoke-execution-pack/<timestamp>/rollback-and-cleanup-plan.md',
             'outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md',
-            'outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md',
             'outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json',
-            'pnpm launch:staging-billing-lifecycle:preflight',
         ]) {
             expect(manualEvidenceDoc).toContain(snippet);
             expect(manualRunbook).toContain(snippet);
@@ -2090,9 +2090,13 @@ describe('operations runbook launch readiness', () => {
         expect(manualExample).toContain('outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/summary.md');
         expect(manualExample).toContain('outputs/launch-staging-smoke-rehearsal-runner/<timestamp>/approval-gate.md');
         expect(manualExample).toContain('outputs/launch-staging-billing-lifecycle/<timestamp>/summary.json');
-        for (const document of [launchRunbook, environmentDoc, launchChecklist, manualEvidenceDoc, manualRunbook]) {
+        for (const document of [environmentDoc, launchChecklist, manualEvidenceDoc]) {
             expect(document).toContain('SMOKE_BILLING_LIFECYCLE_EVIDENCE_PATH');
             expect(document).toContain('launch:staging-billing-lifecycle:preflight');
+        }
+        for (const document of [launchRunbook, manualRunbook]) {
+            expect(document).toContain('No ejecutar');
+            expect(document).toMatch(/historia|histórica|histórico/i);
         }
         expect(launchRunbook).not.toContain('aprobacion Cloudflare del gate separada');
         expect(manualRunbook).not.toContain('Devolver el gate Cloudflare');

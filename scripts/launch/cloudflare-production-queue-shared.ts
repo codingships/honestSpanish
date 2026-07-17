@@ -3,7 +3,9 @@ export const PRODUCTION_QUEUE_TARGET = {
     config: 'workers/fulfillment/wrangler.toml',
     worker: 'espanol-honesto-fulfillment-production',
     queue: 'espanol-honesto-fulfillment-production-queue',
+    queueId: 'f00c0885eadb475cb9b513a4a7a8fcff',
     deadLetterQueue: 'espanol-honesto-fulfillment-production-dlq',
+    deadLetterQueueId: 'e59a210ecfe243ddba945accee9f4b5a',
     binding: 'FULFILLMENT_QUEUE',
 } as const;
 

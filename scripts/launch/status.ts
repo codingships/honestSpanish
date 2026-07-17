@@ -15,7 +15,13 @@ import { collectOpenRcOperationalBlockers } from './rc-operational-checklist';
 import {
     RC_PRODUCTION_INERT_BLOCKER_ID,
     assessRcProductionInertEvidence,
+    type RcProductionInertAssessment,
+    type RcProductionInertRenewableReadback,
 } from './rc-production-inert-evidence';
+import {
+    assessPostClosureBackupTechnicalClosure,
+    type PostClosureBackupTechnicalClosure,
+} from './post-closure-backup-status';
 
 type FindingStatus = 'ok' | 'warning' | 'failed';
 type LaunchStatus = 'BLOCKED' | 'READY_WITH_ACCEPTED_RISKS' | 'READY_CANDIDATE' | 'NO_EVIDENCE';
@@ -122,6 +128,7 @@ interface FinalApprovalCriticalPathStep {
 interface FinalApprovalQueueItem {
     id?: string;
     title?: string;
+    category?: 'pending_gate' | 'completed_history';
     status?: string;
     waitReason?: string;
     prerequisiteItemIds?: string[];
@@ -211,6 +218,9 @@ interface StatusReport {
     endedAt: string;
     status: LaunchStatus;
     releaseCandidateReadiness: ReleaseCandidateReadiness;
+    productionInertReadbacks: RcProductionInertRenewableReadback[];
+    refreshProductionInertReadbacksBeforeExternalWrite: boolean;
+    postClosureBackupTechnicalClosure: PostClosureBackupTechnicalClosure;
     sources: SourceRef[];
     currentEvidence: CurrentEvidence[];
     blockers: Finding[];
@@ -346,14 +356,14 @@ const phaseOneFocusDetails: Record<typeof phaseOneFocusOrder[number], Omit<Phase
         nextStep: 'Record devices/browsers, routes and failures fixed under accessibility_manual.',
     },
     database_readiness: {
-        supportCommand: 'pnpm launch:operations + pnpm launch:staging-db-rollout + pnpm launch:supabase-security-rollout',
-        evidenceMinimum: 'Supabase staging/production separation, hosted migrations/RLS/privileges, SEC-014/SEC-015 security migrations, staging data flows, Free-plan backup posture and audit/job tables reviewed.',
-        nextStep: 'Open the latest staging schema rollout pack for CRM/schema drift and the latest Supabase security rollout pack for migrations 021/022/20260702124757, apply/verify only the explicitly approved scope with staging first, rerun hosted-schema-check.sql plus the security post-apply verification SQL, resolve or explain missing launch-critical tables/columns/indexes/RLS/policies/privileges, then record Supabase Free backup posture and migration/RLS evidence before production is considered.',
+        supportCommand: 'pnpm launch:operations + pnpm launch:production-inert-final-readonly + pnpm launch:supabase-production-post-closure-backup',
+        evidenceMinimum: 'Supabase staging/production separation, completed production rollout/Auth/availability receipts, 49-entry production history, RLS/privileges, minimal inert DB/Auth state and SHA-bound post-closure EFS backup posture reviewed.',
+        nextStep: 'Treat rollout, Auth reduction/finalization and five availability rows as completed history. After integrating the canonical technical SHA, renew only the production read-only DB/Auth capture, generate the post-closure public+auth backup to a new EFS destination and record its path-free receipt; do not replay migrations or cleanup because a renewable receipt expired.',
     },
     operations_external: {
         supportCommand: 'pnpm launch:operations + pnpm launch:operations-external-closure',
-        evidenceMinimum: 'Cloudflare fulfillment Worker staging, fulfillment jobs, Resend staging, Workers Logs/observability visibility, Supabase Free backup posture and rollback baseline verified externally; cron config, staging deployment and secret-name evidence are covered by preflight.',
-        nextStep: 'Close Cloudflare Workers Logs/observability evidence and Resend staging visibility; close Admin Jobs staging UI/runtime after database_readiness is closed, or record an explicit scoped RC substitute based on local UI/API/tests while staging DB remains unavailable. Keep production Worker, final Drive smoke and final backup action under final-only checks.',
+        evidenceMinimum: 'Closed staging smoke/rollback evidence, Workers Logs, Resend staging, Admin Jobs, neutralized legacy reminders Worker, production bootstrap HMAC-only posture and Supabase Free rollback/backup contract verified externally.',
+        nextStep: 'Keep staging smoke, rollback drill, C-D-E and legacy reminders neutralization as completed history. Renew only GET/read-only attestations before a separately approved future write; the technical RC still needs its post-closure backup, while active providers/domains/checkout remain under integration_readiness and final_smoke.',
     },
     security_external: {
         supportCommand: 'pnpm launch:security',
@@ -367,6 +377,10 @@ const outputDir = path.join(process.cwd(), 'outputs', 'launch-status', stamp(sta
 const outputsRoot = path.join(process.cwd(), 'outputs');
 const finalClosurePackPath = path.join(outputDir, 'final-closure-pack.md');
 mkdirSync(outputDir, { recursive: true });
+const postClosureBackupTechnicalClosure = assessPostClosureBackupTechnicalClosure(
+    outputsRoot,
+    startedAt,
+);
 
 const primary = readLatestJson<PrimarySummary>('launch-verification', 'summary.json');
 const sequence = readLatestJson<AuditSummary>('launch-sequence', 'summary.json');
@@ -504,6 +518,7 @@ const releaseCandidateReadiness = buildReleaseCandidateReadiness(
     strictQaStandaloneOpenFindings,
     rcOperationalBlockers.map((blocker) => blocker.id),
     productionInertOpenChecks,
+    productionInertAssessment,
 );
 const gateFreshnessInputs: EvidenceTimestamp[] = [
     // Full-gate freshness is scoped to commands that `pnpm launch:gate`
@@ -538,6 +553,20 @@ const rcExternalClosureFreshnessInputs: EvidenceTimestamp[] = [
     { label: 'staging no-real-payments remediation', endedAt: noRealPaymentsRemediation?.data.endedAt },
 ];
 const sources: SourceRef[] = [
+    {
+        label: 'production inert readback freshness',
+        status: productionInertAssessment.renewableReadbacks.some((item) => item.status === 'unavailable')
+            ? 'UNAVAILABLE_RC_BLOCKER'
+            : productionInertAssessment.refreshRequiredBeforeExternalWrite
+                ? 'REFRESH_REQUIRED_BEFORE_WRITES'
+                : 'FRESH',
+        path: productionInertAssessment.sourcePath,
+    },
+    {
+        label: 'post-closure backup technical closure',
+        status: postClosureBackupTechnicalClosure.status,
+        path: postClosureBackupTechnicalClosure.evidencePath,
+    },
     {
         label: 'launch gate',
         status: summarizeGateSource(gate?.data ?? null, gateFreshnessInputs),
@@ -869,6 +898,10 @@ const report: StatusReport = {
     endedAt: new Date().toISOString(),
     status,
     releaseCandidateReadiness,
+    productionInertReadbacks: productionInertAssessment.renewableReadbacks,
+    refreshProductionInertReadbacksBeforeExternalWrite:
+        productionInertAssessment.refreshRequiredBeforeExternalWrite,
+    postClosureBackupTechnicalClosure,
     sources,
     currentEvidence: buildCurrentEvidence(sources),
     blockers,
@@ -889,7 +922,8 @@ const report: StatusReport = {
             releaseCandidateGate?.data ?? null,
             releaseCandidateFreshnessInputs,
             releaseCandidateReadiness
-        )
+        ),
+        productionInertAssessment.refreshRequiredBeforeExternalWrite,
     ),
     outputDir,
     finalClosurePackPath,
@@ -1252,6 +1286,7 @@ function buildReleaseCandidateReadiness(
     strictQaStandaloneOpenFindings: StrictQaFinding[],
     rcOperationalOpenChecks: string[],
     productionInertOpenChecks: string[],
+    productionInertAssessment: RcProductionInertAssessment,
 ): ReleaseCandidateReadiness {
     const phaseOneOpenChecks = grouped.phase_1_now
         .filter((check) => check.status === 'failed')
@@ -1278,6 +1313,16 @@ function buildReleaseCandidateReadiness(
         .flatMap((phase) => grouped[phase])
         .filter((check) => check.status === 'warning')
         .map((check) => check.id);
+    const productionInertOpenRequirementIds = productionInertAssessment.requirements
+        .filter((requirement) => requirement.status === 'open')
+        .map((requirement) => requirement.id);
+    const productionInertOnlyNeedsCloudflareReattestation =
+        productionInertOpenRequirementIds.length === 1
+        && productionInertOpenRequirementIds[0] === 'cloudflare_bootstrap_hmac'
+        && productionInertAssessment.cloudflareResolution === 'readback_only';
+    const productionInertOpenRequirementReasons = productionInertAssessment.requirements
+        .filter((requirement) => requirement.status === 'open')
+        .map((requirement) => `${requirement.id}: ${requirement.reason}`);
     const noEvidence = !primarySummary && phaseSummary.every((phase) => phase.openCount === 0);
     const automatedVerifierStatus = primarySummary?.status ?? 'missing';
     const provenNow = [
@@ -1289,10 +1334,12 @@ function buildReleaseCandidateReadiness(
             ? 'La arquitectura del Cloudflare Fulfillment Worker, health checks y rutas internas esta cubierta por auditoria automatica; la verificacion externa fresca sigue en operations_external.'
             : 'Cloudflare Fulfillment Worker staging esta desplegado y verificado en health/auth/configuracion.',
         phaseOneOpenChecks.includes('database_readiness') || strictQaSecurityIds.length > 0
-            ? `Supabase staging y production estan identificados como proyectos separados; ${strictQaSecurityIds.length > 0 ? `el tracker estricto mantiene ${strictQaSecurityIds.join(', ')} abiertos hasta aplicar/verificar el rollout de seguridad` : 'database_readiness sigue abierto hasta resolver o verificar migraciones/RLS/backup posture'} con staging primero.`
-            : 'Supabase staging y production son proyectos separados con RLS y migraciones criticas revisadas.',
+            ? `Supabase staging y production estan identificados como proyectos separados y el rollout production del 2026-07-17 permanece cerrado; ${strictQaSecurityIds.length > 0 ? `el tracker estricto mantiene ${strictQaSecurityIds.join(', ')} abiertos y debe reconciliarse contra los receipts ejecutados, sin repetir writes` : 'database_readiness solo puede reabrirse por deriva demostrada o por faltar el backup post-cierre ligado al SHA, no por caducidad de evidencia'}.`
+            : 'Supabase staging y production son proyectos separados; production tiene 49 entradas, RLS revisada y estado mínimo DB/Auth cerrado.',
         productionInertOpenChecks.length > 0
-            ? 'La preparacion production inerte aun no esta probada de extremo a extremo: Cloudflare bootstrap HMAC-only y la cadena Supabase rollout -> Auth final -> disponibilidad -> atestacion final read-only siguen abiertas.'
+            ? productionInertOnlyNeedsCloudflareReattestation
+                ? 'El rollout, Auth final, disponibilidad y cierre read-only de Supabase permanecen historicamente cerrados. Tras congelar el SHA canonico falta una unica reatestacion GET-only de Cloudflare; no se repiten C-D-E ni escrituras Supabase.'
+                : `La preparacion production inerte tiene requisitos historicos realmente abiertos (${productionInertOpenRequirementReasons.join(' | ') || 'evidencia no disponible'}); no confundirlos con el simple vencimiento renovable de readbacks.`
             : 'Production inerte esta probada mediante Cloudflare bootstrap HMAC-only y la cadena Supabase rollout, Auth final, cinco filas de disponibilidad y atestacion final read-only DB/Auth.',
         'Launch Gate, Fase 1, evidencia manual y revision secundaria generan evidencias frescas y auditables.',
     ];
@@ -1338,7 +1385,9 @@ function buildReleaseCandidateReadiness(
             nextDecision: releaseCandidateOpenChecks.includes('no_real_payments_staging')
                 ? 'Corregir Cloudflare Worker staging desde el pack de pnpm launch:rc-external-closure y los ultimos rc-staging-package.md/rc-staging-package-files.txt/rc-staging-runtime-diff.patch/rc-staging-runtime-manifest.json/worker-staging-build-manifest.json: si HEAD/deploy no contiene el guard, empaquetar/redeployar la slice minima antes de confiar en CHECKOUT_ENABLED=false; si se usa dist local, exigir readyForStagingDeployPackage=true; despues ejecutar pnpm launch:no-real-payments -- --deployed-url <staging-url> y pnpm launch:rc.'
                 : productionInertOpenChecks.length > 0
-                    ? 'Completar y encadenar la evidencia production inerte: Supabase production rollout completo; Auth final a admin+profesor; cinco filas de disponibilidad; atestacion final renovable con dos lecturas DB READ ONLY y el GET Auth entre ambas; y, como ultimo bloque continuo, Cloudflare fulfillment/web bootstrap HMAC-only seguido inmediatamente de launch:status. Mantener legal, Stripe Live, DNS, fulfillment activo y smoke final fuera de este cierre; despues rerun pnpm launch:rc.'
+                    ? productionInertOnlyNeedsCloudflareReattestation
+                        ? 'Congelar primero el SHA canonico y despues ejecutar una sola reatestacion Cloudflare production GET-only contra las versiones bootstrap vigentes. Si coincide, rerun pnpm launch:status y pnpm launch:rc; si no coincide, detenerse. No repetir C-D-E, rollout, Auth ni disponibilidad para renovar evidencia.'
+                        : `Resolver solo los requisitos historicos realmente abiertos (${productionInertOpenRequirementReasons.join(' | ') || 'evidencia no disponible'}) bajo su gate exacto; un TTL vencido se renueva con lecturas y nunca autoriza repetir C-D-E, rollout, Auth o disponibilidad.`
                 : rcOperationalOpenChecks.length > 0
                     ? `Cerrar los bloqueos operativos RC (${rcOperationalOpenChecks.join(', ')}) con evidencia no secreta o una aceptacion de riesgo explicita; despues rerun pnpm launch:operations, pnpm launch:status y pnpm launch:rc.`
                     : 'Cerrar Stripe staging o documentar que el RC se congela sin aceptar pagos.',
@@ -1355,7 +1404,7 @@ function buildReleaseCandidateReadiness(
             strictQaOpenChecks: strictQaStandaloneIds,
             acceptedRiskChecks,
             provenNow,
-            nextDecision: 'Completar legal real, integraciones finales, strict-QA tracker blockers, backup final si aplica, fuente rusa premium, SEO/LLM, smoke final y rerun del Launch Gate antes de Go/No-Go.',
+            nextDecision: 'Completar únicamente los cinco gates finales: identidad legal, revisión legal humana, integration_readiness ligada a LAUNCH_SHA, SEO/LLM y smoke production mínimo. El backup post-cierre pertenece al cierre técnico de RC, no es un sexto gate ni autoriza activación.',
         };
     }
 
@@ -1388,7 +1437,7 @@ function buildReleaseCandidateReadiness(
 
 function buildPhaseOneNextDecision(phaseOneOpenChecks: string[]): string {
     const openChecks = renderListValue(phaseOneOpenChecks);
-    return `Cerrar los checks abiertos de Fase 1 (${openChecks}) con evidencia real/no secreta; mantener Stripe/payments, production Worker, backup final, fuente rusa premium, rotacion final, SEO/LLM y smoke final como final-only.`;
+    return `Cerrar los checks abiertos de Fase 1 (${openChecks}) con evidencia real/no secreta. No reabrir staging, rollout/Auth/disponibilidad Supabase, Cloudflare C-D-E, Stripe test ni el simulacro de rollback por caducidad de lecturas; mantener solo los cinco gates finales y completar el backup post-cierre como preservación técnica del RC.`;
 }
 
 function buildCurrentEvidence(sourceRefs: SourceRef[]): CurrentEvidence[] {
@@ -1589,6 +1638,11 @@ function buildCurrentEvidence(sourceRefs: SourceRef[]): CurrentEvidence[] {
             role: 'Wrangler read-only snapshot of target account, Pages project/domain ownership, staging Worker, production Worker and secret-name posture; does not deploy, move domains or write secrets.',
         },
         {
+            sourceLabel: 'production inert readback freshness',
+            label: 'Production Inert Readback Freshness',
+            role: 'TTL freshness is informational when historical evidence remains valid: expiry alone does not reopen RC. Unavailable or mismatched evidence remains a real RC blocker; fresh Cloudflare GET-only and Supabase read-only attestations are required before an approved external write.',
+        },
+        {
             sourceLabel: 'cloudflare production runtime cutover preflight',
             label: 'Cloudflare Production Runtime Cutover Preflight',
             role: 'Commandized no-write Cloudflare preflight that runs local build, guarded Wrangler production deploy dry-run, secret-name list probes, variable matrix and generated dist cleanup before any production Worker approval.',
@@ -1705,9 +1759,14 @@ function buildNextActions(
     gateSummary: GateSummary | null,
     manualSummary: ManualEvidenceSummary | null,
     gateIsStale: boolean,
-    releaseCandidateGateIsStale: boolean
+    releaseCandidateGateIsStale: boolean,
+    refreshProductionInertReadbacksBeforeExternalWrite: boolean,
 ): string[] {
     const actions = new Set<string>();
+
+    if (refreshProductionInertReadbacksBeforeExternalWrite) {
+        actions.add('Before the next approved external write only, renew the Cloudflare production GET-only runtime readback and the Supabase production read-only DB/Auth sandwich; do not repeat rollout, Auth reduction, availability, C-D-E or any deployment merely because their readback TTL expired.');
+    }
 
     if (!gateSummary) {
         actions.add('Run pnpm launch:gate so the dashboard includes a canonical full-gate evidence run.');
@@ -1745,7 +1804,7 @@ function buildNextActions(
         actions.add('Decide whether .agent/ and .agents/ stay versioned or move outside the repo, then record the decision.');
     }
     if (openBlockers.some((line) => /Cloudflare fulfillment Worker|Google|Resend|cron|rollback/i.test(line))) {
-        actions.add('Verify RC operations baseline: Cloudflare fulfillment Worker staging, fulfillment jobs, Resend staging, Workers Logs/observability visibility, Supabase Free backup posture and rollback.');
+        actions.add('Use the closed staging/rollback/Resend/Admin Jobs evidence as RC history. For production, renew only GET/read-only attestations before an approved write; do not replay Cloudflare C-D-E, the staging smoke or the rollback drill.');
     }
     if (openBlockers.some((line) => /Accesibilidad/i.test(line))) {
         actions.add('Perform manual accessibility pass for keyboard, focus, screen reader, zoom, mobile and critical forms.');
@@ -1754,7 +1813,7 @@ function buildNextActions(
         actions.add('If public copy, prices, emails, empty states or error states changed after RC, re-review ES/EN/RU and update the relevant content/SEO evidence.');
     }
     if (openBlockers.some((line) => /Database|Supabase|RLS|backups|admin_audit_log|fulfillment_jobs/i.test(line))) {
-        actions.add('Verify database readiness: staging/production separation, staging assignments/subscriptions, hosted migrations, RLS, Supabase Free backup posture and audit/job tables, with staging before production.');
+        actions.add('Verify the current database closure from executed receipts: separate staging/production histories, 49 production entries, minimal DB/Auth state and RLS. If the canonical RC is already in main, renew the read-only capture and create the SHA-bound post-closure EFS backup; do not replay rollout/Auth/availability.');
     }
     if (openBlockers.some((line) => /Stripe|Pagos|staging/i.test(line))) {
         actions.add('Keep Stripe/payment smoke final-only unless checkout is enabled; before real payments, document checkout, webhook delivery, subscription/payment, portal and reconciliation.');
@@ -2017,7 +2076,8 @@ function renderMarkdown(statusReport: StatusReport): string {
     const lines = [
         '# Launch Status',
         '',
-        `- Status: ${statusReport.status}`,
+        `- Launch Status: ${statusReport.status}`,
+        `- Release Candidate Status: ${statusReport.releaseCandidateReadiness.status}`,
         `- Started: ${statusReport.startedAt}`,
         `- Ended: ${statusReport.endedAt}`,
         `- Output: ${statusReport.outputDir}`,
@@ -2060,6 +2120,24 @@ function renderMarkdown(statusReport: StatusReport): string {
         '',
         ...statusReport.releaseCandidateReadiness.provenNow.map((item) => `- ${item}`),
         ...(statusReport.releaseCandidateReadiness.provenNow.length === 0 ? ['- No RC evidence has been generated yet.'] : []),
+        '',
+        '## Production Inert Readback Freshness',
+        '',
+        'TTL expiry is an operational pre-write condition, not a reason to reopen an otherwise valid historical RC closure. An unavailable or mismatched readback remains a real blocker.',
+        '',
+        `- Refresh required before external write: ${statusReport.refreshProductionInertReadbacksBeforeExternalWrite}`,
+        '',
+        '| Readback | Status | Observed | Expires | Evidence |',
+        '| --- | --- | --- | --- | --- |',
+        ...statusReport.productionInertReadbacks.map((readback) => `| ${escapeCell(readback.id)} | ${escapeCell(readback.status)} | ${escapeCell(readback.observedAt ?? '-')} | ${escapeCell(readback.expiresAt ?? '-')} | ${escapeCell(toRelative(readback.evidencePath))} |`),
+        '',
+        '## Technical Closure (not a sixth final gate)',
+        '',
+        'This assessment tracks the post-merge Supabase public+auth backup as technical RC preservation. It is deliberately separate from blockers, Go/No-Go checks and the five final-only gates.',
+        '',
+        '| Status | Reason | Canonical Git SHA | Receipt SHA-256 | Artifact SHA-256 | Evidence | Final Gate |',
+        '| --- | --- | --- | --- | --- | --- | --- |',
+        `| ${escapeCell(statusReport.postClosureBackupTechnicalClosure.status)} | ${escapeCell(statusReport.postClosureBackupTechnicalClosure.reason)} | ${escapeCell(statusReport.postClosureBackupTechnicalClosure.canonicalGitSha ?? '-')} | ${escapeCell(statusReport.postClosureBackupTechnicalClosure.receiptSha256 ?? '-')} | ${escapeCell(statusReport.postClosureBackupTechnicalClosure.artifactSha256 ?? '-')} | ${escapeCell(toRelative(statusReport.postClosureBackupTechnicalClosure.evidencePath) || '-')} | no |`,
         '',
         '## Phase 1 Focus',
         '',
@@ -2475,29 +2553,26 @@ function renderFinalClosurePack(statusReport: StatusReport): string {
         '| T-48h | Alin | Confirm reviews, Telegram, rich telemetry and definitive level check remain out of launch unless a new decision is documented. | Checklist, legal/cookies and manual evidence. |',
         '| T-48h | Alin | Confirm premium Russian font: buy/license the official Cyrillic-capable family or accept the current fallback as a launch decision. | `seo_llm_final`, `final_smoke`. |',
         '| T-24h | Alin | Complete real legal data and human legal review. | `legal_owner_controller`, `legal_human_review`. |',
-        '| T-24h | Alin/Codex | Run Supabase backup/export outside the repo or confirm Pro upgrade/accepted risk. | `database_readiness`, Go/No-Go. |',
-        '| T-12h | Alin/Codex | Rotate final keys and validate secrets in Cloudflare, Supabase, Stripe, Google, Resend, Turnstile and Sentry. | `security_external`, `integration_readiness`. |',
+        '| T-24h | Alin/Codex | Confirm the fresh post-closure Supabase backup tied to the canonical technical RC; this is technical preservation, not a sixth final gate. | Go/No-Go provenance. |',
+        '| T-12h | Alin/Codex | Freeze `LAUNCH_SHA` as the reviewed descendant of `RC_BASE_SHA` and review exact activation/rollback instructions without activating anything from this status command. | `integration_readiness`. |',
         '| T-6h | Codex | Run local final-support audits: security, operations, payments, SEO, final readiness and status. | Final manual evidence. |',
-        '| T-3h | Alin/Codex | Finish the gated full lifecycle rehearsal in staging, then run only the minimal manual production checklist. | `final_smoke`. |',
+        '| T-3h | Alin/Codex | Reuse the already closed staging rehearsal as history and run only the separately approved minimal production checklist against `LAUNCH_SHA`. | `final_smoke`. |',
         '| T-1h | Alin | Review manual evidence, accept non-critical risks if any, and decide Go/No-Go. | `launchDecision`. |',
         '| T-0 | Codex | Run `pnpm launch:gate`, `pnpm launch:secondary-review` and `pnpm launch:status`. | `READY` or `NO-GO`. |',
         '',
         '## Ordered Closure',
         '',
-        '1. Freeze final public copy, prices, legal pages, domain, checkout mode and docs/launch/LAUNCH_MARKETING_PLAN.md.',
-        '2. Confirm the definitive level check is still postponed, or if it enters launch, follow docs/launch/LEVEL_CHECK.md first: consent, purpose, retention, access/deletion, rubric, legal review and accessibility/legal reruns.',
-        '3. Confirm premium Russian typography: buy/license the official Cyrillic-capable family and verify `/ru`, or record that Alin accepts the current fallback for launch. Do not commit unlicensed font files, invoices or fiscal data.',
-        `4. Fill real legal data and human review evidence using ${paths.legalWorksheet}, ${paths.legalFinalInputsPackage} and ${paths.legalFinalInputsManifest}. Do not invent owner/controller/subprocessor values.`,
-        `5. Complete Stripe test rehearsal, then prepare Stripe live for real payments from day one and prove CHECKOUT_ENABLED_OVERRIDE=false as rollback. Close it using ${paths.paymentsWorksheet}. If Stripe MCP listing is unavailable, use Stripe dashboard, checkout, webhook and Supabase reconciliation evidence as the source of truth.`,
-        '6. Run Supabase backup/export outside the repo, confirm Pro upgrade, or record accepted risk using docs/launch/SUPABASE_BACKUP_RUNBOOK.md before key rotation or production/destructive changes.',
-        '7. Resolve standalone strict-QA tracker blockers listed above, including any approved Supabase cleanup migration or explicit accepted-risk decision, then regenerate the tracker.',
-        '8. Rotate keys only in the final deployment window, after copy, legal, payments and domain are final.',
-        `9. Resolve Cloudflare production runtime posture using ${paths.cloudflareDomainWorkerPreflight}, ${paths.cloudflareProductionRuntimeReadonly}, ${paths.cloudflareProductionRuntimeCutoverPreflight}, ${paths.cloudflareProductionWorkerVariableMatrix}, ${paths.cloudflareProductionRuntimeCutover}, the Worker-create runner ${paths.cloudflareProductionWorkerPhaseOneRunner}, the web secrets/attestation runner ${paths.cloudflareProductionWorkerSecretsRunner} and the separate fulfillment config/secrets/email runner ${paths.cloudflareProductionFulfillmentSecretsRunner}: both production Workers must exist and attest exact identity/version/Supabase before a separately approved domain move. Use ${paths.cloudflareProductionRuntimePhaseOneApproval}, ${paths.cloudflareProductionWorkerPhaseOneApprovalGate}, ${paths.cloudflareProductionWorkerSecretsApprovalGate} and ${paths.cloudflareProductionFulfillmentSecretsApprovalGate} for their own phases only; they are not domain approval.`,
-        '10. Rotate keys only after the production runtime/domain/payment/legal posture is settled, and never store key values in evidence.',
-        `11. Verify production integrations using ${paths.integrationWorksheet} and ${paths.integrationFinalPackage}: Cloudflare Pages-vs-Worker domain ownership, production Worker secrets/direct probe, Supabase, Google, Resend, Turnstile, Sentry and logs. Use ${paths.stripeWebhookCutoverPack} plus ${paths.stripeWebhookCutoverRunner}, ${paths.turnstileDomainClosurePack} plus ${paths.turnstileDomainClosureRunner}, ${paths.sentryTriagePack} plus ${paths.sentryIssueTriageRunner}, and the staging rehearsal runner ${paths.stagingSmokeRehearsalRunner} for the current Stripe webhook, Turnstile dashboard, Sentry issue and pre-final staging lifecycle decisions. Include the legacy Worker espanol-honesto-reminders decision, Supabase Advisor findings and staging migration-history decision.`,
-        `12. Close SEO/LLM after final copy/legal/domain settle using ${paths.seoWorksheet} and ${paths.seoLlmFinalPackage}; run the live-domain read-only probe, verify that the live custom domains serve the modern Worker build rather than the old Pages project, then verify marketing plan parity and the Cyrillic typography decision against docs/launch/LAUNCH_MARKETING_PLAN.md and docs/launch/SEO_LLM_FINAL.md.`,
-        '13. Run or review the full staging-only rehearsal using ' + paths.stagingSmokeRehearsalRunner + ' after the separate checkout-gate approval and read-only preflight; then complete only the minimal manual production checklist from ' + paths.finalSmokeExecutionPack + ' and ' + paths.finalSmokeWorksheet + '. Never run `real-env-smoke.ts` against production; review ' + paths.finalSmokeExecutionApproval + ' and include a rendered `/ru` spot check if font assets changed.',
-        '14. Run the final commands below and make the Go/No-Go decision from fresh evidence.',
+        '1. Preserve `RC_BASE_SHA` as the canonical, clean and validated technical Release Candidate. `LAUNCH_SHA` must be a later reviewed descendant containing the final legal/SEO inputs; never use the two labels interchangeably.',
+        '   Launch Marketing Plan: Freeze final public copy, prices, legal pages, domain, checkout mode and docs/launch/LAUNCH_MARKETING_PLAN.md; verify marketing plan parity without creating another launch gate.',
+        '   Confirm the definitive level check is still postponed. If it enters launch, follow docs/launch/LEVEL_CHECK.md first: consent, purpose, retention, access/deletion, rubric, legal review and accessibility/legal reruns.',
+        '2. After RC_BASE_SHA is merged to clean main, complete only the technical preservation chain: fresh Supabase DB/Auth read-only capture -> SHA-bound public+auth EFS backup -> Cloudflare production GET-only reattestation -> launch:status and launch:rc. Stop on ambiguity and do not activate anything.',
+        '3. Treat these as completed history: Supabase production rollout/Auth reduction/five availability rows/final DB-Auth closure; Cloudflare production Worker creation/bootstrap C-D-E; Stripe test cutover; full staging smoke; rollback drill. Evidence TTL expiry may require a read-only refresh, never replaying those writes.',
+        `4. Close only legal_owner_controller and then legal_human_review using ${paths.legalWorksheet}, ${paths.legalFinalInputsPackage} and ${paths.legalFinalInputsManifest}. Do not invent values or store private identity/legal material.`,
+        `5. Close integration_readiness by binding an exact activation and rollback plan to LAUNCH_SHA, using ${paths.integrationWorksheet}, ${paths.integrationFinalPackage} and ${paths.finalApprovalExecutionBoard}. It must include fulfillment-secrets hardening, Auth production redirects/access, catalog sync, a traffic gate, domain cutover and checkout close/open. This status command does not activate checkout, signup, email, Cron, Queues, DNS, domains or Stripe Live.`,
+        '6. Immediately before any separately approved external write, renew only the required Cloudflare GET-only and Supabase DB/Auth read-only attestations. Stop on mismatch or ambiguity; do not repair or redeploy under a read-only approval.',
+        `7. Close seo_llm_final after final copy/legal/URLs settle using ${paths.seoWorksheet}, ${paths.seoLlmFinalPackage} and the live-domain read-only probe, including the licensed Cyrillic typography decision.`,
+        `8. Close final_smoke last with only the minimal manual production checklist from ${paths.finalSmokeExecutionPack} and ${paths.finalSmokeWorksheet}, tied to LAUNCH_SHA and its own exact approval. The completed staging rehearsal is supporting history and must not be repeated by default.`,
+        '9. Run the final local commands below and make the Go/No-Go decision from fresh, non-secret evidence.',
         '',
         '## Final Commands',
         '',
@@ -2505,14 +2580,9 @@ function renderFinalClosurePack(statusReport: StatusReport): string {
         'pnpm launch:legal',
         'pnpm launch:payments',
         'pnpm launch:final-readiness',
-        'pnpm launch:cloudflare-production-runtime-readonly',
-        'pnpm launch:cloudflare-production-worker-secrets',
-        'pnpm launch:cloudflare-production-fulfillment-secrets',
         'pnpm launch:integration-final-package',
-        'pnpm launch:staging-smoke-rehearsal-runner',
-        'pnpm launch:sentry-issue-triage-runner',
+        'pnpm launch:final-approval-queue',
         'pnpm launch:final-smoke-execution-pack',
-        'pnpm launch:live-domain-readonly -- --base-url https://espanolhonesto.com --host-variant https://www.espanolhonesto.com',
         'pnpm launch:seo',
         'pnpm launch:seo-llm-final-package',
         'pnpm launch:manual-evidence',
@@ -2657,6 +2727,7 @@ function renderFinalApprovalItemPosture(): string[] {
         'Items marked `must_wait` are blocked by prerequisites even when all local artifacts exist.',
         'Items marked `requires_exact_approval` still need explicit resource/action approval before any write.',
         'Items marked `human_input_required` need human-owned final values or review.',
+        'Items marked `completed` are history-only and must not be reopened by evidence expiry.',
         '',
         '| Item | Status | Wait Reason | Prerequisites | Blocks |',
         '| --- | --- | --- | --- | --- |',
@@ -2753,36 +2824,28 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
             };
         case 'integration_readiness':
             return {
-                what: 'Production-facing external services must be named, reachable, monitored and rollback-safe.',
-                closeWith: `${paths.integrationWorksheet}; ${paths.integrationFinalPackage}; ${paths.integrationFinalManifest}; ${paths.integrationServiceMatrix}; ${paths.stripeWebhookCutoverPack}; ${paths.stripeWebhookCutoverRunner}; ${paths.turnstileDomainClosurePack}; ${paths.turnstileDomainClosureRunner}; ${paths.sentryTriagePack}; ${paths.sentryIssueTriageRunner}; ${paths.cloudflareDomainWorkerPreflight}; ${paths.cloudflareProductionRuntimeReadonly}; ${paths.cloudflareProductionRuntimeCutoverPreflight}; ${paths.cloudflareProductionWorkerVariableMatrix}; ${paths.cloudflareProductionRuntimeCutover}; ${paths.cloudflareProductionWorkerPhaseOneRunner}; ${paths.cloudflareProductionWorkerSecretsRunner}; ${paths.cloudflareProductionFulfillmentSecretsRunner}; ${paths.stagingSmokeRehearsalRunner}; ${paths.finalRunbook}`,
-                evidenceMinimum: 'Generated integration final package and service evidence matrix reviewed; Cloudflare Pages-vs-Worker domain ownership, current Wrangler read-only snapshot, both production Workers, separate web/fulfillment secret-name posture, direct identity/version/Supabase attestations, cutover manifest, Supabase, Google, Resend, Turnstile, Sentry/log checks, staging smoke rehearsal and rollback baseline recorded without secrets.',
+                what: 'The final activation and rollback sequence must be complete, resource-bound, tied to LAUNCH_SHA and safe from the already closed inert baseline.',
+                closeWith: `${paths.integrationWorksheet}; ${paths.integrationFinalPackage}; ${paths.integrationFinalManifest}; ${paths.integrationServiceMatrix}; ${paths.finalApprovalQueue}; ${paths.finalApprovalQueueManifest}; ${paths.finalApprovalExecutionBoard}; ${paths.finalRunbook}`,
+                evidenceMinimum: 'RC_BASE_SHA and LAUNCH_SHA are distinguished; completed Supabase, Cloudflare bootstrap, Stripe test and staging rehearsal work remains history-only; every remaining final production boundary has an exact target, pre-write readback, ambiguity stop, verification and rollback tied to LAUNCH_SHA without secret values.',
                 preflightDecisions: [
-                    'Run pnpm launch:integration-final-package after final-readiness and provider read-only evidence refreshes.',
-                    'Use cloudflare-domain-worker-preflight.md, pnpm launch:cloudflare-production-runtime-readonly, pnpm launch:cloudflare-production-runtime-cutover-preflight, pnpm launch:cloudflare-production-runtime-cutover, pnpm launch:cloudflare-production-worker-phase1, pnpm launch:cloudflare-production-worker-secrets and pnpm launch:cloudflare-production-fulfillment-secrets before any domain write: web deploy, web secrets, fulfillment config/secrets/email, direct attestations and domain move are separate approval phases.',
-                    'Run pnpm launch:staging-smoke-rehearsal-runner in plan mode before any staging lifecycle smoke; execute it only with exact STAGING_SMOKE_REHEARSAL_APPROVAL and --execute-approved.',
-                    'Do not mark integration_readiness pass while espanolhonesto.com/www are still attached to the old Pages project or production Worker espanolhonesto is absent.',
-                    'Reconfirm that preserved Cloudflare legacy Worker espanol-honesto-reminders remains fully neutralized: no Cron, workers.dev or Preview URLs, no invocation surfaces, and no tracked deployment path that can recreate it.',
-                    'Review Supabase Advisor findings: leaked password protection, btree_gist in public, production public.jobs legacy table and staging migration history.',
-                    'Stripe evidence source must use dashboard/checkout/webhook evidence if MCP listing remains unavailable.',
+                    'Run pnpm launch:integration-final-package to regenerate the local service matrix; it performs no activation.',
+                    'Use RC_BASE_SHA only for the canonical technical base; freeze LAUNCH_SHA after real legal and final SEO inputs are reviewed.',
+                    'Do not repeat Supabase rollout/Auth reduction/availability, Cloudflare Worker creation/bootstrap C-D-E, Stripe test cutover, staging smoke or the rollback drill. Those are completed history.',
+                    'Immediately before a separately approved external write, renew only the required Cloudflare GET-only and Supabase DB/Auth read-only attestations; stop on mismatch or ambiguity.',
+                    'The preserved legacy Worker espanol-honesto-reminders remains fully neutralized; reconfirm that posture by readback only and never turn it into an open deletion decision.',
+                    'Review the existing Cloudflare evidence as reference: Pages-vs-Worker domain ownership, production Worker existence, Worker secret setup, direct Worker verification, the planned domain move, and old Pages project versus modern Worker build. Do not replay bootstrap phases.',
+                    'The final plan must cover active fulfillment secrets, active web deployment with checkout false, fulfillment enablement, domain move, Auth redirects/access recovery, Stripe live catalog/webhook, signup and checkout-last activation, each with an exact rollback boundary.',
+                    'This status and queue generation remain local-only and must not activate checkout, signup, email, Cron, Queues, DNS, domains or Stripe Live.',
                 ],
-                passSummary: 'Production integration readiness verified across Cloudflare, Supabase, Google, Resend, Turnstile, Sentry/logs and rollback baseline.',
+                passSummary: 'Final integration activation and rollback sequence is complete, resource-bound and tied to LAUNCH_SHA while production remains inert until its separately approved launch window.',
                 passEvidence: [
                     `command_output=${paths.integrationWorksheet}::integration readiness worksheet completed`,
                     `command_output=${paths.integrationFinalPackage}::integration final package reviewed`,
                     `command_output=${paths.integrationFinalManifest}::integration final manifest reviewed`,
                     `command_output=${paths.integrationServiceMatrix}::service evidence matrix completed`,
-                    `command_output=${paths.sentryIssueTriageRunner}::Sentry issue triage runner summary reviewed; external write performed only under exact approval`,
-                    `command_output=${paths.cloudflareDomainWorkerPreflight}::Cloudflare Pages-vs-Worker/domain preflight reviewed and final state verified`,
-                    `command_output=${paths.cloudflareProductionRuntimeReadonly}::Cloudflare production runtime read-only evidence reviewed and final state verified`,
-                    `command_output=${paths.cloudflareProductionRuntimeCutoverPreflight}::Cloudflare no-write build/dry-run preflight reviewed`,
-                    `command_output=${paths.cloudflareProductionWorkerVariableMatrix}::Cloudflare production Worker variable matrix reviewed without secret values`,
-                    `command_output=${paths.cloudflareProductionRuntimeCutover}::Cloudflare production runtime cutover manifest reviewed and phased evidence completed`,
-                    `command_output=${paths.cloudflareProductionWorkerPhaseOneRunner}::Cloudflare phase-1 runner summary reviewed; external write performed only under exact approval`,
-                    `command_output=${paths.cloudflareProductionWorkerSecretsRunner}::Cloudflare secret-name/direct-probe runner summary reviewed; external write performed only under exact approval`,
-                    `command_output=${paths.cloudflareProductionFulfillmentSecretsRunner}::Cloudflare fulfillment config/secrets/email runner summary reviewed; no email or job writes in this phase`,
-                    `command_output=${paths.stagingSmokeRehearsalRunner}::staging smoke rehearsal runner reviewed; external write performed only under exact approval`,
-                    'dashboard=External dashboards checked with secrets redacted',
-                    'manual_note=Final integration config, Cloudflare custom-domain Worker posture, Stripe live day-one payment posture, observability and rollback reviewed, including espanol-honesto-reminders, Supabase Advisor and Stripe evidence-source decisions',
+                    `command_output=${paths.finalApprovalQueueManifest}::canonical five-gate queue and completed-history entries reviewed`,
+                    `command_output=${paths.finalApprovalExecutionBoard}::LAUNCH_SHA activation and rollback board reviewed without executing activation`,
+                    'manual_note=RC_BASE_SHA and LAUNCH_SHA recorded; completed closures were not replayed; exact final boundaries, stop conditions and rollback order were reviewed without secrets',
                 ],
                 acceptedRisk: 'Use `accepted_risk` only for a specific non-critical integration limitation with owner, rationale, rollback plan and user impact.',
                 riskSummary: 'A non-critical production integration limitation is documented and accepted for launch.',
@@ -2792,14 +2855,7 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
                     `command_output=${paths.integrationWorksheet}::integration worksheet documents the limitation`,
                     `command_output=${paths.integrationFinalPackage}::integration final package reviewed before risk acceptance`,
                     `command_output=${paths.integrationServiceMatrix}::specific provider limitation scoped`,
-                    `command_output=${paths.cloudflareDomainWorkerPreflight}::Cloudflare domain/Worker limitation explicitly scoped if relevant`,
-                    `command_output=${paths.cloudflareProductionRuntimeReadonly}::Cloudflare read-only runtime limitation explicitly scoped if relevant`,
-                    `command_output=${paths.cloudflareProductionRuntimeCutoverPreflight}::Cloudflare build/dry-run limitation explicitly scoped if relevant`,
-                    `command_output=${paths.cloudflareProductionRuntimeCutover}::Cloudflare production runtime cutover limitation explicitly scoped if relevant`,
-                    `command_output=${paths.cloudflareProductionWorkerPhaseOneRunner}::Cloudflare phase-1 runner limitation explicitly scoped if relevant`,
-                    `command_output=${paths.cloudflareProductionWorkerSecretsRunner}::Cloudflare secret-name/direct-probe runner limitation explicitly scoped if relevant`,
-                    `command_output=${paths.stagingSmokeRehearsalRunner}::staging smoke rehearsal limitation explicitly scoped if relevant`,
-                    'manual_note=Cloudflare Pages-vs-Worker, legacy Worker, Supabase Advisor, staging migration-history or Stripe evidence-source limitation explicitly scoped',
+                    `command_output=${paths.finalApprovalExecutionBoard}::specific final activation or rollback limitation explicitly scoped without replaying completed work`,
                     'manual_note=Owner, impact, fallback and monitoring path recorded',
                 ],
             };
@@ -2845,13 +2901,13 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
         case 'final_smoke':
             return {
                 what: 'A final end-to-end product pass must prove the public and campus flows still work.',
-                closeWith: `${paths.finalSmokeWorksheet}; ${paths.finalSmokeExecutionPack}; ${paths.finalSmokeExecutionApproval}; ${paths.finalSmokeExecutionManifest}; ${paths.stagingSmokeRehearsalRunner}; ${paths.stagingSmokeRehearsalApprovalGate}; ${paths.finalRunbook}`,
-                evidenceMinimum: 'Fresh public, auth, campus, support, admin, fulfillment, payment/no-payment and `/ru` visual smoke evidence recorded; staging rehearsal may provide pre-final provider proof but does not close final smoke; write-capable final smoke must have exact approval, preflight, rollback and redacted output evidence.',
+                closeWith: `${paths.finalSmokeWorksheet}; ${paths.finalSmokeExecutionPack}; ${paths.finalSmokeExecutionApproval}; ${paths.finalSmokeExecutionManifest}; ${paths.finalApprovalExecutionBoard}; ${paths.finalRunbook}`,
+                evidenceMinimum: 'Fresh minimal production evidence is tied to the exact LAUNCH_SHA and final host, runs only after the other four final gates, and has exact approval, preflight, rollback and redacted output. The completed staging rehearsal is supporting history, not a prerequisite to repeat.',
                 preflightDecisions: [
-                    'Run pnpm launch:staging-smoke-rehearsal-runner in plan mode, and execute it only if exact staging approval is present; do not treat staging rehearsal as production final-smoke pass evidence.',
+                    'Do not repeat the completed staging rehearsal merely to refresh launch evidence; repeat only after material integration drift and a new exact authorization.',
                     'Run pnpm launch:final-smoke-execution-pack before any write-capable smoke.',
                     'Use SMOKE_EXTERNAL_WRITES_CONFIRMATION=writes-ok:<host> only for the exact SMOKE_BASE_URL host.',
-                    'Do not run production smoke until runtime/domain/payment/legal posture is final enough for launch-day evidence.',
+                    'Do not run production smoke until legal_owner_controller, legal_human_review, integration_readiness and seo_llm_final are closed and the deployed build is LAUNCH_SHA.',
                 ],
                 passSummary: 'Final smoke completed for public, auth, campus, support, admin, fulfillment, payment/no-payment and Russian rendering flows.',
                 passEvidence: [
@@ -2859,9 +2915,8 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
                     `command_output=${paths.finalSmokeExecutionPack}::local-only final smoke execution pack reviewed`,
                     `command_output=${paths.finalSmokeExecutionApproval}::exact write-capable smoke approval reviewed before run`,
                     `command_output=${paths.finalSmokeExecutionManifest}::final smoke manifest confirms package did not run writes and documents approval boundary`,
-                    `command_output=${paths.stagingSmokeRehearsalRunner}::staging rehearsal runner reviewed separately from final smoke`,
-                    'command_output=outputs/real-env-smoke/<timestamp>/summary.md::redacted real environment smoke output after approved run',
-                    'manual_note=Fresh launch-day smoke passed with routes and account types covered',
+                    `command_output=${paths.finalApprovalExecutionBoard}::other four final gates closed and exact LAUNCH_SHA/host boundary reviewed`,
+                    'manual_note=Fresh minimal launch-day production smoke passed with routes and account types covered; completed staging history was not replayed',
                     'screenshot=outputs/launch-user-evidence/<date>/final-smoke-redacted.png::redacted representative evidence',
                 ],
                 acceptedRisk: 'Do not skip final smoke silently. Use `accepted_risk` only for a scoped smoke gap with rollback plan and explicit Alin signoff.',
@@ -2871,7 +2926,7 @@ function finalCheckGuidance(checkId: string, paths: ClosureWorksheetPaths): Fina
                 riskEvidence: [
                     `command_output=${paths.finalSmokeWorksheet}::final smoke worksheet identifies the scoped gap`,
                     `command_output=${paths.finalSmokeExecutionPack}::execution pack identifies the approval boundary and rollback plan for the scoped gap`,
-                    `command_output=${paths.stagingSmokeRehearsalRunner}::staging rehearsal scope and limits reviewed before risk acceptance`,
+                    `command_output=${paths.finalApprovalExecutionBoard}::LAUNCH_SHA and final-gate scope reviewed before risk acceptance`,
                     'manual_note=Alin accepted the scoped smoke gap and rollback plan',
                 ],
             };
