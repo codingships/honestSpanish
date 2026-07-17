@@ -29,6 +29,7 @@ import {
     parseArchivePublicAuthTableData,
     parseLiveTableInventory,
     parsePostClosureBackupArgs,
+    prepareReservedArtifactForEncryptedDump,
     redactExpectedProductionEmails,
     sha256PinnedReservedArtifact,
     validateLivePostClosureInventory,
@@ -453,17 +454,31 @@ describe('Supabase production post-closure backup runner', () => {
         });
     });
 
-    it('reserves and verifies one EFS artifact before reads, then gives the same descriptor to pg_dump', () => {
+    it('proves EFS with positioned local content, restores the same file, then gives its descriptor to pg_dump', () => {
+        const helperStart = runnerSource.indexOf('export function prepareReservedArtifactForEncryptedDump(');
+        const sentinelWrite = runnerSource.indexOf('const bytesWritten = writeSync(', helperStart);
+        const sentinelFsync = runnerSource.indexOf('fsyncSync(descriptor);', sentinelWrite);
+        const sentinelFingerprint = runnerSource.indexOf('const sentinelArtifact = captureReservedArtifactFingerprint(', sentinelFsync);
+        const artifactEfs = runnerSource.indexOf('verifyArtifactEfs(destination)', sentinelFingerprint);
+        const truncate = runnerSource.indexOf('ftruncateSync(descriptor, 0)', artifactEfs);
+        const restoreFsync = runnerSource.indexOf('fsyncSync(descriptor);', truncate);
+        const restoredFingerprint = runnerSource.indexOf('const restoredArtifact = captureReservedArtifactFingerprint(', restoreFsync);
         const finalParentEfs = runnerSource.indexOf('Windows EFS protection could not be re-verified immediately before execution.');
         const reservation = runnerSource.indexOf("const descriptor = openSync(destination, 'wx', 0o600)", finalParentEfs);
-        const emptyFingerprint = runnerSource.indexOf('const emptyArtifact = captureReservedArtifactFingerprint(', reservation);
-        const emptyEfs = runnerSource.indexOf('verifyWindowsEfsArtifact(destination)', emptyFingerprint);
-        const dotenvLoad = runnerSource.indexOf('loadDotenv({', emptyEfs);
+        const prepareCall = runnerSource.indexOf('const emptyArtifact = prepareReservedArtifactForEncryptedDump(', reservation);
+        const dotenvLoad = runnerSource.indexOf('loadDotenv({', prepareCall);
+        expect(helperStart).toBeGreaterThan(-1);
+        expect(sentinelWrite).toBeGreaterThan(helperStart);
+        expect(sentinelFsync).toBeGreaterThan(sentinelWrite);
+        expect(sentinelFingerprint).toBeGreaterThan(sentinelFsync);
+        expect(artifactEfs).toBeGreaterThan(sentinelFingerprint);
+        expect(truncate).toBeGreaterThan(artifactEfs);
+        expect(restoreFsync).toBeGreaterThan(truncate);
+        expect(restoredFingerprint).toBeGreaterThan(restoreFsync);
         expect(finalParentEfs).toBeGreaterThan(-1);
         expect(reservation).toBeGreaterThan(finalParentEfs);
-        expect(emptyFingerprint).toBeGreaterThan(reservation);
-        expect(emptyEfs).toBeGreaterThan(emptyFingerprint);
-        expect(dotenvLoad).toBeGreaterThan(emptyEfs);
+        expect(prepareCall).toBeGreaterThan(reservation);
+        expect(dotenvLoad).toBeGreaterThan(prepareCall);
         expect(runnerSource).toContain("openSync(destination, 'wx', 0o600)");
         expect(runnerSource).toContain("stdio: ['ignore', descriptor, 'pipe']");
         expect(runnerSource).toContain('runPgDumpToReservedDestination(descriptor, databaseToolEnvironment)');
@@ -475,6 +490,65 @@ describe('Supabase production post-closure backup runner', () => {
         expect(runnerSource).toContain('repositoryRelativeOutputPath');
         expect(runnerSource).not.toContain("PLAN_ONLY_READY: ${path.join(outputDir, 'summary.json')}");
         expect(runnerSource).not.toContain("${POST_CLOSURE_BACKUP_STATUS}: ${path.join(outputDir, 'summary.json')}");
+    });
+
+    it('restores the reserved artifact to byte zero after a successful EFS sentinel check', () => {
+        const directory = mkdtempSync(path.join(tmpdir(), 'eh-efs-reservation-'));
+        const destination = path.join(directory, 'backup.dump');
+        const descriptor = openSync(destination, 'wx', 0o600);
+        try {
+            const reserved = captureReservedArtifactFingerprint(descriptor, destination);
+            const restored = prepareReservedArtifactForEncryptedDump(
+                descriptor,
+                destination,
+                (artifactPath) => {
+                    const sentinel = captureReservedArtifactFingerprint(descriptor, artifactPath);
+                    expect(sentinel).toMatchObject({
+                        device: reserved.device,
+                        inode: reserved.inode,
+                        birthtimeMs: reserved.birthtimeMs,
+                        size: 1,
+                    });
+                    expect(readFileSync(artifactPath)).toEqual(Buffer.from([0x45]));
+                    return { valid: true };
+                },
+            );
+            expect(restored).toMatchObject({
+                device: reserved.device,
+                inode: reserved.inode,
+                birthtimeMs: reserved.birthtimeMs,
+                size: 0,
+            });
+            expect(readFileSync(destination)).toHaveLength(0);
+
+            writeFileSync(descriptor, Buffer.from('archive-at-zero'));
+            fsyncSync(descriptor);
+            expect(readFileSync(destination, 'utf8')).toBe('archive-at-zero');
+        } finally {
+            closeSync(descriptor);
+            rmSync(directory, { recursive: true, force: true });
+        }
+    });
+
+    it('fails closed while still restoring the reserved artifact after an invalid EFS check', () => {
+        const directory = mkdtempSync(path.join(tmpdir(), 'eh-efs-reservation-failure-'));
+        const destination = path.join(directory, 'backup.dump');
+        const descriptor = openSync(destination, 'wx', 0o600);
+        try {
+            expect(() => prepareReservedArtifactForEncryptedDump(
+                descriptor,
+                destination,
+                () => ({ valid: false }),
+            )).toThrow('did not inherit verifiable Windows EFS protection');
+            expect(readFileSync(destination)).toHaveLength(0);
+
+            writeFileSync(descriptor, Buffer.from('failure-restored-at-zero'));
+            fsyncSync(descriptor);
+            expect(readFileSync(destination, 'utf8')).toBe('failure-restored-at-zero');
+        } finally {
+            closeSync(descriptor);
+            rmSync(directory, { recursive: true, force: true });
+        }
     });
 
     it('pins identity, size, mtime and hash and detects mutation through the still-open handle', async () => {
