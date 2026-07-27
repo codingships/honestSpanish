@@ -26,10 +26,10 @@ export default defineConfig({
         include: ['tests/**/*.{test,spec}.{js,ts,tsx}'],
         exclude: ['tests/e2e/**/*', 'tests/load/**/*'],
 
-        // Enhanced coverage configuration
+        // Coverage is opt-in through `pnpm run test:coverage`.
         coverage: {
             provider: 'v8',
-            enabled: true,
+            enabled: false,
 
             // Multiple reporters for different use cases
             reporter: [

@@ -5,7 +5,7 @@ const astroConfig = readFileSync('astro.config.mjs', 'utf8');
 const sentryClientConfig = readFileSync('sentry.client.config.ts', 'utf8');
 const sentryServerConfig = readFileSync('sentry.server.config.ts', 'utf8');
 const envExample = readFileSync('.env.example', 'utf8');
-const environmentDoc = readFileSync('docs/launch/ENVIRONMENT.md', 'utf8');
+const environmentDoc = readFileSync('docs/ENVIRONMENTS.md', 'utf8');
 
 describe('Astro Sentry runtime boundary', () => {
     it('keeps local/dev capture opt-in and tags deployed environments explicitly', () => {
@@ -32,7 +32,7 @@ describe('Astro Sentry runtime boundary', () => {
         expect(envExample).toContain('SENTRY_CAPTURE_LOCAL=false');
         expect(envExample).toContain('SENTRY_ENVIRONMENT=');
         expect(environmentDoc).toContain('SENTRY_CAPTURE_LOCAL=false');
-        expect(environmentDoc).toContain('local-<NODE_ENV>');
-        expect(environmentDoc).toContain('evita que dev/QA local contamine Sentry production');
+        expect(environmentDoc).toContain('SENTRY_ENVIRONMENT');
+        expect(environmentDoc).toContain('No local telemetry is sent to Sentry');
     });
 });

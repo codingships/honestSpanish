@@ -182,7 +182,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          pnpm run deploy
+          pnpm run deploy:staging
           printf '%s\n' "WEB_DEPLOY_COMPLETED=true" >> "$GITHUB_ENV"
 
       - name: Record partial-deploy recovery requirement
@@ -194,16 +194,11 @@ jobs:
           printf '%s\n' "- Fulfillment changed; web did not complete." >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' "- Stop and use the staging rollback/recovery runbook before another deploy." >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify staging Fulfillment runtime and bindings
+      - name: Verify staging runtime
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm run launch:staging-operations -- --include-wrangler
-
-      - name: Verify staging checkout is disabled
-        env:
-          STAGING_WORKER_URL: https://staging.espanolhonesto.com
-        run: pnpm run launch:no-real-payments -- --deployed-url "$STAGING_WORKER_URL"
+          STAGING_WEB_URL: https://staging.espanolhonesto.com
+          STAGING_FULFILLMENT_URL: https://espanol-honesto-fulfillment-staging.alindev95.workers.dev
+        run: pnpm run verify:staging-runtime
 
       - name: Record deployed commit
         shell: bash

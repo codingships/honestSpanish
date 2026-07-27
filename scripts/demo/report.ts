@@ -4,7 +4,7 @@ import { computeSectionStatus, findLatestRunDirectory, readRunSummary, writeRunA
 const latestRun = await findLatestRunDirectory();
 
 if (!latestRun) {
-    console.log('[demo:report] No hay ejecuciones en outputs/demo-runs.');
+    console.log('[demo:report] No hay ejecuciones en test-results/demo-runs.');
     process.exit(0);
 }
 

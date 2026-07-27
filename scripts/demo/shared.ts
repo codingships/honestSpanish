@@ -219,7 +219,7 @@ export function timestampForPath(date = new Date()): string {
 }
 
 export async function createRunDirectory(startedAt = new Date()): Promise<string> {
-    const outputDir = path.join(process.cwd(), 'outputs', 'demo-runs', timestampForPath(startedAt));
+    const outputDir = path.join(process.cwd(), 'test-results', 'demo-runs', timestampForPath(startedAt));
     await mkdir(outputDir, { recursive: true });
     await mkdir(path.join(outputDir, 'screenshots'), { recursive: true });
     return outputDir;
@@ -267,7 +267,7 @@ export async function writeRunArtifacts(summary: DemoRunSummary): Promise<void> 
 }
 
 export async function findLatestRunDirectory(): Promise<string | null> {
-    const root = path.join(process.cwd(), 'outputs', 'demo-runs');
+    const root = path.join(process.cwd(), 'test-results', 'demo-runs');
     if (!existsSync(root)) return null;
 
     const entries = await readdir(root, { withFileTypes: true });

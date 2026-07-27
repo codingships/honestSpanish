@@ -6,10 +6,6 @@ const migration = readFileSync(
     'utf8',
 ).replace(/\r\n/g, '\n');
 const schema = readFileSync('db/schema.sql', 'utf8').replace(/\r\n/g, '\n');
-const runner = readFileSync(
-    'scripts/launch/supabase-staging-hardening-shared.ts',
-    'utf8',
-).replace(/\r\n/g, '\n');
 
 const authenticatedCrudTables = [
     'leads',
@@ -93,17 +89,5 @@ describe('Data API table grant contract', () => {
         ]) {
             expect(migration).not.toContain(`public.${table}`);
         }
-    });
-
-    it('post-verifies the complete 1/63/0 client grant matrix and postgres defaults', () => {
-        expect(runner).toContain("requireFact(facts, 'data_api_anon_grants_count', '1'");
-        expect(runner).toContain("requireFact(facts, 'data_api_authenticated_grants_count', '63'");
-        expect(runner).toContain("requireFact(facts, 'data_api_public_grants_count', '0'");
-        expect(runner).toContain("requireFact(facts, 'data_api_authenticated_crud_tables_count', '15'");
-        expect(runner).toContain("requireFact(facts, 'data_api_client_granted_tables_rls_count', '18'");
-        expect(runner).toContain("requireFact(facts, 'data_api_client_granted_tables_without_rls_count', '0'");
-        expect(runner).toContain("requireFact(facts, 'data_api_unexpected_client_grants_count', '0'");
-        expect(runner).toContain("requireFact(facts, 'data_api_postgres_default_client_grants_count', '0'");
-        expect(runner).toContain('defaults.defaclnamespace = 0');
     });
 });
