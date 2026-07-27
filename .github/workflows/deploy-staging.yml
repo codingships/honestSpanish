@@ -41,7 +41,7 @@ jobs:
           fi
 
       - name: Checkout canonical main history
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -98,12 +98,12 @@ jobs:
           ' "$checks_file" "$REQUESTED_COMMIT_SHA"
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v3
+        uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: '22.12.0'
           cache: 'pnpm'
