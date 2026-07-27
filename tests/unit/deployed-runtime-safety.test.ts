@@ -4,20 +4,25 @@ import {
     STAGING_FULFILLMENT_IDENTITY,
     STAGING_FULFILLMENT_ORIGIN,
     STAGING_SUPABASE_REF,
+    STAGING_STRIPE_ACCOUNT_ID,
     STAGING_WEB_IDENTITY,
     STAGING_WEB_ORIGIN,
     assertExpectedStagingRuntimeInput,
     verifyDeployedStagingRuntime,
 } from '../../scripts/smoke/deployed-runtime-safety';
 
-const roleEmails = ['admin@test.invalid', 'teacher@test.invalid', 'student@test.invalid'];
+const roleEmails = ['student@test.invalid', 'teacher@test.invalid', 'admin@test.invalid'];
 const baseEnv: Record<string, string> = {
+    ADMIN_EMAIL: roleEmails[2],
     CHECKOUT_ENABLED: 'false',
     CHECKOUT_ENABLED_OVERRIDE: 'false',
+    CRON_SECRET: 'staging-cron-secret',
     EMAIL_DAILY_RECIPIENT_LIMIT: '10',
     EMAIL_DELIVERY_MODE: 'allowlist',
+    EMAIL_FROM: 'Staging <staging@espanolhonesto.com>',
     EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
     EMAIL_RECIPIENT_ALLOWLIST: roleEmails.join(','),
+    FULFILLMENT_RUNTIME_MODE: 'active',
     FULFILLMENT_WORKER_URL: STAGING_FULFILLMENT_ORIGIN,
     GOOGLE_ADMIN_EMAIL: 'admin@staging.invalid',
     GOOGLE_DRIVE_ROOT_FOLDER_ID: 'staging-root',
@@ -25,18 +30,25 @@ const baseEnv: Record<string, string> = {
     GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: 'staging-private-key',
     GOOGLE_TEMPLATE_DOC_ID: 'staging-template',
     INTERNAL_JOB_SECRET: 'staging-internal-secret',
+    LEVEL_CHECK_TOKEN_SECRET: 'staging-level-check-secret',
     PUBLIC_APP_ENV: 'staging',
+    PUBLIC_SENTRY_DSN: 'https://public@sentry.invalid/1',
     PUBLIC_SITE_URL: STAGING_WEB_ORIGIN,
     PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_staging',
     PUBLIC_SUPABASE_ANON_KEY: 'staging-anon',
     PUBLIC_SUPABASE_URL: `https://${STAGING_SUPABASE_REF}.supabase.co`,
+    PUBLIC_TURNSTILE_SITE_KEY: 'staging-turnstile-site-key',
     RESEND_API_KEY: 're_staging',
     RESEND_FROM_EMAIL: 'Staging <staging@espanolhonesto.com>',
-    STRIPE_EXPECTED_ACCOUNT_ID: 'acct_staging',
+    STRIPE_EXPECTED_ACCOUNT_ID: STAGING_STRIPE_ACCOUNT_ID,
     STRIPE_PORTAL_CONFIGURATION_ID: 'bpc_staging',
     STRIPE_SECRET_KEY: 'sk_test_staging',
     STRIPE_WEBHOOK_SECRET: 'whsec_staging',
     SUPABASE_SERVICE_ROLE_KEY: 'staging-service-role',
+    SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
+    SUPPORT_ALERT_EMAIL: roleEmails[2],
+    TURNSTILE_SECRET_KEY: 'staging-turnstile-secret-key',
+    WEB_RUNTIME_MODE: 'active',
 };
 
 const webVersionId = '11111111-1111-4111-8111-111111111111';
@@ -56,8 +68,7 @@ function deployedFetch(options?: { fulfillmentGoogleKey?: string }) {
         if (url.href === `${STAGING_WEB_ORIGIN}/api/internal/runtime-attestation`) {
             return Response.json(await createRuntimeAttestation('web', {
                 ...baseEnv,
-                CHECKOUT_ENABLED_OVERRIDE: 'true',
-                SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
+                CHECKOUT_ENABLED_OVERRIDE: 'false',
                 WORKER_IDENTITY: STAGING_WEB_IDENTITY,
                 WORKER_VERSION_ID: webVersionId,
             }, body.nonce));
@@ -82,7 +93,8 @@ describe('deployed staging runtime safety', () => {
         await expect(verifyDeployedStagingRuntime({
             baseOrigin: STAGING_WEB_ORIGIN,
             env: baseEnv,
-            expectedWebCheckoutOverride: 'true',
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
             fetchImpl: deployedFetch(),
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
@@ -93,11 +105,33 @@ describe('deployed staging runtime safety', () => {
         await expect(verifyDeployedStagingRuntime({
             baseOrigin: STAGING_WEB_ORIGIN,
             env: baseEnv,
-            expectedWebCheckoutOverride: 'true',
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
             fetchImpl: deployedFetch({ fulfillmentGoogleKey: 'different-deployed-key' }),
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
         })).rejects.toThrow('fulfillment runtime attestation does not match');
+    });
+
+    it('rejects a runtime version other than the exact version activated by the deployment', async () => {
+        await expect(verifyDeployedStagingRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: '33333333-3333-4333-8333-333333333333',
+            fetchImpl: deployedFetch(),
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).rejects.toThrow('web runtime version does not match the exact version');
+    });
+
+    it('rejects any Stripe account other than the exact Academy staging sandbox', () => {
+        expect(() => assertExpectedStagingRuntimeInput({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: { ...baseEnv, STRIPE_EXPECTED_ACCOUNT_ID: 'acct_other' },
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).toThrow(STAGING_STRIPE_ACCOUNT_ID);
     });
 
     it('rejects a non-staging environment and any broader recipient allowlist', () => {

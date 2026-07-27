@@ -53,7 +53,7 @@ El CRM debe poder responder a estos derechos con procedimiento manual verificabl
 
 ## Procedimiento Manual
 
-1. Recibir solicitud por el canal legal/de privacidad definido en `docs/launch/LEGAL_INPUTS_REQUIRED.md`.
+1. Recibir la solicitud por el canal legal/de privacidad aprobado; si aún no está definido, detenerse según `docs/PRODUCT.md`.
 2. Verificar identidad sin pedir mas datos de los necesarios.
 3. Buscar por email normalizado en `crm_contacts.primary_email` y `profiles.email`.
 4. Crear una tarea CRM de tipo `admin` con prioridad alta y vencimiento interno.
@@ -95,11 +95,3 @@ Hasta revision legal, no aplicar borrados automaticos. Usar estos estados operat
 - Consentimiento/opt-out: conservar evidencia minima para demostrar preferencia y no volver a contactar indebidamente.
 
 La politica final debe fijar plazos concretos por categoria y pais aplicable.
-
-## Criterios De Cierre
-
-- `pnpm typecheck` pasa.
-- Tests de invariantes de esquema cubren RLS, consentimientos, audit log y separacion actividad/auditoria.
-- API de acciones CRM cubre opt-out, consentimiento y comunicacion manual.
-- Docs legales finales enlazan responsable, derechos, subprocesadores y retencion.
-- El equipo sabe ejecutar exportacion, rectificacion, opt-out, limitacion y borrado/anonimizacion sin tocar secretos ni romper pagos/clases.

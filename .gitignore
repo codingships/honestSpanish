@@ -54,13 +54,9 @@ supabase/.temp/
 .vercel
 .vercel/test-results/
 
-# Internal dumps / audit artifacts
-esquema_nube.sql
+# Local working files
 plan.md
 audit_handover.md
 uat_test_plan.md.resolved
 build_error*.txt
 scripts/test-credentials.json
-outputs/
-docs/launch/MANUAL_EVIDENCE.local.json
-.codex-ops/

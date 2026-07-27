@@ -1,6 +1,0 @@
-interface:
-  display_name: "Thermo Action Plan"
-  short_description: "Strict code quality action plans"
-  default_prompt: "Use $thermo-nuclear-action-plan to review local changes and produce a prioritized action plan without editing files."
-policy:
-  allow_implicit_invocation: false

@@ -6,6 +6,8 @@ import path from 'node:path';
 const sourcePath = '.env.staging';
 const targetPath = '.dev.vars.staging';
 const stagingRef = 'mzjyvmlxfpzdfdjzxxyj';
+const stagingSupabaseUrl = `https://${stagingRef}.supabase.co`;
+const stagingStripeAccountId = 'acct_1TruqOC22M3erP0j';
 const isolatedEnvDirectory = path.join(tmpdir(), 'espanol-honesto', 'staging-env');
 const turnstileTestSiteKey = '1x00000000000000000000AA';
 const turnstileTestSecretKey = '1x0000000000000000000000000000000AA';
@@ -73,14 +75,17 @@ if (useLocalStaging) {
     if (missing.length > 0) {
         throw new Error(`[env:staging:sync] Missing required staging keys: ${missing.join(', ')}.`);
     }
-    if (!source.PUBLIC_SUPABASE_URL?.includes(stagingRef)) {
-        throw new Error(`[env:staging:sync] Refusing non-staging Supabase URL; expected project ${stagingRef}.`);
+    if (!isExactHttpsOrigin(source.PUBLIC_SUPABASE_URL, stagingSupabaseUrl)) {
+        throw new Error(`[env:staging:sync] Refusing non-staging Supabase URL; expected ${stagingSupabaseUrl}.`);
     }
     if (source.STRIPE_SECRET_KEY && !source.STRIPE_SECRET_KEY.startsWith('sk_test_')) {
         throw new Error('[env:staging:sync] Refusing a non-test Stripe secret in local staging.');
     }
     if (source.PUBLIC_STRIPE_PUBLISHABLE_KEY && !source.PUBLIC_STRIPE_PUBLISHABLE_KEY.startsWith('pk_test_')) {
         throw new Error('[env:staging:sync] Refusing a non-test Stripe publishable key in local staging.');
+    }
+    if (source.STRIPE_SECRET_KEY && source.STRIPE_EXPECTED_ACCOUNT_ID !== stagingStripeAccountId) {
+        throw new Error(`[env:staging:sync] Stripe must identify the exact staging account ${stagingStripeAccountId}.`);
     }
     source.PUBLIC_TURNSTILE_SITE_KEY ||= turnstileTestSiteKey;
     source.TURNSTILE_SECRET_KEY ||= turnstileTestSecretKey;
@@ -162,6 +167,20 @@ function parseEnv(raw: string): Record<string, string> {
         parsed[key] = value;
     }
     return parsed;
+}
+
+function isExactHttpsOrigin(value: string | undefined, expected: string): boolean {
+    try {
+        const parsed = new URL(value?.trim() ?? '');
+        return (
+            parsed.protocol === 'https:'
+            && parsed.href === `${expected}/`
+            && !parsed.username
+            && !parsed.password
+        );
+    } catch {
+        return false;
+    }
 }
 
 function quoteEnv(value: string): string {

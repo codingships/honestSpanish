@@ -1,154 +1,67 @@
 # Arquitectura
 
-## Principio
+## Contrato vigente
 
-Modular monolith pragmatico: una app Astro para web/API transaccional y un Cloudflare Worker separado para jobs operativos. La prioridad es mantener limites claros por dominio sin redisenar todo el stack de golpe.
+La aplicación es un monolito modular Astro con Supabase como sistema de datos. La topología de ejecución depende del entorno:
 
-## Runtimes
+- **Producción canónica:** Cloudflare Pages, proyecto `espanolhonesto`.
+- **Staging canónico:** Worker web `espanolhonesto-staging`, Worker de fulfillment `espanol-honesto-fulfillment-staging` y Queue `espanol-honesto-fulfillment-staging-queue`, con su DLQ.
+- Los Workers y colas de producción que todavía existen en Cloudflare están reservados y fuera de alcance. No son arquitectura vigente, fallback ni ruta de migración desde Pages.
 
-### Cloudflare Astro Worker
+Los identificadores concretos y las reglas de acceso están en `docs/ENVIRONMENTS.md`. Cambiar la topología de producción requiere una decisión nueva, configuración nueva y autorización explícita.
 
-Responsable de:
+## Aplicación
 
-- Web publica ES/EN/RU.
-- Campus student/teacher/admin.
-- Auth SSR con Supabase.
-- API transaccional: checkout, webhook Stripe, CRM, reservas, cancelaciones.
-- Encolar trabajo en `fulfillment_jobs`.
-- Delegar disponibilidad/Drive/Docs/Calendar/Resend al Cloudflare Fulfillment Worker.
+Astro contiene:
 
-La delegación desplegada usa el service binding privado `FULFILLMENT_SERVICE`. `FULFILLMENT_WORKER_URL` se mantiene como URL canónica y fallback local, mientras `INTERNAL_JOB_SECRET` autentica cada petición; staging y production no recurren a `fetch()` público entre Workers de la misma cuenta.
+- Web pública ES/EN/RU.
+- Campus de alumno, profesor y administración.
+- Auth SSR y RBAC con Supabase.
+- API transaccional para CRM, reservas, cancelaciones, checkout y webhooks.
+- Creación de trabajos duraderos en `fulfillment_jobs`.
+- Contenido, blog, RSS e imágenes sociales.
 
-Regla: `src/pages/api/**` no debe importar `src/lib/google/**` ni `src/lib/fulfillment/jobs.ts`.
+Los límites principales son:
 
-### Cloudflare Fulfillment Worker
-
-Paquete: `workers/fulfillment`.
-
-Responsable de:
-
-- `POST /internal/jobs/process`: en staging publica una senal pequena en Cloudflare Queues y responde sin ejecutar Google/Resend dentro de la ventana HTTP. Production conserva la ejecucion inline hasta que su Queue tenga una aprobacion separada.
-- `POST /internal/reminders/send`
-- `POST /internal/google/availability`
-- `POST /internal/google/filter-available-slots`
-- `POST /internal/drive/append-homework`
-- `POST /internal/account/link-google-drive`
-- `POST /internal/google/create-student-folder`
-- `GET /health`
-
-Todas las rutas internas requieren `Authorization: Bearer INTERNAL_JOB_SECRET`.
-
-En staging, `espanol-honesto-fulfillment-staging` produce y consume
-`espanol-honesto-fulfillment-staging-queue`; los mensajes agotados pasan a
-`espanol-honesto-fulfillment-staging-dlq`. La Queue solo transporta la senal
-`process_due`: Supabase `fulfillment_jobs` sigue siendo la fuente de verdad,
-con batch y concurrencia limitados a uno para proteger Google, Resend y la base.
-
-## Dominios
-
-- Auth/RBAC: `src/middleware.ts`, Supabase SSR client y `profiles.role`.
-- Billing: aprobacion CRM, `checkout_intents`, Stripe Checkout/webhooks, `packages`, `package_prices`, `subscriptions` y `payments`.
-- Scheduling: `sessions`, disponibilidad, quotas y acciones de clase.
+- Auth y RBAC: `src/middleware.ts`, clientes Supabase SSR y `profiles.role`.
+- Billing: `checkout_intents`, `package_prices`, Stripe Checkout y webhooks.
+- Scheduling: `sessions`, disponibilidad y cuotas.
 - Fulfillment: `fulfillment_jobs`, Google Workspace y Resend.
-- Notifications: emails transaccionales y recordatorios.
-- Admin CRM: usuarios, leads, paquetes, precios, jobs y recuperacion operativa.
-- Content/SEO: landing, blog, RSS, OG images.
+- Administración: CRM, usuarios, ofertas, pagos, sesiones y recuperación operativa.
 
-## Base De Datos
+Las rutas de `src/pages/api/**` no importan directamente implementaciones de Google ni el procesador de jobs. Acceden a esos efectos mediante la capa de servicio interna.
 
-Fuente oficial: `db/schema.sql`. Es un superset desplegable: contiene las 22 tablas comunes de la aplicación y las 2 tablas de smoke que solo existen en staging. Production excluye expresamente `20260710150000_staging_integration_smoke_runs.sql` y `20260713161300_allow_staging_custom_hostname.sql`; ninguna ruta production puede depender de esas tablas, sus RPC ni del hostname exclusivo de staging.
+## Fulfillment de staging
 
-La única cadena de despliegue es `supabase/migrations/`. `src/types/database.types.ts` se regenera desde staging porque es el entorno más avanzado y conserva ese superset; las ampliaciones manuales se limitan a la nulabilidad de argumentos/resultados PL/pgSQL que el generador de Supabase no puede inferir.
+El Worker de fulfillment expone operaciones internas autenticadas con `INTERNAL_JOB_SECRET`. El Worker web lo invoca mediante el binding privado `FULFILLMENT_SERVICE`; `FULFILLMENT_WORKER_URL` queda para desarrollo local y comprobaciones explícitas.
 
-Tablas clave:
+En staging, una petición de procesamiento publica una señal `process_due` en la Queue. Supabase `fulfillment_jobs` sigue siendo la fuente de verdad; la Queue no contiene el estado contractual del trabajo. El consumidor procesa con concurrencia limitada y envía los mensajes agotados a la DLQ.
 
-- `profiles`
-- `packages`
-- `package_prices`
-- `checkout_intents`
-- `subscriptions`
-- `sessions`
-- `student_teachers`
-- `payments`
+Esta topología describe staging. No implica que producción Pages use actualmente esos Workers o colas.
+
+## Datos
+
+La cadena de cambios de base de datos es `supabase/migrations/`. `db/schema.sql` representa el esquema desplegable acumulado y `src/types/database.types.ts` se genera desde el Supabase de staging, que contiene el superset actual.
+
+Tablas centrales:
+
+- `profiles`, `profiles_private`
+- `packages`, `package_prices`, `checkout_intents`
+- `subscriptions`, `payments`
+- `sessions`, `student_teachers`
 - `leads`
-- `profiles_private`
-- `processed_webhook_events`
 - `fulfillment_jobs`
+- `processed_webhook_events`
 - `admin_audit_log`
 
-Supabase RLS protege datos por rol. Las operaciones admin/worker usan service role y deben quedar en codigo server-only.
+RLS protege el acceso por rol. Las operaciones administrativas y de fulfillment usan la service role únicamente en código server-only.
 
-## Fulfillment
+## Integraciones
 
-Flujo de pago:
+- Stripe ejecuta cobros; `package_prices` conserva la oferta contractual inmutable.
+- Google Workspace aporta Drive, Docs, Calendar y Meet mediante una service account con delegación de dominio.
+- Resend envía correo transaccional.
+- Turnstile protege formularios públicos.
+- Sentry registra errores técnicos según el entorno.
 
-1. El admin aprueba un paquete concreto en CRM; la web publica siempre mantiene `solicitar plaza`.
-2. El alumno autenticado elige 1/3/6 meses y Supabase reclama un unico `checkout_intent` atomico.
-3. La app verifica proyecto Supabase, cuenta/modo Stripe y la oferta inmutable antes de crear una unica Checkout Session idempotente.
-4. El webhook exige el intent y el Price realmente cobrado, consume la aprobacion y crea `subscription`/`payment` con snapshot contractual.
-5. Webhook encola `welcome_fulfillment`, pide procesamiento por Queue y el consumidor del Worker crea Drive y envia la confirmacion contractual fuera del limite HTTP.
-
-Flujo de clase:
-
-1. Teacher/admin crea una clase.
-2. Cloudflare valida rol, quota y disponibilidad.
-3. Cloudflare inserta `sessions`.
-4. Cloudflare encola `session_fulfillment` o `bulk_session_fulfillment`.
-5. Cloudflare Fulfillment Worker crea Doc, Calendar, Meet y emails.
-
-Cancelacion:
-
-1. Cloudflare cambia estado y devuelve quota.
-2. Cloudflare encola `session_cancellation`.
-3. Cloudflare Fulfillment Worker cancela Calendar y envia emails.
-
-## Productos Y Precios
-
-El modelo tiene responsabilidades distintas, no cuatro copias editables:
-
-- `packages`: catalogo comercial editable y proyeccion publica.
-- `package_prices`: ofertas 1/3/6 inmutables, con importe, cuota, Product/Price, cuenta y modo; es la fuente contractual de checkout y renovacion.
-- Stripe: ejecuta el cobro; cada objeto se verifica contra `package_prices`.
-- `packages.stripe_price_*`: punteros denormalizados a las ofertas activas, escritos solo por `activate_package_price`.
-
-El CRM admin sincroniza Stripe en el orden crear/verificar -> activar atomicamente en Supabase -> archivar el Price anterior.
-
-Regla comercial actual:
-
-- Cambios de precio/cuota afectan solo a nuevas compras.
-- Stripe Price IDs son inmutables.
-- Al cambiar datos contractuales, las ofertas activas se retiran, se limpian punteros y el paquete deja de estar checkout-ready hasta sincronizar las tres duraciones.
-- Suscripciones guardan `package_price_id` y `contracted_sessions_per_period`; una edicion futura no cambia contratos existentes.
-
-## Google Workspace
-
-Decision vigente: mantener service account con domain-wide delegation.
-
-Decision vigente: mantener acceso Drive "anyone with link" para reducir friccion operativa. Cuando el alumno vincula una cuenta Google se puede anadir permiso directo, pero no se revoca automaticamente el acceso por enlace mientras esta decision siga vigente.
-
-Meet no se corta automaticamente. Las duraciones comerciales disponibles son 30, 40 y 50 minutos; la duracion por defecto es 50 minutos y se usa para agenda/disponibilidad.
-
-## Entornos
-
-Debe haber staging y produccion separados:
-
-- Cloudflare Astro Worker.
-- Cloudflare Fulfillment Worker.
-- Supabase con proyectos separados para staging y production dentro de la misma cuenta, sin branching.
-- Stripe test/live.
-- Google folders/templates.
-- Resend sender/domain.
-- Sentry environment.
-
-## Calidad
-
-Minimo antes de deploy:
-
-```bash
-pnpm typecheck
-pnpm fulfillment:typecheck
-pnpm lint
-pnpm test:run
-pnpm build
-pnpm secrets:check
-```
+Cada entorno usa sus propios recursos y credenciales. Un recurso de otro proyecto o de otro entorno nunca se usa como sustituto.

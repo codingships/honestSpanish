@@ -1,6 +1,5 @@
 # The top-level Worker is intentionally a non-production sink. Every remote
-# command must select --env staging, --env production_bootstrap or
-# --env production explicitly.
+# command must select --env staging explicitly.
 name = "espanol-honesto-fulfillment-env-required"
 main = "src/index.ts"
 compatibility_date = "2026-06-10"
@@ -64,69 +63,4 @@ EMAIL_DAILY_RECIPIENT_LIMIT = "10"
 EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"
 
 [env.staging.version_metadata]
-binding = "CF_VERSION_METADATA"
-
-# Bootstrap targets the exact production Worker name but is deliberately inert.
-# It must be deployed before the web Worker creates its service binding.
-[env.production_bootstrap]
-name = "espanol-honesto-fulfillment-production"
-workers_dev = true
-preview_urls = false
-
-[env.production_bootstrap.triggers]
-# Explicitly removes any old production Cron Triggers. Omitting this key would
-# leave existing triggers in place.
-crons = []
-
-[env.production_bootstrap.vars]
-NODE_ENV = "production"
-PUBLIC_APP_ENV = "production"
-SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"
-WORKER_IDENTITY = "espanol-honesto-fulfillment-production"
-PUBLIC_SITE_URL = "https://espanolhonesto.com"
-CHECKOUT_ENABLED = "false"
-CHECKOUT_ENABLED_OVERRIDE = "false"
-FULFILLMENT_RUNTIME_MODE = "bootstrap"
-EMAIL_DELIVERY_MODE = "disabled"
-EMAIL_DAILY_RECIPIENT_LIMIT = "0"
-EMAIL_MONTHLY_RECIPIENT_LIMIT = "0"
-
-[env.production_bootstrap.version_metadata]
-binding = "CF_VERSION_METADATA"
-
-[env.production]
-name = "espanol-honesto-fulfillment-production"
-workers_dev = true
-preview_urls = false
-
-[env.production.triggers]
-crons = ["0 * * * *"]
-
-[[env.production.queues.producers]]
-binding = "FULFILLMENT_QUEUE"
-queue = "espanol-honesto-fulfillment-production-queue"
-
-[[env.production.queues.consumers]]
-queue = "espanol-honesto-fulfillment-production-queue"
-max_batch_size = 1
-max_batch_timeout = 1
-max_retries = 5
-dead_letter_queue = "espanol-honesto-fulfillment-production-dlq"
-max_concurrency = 1
-retry_delay = 30
-
-[env.production.vars]
-NODE_ENV = "production"
-PUBLIC_APP_ENV = "production"
-SUPABASE_EXPECTED_PROJECT_REF = "vkkahxsybhbutszerawz"
-WORKER_IDENTITY = "espanol-honesto-fulfillment-production"
-PUBLIC_SITE_URL = "https://espanolhonesto.com"
-CHECKOUT_ENABLED = "false"
-CHECKOUT_ENABLED_OVERRIDE = "false"
-FULFILLMENT_RUNTIME_MODE = "active"
-EMAIL_DELIVERY_MODE = "live"
-EMAIL_DAILY_RECIPIENT_LIMIT = "80"
-EMAIL_MONTHLY_RECIPIENT_LIMIT = "2400"
-
-[env.production.version_metadata]
 binding = "CF_VERSION_METADATA"

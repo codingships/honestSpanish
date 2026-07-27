@@ -10,11 +10,14 @@ import markdoc from '@astrojs/markdoc';
 import sentry from '@sentry/astro';
 import { loadEnv } from 'vite';
 import { fileURLToPath } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const e2eRuntimeRoot = new URL('./tests/e2e/runtime/', import.meta.url);
+const localRuntimeEnvRoot = path.join(tmpdir(), 'espanol-honesto', 'staging-env');
 const e2eRuntimeIsolated = process.env.E2E_RUNTIME_ISOLATED === 'true';
+const configuredLocalRuntimeEnv = process.env.ESPANOL_RUNTIME_ENV_DIR;
 const e2eSsrOptimizedDependencies = [
     '@marsidev/react-turnstile',
     '@supabase/ssr',
@@ -31,6 +34,16 @@ if (!e2eRuntimeIsolated && !process.env.CLOUDFLARE_ENV) {
     process.env.CLOUDFLARE_ENV = 'staging';
 }
 if (
+    !e2eRuntimeIsolated
+    && process.env.CI !== 'true'
+    && (
+        !configuredLocalRuntimeEnv
+        || path.resolve(configuredLocalRuntimeEnv) !== localRuntimeEnvRoot
+    )
+) {
+    throw new Error('[env] Direct Astro commands are unsupported; use pnpm run dev or pnpm run build.');
+}
+if (
     !e2eRuntimeIsolated &&
     process.env.CI !== 'true' &&
     process.env.CLOUDFLARE_ENV === 'staging' &&
@@ -38,11 +51,9 @@ if (
 ) {
     throw new Error('[env] Local staging refused: run pnpm env:staging:sync to create the allowlisted .dev.vars.staging file.');
 }
-const envDirectory = e2eRuntimeIsolated
+const envDirectory = e2eRuntimeIsolated || process.env.CI === 'true'
     ? fileURLToPath(e2eRuntimeRoot)
-    : process.env.ESPANOL_RUNTIME_ENV_DIR
-        ? path.resolve(process.env.ESPANOL_RUNTIME_ENV_DIR)
-        : process.cwd();
+    : localRuntimeEnvRoot;
 const envMode = e2eRuntimeIsolated
     ? 'test'
     : process.env.CLOUDFLARE_ENV || process.env.NODE_ENV || 'staging';
@@ -50,8 +61,6 @@ const env = loadEnv(envMode, envDirectory, '');
 const cloudflareTarget = process.env.CLOUDFLARE_ENV;
 const expectedAppEnvironmentByTarget = {
     staging: 'staging',
-    production_bootstrap: 'production',
-    production: 'production',
 };
 const expectedAppEnvironment = expectedAppEnvironmentByTarget[cloudflareTarget];
 if (!e2eRuntimeIsolated) {
@@ -63,23 +72,6 @@ if (!e2eRuntimeIsolated) {
             `[env] Refused ${cloudflareTarget}: PUBLIC_APP_ENV must be exactly ${expectedAppEnvironment}.`,
         );
     }
-}
-const legalIdentitySource = readFileSync(new URL('./src/lib/legal-identity.ts', import.meta.url), 'utf8');
-const legalIdentityIsExample = /LEGAL_IDENTITY_MODE\s*=\s*['"]example['"]/.test(legalIdentitySource);
-const productionBootstrap = env.PUBLIC_APP_ENV === 'production'
-    && process.env.CLOUDFLARE_ENV === 'production_bootstrap'
-    && env.WEB_RUNTIME_MODE === 'bootstrap'
-    && env.CHECKOUT_ENABLED === 'false'
-    && env.CHECKOUT_ENABLED_OVERRIDE === 'false'
-    && env.EMAIL_DELIVERY_MODE === 'disabled'
-    && env.EMAIL_DAILY_RECIPIENT_LIMIT === '0'
-    && env.EMAIL_MONTHLY_RECIPIENT_LIMIT === '0';
-
-if (process.env.CLOUDFLARE_ENV === 'production_bootstrap' && !productionBootstrap) {
-    throw new Error('[production-bootstrap] Refused: production bootstrap must keep web, checkout and email inert.');
-}
-if (cloudflareTarget === 'production' && legalIdentityIsExample) {
-    throw new Error('[legal-identity] Production build refused: replace example legal identity with verified public data.');
 }
 const e2eProcessKeys = [
     'PUBLIC_SUPABASE_URL',
@@ -144,7 +136,7 @@ const sentryCaptureLocalAllowed =
     process.env.SENTRY_CAPTURE_LOCAL === 'true' ||
     env.SENTRY_CAPTURE_LOCAL === 'true';
 const sentryCaptureAllowed = !externalIntegrationsDisabled && (!localRuntime || sentryCaptureLocalAllowed);
-const sentryUploadAllowed = process.env.CI === 'true' || env.SENTRY_UPLOAD_SOURCEMAPS === 'true';
+const sentryUploadAllowed = env.SENTRY_UPLOAD_SOURCEMAPS === 'true';
 const sentrySourcemapsEnabled = Boolean(
     sentryUploadAllowed &&
     env.SENTRY_AUTH_TOKEN &&
@@ -309,6 +301,7 @@ export default defineConfig({
         org: env.SENTRY_ORG,
         project: env.SENTRY_PROJECT,
         authToken: env.SENTRY_AUTH_TOKEN,
+        telemetry: false,
         sourcemaps: {
             disable: !sentrySourcemapsEnabled,
         },

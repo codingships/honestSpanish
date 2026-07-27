@@ -2,9 +2,9 @@
 
 ## Decision
 
-Español Honesto will keep the CRM inside the current Astro/Supabase admin app. The goal is not to copy HubSpot or Salesforce screen by screen, but to add the proven CRM primitives they provide: contacts, lifecycle, pipeline, activities, tasks, consent/provenance, timeline, reporting and operational queues.
+Español Honesto keeps the CRM inside the Astro/Supabase admin app. It uses standard CRM primitives: contacts, lifecycle, pipeline, activities, tasks, consent/provenance, timeline, reporting and operational queues.
 
-## Recommended Admin Shape
+## Current Admin Shape
 
 Keep `/es/campus/admin` as the daily command center:
 
@@ -66,7 +66,7 @@ Admin detail routes should follow that same rule:
 - `/campus/admin/crm/contact/:id` is the central relationship file for any CRM contact, including leads without a campus account.
 - `/campus/admin/student/:id` remains the operational student file when the contact has a linked `profile_id`.
 
-## Proposed Data Model
+## Data Model
 
 ### `crm_contacts`
 
@@ -244,44 +244,4 @@ Operational tables remain the source of truth for their domain. The CRM does not
 
 No outbound sales/marketing workflow should send or log contact without checking the latest `crm_consents` row for that channel and purpose. Opt-out blocks the action. If the latest row is missing or has `manual_review_required`, the safe default is manual review; manual logs may continue only with an explicit review reason, while future send paths must enforce a stricter approval gate.
 
-Operational privacy procedures live in `docs/crm/privacy-operations.md`. That runbook is the CRM-specific bridge between the technical model and the final legal inputs in `docs/launch/LEGAL_INPUTS_REQUIRED.md`.
-
-## Visual Consistency Guardrails
-
-The project already has a clear campus/admin style:
-
-- background `#E0F7FA`
-- main ink `#006064`
-- dark hover `#004d40`
-- brand red `#6A131C`
-- brand yellow `#F6FE51`
-- display font for headings
-- monospace labels
-- 2px borders
-- square cards with offset teal shadow
-- dense admin tables
-- left sidebar layout
-
-Recommended method:
-
-1. Extract these into design tokens in Tailwind/CSS variables.
-2. Create admin primitives: page header, card, table, button, badge, filter bar, empty state.
-3. Add Playwright visual snapshot tests for fixed admin routes and key components.
-4. Add a style check that rejects new arbitrary hex colors outside the token file.
-5. Keep screenshots deterministic by using seeded data, masking volatile text and disabling animations.
-
-This is the practical version of a "visual hash": baseline screenshots plus token checks.
-
-## Implementation Order
-
-1. Add design tokens and admin primitives without changing visual output.
-2. Add visual regression tests for current admin screens.
-3. Add CRM core schema migrations.
-4. Backfill current `leads` and `profiles` into `crm_contacts`.
-5. Replace current `CRM Leads` with pipeline/tasks over the new model.
-6. Expand contact/student detail into a full relationship timeline with manual notes and tasks.
-7. Allow opportunity stage changes from every relationship surface, not only from the lead list.
-8. Add consent/preference visibility and consent-checked manual communication logging before any outbound send workflow.
-9. Upgrade the admin dashboard into a daily command center.
-10. Add decision-oriented reporting, starting with retention/payment risk and lead source/stage movement before broader analytics.
-11. Add import workflow only if old email lists become relevant again.
+Operational privacy procedures live in `docs/crm/privacy-operations.md`. Product and legal decisions that still require the owner are listed in `docs/PRODUCT.md`.

@@ -1,8 +1,8 @@
 /**
  * Prepare Supabase data required by Playwright E2E tests.
  *
- * Selects the allowlisted staging Supabase project through the Playwright
- * environment guard. It refuses the base/production-labelled project.
+ * Selects the allowlisted staging Supabase project through the explicit
+ * staging browser environment loader. Public Playwright never calls this.
  * This script writes only Supabase auth/database records and does not call
  * Stripe, Google Workspace, or Resend.
  *
@@ -13,17 +13,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '../src/types/database.types';
 import {
-    configurePlaywrightEnvironment,
-    STAGING_SUPABASE_PROJECT_REF,
-} from '../tests/e2e/environment-guard';
+    loadStagingBrowserEnvironment,
+    STAGING_BROWSER_SUPABASE_REF,
+} from './staging-browser-environment';
 
-const selectedEnvironment = configurePlaywrightEnvironment();
-const expectedConfirmation = `writes-ok:${STAGING_SUPABASE_PROJECT_REF}`;
+const selectedEnvironment = loadStagingBrowserEnvironment();
+const expectedConfirmation = `writes-ok:${STAGING_BROWSER_SUPABASE_REF}`;
 
-if (
-    selectedEnvironment.target !== 'staging' ||
-    selectedEnvironment.supabaseRef !== STAGING_SUPABASE_PROJECT_REF
-) {
+if (selectedEnvironment.stagingRef !== STAGING_BROWSER_SUPABASE_REF) {
     throw new Error('E2E data preparation is allowed only on the approved staging Supabase project');
 }
 
