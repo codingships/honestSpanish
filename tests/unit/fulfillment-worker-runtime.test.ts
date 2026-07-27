@@ -17,19 +17,13 @@ describe('fulfillment Worker runtime boundary', () => {
         expect(getSecret('FULFILLMENT_RUNTIME_MISSING')).toBeUndefined();
     });
 
-    it('aliases the Astro-only module and keeps deploy commands environment-explicit', () => {
+    it('keeps executable Worker configuration staging-only and validation dry-run-only', () => {
         const config = read('workers/fulfillment/wrangler.toml');
         const packageJson = read('workers/fulfillment/package.json');
+        const validator = read('scripts/dev/validate-built-worker.ts');
+        const fulfillmentRunner = read('scripts/dev/fulfillment-worker.mjs');
+        const webConfig = read('wrangler.toml');
         const worker = read('workers/fulfillment/src/index.ts');
-        const stagingConfig = config.slice(
-            config.indexOf('[env.staging]'),
-            config.indexOf('[env.production_bootstrap]'),
-        );
-        const bootstrapConfig = config.slice(
-            config.indexOf('[env.production_bootstrap]'),
-            config.indexOf('[env.production]'),
-        );
-        const productionConfig = config.slice(config.indexOf('[env.production]'));
 
         expect(config).toContain('keep_vars = true');
         expect(config).toContain('[alias]');
@@ -37,26 +31,31 @@ describe('fulfillment Worker runtime boundary', () => {
         expect(config).toContain('EMAIL_DELIVERY_MODE = "allowlist"');
         expect(config).toContain('EMAIL_DAILY_RECIPIENT_LIMIT = "10"');
         expect(config).toContain('EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"');
-        expect(stagingConfig).toContain('binding = "FULFILLMENT_QUEUE"');
-        expect(stagingConfig).toContain('queue = "espanol-honesto-fulfillment-staging-queue"');
-        expect(stagingConfig).toContain('dead_letter_queue = "espanol-honesto-fulfillment-staging-dlq"');
-        expect(stagingConfig).toContain('max_batch_size = 1');
-        expect(stagingConfig).toContain('max_concurrency = 1');
-        expect(bootstrapConfig).not.toContain('queues.producers');
-        expect(bootstrapConfig).not.toContain('queues.consumers');
-        expect(bootstrapConfig).not.toContain('FULFILLMENT_QUEUE');
-        expect(productionConfig).toContain('[[env.production.queues.producers]]');
-        expect(productionConfig).toContain('binding = "FULFILLMENT_QUEUE"');
-        expect(productionConfig).toContain('queue = "espanol-honesto-fulfillment-production-queue"');
-        expect(productionConfig).toContain('[[env.production.queues.consumers]]');
-        expect(productionConfig).toContain('max_batch_size = 1');
-        expect(productionConfig).toContain('max_batch_timeout = 1');
-        expect(productionConfig).toContain('max_retries = 5');
-        expect(productionConfig).toContain('dead_letter_queue = "espanol-honesto-fulfillment-production-dlq"');
-        expect(productionConfig).toContain('max_concurrency = 1');
-        expect(productionConfig).toContain('retry_delay = 30');
-        expect(packageJson).toContain('"deploy": "wrangler deploy --config wrangler.toml --env staging"');
-        expect(packageJson).toContain('"deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run"');
+        expect(config).toContain('binding = "FULFILLMENT_QUEUE"');
+        expect(config).toContain('queue = "espanol-honesto-fulfillment-staging-queue"');
+        expect(config).toContain('dead_letter_queue = "espanol-honesto-fulfillment-staging-dlq"');
+        expect(config).toContain('max_batch_size = 1');
+        expect(config).toContain('max_concurrency = 1');
+        expect(config).not.toContain('[env.production_bootstrap]');
+        expect(config).not.toContain('[env.production]');
+        expect(config).not.toContain('espanol-honesto-fulfillment-production');
+        expect(webConfig).not.toContain('[env.production_bootstrap]');
+        expect(webConfig).not.toContain('[env.production]');
+        expect(webConfig).not.toContain('espanol-honesto-fulfillment-production');
+        expect(packageJson).toContain('"validate:staging": "node ../../scripts/dev/fulfillment-worker.mjs validate"');
+        expect(packageJson).toContain('"wrangler": "4.107.1"');
+        expect(packageJson).not.toContain('"validate:production"');
+        expect(packageJson).not.toContain('"deploy":');
+        expect(packageJson).not.toContain('"deploy:production":');
+        expect(validator).toContain("environment !== 'staging'");
+        expect(validator).toContain('Only --environment staging is supported');
+        expect(validator).not.toContain("'production'");
+        expect(validator).toContain("CLOUDFLARE_API_TOKEN: ''");
+        expect(validator).toContain("WRANGLER_SEND_METRICS: 'false'");
+        expect(fulfillmentRunner).toContain("'--local'");
+        expect(fulfillmentRunner).toContain("'--dry-run'");
+        expect(fulfillmentRunner).toContain("CLOUDFLARE_API_TOKEN: ''");
+        expect(fulfillmentRunner).toContain("WRANGLER_SEND_METRICS: 'false'");
         expect(worker).not.toContain('applyRuntimeEnv');
     });
 });

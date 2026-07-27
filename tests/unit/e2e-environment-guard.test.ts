@@ -1,93 +1,79 @@
 import { describe, expect, it } from 'vitest';
 import {
-    buildLocalStagingEnvironment,
-    PRODUCTION_SUPABASE_PROJECT_REF,
-    STAGING_SUPABASE_PROJECT_REF,
+    configurePlaywrightEnvironment,
+    PUBLIC_E2E_BASE_URL,
+    PUBLIC_E2E_SUPABASE_ANON_KEY,
+    PUBLIC_E2E_SUPABASE_REF,
+    PUBLIC_E2E_SUPABASE_SERVICE_ROLE_KEY,
+    PUBLIC_E2E_SUPABASE_URL,
 } from '../e2e/environment-guard';
 
-const testEnv = {
-    TEST_BASE_URL: 'http://localhost:4321',
-    TEST_STUDENT_EMAIL: 'old-student@example.test',
-    E2E_DISABLE_EXTERNAL_INTEGRATIONS: 'false',
-};
+describe('public E2E environment guard', () => {
+    it('always installs an exact inert local runtime without reading environment files', () => {
+        const processEnv = {
+            CI: 'false',
+            TEST_BASE_URL: 'https://remote.example.test',
+            PUBLIC_SUPABASE_URL: 'https://real-project.supabase.co',
+            PUBLIC_SUPABASE_ANON_KEY: 'real-anon',
+            SUPABASE_SERVICE_ROLE_KEY: 'real-service-role',
+            PUBLIC_APP_ENV: 'production',
+            CHECKOUT_ENABLED: 'true',
+            CHECKOUT_ENABLED_OVERRIDE: 'true',
+            E2E_DISABLE_EXTERNAL_INTEGRATIONS: 'false',
+            E2E_RUNTIME_ISOLATED: 'false',
+            CLOUDFLARE_API_TOKEN: 'must-be-scrubbed',
+            RESEND_API_KEY: 'must-be-scrubbed',
+            STRIPE_SECRET_KEY: 'must-be-scrubbed',
+            SUPABASE_DB_URL: 'postgresql://must-be-scrubbed',
+        } as NodeJS.ProcessEnv;
 
-const stagingEnv = {
-    PUBLIC_SUPABASE_URL: `https://${STAGING_SUPABASE_PROJECT_REF}.supabase.co`,
-    PUBLIC_SUPABASE_ANON_KEY: 'staging-anon',
-    SUPABASE_SERVICE_ROLE_KEY: 'staging-service-role',
-    SUPABASE_DB_URL: 'postgresql://staging.example.test/postgres',
-    RESEND_API_KEY: 'must-not-be-copied',
-    TEST_STUDENT_EMAIL: 'student@staging.example.test',
-    TEST_STUDENT_PASSWORD: 'student-password',
-    TEST_TEACHER_EMAIL: 'teacher@staging.example.test',
-    TEST_TEACHER_PASSWORD: 'teacher-password',
-    TEST_ADMIN_EMAIL: 'admin@staging.example.test',
-    TEST_ADMIN_PASSWORD: 'admin-password',
-};
-
-const productionEnv = {
-    PUBLIC_SUPABASE_URL: `https://${PRODUCTION_SUPABASE_PROJECT_REF}.supabase.co`,
-    SUPABASE_SERVICE_ROLE_KEY: 'production-service-role',
-};
-
-describe('E2E staging environment guard', () => {
-    it('selects staging accounts and forces external effects off', () => {
-        const result = buildLocalStagingEnvironment(testEnv, stagingEnv, productionEnv);
-
-        expect(result.stagingRef).toBe(STAGING_SUPABASE_PROJECT_REF);
-        expect(result.values).toMatchObject({
-            TEST_BASE_URL: 'http://localhost:4321',
-            TEST_STUDENT_EMAIL: 'student@staging.example.test',
-            TEST_TEACHER_EMAIL: 'teacher@staging.example.test',
-            TEST_ADMIN_EMAIL: 'admin@staging.example.test',
-            PUBLIC_SUPABASE_URL: `https://${STAGING_SUPABASE_PROJECT_REF}.supabase.co`,
-            PUBLIC_APP_ENV: 'staging',
+        expect(configurePlaywrightEnvironment(processEnv)).toEqual({
+            target: 'public',
+            supabaseRef: PUBLIC_E2E_SUPABASE_REF,
+        });
+        expect(processEnv).toMatchObject({
+            TEST_BASE_URL: PUBLIC_E2E_BASE_URL,
+            PUBLIC_SITE_URL: PUBLIC_E2E_BASE_URL,
+            PUBLIC_SUPABASE_URL: PUBLIC_E2E_SUPABASE_URL,
+            PUBLIC_SUPABASE_ANON_KEY: PUBLIC_E2E_SUPABASE_ANON_KEY,
+            SUPABASE_SERVICE_ROLE_KEY: PUBLIC_E2E_SUPABASE_SERVICE_ROLE_KEY,
+            PUBLIC_APP_ENV: 'test',
             CHECKOUT_ENABLED: 'false',
+            CHECKOUT_ENABLED_OVERRIDE: 'false',
             E2E_DISABLE_EXTERNAL_INTEGRATIONS: 'true',
             E2E_RUNTIME_ISOLATED: 'true',
-            E2E_TARGET_SUPABASE_REF: STAGING_SUPABASE_PROJECT_REF,
-            SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_PROJECT_REF,
+            E2E_TARGET_SUPABASE_REF: PUBLIC_E2E_SUPABASE_REF,
+            SUPABASE_EXPECTED_PROJECT_REF: PUBLIC_E2E_SUPABASE_REF,
+            CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
         });
-        expect(result.values.RESEND_API_KEY).toBeUndefined();
+        expect(processEnv.CLOUDFLARE_API_TOKEN).toBeUndefined();
+        expect(processEnv.RESEND_API_KEY).toBeUndefined();
+        expect(processEnv.STRIPE_SECRET_KEY).toBeUndefined();
+        expect(processEnv.SUPABASE_DB_URL).toBeUndefined();
     });
 
-    it('rejects a staging file that points at the production project', () => {
-        expect(() => buildLocalStagingEnvironment(
-            testEnv,
-            { ...stagingEnv, PUBLIC_SUPABASE_URL: productionEnv.PUBLIC_SUPABASE_URL },
-            productionEnv,
-        )).toThrow('.env.staging must target the approved staging project');
+    it('uses the same inert mode in CI without an opt-in switch', () => {
+        const processEnv = {
+            CI: 'true',
+            E2E_CI_PUBLIC_PLACEHOLDER: 'false',
+            TEST_PARALLEL_INDEX: '0',
+            TEST_WORKER_INDEX: '0',
+        } as NodeJS.ProcessEnv;
+
+        configurePlaywrightEnvironment(processEnv);
+
+        expect(processEnv.E2E_CI_PUBLIC_PLACEHOLDER).toBeUndefined();
+        expect(processEnv.PUBLIC_APP_ENV).toBe('test');
+        expect(processEnv.PUBLIC_SUPABASE_URL).toBe(PUBLIC_E2E_SUPABASE_URL);
     });
 
-    it('rejects files whose staging and production identities were swapped', () => {
-        expect(() => buildLocalStagingEnvironment(
-            testEnv,
-            { ...stagingEnv, PUBLIC_SUPABASE_URL: productionEnv.PUBLIC_SUPABASE_URL },
-            { ...productionEnv, PUBLIC_SUPABASE_URL: stagingEnv.PUBLIC_SUPABASE_URL },
-        )).toThrow('.env.staging must target the approved staging project');
-    });
+    it('fails closed when authenticated TEST_* credentials leak into public Playwright', () => {
+        const processEnv = {
+            TEST_STUDENT_EMAIL: 'student@example.test',
+            TEST_STUDENT_PASSWORD: 'secret',
+        } as NodeJS.ProcessEnv;
 
-    it('rejects a staging file that reuses the production service-role key', () => {
-        expect(() => buildLocalStagingEnvironment(
-            testEnv,
-            { ...stagingEnv, SUPABASE_SERVICE_ROLE_KEY: productionEnv.SUPABASE_SERVICE_ROLE_KEY },
-            productionEnv,
-        )).toThrow('staging and production use the same Supabase service-role key');
-    });
-
-    it('fails closed when a required staging credential is absent', () => {
-        expect(() => buildLocalStagingEnvironment(
-            testEnv,
-            { ...stagingEnv, TEST_ADMIN_PASSWORD: '' },
-            productionEnv,
-        )).toThrow('.env.staging is missing TEST_ADMIN_PASSWORD');
-    });
-
-    it('rejects a remote base URL before credentials can leave localhost', () => {
-        expect(() => buildLocalStagingEnvironment(
-            { ...testEnv, TEST_BASE_URL: 'https://staging.example.test' },
-            stagingEnv,
-            productionEnv,
-        )).toThrow('TEST_BASE_URL must be an exact local Astro origin on port 4321');
+        expect(() => configurePlaywrightEnvironment(processEnv))
+            .toThrow('Public Playwright refuses inherited TEST_* credentials: TEST_STUDENT_EMAIL, TEST_STUDENT_PASSWORD');
     });
 });

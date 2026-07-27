@@ -10,6 +10,10 @@ La solicitud recoge interés, nivel aproximado, objetivo, disponibilidad, plan p
 
 El CRM es propio y vive dentro del admin Astro/Supabase. El contacto es el registro central de la relación; alumnos, pagos, sesiones y soporte conservan sus fuentes operativas.
 
+El posicionamiento prioritario es para adultos y profesionales, normalmente de 30 años o más y con nivel aproximado A2/B1 o superior, interesados en conversación, cultura y vida real en España. Es una orientación comercial, no una regla automática de exclusión.
+
+El servicio es exclusivamente para mayores de 18 años. Solicitud, diagnóstico, registro y compra exigen una declaración expresa de mayoría de edad; no se recoge fecha de nacimiento ni existe un flujo para menores.
+
 ## Oferta actual
 
 | Clave | Precio mensual | Sesiones por mes | Modalidad |
@@ -30,9 +34,17 @@ Duraciones: 30, 40 o 50 minutos; 50 minutos por defecto. Compromisos de 3 meses 
 - Stripe ejecuta el cobro y debe coincidir con la oferta aprobada.
 - Un cambio de precio crea una versión nueva; no reescribe compras previas.
 - `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false` son el estado normal actual.
+- Si se activa el checkout, el alcance inicial es tarjeta mediante Stripe Checkout y sin códigos promocionales.
 - Activar pagos reales, cambiar proveedor o abrir checkout es una decisión de producto y producción.
 
 Stack externo confirmado: Cloudflare Workers, Supabase, Stripe, Google Workspace, Resend, Turnstile y Sentry. Los recursos exactos están en `docs/ENVIRONMENTS.md`; no se sustituye uno por otro aunque la cuenta tenga otros proyectos.
+
+## Límites públicos actuales
+
+- No se publican reviews o testimonios sin una fuente real y permiso.
+- No se anuncia un canal público de Telegram sin operación y moderación reales.
+- No se activa telemetría rica de producto sin decidir herramienta, minimización, consentimiento, cookies, retención y privacidad. Sentry queda limitado a errores técnicos.
+- No se promete grupo, comunidad pública ni prueba de nivel humana definitiva mientras no estén operativos.
 
 ## Decisiones pendientes reales
 

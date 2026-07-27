@@ -5,24 +5,28 @@ import { resolve } from 'node:path';
 const cwd = process.cwd();
 const runtimeDirectory = resolve(cwd, 'tests', 'e2e', 'runtime');
 const runtimeVarsPath = resolve(runtimeDirectory, '.dev.vars');
-const stagingRef = 'mzjyvmlxfpzdfdjzxxyj';
-const isInertCiPublic = process.env.CI === 'true'
-    && process.env.E2E_CI_PUBLIC_PLACEHOLDER === 'true'
-    && process.env.E2E_TARGET_SUPABASE_REF === 'placeholder';
-const expectedRef = isInertCiPublic ? 'placeholder' : stagingRef;
+const publicSupabaseRef = 'placeholder';
+const publicSupabaseUrl = 'https://placeholder.supabase.co';
+const publicSupabaseAnonKey = 'placeholder-anon-key';
+const publicSupabaseServiceRoleKey = 'placeholder-service-role-key';
+const publicBaseUrl = 'http://localhost:4321';
 const runtimeBindingKeys = [
     'PUBLIC_SUPABASE_URL',
     'PUBLIC_SUPABASE_ANON_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'PUBLIC_APP_ENV',
+    'PUBLIC_SITE_URL',
     'CHECKOUT_ENABLED',
+    'CHECKOUT_ENABLED_OVERRIDE',
     'E2E_DISABLE_EXTERNAL_INTEGRATIONS',
     'E2E_RUNTIME_ISOLATED',
     'E2E_TARGET_SUPABASE_REF',
     'SUPABASE_EXPECTED_PROJECT_REF',
 ];
 const externalProviderKeys = [
+    'CLOUDFLARE_API_TOKEN',
     'CRON_SECRET',
+    'DATABASE_URL',
     'FULFILLMENT_WORKER_URL',
     'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
     'INTERNAL_JOB_SECRET',
@@ -33,6 +37,9 @@ const externalProviderKeys = [
     'SENTRY_DSN',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
+    'SUPABASE_DB_URL',
+    'SUPABASE_PRODUCTION_DB_URL',
+    'SUPABASE_STAGING_DB_URL',
 ];
 
 function requireValue(key) {
@@ -41,23 +48,40 @@ function requireValue(key) {
     return value;
 }
 
-function projectRef(value) {
-    try {
-        return /^([a-z0-9]+)\.supabase\.co$/i.exec(new URL(value).hostname)?.[1] ?? null;
-    } catch {
-        return null;
-    }
+const exactRuntime = {
+    PUBLIC_SUPABASE_URL: publicSupabaseUrl,
+    PUBLIC_SUPABASE_ANON_KEY: publicSupabaseAnonKey,
+    SUPABASE_SERVICE_ROLE_KEY: publicSupabaseServiceRoleKey,
+    PUBLIC_APP_ENV: 'test',
+    PUBLIC_SITE_URL: publicBaseUrl,
+    CHECKOUT_ENABLED: 'false',
+    CHECKOUT_ENABLED_OVERRIDE: 'false',
+    E2E_DISABLE_EXTERNAL_INTEGRATIONS: 'true',
+    E2E_RUNTIME_ISOLATED: 'true',
+    E2E_TARGET_SUPABASE_REF: publicSupabaseRef,
+    SUPABASE_EXPECTED_PROJECT_REF: publicSupabaseRef,
+};
+const inconsistentKeys = Object.entries(exactRuntime)
+    .filter(([key, expected]) => process.env[key] !== expected)
+    .map(([key]) => key);
+if (inconsistentKeys.length > 0 || process.env.TEST_BASE_URL !== publicBaseUrl) {
+    throw new Error(
+        `[e2e-env] Server owner refused a non-placeholder public runtime: ${inconsistentKeys.join(', ') || 'TEST_BASE_URL'}`,
+    );
 }
 
-if (
-    process.env.E2E_RUNTIME_ISOLATED !== 'true' ||
-    process.env.E2E_DISABLE_EXTERNAL_INTEGRATIONS !== 'true' ||
-    process.env.CHECKOUT_ENABLED !== 'false' ||
-    process.env.E2E_TARGET_SUPABASE_REF !== expectedRef ||
-    process.env.SUPABASE_EXPECTED_PROJECT_REF !== expectedRef ||
-    projectRef(requireValue('PUBLIC_SUPABASE_URL')) !== expectedRef
-) {
-    throw new Error('[e2e-env] Server owner refused an inconsistent runtime identity');
+const allowedPlaywrightTestMetadataKeys = new Set([
+    'TEST_BASE_URL',
+    'TEST_PARALLEL_INDEX',
+    'TEST_WORKER_INDEX',
+]);
+
+const inheritedTestCredentials = Object.entries(process.env)
+    .filter(([key, value]) =>
+        key.startsWith('TEST_') && !allowedPlaywrightTestMetadataKeys.has(key) && Boolean(value?.trim()))
+    .map(([key]) => key);
+if (inheritedTestCredentials.length > 0) {
+    throw new Error(`[e2e-env] Server owner refuses TEST_* credentials: ${inheritedTestCredentials.join(', ')}`);
 }
 
 const presentProviders = externalProviderKeys.filter((key) => Boolean(process.env[key]));

@@ -17,9 +17,8 @@
     },
     "scripts": {
         "preinstall": "node ../../scripts/enforce-pnpm.cjs",
-        "dev": "wrangler dev --config wrangler.toml --local --port 8788 --env staging",
-        "deploy": "wrangler deploy --config wrangler.toml --env staging",
-        "deploy:production": "wrangler deploy --config wrangler.toml --env production --dry-run",
+        "dev": "node ../../scripts/dev/fulfillment-worker.mjs dev",
+        "validate:staging": "node ../../scripts/dev/fulfillment-worker.mjs validate",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
@@ -31,9 +30,9 @@
         "resend": "^6.7.0"
     },
     "devDependencies": {
-        "@cloudflare/workers-types": "^4.20260415.1",
+        "@cloudflare/workers-types": "4.20260702.1",
         "@types/node": "^22.10.2",
         "typescript": "^5.9.3",
-        "wrangler": "^4.59.3"
+        "wrangler": "4.107.1"
     }
 }

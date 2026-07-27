@@ -2,11 +2,6 @@ name: Deploy Cloudflare staging
 
 on:
   workflow_dispatch:
-    inputs:
-      commit_sha:
-        description: Full 40-character commit SHA already validated by CI
-        required: true
-        type: string
 
 permissions:
   checks: read
@@ -20,12 +15,19 @@ jobs:
   deploy-staging:
     runs-on: ubuntu-latest
     environment: staging
+    env:
+      WEB_WORKER_NAME: espanolhonesto-staging
+      FULFILLMENT_WORKER_NAME: espanol-honesto-fulfillment-staging
+      STAGING_WEB_URL: https://staging.espanolhonesto.com
+      STAGING_FULFILLMENT_URL: https://espanol-honesto-fulfillment-staging.alindev95.workers.dev
+      SENTRY_UPLOAD_SOURCEMAPS: "false"
+      WRANGLER_SEND_METRICS: "false"
 
     steps:
-      - name: Validate requested commit shape
+      - name: Validate canonical dispatch
         shell: bash
         env:
-          REQUESTED_COMMIT_SHA: ${{ inputs.commit_sha }}
+          REQUESTED_COMMIT_SHA: ${{ github.sha }}
           WORKFLOW_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
@@ -34,35 +36,45 @@ jobs:
             exit 1
           fi
           if [[ ! "$REQUESTED_COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "commit_sha must be a full lowercase 40-character Git commit SHA."
+            echo "GitHub did not resolve a full lowercase commit SHA for main."
             exit 1
           fi
 
-      - name: Checkout exact commit
+      - name: Checkout canonical main history
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.commit_sha }}
+          ref: ${{ github.sha }}
           persist-credentials: false
           fetch-depth: 0
 
-      - name: Verify checked-out commit
+      - name: Verify main ancestry and checkout exact commit
         shell: bash
         env:
-          REQUESTED_COMMIT_SHA: ${{ inputs.commit_sha }}
+          REQUESTED_COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          git fetch --no-tags origin main
+          git cat-file -e "$REQUESTED_COMMIT_SHA^{commit}"
+          if ! git merge-base --is-ancestor "$REQUESTED_COMMIT_SHA" refs/remotes/origin/main; then
+            echo "Requested commit is not part of the current main history."
+            exit 1
+          fi
+          git checkout --detach "$REQUESTED_COMMIT_SHA"
           resolved_sha="$(git rev-parse HEAD)"
           if [ "$resolved_sha" != "$REQUESTED_COMMIT_SHA" ]; then
             echo "Checked-out commit does not match the requested SHA."
             exit 1
           fi
           printf '%s\n' "DEPLOY_COMMIT_SHA=$resolved_sha" >> "$GITHUB_ENV"
+          printf '%s\n' \
+            "DEPLOY_MESSAGE=staging:$resolved_sha:run:$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" \
+            >> "$GITHUB_ENV"
 
       - name: Require successful CI for the exact commit
         shell: bash
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          REQUESTED_COMMIT_SHA: ${{ inputs.commit_sha }}
+          REQUESTED_COMMIT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           checks_file="$RUNNER_TEMP/github-check-runs.json"
@@ -77,7 +89,10 @@ jobs:
             const [file, sha] = process.argv.slice(1);
             const payload = JSON.parse(fs.readFileSync(file, "utf8"));
             const passed = (payload.check_runs ?? []).some((run) =>
-              run.name === "build-and-test" && run.head_sha === sha && run.conclusion === "success"
+              run.name === "build-and-test"
+              && run.head_sha === sha
+              && run.conclusion === "success"
+              && run.app?.slug === "github-actions"
             );
             if (!passed) throw new Error("Refusing staging deploy: exact commit has no successful build-and-test check.");
           ' "$checks_file" "$REQUESTED_COMMIT_SHA"
@@ -94,7 +109,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Verify exact Cloudflare identity
         shell: bash
@@ -102,7 +117,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           EXPECTED_CLOUDFLARE_ACCOUNT_ID: d1a22bcf6477ff2ff31d2bfb83084e44
-          WRANGLER_SEND_METRICS: "false"
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
@@ -131,6 +145,49 @@ jobs:
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
         run: pnpm exec tsx scripts/ci/verify-staging-deploy-environment.ts
+
+      - name: Validate complete expected runtime contract
+        env:
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_ENABLED: "false"
+          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_DAILY_RECIPIENT_LIMIT: "10"
+          EMAIL_DELIVERY_MODE: "allowlist"
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_MONTHLY_RECIPIENT_LIMIT: "100"
+          EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
+          FULFILLMENT_RUNTIME_MODE: "active"
+          FULFILLMENT_WORKER_URL: ${{ env.STAGING_FULFILLMENT_URL }}
+          GOOGLE_ADMIN_EMAIL: ${{ secrets.GOOGLE_ADMIN_EMAIL }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          GOOGLE_TEMPLATE_DOC_ID: ${{ secrets.GOOGLE_TEMPLATE_DOC_ID }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          LEVEL_CHECK_TOKEN_SECRET: ${{ secrets.LEVEL_CHECK_TOKEN_SECRET }}
+          PUBLIC_APP_ENV: "staging"
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          PUBLIC_SITE_URL: ${{ env.STAGING_WEB_URL }}
+          PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          STRIPE_EXPECTED_ACCOUNT_ID: "acct_1TruqOC22M3erP0j"
+          STRIPE_PORTAL_CONFIGURATION_ID: ${{ secrets.STRIPE_PORTAL_CONFIGURATION_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          SUPABASE_EXPECTED_PROJECT_REF: "mzjyvmlxfpzdfdjzxxyj"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPPORT_ALERT_EMAIL: ${{ secrets.SUPPORT_ALERT_EMAIL }}
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          TEST_STUDENT_EMAIL: ${{ secrets.TEST_STUDENT_EMAIL }}
+          TEST_TEACHER_EMAIL: ${{ secrets.TEST_TEACHER_EMAIL }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          WEB_RUNTIME_MODE: "active"
+        run: pnpm run verify:staging-runtime -- --preflight
 
       - name: Build exact staging package
         env:
@@ -161,49 +218,415 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --dry-run
+        run: pnpm run fulfillment:validate
 
       - name: Validate staging web package
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: pnpm exec tsx scripts/dev/deploy-built-worker.ts --environment staging --dry-run
+        run: pnpm run validate:staging-package
+
+      - name: Capture rollback baselines
+        id: baseline
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          active_version() {
+            local worker="$1"
+            local label="$2"
+            local input="$RUNNER_TEMP/$label-deployment-status.json"
+            pnpm exec wrangler deployments status --name "$worker" --json > "$input"
+            pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+              --input "$input" \
+              --worker "$worker"
+          }
+
+          web_version="$(active_version "$WEB_WORKER_NAME" web-baseline)"
+          fulfillment_version="$(active_version "$FULFILLMENT_WORKER_NAME" fulfillment-baseline)"
+          printf '%s\n' "web_version=$web_version" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "fulfillment_version=$fulfillment_version" >> "$GITHUB_OUTPUT"
+          {
+            printf '%s\n' "### Staging rollback baselines"
+            printf '%s\n' "- Web: \`$web_version\`"
+            printf '%s\n' "- Fulfillment: \`$fulfillment_version\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Mark Fulfillment mutation attempt
+        id: attempt_fulfillment
+        shell: bash
+        run: printf '%s\n' 'started=true' >> "$GITHUB_OUTPUT"
 
       - name: Deploy staging Fulfillment Worker
+        id: deploy_fulfillment
+        timeout-minutes: 10
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BASELINE_VERSION: ${{ steps.baseline.outputs.fulfillment_version }}
         run: |
-          pnpm exec wrangler deploy --config workers/fulfillment/wrangler.toml --env staging --keep-vars
-          printf '%s\n' "FULFILLMENT_DEPLOY_COMPLETED=true" >> "$GITHUB_ENV"
+          set -euo pipefail
+          status_file="$RUNNER_TEMP/fulfillment-before-deploy.json"
+          pnpm exec wrangler deployments status \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --json > "$status_file"
+          current_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+            --input "$status_file" \
+            --worker "$FULFILLMENT_WORKER_NAME")"
+          if [ "$current_version" != "$BASELINE_VERSION" ]; then
+            echo "::error::Fulfillment drifted after baseline capture."
+            exit 1
+          fi
+
+          versions_file="$RUNNER_TEMP/fulfillment-versions-after-upload.json"
+          pnpm exec wrangler versions upload \
+            --config workers/fulfillment/wrangler.toml \
+            --env staging \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --keep-vars \
+            --strict \
+            --experimental-provision=false \
+            --experimental-auto-create=false \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE"
+          pnpm exec wrangler versions list \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --json > "$versions_file"
+          uploaded_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts find-owned \
+            --input "$versions_file" \
+            --worker "$FULFILLMENT_WORKER_NAME" \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE")"
+          status_file="$RUNNER_TEMP/fulfillment-before-version-activation.json"
+          pnpm exec wrangler deployments status \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --json > "$status_file"
+          pre_activation_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+            --input "$status_file" \
+            --worker "$FULFILLMENT_WORKER_NAME")"
+          if [ "$pre_activation_version" != "$BASELINE_VERSION" ]; then
+            echo "::error::Fulfillment drifted before version activation."
+            exit 1
+          fi
+
+          pnpm exec wrangler versions deploy "$uploaded_version@100%" \
+            --config workers/fulfillment/wrangler.toml \
+            --env staging \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --message "$DEPLOY_MESSAGE" \
+            --yes
+
+          status_file="$RUNNER_TEMP/fulfillment-after-deploy.json"
+          version_file="$RUNNER_TEMP/fulfillment-version-after-deploy.json"
+          pnpm exec wrangler deployments status \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --json > "$status_file"
+          deployed_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+            --input "$status_file" \
+            --worker "$FULFILLMENT_WORKER_NAME")"
+          if [ "$deployed_version" != "$uploaded_version" ]; then
+            echo "::error::Fulfillment did not activate the exact uploaded version."
+            exit 1
+          fi
+          pnpm exec wrangler versions view "$deployed_version" \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --json > "$version_file"
+          pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-owned \
+            --input "$version_file" \
+            --worker "$FULFILLMENT_WORKER_NAME" \
+            --version-id "$deployed_version" \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE"
+          printf '%s\n' "version_id=$deployed_version" >> "$GITHUB_OUTPUT"
+
+      - name: Mark web mutation attempt
+        id: attempt_web
+        shell: bash
+        run: printf '%s\n' 'started=true' >> "$GITHUB_OUTPUT"
 
       - name: Deploy staging web Worker
+        id: deploy_web
+        timeout-minutes: 10
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          BASELINE_VERSION: ${{ steps.baseline.outputs.web_version }}
         run: |
-          pnpm run deploy:staging
-          printf '%s\n' "WEB_DEPLOY_COMPLETED=true" >> "$GITHUB_ENV"
+          set -euo pipefail
+          status_file="$RUNNER_TEMP/web-before-deploy.json"
+          pnpm exec wrangler deployments status \
+            --name "$WEB_WORKER_NAME" \
+            --json > "$status_file"
+          current_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+            --input "$status_file" \
+            --worker "$WEB_WORKER_NAME")"
+          if [ "$current_version" != "$BASELINE_VERSION" ]; then
+            echo "::error::Web drifted after baseline capture."
+            exit 1
+          fi
 
-      - name: Record partial-deploy recovery requirement
-        if: failure() && env.FULFILLMENT_DEPLOY_COMPLETED == 'true' && env.WEB_DEPLOY_COMPLETED != 'true'
-        shell: bash
-        run: |
-          printf '%s\n' "::error::Fulfillment deployed but the web deploy did not complete; staging is mixed and must be reconciled before retry."
-          printf '%s\n' "### Staging partial deployment" >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "- Fulfillment changed; web did not complete." >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "- Stop and use the staging rollback/recovery runbook before another deploy." >> "$GITHUB_STEP_SUMMARY"
+          versions_file="$RUNNER_TEMP/web-versions-after-upload.json"
+          pnpm exec wrangler versions upload \
+            --config dist/server/wrangler.json \
+            --name "$WEB_WORKER_NAME" \
+            --keep-vars \
+            --strict \
+            --experimental-provision=false \
+            --experimental-auto-create=false \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE"
+          pnpm exec wrangler versions list \
+            --name "$WEB_WORKER_NAME" \
+            --json > "$versions_file"
+          uploaded_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts find-owned \
+            --input "$versions_file" \
+            --worker "$WEB_WORKER_NAME" \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE")"
+          status_file="$RUNNER_TEMP/web-before-version-activation.json"
+          pnpm exec wrangler deployments status \
+            --name "$WEB_WORKER_NAME" \
+            --json > "$status_file"
+          pre_activation_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+            --input "$status_file" \
+            --worker "$WEB_WORKER_NAME")"
+          if [ "$pre_activation_version" != "$BASELINE_VERSION" ]; then
+            echo "::error::Web drifted before version activation."
+            exit 1
+          fi
 
-      - name: Verify staging runtime
+          pnpm exec wrangler versions deploy "$uploaded_version@100%" \
+            --config dist/server/wrangler.json \
+            --name "$WEB_WORKER_NAME" \
+            --message "$DEPLOY_MESSAGE" \
+            --yes
+
+          status_file="$RUNNER_TEMP/web-after-deploy.json"
+          version_file="$RUNNER_TEMP/web-version-after-deploy.json"
+          pnpm exec wrangler deployments status \
+            --name "$WEB_WORKER_NAME" \
+            --json > "$status_file"
+          deployed_version="$(pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+            --input "$status_file" \
+            --worker "$WEB_WORKER_NAME")"
+          if [ "$deployed_version" != "$uploaded_version" ]; then
+            echo "::error::Web did not activate the exact uploaded version."
+            exit 1
+          fi
+          pnpm exec wrangler versions view "$deployed_version" \
+            --name "$WEB_WORKER_NAME" \
+            --json > "$version_file"
+          pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-owned \
+            --input "$version_file" \
+            --worker "$WEB_WORKER_NAME" \
+            --version-id "$deployed_version" \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE"
+          printf '%s\n' "version_id=$deployed_version" >> "$GITHUB_OUTPUT"
+
+      - name: Verify exact staging runtime
+        timeout-minutes: 5
         env:
-          STAGING_WEB_URL: https://staging.espanolhonesto.com
-          STAGING_FULFILLMENT_URL: https://espanol-honesto-fulfillment-staging.alindev95.workers.dev
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_ENABLED: "false"
+          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_DAILY_RECIPIENT_LIMIT: "10"
+          EMAIL_DELIVERY_MODE: "allowlist"
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_MONTHLY_RECIPIENT_LIMIT: "100"
+          EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
+          FULFILLMENT_RUNTIME_MODE: "active"
+          FULFILLMENT_WORKER_URL: ${{ env.STAGING_FULFILLMENT_URL }}
+          GOOGLE_ADMIN_EMAIL: ${{ secrets.GOOGLE_ADMIN_EMAIL }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          GOOGLE_TEMPLATE_DOC_ID: ${{ secrets.GOOGLE_TEMPLATE_DOC_ID }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          LEVEL_CHECK_TOKEN_SECRET: ${{ secrets.LEVEL_CHECK_TOKEN_SECRET }}
+          PUBLIC_APP_ENV: "staging"
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          PUBLIC_SITE_URL: ${{ env.STAGING_WEB_URL }}
+          PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          STAGING_EXPECTED_WEB_VERSION_ID: ${{ steps.deploy_web.outputs.version_id }}
+          STAGING_EXPECTED_FULFILLMENT_VERSION_ID: ${{ steps.deploy_fulfillment.outputs.version_id }}
+          STRIPE_EXPECTED_ACCOUNT_ID: "acct_1TruqOC22M3erP0j"
+          STRIPE_PORTAL_CONFIGURATION_ID: ${{ secrets.STRIPE_PORTAL_CONFIGURATION_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          SUPABASE_EXPECTED_PROJECT_REF: "mzjyvmlxfpzdfdjzxxyj"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPPORT_ALERT_EMAIL: ${{ secrets.SUPPORT_ALERT_EMAIL }}
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          TEST_STUDENT_EMAIL: ${{ secrets.TEST_STUDENT_EMAIL }}
+          TEST_TEACHER_EMAIL: ${{ secrets.TEST_TEACHER_EMAIL }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          WEB_RUNTIME_MODE: "active"
         run: pnpm run verify:staging-runtime
+
+      - name: Roll back failed staging deployment
+        if: ${{ (failure() || cancelled()) && steps.attempt_fulfillment.outputs.started == 'true' }}
+        timeout-minutes: 15
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_ENABLED: "false"
+          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_DAILY_RECIPIENT_LIMIT: "10"
+          EMAIL_DELIVERY_MODE: "allowlist"
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_MONTHLY_RECIPIENT_LIMIT: "100"
+          EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
+          FULFILLMENT_RUNTIME_MODE: "active"
+          FULFILLMENT_WORKER_URL: ${{ env.STAGING_FULFILLMENT_URL }}
+          GOOGLE_ADMIN_EMAIL: ${{ secrets.GOOGLE_ADMIN_EMAIL }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          GOOGLE_TEMPLATE_DOC_ID: ${{ secrets.GOOGLE_TEMPLATE_DOC_ID }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          LEVEL_CHECK_TOKEN_SECRET: ${{ secrets.LEVEL_CHECK_TOKEN_SECRET }}
+          PUBLIC_APP_ENV: "staging"
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          PUBLIC_SITE_URL: ${{ env.STAGING_WEB_URL }}
+          PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          STAGING_EXPECTED_WEB_VERSION_ID: ${{ steps.baseline.outputs.web_version }}
+          STAGING_EXPECTED_FULFILLMENT_VERSION_ID: ${{ steps.baseline.outputs.fulfillment_version }}
+          STRIPE_EXPECTED_ACCOUNT_ID: "acct_1TruqOC22M3erP0j"
+          STRIPE_PORTAL_CONFIGURATION_ID: ${{ secrets.STRIPE_PORTAL_CONFIGURATION_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          SUPABASE_EXPECTED_PROJECT_REF: "mzjyvmlxfpzdfdjzxxyj"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPPORT_ALERT_EMAIL: ${{ secrets.SUPPORT_ALERT_EMAIL }}
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          TEST_STUDENT_EMAIL: ${{ secrets.TEST_STUDENT_EMAIL }}
+          TEST_TEACHER_EMAIL: ${{ secrets.TEST_TEACHER_EMAIL }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          WEB_RUNTIME_MODE: "active"
+          WEB_ATTEMPTED: ${{ steps.attempt_web.outputs.started }}
+          WEB_BASELINE: ${{ steps.baseline.outputs.web_version }}
+          FULFILLMENT_BASELINE: ${{ steps.baseline.outputs.fulfillment_version }}
+        run: |
+          set -uo pipefail
+          active_version() {
+            local worker="$1"
+            local label="$2"
+            local input="$RUNNER_TEMP/$label-deployment-status.json"
+            pnpm exec wrangler deployments status --name "$worker" --json > "$input" || return 1
+            pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
+              --input "$input" \
+              --worker "$worker"
+          }
+
+          owned_by_this_run() {
+            local worker="$1"
+            local version="$2"
+            local label="$3"
+            local input="$RUNNER_TEMP/$label-version-view.json"
+            pnpm exec wrangler versions view "$version" \
+              --name "$worker" \
+              --json > "$input" || return 1
+            pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-owned \
+              --input "$input" \
+              --worker "$worker" \
+              --version-id "$version" \
+              --tag "$DEPLOY_COMMIT_SHA" \
+              --message "$DEPLOY_MESSAGE"
+          }
+
+          rollback_one() {
+            local worker="$1"
+            local baseline="$2"
+            local attempted="$3"
+            local label="$4"
+            local -a config_args=(--config dist/server/wrangler.json)
+            local current
+            local restored
+
+            [ "$attempted" = "true" ] || return 0
+            if [ "$label" = "fulfillment" ]; then
+              config_args=(
+                --config workers/fulfillment/wrangler.toml
+                --env staging
+              )
+            fi
+            current="$(active_version "$worker" "$label-current")" || return 1
+            if [ "$current" = "$baseline" ]; then
+              printf '%s\n' "- $worker remained on baseline \`$baseline\`." >> "$GITHUB_STEP_SUMMARY"
+              return 0
+            fi
+            if ! owned_by_this_run "$worker" "$current" "$label-current"; then
+              echo "::error::$worker changed to a version not owned by this run; refusing unsafe automatic rollback."
+              return 1
+            fi
+            if ! pnpm exec wrangler rollback "$baseline" \
+              "${config_args[@]}" \
+              --name "$worker" \
+              --message "automatic rollback after failed $DEPLOY_MESSAGE" \
+              --yes; then
+              return 1
+            fi
+            restored="$(active_version "$worker" "$label-restored")" || return 1
+            if [ "$restored" != "$baseline" ]; then
+              echo "::error::$worker rollback did not restore the baseline."
+              return 1
+            fi
+            printf '%s\n' "- $worker restored to \`$baseline\`." >> "$GITHUB_STEP_SUMMARY"
+          }
+
+          printf '%s\n' "### Automatic staging rollback" >> "$GITHUB_STEP_SUMMARY"
+          rollback_failed=0
+          rollback_one \
+            "$WEB_WORKER_NAME" \
+            "$WEB_BASELINE" \
+            "${WEB_ATTEMPTED:-}" \
+            web || rollback_failed=1
+          rollback_one \
+            "$FULFILLMENT_WORKER_NAME" \
+            "$FULFILLMENT_BASELINE" \
+            true \
+            fulfillment || rollback_failed=1
+          if [ "$rollback_failed" -eq 0 ]; then
+            if pnpm run verify:staging-runtime; then
+              printf '%s\n' '- Restored staging runtime smoke: passed.' >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo '::error::Rollback completed but the restored staging smoke failed.'
+              rollback_failed=1
+            fi
+          fi
+          exit "$rollback_failed"
 
       - name: Record deployed commit
         shell: bash
+        env:
+          WEB_VERSION: ${{ steps.deploy_web.outputs.version_id }}
+          FULFILLMENT_VERSION: ${{ steps.deploy_fulfillment.outputs.version_id }}
         run: |
-          printf '%s\n' "### Staging deployment" >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "- Commit: \`$DEPLOY_COMMIT_SHA\`" >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "- URL: https://staging.espanolhonesto.com" >> "$GITHUB_STEP_SUMMARY"
-          printf '%s\n' "- Checkout: disabled and probed" >> "$GITHUB_STEP_SUMMARY"
+          {
+            printf '%s\n' "### Staging deployment"
+            printf '%s\n' "- Commit: \`$DEPLOY_COMMIT_SHA\`"
+            printf '%s\n' "- Web version: \`$WEB_VERSION\`"
+            printf '%s\n' "- Fulfillment version: \`$FULFILLMENT_VERSION\`"
+            printf '%s\n' "- URL: $STAGING_WEB_URL"
+            printf '%s\n' "- Checkout: disabled and probed"
+            printf '%s\n' "- Runtime attestation: exact for both Workers"
+          } >> "$GITHUB_STEP_SUMMARY"

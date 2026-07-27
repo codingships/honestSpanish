@@ -43,7 +43,7 @@ No pedir permiso para decisiones técnicas reversibles, edición de código, pru
 
 Antes de cualquier escritura externa, hacer un preflight de solo lectura y declarar cuenta, proyecto y recurso exactos. Usar únicamente los identificadores de `docs/ENVIRONMENTS.md`. Si un identificador no coincide, detenerse.
 
-- Staging se despliega solo mediante `.github/workflows/deploy-staging.yml` desde `main` y con un SHA completo que tenga CI verde.
+- Staging se despliega solo mediante `.github/workflows/deploy-staging.yml` despachado desde `main`; el workflow fija el SHA del evento y exige CI verde para ese mismo commit.
 - Producción siempre exige autorización explícita en la tarea actual.
 - No guardar secretos en Git, documentos, capturas, logs ni resultados de pruebas.
 - Las migraciones viven en `supabase/migrations/`; `db/schema.sql` es el esquema consolidado, no un segundo historial.

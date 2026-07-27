@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
     processDueFulfillmentJobs: vi.fn(),
     processExactFulfillmentJob: vi.fn(),
     quarantineStaleFulfillmentJobs: vi.fn(),
+    queueMetrics: vi.fn(),
     queueSend: vi.fn(),
     queueSendBatch: vi.fn(),
 }));
@@ -90,6 +91,7 @@ describe('fulfillment worker internal auth', () => {
                 PUBLIC_APP_ENV: 'staging',
                 WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
                 FULFILLMENT_QUEUE: {
+                    metrics: mocks.queueMetrics,
                     send: mocks.queueSend,
                     sendBatch: mocks.queueSendBatch,
                 },
@@ -122,6 +124,7 @@ describe('fulfillment worker internal auth', () => {
                 PUBLIC_APP_ENV: 'production',
                 WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
                 FULFILLMENT_QUEUE: {
+                    metrics: mocks.queueMetrics,
                     send: mocks.queueSend,
                     sendBatch: mocks.queueSendBatch,
                 },

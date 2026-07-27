@@ -5,7 +5,7 @@ Aplicación SSR de una academia de español. Incluye web pública, campus, admin
 ## Stack
 
 - Astro 6, React y TypeScript.
-- Cloudflare Workers: web y fulfillment separados.
+- Cloudflare Pages en producción; Workers web y fulfillment separados en staging.
 - Supabase: Auth y Postgres con RLS.
 - Stripe para catálogo, checkout y suscripciones.
 - Google Workspace para calendario/documentos y Resend para email.
@@ -16,6 +16,8 @@ Docker no forma parte del stack actual: el desarrollo usa Node/pnpm y los servic
 ## Desarrollo
 
 Requisitos: Node 22.12 y pnpm 10.33.
+
+Crear `.env.staging` desde `.env.example` y sustituir todos los placeholders por los recursos de staging indicados en `docs/ENVIRONMENTS.md`. `.env.test` se crea desde `.env.test.example` solo para demo o seed explícitos; la suite pública no lee ninguno de los dos archivos.
 
 ```bash
 pnpm install
@@ -40,7 +42,7 @@ La cobertura es voluntaria (`pnpm run test:coverage`). Playwright se usa de form
 
 `origin/main` es el producto canónico. Cada tarea parte de un `main` limpio, usa una rama/worktree aislados, entrega un resultado por PR y deja que GitHub ejecute la CI. Las reglas completas están en `AGENTS.md`.
 
-El despliegue de staging se despacha manualmente desde `.github/workflows/deploy-staging.yml` con el SHA completo de `main` que ya pasó CI. No existe despliegue automático a producción.
+El despliegue de staging se despacha manualmente desde `main` mediante `.github/workflows/deploy-staging.yml`; GitHub fija automáticamente el SHA del evento y exige que su CI esté verde. No existe despliegue automático a producción.
 
 ## Fuentes duraderas
 

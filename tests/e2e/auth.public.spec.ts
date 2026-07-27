@@ -9,6 +9,20 @@ test.describe('Auth — public', () => {
     });
 
     test('login with wrong credentials shows an error message', async ({ page }) => {
+        let loginRequestIntercepted = false;
+        await page.route('**/auth/v1/token?grant_type=password', async (route) => {
+            loginRequestIntercepted = true;
+            await route.fulfill({
+                status: 400,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    code: 400,
+                    error_code: 'invalid_credentials',
+                    msg: 'Invalid login credentials',
+                }),
+            });
+        });
+
         await page.goto('/es/login');
 
         // Esperar hidratación del componente AuthForm
@@ -24,6 +38,7 @@ test.describe('Auth — public', () => {
         // Wait for error to appear
         const errorLocator = page.locator('[class*="error"], [class*="alert"], [role="alert"], .text-red-500, .text-red-700');
         await expect(errorLocator.first()).toBeVisible({ timeout: 8000 });
+        expect(loginRequestIntercepted).toBe(true);
     });
 
     test('accessing /es/campus without auth redirects to login', async ({ page }) => {

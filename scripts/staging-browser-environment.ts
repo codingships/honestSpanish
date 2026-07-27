@@ -36,7 +36,6 @@ const browserDatabaseCredentialKeys = [
 export interface StagingBrowserEnvironment {
     values: EnvironmentMap;
     stagingRef: typeof STAGING_BROWSER_SUPABASE_REF;
-    protectedProductionCompared: boolean;
 }
 
 export interface LoadStagingBrowserEnvironmentOptions {
@@ -47,7 +46,6 @@ export interface LoadStagingBrowserEnvironmentOptions {
 export function buildStagingBrowserEnvironment(
     stagingEnv: EnvironmentMap,
     testEnv: EnvironmentMap,
-    protectedProductionEnv: EnvironmentMap = {},
 ): StagingBrowserEnvironment {
     const stagingUrl = requireValue(stagingEnv, 'PUBLIC_SUPABASE_URL', '.env.staging');
     const stagingRef = readSupabaseProjectRef(stagingUrl, '.env.staging');
@@ -101,23 +99,6 @@ export function buildStagingBrowserEnvironment(
         }
     }
 
-    const productionUrl = protectedProductionEnv.PUBLIC_SUPABASE_URL?.trim();
-    let protectedProductionCompared = false;
-    if (productionUrl) {
-        if (readSupabaseProjectRef(productionUrl, 'protected .env') !== PRODUCTION_BROWSER_SUPABASE_REF) {
-            throw new Error('[staging-browser-env] Refusing to run: protected .env does not identify expected production');
-        }
-        protectedProductionCompared = true;
-
-        for (const key of supabaseRuntimeKeys) {
-            const protectedValue = protectedProductionEnv[key]?.trim();
-            const stagingValue = stagingEnv[key]?.trim();
-            if (protectedValue && stagingValue === protectedValue) {
-                throw new Error(`[staging-browser-env] Refusing to run: .env.staging reuses protected production ${key}`);
-            }
-        }
-    }
-
     const values: EnvironmentMap = { ...stagingEnv };
     for (const [key, value] of Object.entries(testEnv)) {
         if (isTestOnlyOverride(key)) values[key] = value;
@@ -135,7 +116,6 @@ export function buildStagingBrowserEnvironment(
     return {
         values,
         stagingRef: STAGING_BROWSER_SUPABASE_REF,
-        protectedProductionCompared,
     };
 }
 
@@ -146,8 +126,7 @@ export function loadStagingBrowserEnvironment(
     const processEnv = options.processEnv ?? process.env;
     const stagingEnv = parseEnvironmentFile(path.resolve(cwd, '.env.staging'), true);
     const testEnv = parseEnvironmentFile(path.resolve(cwd, '.env.test'), false);
-    const protectedProductionEnv = parseEnvironmentFile(path.resolve(cwd, '.env'), false);
-    const result = buildStagingBrowserEnvironment(stagingEnv, testEnv, protectedProductionEnv);
+    const result = buildStagingBrowserEnvironment(stagingEnv, testEnv);
     applyStagingBrowserEnvironment(processEnv, result.values);
     return result;
 }

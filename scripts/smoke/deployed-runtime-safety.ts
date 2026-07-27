@@ -8,6 +8,7 @@ import {
 } from '../../src/lib/runtime-attestation';
 
 export const STAGING_SUPABASE_REF = 'mzjyvmlxfpzdfdjzxxyj';
+export const STAGING_STRIPE_ACCOUNT_ID = 'acct_1TruqOC22M3erP0j';
 export const STAGING_WEB_IDENTITY = 'espanolhonesto-staging';
 export const STAGING_WEB_ORIGIN = 'https://staging.espanolhonesto.com';
 export const STAGING_FULFILLMENT_IDENTITY = 'espanol-honesto-fulfillment-staging';
@@ -18,8 +19,6 @@ const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 const PROOF_PATTERN = /^[a-f0-9]{64}$/;
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
-
-export type ExpectedCheckoutOverride = 'false' | 'true';
 
 export type DeployedRuntimeVerification = {
     fulfillmentVersionId: string;
@@ -71,9 +70,16 @@ export function assertExpectedStagingRuntimeInput(input: {
     if (requireValue(env, 'FULFILLMENT_WORKER_URL') !== STAGING_FULFILLMENT_ORIGIN) {
         throw new Error('FULFILLMENT_WORKER_URL must be the exact staging Worker');
     }
+    if (requireValue(env, 'SUPABASE_EXPECTED_PROJECT_REF') !== STAGING_SUPABASE_REF) {
+        throw new Error('SUPABASE_EXPECTED_PROJECT_REF must be the approved staging project');
+    }
     if (requireValue(env, 'CHECKOUT_ENABLED') !== 'false'
         || requireValue(env, 'CHECKOUT_ENABLED_OVERRIDE') !== 'false') {
         throw new Error('The local staging source must keep checkout fail-closed');
+    }
+    if (requireValue(env, 'WEB_RUNTIME_MODE') !== 'active'
+        || requireValue(env, 'FULFILLMENT_RUNTIME_MODE') !== 'active') {
+        throw new Error('Both staging runtime modes must be active');
     }
     if (requireValue(env, 'EMAIL_DELIVERY_MODE') !== 'allowlist') {
         throw new Error('EMAIL_DELIVERY_MODE must be allowlist in staging');
@@ -98,14 +104,21 @@ export function assertExpectedStagingRuntimeInput(input: {
     }
 
     for (const key of [
+        'ADMIN_EMAIL',
+        'CRON_SECRET',
+        'EMAIL_FROM',
         'PUBLIC_SUPABASE_ANON_KEY',
         'SUPABASE_SERVICE_ROLE_KEY',
         'INTERNAL_JOB_SECRET',
+        'LEVEL_CHECK_TOKEN_SECRET',
+        'PUBLIC_SENTRY_DSN',
         'PUBLIC_STRIPE_PUBLISHABLE_KEY',
         'STRIPE_SECRET_KEY',
         'STRIPE_WEBHOOK_SECRET',
         'STRIPE_EXPECTED_ACCOUNT_ID',
         'STRIPE_PORTAL_CONFIGURATION_ID',
+        'PUBLIC_TURNSTILE_SITE_KEY',
+        'TURNSTILE_SECRET_KEY',
         'GOOGLE_SERVICE_ACCOUNT_EMAIL',
         'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
         'GOOGLE_ADMIN_EMAIL',
@@ -113,18 +126,26 @@ export function assertExpectedStagingRuntimeInput(input: {
         'GOOGLE_TEMPLATE_DOC_ID',
         'RESEND_API_KEY',
         'RESEND_FROM_EMAIL',
+        'SUPPORT_ALERT_EMAIL',
     ]) requireValue(env, key);
 
     if (!requireValue(env, 'PUBLIC_STRIPE_PUBLISHABLE_KEY').startsWith('pk_test_')
         || !requireValue(env, 'STRIPE_SECRET_KEY').startsWith('sk_test_')
         || !requireValue(env, 'STRIPE_WEBHOOK_SECRET').startsWith('whsec_')
-        || !/^acct_[A-Za-z0-9]+$/u.test(requireValue(env, 'STRIPE_EXPECTED_ACCOUNT_ID'))
+        || requireValue(env, 'STRIPE_EXPECTED_ACCOUNT_ID') !== STAGING_STRIPE_ACCOUNT_ID
         || !/^bpc_[A-Za-z0-9]+$/u.test(requireValue(env, 'STRIPE_PORTAL_CONFIGURATION_ID'))) {
-        throw new Error('Stripe staging runtime requires exact test-mode keys, account and Portal configuration');
+        throw new Error(
+            `Stripe staging runtime requires test-mode keys, exact account ${STAGING_STRIPE_ACCOUNT_ID} `
+            + 'and a Portal configuration',
+        );
     }
 
     if (env.GOOGLE_DRIVE_ROOT_FOLDER_ID === env.GOOGLE_TEMPLATE_DOC_ID) {
         throw new Error('Google staging root and template IDs must differ');
+    }
+    if (normalizeEmail(requireValue(env, 'ADMIN_EMAIL')) !== normalizeEmail(roleEmails[2])
+        || normalizeEmail(requireValue(env, 'SUPPORT_ALERT_EMAIL')) !== normalizeEmail(roleEmails[2])) {
+        throw new Error('ADMIN_EMAIL and SUPPORT_ALERT_EMAIL must identify the expected staging admin');
     }
 }
 
@@ -188,8 +209,8 @@ async function verifyHealth(fetchImpl: FetchLike): Promise<void> {
 
 async function verifyOneAttestation(input: {
     env: Record<string, string | undefined>;
-    expectedCheckoutOverride: ExpectedCheckoutOverride;
     expectedIdentity: string;
+    expectedVersionId: string;
     fetchImpl: FetchLike;
     role: RuntimeAttestationRole;
     url: string;
@@ -210,15 +231,18 @@ async function verifyOneAttestation(input: {
         throw new Error(`${input.role} runtime attestation returned ${response.status}`);
     }
     const envelope = parseAttestationEnvelope(await readJson(response, `${input.role} runtime attestation`));
+    if (envelope.workerVersionId !== input.expectedVersionId) {
+        throw new Error(`${input.role} runtime version does not match the exact version activated by this run`);
+    }
     const expectedConfig = await buildRuntimeAttestationConfig(input.role, {
         ...input.env,
         CHECKOUT_ENABLED: 'false',
-        CHECKOUT_ENABLED_OVERRIDE: input.role === 'web' ? input.expectedCheckoutOverride : 'false',
+        CHECKOUT_ENABLED_OVERRIDE: 'false',
         FULFILLMENT_RUNTIME_MODE: input.role === 'fulfillment' ? 'active' : 'absent',
         PUBLIC_APP_ENV: 'staging',
         SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
         WORKER_IDENTITY: input.expectedIdentity,
-        WORKER_VERSION_ID: envelope.workerVersionId,
+        WORKER_VERSION_ID: input.expectedVersionId,
     });
     const valid = await verifyRuntimeAttestation(envelope, {
         config: expectedConfig,
@@ -235,27 +259,32 @@ async function verifyOneAttestation(input: {
 export async function verifyDeployedStagingRuntime(input: {
     baseOrigin: string;
     env: Record<string, string | undefined>;
-    expectedWebCheckoutOverride: ExpectedCheckoutOverride;
+    expectedFulfillmentVersionId: string;
+    expectedWebVersionId: string;
     fetchImpl?: FetchLike;
     fulfillmentOrigin: string;
     roleEmails: string[];
 }): Promise<DeployedRuntimeVerification> {
     assertExpectedStagingRuntimeInput(input);
+    if (!VERSION_ID_PATTERN.test(input.expectedWebVersionId)
+        || !VERSION_ID_PATTERN.test(input.expectedFulfillmentVersionId)) {
+        throw new Error('Expected staging Worker version IDs are invalid');
+    }
     const fetchImpl = input.fetchImpl ?? fetch;
     await verifyHealth(fetchImpl);
     const [webVersionId, fulfillmentVersionId] = await Promise.all([
         verifyOneAttestation({
             env: input.env,
-            expectedCheckoutOverride: input.expectedWebCheckoutOverride,
             expectedIdentity: STAGING_WEB_IDENTITY,
+            expectedVersionId: input.expectedWebVersionId,
             fetchImpl,
             role: 'web',
             url: `${STAGING_WEB_ORIGIN}/api/internal/runtime-attestation`,
         }),
         verifyOneAttestation({
             env: input.env,
-            expectedCheckoutOverride: 'false',
             expectedIdentity: STAGING_FULFILLMENT_IDENTITY,
+            expectedVersionId: input.expectedFulfillmentVersionId,
             fetchImpl,
             role: 'fulfillment',
             url: `${STAGING_FULFILLMENT_ORIGIN}/internal/runtime-attestation`,
