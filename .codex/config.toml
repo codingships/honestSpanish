@@ -1,0 +1,9 @@
+# Trusted-project defaults for normal Honest Spanish development.
+# External production effects remain governed by AGENTS.md.
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+network_access = true
+exclude_tmpdir_env_var = false
+exclude_slash_tmp = false
