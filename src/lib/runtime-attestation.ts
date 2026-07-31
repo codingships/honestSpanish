@@ -1,4 +1,8 @@
-export const RUNTIME_ATTESTATION_SCHEMA = 5;
+export const RUNTIME_ATTESTATION_SCHEMA = 6;
+export const SUPPORTED_ROLLBACK_ATTESTATION_SCHEMAS = [5, RUNTIME_ATTESTATION_SCHEMA] as const;
+
+export type SupportedRollbackAttestationSchema =
+    (typeof SUPPORTED_ROLLBACK_ATTESTATION_SCHEMAS)[number];
 
 export type RuntimeAttestationRole = 'web' | 'fulfillment';
 
@@ -53,6 +57,16 @@ export type RuntimeAttestationEnvelope = {
     workerVersionId: string;
 };
 
+const SCHEMA_5_FULFILLMENT_OPTIONAL_BINDINGS = new Set([
+    'ADMIN_EMAIL',
+    'CRON_SECRET',
+    'LEVEL_CHECK_TOKEN_SECRET',
+    'PUBLIC_SENTRY_DSN',
+    'PUBLIC_TURNSTILE_SITE_KEY',
+    'SUPPORT_ALERT_EMAIL',
+    'TURNSTILE_SECRET_KEY',
+]);
+
 const encoder = new TextEncoder();
 
 function value(env: Record<string, string | undefined>, key: string): string {
@@ -89,6 +103,42 @@ export async function buildRuntimeAttestationConfig(
     role: RuntimeAttestationRole,
     env: Record<string, string | undefined>,
 ): Promise<RuntimeAttestationConfig> {
+    return buildRuntimeAttestationConfigForSchema(role, env, RUNTIME_ATTESTATION_SCHEMA);
+}
+
+export function isSupportedRollbackAttestationSchema(
+    schema: unknown,
+): schema is SupportedRollbackAttestationSchema {
+    return schema === 5 || schema === RUNTIME_ATTESTATION_SCHEMA;
+}
+
+/**
+ * Reconstructs the exact signed configuration emitted by an immutable Worker version.
+ * Schema 5 predated role isolation for a small set of web-only bindings. A fulfillment
+ * baseline therefore needs its immutable binding-name inventory so locally configured
+ * values that were absent remotely are represented as absent in the legacy proof.
+ */
+export async function buildRuntimeAttestationConfigForSchema(
+    role: RuntimeAttestationRole,
+    env: Record<string, string | undefined>,
+    schema: SupportedRollbackAttestationSchema,
+    bindingNames?: ReadonlySet<string>,
+): Promise<RuntimeAttestationConfig> {
+    if (!isSupportedRollbackAttestationSchema(schema)) {
+        throw new Error(`Unsupported runtime attestation schema: ${String(schema)}`);
+    }
+    if (schema === 5 && role === 'fulfillment' && !bindingNames) {
+        throw new Error('Schema 5 fulfillment verification requires an exact binding-name inventory');
+    }
+    const schemaValue = (key: string): string => {
+        if (
+            schema === 5
+            && role === 'fulfillment'
+            && SCHEMA_5_FULFILLMENT_OPTIONAL_BINDINGS.has(key)
+            && !bindingNames?.has(key)
+        ) return '';
+        return value(env, key);
+    };
     const googleConfigured = role === 'fulfillment' && [
         'GOOGLE_SERVICE_ACCOUNT_EMAIL',
         'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
@@ -98,6 +148,7 @@ export async function buildRuntimeAttestationConfig(
     ].some((key) => Boolean(value(env, key)));
     const webRuntimeMode = role === 'web' ? value(env, 'WEB_RUNTIME_MODE') : 'absent';
     const webRole = role === 'web';
+    const roleIsolatedOperationalBindings = schema >= 6;
     const stripeConfigured = webRole && [
         'PUBLIC_STRIPE_PUBLISHABLE_KEY',
         'STRIPE_SECRET_KEY',
@@ -106,11 +157,15 @@ export async function buildRuntimeAttestationConfig(
         'STRIPE_PORTAL_CONFIGURATION_ID',
     ].some((key) => Boolean(value(env, key)));
     return {
-        adminEmailFingerprint: await runtimeFingerprint(value(env, 'ADMIN_EMAIL')),
+        adminEmailFingerprint: await runtimeFingerprint(
+            roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('ADMIN_EMAIL'),
+        ),
         appEnvironment: value(env, 'PUBLIC_APP_ENV'),
         checkoutEnabled: value(env, 'CHECKOUT_ENABLED'),
         checkoutOverride: value(env, 'CHECKOUT_ENABLED_OVERRIDE'),
-        cronSecretFingerprint: await runtimeFingerprint(value(env, 'CRON_SECRET')),
+        cronSecretFingerprint: await runtimeFingerprint(
+            roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('CRON_SECRET'),
+        ),
         fulfillmentRuntimeMode: role === 'fulfillment' ? value(env, 'FULFILLMENT_RUNTIME_MODE') : 'absent',
         fulfillmentUrlFingerprint: await runtimeFingerprint(role === 'web' ? value(env, 'FULFILLMENT_WORKER_URL') : ''),
         googleAdminFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_ADMIN_EMAIL') : ''),
@@ -120,8 +175,12 @@ export async function buildRuntimeAttestationConfig(
         googleServiceAccountFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_SERVICE_ACCOUNT_EMAIL') : ''),
         googleTemplateFingerprint: await runtimeFingerprint(googleConfigured ? value(env, 'GOOGLE_TEMPLATE_DOC_ID') : ''),
         internalSecretFingerprint: await runtimeFingerprint(value(env, 'INTERNAL_JOB_SECRET')),
-        levelCheckSecretFingerprint: await runtimeFingerprint(value(env, 'LEVEL_CHECK_TOKEN_SECRET')),
-        publicSentryDsnFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_SENTRY_DSN')),
+        levelCheckSecretFingerprint: await runtimeFingerprint(
+            roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('LEVEL_CHECK_TOKEN_SECRET'),
+        ),
+        publicSentryDsnFingerprint: await runtimeFingerprint(
+            roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('PUBLIC_SENTRY_DSN'),
+        ),
         resendAllowlistFingerprint: await runtimeFingerprint(value(env, 'EMAIL_RECIPIENT_ALLOWLIST')),
         resendApiKeyFingerprint: await runtimeFingerprint(value(env, 'RESEND_API_KEY')),
         resendDailyLimit: value(env, 'EMAIL_DAILY_RECIPIENT_LIMIT'),
@@ -139,9 +198,15 @@ export async function buildRuntimeAttestationConfig(
         supabaseExpectedProjectRef: value(env, 'SUPABASE_EXPECTED_PROJECT_REF'),
         supabaseServiceRoleFingerprint: await runtimeFingerprint(value(env, 'SUPABASE_SERVICE_ROLE_KEY')),
         supabaseUrlFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_SUPABASE_URL')),
-        supportAlertEmailFingerprint: await runtimeFingerprint(value(env, 'SUPPORT_ALERT_EMAIL')),
-        turnstileSecretFingerprint: await runtimeFingerprint(value(env, 'TURNSTILE_SECRET_KEY')),
-        turnstileSiteKeyFingerprint: await runtimeFingerprint(value(env, 'PUBLIC_TURNSTILE_SITE_KEY')),
+        supportAlertEmailFingerprint: await runtimeFingerprint(
+            roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('SUPPORT_ALERT_EMAIL'),
+        ),
+        turnstileSecretFingerprint: await runtimeFingerprint(
+            roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('TURNSTILE_SECRET_KEY'),
+        ),
+        turnstileSiteKeyFingerprint: await runtimeFingerprint(
+            roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('PUBLIC_TURNSTILE_SITE_KEY'),
+        ),
         webRuntimeMode,
         workerIdentity: value(env, 'WORKER_IDENTITY'),
         workerVersionId: value(env, 'WORKER_VERSION_ID'),
@@ -164,20 +229,30 @@ export async function createRuntimeAttestation(
     env: Record<string, string | undefined>,
     nonce: string,
 ): Promise<RuntimeAttestationEnvelope> {
+    return createRuntimeAttestationForSchema(role, env, nonce, RUNTIME_ATTESTATION_SCHEMA);
+}
+
+export async function createRuntimeAttestationForSchema(
+    role: RuntimeAttestationRole,
+    env: Record<string, string | undefined>,
+    nonce: string,
+    schema: SupportedRollbackAttestationSchema,
+    bindingNames?: ReadonlySet<string>,
+): Promise<RuntimeAttestationEnvelope> {
     const secret = value(env, 'INTERNAL_JOB_SECRET');
     if (!secret) throw new Error('ATTESTATION_CONFIG_INVALID');
-    const config = await buildRuntimeAttestationConfig(role, env);
+    const config = await buildRuntimeAttestationConfigForSchema(role, env, schema, bindingNames);
     const unsigned = {
         config,
         nonce,
         role,
-        schema: RUNTIME_ATTESTATION_SCHEMA,
+        schema,
     };
     return {
         nonce,
         proof: await hmac(secret, canonicalJson(unsigned)),
         role,
-        schema: RUNTIME_ATTESTATION_SCHEMA,
+        schema,
         workerIdentity: config.workerIdentity,
         workerVersionId: config.workerVersionId,
     };

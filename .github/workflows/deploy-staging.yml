@@ -154,7 +154,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_DAILY_RECIPIENT_LIMIT: "10"
           EMAIL_DELIVERY_MODE: "allowlist"
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_FROM: ${{ secrets.RESEND_FROM_EMAIL }}
           EMAIL_MONTHLY_RECIPIENT_LIMIT: "100"
           EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
           FULFILLMENT_RUNTIME_MODE: "active"
@@ -254,6 +254,76 @@ jobs:
             printf '%s\n' "- Fulfillment: \`$fulfillment_version\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Authenticate immutable rollback contract
+        id: rollback_contract
+        timeout-minutes: 5
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_ENABLED: "false"
+          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_DAILY_RECIPIENT_LIMIT: "10"
+          EMAIL_DELIVERY_MODE: "allowlist"
+          EMAIL_FROM: ${{ secrets.RESEND_FROM_EMAIL }}
+          EMAIL_MONTHLY_RECIPIENT_LIMIT: "100"
+          EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
+          FULFILLMENT_RUNTIME_MODE: "active"
+          FULFILLMENT_WORKER_URL: ${{ env.STAGING_FULFILLMENT_URL }}
+          GOOGLE_ADMIN_EMAIL: ${{ secrets.GOOGLE_ADMIN_EMAIL }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          GOOGLE_TEMPLATE_DOC_ID: ${{ secrets.GOOGLE_TEMPLATE_DOC_ID }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          LEVEL_CHECK_TOKEN_SECRET: ${{ secrets.LEVEL_CHECK_TOKEN_SECRET }}
+          PUBLIC_APP_ENV: "staging"
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          PUBLIC_SITE_URL: ${{ env.STAGING_WEB_URL }}
+          PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          STRIPE_EXPECTED_ACCOUNT_ID: "acct_1TruqOC22M3erP0j"
+          STRIPE_PORTAL_CONFIGURATION_ID: ${{ secrets.STRIPE_PORTAL_CONFIGURATION_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          SUPABASE_EXPECTED_PROJECT_REF: "mzjyvmlxfpzdfdjzxxyj"
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPPORT_ALERT_EMAIL: ${{ secrets.SUPPORT_ALERT_EMAIL }}
+          TEST_ADMIN_EMAIL: ${{ secrets.TEST_ADMIN_EMAIL }}
+          TEST_STUDENT_EMAIL: ${{ secrets.TEST_STUDENT_EMAIL }}
+          TEST_TEACHER_EMAIL: ${{ secrets.TEST_TEACHER_EMAIL }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          WEB_RUNTIME_MODE: "active"
+          WEB_BASELINE: ${{ steps.baseline.outputs.web_version }}
+          FULFILLMENT_BASELINE: ${{ steps.baseline.outputs.fulfillment_version }}
+        run: |
+          set -euo pipefail
+          web_bindings_file="$RUNNER_TEMP/web-baseline-version.json"
+          fulfillment_bindings_file="$RUNNER_TEMP/fulfillment-baseline-version.json"
+          rollback_contract_file="$RUNNER_TEMP/staging-rollback-contract.json"
+          trap 'rm -f -- "$web_bindings_file" "$fulfillment_bindings_file"' EXIT
+
+          pnpm exec wrangler versions view "$WEB_BASELINE" \
+            --name "$WEB_WORKER_NAME" \
+            --json > "$web_bindings_file"
+          pnpm exec wrangler versions view "$FULFILLMENT_BASELINE" \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --json > "$fulfillment_bindings_file"
+          pnpm run verify:staging-runtime -- \
+            --capture-baseline \
+            --web-version-id "$WEB_BASELINE" \
+            --fulfillment-version-id "$FULFILLMENT_BASELINE" \
+            --web-bindings-file "$web_bindings_file" \
+            --fulfillment-bindings-file "$fulfillment_bindings_file" \
+            --output "$rollback_contract_file"
+          printf '%s\n' "path=$rollback_contract_file" >> "$GITHUB_OUTPUT"
+
       - name: Mark Fulfillment mutation attempt
         id: attempt_fulfillment
         shell: bash
@@ -267,6 +337,17 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BASELINE_VERSION: ${{ steps.baseline.outputs.fulfillment_version }}
+          EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
+          GOOGLE_ADMIN_EMAIL: ${{ secrets.GOOGLE_ADMIN_EMAIL }}
+          GOOGLE_DRIVE_ROOT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_ROOT_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_EMAIL }}
+          GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          GOOGLE_TEMPLATE_DOC_ID: ${{ secrets.GOOGLE_TEMPLATE_DOC_ID }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
           status_file="$RUNNER_TEMP/fulfillment-before-deploy.json"
@@ -281,17 +362,24 @@ jobs:
             exit 1
           fi
 
+          secrets_file="$RUNNER_TEMP/staging-fulfillment-version-secrets.json"
+          trap 'rm -f -- "$secrets_file"' EXIT
+          pnpm exec tsx scripts/ci/write-cloudflare-version-secrets.ts \
+            --role fulfillment \
+            --output "$secrets_file"
           versions_file="$RUNNER_TEMP/fulfillment-versions-after-upload.json"
           pnpm exec wrangler versions upload \
             --config workers/fulfillment/wrangler.toml \
             --env staging \
             --name "$FULFILLMENT_WORKER_NAME" \
-            --keep-vars \
+            --secrets-file "$secrets_file" \
             --strict \
             --experimental-provision=false \
             --experimental-auto-create=false \
             --tag "$DEPLOY_COMMIT_SHA" \
             --message "$DEPLOY_MESSAGE"
+          rm -f -- "$secrets_file"
+          trap - EXIT
           pnpm exec wrangler versions list \
             --name "$FULFILLMENT_WORKER_NAME" \
             --json > "$versions_file"
@@ -300,6 +388,19 @@ jobs:
             --worker "$FULFILLMENT_WORKER_NAME" \
             --tag "$DEPLOY_COMMIT_SHA" \
             --message "$DEPLOY_MESSAGE")"
+          uploaded_version_file="$RUNNER_TEMP/fulfillment-uploaded-version.json"
+          pnpm exec wrangler versions view "$uploaded_version" \
+            --name "$FULFILLMENT_WORKER_NAME" \
+            --json > "$uploaded_version_file"
+          pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-owned \
+            --input "$uploaded_version_file" \
+            --worker "$FULFILLMENT_WORKER_NAME" \
+            --version-id "$uploaded_version" \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE"
+          pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-bindings \
+            --input "$uploaded_version_file" \
+            --worker "$FULFILLMENT_WORKER_NAME"
           status_file="$RUNNER_TEMP/fulfillment-before-version-activation.json"
           pnpm exec wrangler deployments status \
             --name "$FULFILLMENT_WORKER_NAME" \
@@ -355,6 +456,23 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BASELINE_VERSION: ${{ steps.baseline.outputs.web_version }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
+          INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
+          LEVEL_CHECK_TOKEN_SECRET: ${{ secrets.LEVEL_CHECK_TOKEN_SECRET }}
+          PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
+          PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
+          PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.PUBLIC_SUPABASE_ANON_KEY }}
+          PUBLIC_SUPABASE_URL: ${{ secrets.PUBLIC_SUPABASE_URL }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL }}
+          STRIPE_PORTAL_CONFIGURATION_ID: ${{ secrets.STRIPE_PORTAL_CONFIGURATION_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPPORT_ALERT_EMAIL: ${{ secrets.SUPPORT_ALERT_EMAIL }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
         run: |
           set -euo pipefail
           status_file="$RUNNER_TEMP/web-before-deploy.json"
@@ -369,16 +487,23 @@ jobs:
             exit 1
           fi
 
+          secrets_file="$RUNNER_TEMP/staging-web-version-secrets.json"
+          trap 'rm -f -- "$secrets_file"' EXIT
+          pnpm exec tsx scripts/ci/write-cloudflare-version-secrets.ts \
+            --role web \
+            --output "$secrets_file"
           versions_file="$RUNNER_TEMP/web-versions-after-upload.json"
           pnpm exec wrangler versions upload \
             --config dist/server/wrangler.json \
             --name "$WEB_WORKER_NAME" \
-            --keep-vars \
+            --secrets-file "$secrets_file" \
             --strict \
             --experimental-provision=false \
             --experimental-auto-create=false \
             --tag "$DEPLOY_COMMIT_SHA" \
             --message "$DEPLOY_MESSAGE"
+          rm -f -- "$secrets_file"
+          trap - EXIT
           pnpm exec wrangler versions list \
             --name "$WEB_WORKER_NAME" \
             --json > "$versions_file"
@@ -387,6 +512,19 @@ jobs:
             --worker "$WEB_WORKER_NAME" \
             --tag "$DEPLOY_COMMIT_SHA" \
             --message "$DEPLOY_MESSAGE")"
+          uploaded_version_file="$RUNNER_TEMP/web-uploaded-version.json"
+          pnpm exec wrangler versions view "$uploaded_version" \
+            --name "$WEB_WORKER_NAME" \
+            --json > "$uploaded_version_file"
+          pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-owned \
+            --input "$uploaded_version_file" \
+            --worker "$WEB_WORKER_NAME" \
+            --version-id "$uploaded_version" \
+            --tag "$DEPLOY_COMMIT_SHA" \
+            --message "$DEPLOY_MESSAGE"
+          pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-bindings \
+            --input "$uploaded_version_file" \
+            --worker "$WEB_WORKER_NAME"
           status_file="$RUNNER_TEMP/web-before-version-activation.json"
           pnpm exec wrangler deployments status \
             --name "$WEB_WORKER_NAME" \
@@ -437,7 +575,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_DAILY_RECIPIENT_LIMIT: "10"
           EMAIL_DELIVERY_MODE: "allowlist"
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_FROM: ${{ secrets.RESEND_FROM_EMAIL }}
           EMAIL_MONTHLY_RECIPIENT_LIMIT: "100"
           EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
           FULFILLMENT_RUNTIME_MODE: "active"
@@ -476,7 +614,7 @@ jobs:
 
       - name: Roll back failed staging deployment
         if: ${{ (failure() || cancelled()) && steps.attempt_fulfillment.outputs.started == 'true' }}
-        timeout-minutes: 15
+        timeout-minutes: 4
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -487,7 +625,7 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_DAILY_RECIPIENT_LIMIT: "10"
           EMAIL_DELIVERY_MODE: "allowlist"
-          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_FROM: ${{ secrets.RESEND_FROM_EMAIL }}
           EMAIL_MONTHLY_RECIPIENT_LIMIT: "100"
           EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
           FULFILLMENT_RUNTIME_MODE: "active"
@@ -525,13 +663,51 @@ jobs:
           WEB_ATTEMPTED: ${{ steps.attempt_web.outputs.started }}
           WEB_BASELINE: ${{ steps.baseline.outputs.web_version }}
           FULFILLMENT_BASELINE: ${{ steps.baseline.outputs.fulfillment_version }}
+          ROLLBACK_CONTRACT: ${{ steps.rollback_contract.outputs.path }}
+          JOB_WAS_CANCELLED: ${{ cancelled() }}
+          STAGING_RUNTIME_MAX_ATTEMPTS: "1"
         run: |
           set -uo pipefail
+          cleanup_started_seconds=$SECONDS
+          cleanup_budget_seconds=210
+
+          bounded_run() {
+            local requested_limit="$1"
+            shift
+            local elapsed=$((SECONDS - cleanup_started_seconds))
+            local remaining=$((cleanup_budget_seconds - elapsed - 5))
+            local limit="$requested_limit"
+            if [ "$remaining" -le 0 ]; then
+              echo '::error::Automatic staging rollback exhausted its 210-second safety budget.'
+              return 124
+            fi
+            if [ "$limit" -gt "$remaining" ]; then
+              limit="$remaining"
+            fi
+            timeout --signal=TERM --kill-after=3s "${limit}s" "$@"
+          }
+
+          bounded_sleep() {
+            local requested_delay="$1"
+            local elapsed=$((SECONDS - cleanup_started_seconds))
+            local remaining=$((cleanup_budget_seconds - elapsed - 5))
+            local delay="$requested_delay"
+            if [ "$remaining" -le 0 ]; then
+              return 124
+            fi
+            if [ "$delay" -gt "$remaining" ]; then
+              delay="$remaining"
+            fi
+            sleep "$delay"
+          }
+
           active_version() {
             local worker="$1"
             local label="$2"
             local input="$RUNNER_TEMP/$label-deployment-status.json"
-            pnpm exec wrangler deployments status --name "$worker" --json > "$input" || return 1
+            bounded_run 25 pnpm exec wrangler deployments status \
+              --name "$worker" \
+              --json > "$input" || return 1
             pnpm exec tsx scripts/ci/cloudflare-staging-state.ts active \
               --input "$input" \
               --worker "$worker"
@@ -542,7 +718,7 @@ jobs:
             local version="$2"
             local label="$3"
             local input="$RUNNER_TEMP/$label-version-view.json"
-            pnpm exec wrangler versions view "$version" \
+            bounded_run 25 pnpm exec wrangler versions view "$version" \
               --name "$worker" \
               --json > "$input" || return 1
             pnpm exec tsx scripts/ci/cloudflare-staging-state.ts assert-owned \
@@ -559,8 +735,11 @@ jobs:
             local attempted="$3"
             local label="$4"
             local -a config_args=(--config dist/server/wrangler.json)
+            local observation
             local current
-            local restored
+            local stable_observations=0
+            local required_stable_observations=3
+            local max_observations=6
 
             [ "$attempted" = "true" ] || return 0
             if [ "$label" = "fulfillment" ]; then
@@ -569,51 +748,100 @@ jobs:
                 --env staging
               )
             fi
-            current="$(active_version "$worker" "$label-current")" || return 1
-            if [ "$current" = "$baseline" ]; then
-              printf '%s\n' "- $worker remained on baseline \`$baseline\`." >> "$GITHUB_STEP_SUMMARY"
-              return 0
-            fi
-            if ! owned_by_this_run "$worker" "$current" "$label-current"; then
+
+            force_baseline() {
+              bounded_run 40 pnpm exec wrangler rollback "$baseline" \
+                "${config_args[@]}" \
+                --name "$worker" \
+                --message "automatic baseline restore after failed $DEPLOY_MESSAGE" \
+                --yes
+            }
+
+            current="$(active_version "$worker" "$label-before-restore")" || return 1
+            if [ "$current" != "$baseline" ] \
+              && ! owned_by_this_run "$worker" "$current" "$label-before-restore"; then
               echo "::error::$worker changed to a version not owned by this run; refusing unsafe automatic rollback."
               return 1
             fi
-            if ! pnpm exec wrangler rollback "$baseline" \
-              "${config_args[@]}" \
-              --name "$worker" \
-              --message "automatic rollback after failed $DEPLOY_MESSAGE" \
-              --yes; then
+            # Roll back even when the baseline still appears active. Wrangler's rollback
+            # path can restore changed secrets and makes this the last known write.
+            force_baseline || return 1
+
+            for ((observation = 1; observation <= max_observations; observation += 1)); do
+              current="$(active_version "$worker" "$label-current-$observation")" || return 1
+              if [ "$current" = "$baseline" ]; then
+                stable_observations=$((stable_observations + 1))
+                if [ "$stable_observations" -ge "$required_stable_observations" ]; then
+                  printf '%s\n' \
+                    "- $worker stabilized on baseline \`$baseline\`." \
+                    >> "$GITHUB_STEP_SUMMARY"
+                  return 0
+                fi
+              else
+                stable_observations=0
+                if ! owned_by_this_run "$worker" "$current" "$label-current-$observation"; then
+                  echo "::error::$worker changed to a version not owned by this run; refusing unsafe automatic rollback."
+                  return 1
+                fi
+                force_baseline || return 1
+              fi
+              bounded_sleep 3 || return 1
+            done
+
+            echo "::error::$worker did not remain on its baseline for the bounded stability window."
+            return 1
+          }
+
+          active_baselines_are_exact() {
+            local web_active
+            local fulfillment_active
+            web_active="$(active_version "$WEB_WORKER_NAME" web-final)" || return 1
+            fulfillment_active="$(active_version "$FULFILLMENT_WORKER_NAME" fulfillment-final)" || return 1
+            if [ "$web_active" != "$WEB_BASELINE" ] \
+              || [ "$fulfillment_active" != "$FULFILLMENT_BASELINE" ]; then
+              echo '::error::A staging Worker changed after the authenticated rollback smoke.'
               return 1
             fi
-            restored="$(active_version "$worker" "$label-restored")" || return 1
-            if [ "$restored" != "$baseline" ]; then
-              echo "::error::$worker rollback did not restore the baseline."
-              return 1
-            fi
-            printf '%s\n' "- $worker restored to \`$baseline\`." >> "$GITHUB_STEP_SUMMARY"
+            return 0
           }
 
           printf '%s\n' "### Automatic staging rollback" >> "$GITHUB_STEP_SUMMARY"
-          rollback_failed=0
-          rollback_one \
-            "$WEB_WORKER_NAME" \
-            "$WEB_BASELINE" \
-            "${WEB_ATTEMPTED:-}" \
-            web || rollback_failed=1
-          rollback_one \
-            "$FULFILLMENT_WORKER_NAME" \
-            "$FULFILLMENT_BASELINE" \
-            true \
-            fulfillment || rollback_failed=1
-          if [ "$rollback_failed" -eq 0 ]; then
-            if pnpm run verify:staging-runtime; then
-              printf '%s\n' '- Restored staging runtime smoke: passed.' >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo '::error::Rollback completed but the restored staging smoke failed.'
-              rollback_failed=1
-            fi
+          rollback_succeeded=0
+          rollback_max_rounds=2
+          if [ "$JOB_WAS_CANCELLED" = "true" ]; then
+            rollback_max_rounds=1
           fi
-          exit "$rollback_failed"
+          for ((rollback_round = 1; rollback_round <= rollback_max_rounds; rollback_round += 1)); do
+            rollback_failed=0
+            rollback_one \
+              "$WEB_WORKER_NAME" \
+              "$WEB_BASELINE" \
+              "${WEB_ATTEMPTED:-}" \
+              web || rollback_failed=1
+            rollback_one \
+              "$FULFILLMENT_WORKER_NAME" \
+              "$FULFILLMENT_BASELINE" \
+              true \
+              fulfillment || rollback_failed=1
+            if [ "$rollback_failed" -eq 0 ] \
+              && bounded_run 60 pnpm run verify:staging-runtime -- \
+                --verify-rollback \
+                --contract "$ROLLBACK_CONTRACT" \
+              && active_baselines_are_exact; then
+              rollback_succeeded=1
+              break
+            fi
+            if [ "$rollback_round" -lt "$rollback_max_rounds" ]; then
+              echo '::warning::Rollback was not yet stable; retrying the bounded recovery once.'
+            fi
+          done
+          if [ "$rollback_succeeded" -eq 1 ]; then
+            printf '%s\n' '- Restored staging runtime smoke and final version IDs: passed.' \
+              >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo '::error::Automatic staging rollback did not reach a stable authenticated baseline.'
+          exit 1
 
       - name: Record deployed commit
         shell: bash

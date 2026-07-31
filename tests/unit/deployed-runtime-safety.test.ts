@@ -1,14 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { createRuntimeAttestation } from '../../src/lib/runtime-attestation';
+import {
+    createRuntimeAttestationForSchema,
+    type SupportedRollbackAttestationSchema,
+} from '../../src/lib/runtime-attestation';
 import {
     STAGING_FULFILLMENT_IDENTITY,
     STAGING_FULFILLMENT_ORIGIN,
+    STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID,
     STAGING_SUPABASE_REF,
     STAGING_STRIPE_ACCOUNT_ID,
     STAGING_WEB_IDENTITY,
     STAGING_WEB_ORIGIN,
+    assertStagingRollbackContract,
     assertExpectedStagingRuntimeInput,
+    captureStagingRollbackBaseline,
+    extractRollbackBindingNamesFromVersionView,
     verifyDeployedStagingRuntime,
+    verifyStagingRollbackRuntime,
 } from '../../scripts/smoke/deployed-runtime-safety';
 
 const roleEmails = ['student@test.invalid', 'teacher@test.invalid', 'admin@test.invalid'];
@@ -52,43 +60,141 @@ const baseEnv: Record<string, string> = {
 };
 
 const webVersionId = '11111111-1111-4111-8111-111111111111';
-const fulfillmentVersionId = '22222222-2222-4222-8222-222222222222';
+const fulfillmentVersionId = STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID;
 
-function deployedFetch(options?: { fulfillmentGoogleKey?: string }) {
+const legacyFulfillmentBindingNames = [
+    'CRON_SECRET',
+    'EMAIL_RECIPIENT_ALLOWLIST',
+    'GOOGLE_ADMIN_EMAIL',
+    'GOOGLE_DRIVE_ROOT_FOLDER_ID',
+    'GOOGLE_SERVICE_ACCOUNT_EMAIL',
+    'GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY',
+    'GOOGLE_TEMPLATE_DOC_ID',
+    'INTERNAL_JOB_SECRET',
+    'PUBLIC_SUPABASE_URL',
+    'RESEND_API_KEY',
+    'RESEND_FROM_EMAIL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPPORT_ALERT_EMAIL',
+];
+const webBindingNames = Object.keys(baseEnv);
+
+function deployedFetch(options?: {
+    allowMissingBearer?: boolean;
+    checkoutEnabled?: boolean;
+    fulfillmentGoogleKey?: string;
+    fulfillmentSchema?: SupportedRollbackAttestationSchema;
+    fulfillmentVersionId?: string;
+    overrideFulfillmentNonce?: string;
+    overrideFulfillmentSchema?: number;
+    webSchema?: SupportedRollbackAttestationSchema;
+}) {
     return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
         const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
         if (url.href === `${STAGING_WEB_ORIGIN}/es`) {
             return new Response('<html></html>', { status: 200 });
         }
+        if (url.href === `${STAGING_WEB_ORIGIN}/health`) {
+            return Response.json({
+                appEnvironment: 'staging',
+                checkoutEnabled: options?.checkoutEnabled ?? false,
+                runtimeMode: 'active',
+                status: 'ok',
+                workerIdentity: STAGING_WEB_IDENTITY,
+            });
+        }
         if (url.href === `${STAGING_FULFILLMENT_ORIGIN}/health`) {
-            return Response.json({ ok: true, service: 'fulfillment-worker', runtime: 'cloudflare-workers' });
+            return Response.json({
+                ok: true,
+                operationMode: 'active',
+                service: 'fulfillment-worker',
+                runtime: 'cloudflare-workers',
+                workerIdentity: STAGING_FULFILLMENT_IDENTITY,
+            });
+        }
+        if (url.href === `${STAGING_FULFILLMENT_ORIGIN}/internal/jobs/process`) {
+            return Response.json({ error: 'Unauthorized' }, { status: 401 });
+        }
+        if (url.href === `${STAGING_WEB_ORIGIN}/api/create-checkout`) {
+            return Response.json({ error: 'Checkout is disabled' }, { status: 403 });
+        }
+
+        if (new Headers(init?.headers).get('Authorization') !== `Bearer ${baseEnv.INTERNAL_JOB_SECRET}`) {
+            if (options?.allowMissingBearer) {
+                return Response.json({ accepted: true });
+            }
+            return url.href === `${STAGING_FULFILLMENT_ORIGIN}/internal/runtime-attestation`
+                ? Response.json({ error: 'Unauthorized' }, { status: 401 })
+                : Response.json({ errorCode: 'ATTESTATION_UNAUTHORIZED' }, { status: 401 });
         }
 
         const body = JSON.parse(String(init?.body)) as { nonce: string };
         if (url.href === `${STAGING_WEB_ORIGIN}/api/internal/runtime-attestation`) {
-            return Response.json(await createRuntimeAttestation('web', {
+            const envelope = await createRuntimeAttestationForSchema('web', {
                 ...baseEnv,
                 CHECKOUT_ENABLED_OVERRIDE: 'false',
                 WORKER_IDENTITY: STAGING_WEB_IDENTITY,
                 WORKER_VERSION_ID: webVersionId,
-            }, body.nonce));
+            }, body.nonce, options?.webSchema ?? 6, new Set(webBindingNames));
+            return Response.json(envelope);
         }
         if (url.href === `${STAGING_FULFILLMENT_ORIGIN}/internal/runtime-attestation`) {
-            return Response.json(await createRuntimeAttestation('fulfillment', {
+            const schema = options?.fulfillmentSchema ?? 6;
+            const envelope = await createRuntimeAttestationForSchema('fulfillment', {
                 ...baseEnv,
                 CHECKOUT_ENABLED_OVERRIDE: 'false',
                 FULFILLMENT_RUNTIME_MODE: 'active',
                 GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: options?.fulfillmentGoogleKey ?? baseEnv.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
                 SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
                 WORKER_IDENTITY: STAGING_FULFILLMENT_IDENTITY,
-                WORKER_VERSION_ID: fulfillmentVersionId,
-            }, body.nonce));
+                WORKER_VERSION_ID: options?.fulfillmentVersionId ?? fulfillmentVersionId,
+            }, body.nonce, schema, new Set(legacyFulfillmentBindingNames));
+            return Response.json({
+                ...envelope,
+                ...(options?.overrideFulfillmentNonce === undefined
+                    ? {}
+                    : { nonce: options.overrideFulfillmentNonce }),
+                ...(options?.overrideFulfillmentSchema === undefined
+                    ? {}
+                    : { schema: options.overrideFulfillmentSchema }),
+            });
         }
         return new Response('not found', { status: 404 });
     };
 }
 
 describe('deployed staging runtime safety', () => {
+    it('anchors baseline binding names to the exact Wrangler version view', () => {
+        const versionView = {
+            id: fulfillmentVersionId,
+            resources: {
+                bindings: [
+                    { name: 'INTERNAL_JOB_SECRET', type: 'secret_text' },
+                    { name: 'PUBLIC_APP_ENV', type: 'plain_text' },
+                ],
+            },
+        };
+        expect(extractRollbackBindingNamesFromVersionView(
+            versionView,
+            fulfillmentVersionId,
+            'fulfillment',
+        )).toEqual(['INTERNAL_JOB_SECRET', 'PUBLIC_APP_ENV']);
+        expect(() => extractRollbackBindingNamesFromVersionView(
+            versionView,
+            webVersionId,
+            'fulfillment',
+        )).toThrow('exact immutable version');
+        expect(() => extractRollbackBindingNamesFromVersionView({
+            ...versionView,
+            resources: {
+                bindings: [
+                    { name: 'INTERNAL_JOB_SECRET', type: 'secret_text' },
+                    { name: 'INTERNAL_JOB_SECRET', type: 'plain_text' },
+                ],
+            },
+        }, fulfillmentVersionId, 'fulfillment')).toThrow('duplicates');
+    });
+
     it('verifies both deployed Workers and their complete staging configuration', async () => {
         await expect(verifyDeployedStagingRuntime({
             baseOrigin: STAGING_WEB_ORIGIN,
@@ -113,6 +219,241 @@ describe('deployed staging runtime safety', () => {
         })).rejects.toThrow('fulfillment runtime attestation does not match');
     });
 
+    it('captures and verifies an exact mixed schema 6/web and schema 5/fulfillment rollback contract', async () => {
+        const fetchImpl = deployedFetch({ fulfillmentSchema: 5, webSchema: 6 });
+        const contract = await captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl,
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        });
+
+        expect(contract.web.schema).toBe(6);
+        expect(contract.fulfillment.schema).toBe(5);
+        expect(contract.web.verificationMode).toBe('configuration-hmac');
+        expect(contract.fulfillment.verificationMode).toBe('configuration-hmac');
+        expect(contract.fulfillment.bindingNames).not.toContain('ADMIN_EMAIL');
+        await expect(verifyStagingRollbackRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            contract,
+            env: baseEnv,
+            fetchImpl,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).resolves.toEqual({ fulfillmentVersionId, webVersionId });
+    });
+
+    it('does not allow schema 5 through the normal deployment verification path', async () => {
+        await expect(verifyDeployedStagingRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ fulfillmentSchema: 5 }),
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).rejects.toThrow('Runtime attestation response is invalid');
+    });
+
+    it('uses authenticated identity only for a legacy schema 5 config that cannot be reconstructed', async () => {
+        const contract = await captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ fulfillmentSchema: 5 }),
+            fulfillmentBindingNames: [...legacyFulfillmentBindingNames, 'ADMIN_EMAIL'],
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        });
+
+        expect(contract.fulfillment.verificationMode).toBe('legacy-authenticated-identity');
+        await expect(verifyStagingRollbackRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            contract,
+            env: baseEnv,
+            fetchImpl: deployedFetch({ fulfillmentSchema: 5 }),
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).resolves.toEqual({ fulfillmentVersionId, webVersionId });
+    });
+
+    it('never degrades a schema 6 configuration mismatch to identity-only verification', async () => {
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ fulfillmentGoogleKey: 'different-deployed-key' }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('baseline runtime attestation does not match');
+    });
+
+    it('requires fail-closed probes before accepting a legacy identity baseline', async () => {
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ checkoutEnabled: true, fulfillmentSchema: 5 }),
+            fulfillmentBindingNames: [...legacyFulfillmentBindingNames, 'ADMIN_EMAIL'],
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('fail-closed staging contract');
+    });
+
+    it('never treats an invalid bearer or nonce as a legacy identity fallback', async () => {
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: { ...baseEnv, INTERNAL_JOB_SECRET: 'wrong-internal-secret' },
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ fulfillmentSchema: 5 }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('baseline runtime attestation returned 401');
+
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({
+                fulfillmentSchema: 5,
+                overrideFulfillmentNonce: 'different_nonce_value_1234',
+            }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('identity or version does not match');
+    });
+
+    it('requires the attestation endpoints to reject a request without a bearer', async () => {
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ allowMissingBearer: true, fulfillmentSchema: 5 }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('did not reject a missing bearer');
+    });
+
+    it('does not let a forged schema field enable legacy mode for another version', async () => {
+        const unapprovedVersionId = '22222222-2222-4222-8222-222222222222';
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: unapprovedVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({
+                fulfillmentSchema: 6,
+                fulfillmentVersionId: unapprovedVersionId,
+                overrideFulfillmentSchema: 5,
+            }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('baseline runtime attestation does not match');
+    });
+
+    it('rejects an unknown schema during baseline capture', async () => {
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ overrideFulfillmentSchema: 7 }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('Runtime attestation response is invalid');
+    });
+
+    it('rejects an unsupported schema in a persisted rollback contract', () => {
+        expect(() => assertStagingRollbackContract({
+            contractSchema: 2,
+            web: {
+                bindingNames: webBindingNames,
+                role: 'web',
+                schema: 7,
+                verificationMode: 'configuration-hmac',
+                workerIdentity: STAGING_WEB_IDENTITY,
+                workerVersionId: webVersionId,
+            },
+            fulfillment: {
+                bindingNames: legacyFulfillmentBindingNames,
+                role: 'fulfillment',
+                schema: 5,
+                verificationMode: 'configuration-hmac',
+                workerIdentity: STAGING_FULFILLMENT_IDENTITY,
+                workerVersionId: fulfillmentVersionId,
+            },
+        })).toThrow('web rollback runtime contract is invalid');
+    });
+
+    it('rejects identity-only verification for any schema other than legacy schema 5', () => {
+        expect(() => assertStagingRollbackContract({
+            contractSchema: 2,
+            web: {
+                bindingNames: webBindingNames,
+                role: 'web',
+                schema: 6,
+                verificationMode: 'legacy-authenticated-identity',
+                workerIdentity: STAGING_WEB_IDENTITY,
+                workerVersionId: webVersionId,
+            },
+            fulfillment: {
+                bindingNames: legacyFulfillmentBindingNames,
+                role: 'fulfillment',
+                schema: 5,
+                verificationMode: 'configuration-hmac',
+                workerIdentity: STAGING_FULFILLMENT_IDENTITY,
+                workerVersionId: fulfillmentVersionId,
+            },
+        })).toThrow('web rollback runtime contract is invalid');
+    });
+
+    it('rejects rollback when the live schema differs from the captured exact schema', async () => {
+        const contract = await captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ fulfillmentSchema: 5 }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        });
+        await expect(verifyStagingRollbackRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            contract,
+            env: baseEnv,
+            fetchImpl: deployedFetch({ fulfillmentSchema: 6 }),
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).rejects.toThrow('Runtime attestation response is invalid');
+    });
+
     it('rejects a runtime version other than the exact version activated by the deployment', async () => {
         await expect(verifyDeployedStagingRuntime({
             baseOrigin: STAGING_WEB_ORIGIN,
@@ -122,7 +463,7 @@ describe('deployed staging runtime safety', () => {
             fetchImpl: deployedFetch(),
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
-        })).rejects.toThrow('web runtime version does not match the exact version');
+        })).rejects.toThrow('web runtime identity or version does not match the exact version');
     });
 
     it('rejects any Stripe account other than the exact Academy staging sandbox', () => {

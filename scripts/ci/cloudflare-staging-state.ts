@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseMixedJsonOutput } from './verify-cloudflare-identity';
+import {
+    FULFILLMENT_VERSION_SECRET_NAMES,
+    WEB_VERSION_SECRET_NAMES,
+} from './write-cloudflare-version-secrets';
 
 export const STAGING_WORKERS = {
     fulfillment: 'espanol-honesto-fulfillment-staging',
@@ -28,6 +32,104 @@ export interface StagingVersionSelector {
     tag: string;
     worker: StagingWorkerName;
 }
+
+export interface StagingVersionBinding {
+    name: string;
+    type: string;
+}
+
+export interface StagingVersionBindingInventory {
+    bindings: StagingVersionBinding[];
+    worker: StagingWorkerName;
+}
+
+type StagingVersionBindingContract = StagingVersionBinding & {
+    environment?: string;
+    queue_name?: string;
+    service?: string;
+    text?: string;
+};
+
+const WEB_VERSION_PLAIN_TEXT_BINDINGS = [
+    ['CHECKOUT_ENABLED', 'false'],
+    ['CHECKOUT_ENABLED_OVERRIDE', 'false'],
+    ['EMAIL_DAILY_RECIPIENT_LIMIT', '10'],
+    ['EMAIL_DELIVERY_MODE', 'allowlist'],
+    ['EMAIL_MONTHLY_RECIPIENT_LIMIT', '100'],
+    ['FULFILLMENT_WORKER_URL', 'https://espanol-honesto-fulfillment-staging.alindev95.workers.dev'],
+    ['NODE_ENV', 'production'],
+    ['PUBLIC_APP_ENV', 'staging'],
+    ['PUBLIC_SITE_URL', 'https://staging.espanolhonesto.com'],
+    ['PUBLIC_TURNSTILE_SITE_KEY', '1x00000000000000000000AA'],
+    ['SENTRY_ENVIRONMENT', 'staging'],
+    ['STRIPE_EXPECTED_ACCOUNT_ID', 'acct_1TruqOC22M3erP0j'],
+    ['SUPABASE_EXPECTED_PROJECT_REF', 'mzjyvmlxfpzdfdjzxxyj'],
+    ['WEB_RUNTIME_MODE', 'active'],
+    ['WORKER_IDENTITY', 'espanolhonesto-staging'],
+] as const satisfies readonly (readonly [string, string])[];
+
+const FULFILLMENT_VERSION_PLAIN_TEXT_BINDINGS = [
+    ['CHECKOUT_ENABLED', 'false'],
+    ['CHECKOUT_ENABLED_OVERRIDE', 'false'],
+    ['EMAIL_DAILY_RECIPIENT_LIMIT', '10'],
+    ['EMAIL_DELIVERY_MODE', 'allowlist'],
+    ['EMAIL_MONTHLY_RECIPIENT_LIMIT', '100'],
+    ['FULFILLMENT_RUNTIME_MODE', 'active'],
+    ['NODE_ENV', 'production'],
+    ['PUBLIC_APP_ENV', 'staging'],
+    ['PUBLIC_SITE_URL', 'https://staging.espanolhonesto.com'],
+    ['SUPABASE_EXPECTED_PROJECT_REF', 'mzjyvmlxfpzdfdjzxxyj'],
+    ['WORKER_IDENTITY', 'espanol-honesto-fulfillment-staging'],
+] as const satisfies readonly (readonly [string, string])[];
+
+const WEB_VERSION_STRUCTURAL_BINDINGS = [
+    ['ASSETS', 'assets'],
+    ['CF_VERSION_METADATA', 'version_metadata'],
+] as const satisfies readonly (readonly [string, string])[];
+
+const FULFILLMENT_VERSION_STRUCTURAL_BINDINGS = [
+    ['CF_VERSION_METADATA', 'version_metadata'],
+] as const satisfies readonly (readonly [string, string])[];
+
+function secretBindings(names: readonly string[]): StagingVersionBinding[] {
+    return names.map((name) => ({ name, type: 'secret_text' }));
+}
+
+function nonSecretBindings(
+    entries: readonly (readonly [string, string])[],
+): StagingVersionBinding[] {
+    return entries.map(([name, type]) => ({ name, type }));
+}
+
+function plainTextBindings(
+    entries: readonly (readonly [string, string])[],
+): StagingVersionBindingContract[] {
+    return entries.map(([name, text]) => ({ name, text, type: 'plain_text' }));
+}
+
+export const EXPECTED_STAGING_VERSION_BINDINGS = {
+    [STAGING_WORKERS.fulfillment]: [
+        ...secretBindings(FULFILLMENT_VERSION_SECRET_NAMES),
+        ...nonSecretBindings(FULFILLMENT_VERSION_STRUCTURAL_BINDINGS),
+        ...plainTextBindings(FULFILLMENT_VERSION_PLAIN_TEXT_BINDINGS),
+        {
+            name: 'FULFILLMENT_QUEUE',
+            queue_name: 'espanol-honesto-fulfillment-staging-queue',
+            type: 'queue',
+        },
+    ],
+    [STAGING_WORKERS.web]: [
+        ...secretBindings(WEB_VERSION_SECRET_NAMES),
+        ...nonSecretBindings(WEB_VERSION_STRUCTURAL_BINDINGS),
+        ...plainTextBindings(WEB_VERSION_PLAIN_TEXT_BINDINGS),
+        {
+            environment: 'production',
+            name: 'FULFILLMENT_SERVICE',
+            service: STAGING_WORKERS.fulfillment,
+            type: 'service',
+        },
+    ],
+} as const satisfies Record<StagingWorkerName, readonly StagingVersionBindingContract[]>;
 
 const versionIdPattern = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/iu;
 const commitShaPattern = /^[0-9a-f]{40}$/u;
@@ -167,6 +269,88 @@ export function findStagingVersionByOwnership(
     };
 }
 
+function bindingKey(binding: StagingVersionBinding): string {
+    return `${binding.name}\u0000${binding.type}`;
+}
+
+function sortedBindings(bindings: readonly StagingVersionBinding[]): StagingVersionBinding[] {
+    return [...bindings].sort((left, right) => bindingKey(left).localeCompare(bindingKey(right)));
+}
+
+function assertBindingSemantics(
+    actual: Record<string, unknown>,
+    expected: StagingVersionBindingContract,
+): void {
+    if (expected.type === 'plain_text' && actual.text !== expected.text) {
+        throw new Error(`Worker binding ${expected.name} does not have the exact staging plain-text value.`);
+    }
+    if (
+        expected.type === 'service'
+        && (
+            actual.service !== expected.service
+            || actual.environment !== expected.environment
+            || Object.prototype.hasOwnProperty.call(actual, 'entrypoint')
+        )
+    ) {
+        throw new Error(`Worker binding ${expected.name} does not target the exact staging service.`);
+    }
+    if (expected.type === 'queue' && actual.queue_name !== expected.queue_name) {
+        throw new Error(`Worker binding ${expected.name} does not target the exact staging queue.`);
+    }
+}
+
+export function assertStagingVersionBindingInventory(
+    source: string,
+    expectedWorker: string,
+): StagingVersionBindingInventory {
+    const worker = stagingWorkerName(expectedWorker);
+    const version = parseMixedJsonOutput(source);
+    if (!isRecord(version) || !isRecord(version.resources) || !Array.isArray(version.resources.bindings)) {
+        throw new Error('Wrangler version view must contain a resources.bindings array.');
+    }
+
+    const seenNames = new Set<string>();
+    const rawBindings = version.resources.bindings.map((entry) => {
+        if (
+            !isRecord(entry)
+            || typeof entry.name !== 'string'
+            || entry.name.trim() === ''
+            || entry.name !== entry.name.trim()
+            || typeof entry.type !== 'string'
+            || entry.type.trim() === ''
+            || entry.type !== entry.type.trim()
+        ) {
+            throw new Error('Wrangler version view contains a malformed binding.');
+        }
+        if (seenNames.has(entry.name)) {
+            throw new Error('Wrangler version view contains a duplicate binding name.');
+        }
+        seenNames.add(entry.name);
+        return entry;
+    });
+
+    const bindings = rawBindings.map((entry) => ({ name: entry.name as string, type: entry.type as string }));
+
+    const contract: readonly StagingVersionBindingContract[] = EXPECTED_STAGING_VERSION_BINDINGS[worker];
+    const actual = sortedBindings(bindings);
+    const expected = sortedBindings(contract);
+    if (
+        actual.length !== expected.length
+        || actual.some((binding, index) => bindingKey(binding) !== bindingKey(expected[index]!))
+    ) {
+        throw new Error(`Worker binding inventory does not exactly match the ${worker} staging contract.`);
+    }
+
+    const expectedByName = new Map<string, StagingVersionBindingContract>(
+        contract.map((binding) => [binding.name, binding]),
+    );
+    for (const binding of rawBindings) {
+        assertBindingSemantics(binding, expectedByName.get(binding.name as string)!);
+    }
+
+    return { bindings: actual, worker };
+}
+
 type CliOptions = Record<string, string>;
 
 function parseOptions(args: string[], allowed: readonly string[]): CliOptions {
@@ -244,7 +428,17 @@ export function runCloudflareStagingStateCli(args: string[]): void {
         return;
     }
 
-    throw new Error('Use the active, find-owned or assert-owned command.');
+    if (command === 'assert-bindings') {
+        const options = parseOptions(optionArgs, ['--input', '--worker']);
+        assertStagingVersionBindingInventory(
+            inputSource(options['--input']),
+            options['--worker'],
+        );
+        console.log('Cloudflare staging binding inventory verification passed.');
+        return;
+    }
+
+    throw new Error('Use the active, find-owned, assert-owned or assert-bindings command.');
 }
 
 const invokedScriptPath = process.argv[1];
