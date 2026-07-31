@@ -58,7 +58,7 @@ export default defineConfig({
                 'src/env.d.ts',
                 'src/middleware.ts',
                 'src/pages/og/**/*',
-                'src/pages/sitemap-public.xml.ts',
+                'src/pages/sitemap.xml.ts',
                 'src/pages/**/rss.xml.ts',
                 'src/types/**/*',
                 '**/node_modules/**',

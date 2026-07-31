@@ -3,6 +3,7 @@ import BaseLayout from '../../../layouts/BaseLayout.astro';
 import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
 import { getCollection } from 'astro:content';
 import { getBlogEntrySlug, isPublishedBlogPost } from '../../../lib/blog-routes';
+import { isPublicLang } from '../../../lib/public-seo';
 
 export const prerender = true;
 
@@ -15,7 +16,8 @@ export async function getStaticPaths() {
 }
 
 const { lang } = Astro.params;
-const t = useTranslations(lang as any);
+if (!isPublicLang(lang)) throw new Error('Unsupported blog language: ' + lang);
+const t = useTranslations(lang);
 
 const posts = await getCollection('blog', ({ data }) => {
     return data.lang === lang;
@@ -53,6 +55,8 @@ const accessibilityCopy = {
     title={`${t('common.blog')} | Español Honesto`} 
     description={t('meta.description')} 
     lang={lang}
+    canonicalPath="/blog"
+    rssPath={'/' + lang + '/blog/rss.xml'}
 >
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
         {accessibilityCopy.skip}

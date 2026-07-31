@@ -8,7 +8,8 @@ const landing = read('src/components/LandingPage.astro');
 const segmentLanding = read('src/components/landing/SegmentLandingPage.astro');
 const pricing = read('src/components/PricingSection.tsx');
 const baseLayout = read('src/layouts/BaseLayout.astro');
-const sitemap = read('src/pages/sitemap-public.xml.ts');
+const sitemap = read('src/lib/public-sitemap.ts');
+const llms = read('public/llms.txt');
 const spanishSegmentLandings = [
     'src/pages/es/espanol-para-vivir-en-espana.astro',
     'src/pages/es/espanol-para-profesionales.astro',
@@ -89,6 +90,11 @@ describe('public product surface', () => {
         expect(terms).not.toMatch(/1, 3 and 6|30, 40 or 50|3 or 6-month/);
         expect(terms).toContain('La primera cuota de 259 EUR se cobra al reservar la plaza e incluye cuatro clases individuales de 50 minutos');
         expect(terms).toContain('The initial EUR 259 charge is collected when the place is reserved and includes four individual 50-minute classes');
+        expect(llms).toContain('four individual online classes of 50 minutes');
+        expect(llms).toContain('EUR 259 per 28-day cycle');
+        expect(llms).toContain('days 0, 7, 14 and 21');
+        expect(llms).toContain('priority acquisition market, geography and language have not been selected yet');
+        expect(llms).not.toMatch(/Grupal Externo|Mensual Estándar|Híbrido Mensual|Intensivo Bootcamp|application-only at launch/iu);
     });
 
     it('keeps robots and the public sitemap limited to indexable public routes', () => {
@@ -96,12 +102,12 @@ describe('public product surface', () => {
 
         expect(robots).toContain('User-agent: *');
         expect(robots).toContain('Allow: /');
-        expect(robots).toContain('Sitemap: https://espanolhonesto.com/sitemap-index.xml');
+        expect(robots).toContain('Sitemap: https://espanolhonesto.com/sitemap.xml');
         for (const privatePath of [
             '/api/',
-            '/es/campus/',
-            '/en/campus/',
-            '/ru/campus/',
+            '/es/campus',
+            '/en/campus',
+            '/ru/campus',
             '/es/login',
             '/en/login',
             '/ru/login',
@@ -111,14 +117,14 @@ describe('public product surface', () => {
             expect(robots).toContain(`Disallow: ${privatePath}`);
         }
 
-        expect(sitemap).toContain("const LANGS = ['es', 'en', 'ru']");
-        expect(sitemap).toContain("{ path: '/', changefreq: 'weekly', priority: '1.0' }");
-        expect(sitemap).toContain("{ path: '/blog'");
+        expect(sitemap).toContain('PUBLIC_LANGS');
+        expect(sitemap).toContain("{ paths: { es: '/', en: '/', ru: '/' } }");
+        expect(sitemap).toContain("{ paths: { es: '/blog', en: '/blog', ru: '/blog' } }");
         expect(sitemap).toContain('/espanol-para-vivir-en-espana');
         expect(sitemap).toContain('/espanol-para-profesionales');
         expect(sitemap).toContain('/clases-de-conversacion-en-espanol');
         expect(sitemap).toContain('hreflang="x-default"');
-        expect(sitemap).toContain('.filter(isPublishedBlogPost)');
+        expect(sitemap).toContain('getPublishedBlogGroups');
 
         for (const privateFragment of [
             '/campus',
@@ -143,15 +149,15 @@ describe('public product surface', () => {
             'src/pages/[lang]/blog/index.astro',
             'src/pages/[lang]/blog/[slug].astro',
             'src/pages/[lang]/blog/rss.xml.ts',
-            'src/pages/sitemap-public.xml.ts',
             'src/pages/og/[slug].png.ts',
         ]) {
             expect(read(publicSurface), publicSurface).toContain('isPublishedBlogPost');
         }
+        expect(read('src/lib/public-sitemap.ts')).toContain('getPublishedBlogGroups');
     });
 
     it('keeps canonical, hreflang and noindex protections on shared and private routes', () => {
-        expect(baseLayout).toContain("const siteUrl = 'https://espanolhonesto.com'");
+        expect(baseLayout).toContain('const canonicalUrl = publicUrl(pageLang, canonicalRoute)');
         expect(baseLayout).toContain('<link rel="canonical" href={canonicalUrl} />');
         for (const language of ['es', 'en', 'ru', 'x-default']) {
             expect(baseLayout).toContain(`hreflang="${language}"`);

@@ -13,12 +13,85 @@ test.describe('Residual public routes', () => {
         const response = await page.request.get('/', { maxRedirects: 0 });
 
         expect(response.status()).toBe(301);
-        expect(response.headers().location).toBe('/es/');
+        expect(response.headers().location).toBe('/es');
 
         await page.goto('/', { waitUntil: 'domcontentloaded' });
         await expect(page).toHaveURL(/\/es\/?$/);
         await expect(page.locator('html')).toHaveAttribute('lang', 'es');
         await expectPageHasNoMojibake(page);
+    });
+
+    test('the announced sitemap is the allowlisted public surface', async ({ page }) => {
+        const robots = await page.request.get('/robots.txt');
+        const sitemap = await page.request.get('/sitemap.xml');
+        const robotsText = await robots.text();
+        const sitemapText = await sitemap.text();
+
+        expect(robotsText).toContain('Sitemap: https://espanolhonesto.com/sitemap.xml');
+        expect(sitemap.status()).toBe(200);
+        expect(sitemap.headers()['content-type']).toContain('application/xml');
+        expect(sitemapText).toContain('<loc>https://espanolhonesto.com/es</loc>');
+        expect(sitemapText).toContain(
+            '<loc>https://espanolhonesto.com/es/blog/cuanto-tiempo-hablar-espanol-fluido</loc>',
+        );
+        expect(sitemapText).not.toMatch(/\/(?:api|campus|login|legal|reset-password|success|cancel|demo)(?:\/|<)/u);
+
+        const entries = await page.evaluate((xml) => {
+            const document = new DOMParser().parseFromString(xml, 'application/xml');
+            if (document.querySelector('parsererror')) throw new Error('Invalid sitemap XML');
+
+            return Array.from(document.getElementsByTagName('url')).map((url) => ({
+                loc: url.getElementsByTagName('loc')[0]?.textContent ?? '',
+                alternates: Array.from(
+                    url.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'link'),
+                ).map((link) => ({
+                    lang: link.getAttribute('hreflang') ?? '',
+                    href: link.getAttribute('href') ?? '',
+                })),
+            }));
+        }, sitemapText);
+
+        expect(entries).toHaveLength(18);
+        for (const entry of entries) {
+            const response = await page.request.get(new URL(entry.loc).pathname);
+            const html = await response.text();
+            expect(response.status(), entry.loc).toBe(200);
+            expect(html, entry.loc).toContain('rel="canonical" href="' + entry.loc + '"');
+
+            for (const alternate of entry.alternates) {
+                const alternateResponse = await page.request.get(new URL(alternate.href).pathname);
+                expect(alternateResponse.status(), alternate.href).toBe(200);
+                expect(html, entry.loc + ' -> ' + alternate.lang).toContain(
+                    'hreflang="' + alternate.lang + '" href="' + alternate.href + '"',
+                );
+            }
+        }
+
+        const draft = await page.request.get('/es/blog/primer-post');
+        expect(draft.status()).toBe(404);
+    });
+
+    test('blog hreflang uses real reciprocal translated slugs', async ({ page }) => {
+        await page.goto('/es/blog/cuanto-tiempo-hablar-espanol-fluido', { waitUntil: 'domcontentloaded' });
+
+        await expect(page.locator('link[hreflang="es"]')).toHaveAttribute(
+            'href',
+            'https://espanolhonesto.com/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+        );
+        await expect(page.locator('link[hreflang="en"]')).toHaveAttribute(
+            'href',
+            'https://espanolhonesto.com/en/blog/how-long-to-speak-spanish-fluently',
+        );
+        await expect(page.locator('link[hreflang="ru"]')).toHaveAttribute(
+            'href',
+            'https://espanolhonesto.com/ru/blog/how-long-to-speak-spanish-fluently',
+        );
+
+        await page.goto('/en/blog/how-long-to-speak-spanish-fluently', { waitUntil: 'domcontentloaded' });
+        await expect(page.locator('link[hreflang="es"]')).toHaveAttribute(
+            'href',
+            'https://espanolhonesto.com/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+        );
     });
 
     test('blog index lists localized posts and links to article pages', async ({ page }) => {

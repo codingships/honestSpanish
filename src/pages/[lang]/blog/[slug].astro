@@ -1,30 +1,41 @@
 ---
-import { getCollection, render } from 'astro:content';
+import { getCollection, render, type CollectionEntry } from 'astro:content';
 import BlogLayout from '../../../layouts/BlogLayout.astro';
-import { getBlogEntryParts, isPublishedBlogPost } from '../../../lib/blog-routes';
+import {
+  getBlogAlternatePaths,
+  getBlogEntryParts,
+  isPublishedBlogPost,
+} from '../../../lib/blog-routes';
+import type { LocalizedPublicPaths, PublicLang } from '../../../lib/public-seo';
 
 export const prerender = true;
 
+type Props = {
+  post: CollectionEntry<'blog'>;
+  lang: PublicLang;
+  alternatePaths: LocalizedPublicPaths;
+};
+
 export async function getStaticPaths() {
   const posts = await getCollection('blog');
-  
-  return posts.filter(isPublishedBlogPost).map(post => {
-      const { lang, slug } = getBlogEntryParts(post);
 
-      return {
-        params: { 
-            lang: lang, 
-            slug: slug 
-        },
-        props: { post },
-      };
+  return posts.filter(isPublishedBlogPost).map((post) => {
+    const { lang, slug } = getBlogEntryParts(post);
+    return {
+      params: { lang, slug },
+      props: {
+        post,
+        lang,
+        alternatePaths: getBlogAlternatePaths(post, posts),
+      },
+    };
   });
 }
 
-const { post } = Astro.props;
+const { post, lang, alternatePaths } = Astro.props as Props;
 const { Content, headings } = await render(post);
 ---
 
-<BlogLayout post={post} lang={Astro.params.lang as any} headings={headings}>
+<BlogLayout post={post} lang={lang} alternatePaths={alternatePaths} headings={headings}>
   <Content />
 </BlogLayout>
