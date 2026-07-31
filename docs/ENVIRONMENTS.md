@@ -2,7 +2,7 @@
 
 Los identificadores explícitos de este documento son la lista permitida. Antes de escribir fuera del repositorio se comprueba por lectura que la identidad autenticada, el recurso y el entorno coinciden exactamente. Un recurso parecido no es intercambiable.
 
-Los identificadores confidenciales viven una sola vez en el GitHub Environment o en el gestor del proveedor. El repositorio fija su nombre de binding y las invariantes verificables; nunca copia el valor como una segunda fuente de verdad. El estado vivo indicado abajo se comprobó el 27 de julio de 2026 y debe releerse antes de cualquier escritura.
+Los identificadores confidenciales viven una sola vez en el GitHub Environment o en el gestor del proveedor. El repositorio fija su nombre de binding y las invariantes verificables; nunca copia el valor como una segunda fuente de verdad. El estado vivo indicado abajo se comprobó el 31 de julio de 2026 y debe releerse antes de cualquier escritura.
 
 ## Repositorio
 
@@ -59,7 +59,7 @@ No son targets, fallback ni fuentes de verdad. Una tarea que apunte a ellos se d
 
 Los valores viven en GitHub Environments o en el gestor del proveedor, nunca en Git. El workflow de staging requiere, entre otros, `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID`; el token debe estar restringido a esta cuenta y a los permisos necesarios de Workers/Queues.
 
-Para staging, el GitHub Environment `staging` es la fuente de la configuración esperada. Cloudflare conserva una copia runtime de variables y secretos; `versions upload --keep-vars` evita reescribirla durante un despliegue de código. Esto no permite divergencia silenciosa: antes de mutar se exige el contrato completo y, después, ambos Workers firman por HMAC sus IDs de versión y los fingerprints de toda la configuración atestada. El smoke recalcula la firma desde GitHub y rechaza cualquier ausencia o diferencia sin imprimir valores.
+Para staging, el GitHub Environment `staging` es la fuente de los secretos esperados. El workflow construye para cada Worker un archivo temporal con su allowlist exacto, lo pasa a `versions upload --secrets-file` y lo elimina sin imprimir valores. `keep_vars=false` y `unsafe.metadata.keep_bindings=[]` impiden heredar bindings de una versión anterior. Antes de activar, `versions view` debe coincidir exactamente en nombres, tipos y destinos o valores no secretos; después, el smoke exige los dos IDs activados y verifica por HMAC la configuración atestada contra GitHub.
 
 Secrets requeridos por el contrato:
 
