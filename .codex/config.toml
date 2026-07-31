@@ -56,10 +56,13 @@ open_world_enabled = true
 default_tools_approval_mode = "approve"
 
 [apps."asdk_app_6983c208e5f8819196b7511519f97993"] # Stripe
-enabled = true
-default_tools_enabled = true
+# Stripe is enabled only for a dedicated test-payments task after verifying
+# acct_1TruqOC22M3erP0j and livemode=false. Keeping it closed during normal
+# development prevents stale OAuth from adding delays or exposing mutations.
+enabled = false
+default_tools_enabled = false
 destructive_enabled = false
-open_world_enabled = true
+open_world_enabled = false
 default_tools_approval_mode = "approve"
 
 # Browser is a local skill, not an app. Cloudflare is the only plugin MCP
