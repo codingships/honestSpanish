@@ -72,3 +72,17 @@ Secrets requeridos por el contrato:
 URLs, Workers, modos, límites, ref de Supabase y la cuenta Stripe `acct_1TruqOC22M3erP0j` son constantes no secretas fijadas en el workflow y en este documento.
 
 La ausencia de una credencial detiene el despliegue. No se copia una clave de otro proyecto, no se inventa una segunda ruta de acceso y no se imprime el valor para diagnosticarla.
+
+## Perfil Codex del proyecto
+
+`.codex/config.toml` es un override local y versionado. No desinstala ni modifica plugins, skills, OAuth, hooks o MCP del perfil global, por lo que los demás proyectos conservan todas sus capacidades.
+
+Para HonestSpanish quedan habilitados Browser, GitHub, Cloudflare, Stripe y un MCP de Supabase restringido a `mzjyvmlxfpzdfdjzxxyj`, de solo lectura y con lista de herramientas. Todas las demás apps quedan cerradas por defecto, incluido el conector Supabase genérico. `sentry-p2` también queda deshabilitado porque apunta a otro proyecto; Sentry solo se habilitará tras comprobar `honestspanish/espanol-honesto-astro`.
+
+El perfil reduce errores de contexto, pero no puede limitar por sí mismo GitHub, Stripe o Cloudflare a una única cuenta. Antes de escribir siguen siendo obligatorios los preflights de este documento: GitHub `codingships/honestSpanish`, Stripe `acct_1TruqOC22M3erP0j` con `livemode=false` y Cloudflare `d1a22bcf6477ff2ff31d2bfb83084e44`. El aislamiento fuerte depende además de permisos OAuth o tokens limitados en el proveedor.
+
+Recuperación y reutilización:
+
+- Para volver al comportamiento global, se retiran de `.codex/config.toml` las secciones `apps.*`, `plugins.*` y `mcp_servers.*` y se abre una tarea nueva de Codex.
+- Para aplicar el mismo aislamiento a otro repositorio, se copia el perfil y se sustituyen sus allowlists e identidades por las de ese proyecto.
+- Git conserva el perfil anterior y cada cambio posterior. No se mantiene una segunda configuración global ni una copia con secretos.
