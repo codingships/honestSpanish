@@ -87,7 +87,7 @@ test.describe('Lead Magnet Form — public', () => {
         await page.locator('#contacto form button[type="submit"]').click();
 
         await expect(page.locator('#contacto').getByRole('status')).toContainText(
-            'Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad.',
+            'Gracias. Te escribiremos para responder tu consulta.',
         );
         expect(subscribeCalls).toBe(1);
         expect(submittedPayload).toMatchObject({
@@ -127,7 +127,7 @@ test.describe('Lead Magnet Form — public', () => {
         await page.locator('#contacto form button[type="submit"]').click();
 
         // Success message should NOT appear
-        const successMessage = page.locator('text="Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad."');
+        const successMessage = page.locator('text="Gracias. Te escribiremos para responder tu consulta."');
         await expect(successMessage).not.toBeVisible();
         await expect(page.getByRole('alert')).toContainText('Debes aceptar');
         expect(subscribeCalls).toBe(0);
