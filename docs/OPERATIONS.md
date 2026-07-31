@@ -13,7 +13,7 @@ No se crean documentos de traspaso ni carpetas de evidencia. El estado observabl
 
 ## Entorno Codex
 
-El perfil versionado de `.codex/config.toml` solo se aplica a este repositorio confiable. Mantiene intacto el perfil global, cierra apps ajenas, limita Supabase al staging `mzjyvmlxfpzdfdjzxxyj` en modo de solo lectura y deja disponibles GitHub, Stripe, Cloudflare y Browser. Los IDs y límites completos están en `docs/ENVIRONMENTS.md`.
+El perfil versionado de `.codex/config.toml` solo se aplica a este repositorio confiable. Mantiene intacto el perfil global, cierra apps ajenas, limita Supabase al staging `mzjyvmlxfpzdfdjzxxyj` en modo de solo lectura y Sentry a la inspección del proyecto canónico, y deja disponibles GitHub, Cloudflare y Browser. Stripe permanece cerrado hasta una tarea dedicada de pagos de prueba. Los IDs y límites completos están en `docs/ENVIRONMENTS.md`.
 
 Las skills permanecen instaladas porque se cargan de forma progresiva solo cuando una tarea las activa. No se crean agentes persistentes: el agente principal ejecuta el trabajo y usa como máximo tres subagentes para superficies realmente independientes.
 

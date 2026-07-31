@@ -6,8 +6,8 @@ Este directorio limita el contexto y las conexiones únicamente para este reposi
 
 - El agente principal usa la selección global de modelo y razonamiento.
 - Hasta tres subagentes pueden investigar superficies independientes; por defecto usan razonamiento `high` para evitar latencia innecesaria.
-- Browser, GitHub, Cloudflare, Stripe y un Supabase de staging en solo lectura siguen disponibles.
-- Las apps ajenas al proyecto, el Supabase genérico y el Sentry que apunta a otro proyecto no se cargan.
+- Browser, GitHub, Cloudflare, Sentry de Honest Spanish y un Supabase de staging en solo lectura siguen disponibles.
+- Stripe permanece cerrado hasta una tarea dedicada de pagos de prueba; las apps ajenas al proyecto y el Supabase genérico no se cargan.
 - `AGENTS.md` contiene la única metodología. Este archivo solo explica cómo recuperar o reutilizar la configuración técnica.
 
 ## Recuperar o reutilizar

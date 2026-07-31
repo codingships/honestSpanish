@@ -19,9 +19,10 @@ max_concurrent_threads_per_session = 3
 default_subagent_model = "gpt-5.6-sol"
 default_subagent_reasoning_effort = "high"
 
-# This machine-level MCP currently points to a different Sentry project.
-[mcp_servers.sentry-p2]
-enabled = false
+# Read-only Sentry inspection is scoped by the machine-level transport to the
+# canonical Honest Spanish organization and project verified on 2026-07-31.
+[mcp_servers.honestspanish-sentry]
+enabled = true
 
 # Bind database inspection to the staging project and expose only read-only
 # tools. Schema changes travel as reviewed migrations through GitHub/CI.
