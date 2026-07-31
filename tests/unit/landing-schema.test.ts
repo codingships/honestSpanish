@@ -2,38 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { normalizeDisplayName, type LandingPackage } from '../../src/lib/landing-data';
 import { buildLandingSchema } from '../../src/lib/landing-schema';
 
-const basePackage: LandingPackage = {
-    id: 'pkg_hybrid',
-    name: 'hybrid',
+const targetPackage: LandingPackage = {
+    id: 'pkg-individual-4x50-28d',
+    name: 'individual_4x50_28d',
     display_name: {
-        es: 'Hibrido mensual',
-        en: 'Hybrid monthly',
-        ru: 'Гибридный месяц',
+        es: '4 clases individuales',
+        en: '4 individual classes',
+        ru: '4 индивидуальных занятия',
     },
-    price_monthly: 15000,
+    price_monthly: 25900,
     sessions_per_month: 4,
-    has_group_session: true,
-    has_dual_teacher: true,
-    stripe_price_1m: 'price_1m',
-    stripe_price_3m: 'price_3m',
-    stripe_price_6m: 'price_6m',
-};
-
-const groupPackage: LandingPackage = {
-    id: 'pkg_group',
-    name: 'group',
-    display_name: {
-        es: 'Grupal externo',
-        en: 'External group',
-        ru: 'Групповые занятия',
-    },
-    price_monthly: 5000,
-    sessions_per_month: 4,
-    has_group_session: true,
+    has_group_session: false,
     has_dual_teacher: false,
-    stripe_price_1m: 'price_group_1m',
-    stripe_price_3m: 'price_group_3m',
-    stripe_price_6m: 'price_group_6m',
+    stripe_price_1m: null,
+    stripe_price_3m: null,
+    stripe_price_6m: null,
 };
 
 const translate = (key: string): unknown => {
@@ -56,80 +39,72 @@ function faqNode(schema: ReturnType<typeof buildLandingSchema>) {
 
 describe('normalizeDisplayName', () => {
     it('normalizes localized JSON display names with fallbacks', () => {
-        expect(normalizeDisplayName({ es: 'Grupal', en: 'Group' }, 'group')).toEqual({
-            es: 'Grupal',
-            en: 'Group',
-            ru: 'group',
+        expect(normalizeDisplayName({ es: 'Individual', en: 'Individual' }, 'individual_4x50_28d')).toEqual({
+            es: 'Individual',
+            en: 'Individual',
+            ru: 'individual_4x50_28d',
         });
     });
 
     it('falls back when display_name is not an object', () => {
-        expect(normalizeDisplayName(null, 'standard')).toEqual({
-            es: 'standard',
-            en: 'standard',
-            ru: 'standard',
+        expect(normalizeDisplayName(null, 'individual_4x50_28d')).toEqual({
+            es: 'individual_4x50_28d',
+            en: 'individual_4x50_28d',
+            ru: 'individual_4x50_28d',
         });
     });
 });
 
 describe('buildLandingSchema', () => {
-    it('builds course schema from active runtime packages', () => {
-        const schema = buildLandingSchema('es', translate, [basePackage]);
-        const courses = courseNodes(schema);
+    it('publishes the exact target offer as unavailable until checkout is ready', () => {
+        const course = courseNodes(buildLandingSchema('es', translate, [targetPackage]))[0];
 
-        expect(courses).toHaveLength(1);
-        expect(courses[0]).toMatchObject({
+        expect(course).toMatchObject({
             '@type': 'Course',
-            name: 'Hibrido mensual',
-            description: '4 clases privadas al mes, conversacion grupal cuando haya compatibilidad, seguimiento con dos profesores',
+            name: '4 clases individuales',
+            description: '4 clases individuales de 50 minutos por ciclo de 28 días; profesor y franja semanal identificados antes de pagar',
             inLanguage: 'es-ES',
             offers: {
-                price: '150',
+                price: '259',
                 priceCurrency: 'EUR',
-                availability: 'https://schema.org/PreOrder',
-                url: 'https://espanolhonesto.com/es#contacto',
+                availability: 'https://schema.org/OutOfStock',
+                url: 'https://espanolhonesto.com/es#planes',
             },
             potentialAction: {
-                '@type': 'ApplyAction',
-                name: 'Solicitar plaza',
-                target: 'https://espanolhonesto.com/es#contacto',
+                '@type': 'ViewAction',
+                name: 'Ver la oferta',
+                target: 'https://espanolhonesto.com/es#planes',
             },
         });
     });
 
-    it('localizes course names and package descriptions', () => {
-        const enCourse = courseNodes(buildLandingSchema('en', translate, [basePackage]))[0];
-        const ruCourse = courseNodes(buildLandingSchema('ru', translate, [basePackage]))[0];
+    it('localizes the offer without changing its commercial contract', () => {
+        const enCourse = courseNodes(buildLandingSchema('en', translate, [targetPackage]))[0];
+        const ruCourse = courseNodes(buildLandingSchema('ru', translate, [targetPackage]))[0];
 
         expect(enCourse).toMatchObject({
-            name: 'Hybrid monthly',
-            description: '4 private classes per month, compatible group conversation when available, two-teacher follow-up',
+            name: '4 individual classes',
+            description: '4 individual 50-minute classes per 28-day cycle; teacher and weekly time identified before payment',
             inLanguage: 'en-US',
             potentialAction: {
-                '@type': 'ApplyAction',
-                name: 'Request a place',
-                target: 'https://espanolhonesto.com/en#contacto',
+                '@type': 'ViewAction',
+                name: 'View the offer',
+                target: 'https://espanolhonesto.com/en#planes',
             },
         });
         expect(ruCourse).toMatchObject({
-            name: 'Гибридный месяц',
-            description: '4 индивидуальных занятий в месяц, групповая беседа при совместимости, сопровождение двумя преподавателями',
+            name: '4 индивидуальных занятия',
             inLanguage: 'ru-RU',
         });
+        expect(ruCourse.description).toContain('28');
     });
 
-    it('does not invent legacy course offers when packages are unavailable', () => {
-        const schema = buildLandingSchema('es', translate, []);
-
-        expect(courseNodes(schema)).toHaveLength(0);
-        expect(JSON.stringify(schema)).not.toContain('essential');
-        expect(JSON.stringify(schema)).not.toContain('premium');
+    it('does not invent an offer when packages are unavailable', () => {
+        expect(courseNodes(buildLandingSchema('es', translate, []))).toHaveLength(0);
     });
 
     it('includes FAQPage schema from visible landing FAQ translations', () => {
-        const schema = buildLandingSchema('es', translate, [basePackage]);
-
-        expect(faqNode(schema)).toMatchObject({
+        expect(faqNode(buildLandingSchema('es', translate, [targetPackage]))).toMatchObject({
             '@type': 'FAQPage',
             mainEntity: [
                 {
@@ -142,32 +117,5 @@ describe('buildLandingSchema', () => {
                 },
             ],
         });
-    });
-
-    it('describes group-only packages as group conversation, not private classes', () => {
-        const schema = buildLandingSchema('es', translate, [groupPackage]);
-        const courses = courseNodes(schema);
-
-        expect(courses[0]).toMatchObject({
-            name: 'Grupal externo',
-            description: '4 sesiones grupales de conversacion al mes si hay grupo compatible, grupo segun compatibilidad de nivel e intereses',
-        });
-        expect(courses[0].description).not.toContain('clases privadas');
-        expect((courses[0] as { offers: { availability: string } }).offers.availability).toBe('https://schema.org/PreOrder');
-    });
-
-    it('marks only launch-sellable packages as in stock', () => {
-        const standard = { ...basePackage, name: 'standard' };
-        const bootcamp = { ...basePackage, name: 'bootcamp' };
-        const courses = courseNodes(buildLandingSchema('es', translate, [standard, bootcamp, basePackage, groupPackage]));
-
-        expect(courses.map((course) => (
-            course as { offers: { availability: string } }
-        ).offers.availability)).toEqual([
-            'https://schema.org/InStock',
-            'https://schema.org/InStock',
-            'https://schema.org/PreOrder',
-            'https://schema.org/PreOrder',
-        ]);
     });
 });

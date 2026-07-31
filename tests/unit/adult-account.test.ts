@@ -82,7 +82,7 @@ describe('adult account attestation', () => {
         expect(page).toContain('/api/auth/confirm-adult');
         expect(page).toContain("window.location.assign(`/${pageCopy.lang || 'es'}/campus`)");
         expect(page).toContain('Подтверждение совершеннолетия');
-        expect(api).toContain('LEGAL_POLICY_VERSION');
+        expect(api).toContain('ADULT_POLICY_VERSION');
         expect(api).toContain('adult_confirmed_at: adultConfirmedAt');
     });
 });

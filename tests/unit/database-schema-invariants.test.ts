@@ -18,9 +18,21 @@ const billingReconciliationMigration = readFileSync('supabase/migrations/2026071
 const checkoutRecoveryMigration = readFileSync('supabase/migrations/20260710221846_harden_checkout_orphan_recovery.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutSnapshotMigration = readFileSync('supabase/migrations/20260710223900_harden_checkout_customer_and_snapshot_immutability.sql', 'utf8').replace(/\r\n/g, '\n');
 const sessionStatusContractMigration = readFileSync('supabase/migrations/20260712195500_harden_sessions_status_contract.sql', 'utf8').replace(/\r\n/g, '\n');
+const versionedOfferMigration = readFileSync('supabase/migrations/20260731151309_add_versioned_28_day_individual_offer.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
+
+function canonicalSqlFunction(source: string, qualifiedName: string): string {
+    const startMarker = `CREATE OR REPLACE FUNCTION ${qualifiedName}`;
+    const start = source.indexOf(startMarker);
+    if (start < 0) throw new Error(`Missing SQL function: ${qualifiedName}`);
+
+    const end = source.indexOf('\n$$;', start);
+    if (end < 0) throw new Error(`Unterminated SQL function: ${qualifiedName}`);
+
+    return source.slice(start, end + '\n$$;'.length).replace(/\s+/g, ' ').trim();
+}
 
 describe('database schema security invariants', () => {
     it('bootstraps is_admin before later migrations create dependent policies', () => {
@@ -212,6 +224,82 @@ describe('database schema security invariants', () => {
         ]) {
             expect(schema).toContain(snippet);
         }
+    });
+
+    it('adds the inactive 28-day contract without reinterpreting legacy monthly offers', () => {
+        for (const snippet of [
+            'contract_schema_version SMALLINT NOT NULL DEFAULT 1',
+            'is_publicly_listed BOOLEAN NOT NULL DEFAULT FALSE',
+            'packages_id_contract_schema_version_key',
+            'package_prices_package_contract_version_fkey',
+            'FOREIGN KEY (package_id, contract_schema_version)',
+            'package_prices_one_active_v2_offer_idx',
+            'CREATE OR REPLACE FUNCTION private.populate_legacy_contract_interval()',
+            "NEW.billing_interval_unit := 'month'",
+            'NEW.billing_interval_count := NEW.duration_months',
+            'package_price_versioned_contract_is_immutable',
+            'versioned_package_contract_fields_are_immutable',
+            'subscription_versioned_contract_is_immutable',
+            'CREATE OR REPLACE FUNCTION public.activate_versioned_package_price',
+            'SECURITY DEFINER',
+            'GRANT EXECUTE ON FUNCTION public.activate_versioned_package_price',
+            'CREATE POLICY "Anyone can view publicly listed packages"',
+            "'individual_4x50_28d'",
+            '25900',
+            "'day'",
+            '28',
+            '50',
+            'ON CONFLICT (name) DO NOTHING',
+        ]) {
+            expect(versionedOfferMigration).toContain(snippet);
+            expect(schema).toContain(snippet === 'ON CONFLICT (name) DO NOTHING'
+                ? "'individual_4x50_28d'"
+                : snippet);
+        }
+
+        expect(versionedOfferMigration).toContain('ALTER COLUMN duration_months DROP NOT NULL');
+        expect(versionedOfferMigration).toContain('contract_schema_version = 1');
+        expect(versionedOfferMigration).toContain("billing_interval_unit = 'month'");
+        expect(versionedOfferMigration).toContain('billing_interval_count = duration_months');
+        expect(versionedOfferMigration).toContain('contract_schema_version = 2');
+        expect(versionedOfferMigration).toContain('duration_months IS NULL');
+        expect(versionedOfferMigration).toContain('sessions_per_month IS NULL');
+        expect(versionedOfferMigration).toContain('amount_cents IS NOT NULL AND amount_cents > 0');
+        expect(versionedOfferMigration).toContain('price_monthly = amount_cents');
+        expect(versionedOfferMigration).toContain('sessions_per_month = sessions_per_period');
+        expect(versionedOfferMigration).toContain('billing_interval_count IS NOT NULL AND billing_interval_count > 0');
+        expect(versionedOfferMigration).toContain('class_duration_minutes IS NOT NULL AND class_duration_minutes > 0');
+        expect(versionedOfferMigration).toContain('is_publicly_listed = TRUE');
+        expect(versionedOfferMigration).not.toContain('UPDATE public.packages\nSET name =');
+        expect(versionedOfferMigration).not.toContain('DELETE FROM public.packages');
+        expect(versionedOfferMigration).not.toContain('stripe.products');
+        expect(versionedOfferMigration).not.toContain('stripe.prices');
+
+        expect(schema).toContain('"ru":"4 индивидуальных занятия"');
+        expect(databaseTypes).toContain('contract_schema_version: number;');
+        expect(databaseTypes).toContain('is_publicly_listed: boolean;');
+        expect(databaseTypes).toContain('billing_interval_unit: string | null;');
+        expect(databaseTypes).toContain('activate_versioned_package_price: {');
+
+        for (const functionName of [
+            'private.populate_legacy_contract_interval()',
+            'private.guard_versioned_package_contract()',
+            'private.version_package_catalog()',
+            'private.guard_versioned_package_price_history()',
+            'private.guard_versioned_subscription_contract()',
+            'public.activate_versioned_package_price(',
+        ]) {
+            expect(canonicalSqlFunction(schema, functionName)).toBe(
+                canonicalSqlFunction(versionedOfferMigration, functionName)
+            );
+        }
+
+        const versionedActivation = canonicalSqlFunction(
+            versionedOfferMigration,
+            'public.activate_versioned_package_price(',
+        );
+        expect(versionedActivation).toContain('SECURITY DEFINER');
+        expect(versionedActivation).not.toContain('SECURITY INVOKER');
     });
 
     it('serializes checkout claims and preserves unambiguous billing lifecycle state', () => {

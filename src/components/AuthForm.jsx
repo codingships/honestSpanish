@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import { LEGAL_POLICY_VERSION } from '../lib/legal-policy';
+import { ADULT_POLICY_VERSION } from '../lib/legal-policy';
 
 // Helper function to get lang from URL at redirect time
 const getLangFromUrl = () => {
@@ -96,7 +96,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                             full_name: fullName,
                             adult_confirmed: true,
                             adult_confirmed_at: new Date().toISOString(),
-                            age_policy_version: LEGAL_POLICY_VERSION,
+                            age_policy_version: ADULT_POLICY_VERSION,
                         }
                     }
                 });

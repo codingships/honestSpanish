@@ -1,4 +1,5 @@
 import type { APIContext } from 'astro';
+import { INITIAL_INDIVIDUAL_OFFER } from './package-pricing';
 import { readRuntimeEnv } from './runtime-env';
 import { createSupabaseServerClient } from './supabase-server';
 
@@ -15,56 +16,28 @@ export interface LandingPackage {
     stripe_price_6m: string | null;
 }
 
-const INERT_E2E_PACKAGES: readonly LandingPackage[] = [
-    {
-        id: '00000000-0000-4000-8000-000000000001',
-        name: 'group',
-        display_name: { es: 'Grupal Externo', en: 'External Group', ru: 'Групповые занятия' },
-        price_monthly: 5000,
-        sessions_per_month: 4,
-        has_group_session: true,
-        has_dual_teacher: false,
-        stripe_price_1m: null,
-        stripe_price_3m: null,
-        stripe_price_6m: null,
+export const PUBLIC_OFFER_KEY = INITIAL_INDIVIDUAL_OFFER.packageKey;
+
+// Transitional public projection for R1. Billing remains disabled until the
+// catalog and capacity reservation slices implement this exact contract.
+const PUBLIC_TARGET_PACKAGE: LandingPackage = {
+    id: '00000000-0000-4000-8000-000000000028',
+    name: PUBLIC_OFFER_KEY,
+    display_name: {
+        es: '4 clases individuales',
+        en: '4 individual classes',
+        ru: '4 индивидуальных занятия',
     },
-    {
-        id: '00000000-0000-4000-8000-000000000002',
-        name: 'standard',
-        display_name: { es: 'Mensual Estándar', en: 'Standard Monthly', ru: 'Стандартный месяц' },
-        price_monthly: 14500,
-        sessions_per_month: 4,
-        has_group_session: false,
-        has_dual_teacher: false,
-        stripe_price_1m: null,
-        stripe_price_3m: null,
-        stripe_price_6m: null,
-    },
-    {
-        id: '00000000-0000-4000-8000-000000000003',
-        name: 'hybrid',
-        display_name: { es: 'Híbrido Mensual', en: 'Hybrid Monthly', ru: 'Гибридный месяц' },
-        price_monthly: 15000,
-        sessions_per_month: 4,
-        has_group_session: true,
-        has_dual_teacher: true,
-        stripe_price_1m: null,
-        stripe_price_3m: null,
-        stripe_price_6m: null,
-    },
-    {
-        id: '00000000-0000-4000-8000-000000000004',
-        name: 'bootcamp',
-        display_name: { es: 'Intensivo Bootcamp', en: 'Bootcamp Intensive', ru: 'Интенсив Bootcamp' },
-        price_monthly: 34500,
-        sessions_per_month: 20,
-        has_group_session: false,
-        has_dual_teacher: false,
-        stripe_price_1m: null,
-        stripe_price_3m: null,
-        stripe_price_6m: null,
-    },
-];
+    price_monthly: INITIAL_INDIVIDUAL_OFFER.amountCents,
+    sessions_per_month: INITIAL_INDIVIDUAL_OFFER.sessionsPerPeriod,
+    has_group_session: false,
+    has_dual_teacher: false,
+    stripe_price_1m: null,
+    stripe_price_3m: null,
+    stripe_price_6m: null,
+};
+
+const INERT_E2E_PACKAGES: readonly LandingPackage[] = [PUBLIC_TARGET_PACKAGE];
 
 function isInertPublicE2e(context: APIContext): boolean {
     return readRuntimeEnv('PUBLIC_APP_ENV', context) === 'test'
@@ -84,6 +57,42 @@ export function normalizeDisplayName(value: unknown, fallback: string): LandingP
     }
 
     return { es: fallback, en: fallback, ru: fallback };
+}
+
+function isExactClosedPublicOffer(row: {
+    name: string;
+    price_monthly: number;
+    sessions_per_month: number;
+    has_group_session: boolean | null;
+    has_dual_teacher: boolean | null;
+    stripe_price_1m: string | null;
+    stripe_price_3m: string | null;
+    stripe_price_6m: string | null;
+    is_active: boolean | null;
+    is_publicly_listed: boolean;
+    contract_schema_version: number;
+    amount_cents: number | null;
+    billing_interval_unit: string | null;
+    billing_interval_count: number | null;
+    sessions_per_period: number | null;
+    class_duration_minutes: number | null;
+}): boolean {
+    return row.name === INITIAL_INDIVIDUAL_OFFER.packageKey
+        && row.price_monthly === INITIAL_INDIVIDUAL_OFFER.amountCents
+        && row.sessions_per_month === INITIAL_INDIVIDUAL_OFFER.sessionsPerPeriod
+        && row.has_group_session === false
+        && row.has_dual_teacher === false
+        && row.stripe_price_1m === null
+        && row.stripe_price_3m === null
+        && row.stripe_price_6m === null
+        && row.is_active === false
+        && row.is_publicly_listed === true
+        && row.contract_schema_version === INITIAL_INDIVIDUAL_OFFER.contractSchemaVersion
+        && row.amount_cents === INITIAL_INDIVIDUAL_OFFER.amountCents
+        && row.billing_interval_unit === INITIAL_INDIVIDUAL_OFFER.billingIntervalUnit
+        && row.billing_interval_count === INITIAL_INDIVIDUAL_OFFER.billingIntervalCount
+        && row.sessions_per_period === INITIAL_INDIVIDUAL_OFFER.sessionsPerPeriod
+        && row.class_duration_minutes === INITIAL_INDIVIDUAL_OFFER.classDurationMinutes;
 }
 
 export async function getLandingPageData(context: APIContext): Promise<{
@@ -107,9 +116,9 @@ export async function getLandingPageData(context: APIContext): Promise<{
 
     const { data: packages, error: packagesError } = await supabase
         .from('packages')
-        .select('id, name, display_name, price_monthly, sessions_per_month, has_group_session, has_dual_teacher, stripe_price_1m, stripe_price_3m, stripe_price_6m')
-        .eq('is_active', true)
-        .order('price_monthly', { ascending: true });
+        .select('id, name, display_name, price_monthly, sessions_per_month, has_group_session, has_dual_teacher, stripe_price_1m, stripe_price_3m, stripe_price_6m, is_active, is_publicly_listed, contract_schema_version, amount_cents, billing_interval_unit, billing_interval_count, sessions_per_period, class_duration_minutes')
+        .eq('name', PUBLIC_OFFER_KEY)
+        .eq('is_publicly_listed', true);
 
     if (packagesError) {
         console.error('Packages fetch error:', packagesError);
@@ -118,10 +127,16 @@ export async function getLandingPageData(context: APIContext): Promise<{
     const { data: { user } } = await supabase.auth.getUser();
 
     return {
-        packages: (packages || []).map((pkg) => ({
-            ...pkg,
-            display_name: normalizeDisplayName(pkg.display_name, pkg.name),
-        })),
+        // Never blend an error or a merely name-matching legacy row into the
+        // public offer. The executable contract owns price and session terms;
+        // the closed catalogue row only proves that the v2 snapshot exists.
+        packages: !packagesError && packages?.length === 1 && isExactClosedPublicOffer(packages[0])
+            ? [{
+                ...PUBLIC_TARGET_PACKAGE,
+                id: packages[0].id,
+                display_name: normalizeDisplayName(packages[0].display_name, PUBLIC_OFFER_KEY),
+            }]
+            : [],
         isLoggedIn: !!user,
     };
 }

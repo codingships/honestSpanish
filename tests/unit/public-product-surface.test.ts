@@ -9,6 +9,12 @@ const segmentLanding = read('src/components/landing/SegmentLandingPage.astro');
 const pricing = read('src/components/PricingSection.tsx');
 const baseLayout = read('src/layouts/BaseLayout.astro');
 const sitemap = read('src/pages/sitemap-public.xml.ts');
+const spanishSegmentLandings = [
+    'src/pages/es/espanol-para-vivir-en-espana.astro',
+    'src/pages/es/espanol-para-profesionales.astro',
+    'src/pages/es/clases-de-conversacion-en-espanol.astro',
+].map(read);
+const terms = read('src/pages/[lang]/legal/terminos.astro');
 
 describe('public product surface', () => {
     it('keeps the three-person teaching team, including Irene and each portrait', () => {
@@ -31,27 +37,58 @@ describe('public product surface', () => {
         }
     });
 
-    it('keeps public conversion application-first and preserves its essential multilingual copy', () => {
+    it('publishes one target offer while direct checkout remains unavailable', () => {
         for (const source of [landing, segmentLanding]) {
-            expect(source).toContain("const checkoutMode = 'application' as const");
+            expect(source).toContain("const checkoutMode = 'unavailable' as const");
             expect(source).toContain('checkoutMode={checkoutMode}');
             expect(source).not.toContain("const checkoutMode = 'checkout'");
         }
 
-        expect(pricing).toContain("checkoutMode = 'application'");
-        expect(ui.es.pricing.applicationNote).toBe(
-            'La solicitud de plaza se revisa antes de activar compra o pago.',
-        );
-        expect(ui.en.pricing.applicationNote).toBe(
-            'Your application is reviewed before purchase or payment is enabled.',
-        );
-        expect(ui.ru.pricing.applicationNote).toBe(
-            'Заявка рассматривается до включения покупки или оплаты.',
-        );
+        expect(pricing).toContain("checkoutMode = 'unavailable'");
+        expect(ui.es.pricing.applicationNote).toContain('profesor y horario antes de pagar');
+        expect(ui.en.pricing.applicationNote).toContain('teacher and schedule before paying');
+        expect(ui.ru.pricing.applicationNote).toContain('преподавателя');
+        expect(ui.es.pricing.modal.renewalDisclosure).toContain('259 EUR al reservar');
+        expect(ui.es.pricing.modal.renewalDisclosure).toContain('28 días después de la primera clase');
+        expect(ui.en.pricing.modal.renewalDisclosure).toContain('when the place is reserved');
+        expect(ui.en.pricing.modal.renewalDisclosure).toContain('28 days after the first class');
+        expect(ui.ru.pricing.modal.renewalDisclosure).toContain('при бронировании места');
+        expect(ui.ru.pricing.modal.renewalDisclosure).toContain('через 28 дней после первого занятия');
+        expect(landing).toContain('individual_4x50_28d');
+        expect(landing).toContain('259 EUR');
+        expect(landing).toContain('50 minutos');
+        expect(landing).toContain('cada 28 días');
+        expect(landing).toContain('antes de la segunda');
         expect(ui.es.hero.subtitle).toContain('entrar en España de verdad');
         expect(ui.es.hero.manifesto).toContain('Conversación, cultura y criterio');
         expect(ui.en.hero.subtitle).toContain('a real way into Spain');
         expect(ui.ru.hero.subtitle).toContain('по-настоящему войти в жизнь Испании');
+    });
+
+    it('does not render the retired catalogue or application-first purchase flow', () => {
+        const retiredOfferFragments = [
+            'Grupo compatible',
+            'conversación grupal',
+            'Híbrido',
+            'bootcamp',
+            'Intensivo',
+            'SOLICITAR PLAZA',
+        ];
+
+        for (const source of spanishSegmentLandings) {
+            for (const fragment of retiredOfferFragments) {
+                expect(source).not.toContain(fragment);
+            }
+            expect(source).toContain('const pricingTranslations = ui.es.pricing');
+            expect(source).toContain("ctaText: 'VER OFERTA'");
+        }
+
+        expect(JSON.stringify(ui.es.pricing.plans)).toContain('individual_4x50_28d');
+        expect(JSON.stringify(ui.es.pricing.plans)).not.toMatch(/group|hybrid|bootcamp|standard/i);
+        expect(terms).not.toMatch(/1, 3 y 6|30, 40 o 50|3 o 6 meses/);
+        expect(terms).not.toMatch(/1, 3 and 6|30, 40 or 50|3 or 6-month/);
+        expect(terms).toContain('La primera cuota de 259 EUR se cobra al reservar la plaza e incluye cuatro clases individuales de 50 minutos');
+        expect(terms).toContain('The initial EUR 259 charge is collected when the place is reserved and includes four individual 50-minute classes');
     });
 
     it('keeps robots and the public sitemap limited to indexable public routes', () => {

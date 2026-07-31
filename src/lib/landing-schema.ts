@@ -1,5 +1,4 @@
 import type { LandingPackage } from './landing-data';
-import { isPackageKeyCheckoutEligible } from './package-pricing';
 
 const brandName = `Espa${String.fromCodePoint(0x00F1)}ol Honesto`;
 const siteUrl = 'https://espanolhonesto.com';
@@ -10,37 +9,18 @@ const languageByLang = {
     ru: 'ru-RU',
 } as const;
 
-const applyActionNameByLang = {
-    es: 'Solicitar plaza',
-    en: 'Request a place',
-    ru: 'Оставить заявку',
+const viewActionNameByLang = {
+    es: 'Ver la oferta',
+    en: 'View the offer',
+    ru: 'Посмотреть предложение',
 } as const;
 
 function packageDescription(lang: 'es' | 'en' | 'ru', pkg: LandingPackage): string {
-    const sessions = pkg.sessions_per_month;
-    const isGroupOnly = pkg.name === 'group';
-    const pieces = {
-        es: [
-            isGroupOnly ? `${sessions} sesiones grupales de conversacion al mes si hay grupo compatible` : `${sessions} clases privadas al mes`,
-            !isGroupOnly && pkg.has_group_session ? 'conversacion grupal cuando haya compatibilidad' : null,
-            pkg.has_dual_teacher ? 'seguimiento con dos profesores' : null,
-            isGroupOnly ? 'grupo segun compatibilidad de nivel e intereses' : null,
-        ],
-        en: [
-            isGroupOnly ? `${sessions} group conversation sessions per month when a compatible group exists` : `${sessions} private classes per month`,
-            !isGroupOnly && pkg.has_group_session ? 'compatible group conversation when available' : null,
-            pkg.has_dual_teacher ? 'two-teacher follow-up' : null,
-            isGroupOnly ? 'group depends on compatible level and interests' : null,
-        ],
-        ru: [
-            isGroupOnly ? `${sessions} групповых разговорных занятий в месяц при совместимой группе` : `${sessions} индивидуальных занятий в месяц`,
-            !isGroupOnly && pkg.has_group_session ? 'групповая беседа при совместимости' : null,
-            pkg.has_dual_teacher ? 'сопровождение двумя преподавателями' : null,
-            isGroupOnly ? 'группа зависит от совместимого уровня и интересов' : null,
-        ],
-    }[lang].filter(Boolean);
-
-    return pieces.join(', ');
+    return {
+        es: `${pkg.sessions_per_month} clases individuales de 50 minutos por ciclo de 28 días; profesor y franja semanal identificados antes de pagar`,
+        en: `${pkg.sessions_per_month} individual 50-minute classes per 28-day cycle; teacher and weekly time identified before payment`,
+        ru: `${pkg.sessions_per_month} индивидуальных занятия по 50 минут за цикл из 28 дней; преподаватель и время известны до оплаты`,
+    }[lang];
 }
 
 function courseNodes(lang: 'es' | 'en' | 'ru', packages: LandingPackage[]) {
@@ -58,15 +38,13 @@ function courseNodes(lang: 'es' | 'en' | 'ru', packages: LandingPackage[]) {
             '@type': 'Offer',
             price: String(pkg.price_monthly / 100),
             priceCurrency: 'EUR',
-            availability: isPackageKeyCheckoutEligible(pkg.name)
-                ? 'https://schema.org/InStock'
-                : 'https://schema.org/PreOrder',
-            url: `${siteUrl}/${lang}#contacto`,
+            availability: 'https://schema.org/OutOfStock',
+            url: `${siteUrl}/${lang}#planes`,
         },
         potentialAction: {
-            '@type': 'ApplyAction',
-            name: applyActionNameByLang[lang],
-            target: `${siteUrl}/${lang}#contacto`,
+            '@type': 'ViewAction',
+            name: viewActionNameByLang[lang],
+            target: `${siteUrl}/${lang}#planes`,
         },
         courseMode: 'online',
     }));

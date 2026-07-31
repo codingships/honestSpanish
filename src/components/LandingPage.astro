@@ -23,9 +23,9 @@ interface Props {
 const { lang, packages, isLoggedIn } = Astro.props;
 const t = useTranslations(lang);
 const localizedUi = ui[lang];
-// Public pricing always starts with a reviewed application. Approved checkout
-// is exposed only inside the authenticated campus.
-const checkoutMode = 'application' as const;
+// R1 publishes the target contract without accepting money. Capacity-backed
+// direct checkout is enabled only in its dedicated later slice.
+const checkoutMode = 'unavailable' as const;
 
 // Data structure helper for complex arrays 
 const problemsStatements = localizedUi.problems.statements;
@@ -37,68 +37,23 @@ const leadCaptureTranslations = localizedUi.leadCapture;
 
 const launchPricingPlans = {
     es: {
-        group: {
-            name: 'Grupal externo',
-            description: 'Conversación guiada con alumnos compatibles cuando haya grupo disponible.',
-            features: [],
-        },
-        standard: {
-            name: 'Mensual estándar',
-            description: 'Clases privadas semanales para trabajar tu español con seguimiento claro.',
-            features: [],
-        },
-        hybrid: {
-            name: 'Híbrido mensual',
-            description: 'El plan principal: privadas, grupo compatible y doble mirada docente.',
-            features: [],
-        },
-        bootcamp: {
-            name: 'Intensivo bootcamp',
-            description: 'Ritmo intensivo para preparar un objetivo concreto.',
+        individual_4x50_28d: {
+            name: '4 clases individuales',
+            description: 'Una plaza semanal concreta con profesor y horario identificados antes de pagar.',
             features: [],
         },
     },
     en: {
-        group: {
-            name: 'External group',
-            description: 'Guided conversation with compatible students when a group is available.',
-            features: [],
-        },
-        standard: {
-            name: 'Standard monthly',
-            description: 'Weekly private classes with clear progress tracking.',
-            features: [],
-        },
-        hybrid: {
-            name: 'Hybrid monthly',
-            description: 'The main plan: private classes, compatible group practice and two-teacher follow-up.',
-            features: [],
-        },
-        bootcamp: {
-            name: 'Intensive bootcamp',
-            description: 'An intensive rhythm for a specific goal.',
+        individual_4x50_28d: {
+            name: '4 individual classes',
+            description: 'One specific weekly place with the teacher and time identified before payment.',
             features: [],
         },
     },
     ru: {
-        group: {
-            name: 'Групповой внешний',
-            description: 'Разговорная практика с подходящими студентами, когда есть совместимая группа.',
-            features: [],
-        },
-        standard: {
-            name: 'Стандартный месяц',
-            description: 'Еженедельные индивидуальные занятия с понятным отслеживанием прогресса.',
-            features: [],
-        },
-        hybrid: {
-            name: 'Гибридный месяц',
-            description: 'Основной план: индивидуальные занятия, совместимая группа и сопровождение двух преподавателей.',
-            features: [],
-        },
-        bootcamp: {
-            name: 'Интенсив bootcamp',
-            description: 'Интенсивный ритм под конкретную цель.',
+        individual_4x50_28d: {
+            name: '4 индивидуальных занятия',
+            description: 'Одно конкретное еженедельное место: преподаватель и время известны до оплаты.',
             features: [],
         },
     },
@@ -167,11 +122,11 @@ const courseDetails = {
         includesTitle: 'Qué incluye el curso',
         includesIntro: 'Un sistema para hablar mejor, revisar con criterio y mantener contacto real con España entre clases.',
         includes: [
-            'Clases privadas en directo de 30, 40 o 50 minutos.',
+            'Cuatro clases individuales en directo de 50 minutos por ciclo de 28 días.',
             'Documento vivo de clase con errores, vocabulario y deberes.',
             'Worksheets y materiales propios sobre vida, trabajo y cultura en España.',
             'Calendario, enlace de Meet y recordatorios desde el campus.',
-            'Seguimiento de progreso y acceso a conversación grupal cuando haya compatibilidad.',
+            'Profesor y franja semanal identificados antes de pagar.',
         ],
         audienceTitle: 'A quién va dirigido',
         audienceIntro: 'Para adultos que no buscan clases baratas ni milagros, sino conversación adulta y trabajo serio.',
@@ -186,11 +141,11 @@ const courseDetails = {
         includesTitle: 'What the course includes',
         includesIntro: 'A system for better conversation, sharper review and real contact with Spain between classes.',
         includes: [
-            'Private live classes of 30, 40 or 50 minutes.',
+            'Four live individual 50-minute classes per 28-day cycle.',
             'A living class document with mistakes, vocabulary and homework.',
             'Original worksheets about life, work and culture in Spain.',
             'Calendar, Meet link and reminders from the campus.',
-            'Progress follow-up and group conversation when there is a compatible group.',
+            'Teacher and weekly time identified before payment.',
         ],
         audienceTitle: 'Who it is for',
         audienceIntro: 'For adults who are not looking for cheap miracle classes, but serious work and adult conversation.',
@@ -205,11 +160,11 @@ const courseDetails = {
         includesTitle: 'Что входит в курс',
         includesIntro: 'Система для лучшего разговора, точного повторения и реального контакта с Испанией между занятиями.',
         includes: [
-            'Индивидуальные занятия онлайн по 30, 40 или 50 минут.',
+            'Четыре индивидуальных занятия по 50 минут за цикл из 28 дней.',
             'Живой документ урока с ошибками, лексикой и домашними заданиями.',
             'Авторские worksheets о жизни, работе и культуре в Испании.',
             'Calendar, ссылка Meet и напоминания из кампуса.',
-            'Отслеживание прогресса и групповой разговор, когда есть совместимая группа.',
+            'Преподаватель и еженедельное время известны до оплаты.',
         ],
         audienceTitle: 'Для кого это',
         audienceIntro: 'Для взрослых, которые ищут не дешевые чудеса, а серьезную работу и взрослый разговор.',
@@ -224,92 +179,92 @@ const courseDetails = {
 
 const communityDetails = {
     es: {
-        eyebrow: 'Contacto y comunidad',
-        title: 'Comunidad con encaje, no grupos de relleno',
-        intro: 'Queremos que el español sea una forma de entrar en España: conversación guiada, materiales compartidos y práctica con otros alumnos sólo cuando tenga sentido.',
+        eyebrow: 'Una plaza concreta',
+        title: 'Sabes con quién y cuándo antes de pagar',
+        intro: 'No compras un banco anónimo de horas: eliges una plaza semanal real y ves sus condiciones antes de contratar.',
         points: [
-            'Primero conocemos nivel, intereses y ritmo; después proponemos grupo si hay compatibilidad real.',
-            'El contacto con España entra en temas, worksheets y conversación: Madrid, Oviedo, Toledo, Barcelona, trabajo, ciudad y cultura.',
-            'Si todavía no hay grupo compatible, seguimos con clases privadas y materiales útiles. No vendemos una comunidad artificial.',
+            'La plaza identifica profesor, franja semanal, zona horaria y primera fecha.',
+            'Cada ciclo incluye cuatro clases individuales de 50 minutos y se renueva cada 28 días.',
+            'Tras la primera clase y antes de la segunda puedes pedir el valor de las tres restantes.',
         ],
     },
     en: {
-        eyebrow: 'Contact and community',
-        title: 'Community by fit, not filler groups',
-        intro: 'We want Spanish to become a way into Spain: guided conversation, shared materials and practice with other students only when it makes sense.',
+        eyebrow: 'One specific place',
+        title: 'Know who and when before paying',
+        intro: 'You do not buy an anonymous bank of hours: choose a real weekly place and see its terms before purchasing.',
         points: [
-            'First we learn your level, interests and rhythm; then we suggest a group if there is real compatibility.',
-            'Contact with Spain appears in topics, worksheets and conversation: Madrid, Oviedo, Toledo, Barcelona, work, city life and culture.',
-            'If there is no compatible group yet, we continue with private classes and useful materials. We do not sell an artificial community.',
+            'The place identifies the teacher, weekly time, time zone and first date.',
+            'Each cycle includes four individual 50-minute classes and renews every 28 days.',
+            'After the first class and before the second, you may request the value of the remaining three classes.',
         ],
     },
     ru: {
-        eyebrow: 'Контакт и сообщество',
-        title: 'Сообщество по совпадению, а не группы ради группы',
-        intro: 'Мы хотим, чтобы испанский стал способом входа в Испанию: разговор, материалы и практика с другими студентами только тогда, когда это действительно подходит.',
+        eyebrow: 'Конкретное место',
+        title: 'Преподаватель и время известны до оплаты',
+        intro: 'Это не анонимный банк часов: вы выбираете реальное еженедельное место до покупки.',
         points: [
-            'Сначала мы смотрим уровень, интересы и ритм; потом предлагаем группу, если есть реальная совместимость.',
-            'Контакт с Испанией появляется в темах, worksheets и разговорах: Мадрид, Овьедо, Толедо, Барселона, работа, город и культура.',
-            'Если подходящей группы пока нет, мы продолжаем с индивидуальными занятиями и полезными материалами. Мы не продаем искусственное сообщество.',
+            'Место указывает преподавателя, еженедельное время, часовой пояс и первую дату.',
+            'Каждый цикл включает четыре индивидуальных занятия по 50 минут и продлевается каждые 28 дней.',
+            'После первого занятия и до второго можно запросить возврат стоимости трёх оставшихся занятий.',
         ],
     },
 }[lang];
 
 const applicationNextSteps = {
     es: {
-        eyebrow: 'Solicitud revisada',
-        title: 'Qué pasa después de solicitar plaza',
-        intro: 'No te mandamos directo a pagar. Primero comprobamos si podemos ayudarte bien y qué formato tiene sentido.',
+        eyebrow: 'Compra directa',
+        title: 'Así funcionará la contratación',
+        intro: 'La compra está temporalmente cerrada mientras conectamos el inventario real de profesores y horarios.',
         steps: [
             {
-                title: 'Revisamos encaje',
-                body: 'Leemos tu nivel aproximado, objetivo, disponibilidad y plan de interés.',
+                title: 'Elige una plaza',
+                body: 'Ves el profesor, la franja semanal, la zona horaria y la primera fecha.',
             },
             {
-                title: 'Aclaramos nivel',
-                body: 'Si falta contexto, podemos enviarte preguntas breves o una prueba automática ligera. La evaluación humana se reserva para solicitudes serias.',
+                title: 'Revisa las condiciones',
+                body: 'Antes de pagar ves cuatro clases de 50 minutos, 259 EUR, renovación cada 28 días y la garantía.',
             },
             {
-                title: 'Proponemos siguiente paso',
-                body: 'Sólo después de confirmar encaje y disponibilidad hablamos de plan, grupo compatible si existe y pago.',
+                title: 'Compra en Stripe',
+                body: 'La plaza queda retenida durante el checkout y solo se confirma al completar el pago.',
             },
         ],
     },
     en: {
-        eyebrow: 'Reviewed application',
-        title: 'What happens after you request a place',
-        intro: 'We do not send you straight to payment. First we check whether we can help properly and which format makes sense.',
+        eyebrow: 'Direct purchase',
+        title: 'How purchasing will work',
+        intro: 'Purchasing is temporarily closed while we connect real teacher and schedule inventory.',
         steps: [
             {
-                title: 'We review fit',
-                body: 'We read your approximate level, goal, availability and plan of interest.',
+                title: 'Choose a place',
+                body: 'See the teacher, weekly time, time zone and first date.',
             },
             {
-                title: 'We clarify level',
-                body: 'If we need more context, we may send brief questions or a light automatic level check. Human assessment is reserved for serious applications.',
+                title: 'Review the terms',
+                body: 'Before paying, see four 50-minute classes, EUR 259, renewal every 28 days and the guarantee.',
             },
             {
-                title: 'We propose the next step',
-                body: 'Only after confirming fit and availability do we discuss a plan, compatible group if one exists, and payment.',
+                title: 'Purchase through Stripe',
+                body: 'The place is held during checkout and confirmed only when payment completes.',
             },
         ],
     },
     ru: {
-        eyebrow: 'Заявка с проверкой',
-        title: 'Что происходит после заявки',
-        intro: 'Мы не отправляем вас сразу к оплате. Сначала проверяем, можем ли помочь и какой формат подходит.',
+        eyebrow: 'Прямая покупка',
+        title: 'Как будет работать покупка',
+        intro: 'Покупка временно закрыта, пока мы подключаем реальный инвентарь преподавателей и времени.',
         steps: [
             {
-                title: 'Проверяем совпадение',
-                body: 'Смотрим примерный уровень, цель, расписание и интересующий план.',
+                title: 'Выберите место',
+                body: 'Вы видите преподавателя, еженедельное время, часовой пояс и первую дату.',
             },
             {
-                title: 'Уточняем уровень',
-                body: 'Если не хватает контекста, можем отправить короткие вопросы или лёгкую автоматическую проверку. Человеческая оценка остаётся для серьёзных заявок.',
+                title: 'Проверьте условия',
+                body: 'До оплаты вы видите 4 занятия по 50 минут, 259 EUR, продление каждые 28 дней и гарантию.',
             },
             {
-                title: 'Предлагаем следующий шаг',
-                body: 'Только после проверки совпадения и доступности обсуждаем план, совместимую группу, если она есть, и оплату.',
+                title: 'Купите через Stripe',
+                body: 'Место удерживается на время checkout и подтверждается только после оплаты.',
             },
         ],
     },

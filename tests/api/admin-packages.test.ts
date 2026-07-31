@@ -89,6 +89,7 @@ function packageRow(overrides: Record<string, unknown> = {}) {
         stripe_price_1m: 'price_old_1',
         stripe_price_3m: 'price_old_3',
         stripe_price_6m: 'price_old_6',
+        contract_schema_version: 1,
         created_at: '2026-01-01T00:00:00.000Z',
         updated_at: '2026-01-01T00:00:00.000Z',
         ...overrides,
@@ -157,12 +158,14 @@ function activePackagePriceRows(pkg: Record<string, any>) {
 function createAdminClientForList(packages: Record<string, unknown>[], prices: Record<string, unknown>[]) {
     const packageQuery: any = {};
     packageQuery.select = vi.fn(() => packageQuery);
+    packageQuery.eq = vi.fn(() => packageQuery);
     packageQuery.order = vi.fn().mockResolvedValue({ data: packages, error: null });
     const priceQuery: any = {};
     priceQuery.select = vi.fn(() => priceQuery);
     priceQuery.eq = vi.fn(() => priceQuery);
     priceQuery.in = vi.fn().mockResolvedValue({ data: prices, error: null });
     return {
+        packageQuery,
         from: vi.fn((table: string) => {
             if (table === 'packages') return packageQuery;
             if (table === 'package_prices') return priceQuery;
@@ -282,6 +285,7 @@ describe('/api/admin/packages', () => {
         const body = await response.json() as { packages: Array<{ name: string; checkout_ready: boolean }> };
 
         expect(response.status).toBe(200);
+        expect(client.packageQuery.eq).toHaveBeenCalledWith('contract_schema_version', 1);
         expect(body.packages).toEqual(expect.arrayContaining([
             expect.objectContaining({ name: 'standard', checkout_ready: true }),
             expect.objectContaining({ name: 'other', checkout_ready: false }),
@@ -335,6 +339,36 @@ describe('/api/admin/packages', () => {
 
         expect(response.status).toBe(400);
         expect(createSupabaseAdminClient).not.toHaveBeenCalled();
+    });
+
+    it('rejects versioned packages in the legacy edit flow', async () => {
+        const before = packageRow({
+            name: 'individual_4x50_28d',
+            contract_schema_version: 2,
+            is_active: false,
+        });
+        const { client, updateQuery } = createAdminClientForPackage(before, before);
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { PATCH } = await import('../../src/pages/api/admin/packages');
+        const response = await PATCH(contextWithBody({
+            packageId: before.id,
+            displayName: { es: '4 clases individuales', en: '4 individual classes', ru: '4 individual classes' },
+            priceMonthlyEur: 259,
+            sessionsPerMonth: 4,
+            hasGroupSession: false,
+            hasDualTeacher: false,
+            isActive: false,
+        }) as any);
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Versioned packages require the v2 catalog flow',
+        });
+        expect(updateQuery.update).not.toHaveBeenCalled();
     });
 
     it('clears stored Stripe Price IDs when the monthly package price changes', async () => {
@@ -418,12 +452,46 @@ describe('/api/admin/packages', () => {
             has_group_session: false,
             has_dual_teacher: true,
             is_active: false,
+            contract_schema_version: 1,
         });
         expect(auditInsert).toHaveBeenCalledWith(expect.objectContaining({
             action: 'package.create',
             entity_id: created.id,
             after: created,
         }));
+    });
+
+    it('rejects versioned packages before any Stripe synchronization', async () => {
+        const before = packageRow({
+            name: 'individual_4x50_28d',
+            contract_schema_version: 2,
+            is_active: false,
+            stripe_product_id: null,
+            stripe_price_1m: null,
+            stripe_price_3m: null,
+            stripe_price_6m: null,
+        });
+        const { client } = createAdminClientForPackage(before, before);
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { POST } = await import('../../src/pages/api/admin/packages');
+        const response = await POST(contextWithBody({
+            action: 'sync_stripe',
+            packageId: before.id,
+            durations: [1],
+        }, 'POST') as any);
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Versioned packages require the v2 catalog flow',
+        });
+        expect(stripeMocks.accountRetrieve).not.toHaveBeenCalled();
+        expect(stripeMocks.productCreate).not.toHaveBeenCalled();
+        expect(stripeMocks.priceCreate).not.toHaveBeenCalled();
+        expect(client.rpc).not.toHaveBeenCalled();
     });
 
     it('syncs requested Stripe durations through mocked Stripe and audit logging', async () => {

@@ -178,8 +178,8 @@ describe('database model reconciliation', () => {
         }
 
         expect(schema).toContain('duration_minutes INTEGER NOT NULL DEFAULT 50');
-        expect(databaseTypes).toContain('duration_minutes: number;');
-        expect(databaseTypes).not.toContain('duration_minutes: number | null;');
+        expect(databaseTypes).toMatch(/^\s+duration_minutes: number;$/m);
+        expect(databaseTypes).not.toMatch(/^\s+duration_minutes: number \| null;$/m);
     });
 
     it('adds all six staging-smoke FK indexes only when the staging table exists', () => {
