@@ -1,9 +1,73 @@
-# Trusted-project defaults for normal Honest Spanish development.
+# Trusted-project profile for normal Honest Spanish development.
+# It narrows this repository without changing the user's global Codex setup.
 # External production effects remain governed by AGENTS.md.
 approval_policy = "never"
+approvals_reviewer = "auto_review"
 sandbox_mode = "workspace-write"
 
 [sandbox_workspace_write]
 network_access = true
 exclude_tmpdir_env_var = false
 exclude_slash_tmp = false
+
+# Parallelism is useful only for bounded, independent work. The primary agent
+# keeps the model and effort selected for the task; subagents default to a
+# faster effort and may be raised explicitly for a genuinely hard audit.
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 3
+default_subagent_model = "gpt-5.6-sol"
+default_subagent_reasoning_effort = "high"
+
+# This machine-level MCP currently points to a different Sentry project.
+[mcp_servers.sentry-p2]
+enabled = false
+
+# Bind database inspection to the staging project and expose only read-only
+# tools. Schema changes travel as reviewed migrations through GitHub/CI.
+[mcp_servers."honestspanish-supabase-staging"]
+url = "https://mcp.supabase.com/mcp?project_ref=mzjyvmlxfpzdfdjzxxyj&read_only=true&features=docs%2Cdatabase%2Cdebugging"
+auth = "oauth"
+enabled = true
+required = false
+enabled_tools = [
+  "search_docs",
+  "list_tables",
+  "list_extensions",
+  "list_migrations",
+  "get_logs",
+  "get_advisors",
+]
+default_tools_approval_mode = "approve"
+
+# Close every connector by default. Only the two apps needed in the normal
+# workflow are enabled below. Destructive app tools remain unavailable.
+[apps._default]
+enabled = false
+destructive_enabled = false
+open_world_enabled = false
+default_tools_approval_mode = "approve"
+
+[apps."connector_76869538009648d5b282a4bb21c3d157"] # GitHub
+enabled = true
+default_tools_enabled = true
+destructive_enabled = false
+open_world_enabled = true
+default_tools_approval_mode = "approve"
+
+[apps."asdk_app_6983c208e5f8819196b7511519f97993"] # Stripe
+enabled = true
+default_tools_enabled = true
+destructive_enabled = false
+open_world_enabled = true
+default_tools_approval_mode = "approve"
+
+# Browser is a local skill, not an app. Cloudflare is the only plugin MCP
+# exposed here; AGENTS.md still requires an exact-resource preflight.
+[plugins."cloudflare@openai-curated-remote".mcp_servers.cloudflare-api]
+enabled = true
+enabled_tools = ["docs", "search", "execute"]
+default_tools_approval_mode = "approve"
+
+[plugins."cloudflare@openai-curated-remote".mcp_servers.cloudflare-api.tools.execute]
+approval_mode = "approve"

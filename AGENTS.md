@@ -27,6 +27,20 @@ Staging sirve para verificar un SHA; no es una fuente alternativa. El historial 
 
 GitHub conserva commits, PR, revisión y CI. No se crean handoffs, evidence packs, gates documentales, informes de estado ni scripts que vuelvan a probar documentos.
 
+## Contexto y agentes
+
+`AGENTS.md` se aplica automáticamente. No se releen todos los documentos al empezar cada tarea:
+
+- Oferta, precio o copy: `docs/PRODUCT.md`.
+- Proveedor, credenciales o despliegue: `docs/ENVIRONMENTS.md` y `docs/OPERATIONS.md`.
+- Cambio estructural: `ARCHITECTURE.md`.
+- Datos: migraciones, `db/schema.sql` y el código afectado.
+- CRM o privacidad: únicamente los documentos de `docs/crm/` pertinentes.
+
+El agente principal resuelve directamente una tarea acotada. Se usan subagentes solo cuando hay dos o más investigaciones o implementaciones independientes que pueden verificarse por separado; nunca para que varios agentes modifiquen la misma superficie. El límite del proyecto es tres subagentes concurrentes. Un subagente entrega hallazgos o un diff delimitado y termina; no crea metodología, handoffs ni documentación de estado.
+
+Las skills se cargan únicamente cuando la tarea las activa. Tener una skill instalada no obliga a usarla. Los plugins y conectores habilitados para este repositorio se fijan en `.codex/config.toml`; el perfil global del usuario no se modifica.
+
 ## Cuándo detenerse
 
 Detenerse y pedir decisión del propietario si aparece cualquiera de estos casos:

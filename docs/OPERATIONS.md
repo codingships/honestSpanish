@@ -11,6 +11,14 @@
 
 No se crean documentos de traspaso ni carpetas de evidencia. El estado observable vive en el issue/tarea, el diff, la PR, CI y el despliegue.
 
+## Entorno Codex
+
+El perfil versionado de `.codex/config.toml` solo se aplica a este repositorio confiable. Mantiene intacto el perfil global, cierra apps ajenas, limita Supabase al staging `mzjyvmlxfpzdfdjzxxyj` en modo de solo lectura y deja disponibles GitHub, Stripe, Cloudflare y Browser. Los IDs y límites completos están en `docs/ENVIRONMENTS.md`.
+
+Las skills permanecen instaladas porque se cargan de forma progresiva solo cuando una tarea las activa. No se crean agentes persistentes: el agente principal ejecuta el trabajo y usa como máximo tres subagentes para superficies realmente independientes.
+
+Una tarea ya abierta puede conservar el catálogo anterior. La comprobación funcional consiste en abrir una tarea nueva en este repositorio, confirmar por lectura las identidades y modos permitidos sin mostrar secretos, y abrir otra tarea en un proyecto distinto para comprobar que su catálogo global no cambió. El rollback es `git revert` del commit del perfil y una tarea nueva.
+
 ## Staging
 
 Staging solo se alinea con un SHA integrado de `main` que tenga CI verde:

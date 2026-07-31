@@ -25,18 +25,14 @@ pnpm run env:staging:sync
 pnpm run dev
 ```
 
-Comprobaciones habituales:
+Durante el trabajo se ejecuta únicamente la comprobación focal que corresponde al cambio. Por ejemplo:
 
 ```bash
 pnpm run typecheck
-pnpm run lint
-pnpm run test:run
-pnpm run fulfillment:typecheck
-pnpm run secrets:check
-pnpm run build
+pnpm exec vitest run tests/unit/fulfillment-jobs.test.ts
 ```
 
-La cobertura es voluntaria (`pnpm run test:coverage`). Playwright se usa de forma focal durante el desarrollo; la CI ejecuta una sola suite pública completa.
+Para un cambio transversal se añaden las pruebas afectadas y `pnpm run build`. La CI de la PR ejecuta la suite completa; no se replica localmente por costumbre. Cobertura, todos los navegadores y benchmarks son diagnósticos explícitos, no pasos predeterminados.
 
 ## Forma de trabajar
 
