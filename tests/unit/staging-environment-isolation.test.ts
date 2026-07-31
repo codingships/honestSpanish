@@ -46,6 +46,10 @@ describe('staging environment isolation', () => {
         expect(workerConfig).toContain('EMAIL_DELIVERY_MODE = "allowlist"');
         expect(workerConfig).toContain('EMAIL_DAILY_RECIPIENT_LIMIT = "10"');
         expect(workerConfig).toContain('EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"');
+        expect(workerConfig).toContain('STRIPE_EXPECTED_ACCOUNT_ID = "acct_1TruqOC22M3erP0j"');
+        expect(workerConfig).toContain('keep_vars = false');
+        expect(workerConfig).toContain('[env.staging.unsafe.metadata]');
+        expect(workerConfig).toContain('keep_bindings = []');
     });
 
     it('requires an explicit public Sentry DSN for builds without an auth lookup', () => {

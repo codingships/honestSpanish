@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     buildRuntimeAttestationConfig,
+    buildRuntimeAttestationConfigForSchema,
     createRuntimeAttestation,
     isValidAttestationNonce,
     RUNTIME_ATTESTATION_SCHEMA,
@@ -89,6 +90,58 @@ describe('runtime attestation', () => {
         expect(fulfillment.stripeBoundary).toBe('absent');
         expect(fulfillment.stripeExpectedAccountId).toBe('');
         expect(fulfillment.stripeSecretKeyFingerprint).toBe('absent');
+    });
+
+    it('keeps web-only operational secrets absent from the fulfillment boundary', async () => {
+        const env = {
+            ...runtimeEnv(),
+            CRON_SECRET: 'cron-secret',
+            LEVEL_CHECK_TOKEN_SECRET: 'level-check-secret',
+            PUBLIC_TURNSTILE_SITE_KEY: 'turnstile-site-key',
+            TURNSTILE_SECRET_KEY: 'turnstile-secret-key',
+        };
+        const web = await buildRuntimeAttestationConfig('web', env);
+        const fulfillment = await buildRuntimeAttestationConfig('fulfillment', env);
+
+        for (const key of [
+            'adminEmailFingerprint',
+            'cronSecretFingerprint',
+            'levelCheckSecretFingerprint',
+            'publicSentryDsnFingerprint',
+            'supportAlertEmailFingerprint',
+            'turnstileSecretFingerprint',
+            'turnstileSiteKeyFingerprint',
+        ] as const) {
+            expect(web[key]).toMatch(/^sha256:/u);
+            expect(fulfillment[key]).toBe('absent');
+        }
+    });
+
+    it('reconstructs schema 5 fulfillment using only bindings present on the immutable baseline', async () => {
+        const env = {
+            ...runtimeEnv(),
+            CRON_SECRET: 'legacy-cron',
+            LEVEL_CHECK_TOKEN_SECRET: 'not-deployed',
+            PUBLIC_TURNSTILE_SITE_KEY: 'not-deployed',
+            TURNSTILE_SECRET_KEY: 'not-deployed',
+        };
+        const legacy = await buildRuntimeAttestationConfigForSchema(
+            'fulfillment',
+            env,
+            5,
+            new Set(['CRON_SECRET', 'SUPPORT_ALERT_EMAIL']),
+        );
+
+        expect(legacy.cronSecretFingerprint).toMatch(/^sha256:/u);
+        expect(legacy.supportAlertEmailFingerprint).toMatch(/^sha256:/u);
+        expect(legacy.adminEmailFingerprint).toBe('absent');
+        expect(legacy.levelCheckSecretFingerprint).toBe('absent');
+        expect(legacy.publicSentryDsnFingerprint).toBe('absent');
+        expect(legacy.turnstileSiteKeyFingerprint).toBe('absent');
+        expect(legacy.turnstileSecretFingerprint).toBe('absent');
+        await expect(buildRuntimeAttestationConfigForSchema('fulfillment', env, 5)).rejects.toThrow(
+            'requires an exact binding-name inventory',
+        );
     });
 
     it.each([

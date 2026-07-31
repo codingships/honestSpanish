@@ -25,7 +25,9 @@ describe('fulfillment Worker runtime boundary', () => {
         const webConfig = read('wrangler.toml');
         const worker = read('workers/fulfillment/src/index.ts');
 
-        expect(config).toContain('keep_vars = true');
+        expect(config).toContain('keep_vars = false');
+        expect(config).toContain('[env.staging.unsafe.metadata]');
+        expect(config).toContain('keep_bindings = []');
         expect(config).toContain('[alias]');
         expect(config).toContain('"astro:env/server" = "./src/astro-env-server.ts"');
         expect(config).toContain('EMAIL_DELIVERY_MODE = "allowlist"');

@@ -9,6 +9,7 @@ type BuiltWranglerConfig = {
     definedEnvironments?: unknown;
     targetEnvironment?: unknown;
     keep_vars?: unknown;
+    unsafe?: { metadata?: { keep_bindings?: unknown } };
     name?: unknown;
     main?: unknown;
     preview_urls?: unknown;
@@ -79,12 +80,19 @@ function validateBuiltConfig(configValue: BuiltWranglerConfig): void {
         configValue.targetEnvironment === 'staging' ? null : 'targetEnvironment=staging',
         configValue.name === expected.name ? null : `name=${expected.name}`,
         configValue.topLevelName === 'espanolhonesto-env-required' ? null : 'topLevelName=espanolhonesto-env-required',
-        configValue.keep_vars === true ? null : 'keep_vars=true',
+        configValue.keep_vars === false ? null : 'keep_vars=false',
+        Array.isArray(configValue.unsafe?.metadata?.keep_bindings)
+            && configValue.unsafe.metadata.keep_bindings.length === 0
+            ? null
+            : 'unsafe.metadata.keep_bindings=[]',
         configValue.main === 'entry.mjs' ? null : 'main=entry.mjs',
         configValue.assets?.binding === 'ASSETS' ? null : 'assets.binding=ASSETS',
         configValue.assets?.directory === '../client' ? null : 'assets.directory=../client',
         vars.PUBLIC_APP_ENV === 'staging' ? null : 'PUBLIC_APP_ENV=staging',
         vars.SUPABASE_EXPECTED_PROJECT_REF === expected.supabaseRef ? null : `SUPABASE_EXPECTED_PROJECT_REF=${expected.supabaseRef}`,
+        vars.STRIPE_EXPECTED_ACCOUNT_ID === 'acct_1TruqOC22M3erP0j'
+            ? null
+            : 'STRIPE_EXPECTED_ACCOUNT_ID=acct_1TruqOC22M3erP0j',
         vars.WORKER_IDENTITY === expected.name ? null : `WORKER_IDENTITY=${expected.name}`,
         vars.PUBLIC_SITE_URL === expected.site ? null : `PUBLIC_SITE_URL=${expected.site}`,
         vars.CHECKOUT_ENABLED === 'false' ? null : 'CHECKOUT_ENABLED=false',
