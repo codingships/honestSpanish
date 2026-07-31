@@ -318,6 +318,8 @@ describe('Cloudflare staging deployment state', () => {
         expect(workflow).toContain('wrangler rollback "$baseline"');
         expect(workflow).toContain('rollback_max_rounds=2');
         expect(workflow).toContain('rollback_max_rounds=1');
+        expect(workflow).toContain('JOB_STATUS: ${{ job.status }}');
+        expect(workflow).not.toContain('JOB_WAS_CANCELLED: ${{ cancelled() }}');
         expect(workflow).toContain(
             'for ((rollback_round = 1; rollback_round <= rollback_max_rounds; rollback_round += 1)); do',
         );

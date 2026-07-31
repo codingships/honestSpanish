@@ -664,7 +664,7 @@ jobs:
           WEB_BASELINE: ${{ steps.baseline.outputs.web_version }}
           FULFILLMENT_BASELINE: ${{ steps.baseline.outputs.fulfillment_version }}
           ROLLBACK_CONTRACT: ${{ steps.rollback_contract.outputs.path }}
-          JOB_WAS_CANCELLED: ${{ cancelled() }}
+          JOB_STATUS: ${{ job.status }}
           STAGING_RUNTIME_MAX_ATTEMPTS: "1"
         run: |
           set -uo pipefail
@@ -808,7 +808,7 @@ jobs:
           printf '%s\n' "### Automatic staging rollback" >> "$GITHUB_STEP_SUMMARY"
           rollback_succeeded=0
           rollback_max_rounds=2
-          if [ "$JOB_WAS_CANCELLED" = "true" ]; then
+          if [ "$JOB_STATUS" = "cancelled" ]; then
             rollback_max_rounds=1
           fi
           for ((rollback_round = 1; rollback_round <= rollback_max_rounds; rollback_round += 1)); do
