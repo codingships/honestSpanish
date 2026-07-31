@@ -90,9 +90,9 @@ function validateBuiltConfig(configValue: BuiltWranglerConfig): void {
         configValue.assets?.directory === '../client' ? null : 'assets.directory=../client',
         vars.PUBLIC_APP_ENV === 'staging' ? null : 'PUBLIC_APP_ENV=staging',
         vars.SUPABASE_EXPECTED_PROJECT_REF === expected.supabaseRef ? null : `SUPABASE_EXPECTED_PROJECT_REF=${expected.supabaseRef}`,
-        vars.STRIPE_EXPECTED_ACCOUNT_ID === 'acct_1TruqOC22M3erP0j'
-            ? null
-            : 'STRIPE_EXPECTED_ACCOUNT_ID=acct_1TruqOC22M3erP0j',
+        Object.prototype.hasOwnProperty.call(vars, 'STRIPE_EXPECTED_ACCOUNT_ID')
+            ? 'STRIPE_EXPECTED_ACCOUNT_ID must be a version-scoped secret only'
+            : null,
         vars.WORKER_IDENTITY === expected.name ? null : `WORKER_IDENTITY=${expected.name}`,
         vars.PUBLIC_SITE_URL === expected.site ? null : `PUBLIC_SITE_URL=${expected.site}`,
         vars.CHECKOUT_ENABLED === 'false' ? null : 'CHECKOUT_ENABLED=false',

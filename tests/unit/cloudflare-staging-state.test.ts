@@ -244,6 +244,7 @@ describe('Cloudflare staging deployment state', () => {
         expect(rollbackIndex).toBeGreaterThan(-1);
         expect(forwardDeployment.match(/pnpm exec wrangler versions upload/gu)).toHaveLength(2);
         expect(forwardDeployment.match(/pnpm exec wrangler versions deploy/gu)).toHaveLength(2);
+        expect(forwardDeployment.match(/--strict/gu)).toHaveLength(2);
         expect(workflow.match(/cloudflare-staging-state\.ts assert-bindings/gu)).toHaveLength(2);
         expect(workflow.match(/--secrets-file "\$secrets_file"/gu))
             .toHaveLength(2);

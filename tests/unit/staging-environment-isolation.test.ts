@@ -37,6 +37,7 @@ describe('staging environment isolation', () => {
     it('keeps staging on official Turnstile test keys when no dedicated keys exist', () => {
         const runner = read('scripts/dev/staging.ts');
         const workerConfig = read('wrangler.toml');
+        const validator = read('scripts/dev/validate-built-worker.ts');
 
         expect(runner).toContain("turnstileTestSiteKey = '1x00000000000000000000AA'");
         expect(runner).toContain("turnstileTestSecretKey = '1x0000000000000000000000000000000AA'");
@@ -46,7 +47,9 @@ describe('staging environment isolation', () => {
         expect(workerConfig).toContain('EMAIL_DELIVERY_MODE = "allowlist"');
         expect(workerConfig).toContain('EMAIL_DAILY_RECIPIENT_LIMIT = "10"');
         expect(workerConfig).toContain('EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"');
-        expect(workerConfig).toContain('STRIPE_EXPECTED_ACCOUNT_ID = "acct_1TruqOC22M3erP0j"');
+        expect(workerConfig).not.toContain('STRIPE_EXPECTED_ACCOUNT_ID =');
+        expect(validator).toContain("hasOwnProperty.call(vars, 'STRIPE_EXPECTED_ACCOUNT_ID')");
+        expect(validator).toContain('STRIPE_EXPECTED_ACCOUNT_ID must be a version-scoped secret only');
         expect(workerConfig).toContain('keep_vars = false');
         expect(workerConfig).toContain('[env.staging.unsafe.metadata]');
         expect(workerConfig).toContain('keep_bindings = []');
