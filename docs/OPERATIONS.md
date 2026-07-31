@@ -26,12 +26,12 @@ Staging solo se alinea con un SHA integrado de `main` que tenga CI verde:
 1. Preflight de solo lectura de GitHub, Cloudflare y Supabase contra `docs/ENVIRONMENTS.md`.
 2. Confirmar que no hay una rotación concurrente de credenciales ni trabajos en cola que hagan peligroso el cambio.
 3. Despachar `Deploy Cloudflare staging` desde `main`; GitHub fija el SHA automáticamente, sin entrada manual.
-4. El workflow exige primero el contrato completo del GitHub Environment, valida identidades y paquetes, captura las versiones activas y despliega fulfillment y web con el mismo SHA.
+4. El workflow exige primero el contrato completo del GitHub Environment, valida identidades y paquetes, captura las versiones activas, autentica su contrato inmutable de rollback y despliega fulfillment y web con el mismo SHA, allowlists separados e inventarios de bindings verificados antes de activarlos.
 5. El smoke exige los dos IDs exactos activados, verifica por HMAC todos los fingerprints de configuración contra GitHub y mantiene probes inocuos de health, checkout cerrado y rechazo de rutas internas sin autorización. No crea alumnos, pagos, emails, documentos ni filas.
 
 El workflow sube versiones y después asigna el 100 % del tráfico a la versión exacta identificada por SHA y ejecución. No ejecuta `wrangler triggers deploy` ni modifica rutas, dominios, cron o consumidores de colas. Cualquier cambio de esos recursos exige una tarea de infraestructura explícita con su propio preflight, autorización y recuperación.
 
-`--keep-vars` conserva en Cloudflare la copia runtime ya provisionada; el workflow no usa el despliegue de código como gestor de secretos. GitHub Environment conserva la expectativa y la atestación HMAC demuestra que la copia runtime coincide, incluidos valores que nunca se muestran.
+El workflow materializa en cada versión el allowlist completo de secretos de cada Worker desde GitHub Environment mediante archivos temporales con permisos `0600`, y los elimina al terminar. `keep_vars=false` y `unsafe.metadata.keep_bindings=[]` impiden conservar bindings anteriores; antes de asignar tráfico, el workflow rechaza cualquier nombre, tipo, destino o valor no secreto inesperado. La atestación HMAC comprueba después que el runtime activado coincide con la expectativa sin mostrar valores.
 
 Para validar localmente el contrato cargado sin hacer red:
 
@@ -43,9 +43,9 @@ El smoke remoto completo requiere además `STAGING_EXPECTED_WEB_VERSION_ID` y `S
 
 ## Recuperación de staging
 
-Antes de la primera escritura se capturan las versiones activas de ambos Workers. Si web falla después de desplegar fulfillment, se revierte fulfillment. Si falla el smoke después de desplegar ambos, se revierte primero web y después fulfillment.
+Antes de la primera escritura se capturan las versiones activas de ambos Workers y se autentica un contrato inmutable de rollback. Ante un fallo o cancelación desde el primer intento de mutación, se procesa primero web si su intento comenzó y después fulfillment; cada Worker se fuerza a su baseline incluso si ya parece activo, para restaurar también los secretos asociados a la versión.
 
-La reversión solo actúa si la versión activa pertenece a la ejecución actual; si detecta una escritura concurrente se detiene. Después se repite el smoke.
+La reversión solo continúa si la versión activa es el baseline capturado o pertenece a la ejecución actual; cualquier otra versión se trata como escritura concurrente y detiene la recuperación. Después exige una ventana acotada de estabilidad, los dos IDs baseline exactos y el smoke autenticado con el schema capturado. Un baseline legado schema 5 no relaja el smoke normal, que sigue exigiendo schema 6.
 
 Los dos Workers de staging tienen una única vía soportada de escritura: este workflow. Una escritura por Dashboard, Wrangler local u otro workflow rompe la garantía de ownership y obliga a reconciliar manualmente antes de continuar.
 
