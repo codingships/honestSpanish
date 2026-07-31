@@ -15,12 +15,27 @@ const blog = defineCollection({
         category: z.enum(['aprendizaje', 'niveles', 'expatriados', 'cultura', 'metodo']),
         tags: z.array(z.string()),
         image: image().optional(),
-        imageAlt: z.string().optional(),
+        imageAlt: z.string().trim().optional(),
         lang: z.enum(['es', 'en', 'ru']),
         draft: z.boolean().default(false),
-        translationKey: z.string().optional(),
+        translationKey: z.string().trim().optional(),
         ctaText: z.string().optional(),
         ctaLink: z.string().optional(),
+    }).superRefine((entry, context) => {
+        if (!entry.draft && !entry.translationKey) {
+            context.addIssue({
+                code: 'custom',
+                path: ['translationKey'],
+                message: 'Published posts require a non-empty translationKey.',
+            });
+        }
+        if (entry.image && !entry.imageAlt) {
+            context.addIssue({
+                code: 'custom',
+                path: ['imageAlt'],
+                message: 'Posts with an image require imageAlt.',
+            });
+        }
     }),
 });
 

@@ -2,9 +2,9 @@ User-agent: *
 Allow: /
 
 Disallow: /api/
-Disallow: /es/campus/
-Disallow: /en/campus/
-Disallow: /ru/campus/
+Disallow: /es/campus
+Disallow: /en/campus
+Disallow: /ru/campus
 Disallow: /es/login
 Disallow: /en/login
 Disallow: /ru/login
@@ -15,4 +15,4 @@ Disallow: /ru/demo
 Disallow: /_image
 Disallow: /keystatic/
 
-Sitemap: https://espanolhonesto.com/sitemap-index.xml
+Sitemap: https://espanolhonesto.com/sitemap.xml

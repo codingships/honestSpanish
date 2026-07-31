@@ -4,8 +4,8 @@ import { Resvg } from '@resvg/resvg-js';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { APIRoute } from 'astro';
-import { getCollection } from 'astro:content';
-import { getBlogEntrySlug, isPublishedBlogPost } from '../../lib/blog-routes';
+import { getCollection, type CollectionEntry } from 'astro:content';
+import { getBlogOgKey, isPublishedBlogPost } from '../../lib/blog-routes';
 
 type OgPage = {
   title: string;
@@ -30,13 +30,15 @@ const fontDataPromise = readFile(path.join(
 export const prerender = true;
 
 export async function getStaticPaths() {
-  const blogPosts = await getCollection('blog');
+  const blogPosts: CollectionEntry<'blog'>[] = await getCollection('blog');
   const pagesBySlug = new Map<string, OgPage>(Object.entries(staticPages));
 
-  for (const post of blogPosts.filter(isPublishedBlogPost).sort((a, b) => a.id.localeCompare(b.id))) {
-    const slug = getBlogEntrySlug(post);
-    if (!pagesBySlug.has(slug)) {
-      pagesBySlug.set(slug, {
+  for (const post of blogPosts
+    .filter(isPublishedBlogPost)
+    .sort((left: CollectionEntry<'blog'>, right: CollectionEntry<'blog'>) => left.id.localeCompare(right.id))) {
+    const ogKey = getBlogOgKey(post);
+    if (!pagesBySlug.has(ogKey)) {
+      pagesBySlug.set(ogKey, {
         title: post.data.title,
         category: post.data.category || 'Artículo',
       });
@@ -82,8 +84,8 @@ export const GET: APIRoute<OgPage> = async ({ props: { title, category } }) => {
     </div>
   `;
 
-  // @ts-expect-error - Satori expects a React-like VNode but satori-html output is compatible.
-  const svg = await satori(html(markupString), {
+  const satoriMarkup = html(markupString) as unknown as Parameters<typeof satori>[0];
+  const svg = await satori(satoriMarkup, {
     width: 1200,
     height: 630,
     fonts: [
@@ -101,9 +103,9 @@ export const GET: APIRoute<OgPage> = async ({ props: { title, category } }) => {
   });
   const pngData = resvg.render();
   const pngBuffer = pngData.asPng();
+  const responseBody = Uint8Array.from(pngBuffer).buffer;
 
-  // @ts-expect-error - Astro APIRoute return type may not perfectly match node Response stringency in CI.
-  return new Response(pngBuffer, {
+  return new Response(responseBody, {
     status: 200,
     headers: {
       'Content-Type': 'image/png',

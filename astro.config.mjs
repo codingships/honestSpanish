@@ -2,7 +2,6 @@ import { defineConfig, sessionDrivers } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
 import tailwind from '@astrojs/tailwind';
-import sitemap from '@astrojs/sitemap';
 import keystatic from '@keystatic/astro';
 
 import markdoc from '@astrojs/markdoc';
@@ -275,27 +274,6 @@ export default defineConfig({
     }),
     integrations: [...(e2eRuntimeIsolated ? [e2eRuntimeProcessGuard] : []), react(), markdoc(), ...(keystaticEnabled ? [keystatic()] : []), tailwind({
         applyBaseStyles: false,
-    }), sitemap({
-        filter: (page) =>
-            page !== 'https://espanolhonesto.com/' &&
-            !page.includes('/campus/') &&
-            !page.includes('/campus') &&
-            !page.includes('/login') &&
-            !page.includes('/logout') &&
-            !page.includes('/success') &&
-            !page.includes('/cancel') &&
-            !page.includes('/legal') &&
-            !page.includes('/demo') &&
-            !page.includes('/keystatic') &&
-            !page.includes('/api/'),
-        i18n: {
-            defaultLocale: 'es',
-            locales: {
-                es: 'es-ES',
-                en: 'en-US',
-                ru: 'ru-RU',
-            },
-        },
     }),
     ...(sentryIntegrationEnabled ? [sentry({
         org: env.SENTRY_ORG,
