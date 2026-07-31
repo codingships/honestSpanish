@@ -15,6 +15,7 @@ export const STAGING_WEB_IDENTITY = 'espanolhonesto-staging';
 export const STAGING_WEB_ORIGIN = 'https://staging.espanolhonesto.com';
 export const STAGING_FULFILLMENT_IDENTITY = 'espanol-honesto-fulfillment-staging';
 export const STAGING_FULFILLMENT_ORIGIN = 'https://espanol-honesto-fulfillment-staging.alindev95.workers.dev';
+export const STAGING_LEGACY_IDENTITY_WEB_VERSION_ID = '8f90a491-99f9-4347-a793-b762a782a8d3';
 export const STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID = '4dd8e219-0389-4186-91eb-e1cfec2e7728';
 
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
@@ -205,6 +206,16 @@ function exactBindingNames(bindingNames: readonly string[], role: RuntimeAttesta
     return normalized.sort();
 }
 
+function isApprovedLegacyIdentityBaseline(
+    role: RuntimeAttestationRole,
+    schema: number,
+    versionId: string,
+): boolean {
+    return schema === 5 && (role === 'web'
+        ? versionId === STAGING_LEGACY_IDENTITY_WEB_VERSION_ID
+        : versionId === STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID);
+}
+
 export function extractRollbackBindingNamesFromVersionView(
     value: unknown,
     expectedVersionId: string,
@@ -252,9 +263,7 @@ function assertRollbackRoleContract(
         || (contract.verificationMode !== 'configuration-hmac'
             && contract.verificationMode !== 'legacy-authenticated-identity')
         || (contract.verificationMode === 'legacy-authenticated-identity' && (
-            contract.schema !== 5
-            || expectedRole !== 'fulfillment'
-            || contract.workerVersionId !== STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID
+            !isApprovedLegacyIdentityBaseline(expectedRole, contract.schema, contract.workerVersionId)
         ))
     ) throw new Error(`${expectedRole} rollback runtime contract is invalid`);
     return { ...contract, bindingNames: exactBindingNames(contract.bindingNames, expectedRole) };
@@ -441,8 +450,8 @@ async function verifyOneAttestation(input: {
     }
     const verificationMode = input.verificationMode ?? 'configuration-hmac';
     if (verificationMode === 'legacy-authenticated-identity') {
-        if (input.schema !== 5) {
-            throw new Error(`${input.role} legacy identity verification is restricted to schema 5`);
+        if (!isApprovedLegacyIdentityBaseline(input.role, input.schema, input.expectedVersionId)) {
+            throw new Error(`${input.role} legacy identity verification is restricted to an approved schema 5 version`);
         }
         return { schema: input.schema, versionId: envelope.workerVersionId };
     }
@@ -522,15 +531,14 @@ async function discoverAndVerifyOneBaseline(input: {
     let verificationMode: StagingRollbackRoleContract['verificationMode'] = 'configuration-hmac';
     if (!valid) {
         if (
-            envelope.schema !== 5
-            || input.role !== 'fulfillment'
-            || input.expectedVersionId !== STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID
+            !isApprovedLegacyIdentityBaseline(input.role, envelope.schema, input.expectedVersionId)
         ) {
             throw new Error(`${input.role} baseline runtime attestation does not match the expected staging configuration`);
         }
         // Schema 5 can contain immutable legacy secrets that no longer exist in the
-        // canonical source. The exact version, authenticated endpoint and fail-closed
-        // probes remain verifiable; schema 6 is never allowed to use this transition.
+        // canonical source. Only the two exact pre-transition versions may use their
+        // authenticated identity; fail-closed probes still run and schema 6 is never
+        // allowed to use this transition.
         verificationMode = 'legacy-authenticated-identity';
     }
     return {

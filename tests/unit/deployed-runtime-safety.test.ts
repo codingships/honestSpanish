@@ -7,6 +7,7 @@ import {
     STAGING_FULFILLMENT_IDENTITY,
     STAGING_FULFILLMENT_ORIGIN,
     STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID,
+    STAGING_LEGACY_IDENTITY_WEB_VERSION_ID,
     STAGING_SUPABASE_REF,
     STAGING_STRIPE_ACCOUNT_ID,
     STAGING_WEB_IDENTITY,
@@ -87,7 +88,9 @@ function deployedFetch(options?: {
     fulfillmentVersionId?: string;
     overrideFulfillmentNonce?: string;
     overrideFulfillmentSchema?: number;
+    webSecretKey?: string;
     webSchema?: SupportedRollbackAttestationSchema;
+    webVersionId?: string;
 }) {
     return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
         const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
@@ -133,8 +136,9 @@ function deployedFetch(options?: {
             const envelope = await createRuntimeAttestationForSchema('web', {
                 ...baseEnv,
                 CHECKOUT_ENABLED_OVERRIDE: 'false',
+                STRIPE_SECRET_KEY: options?.webSecretKey ?? baseEnv.STRIPE_SECRET_KEY,
                 WORKER_IDENTITY: STAGING_WEB_IDENTITY,
-                WORKER_VERSION_ID: webVersionId,
+                WORKER_VERSION_ID: options?.webVersionId ?? webVersionId,
             }, body.nonce, options?.webSchema ?? 6, new Set(webBindingNames));
             return Response.json(envelope);
         }
@@ -284,6 +288,75 @@ describe('deployed staging runtime safety', () => {
         })).resolves.toEqual({ fulfillmentVersionId, webVersionId });
     });
 
+    it('uses authenticated identity only for the exact legacy web schema 5 version', async () => {
+        const legacyWebVersionId = STAGING_LEGACY_IDENTITY_WEB_VERSION_ID;
+        const fetchImpl = deployedFetch({
+            webSchema: 5,
+            webSecretKey: 'immutable-legacy-web-secret',
+            webVersionId: legacyWebVersionId,
+        });
+        const contract = await captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: legacyWebVersionId,
+            fetchImpl,
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        });
+
+        expect(contract.web.verificationMode).toBe('legacy-authenticated-identity');
+        await expect(verifyStagingRollbackRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            contract,
+            env: baseEnv,
+            fetchImpl,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).resolves.toEqual({
+            fulfillmentVersionId,
+            webVersionId: legacyWebVersionId,
+        });
+    });
+
+    it('rejects identity-only fallback for any other legacy web version', async () => {
+        const unapprovedWebVersionId = '22222222-2222-4222-8222-222222222222';
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: unapprovedWebVersionId,
+            fetchImpl: deployedFetch({
+                webSchema: 5,
+                webSecretKey: 'immutable-legacy-web-secret',
+                webVersionId: unapprovedWebVersionId,
+            }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('web baseline runtime attestation does not match');
+    });
+
+    it('never degrades a schema 6 web mismatch to identity-only verification', async () => {
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: STAGING_LEGACY_IDENTITY_WEB_VERSION_ID,
+            fetchImpl: deployedFetch({
+                webSecretKey: 'different-schema-6-secret',
+                webVersionId: STAGING_LEGACY_IDENTITY_WEB_VERSION_ID,
+            }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('web baseline runtime attestation does not match');
+    });
+
     it('never degrades a schema 6 configuration mismatch to identity-only verification', async () => {
         await expect(captureStagingRollbackBaseline({
             baseOrigin: STAGING_WEB_ORIGIN,
@@ -417,6 +490,28 @@ describe('deployed staging runtime safety', () => {
                 bindingNames: webBindingNames,
                 role: 'web',
                 schema: 6,
+                verificationMode: 'legacy-authenticated-identity',
+                workerIdentity: STAGING_WEB_IDENTITY,
+                workerVersionId: webVersionId,
+            },
+            fulfillment: {
+                bindingNames: legacyFulfillmentBindingNames,
+                role: 'fulfillment',
+                schema: 5,
+                verificationMode: 'configuration-hmac',
+                workerIdentity: STAGING_FULFILLMENT_IDENTITY,
+                workerVersionId: fulfillmentVersionId,
+            },
+        })).toThrow('web rollback runtime contract is invalid');
+    });
+
+    it('rejects a persisted identity-only web contract for an unapproved version', () => {
+        expect(() => assertStagingRollbackContract({
+            contractSchema: 2,
+            web: {
+                bindingNames: webBindingNames,
+                role: 'web',
+                schema: 5,
                 verificationMode: 'legacy-authenticated-identity',
                 workerIdentity: STAGING_WEB_IDENTITY,
                 workerVersionId: webVersionId,
