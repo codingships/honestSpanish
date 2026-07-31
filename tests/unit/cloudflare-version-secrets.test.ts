@@ -49,9 +49,11 @@ describe('version-scoped Cloudflare Worker secrets', () => {
         expect(web.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY).toBeUndefined();
         expect(fulfillment.STRIPE_SECRET_KEY).toBeUndefined();
         expect(web.PUBLIC_TURNSTILE_SITE_KEY).toBeUndefined();
-        expect(web.STRIPE_EXPECTED_ACCOUNT_ID).toBeUndefined();
+        expect(web.STRIPE_EXPECTED_ACCOUNT_ID).toBe('value-for-STRIPE_EXPECTED_ACCOUNT_ID');
         expect(web.EMAIL_FROM).toBeUndefined();
-        expect(fulfillment.EMAIL_FROM).toBeUndefined();
+        expect(fulfillment.EMAIL_FROM).toBe('value-for-EMAIL_FROM');
+        expect(fulfillment.CRON_SECRET).toBe('value-for-CRON_SECRET');
+        expect(fulfillment.SUPPORT_ALERT_EMAIL).toBe('value-for-SUPPORT_ALERT_EMAIL');
         expect(web.STRIPE_SECRET_KEY).toBe('value-for-STRIPE_SECRET_KEY');
         expect(fulfillment.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
             .toBe('value-for-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');

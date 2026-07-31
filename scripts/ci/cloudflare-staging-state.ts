@@ -62,7 +62,6 @@ const WEB_VERSION_PLAIN_TEXT_BINDINGS = [
     ['PUBLIC_SITE_URL', 'https://staging.espanolhonesto.com'],
     ['PUBLIC_TURNSTILE_SITE_KEY', '1x00000000000000000000AA'],
     ['SENTRY_ENVIRONMENT', 'staging'],
-    ['STRIPE_EXPECTED_ACCOUNT_ID', 'acct_1TruqOC22M3erP0j'],
     ['SUPABASE_EXPECTED_PROJECT_REF', 'mzjyvmlxfpzdfdjzxxyj'],
     ['WEB_RUNTIME_MODE', 'active'],
     ['WORKER_IDENTITY', 'espanolhonesto-staging'],

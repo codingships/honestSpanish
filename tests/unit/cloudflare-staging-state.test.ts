@@ -184,6 +184,12 @@ describe('Cloudflare staging deployment state', () => {
     it('rejects wrong or missing non-secret binding semantics', () => {
         const webBindings = EXPECTED_STAGING_VERSION_BINDINGS[STAGING_WORKERS.web];
         const fulfillmentBindings = EXPECTED_STAGING_VERSION_BINDINGS[STAGING_WORKERS.fulfillment];
+        expect(webBindings).toContainEqual({ name: 'STRIPE_EXPECTED_ACCOUNT_ID', type: 'secret_text' });
+        expect(fulfillmentBindings).toEqual(expect.arrayContaining([
+            { name: 'CRON_SECRET', type: 'secret_text' },
+            { name: 'EMAIL_FROM', type: 'secret_text' },
+            { name: 'SUPPORT_ALERT_EMAIL', type: 'secret_text' },
+        ]));
         const replace = (
             bindings: readonly { name: string; type: string }[],
             name: string,
@@ -251,6 +257,15 @@ describe('Cloudflare staging deployment state', () => {
         expect(workflow.match(/trap - EXIT/gu)).toHaveLength(2);
         expect(workflow.match(/--role (web|fulfillment)/gu)).toHaveLength(2);
         expect(workflow).not.toContain('--keep-vars');
+
+        const fulfillmentDeployStart = workflow.indexOf('      - name: Deploy staging Fulfillment Worker');
+        const webDeployStart = workflow.indexOf('      - name: Deploy staging web Worker');
+        const fulfillmentDeploy = workflow.slice(fulfillmentDeployStart, webDeployStart);
+        const webDeploy = workflow.slice(webDeployStart, rollbackIndex);
+        expect(fulfillmentDeploy).toContain('CRON_SECRET: ${{ secrets.CRON_SECRET }}');
+        expect(fulfillmentDeploy).toContain('EMAIL_FROM: ${{ secrets.RESEND_FROM_EMAIL }}');
+        expect(fulfillmentDeploy).toContain('SUPPORT_ALERT_EMAIL: ${{ secrets.SUPPORT_ALERT_EMAIL }}');
+        expect(webDeploy).toContain('STRIPE_EXPECTED_ACCOUNT_ID: "acct_1TruqOC22M3erP0j"');
 
         for (const worker of ['fulfillment', 'web']) {
             const uploadedMarker = `$RUNNER_TEMP/${worker}-uploaded-version.json`;

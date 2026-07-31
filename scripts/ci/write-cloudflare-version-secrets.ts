@@ -2,6 +2,9 @@ import { chmodSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+// Cloudflare preserves existing secret bindings omitted from --secrets-file.
+// Keep every active staging secret explicit here until a separately authorized
+// provider cleanup removes that binding from the Worker itself.
 export const WEB_VERSION_SECRET_NAMES = [
     'ADMIN_EMAIL',
     'CRON_SECRET',
@@ -14,6 +17,7 @@ export const WEB_VERSION_SECRET_NAMES = [
     'PUBLIC_SUPABASE_URL',
     'RESEND_API_KEY',
     'RESEND_FROM_EMAIL',
+    'STRIPE_EXPECTED_ACCOUNT_ID',
     'STRIPE_PORTAL_CONFIGURATION_ID',
     'STRIPE_SECRET_KEY',
     'STRIPE_WEBHOOK_SECRET',
@@ -23,6 +27,8 @@ export const WEB_VERSION_SECRET_NAMES = [
 ] as const;
 
 export const FULFILLMENT_VERSION_SECRET_NAMES = [
+    'CRON_SECRET',
+    'EMAIL_FROM',
     'EMAIL_RECIPIENT_ALLOWLIST',
     'GOOGLE_ADMIN_EMAIL',
     'GOOGLE_DRIVE_ROOT_FOLDER_ID',
@@ -34,6 +40,7 @@ export const FULFILLMENT_VERSION_SECRET_NAMES = [
     'RESEND_API_KEY',
     'RESEND_FROM_EMAIL',
     'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPPORT_ALERT_EMAIL',
 ] as const;
 
 type SecretName = typeof WEB_VERSION_SECRET_NAMES[number]
