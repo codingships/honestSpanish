@@ -61,6 +61,223 @@ export type Database = {
           },
         ];
       };
+      bookable_slot_holds: {
+        Row: {
+          checkout_intent_id: string;
+          close_reason: string | null;
+          closed_at: string | null;
+          created_at: string;
+          expires_at: string;
+          held_at: string;
+          id: string;
+          slot_id: string;
+          status: string;
+          subscription_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          checkout_intent_id: string;
+          close_reason?: string | null;
+          closed_at?: string | null;
+          created_at?: string;
+          expires_at: string;
+          held_at?: string;
+          id?: string;
+          slot_id: string;
+          status?: string;
+          subscription_id?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          checkout_intent_id?: string;
+          close_reason?: string | null;
+          closed_at?: string | null;
+          created_at?: string;
+          expires_at?: string;
+          held_at?: string;
+          id?: string;
+          slot_id?: string;
+          status?: string;
+          subscription_id?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bookable_slot_holds_checkout_intent_id_fkey";
+            columns: ["checkout_intent_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_intents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slot_holds_slot_id_fkey";
+            columns: ["slot_id"];
+            isOneToOne: false;
+            referencedRelation: "bookable_slots";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slot_holds_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: true;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      bookable_slot_occurrences: {
+        Row: {
+          blocks_teacher: boolean;
+          created_at: string;
+          duration_minutes: number;
+          occurrence_index: number;
+          session_id: string | null;
+          slot_id: string;
+          starts_at: string;
+          teacher_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          blocks_teacher?: boolean;
+          created_at?: string;
+          duration_minutes?: number;
+          occurrence_index: number;
+          session_id?: string | null;
+          slot_id: string;
+          starts_at: string;
+          teacher_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          blocks_teacher?: boolean;
+          created_at?: string;
+          duration_minutes?: number;
+          occurrence_index?: number;
+          session_id?: string | null;
+          slot_id?: string;
+          starts_at?: string;
+          teacher_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bookable_slot_occurrences_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slot_occurrences_slot_teacher_fkey";
+            columns: ["slot_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "bookable_slots";
+            referencedColumns: ["id", "teacher_id"];
+          },
+        ];
+      };
+      bookable_slots: {
+        Row: {
+          capacity: number;
+          contract_schema_version: number;
+          created_at: string;
+          created_by: string;
+          first_occurrence_at: string;
+          id: string;
+          local_start_time: string;
+          package_id: string;
+          public_id: string;
+          published_at: string | null;
+          published_by: string | null;
+          sessions_materialized_at: string | null;
+          sold_at: string | null;
+          sold_subscription_id: string | null;
+          status: string;
+          teacher_id: string;
+          timezone_name: string;
+          updated_at: string;
+          weekday: number;
+        };
+        Insert: {
+          capacity?: number;
+          contract_schema_version?: number;
+          created_at?: string;
+          created_by: string;
+          first_occurrence_at: string;
+          id?: string;
+          local_start_time: string;
+          package_id: string;
+          public_id?: string;
+          published_at?: string | null;
+          published_by?: string | null;
+          sessions_materialized_at?: string | null;
+          sold_at?: string | null;
+          sold_subscription_id?: string | null;
+          status?: string;
+          teacher_id: string;
+          timezone_name: string;
+          updated_at?: string;
+          weekday: number;
+        };
+        Update: {
+          capacity?: number;
+          contract_schema_version?: number;
+          created_at?: string;
+          created_by?: string;
+          first_occurrence_at?: string;
+          id?: string;
+          local_start_time?: string;
+          package_id?: string;
+          public_id?: string;
+          published_at?: string | null;
+          published_by?: string | null;
+          sessions_materialized_at?: string | null;
+          sold_at?: string | null;
+          sold_subscription_id?: string | null;
+          status?: string;
+          teacher_id?: string;
+          timezone_name?: string;
+          updated_at?: string;
+          weekday?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bookable_slots_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slots_package_contract_fkey";
+            columns: ["package_id", "contract_schema_version"];
+            isOneToOne: false;
+            referencedRelation: "packages";
+            referencedColumns: ["id", "contract_schema_version"];
+          },
+          {
+            foreignKeyName: "bookable_slots_published_by_fkey";
+            columns: ["published_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slots_sold_subscription_id_fkey";
+            columns: ["sold_subscription_id"];
+            isOneToOne: true;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slots_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       checkout_intents: {
         Row: {
           completed_at: string | null;
@@ -1492,6 +1709,7 @@ export type Database = {
         Row: {
           billing_interval_count: number | null;
           billing_interval_unit: string | null;
+          checkout_intent_id: string | null;
           class_duration_minutes: number | null;
           contract_schema_version: number;
           contracted_sessions_per_period: number;
@@ -1513,6 +1731,7 @@ export type Database = {
         Insert: {
           billing_interval_count?: number | null;
           billing_interval_unit?: string | null;
+          checkout_intent_id?: string | null;
           class_duration_minutes?: number | null;
           contract_schema_version?: number;
           contracted_sessions_per_period: number;
@@ -1534,6 +1753,7 @@ export type Database = {
         Update: {
           billing_interval_count?: number | null;
           billing_interval_unit?: string | null;
+          checkout_intent_id?: string | null;
           class_duration_minutes?: number | null;
           contract_schema_version?: number;
           contracted_sessions_per_period?: number;
@@ -1553,6 +1773,13 @@ export type Database = {
           updated_at?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "subscriptions_checkout_intent_id_fkey";
+            columns: ["checkout_intent_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_intents";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "subscriptions_package_id_fkey";
             columns: ["package_id"];
@@ -1823,6 +2050,25 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      claim_checkout_intent_for_slot: {
+        Args: {
+          p_contact_id: string;
+          p_lang: string;
+          p_legal_policy_version: string;
+          p_opportunity_id: string;
+          p_package_price_id: string;
+          p_site_url: string;
+          p_slot_id: string;
+          p_student_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_intents"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_intents";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       claim_fulfillment_effect: {
         Args: {
           p_effect_key: string;
@@ -1914,6 +2160,35 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      consume_bookable_slot_hold: {
+        Args: {
+          p_checkout_intent_id: string;
+          p_subscription_id: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slot_holds"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slot_holds";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      create_bookable_slot: {
+        Args: {
+          p_created_by: string;
+          p_occurrences: string[];
+          p_package_id: string;
+          p_teacher_id: string;
+          p_timezone_name: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       finalize_fulfillment_effect: {
         Args: {
           p_attempt_generation: number;
@@ -1963,6 +2238,45 @@ export type Database = {
           slot_end: string;
           slot_start: string;
         }[];
+      };
+      hold_bookable_slot: {
+        Args: {
+          p_checkout_intent_id: string;
+          p_slot_id: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slot_holds"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slot_holds";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      materialize_bookable_slot_sessions: {
+        Args: {
+          p_slot_id: string;
+          p_subscription_id: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      publish_bookable_slot: {
+        Args: {
+          p_published_by: string;
+          p_slot_id: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
       };
       reconcile_stripe_refund: {
         Args: {
@@ -2017,6 +2331,19 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "checkout_intents";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      release_bookable_slot_hold: {
+        Args: {
+          p_checkout_intent_id: string;
+          p_reason: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slot_holds"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slot_holds";
           isOneToOne: true;
           isSetofReturn: false;
         };

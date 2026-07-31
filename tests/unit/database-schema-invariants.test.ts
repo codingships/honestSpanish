@@ -19,6 +19,7 @@ const checkoutRecoveryMigration = readFileSync('supabase/migrations/202607102218
 const checkoutSnapshotMigration = readFileSync('supabase/migrations/20260710223900_harden_checkout_customer_and_snapshot_immutability.sql', 'utf8').replace(/\r\n/g, '\n');
 const sessionStatusContractMigration = readFileSync('supabase/migrations/20260712195500_harden_sessions_status_contract.sql', 'utf8').replace(/\r\n/g, '\n');
 const versionedOfferMigration = readFileSync('supabase/migrations/20260731151309_add_versioned_28_day_individual_offer.sql', 'utf8').replace(/\r\n/g, '\n');
+const bookableSlotsMigration = readFileSync('supabase/migrations/20260731185233_add_bookable_slots_and_holds.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -300,6 +301,125 @@ describe('database schema security invariants', () => {
         );
         expect(versionedActivation).toContain('SECURITY DEFINER');
         expect(versionedActivation).not.toContain('SECURITY INVOKER');
+    });
+
+    it('models sellable weekly slots and checkout-scoped holds without opening the offer', () => {
+        for (const snippet of [
+            'CREATE TABLE public.bookable_slots',
+            'CREATE TABLE public.bookable_slot_occurrences',
+            'CREATE TABLE public.bookable_slot_holds',
+            'ADD COLUMN checkout_intent_id UUID',
+            'subscriptions_checkout_intent_unique_idx',
+            "timezone_name TEXT NOT NULL CHECK (timezone_name = 'Europe/Madrid')",
+            'session_id UUID UNIQUE REFERENCES public.sessions(id) ON DELETE RESTRICT',
+            "status IN ('draft', 'available', 'paused', 'sold', 'retired')",
+            "status IN ('held', 'consumed', 'expired', 'released')",
+            'bookable_slot_occurrences_teacher_overlap_excl',
+            'bookable_slot_holds_one_live_hold_idx',
+            'CREATE OR REPLACE FUNCTION private.guard_subscription_checkout_binding()',
+            'CREATE OR REPLACE FUNCTION private.guard_bookable_slot_contract()',
+            'CREATE OR REPLACE FUNCTION private.guard_bookable_slot_occurrence()',
+            'CREATE OR REPLACE FUNCTION private.validate_bookable_slot_occurrences()',
+            'CREATE OR REPLACE FUNCTION private.guard_session_against_bookable_slots()',
+            'CREATE OR REPLACE FUNCTION private.guard_bookable_slot_hold()',
+            'CREATE OR REPLACE FUNCTION private.validate_versioned_checkout_slot_hold()',
+            'CREATE OR REPLACE FUNCTION public.create_bookable_slot(',
+            'CREATE OR REPLACE FUNCTION public.publish_bookable_slot(',
+            'CREATE OR REPLACE FUNCTION public.hold_bookable_slot(',
+            'CREATE OR REPLACE FUNCTION public.claim_checkout_intent_for_slot(',
+            'CREATE OR REPLACE FUNCTION public.release_bookable_slot_hold(',
+            'CREATE OR REPLACE FUNCTION public.consume_bookable_slot_hold(',
+            'CREATE OR REPLACE FUNCTION public.materialize_bookable_slot_sessions(',
+            'DEFERRABLE INITIALLY DEFERRED',
+            'AT TIME ZONE slot_row.timezone_name',
+            "ARRAY[1, 2, 3, 4]::SMALLINT[]",
+            "package_row.name <> 'individual_4x50_28d'",
+            "package_row.billing_interval_unit <> 'day'",
+            'package_row.billing_interval_count <> 28',
+            'package_row.sessions_per_period <> 4',
+            'package_row.class_duration_minutes <> 50',
+            'public.claim_checkout_intent(',
+            'PERFORM public.hold_bookable_slot(p_slot_id, intent_row.id)',
+            "RAISE EXCEPTION 'versioned_subscription_requires_checkout_binding'",
+            "RAISE EXCEPTION 'versioned_checkout_requires_bookable_slot_hold'",
+            'subscription_row.checkout_intent_id IS DISTINCT FROM intent_row.id',
+            'slot_row.first_occurrence_at <= intent_row.expires_at',
+            'NEW.ends_at IS DISTINCT FROM NEW.starts_at + 28',
+            'UPDATE public.subscriptions',
+            'SET sessions_used = 4',
+            "package_row.name <> 'individual_4x50_28d'",
+            "price_row.amount_cents <> 25900",
+            "SECURITY DEFINER",
+            'REVOKE ALL ON TABLE public.bookable_slots',
+            'REVOKE ALL ON TABLE public.bookable_slot_occurrences',
+            'REVOKE ALL ON TABLE public.bookable_slot_holds',
+            'GRANT SELECT ON TABLE public.bookable_slots TO service_role',
+            'GRANT SELECT ON TABLE public.bookable_slot_occurrences TO service_role',
+            'GRANT SELECT ON TABLE public.bookable_slot_holds TO service_role',
+            'SET search_path = \'\'',
+        ]) {
+            expect(bookableSlotsMigration).toContain(snippet);
+            expect(schema).toContain(snippet);
+        }
+
+        expect(bookableSlotsMigration).toContain('cardinality(p_occurrences) <> 4');
+        expect(bookableSlotsMigration).toContain('expires_at IS DISTINCT FROM intent_row.expires_at');
+        expect(bookableSlotsMigration).toContain("stale_intent.status = 'expired'");
+        expect(bookableSlotsMigration).toContain("intent_row.status <> 'expired'");
+        expect(bookableSlotsMigration).toContain('pg_catalog.pg_advisory_xact_lock');
+        expect(bookableSlotsMigration).toContain('scheduled_session_overlaps_bookable_slot');
+        expect(bookableSlotsMigration).toContain('bookable_slot_materialization_requires_four_exact_sessions');
+        expect(bookableSlotsMigration).toContain('bookable_slot_occurrence_session_binding_is_invalid');
+        expect(bookableSlotsMigration).toContain('COUNT(session_row.id) AS session_count');
+        expect(bookableSlotsMigration).toContain('validate_versioned_checkout_slot_hold_after_write');
+        expect(bookableSlotsMigration).toContain('bookable_slot_materialization_requires_unused_quota');
+        expect(bookableSlotsMigration).toContain('materialized_bookable_slot_requires_consumed_quota');
+        expect(bookableSlotsMigration).not.toContain('expires_at > now()');
+        expect(bookableSlotsMigration).not.toContain('GRANT SELECT ON TABLE public.bookable_slots TO anon');
+        expect(bookableSlotsMigration).not.toContain('GRANT EXECUTE ON FUNCTION public.hold_bookable_slot(UUID, UUID) TO authenticated');
+        expect(bookableSlotsMigration).not.toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.bookable_slots');
+        expect(bookableSlotsMigration).not.toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.bookable_slot_occurrences');
+        expect(bookableSlotsMigration).not.toContain('GRANT SELECT, INSERT, UPDATE ON TABLE public.bookable_slot_holds');
+        expect(bookableSlotsMigration).not.toContain('UPDATE public.packages');
+        expect(bookableSlotsMigration).not.toContain('INSERT INTO public.package_prices');
+
+        for (const typeSnippet of [
+            'bookable_slot_holds: {',
+            'bookable_slot_occurrences: {',
+            'bookable_slots: {',
+            'checkout_intent_id: string | null;',
+            'claim_checkout_intent_for_slot: {',
+            'consume_bookable_slot_hold: {',
+            'create_bookable_slot: {',
+            'hold_bookable_slot: {',
+            'materialize_bookable_slot_sessions: {',
+            'publish_bookable_slot: {',
+            'release_bookable_slot_hold: {',
+        ]) {
+            expect(databaseTypes).toContain(typeSnippet);
+        }
+
+        for (const functionName of [
+            'private.guard_subscription_checkout_binding()',
+            'private.guard_bookable_slot_contract()',
+            'private.guard_bookable_slot_occurrence()',
+            'private.validate_bookable_slot_occurrences()',
+            'private.sync_bookable_slot_occurrence_blocking()',
+            'private.guard_session_against_bookable_slots()',
+            'private.guard_bookable_slot_hold()',
+            'private.validate_versioned_checkout_slot_hold()',
+            'public.create_bookable_slot(',
+            'public.publish_bookable_slot(',
+            'public.hold_bookable_slot(',
+            'public.claim_checkout_intent_for_slot(',
+            'public.release_bookable_slot_hold(',
+            'public.consume_bookable_slot_hold(',
+            'public.materialize_bookable_slot_sessions(',
+        ]) {
+            expect(canonicalSqlFunction(schema, functionName)).toBe(
+                canonicalSqlFunction(bookableSlotsMigration, functionName)
+            );
+        }
     });
 
     it('serializes checkout claims and preserves unambiguous billing lifecycle state', () => {
