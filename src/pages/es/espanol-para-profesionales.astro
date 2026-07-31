@@ -3,6 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import SegmentLandingPage from '../../components/landing/SegmentLandingPage.astro';
 import { getLandingPageData } from '../../lib/landing-data';
 import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
+import { ui } from '../../i18n/translations';
 
 const lang = 'es';
 const { packages, isLoggedIn } = await getLandingPageData(Astro);
@@ -17,7 +18,7 @@ const schema = {
 
 const answers = {
     title: 'Respuestas rápidas',
-    intro: 'Lo esencial antes de solicitar plaza si necesitas español para trabajo y vida profesional.',
+    intro: 'Lo esencial antes de comprar si necesitas español para trabajo y vida profesional.',
     items: [
         {
             question: '¿Qué es español para profesionales?',
@@ -29,15 +30,15 @@ const answers = {
         },
         {
             question: '¿Qué incluye el curso?',
-            answer: 'Incluye clases online en directo, documento de clase con errores y vocabulario, deberes, worksheets, carpeta de Drive, calendario, Meet, recordatorios y soporte desde el campus. En planes compatibles puede añadirse conversación grupal con otros alumnos y un profesor.',
+            answer: 'Incluye cuatro clases individuales online de 50 minutos por ciclo de 28 días, documento de clase con errores y vocabulario, deberes, worksheets, calendario, Meet, recordatorios y soporte desde el campus.',
         },
         {
             question: '¿Para quién encaja?',
             answer: 'Encaja con profesionales +30, normalmente desde A2/B1, que entienden bastante pero quieren hablar con más precisión y presencia. No está pensada para quien busca sólo una clase barata o una lista de frases para memorizar.',
         },
         {
-            question: '¿Cómo se decide el plan?',
-            answer: 'Primero solicitas plaza y compartes nivel, objetivo y disponibilidad. Después revisamos si conviene clase privada, intensivo, plan híbrido o conversación grupal cuando haya alumnos compatibles.',
+            question: '¿Cómo funciona la compra?',
+            answer: 'La única oferta inicial son cuatro clases individuales de 50 minutos por 259 EUR, con renovación cada 28 días. Antes de pagar eliges una plaza real con profesor y franja semanal identificados.',
         },
     ],
 };
@@ -59,41 +60,7 @@ const faqSchemaJson = serializeJsonForHtml(faqSchema);
 Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
 Astro.csp?.insertScriptHash(await sha256CspHash(faqSchemaJson));
 
-const pricingTranslations = {
-    title: 'Planes',
-    subtitle: 'Primero encaje y disponibilidad; después propuesta.',
-    headers: {
-        name: 'Plan',
-        price: 'Precio',
-        includes: 'Incluye',
-        action: 'Acción',
-    },
-    month: '/mes',
-    select: 'Solicitar plaza',
-    recommended: 'Recomendado',
-    plans: {
-        group: { name: 'Grupo compatible', description: 'Conversación guiada con otros alumnos cuando haya grupo adecuado.', features: [] },
-        standard: { name: 'Profesional mensual', description: 'Clase privada semanal para trabajo, vida diaria y conversaciones reales.', features: [] },
-        hybrid: { name: 'Híbrido profesional', description: 'Privadas, grupo compatible y seguimiento con dos profesores.', features: [] },
-        bootcamp: { name: 'Intensivo profesional', description: 'Ritmo intensivo para una entrevista, presentación, mudanza o cambio laboral.', features: [] },
-    },
-    modal: {
-        title: 'Elige duración',
-        duration1: '1 mes',
-        duration3: '3 meses',
-        duration6: '6 meses',
-        save: 'Ahorras',
-        total: 'Total',
-        perMonth: 'al mes',
-        continue: 'Continuar',
-        login: 'Inicia sesión para continuar',
-        loading: 'Procesando...',
-        error: 'No se pudo continuar.',
-        close: 'Cerrar',
-        contact: 'Contactar',
-        contactMessage: 'Antes de pagar confirmamos encaje, nivel y disponibilidad.',
-    },
-};
+const pricingTranslations = ui.es.pricing;
 ---
 
 <BaseLayout
@@ -119,7 +86,7 @@ const pricingTranslations = {
             manifesto: 'Trabajo, cultura y conversación adulta',
             subtitle: 'Para profesionales que viven o quieren vivir en España y necesitan hablar con criterio, no sólo sobrevivir en reuniones.',
             ready: '¿Quieres trabajar mejor en español?',
-            ctaText: 'SOLICITAR PLAZA',
+            ctaText: 'VER OFERTA',
         }}
         problems={{
             headline: 'EL ESPAÑOL GENERAL SE QUEDA CORTO',
@@ -153,12 +120,12 @@ const pricingTranslations = {
             ],
         }}
         community={{
-            title: 'Comunidad, pero bien hecha',
-            body: 'La parte grupal tiene sentido cuando conocemos a los alumnos y podemos emparejarlos por nivel, intereses y ritmo.',
+            title: 'Una plaza concreta antes de pagar',
+            body: 'La compra parte de una relación docente real, no de una promesa abstracta.',
             notes: [
-                'No metemos a cualquiera en cualquier grupo sólo para llenar plazas.',
-                'La conversación grupal es una capa de contacto con España y con otros alumnos, no un sustituto barato de la clase privada.',
-                'Primero vemos encaje y disponibilidad. Después proponemos el plan adecuado.',
+                'Antes de pagar ves qué profesor impartirá tus clases.',
+                'También ves la franja semanal y la primera fecha disponibles.',
+                'Tras la primera clase y antes de la segunda puedes activar la garantía sobre las tres clases restantes.',
             ],
         }}
         contexts={{
@@ -189,8 +156,8 @@ const pricingTranslations = {
         }}
         answers={answers}
         lead={{
-            title: 'SOLICITA PLAZA',
-            subtitle: 'Cuéntanos tu nivel, tu trabajo y qué tipo de relación quieres construir con España.',
+            title: 'HAZ UNA CONSULTA',
+            subtitle: 'Si la oferta todavía no está abierta, cuéntanos tu nivel y tu disponibilidad.',
             interest: 'Español profesional',
         }}
     />

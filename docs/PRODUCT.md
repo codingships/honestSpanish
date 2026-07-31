@@ -1,59 +1,114 @@
-# Producto vigente
+# Producto objetivo
 
-Este documento recoge decisiones actuales de producto. Si una tarea propone cambiarlas, se detiene para que el propietario decida y después se actualizan código y documento en la misma PR.
+Este documento recoge las decisiones duraderas de producto de Español Honesto. Si una tarea propone cambiar precio, oferta, promesa pública, proveedor, política de datos o comportamiento de negocio, se detiene para que el propietario decida y se actualizan código y documento en la misma PR.
 
-## Propuesta y entrada comercial
+El código integrado todavía implementa parte de la oferta anterior. Mientras dure la transición, `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false` impiden aceptar dinero por un contrato que aún no esté implementado y verificado de extremo a extremo.
 
-Español Honesto ofrece enseñanza de español orientada a conversación, cultura y uso real del idioma. La web pública muestra un equipo de tres profesores/personas y la acción principal es solicitar plaza.
+## Propuesta y público
 
-La solicitud recoge interés, nivel aproximado, objetivo, disponibilidad, plan preferido y página de origen. El equipo revisa encaje antes de habilitar una compra. Las páginas públicas no ofrecen checkout directo.
+Español Honesto ofrece clases individuales de español para adultos, orientadas a conversación, cultura y uso real del idioma. El alumno compra una plaza semanal concreta con un profesor identificado; no compra un banco anónimo de horas ni entra en un marketplace.
 
-El CRM es propio y vive dentro del admin Astro/Supabase. El contacto es el registro central de la relación; alumnos, pagos, sesiones y soporte conservan sus fuentes operativas.
+La oferta inicial se dirige a adultos que quieren usar el español en situaciones reales. El mercado, geografía e idioma prioritarios de captación se decidirán mediante investigación específica antes de producir contenido o publicidad a escala. La web puede conservar rutas en español, inglés y ruso, pero todas deben describir el mismo producto.
 
-El posicionamiento prioritario es para adultos y profesionales, normalmente de 30 años o más y con nivel aproximado A2/B1 o superior, interesados en conversación, cultura y vida real en España. Es una orientación comercial, no una regla automática de exclusión.
+El servicio es exclusivamente para mayores de 18 años. Registro y compra exigen una declaración expresa de mayoría de edad; no se recoge fecha de nacimiento ni existe un flujo para menores.
 
-El servicio es exclusivamente para mayores de 18 años. Solicitud, diagnóstico, registro y compra exigen una declaración expresa de mayoría de edad; no se recoge fecha de nacimiento ni existe un flujo para menores.
+## Oferta inicial única
 
-## Oferta actual
+| Propiedad | Decisión |
+|---|---|
+| Clave contractual | `individual_4x50_28d` |
+| Precio de trabajo | 259 EUR por ciclo, impuestos incluidos según la conclusión fiscal final |
+| Sesiones | 4 clases individuales |
+| Duración | 50 minutos por clase |
+| Periodo | 28 días literales |
+| Renovación | Automática por otros 28 días hasta que se cancele |
+| Profesor | Identificado antes de pagar |
+| Horario | Franja semanal, zona horaria y primera fecha identificadas antes de pagar |
+| Compra | Directa B2C; revisión manual solo como excepción o recuperación |
 
-| Clave | Precio mensual | Sesiones por mes | Modalidad |
-|---|---:|---:|---|
-| `group` | 50 EUR | 4 | Grupo guiado solo si existe compatibilidad |
-| `standard` | 145 EUR | 4 | Clases privadas |
-| `hybrid` | 150 EUR | 4 | Privadas más grupo compatible |
-| `bootcamp` | 345 EUR | 20 | Privadas intensivas |
+Los primeros 259 EUR se cobran al reservar la plaza. Antes de confirmar la compra se muestran las cuatro fechas previstas —días 0, 7, 14 y 21 desde la primera clase— y la fecha exacta de la siguiente renovación, que se cobra 28 días después de esa primera clase. Si la primera fecha cambia antes de empezar, se desplazan el ancla y las cuatro fechas; una vez comenzada la primera clase, el ancla queda fija. No se aceptan prorratas ni fechas implícitas distintas de lo comunicado al alumno.
 
-Duraciones: 30, 40 o 50 minutos; 50 minutos por defecto. Compromisos de 3 meses tienen 10 % de descuento y los de 6 meses, 20 %. Las sesiones del periodo forman un banco utilizable hasta su fecha final y no pasan a la renovación siguiente.
+Un cambio futuro de precio o condiciones crea una versión contractual nueva. Nunca reescribe compras, sesiones o obligaciones históricas.
 
-`group` no garantiza que exista un grupo. `hybrid` tampoco garantiza aún alta verificable con dos profesores. Ambos pueden mostrarse para solicitar plaza, pero siguen bloqueados para aprobación/checkout. Si se habilitan pagos, la oferta cobrable inicial se limita a `standard` y `bootcamp` hasta que una decisión de producto retire esos bloqueos.
+## Capacidad inicial
+
+Las primeras cinco plazas vendibles son tres de Álex y dos de Irene. Cada plaza representa capacidad real con profesor, franja semanal, zona horaria, primera fecha y estado.
+
+Una plaza se retiene temporalmente durante checkout y se libera si el pago no termina. No se cobra cuando no existe capacidad y dos compradores no pueden adquirir la misma plaza. La disponibilidad pública debe proceder del inventario real, no de un contador o texto decorativo.
+
+## Reprogramación, cancelaciones y sustituciones
+
+- Con al menos 24 horas de antelación, el alumno puede reprogramar y conserva la clase.
+- Con menos de 24 horas o en caso de no-show, la clase se considera consumida y el profesor se paga. Si soporte documenta una incidencia justificada y la reclasifica, deja de ser una cancelación tardía o no-show a todos los efectos; sin esa reclasificación, la regla se aplica íntegramente. La redacción jurídica final puede ajustar su presentación sin exigir rehacer el modelo.
+- Si cancela la academia o el profesor, el alumno conserva la clase.
+- La academia puede proponer un sustituto y el alumno puede rechazarlo.
+- Reprogramar es una única operación: la nueva reserva y la liberación de la anterior no pueden duplicar ni perder el crédito.
+
+## Garantía
+
+Después de completar la primera clase y antes de comenzar la segunda, el alumno puede solicitar la devolución del valor contractual de las tres clases restantes. La primera clase queda pagada. Reprogramar la segunda con al menos 24 horas conserva esta ventana hasta que comience la nueva sesión; una cancelación tardía o un no-show que soporte no haya reclasificado consume la segunda clase y cierra la ventana.
+
+Para la versión de 259 EUR, el importe de referencia de las tres clases es 194,25 EUR. El cálculo se realiza desde el snapshot contractual de la compra, no desde el catálogo vigente. Una devolución invalida las tres sesiones restantes, cancela las renovaciones futuras y no puede ejecutarse dos veces. La revisión jurídica final confirmará desistimiento y consentimiento para comenzar antes de catorce días sin alterar esta regla comercial salvo decisión expresa del propietario.
+
+## Profesor y remuneración operativa
+
+- Fundadores: 40 EUR por clase de 50 minutos.
+- Profesor externo: 20 EUR por clase al comenzar.
+- La tarifa externa sube a 25 EUR desde el primer ciclo posterior a alcanzar diez alumnos activos o 90 días desde la primera venta, lo que ocurra antes.
+- Formación y reuniones obligatorias: 15 EUR por hora real.
+- La tarifa docente incluye preparación ordinaria, clase, nota breve, deberes normales y mensajes ordinarios.
+- Cancelaciones tardías y no-show liquidables generan obligación docente; cancelaciones de la academia no trasladan el coste al alumno.
+- El piloto con Irene se basa en confianza y control de calidad poco intrusivo: sin grabación, transcripción ni observación permanente.
+
+El trabajo docente, el trabajo no docente real y el beneficio distribuible se registran por separado. La plataforma debe permitir conocer ingresos, devoluciones, coste docente, captación, costes directos, reserva y margen por alumno; no convierte un reparto informal en una categoría contable.
+
+## Entrada comercial y CRM
+
+El recorrido principal es oferta → profesor y franja → cuenta/datos imprescindibles → condiciones → Stripe Checkout. El diagnóstico, los objetivos y las preferencias no constituyen una aprobación manual ni bloquean una plaza por criterio comercial; su ubicación exacta en el recorrido se resolverá al diseñar la experiencia sin alterar la compra directa.
+
+El formulario de contacto se mantiene como vía secundaria para dudas, lista de espera o casos que requieran intervención. Un contacto no bloquea la compra directa.
+
+El CRM es propio y vive dentro del admin Astro/Supabase. El contacto es el registro central de la relación; Stripe, sesiones, perfiles y soporte conservan sus fuentes operativas. La atribución mínima conserva landing, referrer y UTM desde la entrada hasta compra, renovación o devolución sin almacenar información excesiva.
 
 ## Pagos y proveedores
 
-- Supabase `packages` es el catálogo editable.
-- Supabase `package_prices` conserva versiones contractuales inmutables.
-- Stripe ejecuta el cobro y debe coincidir con la oferta aprobada.
-- Un cambio de precio crea una versión nueva; no reescribe compras previas.
-- `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false` son el estado normal actual.
-- Si se activa el checkout, el alcance inicial es tarjeta mediante Stripe Checkout y sin códigos promocionales.
-- Activar pagos reales, cambiar proveedor o abrir checkout es una decisión de producto y producción.
+- Supabase conserva catálogo, capacidad, snapshots contractuales y operación.
+- Stripe cobra 259 EUR al reservar y programa la recurrencia para 28 días después de la primera clase. La implementación puede separar el pago inicial de la suscripción futura, pero para el alumno forman un único contrato y nunca dos cobros iniciales.
+- Checkout, webhooks, renovaciones, devoluciones y trabajos externos son idempotentes.
+- El portal permite gestionar método de pago y cancelación según la política vigente; no ofrece planes retirados.
+- `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false` siguen siendo el estado normal hasta superar Stripe test, revisión final y autorización de producción.
+- Activar pagos reales, cambiar proveedor o abrir checkout exige un gate explícito.
 
-Stack externo confirmado: Cloudflare Workers, Supabase, Stripe, Google Workspace, Resend, Turnstile y Sentry. Los recursos exactos están en `docs/ENVIRONMENTS.md`; no se sustituye uno por otro aunque la cuenta tenga otros proyectos.
+Stack confirmado: Cloudflare Workers, Supabase, Stripe, Google Workspace, Resend, Turnstile y Sentry. Los recursos exactos están en `docs/ENVIRONMENTS.md`; no se sustituye uno por otro aunque una cuenta contenga otros proyectos.
 
-## Límites públicos actuales
+## Confianza, contenido y datos
 
-- No se publican reviews o testimonios sin una fuente real y permiso.
-- No se anuncia un canal público de Telegram sin operación y moderación reales.
-- No se activa telemetría rica de producto sin decidir herramienta, minimización, consentimiento, cookies, retención y privacidad. Sentry queda limitado a errores técnicos.
-- No se promete grupo, comunidad pública ni prueba de nivel humana definitiva mientras no estén operativos.
+- No se publican reseñas o testimonios sin fuente real y permiso.
+- No se anuncian grupos, comunidad, Telegram, híbrido, intensivo ni servicios inexistentes.
+- No se prometen plazos universales de fluidez o resultados no demostrables.
+- El método se explica mediante acciones concretas y expectativas de trabajo, no adjetivos.
+- Imágenes, perfiles, experiencia y credenciales deben ser verificables y tener licencia o autorización.
+- No se activa telemetría rica sin decidir minimización, consentimiento, cookies, retención y privacidad. Sentry queda limitado a errores técnicos sin información personal innecesaria.
 
-## Decisiones pendientes reales
+## Fuera de la oferta inicial
 
-Estas cuestiones no se resuelven técnicamente sin el propietario:
+- Grupos, híbrido e intensivo.
+- Clases de 30 o 40 minutos.
+- Descuentos o compromisos de tres y seis meses.
+- Marketplace de profesores y matching automático.
+- Menores de edad.
+- Segundo procesador de pagos.
+- Aplicación móvil nativa.
 
-- Cuándo aceptar pagos reales.
-- Cuándo `group` y `hybrid` cumplen lo prometido y pueden venderse.
-- Prueba de nivel definitiva, si se desea una distinta de la solicitud enriquecida.
-- Textos legales, plazos de conservación y procedimiento definitivo de derechos antes de producción real.
-- Cualquier cambio de precio, promesa, público, proveedor o política de datos.
+Estos elementos no permanecen visibles como ofertas “próximamente”. Solo se reconsideran con datos reales y una nueva decisión de producto.
 
-No se convierten en un gate general. Solo bloquean la tarea que dependa directamente de ellas.
+## Gates humanos pendientes
+
+No son un bloqueo general; detienen únicamente la tarea que dependa de ellos:
+
+- Confirmación fiscal/jurídica final del precio de 259 EUR, vendedor, facturación, IVA/IRPF y remuneraciones.
+- Cinco franjas concretas de Álex e Irene antes de publicar disponibilidad.
+- Mercado e idioma prioritarios antes de contenido o campañas nuevas.
+- Canal y compromiso realista de soporte antes de cobrar.
+- Textos legales, desistimiento, cancelación tardía, privacidad, cookies y retención antes de producción real.
+- Stripe live, producción, DNS y dinero real siempre requieren autorización explícita.

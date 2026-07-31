@@ -1,9 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { ADULT_POLICY_VERSION, CHECKOUT_TERMS_VERSION } from '../../src/lib/legal-policy';
 
 const terms = readFileSync('src/pages/[lang]/legal/terminos.astro', 'utf8');
 
 describe('legal terms version on automatic renewal', () => {
+    it('versions checkout terms independently from the adult attestation', () => {
+        expect(CHECKOUT_TERMS_VERSION).toBe('2026-07-31');
+        expect(ADULT_POLICY_VERSION).toBe('2026-07-10');
+        expect(CHECKOUT_TERMS_VERSION).not.toBe(ADULT_POLICY_VERSION);
+        expect(terms).toContain('Última actualización: 31 de julio de 2026');
+        expect(terms).toContain('Last updated: July 31, 2026');
+    });
+
     it('does not claim that an automatic renewal records a new acceptance', () => {
         expect(terms).not.toContain('aceptada en la contratación o renovación');
         expect(terms).not.toContain('accepted at purchase or renewal');
@@ -12,9 +21,17 @@ describe('legal terms version on automatic renewal', () => {
         expect(terms).toContain('получим новое согласие');
     });
 
-    it('states that multi-month purchases are a flexible period bank rather than a hidden monthly cap', () => {
-        expect(terms).toContain('banco total de sesiones del periodo');
-        expect(terms).toContain('with no monthly cap');
-        expect(terms).toContain('без месячного лимита');
+    it('states the exact initial charge, renewal anchor and guarantee in every language', () => {
+        expect(terms).toContain('La primera cuota de 259 EUR se cobra al reservar la plaza');
+        expect(terms).toContain('La siguiente cuota se cobra 28 días después de la primera clase');
+        expect(terms).toContain('devolución de 194,25 EUR');
+        expect(terms).toContain('que soporte no haya reclasificado consume la segunda clase y cierra la garantía');
+        expect(terms).toContain('The initial EUR 259 charge is collected when the place is reserved');
+        expect(terms).toContain('The next charge is collected 28 days after the first class');
+        expect(terms).toContain('EUR 194.25 refund');
+        expect(terms).toContain('that support has not reclassified consumes the second class and closes the guarantee');
+        expect(terms).toContain('Первые 259 EUR списываются при бронировании места');
+        expect(terms).toContain('через 28 дней после первого занятия');
+        expect(terms).toContain('возврат 194,25 EUR');
     });
 });

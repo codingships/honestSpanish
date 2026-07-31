@@ -821,19 +821,23 @@ export type Database = {
         Row: {
           activated_at: string;
           amount_cents: number;
+          billing_interval_count: number | null;
+          billing_interval_unit: string | null;
           catalog_version: number;
+          class_duration_minutes: number | null;
+          contract_schema_version: number;
           created_at: string;
           created_by: string | null;
           currency: string;
           display_name: Json;
-          duration_months: number;
+          duration_months: number | null;
           has_dual_teacher: boolean;
           has_group_session: boolean;
           id: string;
           package_id: string;
           package_key: string;
           retired_at: string | null;
-          sessions_per_month: number;
+          sessions_per_month: number | null;
           sessions_per_period: number;
           status: string;
           stripe_account_id: string | null;
@@ -844,19 +848,23 @@ export type Database = {
         Insert: {
           activated_at?: string;
           amount_cents: number;
+          billing_interval_count?: number | null;
+          billing_interval_unit?: string | null;
           catalog_version: number;
+          class_duration_minutes?: number | null;
+          contract_schema_version?: number;
           created_at?: string;
           created_by?: string | null;
           currency: string;
           display_name: Json;
-          duration_months: number;
+          duration_months?: number | null;
           has_dual_teacher?: boolean;
           has_group_session?: boolean;
           id?: string;
           package_id: string;
           package_key: string;
           retired_at?: string | null;
-          sessions_per_month: number;
+          sessions_per_month?: number | null;
           sessions_per_period: number;
           status: string;
           stripe_account_id?: string | null;
@@ -867,19 +875,23 @@ export type Database = {
         Update: {
           activated_at?: string;
           amount_cents?: number;
+          billing_interval_count?: number | null;
+          billing_interval_unit?: string | null;
           catalog_version?: number;
+          class_duration_minutes?: number | null;
+          contract_schema_version?: number;
           created_at?: string;
           created_by?: string | null;
           currency?: string;
           display_name?: Json;
-          duration_months?: number;
+          duration_months?: number | null;
           has_dual_teacher?: boolean;
           has_group_session?: boolean;
           id?: string;
           package_id?: string;
           package_key?: string;
           retired_at?: string | null;
-          sessions_per_month?: number;
+          sessions_per_month?: number | null;
           sessions_per_period?: number;
           status?: string;
           stripe_account_id?: string | null;
@@ -896,26 +908,33 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "package_prices_package_id_fkey";
-            columns: ["package_id"];
+            foreignKeyName: "package_prices_package_contract_version_fkey";
+            columns: ["package_id", "contract_schema_version"];
             isOneToOne: false;
             referencedRelation: "packages";
-            referencedColumns: ["id"];
+            referencedColumns: ["id", "contract_schema_version"];
           },
         ];
       };
       packages: {
         Row: {
+          amount_cents: number | null;
+          billing_interval_count: number | null;
+          billing_interval_unit: string | null;
           catalog_version: number;
+          class_duration_minutes: number | null;
+          contract_schema_version: number;
           created_at: string | null;
           display_name: Json;
           has_dual_teacher: boolean | null;
           has_group_session: boolean | null;
           id: string;
           is_active: boolean | null;
+          is_publicly_listed: boolean;
           name: string;
           price_monthly: number;
           sessions_per_month: number;
+          sessions_per_period: number | null;
           stripe_price_1m: string | null;
           stripe_price_3m: string | null;
           stripe_price_6m: string | null;
@@ -923,16 +942,23 @@ export type Database = {
           updated_at: string | null;
         };
         Insert: {
+          amount_cents?: number | null;
+          billing_interval_count?: number | null;
+          billing_interval_unit?: string | null;
           catalog_version?: number;
+          class_duration_minutes?: number | null;
+          contract_schema_version?: number;
           created_at?: string | null;
           display_name: Json;
           has_dual_teacher?: boolean | null;
           has_group_session?: boolean | null;
           id?: string;
           is_active?: boolean | null;
+          is_publicly_listed?: boolean;
           name: string;
           price_monthly: number;
           sessions_per_month: number;
+          sessions_per_period?: number | null;
           stripe_price_1m?: string | null;
           stripe_price_3m?: string | null;
           stripe_price_6m?: string | null;
@@ -940,16 +966,23 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: {
+          amount_cents?: number | null;
+          billing_interval_count?: number | null;
+          billing_interval_unit?: string | null;
           catalog_version?: number;
+          class_duration_minutes?: number | null;
+          contract_schema_version?: number;
           created_at?: string | null;
           display_name?: Json;
           has_dual_teacher?: boolean | null;
           has_group_session?: boolean | null;
           id?: string;
           is_active?: boolean | null;
+          is_publicly_listed?: boolean;
           name?: string;
           price_monthly?: number;
           sessions_per_month?: number;
+          sessions_per_period?: number | null;
           stripe_price_1m?: string | null;
           stripe_price_3m?: string | null;
           stripe_price_6m?: string | null;
@@ -1457,9 +1490,13 @@ export type Database = {
       };
       subscriptions: {
         Row: {
+          billing_interval_count: number | null;
+          billing_interval_unit: string | null;
+          class_duration_minutes: number | null;
+          contract_schema_version: number;
           contracted_sessions_per_period: number;
           created_at: string | null;
-          duration_months: number;
+          duration_months: number | null;
           ends_at: string;
           id: string;
           package_id: string;
@@ -1474,9 +1511,13 @@ export type Database = {
           updated_at: string | null;
         };
         Insert: {
+          billing_interval_count?: number | null;
+          billing_interval_unit?: string | null;
+          class_duration_minutes?: number | null;
+          contract_schema_version?: number;
           contracted_sessions_per_period: number;
           created_at?: string | null;
-          duration_months: number;
+          duration_months?: number | null;
           ends_at: string;
           id?: string;
           package_id: string;
@@ -1491,9 +1532,13 @@ export type Database = {
           updated_at?: string | null;
         };
         Update: {
+          billing_interval_count?: number | null;
+          billing_interval_unit?: string | null;
+          class_duration_minutes?: number | null;
+          contract_schema_version?: number;
           contracted_sessions_per_period?: number;
           created_at?: string | null;
-          duration_months?: number;
+          duration_months?: number | null;
           ends_at?: string;
           id?: string;
           package_id?: string;
@@ -1659,19 +1704,23 @@ export type Database = {
         Returns: {
           activated_at: string;
           amount_cents: number;
+          billing_interval_count: number | null;
+          billing_interval_unit: string | null;
           catalog_version: number;
+          class_duration_minutes: number | null;
+          contract_schema_version: number;
           created_at: string;
           created_by: string | null;
           currency: string;
           display_name: Json;
-          duration_months: number;
+          duration_months: number | null;
           has_dual_teacher: boolean;
           has_group_session: boolean;
           id: string;
           package_id: string;
           package_key: string;
           retired_at: string | null;
-          sessions_per_month: number;
+          sessions_per_month: number | null;
           sessions_per_period: number;
           status: string;
           stripe_account_id: string | null;
@@ -1679,6 +1728,30 @@ export type Database = {
           stripe_price_id: string;
           stripe_product_id: string;
         };
+        SetofOptions: {
+          from: "*";
+          to: "package_prices";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      activate_versioned_package_price: {
+        Args: {
+          p_activated_by?: string | null;
+          p_amount_cents: number;
+          p_billing_interval_count: number;
+          p_billing_interval_unit: string;
+          p_catalog_version: number;
+          p_class_duration_minutes: number;
+          p_currency: string;
+          p_package_id: string;
+          p_sessions_per_period: number;
+          p_stripe_account_id: string;
+          p_stripe_livemode: boolean;
+          p_stripe_price_id: string;
+          p_stripe_product_id: string;
+        };
+        Returns: Database["public"]["Tables"]["package_prices"]["Row"];
         SetofOptions: {
           from: "*";
           to: "package_prices";

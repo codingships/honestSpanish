@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import PricingModal from './PricingModal';
-import { CLASS_DURATION_OPTIONS_MINUTES } from '../lib/class-duration';
 import { formatPackagePrice } from '../lib/package-pricing';
 
 interface Package {
@@ -20,7 +19,7 @@ interface PricingSectionProps {
     packages: Package[];
     lang: 'es' | 'en' | 'ru';
     isLoggedIn: boolean;
-    checkoutMode?: 'application' | 'checkout';
+    checkoutMode?: 'unavailable' | 'checkout';
     translations: {
         title: string;
         subtitle: string;
@@ -66,11 +65,6 @@ interface PricingSectionProps {
 
 type PlanKey = string;
 
-type PreferredPackageDetail = {
-    preferredPackage: string;
-    preferredPackageLabel: string;
-};
-
 const s = {
     bg: 'bg-[#E0F7FA]',
     text: 'text-[#006064]',
@@ -80,7 +74,7 @@ const s = {
     secondaryBg: 'bg-white',
 };
 
-export default function PricingSection({ packages, lang, isLoggedIn, checkoutMode = 'application', translations: t }: PricingSectionProps) {
+export default function PricingSection({ packages, lang, isLoggedIn, checkoutMode = 'unavailable', translations: t }: PricingSectionProps) {
     const [selectedPlan, setSelectedPlan] = useState<{
         name: string;
         displayName: string;
@@ -100,13 +94,13 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             includes: t.headers?.includes || 'Incluye',
             action: t.headers?.action || 'Accion',
         },
-        month: t.month || 'al mes',
+        month: t.month || 'cada 28 días',
         select: t.select || 'Seleccionar',
         recommended: t.recommended || 'Recomendado',
         applicationNote: t.applicationNote || {
-            es: 'La solicitud de plaza se revisa antes de activar compra o pago.',
-            en: 'Your application is reviewed before purchase or payment is enabled.',
-            ru: 'Заявка рассматривается до включения покупки или оплаты.',
+            es: 'La compra directa se abrirá cuando puedas elegir una plaza real con profesor y horario antes de pagar.',
+            en: 'Direct purchase will open once you can choose a real place with a teacher and schedule before paying.',
+            ru: 'Прямая покупка откроется, когда до оплаты можно будет выбрать реальное место, преподавателя и расписание.',
         }[lang],
         plans: t.plans || {},
         modal: {
@@ -131,7 +125,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             privacyLink: t.modal?.privacyLink || 'Política de Privacidad',
             serviceStartRequest: t.modal?.serviceStartRequest || 'Solicito que el servicio pueda comenzar durante el periodo legal de desistimiento.',
             withdrawalLossAcknowledgement: t.modal?.withdrawalLossAcknowledgement || 'Reconozco que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.',
-            renewalDisclosure: t.modal?.renewalDisclosure || 'El total se cobra ahora y la suscripción se renueva automáticamente por el mismo periodo hasta que la canceles.',
+            renewalDisclosure: t.modal?.renewalDisclosure || 'Se cobran 259 EUR al reservar. La siguiente cuota se cobra 28 días después de la primera clase; si esa fecha cambia antes de empezar, se mueve el ancla y, después de comenzar, queda fija. Desde entonces se renueva cada 28 días hasta que canceles antes del siguiente cobro.',
             sessionBankDisclosure: t.modal?.sessionBankDisclosure || 'Este periodo incluye {sessions} sesiones para usar durante {months} mes(es), sin tope mensual. Las no usadas caducan al terminar.',
             policyError: t.modal?.policyError || 'Debes confirmar y aceptar las condiciones antes de continuar.',
         },
@@ -156,68 +150,51 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
         return { label: formatPackagePrice(pkg.price_monthly, lang), hasPrice: true };
     };
 
-    const recommendedPlanName = packages.some(pkg => pkg.name === 'hybrid')
-        ? 'hybrid'
-        : packages[Math.min(1, Math.max(packages.length - 1, 0))]?.name;
-
-    const isGroupOnlyPackage = (pkg: Package): boolean => pkg.name === 'group';
+    const recommendedPlanName = packages[0]?.name;
 
     const getLaunchFeatures = (pkg: Package): string[] => {
-        const durationLabel = CLASS_DURATION_OPTIONS_MINUTES.join('/');
         const labels = {
             es: {
-                sessions: `${pkg.sessions_per_month} clases privadas al mes`,
-                groupSessions: `${pkg.sessions_per_month} sesiones grupales de conversacion al mes si hay grupo compatible`,
-                duration: `Clases de ${durationLabel} minutos`,
+                sessions: `${pkg.sessions_per_month} clases individuales por ciclo`,
+                duration: '50 minutos por clase',
+                cadence: 'Renovación automática cada 28 días',
+                capacity: 'Profesor y franja semanal identificados antes de pagar',
+                guarantee: 'Garantía tras la primera clase y antes de la segunda',
                 materials: 'Documento vivo, worksheets y carpeta de Drive',
                 calendar: 'Meet y Calendar preparados desde el campus',
                 support: 'Soporte dentro del campus',
-                groupMatch: 'Grupo formado por compatibilidad de nivel e intereses',
-                group: 'Conversación grupal cuando haya compatibilidad',
-                dual: 'Seguimiento con dos profesores',
             },
             en: {
-                sessions: `${pkg.sessions_per_month} private classes per month`,
-                groupSessions: `${pkg.sessions_per_month} group conversation sessions per month when a compatible group exists`,
-                duration: `${durationLabel}-minute classes`,
+                sessions: `${pkg.sessions_per_month} individual classes per cycle`,
+                duration: '50 minutes per class',
+                cadence: 'Automatic renewal every 28 days',
+                capacity: 'Teacher and weekly time identified before payment',
+                guarantee: 'Guarantee after the first class and before the second',
                 materials: 'Live document, worksheets and Drive folder',
                 calendar: 'Meet and Calendar prepared from the campus',
                 support: 'In-campus support',
-                groupMatch: 'Group formed by compatible level and interests',
-                group: 'Group conversation when compatible',
-                dual: 'Two-teacher follow-up',
             },
             ru: {
-                sessions: `${pkg.sessions_per_month} индивидуальных занятий в месяц`,
-                groupSessions: `${pkg.sessions_per_month} групповых разговорных занятий в месяц при совместимой группе`,
-                duration: `Занятия по ${durationLabel} минут`,
+                sessions: `${pkg.sessions_per_month} индивидуальных занятия за цикл`,
+                duration: '50 минут на занятие',
+                cadence: 'Автоматическое продление каждые 28 дней',
+                capacity: 'Преподаватель и еженедельное время известны до оплаты',
+                guarantee: 'Гарантия после первого занятия и до второго',
                 materials: 'Живой документ, worksheets и папка Drive',
                 calendar: 'Meet и Calendar готовятся из кампуса',
                 support: 'Поддержка внутри кампуса',
-                groupMatch: 'Группа подбирается по уровню и интересам',
-                group: 'Групповая беседа при совместимости',
-                dual: 'Сопровождение двух преподавателей',
             },
         }[lang];
-
-        if (isGroupOnlyPackage(pkg)) {
-            return [
-                labels.groupSessions,
-                labels.duration,
-                labels.groupMatch,
-                labels.calendar,
-                labels.support,
-            ];
-        }
 
         return [
             labels.sessions,
             labels.duration,
+            labels.cadence,
+            labels.capacity,
+            labels.guarantee,
             labels.materials,
             labels.calendar,
             labels.support,
-            ...(pkg.has_group_session ? [labels.group] : []),
-            ...(pkg.has_dual_teacher ? [labels.dual] : []),
         ];
     };
 
@@ -230,32 +207,6 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             ...visibleTranslatedFeatures,
             ...launchFeatures.filter((feature) => !normalized.has(feature.toLocaleLowerCase(lang))),
         ];
-    };
-
-    const requestApplication = (pkg: Package) => {
-        if (typeof window === 'undefined') return;
-
-        const preferredPackageLabel = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
-        const detail: PreferredPackageDetail = {
-            preferredPackage: pkg.name,
-            preferredPackageLabel,
-        };
-
-        try {
-            window.sessionStorage.setItem('eh_preferred_package', JSON.stringify(detail));
-        } catch {
-            // Session storage can be unavailable in strict privacy modes.
-        }
-
-        window.dispatchEvent(new CustomEvent<PreferredPackageDetail>('eh:preferred-package-selected', { detail }));
-
-        const contactSection = document.getElementById('contacto');
-        if (contactSection) {
-            contactSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            window.history.replaceState(null, '', '#contacto');
-        } else {
-            window.location.href = `/${lang}#contacto`;
-        }
     };
 
     return (
@@ -282,12 +233,6 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                                 <p className="mx-auto max-w-2xl text-sm font-bold text-[#006064]">
                                     {copy.modal.contactMessage}
                                 </p>
-                                <a
-                                    href={`/${lang}#contacto`}
-                                    className={`mt-4 inline-block border ${s.border} px-6 py-2 text-xs font-bold uppercase transition-all hover:bg-[#006064] hover:text-white`}
-                                >
-                                    {copy.modal.contact}
-                                </a>
                             </div>
                         ) : packages.map((pkg, index) => {
                             const key = pkg.name || `plan-${index}`;
@@ -305,8 +250,6 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                                 || pkg.name;
                             const planFeatures = getPlanFeatures(pkg, planTranslations.features);
                             const priceDisplay = getPriceDisplay(pkg);
-                            const preferredPackageLabel = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
-                            const applicationHref = `/${lang}?preferredPackage=${encodeURIComponent(pkg.name)}&preferredPackageLabel=${encodeURIComponent(preferredPackageLabel)}#contacto`;
                             const actionClass = `
                                 w-auto px-6 ${highlight ? 'py-4' : 'py-2'}
                                 ${highlight
@@ -362,49 +305,27 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
 
                                     {/* Action Button */}
                                     <div className="col-span-2 flex justify-center">
-                                        {checkoutMode === 'application' ? (
-                                            <a
-                                                href={applicationHref}
-                                                onClick={(event) => {
-                                                    event.preventDefault();
-                                                    requestApplication(pkg);
-                                                }}
-                                                data-plan={key}
-                                                data-preferred-package={pkg.name}
-                                                data-preferred-package-label={preferredPackageLabel}
-                                                data-testid={`select-plan-${key}`}
-                                                aria-describedby="pricing-application-note"
-                                                className={actionClass}
-                                            >
-                                                {copy.select}
-                                            </a>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    if (!pkg) return;
-                                                    if (checkoutEnabled) {
-                                                        handleSelectPlan(pkg);
-                                                        return;
-                                                    }
-                                                    requestApplication(pkg);
-                                                }}
-                                                disabled={!pkg}
-                                                data-plan={key}
-                                                data-testid={`select-plan-${key}`}
-                                                className={actionClass}
-                                            >
-                                                {checkoutReady ? copy.select : copy.modal.contact}
-                                            </button>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (checkoutEnabled) handleSelectPlan(pkg);
+                                            }}
+                                            disabled={!checkoutEnabled}
+                                            data-plan={key}
+                                            data-testid={`select-plan-${key}`}
+                                            aria-describedby="pricing-availability-note"
+                                            className={actionClass}
+                                        >
+                                            {checkoutEnabled ? copy.select : copy.modal.contact}
+                                        </button>
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
                 </div>
-                {checkoutMode === 'application' && (
-                    <p id="pricing-application-note" className="sr-only">
+                {checkoutMode === 'unavailable' && (
+                    <p id="pricing-availability-note" className="mx-auto mt-6 max-w-3xl text-center text-sm font-bold text-[#006064]">
                         {copy.applicationNote}
                     </p>
                 )}

@@ -6,12 +6,16 @@ import {
     calculateSessionsPerPeriod,
     formatPackagePrice,
     getCheckoutReadyPackageOffers,
+    INITIAL_INDIVIDUAL_OFFER,
+    isInitialIndividualOfferSnapshot,
     isPackageCheckoutReady,
     isPackageCheckoutEligible,
     isPackageKeyCheckoutEligible,
     isPackageDuration,
+    isVersionedPackageContractSnapshot,
     packagePriceField,
 } from '../../src/lib/package-pricing';
+import type { VersionedPackageContractSnapshot } from '../../src/lib/package-pricing';
 
 describe('package pricing contract', () => {
     it.each([
@@ -44,6 +48,36 @@ describe('package pricing contract', () => {
         expect(formatPackagePrice(14500, 'es')).toMatch(/145/);
         expect(formatPackagePrice(39150, 'es')).toMatch(/391,50/);
         expect(formatPackagePrice(39150, 'en')).toMatch(/391\.50/);
+    });
+
+    it('recognizes the exact inactive 259 EUR, 28-day, 4x50 contract snapshot', () => {
+        const snapshot: VersionedPackageContractSnapshot = {
+            contract_schema_version: 2,
+            package_key: 'individual_4x50_28d',
+            amount_cents: 25900,
+            currency: 'eur',
+            billing_interval_unit: 'day',
+            billing_interval_count: 28,
+            sessions_per_period: 4,
+            class_duration_minutes: 50,
+        };
+
+        expect(INITIAL_INDIVIDUAL_OFFER).toEqual({
+            contractSchemaVersion: 2,
+            packageKey: 'individual_4x50_28d',
+            amountCents: 25900,
+            currency: 'eur',
+            billingIntervalUnit: 'day',
+            billingIntervalCount: 28,
+            sessionsPerPeriod: 4,
+            classDurationMinutes: 50,
+        });
+        expect(isVersionedPackageContractSnapshot(snapshot)).toBe(true);
+        expect(isInitialIndividualOfferSnapshot(snapshot)).toBe(true);
+        expect(isInitialIndividualOfferSnapshot({ ...snapshot, billing_interval_count: 30 })).toBe(false);
+        expect(isInitialIndividualOfferSnapshot({ ...snapshot, class_duration_minutes: null })).toBe(false);
+        expect(isVersionedPackageContractSnapshot({ ...snapshot, amount_cents: 25900.5 })).toBe(false);
+        expect(isVersionedPackageContractSnapshot({ ...snapshot, package_key: '   ' })).toBe(false);
     });
 
     it('requires one exact immutable offer per duration, account and Stripe mode', () => {

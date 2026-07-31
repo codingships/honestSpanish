@@ -17,17 +17,17 @@ const content = {
     es: {
         title: 'Términos',
         description: 'Condiciones comerciales y de uso de los servicios de Español Honesto',
-        lastUpdated: 'Última actualización: 10 de julio de 2026',
+        lastUpdated: 'Última actualización: 31 de julio de 2026',
     },
     en: {
         title: 'Terms',
         description: 'Commercial and service terms for Español Honesto',
-        lastUpdated: 'Last updated: July 10, 2026',
+        lastUpdated: 'Last updated: July 31, 2026',
     },
     ru: {
         title: 'Условия',
         description: 'Коммерческие условия и условия использования услуг Español Honesto',
-        lastUpdated: 'Последнее обновление: 10 июля 2026',
+        lastUpdated: 'Последнее обновление: 31 июля 2026',
     },
 };
 
@@ -51,42 +51,42 @@ const exampleNotice = lang === 'en'
         <>
             <section id="eligibility">
                 <h2>1. Alcance y mayoría de edad</h2>
-                <p>Estos términos regulan el acceso a la web, la solicitud de plaza y la contratación de clases, planes, suscripciones o servicios relacionados de Español Honesto.</p>
-                <p>El servicio, la solicitud de plaza, el diagnóstico, el registro y la contratación están disponibles únicamente para personas de 18 años o más. No aceptamos alumnos menores de edad. Al enviar una solicitud, crear una cuenta o contratar, declaras tener al menos 18 años.</p>
+                <p>Estos términos regulan el acceso a la web y la contratación de la suscripción de clases de Español Honesto.</p>
+                <p>El servicio, las consultas, el registro y la contratación están disponibles únicamente para personas de 18 años o más. No aceptamos alumnos menores de edad. Al enviar una consulta, crear una cuenta o contratar, declaras tener al menos 18 años.</p>
             </section>
 
             <section id="purchase">
-                <h2>2. Solicitud de plaza y contratación</h2>
-                <p>El envío de un formulario no garantiza plaza, profesor, horario ni precio. El contrato se celebra cuando confirmamos las condiciones y, cuando corresponda, Stripe confirma el pago.</p>
-                <p>Antes de pagar se muestra el plan, el periodo, el número de sesiones, el precio total y las condiciones aplicables. La aceptación de estos términos queda registrada con su versión y fecha.</p>
+                <h2>2. Plaza y contratación</h2>
+                <p>Antes de pagar se muestra una plaza real con profesor, franja semanal, zona horaria y primera fecha. El contrato se celebra cuando Stripe confirma el pago.</p>
+                <p>Antes de pagar también se muestran la oferta, el ciclo, el número de clases, el precio total y las condiciones aplicables. La aceptación de estos términos queda registrada con su versión y fecha.</p>
             </section>
 
             <section id="renewal">
                 <h2>3. Precio, cobro y renovación</h2>
                 <p>Los pagos se procesan a través de Stripe. Español Honesto no almacena los datos completos de la tarjeta.</p>
-                <p>Las opciones de 1, 3 y 6 meses son periodos de suscripción recurrente, no compras aisladas. El total mostrado se cobra al comienzo de cada periodo y la suscripción se renueva automáticamente por el mismo periodo hasta que se cancele. La cadencia y el próximo cobro aparecen en Stripe y en la confirmación contractual.</p>
+                <p>La primera cuota de 259 EUR se cobra al reservar la plaza e incluye cuatro clases individuales de 50 minutos. La siguiente cuota se cobra 28 días después de la primera clase y, desde entonces, cada 28 días hasta que se cancele. Si la primera fecha cambia antes de empezar, se mueve también el ancla de renovación; una vez comenzada la primera clase, el ancla queda fija. Las cuatro fechas y el próximo cobro aparecen antes de pagar y en la confirmación contractual.</p>
                 <p>Puedes desactivar la renovación desde Cuenta &gt; Gestionar pagos o solicitarlo a soporte antes de la fecha límite indicada. Mantendrás el acceso hasta el final del periodo ya pagado, salvo reembolso o causa legal distinta. Enviaremos los avisos previos de renovación exigidos por la normativa aplicable.</p>
             </section>
 
             <section id="classes-expiry">
                 <h2>4. Clases, saldo y caducidad</h2>
-                <p>Las clases duran 30, 40 o 50 minutos según el producto confirmado. La duración estándar es de 50 minutos salvo indicación expresa distinta. Google Meet no corta automáticamente la llamada al terminar el tiempo contratado.</p>
-                <p>En los periodos de 3 o 6 meses, el número confirmado en checkout es el banco total de sesiones del periodo y puede utilizarse de forma flexible, sin un tope mensual.</p>
+                <p>Cada clase dura 50 minutos. Google Meet no corta automáticamente la llamada al terminar el tiempo contratado.</p>
+                <p>Cada ciclo de 28 días incluye cuatro clases individuales.</p>
                 <p>El saldo del plan puede utilizarse únicamente durante el periodo pagado. No se puede reservar una clase posterior a la fecha de finalización. Las sesiones no utilizadas caducan al terminar el periodo y no se acumulan en la renovación, salvo incidencia imputable a Español Honesto, excepción aprobada por soporte o derecho legal aplicable.</p>
             </section>
 
             <section id="cancellation">
                 <h2>5. Cambios, cancelaciones y no-show</h2>
                 <p>Puedes cancelar desde el campus en cualquier momento. Si al cancelar faltan al menos 24 horas para la hora programada, la sesión vuelve a tu saldo y puede reservarse otra fecha, sujeta a disponibilidad y antes del vencimiento del periodo contratado.</p>
-                <p>Con menos de 24 horas, la cancelación sigue disponible pero la sesión se considera consumida y no vuelve al saldo, salvo incidencia justificada aprobada por soporte. Si Español Honesto cancela, la sesión se restituye y la reprogramación no tiene coste.</p>
-                <p>Si no te conectas dentro de los 15 minutos posteriores al inicio y no has comunicado una incidencia, la clase puede marcarse como no-show y se consume. Soporte puede revisar incidencias justificadas.</p>
+                <p>Con menos de 24 horas, la cancelación sigue disponible pero la sesión se considera consumida y no vuelve al saldo. Soporte puede documentar una incidencia justificada y reclasificarla; solo en ese caso deja de considerarse cancelación tardía a todos los efectos. Si Español Honesto cancela, la sesión se restituye y la reprogramación no tiene coste.</p>
+                <p>Si no te conectas dentro de los 15 minutos posteriores al inicio y no has comunicado una incidencia, la clase puede marcarse como no-show y se consume. Si soporte documenta y reclasifica una incidencia justificada, deja de considerarse no-show a todos los efectos.</p>
             </section>
 
             <section id="withdrawal-refunds">
                 <h2>6. Desistimiento y devoluciones</h2>
                 <p>Si contratas a distancia como consumidor, dispones de 14 días naturales desde la celebración del contrato para desistir sin indicar motivo. Puedes comunicarlo mediante el formulario de soporte o escribiendo a {legalIdentity.email}.</p>
                 <p>Si solicitas expresamente que el servicio empiece durante ese plazo y después desistes, podrá descontarse la parte proporcional efectivamente prestada cuando legalmente proceda. El derecho solo se pierde tras la ejecución íntegra del servicio cuando hayas consentido expresamente el inicio y reconocido esa consecuencia.</p>
-                <p>Los reembolsos debidos se realizan por el mismo medio de pago y dentro del plazo legal. Fuera del desistimiento y de los supuestos legalmente exigibles, cancelar la renovación no genera por sí sola el reembolso del periodo ya iniciado.</p>
+                <p>Además, después de completar la primera clase y antes de comenzar la segunda puedes solicitar la devolución de 194,25 EUR por las tres clases restantes. Ejercer esta garantía invalida esas sesiones y cancela las renovaciones futuras. Reprogramar la segunda clase con al menos 24 horas mantiene la ventana hasta la nueva sesión; una cancelación tardía o un no-show que soporte no haya reclasificado consume la segunda clase y cierra la garantía. Los reembolsos debidos se realizan por el mismo medio de pago y dentro del plazo legal. Fuera del desistimiento, de esta garantía y de los supuestos legalmente exigibles, cancelar la renovación no genera por sí sola el reembolso del ciclo ya iniciado.</p>
             </section>
 
             <section id="termination">
@@ -115,42 +115,42 @@ const exampleNotice = lang === 'en'
         <>
             <section id="eligibility">
                 <h2>1. Scope and adult eligibility</h2>
-                <p>These terms govern the website, placement applications and the purchase of classes, plans, subscriptions or related services from Español Honesto.</p>
-                <p>The service, applications, diagnostics, registration and purchases are available only to people aged 18 or over. We do not accept underage students. By applying, creating an account or purchasing, you confirm that you are at least 18.</p>
+                <p>These terms govern the website and the purchase of the Español Honesto class subscription.</p>
+                <p>The service, enquiries, registration and purchases are available only to people aged 18 or over. We do not accept underage students. By making an enquiry, creating an account or purchasing, you confirm that you are at least 18.</p>
             </section>
 
             <section id="purchase">
-                <h2>2. Applications and contract formation</h2>
-                <p>Submitting a form does not guarantee a place, teacher, schedule or price. The contract is formed when we confirm the applicable conditions and, where relevant, Stripe confirms payment.</p>
-                <p>Before payment, checkout shows the plan, period, class allowance, total price and applicable conditions. Acceptance of these terms is recorded with its version and timestamp.</p>
+                <h2>2. Place and contract formation</h2>
+                <p>Before payment, checkout shows a real place with its teacher, weekly time, time zone and first date. The contract is formed when Stripe confirms payment.</p>
+                <p>Checkout also shows the offer, cycle, number of classes, total price and applicable conditions. Acceptance of these terms is recorded with its version and timestamp.</p>
             </section>
 
             <section id="renewal">
                 <h2>3. Price, charging and renewal</h2>
                 <p>Payments are processed by Stripe. Español Honesto does not store full card details.</p>
-                <p>The 1, 3 and 6-month options are recurring subscription periods, not one-off purchases. The displayed total is charged at the start of each period and the subscription automatically renews for the same period until cancelled. The cadence and next charge appear in Stripe and in the contractual confirmation.</p>
+                <p>The initial EUR 259 charge is collected when the place is reserved and includes four individual 50-minute classes. The next charge is collected 28 days after the first class and every 28 days thereafter until cancelled. If the first date changes before classes begin, the renewal anchor moves with it; once the first class starts, the anchor is fixed. The four dates and next charge appear before payment and in the contractual confirmation.</p>
                 <p>You may disable renewal under Account &gt; Manage payments or ask support before the stated deadline. Access remains available until the end of the paid period unless a refund or different legal rule applies. We will send any advance renewal notice required by applicable law.</p>
             </section>
 
             <section id="classes-expiry">
                 <h2>4. Classes, allowance and expiry</h2>
-                <p>Classes last 30, 40 or 50 minutes according to the confirmed product. The standard duration is 50 minutes unless expressly stated otherwise. Google Meet does not automatically end the call when contracted time expires.</p>
-                <p>For 3 or 6-month periods, the number confirmed at checkout is the total class bank for that period and may be used flexibly, with no monthly cap.</p>
+                <p>Each class lasts 50 minutes. Google Meet does not automatically end the call when contracted time expires.</p>
+                <p>Each 28-day cycle includes four individual classes.</p>
                 <p>The class allowance may be used only during the paid period. A class cannot be scheduled after the end date. Unused classes expire at the end of the period and do not roll over on renewal, except for an incident attributable to Español Honesto, a support-approved exception or a statutory right.</p>
             </section>
 
             <section id="cancellation">
                 <h2>5. Changes, cancellations and no-shows</h2>
                 <p>You may cancel through the campus at any time. If at least 24 hours remain before the scheduled start, the class credit is restored and may be booked again, subject to availability and before the paid period expires.</p>
-                <p>With less than 24 hours' notice, cancellation remains available but the class is consumed and is not restored to the balance unless support approves a justified incident. If Español Honesto cancels, the credit is restored and rescheduling is free.</p>
-                <p>If you have not joined within 15 minutes after the scheduled start and have not reported an incident, the class may be marked as a no-show and is consumed. Support may review justified incidents.</p>
+                <p>With less than 24 hours' notice, cancellation remains available but the class is consumed and is not restored to the balance. Support may document and reclassify a justified incident; only then does it cease to count as a late cancellation for all purposes. If Español Honesto cancels, the credit is restored and rescheduling is free.</p>
+                <p>If you have not joined within 15 minutes after the scheduled start and have not reported an incident, the class may be marked as a no-show and is consumed. If support documents and reclassifies a justified incident, it ceases to count as a no-show for all purposes.</p>
             </section>
 
             <section id="withdrawal-refunds">
                 <h2>6. Withdrawal and refunds</h2>
                 <p>If you contract remotely as a consumer, you have 14 calendar days from conclusion of the contract to withdraw without giving a reason. You may notify us through the support form or at {legalIdentity.email}.</p>
                 <p>If you expressly request the service to begin during that period and later withdraw, the proportion actually supplied may be deducted where legally applicable. The right is lost only after full performance where you expressly requested commencement and acknowledged that consequence.</p>
-                <p>Any refund due is made to the original payment method within the statutory period. Outside withdrawal and other mandatory legal cases, cancelling renewal does not by itself refund a period that has already begun.</p>
+                <p>In addition, after completing the first class and before the second begins, you may request a EUR 194.25 refund for the three remaining classes. Exercising this guarantee invalidates those sessions and cancels future renewals. Rescheduling the second class with at least 24 hours' notice keeps the window open until the new session; a late cancellation or no-show that support has not reclassified consumes the second class and closes the guarantee. Any refund due is made to the original payment method within the statutory period. Outside withdrawal, this guarantee and other mandatory legal cases, cancelling renewal does not by itself refund a cycle that has already begun.</p>
             </section>
 
             <section id="termination">
@@ -179,42 +179,42 @@ const exampleNotice = lang === 'en'
         <>
             <section id="eligibility">
                 <h2>1. Область действия и совершеннолетие</h2>
-                <p>Эти условия регулируют использование сайта, подачу заявки и приобретение занятий, планов, подписок и связанных услуг Español Honesto.</p>
-                <p>Услуги, подача заявки, диагностика, регистрация аккаунта и оплата доступны только лицам, достигшим 18 лет. Мы не принимаем несовершеннолетних учеников. Отправляя заявку, создавая аккаунт или оплачивая услуги, вы подтверждаете, что вам исполнилось 18 лет.</p>
+                <p>Эти условия регулируют использование сайта и приобретение подписки на занятия Español Honesto.</p>
+                <p>Услуги, запросы, регистрация аккаунта и оплата доступны только лицам, достигшим 18 лет. Мы не принимаем несовершеннолетних учеников. Отправляя запрос, создавая аккаунт или оплачивая услуги, вы подтверждаете, что вам исполнилось 18 лет.</p>
             </section>
 
             <section id="purchase">
-                <h2>2. Заявка и заключение договора</h2>
-                <p>Отправка формы не гарантирует место, преподавателя, расписание или цену. Договор заключается после подтверждения условий Español Honesto и, когда применимо, подтверждения платежа Stripe.</p>
-                <p>До оплаты показываются план, срок, количество занятий, итоговая цена и применимые условия. Принятие условий сохраняется вместе с версией и временем.</p>
+                <h2>2. Место и заключение договора</h2>
+                <p>До оплаты показывается реальное место с преподавателем, еженедельным временем, часовым поясом и датой первого занятия. Договор заключается после подтверждения платежа Stripe.</p>
+                <p>До оплаты также показываются предложение, цикл, количество занятий, итоговая цена и применимые условия. Принятие условий сохраняется вместе с версией и временем.</p>
             </section>
 
             <section id="renewal">
                 <h2>3. Цена, списание и продление</h2>
                 <p>Платежи обрабатывает Stripe. Español Honesto не хранит полные данные банковской карты.</p>
-                <p>Варианты на 1, 3 и 6 месяцев являются периодами возобновляемой подписки, а не разовыми покупками. Итоговая сумма списывается в начале каждого периода, после чего подписка автоматически продлевается на такой же срок до отмены. Периодичность и следующее списание отображаются в Stripe и подтверждении договора.</p>
+                <p>Первые 259 EUR списываются при бронировании места и включают четыре индивидуальных занятия по 50 минут. Следующее списание происходит через 28 дней после первого занятия, а затем каждые 28 дней до отмены. Если дата первого занятия меняется до его начала, дата продления сдвигается вместе с ней; после начала первого занятия она фиксируется. Четыре даты и следующее списание показываются до оплаты и в подтверждении договора.</p>
                 <p>Автопродление можно отключить в разделе «Аккаунт &gt; Управление платежами» или через поддержку до указанного срока. Доступ сохраняется до конца оплаченного периода, если возврат или иное правило закона не предусматривает иного. Мы направим предварительное уведомление о продлении, когда оно требуется применимым законодательством.</p>
             </section>
 
             <section id="classes-expiry">
                 <h2>4. Занятия, баланс и срок действия</h2>
-                <p>Занятия длятся 30, 40 или 50 минут согласно подтверждённому продукту. Стандартная длительность — 50 минут, если прямо не указано иное. Google Meet не завершает звонок автоматически по окончании оплаченного времени.</p>
-                <p>Для периодов на 3 или 6 месяцев количество, подтверждённое при оплате, является общим банком занятий на весь период и может использоваться гибко, без месячного лимита.</p>
+                <p>Каждое занятие длится 50 минут. Google Meet не завершает звонок автоматически по окончании оплаченного времени.</p>
+                <p>Каждый 28-дневный цикл включает четыре индивидуальных занятия.</p>
                 <p>Баланс можно использовать только в течение оплаченного периода. Нельзя запланировать занятие после даты окончания. Неиспользованные занятия сгорают и не переносятся при продлении, кроме инцидента по вине Español Honesto, исключения поддержки или законного права.</p>
             </section>
 
             <section id="cancellation">
                 <h2>5. Изменения, отмены и неявка</h2>
                 <p>Занятие можно отменить в личном кабинете в любое время. Если до начала остаётся не менее 24 часов, сессия возвращается на баланс и может быть забронирована заново при наличии времени до окончания оплаченного периода.</p>
-                <p>При отмене менее чем за 24 часа занятие считается использованным и не возвращается на баланс, кроме обоснованного случая, одобренного поддержкой. Если занятие отменяет Español Honesto, сессия возвращается, а перенос не требует доплаты.</p>
-                <p>Если вы не подключились в течение 15 минут после начала и не сообщили о проблеме, занятие может быть отмечено как неявка и считается использованным. Поддержка может рассмотреть обоснованный случай.</p>
+                <p>При отмене менее чем за 24 часа занятие считается использованным и не возвращается на баланс. Поддержка может документировать и переквалифицировать обоснованный случай; только тогда он перестаёт считаться поздней отменой для всех целей. Если занятие отменяет Español Honesto, сессия возвращается, а перенос не требует доплаты.</p>
+                <p>Если вы не подключились в течение 15 минут после начала и не сообщили о проблеме, занятие может быть отмечено как неявка и считается использованным. Если поддержка документирует и переквалифицирует обоснованный случай, он перестаёт считаться неявкой для всех целей.</p>
             </section>
 
             <section id="withdrawal-refunds">
                 <h2>6. Отказ от договора и возвраты</h2>
                 <p>Если вы дистанционно заключаете договор как потребитель, вы вправе отказаться от него без указания причины в течение 14 календарных дней. Сообщить об отказе можно через форму поддержки или по адресу {legalIdentity.email}.</p>
                 <p>Если по вашему прямому запросу услуги начались в этот срок, при последующем отказе может быть удержана пропорциональная стоимость фактически оказанной части, когда это допускается законом. Право прекращается только после полного исполнения, если вы прямо запросили начало и подтвердили понимание этого последствия.</p>
-                <p>Причитающийся возврат производится тем же способом оплаты в установленный законом срок. Вне срока отказа и иных обязательных случаев отмена продления сама по себе не возвращает оплату за уже начавшийся период.</p>
+                <p>Кроме того, после завершения первого занятия и до начала второго можно запросить возврат 194,25 EUR за три оставшихся занятия. Использование гарантии аннулирует эти занятия и отменяет будущие продления. Перенос второго занятия не менее чем за 24 часа сохраняет гарантию до новой сессии; поздняя отмена или неявка, не переквалифицированная поддержкой, засчитывает второе занятие и закрывает гарантию. Причитающийся возврат производится тем же способом оплаты в установленный законом срок. Вне срока отказа, этой гарантии и иных обязательных случаев отмена продления сама по себе не возвращает оплату за уже начавшийся цикл.</p>
             </section>
 
             <section id="termination">

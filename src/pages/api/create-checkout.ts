@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import type Stripe from 'stripe';
 import { findCheckoutApproval } from '../../lib/checkout-approval';
 import { isCheckoutEnabled } from '../../lib/checkout-enabled';
-import { hasAcceptedCheckoutPolicies, LEGAL_POLICY_VERSION } from '../../lib/legal-policy';
+import { CHECKOUT_TERMS_VERSION, hasAcceptedCheckoutPolicies } from '../../lib/legal-policy';
 import {
     calculatePackageTotalCents,
     calculateSessionsPerPeriod,
@@ -12,6 +12,7 @@ import {
     PACKAGE_CURRENCY,
 } from '../../lib/package-pricing';
 import { getPrivateProfile, upsertPrivateProfile } from '../../lib/profiles-private';
+import { readRuntimeEnv } from '../../lib/runtime-env';
 import { getSiteUrl } from '../../lib/site-url';
 import { stripe } from '../../lib/stripe';
 import { validatedStripeCustomerId } from '../../lib/stripe-customer';
@@ -22,6 +23,16 @@ import { createSupabaseServerClient } from '../../lib/supabase-server';
 const supportedCheckoutLangs = new Set(['es', 'en', 'ru']);
 const jsonHeaders = { 'Content-Type': 'application/json' };
 const maxCheckoutSessionRecoveryPages = 100;
+
+// R1 deliberately keeps the historical monthly implementation available only
+// to isolated tests. Staging and production must remain closed until R3
+// replaces this route with the capacity-backed v2 contract.
+function isIsolatedLegacyCheckoutTest(context: Parameters<typeof readRuntimeEnv>[1]): boolean {
+    return readRuntimeEnv('PUBLIC_APP_ENV', context) === 'test'
+        && readRuntimeEnv('E2E_RUNTIME_ISOLATED', context) === 'true'
+        && readRuntimeEnv('E2E_DISABLE_EXTERNAL_INTEGRATIONS', context) === 'true'
+        && readRuntimeEnv('E2E_TARGET_SUPABASE_REF', context) === 'placeholder';
+}
 
 function jsonResponse(payload: unknown, status: number): Response {
     return new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
@@ -158,6 +169,9 @@ export const POST: APIRoute = async (context) => {
         if (!isCheckoutEnabled(context)) {
             return jsonResponse({ error: 'Checkout is disabled' }, 403);
         }
+        if (!isIsolatedLegacyCheckoutTest(context)) {
+            return jsonResponse({ error: 'Checkout contract v2 is not implemented' }, 403);
+        }
 
         const body = await context.request.json() as CheckoutRequest;
         const { priceId } = body;
@@ -271,7 +285,7 @@ export const POST: APIRoute = async (context) => {
             p_student_id: user.id,
             p_package_price_id: packagePrice.id,
             p_lang: lang,
-            p_legal_policy_version: LEGAL_POLICY_VERSION,
+            p_legal_policy_version: CHECKOUT_TERMS_VERSION,
             p_site_url: requestedSiteUrl,
         };
         let { data: checkoutIntent, error: checkoutIntentError } = await supabaseAdmin

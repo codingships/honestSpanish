@@ -3,6 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import SegmentLandingPage from '../../components/landing/SegmentLandingPage.astro';
 import { getLandingPageData } from '../../lib/landing-data';
 import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
+import { ui } from '../../i18n/translations';
 
 const lang = 'es';
 const { packages, isLoggedIn } = await getLandingPageData(Astro);
@@ -17,7 +18,7 @@ const schema = {
 
 const answers = {
     title: 'Respuestas rápidas',
-    intro: 'Lo esencial antes de solicitar plaza, sin prometer grupos o comunidad artificial.',
+    intro: 'Lo esencial antes de comprar la oferta individual.',
     items: [
         {
             question: '¿Qué es español para vivir en España?',
@@ -25,19 +26,19 @@ const answers = {
         },
         {
             question: '¿Para quién encaja?',
-            answer: 'Encaja con personas adultas, normalmente +30, que ya entienden algo de español y quieren participar más en conversaciones reales. No está pensada para quien busca clases baratas, atajos rápidos o grupos sin compatibilidad.',
+            answer: 'Encaja con personas adultas, normalmente +30, que ya entienden algo de español y quieren participar más en conversaciones reales. No está pensada para quien busca clases baratas o atajos rápidos.',
         },
         {
-            question: '¿Cómo funciona la solicitud de plaza?',
-            answer: 'Primero cuentas tu nivel aproximado, objetivos, disponibilidad e intereses. Después revisamos si hay encaje, si conviene una clase privada, un grupo compatible cuando exista o un paso previo para aclarar nivel y necesidades.',
+            question: '¿Cómo funciona la compra?',
+            answer: 'Eliges una plaza real con profesor y franja semanal identificados. Después compras cuatro clases individuales de 50 minutos por 259 EUR, con renovación automática cada 28 días.',
         },
         {
             question: '¿Qué incluye el curso?',
-            answer: 'El curso incluye clases online en directo, documento vivo de clase, revisión de errores, vocabulario útil, deberes, worksheets propios, carpeta de Drive, calendario, enlace de Meet y seguimiento. La conversación grupal se añade sólo cuando hay compatibilidad real.',
+            answer: 'El curso incluye cuatro clases individuales online de 50 minutos por ciclo, documento vivo de clase, revisión de errores, vocabulario útil, deberes, worksheets propios, calendario, enlace de Meet y seguimiento.',
         },
         {
-            question: '¿Qué pasa si no hay grupo compatible?',
-            answer: 'No vendemos un grupo como si existiera. Si no hay alumnos compatibles por nivel, ritmo e intereses, proponemos otra ruta o esperamos a que tenga sentido abrir conversación grupal.',
+            question: '¿Qué garantía tiene la primera compra?',
+            answer: 'Después de la primera clase y antes de la segunda puedes pedir la devolución de las tres clases restantes conforme a las condiciones de la garantía.',
         },
     ],
 };
@@ -59,41 +60,7 @@ const faqSchemaJson = serializeJsonForHtml(faqSchema);
 Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
 Astro.csp?.insertScriptHash(await sha256CspHash(faqSchemaJson));
 
-const pricingTranslations = {
-    title: 'Planes',
-    subtitle: 'Solicita plaza antes de comprar.',
-    headers: {
-        name: 'Plan',
-        price: 'Precio',
-        includes: 'Incluye',
-        action: 'Acción',
-    },
-    month: '/mes',
-    select: 'Solicitar plaza',
-    recommended: 'Recomendado',
-    plans: {
-        group: { name: 'Grupo compatible', description: 'Conversación guiada con alumnos compatibles cuando haya grupo disponible.', features: [] },
-        standard: { name: 'Mensual estándar', description: 'Clases privadas semanales para avanzar con seguimiento claro.', features: [] },
-        hybrid: { name: 'Híbrido mensual', description: 'Privadas, grupo compatible y doble mirada docente.', features: [] },
-        bootcamp: { name: 'Intensivo', description: 'Ritmo intensivo para preparar un objetivo concreto.', features: [] },
-    },
-    modal: {
-        title: 'Elige duración',
-        duration1: '1 mes',
-        duration3: '3 meses',
-        duration6: '6 meses',
-        save: 'Ahorras',
-        total: 'Total',
-        perMonth: 'al mes',
-        continue: 'Continuar',
-        login: 'Inicia sesión para continuar',
-        loading: 'Procesando...',
-        error: 'No se pudo continuar.',
-        close: 'Cerrar',
-        contact: 'Contactar',
-        contactMessage: 'Antes de pagar confirmamos encaje, nivel y disponibilidad.',
-    },
-};
+const pricingTranslations = ui.es.pricing;
 ---
 
 <BaseLayout
@@ -119,7 +86,7 @@ const pricingTranslations = {
             manifesto: 'Conversación, cultura y contacto real',
             subtitle: 'Español para adultos que quieren entrar en la vida del país: hablar, entender matices y construir una relación real con España.',
             ready: '¿Quieres estar dentro de la conversación?',
-            ctaText: 'SOLICITAR PLAZA',
+            ctaText: 'VER OFERTA',
         }}
         problems={{
             headline: 'VIVIR AQUÍ NO ES LO MISMO QUE ENTENDER AQUÍ',
@@ -139,7 +106,7 @@ const pricingTranslations = {
             columns: [
                 { number: '01', title: 'Conversación adulta', description: 'Hablamos de trabajo, ciudad, historia, lecturas, trámites, familia y vida diaria.' },
                 { number: '02', title: 'Materiales con país', description: 'Worksheets y documentos vivos para revisar vocabulario, errores y temas que conectan con España.' },
-                { number: '03', title: 'Comunidad con criterio', description: 'La parte grupal se activa cuando hay alumnos compatibles por nivel, intereses y ritmo; no se fuerza para llenar plazas.' },
+                { number: '03', title: 'Continuidad real', description: 'Una franja semanal estable y un ciclo claro de 28 días para mantener el trabajo.' },
             ],
         }}
         fit={{
@@ -153,12 +120,12 @@ const pricingTranslations = {
             ],
         }}
         community={{
-            title: 'Contacto con España',
-            body: 'La comunidad no se fuerza. Se construye cuando hay alumnos compatibles, temas buenos y una conversación que no sea ruido.',
+            title: 'Una plaza concreta antes de pagar',
+            body: 'La oferta individual empieza con profesor y horario conocidos.',
             notes: [
                 'Madrid, Oviedo, Toledo/Castilla-La Mancha y Barcelona aparecen como puertas culturales, no como decorado turístico.',
-                'El grupo se usa para practicar con otros alumnos y un profesor cuando el emparejamiento tiene sentido.',
-                'Si no hay grupo adecuado, no lo vendemos como si lo hubiera. Primero encaje; luego plan.',
+                'El profesor y la franja semanal se muestran antes del pago.',
+                'Tras la primera clase y antes de la segunda puedes activar la garantía sobre las tres restantes.',
             ],
         }}
         contexts={{
@@ -189,8 +156,8 @@ const pricingTranslations = {
         }}
         answers={answers}
         lead={{
-            title: 'SOLICITA PLAZA',
-            subtitle: 'Cuéntanos tu nivel, tus intereses y qué España quieres entender mejor.',
+            title: 'HAZ UNA CONSULTA',
+            subtitle: 'Si la oferta todavía no está abierta, cuéntanos tu nivel y tu disponibilidad.',
             interest: 'Vivir España con más profundidad',
         }}
     />

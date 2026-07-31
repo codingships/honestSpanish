@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro';
-import { hasAcceptedAdultPolicy, LEGAL_POLICY_VERSION } from '../../../lib/legal-policy';
+import { ADULT_POLICY_VERSION, hasAcceptedAdultPolicy } from '../../../lib/legal-policy';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
@@ -57,7 +57,7 @@ export const POST: APIRoute = async (context) => {
         .update({
             adult_confirmed: true,
             adult_confirmed_at: adultConfirmedAt,
-            age_policy_version: LEGAL_POLICY_VERSION,
+            age_policy_version: ADULT_POLICY_VERSION,
         })
         .eq('id', user.id)
         .eq('role', 'student')

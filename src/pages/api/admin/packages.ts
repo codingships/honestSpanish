@@ -418,6 +418,7 @@ export const GET: APIRoute = async (context) => {
     const { data, error } = await supabaseAdmin
         .from('packages')
         .select('*')
+        .eq('contract_schema_version', 1)
         .order('price_monthly', { ascending: true });
 
     if (error) {
@@ -456,6 +457,9 @@ export const PATCH: APIRoute = async (context) => {
 
     if (beforeError || !before) {
         return jsonResponse({ error: 'Package not found' }, 404);
+    }
+    if (before.contract_schema_version !== 1) {
+        return jsonResponse({ error: 'Versioned packages require the v2 catalog flow' }, 409);
     }
 
     const nextPriceMonthly = centsFromEuro(payload.priceMonthlyEur);
@@ -536,6 +540,7 @@ export const POST: APIRoute = async (context) => {
                 has_group_session: payload.hasGroupSession,
                 has_dual_teacher: payload.hasDualTeacher,
                 is_active: payload.isActive,
+                contract_schema_version: 1,
             })
             .select('*')
             .single();
@@ -567,6 +572,9 @@ export const POST: APIRoute = async (context) => {
 
     if (packageError || !pkg) {
         return jsonResponse({ error: 'Package not found' }, 404);
+    }
+    if (pkg.contract_schema_version !== 1) {
+        return jsonResponse({ error: 'Versioned packages require the v2 catalog flow' }, 409);
     }
 
     const stripe = await getStripeClient();

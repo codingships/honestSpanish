@@ -1,16 +1,41 @@
 export const PACKAGE_CURRENCY = 'eur' as const;
 export const PACKAGE_CURRENCY_CODE = 'EUR' as const;
 
+export const VERSIONED_CONTRACT_SCHEMA_VERSION = 2 as const;
+export const INITIAL_INDIVIDUAL_OFFER = Object.freeze({
+    contractSchemaVersion: VERSIONED_CONTRACT_SCHEMA_VERSION,
+    packageKey: 'individual_4x50_28d',
+    amountCents: 25900,
+    currency: PACKAGE_CURRENCY,
+    billingIntervalUnit: 'day',
+    billingIntervalCount: 28,
+    sessionsPerPeriod: 4,
+    classDurationMinutes: 50,
+} as const);
+
+export type BillingIntervalUnit = 'day' | 'week' | 'month' | 'year';
+
+export interface VersionedPackageContractSnapshot {
+    contract_schema_version: number;
+    package_key: string;
+    amount_cents: number;
+    currency: string;
+    billing_interval_unit: BillingIntervalUnit | null;
+    billing_interval_count: number | null;
+    sessions_per_period: number;
+    class_duration_minutes: number | null;
+}
+
 export const PACKAGE_DURATIONS = [1, 3, 6] as const;
 export type PackageDuration = typeof PACKAGE_DURATIONS[number];
 
 export interface PackagePriceSnapshot {
     catalog_version: number;
     package_key: string;
-    duration_months: number;
+    duration_months: number | null;
     amount_cents: number;
     currency: string;
-    sessions_per_month: number;
+    sessions_per_month: number | null;
     sessions_per_period: number;
     has_group_session: boolean;
     has_dual_teacher: boolean;
@@ -19,6 +44,10 @@ export interface PackagePriceSnapshot {
     stripe_livemode: boolean;
     stripe_product_id: string;
     stripe_price_id: string;
+    contract_schema_version?: number;
+    billing_interval_unit?: string | null;
+    billing_interval_count?: number | null;
+    class_duration_minutes?: number | null;
 }
 
 export interface PackageCatalogSnapshot {
@@ -34,6 +63,41 @@ export interface PackageCatalogSnapshot {
     stripe_price_3m: string | null;
     stripe_price_6m: string | null;
     package_prices: readonly PackagePriceSnapshot[] | null;
+    contract_schema_version?: number;
+    amount_cents?: number | null;
+    billing_interval_unit?: string | null;
+    billing_interval_count?: number | null;
+    sessions_per_period?: number | null;
+    class_duration_minutes?: number | null;
+}
+
+export function isVersionedPackageContractSnapshot(
+    value: VersionedPackageContractSnapshot
+): boolean {
+    return value.contract_schema_version === VERSIONED_CONTRACT_SCHEMA_VERSION
+        && value.package_key.trim().length > 0
+        && Number.isInteger(value.amount_cents)
+        && value.amount_cents > 0
+        && value.currency === PACKAGE_CURRENCY
+        && ['day', 'week', 'month', 'year'].includes(value.billing_interval_unit ?? '')
+        && Number.isInteger(value.billing_interval_count)
+        && (value.billing_interval_count ?? 0) > 0
+        && Number.isInteger(value.sessions_per_period)
+        && value.sessions_per_period > 0
+        && Number.isInteger(value.class_duration_minutes)
+        && (value.class_duration_minutes ?? 0) > 0;
+}
+
+export function isInitialIndividualOfferSnapshot(
+    value: VersionedPackageContractSnapshot
+): boolean {
+    return isVersionedPackageContractSnapshot(value)
+        && value.package_key === INITIAL_INDIVIDUAL_OFFER.packageKey
+        && value.amount_cents === INITIAL_INDIVIDUAL_OFFER.amountCents
+        && value.billing_interval_unit === INITIAL_INDIVIDUAL_OFFER.billingIntervalUnit
+        && value.billing_interval_count === INITIAL_INDIVIDUAL_OFFER.billingIntervalCount
+        && value.sessions_per_period === INITIAL_INDIVIDUAL_OFFER.sessionsPerPeriod
+        && value.class_duration_minutes === INITIAL_INDIVIDUAL_OFFER.classDurationMinutes;
 }
 
 // Percentage of one monthly price charged for the complete period.

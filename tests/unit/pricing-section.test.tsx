@@ -8,20 +8,20 @@ import { ui } from '../../src/i18n/translations';
 type PricingSectionProps = React.ComponentProps<typeof PricingSection>;
 const translations = ui.es.pricing as unknown as PricingSectionProps['translations'];
 
-const hybridPackage = {
-    id: 'pkg-hybrid',
-    name: 'hybrid',
-    display_name: { es: 'Plan Hybrid', en: 'Hybrid Plan', ru: 'Hybrid' },
-    price_monthly: 24000,
+const targetPackage = {
+    id: 'pkg-target',
+    name: 'individual_4x50_28d',
+    display_name: { es: '4 clases individuales', en: '4 individual classes', ru: '4 classes' },
+    price_monthly: 25900,
     sessions_per_month: 4,
-    has_group_session: true,
+    has_group_session: false,
     has_dual_teacher: false,
     stripe_price_1m: 'price_1m',
     stripe_price_3m: 'price_3m',
     stripe_price_6m: 'price_6m',
 };
 
-function renderPricingSection(packages = [hybridPackage], props: Partial<PricingSectionProps> = {}) {
+function renderPricingSection(packages = [targetPackage], props: Partial<PricingSectionProps> = {}) {
     return render(
         <>
             <div id="contacto" />
@@ -29,7 +29,7 @@ function renderPricingSection(packages = [hybridPackage], props: Partial<Pricing
                 packages={packages}
                 lang="es"
                 isLoggedIn={false}
-                checkoutMode="application"
+                checkoutMode="unavailable"
                 translations={translations}
                 {...props}
             />
@@ -56,12 +56,12 @@ describe('PricingSection', () => {
         renderPricingSection([]);
 
         expect(screen.getByRole('status')).toHaveTextContent(translations.modal.contactMessage);
-        expect(screen.getByRole('link', { name: translations.modal.contact })).toHaveAttribute('href', '/es#contacto');
+        expect(screen.queryByRole('link', { name: translations.modal.contact })).not.toBeInTheDocument();
     });
 
     it('renders the package fallback when its key has no translation', () => {
         const packageWithoutTranslation = {
-            ...hybridPackage,
+            ...targetPackage,
             id: 'pkg-without-translation',
             name: 'without-translation',
             display_name: {
@@ -74,45 +74,31 @@ describe('PricingSection', () => {
         renderPricingSection([packageWithoutTranslation]);
 
         expect(screen.getByRole('heading', { name: 'Plan sin traducción' })).toBeInTheDocument();
-        expect(screen.getByTestId('select-plan-without-translation')).toHaveAttribute(
-            'href',
-            '/es?preferredPackage=without-translation&preferredPackageLabel=Plan%20sin%20traducci%C3%B3n#contacto',
-        );
+        expect(screen.getByTestId('select-plan-without-translation')).toBeDisabled();
     });
 
-    it('keeps application CTAs usable as links and dispatches preferred package context after hydration', () => {
-        const preferredEvents: unknown[] = [];
-        window.addEventListener('eh:preferred-package-selected', (event) => {
-            preferredEvents.push((event as CustomEvent).detail);
-        });
-
+    it('shows the exact target contract but keeps its purchase action disabled', () => {
         renderPricingSection();
 
-        const selectPlan = screen.getByTestId('select-plan-hybrid');
-        expect(selectPlan).toHaveAttribute('href', '/es?preferredPackage=hybrid&preferredPackageLabel=Plan%20Hybrid#contacto');
-
-        fireEvent.click(selectPlan);
-
-        expect(JSON.parse(window.sessionStorage.getItem('eh_preferred_package') || '{}')).toEqual({
-            preferredPackage: 'hybrid',
-            preferredPackageLabel: 'Plan Hybrid',
-        });
-        expect(preferredEvents).toEqual([{
-            preferredPackage: 'hybrid',
-            preferredPackageLabel: 'Plan Hybrid',
-        }]);
-        expect(window.location.hash).toBe('#contacto');
+        expect(screen.getByRole('heading', { name: '4 clases individuales' })).toBeInTheDocument();
+        expect(screen.getByText(/259/)).toBeInTheDocument();
+        expect(screen.getByText('4 clases individuales por ciclo')).toBeInTheDocument();
+        expect(screen.getByText('50 minutos por clase')).toBeInTheDocument();
+        expect(screen.getByText('Renovación automática cada 28 días')).toBeInTheDocument();
+        expect(screen.getByText('Profesor y franja semanal identificados antes de pagar')).toBeInTheDocument();
+        expect(screen.getByText('Garantía tras la primera clase y antes de la segunda')).toBeInTheDocument();
+        expect(screen.getByTestId('select-plan-individual_4x50_28d')).toBeDisabled();
     });
 
     it('opens the checkout modal when direct checkout is enabled and Stripe prices are ready', () => {
-        renderPricingSection([hybridPackage], {
+        renderPricingSection([targetPackage], {
             checkoutMode: 'checkout',
             isLoggedIn: true,
         });
 
-        fireEvent.click(screen.getByTestId('select-plan-hybrid'));
+        fireEvent.click(screen.getByTestId('select-plan-individual_4x50_28d'));
 
-        expect(screen.getByRole('dialog', { name: 'Plan Hybrid' })).toHaveAttribute('aria-modal', 'true');
+        expect(screen.getByRole('dialog', { name: '4 clases individuales' })).toHaveAttribute('aria-modal', 'true');
         expect(screen.getByRole('button', { name: translations.modal.continue })).toBeInTheDocument();
     });
 });

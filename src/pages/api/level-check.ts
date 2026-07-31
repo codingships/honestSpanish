@@ -8,7 +8,7 @@ import { verifyLeadEmailToken } from '../../lib/lead-email-token';
 import { readRuntimeEnv } from '../../lib/runtime-env';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import type { Database, Json } from '../../types/database.types';
-import { hasAcceptedAdultPolicy, LEGAL_POLICY_VERSION } from '../../lib/legal-policy';
+import { ADULT_POLICY_VERSION, hasAcceptedAdultPolicy } from '../../lib/legal-policy';
 
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 type LeadUpdate = Database['public']['Tables']['leads']['Update'];
@@ -214,7 +214,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const levelCheckUpdate: LeadUpdate = {
         adult_confirmed: true,
         adult_confirmed_at: now,
-        age_policy_version: LEGAL_POLICY_VERSION,
+        age_policy_version: ADULT_POLICY_VERSION,
         current_level: currentLevel,
         lang: normalizedLang,
         consent_given: true,

@@ -1,4 +1,4 @@
-import { LEGAL_POLICY_VERSION } from './legal-policy';
+import { ADULT_POLICY_VERSION } from './legal-policy';
 
 export type AdultAccountAttestation = {
     adult_confirmed?: boolean | null;
@@ -14,5 +14,5 @@ export function hasVerifiedAdultAccount(
     return profile?.adult_confirmed === true
         && typeof profile.adult_confirmed_at === 'string'
         && profile.adult_confirmed_at.trim().length > 0
-        && profile.age_policy_version === LEGAL_POLICY_VERSION;
+        && profile.age_policy_version === ADULT_POLICY_VERSION;
 }

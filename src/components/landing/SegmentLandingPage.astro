@@ -92,9 +92,8 @@ const {
     isLoggedIn,
     pricingTranslations,
 } = Astro.props;
-// Public pricing always starts with a reviewed application. Approved checkout
-// is exposed only inside the authenticated campus.
-const checkoutMode = 'application' as const;
+// R1 describes the target offer while capacity-backed checkout remains closed.
+const checkoutMode = 'unavailable' as const;
 
 const leadTranslations = {
     title: lead.title,
@@ -133,8 +132,8 @@ const leadTranslations = {
     adultConfirmation: 'Confirmo que tengo 18 años o más. Español Honesto no acepta alumnos menores de edad.',
     consent: 'He leído y acepto la ',
     privacyLink: 'Política de Privacidad',
-    button: 'SOLICITAR PLAZA',
-    success: 'Gracias. Te escribiremos pronto para ver encaje, nivel y disponibilidad.',
+    button: 'ENVIAR CONSULTA',
+    success: 'Gracias. Te escribiremos para responder tu consulta.',
     error: 'Algo salió mal. Por favor inténtalo de nuevo.',
     loading: 'ENVIANDO...',
     consentError: 'Debes aceptar la política de privacidad.',
@@ -144,16 +143,16 @@ const leadTranslations = {
 
 const applicationSteps = [
     {
-        title: 'Revisión de encaje',
-        body: 'Leemos nivel aproximado, objetivo, disponibilidad, página de origen y plan de interés. No tratamos la solicitud como compra automática.',
+        title: 'Elige una plaza',
+        body: 'Antes de pagar ves profesor, franja semanal, zona horaria y primera fecha.',
     },
     {
-        title: 'Siguiente paso',
-        body: 'Si falta contexto, podemos proponer preguntas breves, una prueba automática ligera o una conversación humana cuando tenga sentido.',
+        title: 'Revisa las condiciones',
+        body: 'La oferta son cuatro clases individuales de 50 minutos por 259 EUR y renovación cada 28 días.',
     },
     {
-        title: 'Plan y pago',
-        body: 'Sólo después de confirmar encaje, disponibilidad y expectativas proponemos plan, grupo compatible si existe, o pago.',
+        title: 'Compra directa',
+        body: 'La plaza se retiene durante Stripe Checkout; la compra sigue cerrada hasta conectar el inventario real.',
     },
 ];
 ---
@@ -250,8 +249,8 @@ const applicationSteps = [
     <section id="contacto" class="py-24 px-6 border-b-2 border-[#006064] bg-[#E0F7FA]">
         <div class="max-w-4xl mx-auto">
             <div class="mb-12 border-2 border-[#006064] bg-white p-6 shadow-[6px_6px_0px_0px_#006064]">
-                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">Después de solicitar plaza</p>
-                <h2 class="font-display text-3xl lg:text-4xl text-[#006064]">Primero encaje. Después plan.</h2>
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">Compra directa</p>
+                <h2 class="font-display text-3xl lg:text-4xl text-[#006064]">Primero plaza real. Después pago.</h2>
                 <ol class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
                     {applicationSteps.map((step, index) => (
                         <li class="border-2 border-[#006064] bg-[#E0F7FA] p-4">

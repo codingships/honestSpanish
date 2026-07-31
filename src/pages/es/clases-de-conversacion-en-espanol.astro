@@ -3,6 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import SegmentLandingPage from '../../components/landing/SegmentLandingPage.astro';
 import { getLandingPageData } from '../../lib/landing-data';
 import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
+import { ui } from '../../i18n/translations';
 
 const lang = 'es';
 const { packages, isLoggedIn } = await getLandingPageData(Astro);
@@ -25,19 +26,19 @@ const answers = {
         },
         {
             question: '¿Para qué nivel encajan?',
-            answer: 'Encajan sobre todo con alumnos A2, B1 y B2 que entienden más de lo que pueden decir. Si todavía no sabes tu nivel exacto, la solicitud de plaza recoge nivel aproximado y objetivos para decidir si conviene conversación, base gramatical o una prueba ligera.',
+            answer: 'Encajan sobre todo con alumnos A2, B1 y B2 que entienden más de lo que pueden decir. Si todavía no sabes tu nivel exacto, puedes consultarnos antes de comprar.',
         },
         {
             question: '¿Se corrigen errores o sólo se habla?',
             answer: 'Se habla con intención y se corrige con criterio. No cortamos cada frase para perseguir perfección, pero sí registramos errores frecuentes, alternativas naturales, vocabulario útil y tareas para que la conversación deje aprendizaje visible.',
         },
         {
-            question: '¿Hay conversación grupal?',
-            answer: 'Puede haber conversación grupal cuando existen alumnos compatibles por nivel, ritmo e intereses. No vendemos grupos garantizados ni mezclamos alumnos al azar: primero revisamos encaje y después proponemos el formato.',
+            question: '¿Las clases son individuales?',
+            answer: 'Sí. La oferta inicial contiene cuatro clases individuales online de 50 minutos por ciclo de 28 días.',
         },
         {
-            question: '¿Cómo se solicita plaza?',
-            answer: 'Primero cuentas tu nivel aproximado, objetivos, disponibilidad y plan de interés. Después revisamos si hay encaje, si conviene clase privada, grupo compatible cuando exista o una prueba automática ligera para aclarar necesidades.',
+            question: '¿Cómo se compra?',
+            answer: 'Antes de pagar eliges una plaza real con profesor y franja semanal identificados. El precio es 259 EUR y la suscripción se renueva cada 28 días.',
         },
     ],
 };
@@ -59,41 +60,7 @@ const faqSchemaJson = serializeJsonForHtml(faqSchema);
 Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
 Astro.csp?.insertScriptHash(await sha256CspHash(faqSchemaJson));
 
-const pricingTranslations = {
-    title: 'Planes',
-    subtitle: 'Conversación con seguimiento, no charla suelta.',
-    headers: {
-        name: 'Plan',
-        price: 'Precio',
-        includes: 'Incluye',
-        action: 'Acción',
-    },
-    month: '/mes',
-    select: 'Solicitar plaza',
-    recommended: 'Recomendado',
-    plans: {
-        group: { name: 'Grupo compatible', description: 'Conversación guiada con otros alumnos cuando haya grupo adecuado.', features: [] },
-        standard: { name: 'Conversación mensual', description: 'Clase privada semanal para ganar soltura y corregir patrones.', features: [] },
-        hybrid: { name: 'Híbrido conversación', description: 'Privadas, grupo compatible y seguimiento con dos profesores.', features: [] },
-        bootcamp: { name: 'Intensivo conversación', description: 'Ritmo intensivo para desbloquear habla en poco tiempo.', features: [] },
-    },
-    modal: {
-        title: 'Elige duración',
-        duration1: '1 mes',
-        duration3: '3 meses',
-        duration6: '6 meses',
-        save: 'Ahorras',
-        total: 'Total',
-        perMonth: 'al mes',
-        continue: 'Continuar',
-        login: 'Inicia sesión para continuar',
-        loading: 'Procesando...',
-        error: 'No se pudo continuar.',
-        close: 'Cerrar',
-        contact: 'Contactar',
-        contactMessage: 'Antes de pagar confirmamos encaje, nivel y disponibilidad.',
-    },
-};
+const pricingTranslations = ui.es.pricing;
 ---
 
 <BaseLayout
@@ -119,7 +86,7 @@ const pricingTranslations = {
             manifesto: 'Conversación, corrección y criterio',
             subtitle: 'Clases de conversación en español para adultos que entienden bastante, pero necesitan participar con más soltura en conversaciones reales.',
             ready: '¿Quieres dejar de quedarte fuera de la conversación?',
-            ctaText: 'SOLICITAR PLAZA',
+            ctaText: 'VER OFERTA',
         }}
         problems={{
             headline: 'ENTENDER NO ES LO MISMO QUE PARTICIPAR',
@@ -153,12 +120,12 @@ const pricingTranslations = {
             ],
         }}
         community={{
-            title: 'Conversación con otras personas, cuando tiene sentido',
-            body: 'La conversación grupal puede ayudar mucho, pero sólo si el grupo tiene compatibilidad real.',
+            title: 'Conversación individual con continuidad',
+            body: 'Cada plaza tiene profesor y franja semanal identificados antes del pago.',
             notes: [
-                'No usamos grupos como relleno ni como versión barata de una clase privada.',
-                'Primero revisamos nivel, intereses y ritmo; después vemos si encajas con un grupo o si conviene clase privada.',
-                'La comunidad es una dirección del proyecto: se construye con buenos emparejamientos, no con promesas vacías.',
+                'La oferta inicial son cuatro clases individuales de 50 minutos.',
+                'El ciclo se renueva automáticamente cada 28 días.',
+                'Tras la primera clase y antes de la segunda puedes activar la garantía sobre las tres restantes.',
             ],
         }}
         contexts={{
@@ -189,8 +156,8 @@ const pricingTranslations = {
         }}
         answers={answers}
         lead={{
-            title: 'SOLICITA PLAZA',
-            subtitle: 'Cuéntanos tu nivel, dónde te bloqueas y qué conversaciones quieres poder sostener.',
+            title: 'HAZ UNA CONSULTA',
+            subtitle: 'Si la oferta todavía no está abierta, cuéntanos tu nivel y tu disponibilidad.',
             interest: 'Conversación en español',
         }}
     />

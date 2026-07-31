@@ -21,6 +21,10 @@ const runtimeEnvMock = vi.hoisted(() => ({
     readRuntimeEnv: vi.fn((key: string): string | undefined => {
         if (key === 'CHECKOUT_ENABLED') return 'true';
         if (key === 'STRIPE_SECRET_KEY') return 'sk_test_example';
+        if (key === 'PUBLIC_APP_ENV') return 'test';
+        if (key === 'E2E_RUNTIME_ISOLATED') return 'true';
+        if (key === 'E2E_DISABLE_EXTERNAL_INTEGRATIONS') return 'true';
+        if (key === 'E2E_TARGET_SUPABASE_REF') return 'placeholder';
         return undefined;
     }),
 }));
@@ -97,7 +101,7 @@ const checkoutIntent: Database['public']['Tables']['checkout_intents']['Row'] = 
     student_id: 'student-1',
     package_price_id: packagePriceId,
     lang: 'es',
-    legal_policy_version: '2026-07-10',
+    legal_policy_version: '2026-07-31',
     policy_accepted_at: '2099-07-10T20:00:00.000Z',
     site_url: 'https://example.test',
     status: 'creating',
@@ -244,6 +248,10 @@ describe('POST /api/create-checkout', () => {
         runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
             if (key === 'CHECKOUT_ENABLED') return 'true';
             if (key === 'STRIPE_SECRET_KEY') return 'sk_test_example';
+            if (key === 'PUBLIC_APP_ENV') return 'test';
+            if (key === 'E2E_RUNTIME_ISOLATED') return 'true';
+            if (key === 'E2E_DISABLE_EXTERNAL_INTEGRATIONS') return 'true';
+            if (key === 'E2E_TARGET_SUPABASE_REF') return 'placeholder';
             return undefined;
         });
         approvalMock.findCheckoutApproval.mockResolvedValue({
@@ -309,6 +317,45 @@ describe('POST /api/create-checkout', () => {
         const response = await POST(context({ priceId: 'price_valid_3m' }) as any);
         expect(response.status).toBe(403);
         expect(createSupabaseServerClient).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it.each(['staging', 'production'])('cannot reopen the legacy monthly checkout in %s', async (appEnvironment) => {
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
+            if (key === 'CHECKOUT_ENABLED') return 'true';
+            if (key === 'PUBLIC_APP_ENV') return appEnvironment;
+            return undefined;
+        });
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...acceptedPolicies, priceId: 'price_valid_3m' }) as any);
+
+        await expect(response.json()).resolves.toEqual({ error: 'Checkout contract v2 is not implemented' });
+        expect(response.status).toBe(403);
+        expect(createSupabaseServerClient).not.toHaveBeenCalled();
+        expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, 'real-project-ref'])('requires the inert placeholder Supabase target, not %s', async (targetRef) => {
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
+            if (key === 'CHECKOUT_ENABLED') return 'true';
+            if (key === 'PUBLIC_APP_ENV') return 'test';
+            if (key === 'E2E_RUNTIME_ISOLATED') return 'true';
+            if (key === 'E2E_DISABLE_EXTERNAL_INTEGRATIONS') return 'true';
+            if (key === 'E2E_TARGET_SUPABASE_REF') return targetRef;
+            return undefined;
+        });
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...acceptedPolicies, priceId: 'price_valid_3m' }) as any);
+
+        await expect(response.json()).resolves.toEqual({ error: 'Checkout contract v2 is not implemented' });
+        expect(response.status).toBe(403);
+        expect(createSupabaseServerClient).not.toHaveBeenCalled();
+        expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });
 
@@ -435,7 +482,7 @@ describe('POST /api/create-checkout', () => {
             p_student_id: 'student-1',
             p_package_price_id: packagePriceId,
             p_lang: 'es',
-            p_legal_policy_version: '2026-07-10',
+            p_legal_policy_version: '2026-07-31',
             p_site_url: 'https://example.test',
         });
         expect(stripeMock.checkout.sessions.create).toHaveBeenCalledWith(
@@ -457,7 +504,7 @@ describe('POST /api/create-checkout', () => {
                     durationMonths: '3',
                     sessionsPerPeriod: '12',
                     lang: 'es',
-                    legalPolicyVersion: '2026-07-10',
+                    legalPolicyVersion: '2026-07-31',
                 }),
                 expires_at: Math.floor(Date.parse(checkoutIntent.stripe_session_expires_at) / 1000),
                 expand: ['line_items.data.price'],
@@ -1171,7 +1218,7 @@ describe('POST /api/create-checkout', () => {
             email: 'student@example.com',
             metadata: { supabase_user_id: 'student-1' },
         }, {
-            idempotencyKey: 'customer:dev:student-1',
+            idempotencyKey: 'customer:test:student-1',
         });
         expect(privateProfileMock.upsertPrivateProfile).toHaveBeenCalledWith('student-1', {
             stripe_customer_id: 'cus_test_123',

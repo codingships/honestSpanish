@@ -9,7 +9,7 @@ import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { readRuntimeEnv } from '../../lib/runtime-env';
 import type { Database } from '../../types/database.types';
 import { describeEmailSendError } from '../../lib/email/errors';
-import { hasAcceptedAdultPolicy, LEGAL_POLICY_VERSION } from '../../lib/legal-policy';
+import { ADULT_POLICY_VERSION, hasAcceptedAdultPolicy } from '../../lib/legal-policy';
 
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 
@@ -160,7 +160,7 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
             is_russian_speaker: isRussianSpeaker,
             adult_confirmed: true,
             adult_confirmed_at: adultConfirmedAt,
-            age_policy_version: LEGAL_POLICY_VERSION,
+            age_policy_version: ADULT_POLICY_VERSION,
             consent_given: Boolean(consent),
             ip_address: clientAddress,
             status: 'new',
@@ -188,7 +188,7 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
                 .update({
                     adult_confirmed: true,
                     adult_confirmed_at: adultConfirmedAt,
-                    age_policy_version: LEGAL_POLICY_VERSION,
+                    age_policy_version: ADULT_POLICY_VERSION,
                     consent_given: true,
                     updated_at: adultConfirmedAt,
                 })
