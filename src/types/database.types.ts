@@ -2346,6 +2346,25 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      claim_direct_checkout_intent_for_slot: {
+        Args: {
+          p_full_name: string | null;
+          p_lang: string;
+          p_legal_policy_version: string;
+          p_package_price_id: string;
+          p_primary_email: string;
+          p_site_url: string;
+          p_slot_public_id: string;
+          p_student_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_intents"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_intents";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       claim_fulfillment_effect: {
         Args: {
           p_effect_key: string;
@@ -2567,6 +2586,19 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      materialize_checkout_v2_cycle_sessions: {
+        Args: {
+          p_stripe_invoice_id: string;
+          p_subscription_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_cycles"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_cycles";
           isOneToOne: true;
           isSetofReturn: false;
         };

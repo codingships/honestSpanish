@@ -188,6 +188,36 @@ describe('fulfillment jobs', () => {
         })).resolves.toBe(true);
     });
 
+    it('enqueues a versioned 28-day renewal notice without a legacy month count', async () => {
+        const insert = vi.fn().mockResolvedValue({ error: null });
+        const supabaseAdmin = { from: vi.fn().mockReturnValue({ insert }) };
+        const { enqueueRenewalNotice } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(enqueueRenewalNotice(supabaseAdmin as any, {
+            stripeEventId: 'evt_upcoming_v2',
+            stripeSubscriptionId: 'sub_v2',
+            userId: 'student-1',
+            packageId: 'package-1',
+            subscriptionId: 'subscription-v2',
+            renewalAt: '2026-10-10T00:00:00.000Z',
+            cancelBy: '2026-10-10T00:00:00.000Z',
+            billingIntervalUnit: 'day',
+            billingIntervalCount: 28,
+            amountTotal: 25900,
+            currency: 'eur',
+        })).resolves.toBe(true);
+
+        expect(insert).toHaveBeenCalledWith(expect.objectContaining({
+            job_type: 'renewal_notice',
+            dedupe_key: 'renewal_notice:sub_v2:2026-10-10T00:00:00.000Z',
+            payload: expect.objectContaining({
+                billingIntervalUnit: 'day',
+                billingIntervalCount: 28,
+            }),
+        }));
+        expect(insert.mock.calls[0]?.[0]?.payload).not.toHaveProperty('durationMonths');
+    });
+
     it('skips bulk enqueue when there are no sessions', async () => {
         const supabaseAdmin = { from: vi.fn() };
         const { enqueueBulkSessionFulfillment } = await import('../../src/lib/fulfillment/jobs');
@@ -487,8 +517,9 @@ describe('fulfillment jobs', () => {
                 subscriptionId: 'subscription-1',
                 renewalAt: '2026-10-10T00:00:00.000Z',
                 cancelBy: '2026-10-10T00:00:00.000Z',
-                durationMonths: 3,
-                amountTotal: 27000,
+                billingIntervalUnit: 'day',
+                billingIntervalCount: 28,
+                amountTotal: 25900,
                 currency: 'eur',
             },
             session_id: null,
@@ -546,8 +577,10 @@ describe('fulfillment jobs', () => {
             packageName: 'Индивидуальный',
             renewalAt: '2026-10-10T00:00:00.000Z',
             cancelBy: '2026-10-10T00:00:00.000Z',
-            durationMonths: 3,
-            amountTotal: 27000,
+            durationMonths: undefined,
+            billingIntervalUnit: 'day',
+            billingIntervalCount: 28,
+            amountTotal: 25900,
             currency: 'eur',
             accountUrl: 'https://example.com/ru/campus/account',
             supportUrl: 'https://example.com/ru/campus/support',

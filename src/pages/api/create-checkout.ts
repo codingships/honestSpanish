@@ -19,6 +19,7 @@ import { validatedStripeCustomerId } from '../../lib/stripe-customer';
 import { assertStripePaymentReadiness, assertStripeRuntimeAccount } from '../../lib/stripe-runtime-guard';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
+import { handleCheckoutV2 } from '../../lib/checkout-v2';
 
 const supportedCheckoutLangs = new Set(['es', 'en', 'ru']);
 const jsonHeaders = { 'Content-Type': 'application/json' };
@@ -169,9 +170,7 @@ export const POST: APIRoute = async (context) => {
         if (!isCheckoutEnabled(context)) {
             return jsonResponse({ error: 'Checkout is disabled' }, 403);
         }
-        if (!isIsolatedLegacyCheckoutTest(context)) {
-            return jsonResponse({ error: 'Checkout contract v2 is not implemented' }, 403);
-        }
+        if (!isIsolatedLegacyCheckoutTest(context)) return handleCheckoutV2(context);
 
         const body = await context.request.json() as CheckoutRequest;
         const { priceId } = body;

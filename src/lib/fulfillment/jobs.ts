@@ -121,13 +121,19 @@ async function processRenewalNotice(
     payload: FulfillmentJobPayload,
     job: FulfillmentJobRow,
 ) {
+    const hasLegacyMonthlyPeriod = Number.isInteger(payload.durationMonths)
+        && (payload.durationMonths ?? 0) > 0;
+    const hasVersionedPeriod = ['day', 'week', 'month', 'year'].includes(
+        payload.billingIntervalUnit ?? ''
+    ) && Number.isInteger(payload.billingIntervalCount)
+        && (payload.billingIntervalCount ?? 0) > 0;
     if (
         !payload.userId
         || !payload.packageId
         || !payload.subscriptionId
         || !payload.renewalAt
         || !payload.cancelBy
-        || !Number.isInteger(payload.durationMonths)
+        || (!hasLegacyMonthlyPeriod && !hasVersionedPeriod)
         || !Number.isInteger(payload.amountTotal)
         || !payload.currency
     ) {
@@ -166,7 +172,9 @@ async function processRenewalNotice(
         packageName: localizedPackageName(packageDisplayName, packageKey, locale),
         renewalAt: payload.renewalAt,
         cancelBy: payload.cancelBy,
-        durationMonths: payload.durationMonths as number,
+        durationMonths: payload.durationMonths,
+        billingIntervalUnit: payload.billingIntervalUnit,
+        billingIntervalCount: payload.billingIntervalCount,
         amountTotal: payload.amountTotal as number,
         currency: payload.currency,
         accountUrl: `${siteUrl}/${locale}/campus/account`,

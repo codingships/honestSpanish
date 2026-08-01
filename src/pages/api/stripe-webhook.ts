@@ -56,7 +56,166 @@ const APP_BILLING_METADATA_KEYS = [
     'durationMonths',
     'sessionsPerPeriod',
     'legalPolicyVersion',
+    'contractSchemaVersion',
+    'slotPublicId',
+    'firstClassAt',
+    'renewalAnchorAt',
+    'initialPriceId',
+    'recurringPriceId',
 ] as const;
+
+const CHECKOUT_V2_CONTRACT_SCHEMA_VERSION = '2';
+const CHECKOUT_V2_AMOUNT_CENTS = 25_900;
+const CHECKOUT_V2_INTERVAL_HOURS = 672;
+const CHECKOUT_V2_INTERVAL_SECONDS = CHECKOUT_V2_INTERVAL_HOURS * 60 * 60;
+
+function isCheckoutV2Metadata(metadata: Stripe.Metadata | null | undefined): boolean {
+    return metadata?.contractSchemaVersion === CHECKOUT_V2_CONTRACT_SCHEMA_VERSION;
+}
+
+function requireStripeTimestamp(value: string | undefined, field: string): number {
+    if (!value) throw new Error(`Checkout V2 metadata is missing ${field}`);
+    const milliseconds = Date.parse(value);
+    if (!Number.isFinite(milliseconds) || milliseconds % 1000 !== 0) {
+        throw new Error(`Checkout V2 metadata has invalid ${field}`);
+    }
+    return milliseconds / 1000;
+}
+
+function localDateForInstant(instant: Date, timezone: string): string {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+    }).formatToParts(instant);
+    const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    if (!value.year || !value.month || !value.day) {
+        throw new Error('Checkout V2 first-class date could not be localized');
+    }
+    return `${value.year}-${value.month}-${value.day}`;
+}
+
+function addUtcDaysToDate(date: string, days: number): string {
+    const parsed = new Date(`${date}T00:00:00.000Z`);
+    if (Number.isNaN(parsed.getTime())) throw new Error('Checkout V2 local contract date is invalid');
+    parsed.setUTCDate(parsed.getUTCDate() + days);
+    return parsed.toISOString().slice(0, 10);
+}
+
+type StripeInvoiceLineCompat = Stripe.InvoiceLineItem & {
+    price?: Stripe.Price | null;
+    proration?: boolean;
+    discount_amounts?: unknown[];
+    discounts?: unknown[];
+    pretax_credit_amounts?: unknown[];
+    taxes?: unknown[];
+    pricing?: {
+        price_details?: {
+            price?: string | Stripe.Price | null;
+        } | null;
+    } | null;
+    parent?: {
+        subscription_item_details?: {
+            proration?: boolean;
+        } | null;
+    } | null;
+};
+
+function invoiceLinePriceId(line: StripeInvoiceLineCompat): string | null {
+    const price = line.pricing?.price_details?.price ?? line.price;
+    return stripeObjectId(price);
+}
+
+function expandedInvoiceLinePrice(line: StripeInvoiceLineCompat): Stripe.Price | null {
+    const price = line.pricing?.price_details?.price ?? line.price;
+    return price && typeof price !== 'string' ? price : null;
+}
+
+function invoiceLineIsProration(line: StripeInvoiceLineCompat): boolean {
+    return line.parent?.subscription_item_details?.proration === true || line.proration === true;
+}
+
+function invoiceLineHasAdjustments(line: StripeInvoiceLineCompat): boolean {
+    return (line.discount_amounts?.length ?? 0) > 0
+        || (line.discounts?.length ?? 0) > 0
+        || (line.pretax_credit_amounts?.length ?? 0) > 0
+        || (line.taxes?.length ?? 0) > 0;
+}
+
+function stripePriceMatchesCheckoutV2(input: {
+    price: Stripe.Price | null;
+    priceId: string;
+    productId: string;
+    livemode: boolean;
+    recurring: boolean;
+}): boolean {
+    const { price } = input;
+    if (
+        !price
+        || price.id !== input.priceId
+        || price.unit_amount !== CHECKOUT_V2_AMOUNT_CENTS
+        || price.currency !== PACKAGE_CURRENCY
+        || price.livemode !== input.livemode
+        || stripePriceProductId(price) !== input.productId
+    ) return false;
+
+    return input.recurring
+        ? price.recurring?.interval === 'day' && price.recurring.interval_count === 28
+        : price.recurring === null;
+}
+
+function exactCheckoutV2InitialInvoiceLines(input: {
+    lines: StripeInvoiceLineCompat[];
+    initialPriceId: string;
+    recurringPriceId: string;
+    productId: string;
+    renewalAnchorAt: number;
+    livemode: boolean;
+}): boolean {
+    if (input.lines.length < 1 || input.lines.length > 2) return false;
+    const initialLines = input.lines.filter((line) => invoiceLinePriceId(line) === input.initialPriceId);
+    const recurringLines = input.lines.filter((line) => invoiceLinePriceId(line) === input.recurringPriceId);
+    if (initialLines.length !== 1 || recurringLines.length > 1) return false;
+    if (initialLines.length + recurringLines.length !== input.lines.length) return false;
+
+    const initialLine = initialLines[0];
+    if (
+        initialLine.quantity !== 1
+        || initialLine.amount !== CHECKOUT_V2_AMOUNT_CENTS
+        || initialLine.currency !== PACKAGE_CURRENCY
+        || invoiceLineIsProration(initialLine)
+        || invoiceLineHasAdjustments(initialLine)
+        || !stripePriceMatchesCheckoutV2({
+            price: expandedInvoiceLinePrice(initialLine),
+            priceId: input.initialPriceId,
+            productId: input.productId,
+            livemode: input.livemode,
+            recurring: false,
+        })
+    ) return false;
+
+    const recurringLine = recurringLines[0];
+    if (!recurringLine) return true;
+    const periodStart = recurringLine.period?.start;
+    const periodEnd = recurringLine.period?.end;
+    return recurringLine.quantity === 1
+        && recurringLine.amount === 0
+        && recurringLine.currency === PACKAGE_CURRENCY
+        && !invoiceLineIsProration(recurringLine)
+        && !invoiceLineHasAdjustments(recurringLine)
+        && Number.isInteger(periodStart)
+        && Number.isInteger(periodEnd)
+        && (periodStart as number) < (periodEnd as number)
+        && periodEnd === input.renewalAnchorAt
+        && stripePriceMatchesCheckoutV2({
+            price: expandedInvoiceLinePrice(recurringLine),
+            priceId: input.recurringPriceId,
+            productId: input.productId,
+            livemode: input.livemode,
+            recurring: true,
+        });
+}
 
 function containsAppBillingMetadata(metadata: Stripe.Metadata | null | undefined): boolean {
     return APP_BILLING_METADATA_KEYS.some((key) => (
@@ -221,6 +380,107 @@ async function findOrCreateCheckoutSubscription(
         throw insertError ?? new Error('Stripe checkout subscription insert returned no row');
     }
     return subscription;
+}
+
+type CheckoutV2Subscription = Pick<
+    Database['public']['Tables']['subscriptions']['Row'],
+    'id' | 'student_id' | 'package_id' | 'package_price_id' | 'checkout_intent_id'
+    | 'contract_schema_version' | 'duration_months' | 'billing_interval_unit'
+    | 'billing_interval_count' | 'class_duration_minutes' | 'starts_at' | 'ends_at'
+    | 'sessions_total' | 'contracted_sessions_per_period' | 'sessions_used'
+    | 'status' | 'stripe_subscription_id' | 'stripe_invoice_id'
+>;
+
+async function findOrCreateCheckoutV2Subscription(
+    supabaseAdmin: SupabaseClient<Database>,
+    input: SubscriptionInsert & { stripe_subscription_id: string; checkout_intent_id: string }
+): Promise<CheckoutV2Subscription> {
+    const selection = 'id, student_id, package_id, package_price_id, checkout_intent_id, contract_schema_version, duration_months, billing_interval_unit, billing_interval_count, class_duration_minutes, starts_at, ends_at, sessions_total, contracted_sessions_per_period, sessions_used, status, stripe_subscription_id, stripe_invoice_id';
+    const { data: existing, error: lookupError } = await supabaseAdmin
+        .from('subscriptions')
+        .select(selection)
+        .eq('stripe_subscription_id', input.stripe_subscription_id)
+        .limit(1)
+        .maybeSingle();
+
+    if (lookupError) throw lookupError;
+    if (existing) {
+        const expected = input as Required<Pick<
+            SubscriptionInsert,
+            'student_id' | 'package_id' | 'package_price_id' | 'checkout_intent_id'
+            | 'contract_schema_version' | 'duration_months' | 'billing_interval_unit'
+            | 'billing_interval_count' | 'class_duration_minutes' | 'starts_at' | 'ends_at'
+            | 'sessions_total' | 'contracted_sessions_per_period' | 'sessions_used'
+            | 'status' | 'stripe_subscription_id' | 'stripe_invoice_id'
+        >>;
+        if (
+            existing.student_id !== expected.student_id
+            || existing.package_id !== expected.package_id
+            || existing.package_price_id !== expected.package_price_id
+            || existing.checkout_intent_id !== expected.checkout_intent_id
+            || existing.contract_schema_version !== expected.contract_schema_version
+            || existing.duration_months !== expected.duration_months
+            || existing.billing_interval_unit !== expected.billing_interval_unit
+            || existing.billing_interval_count !== expected.billing_interval_count
+            || existing.class_duration_minutes !== expected.class_duration_minutes
+            || existing.starts_at !== expected.starts_at
+            || existing.ends_at !== expected.ends_at
+            || existing.sessions_total !== expected.sessions_total
+            || existing.contracted_sessions_per_period !== expected.contracted_sessions_per_period
+            || existing.stripe_subscription_id !== expected.stripe_subscription_id
+            || existing.stripe_invoice_id !== expected.stripe_invoice_id
+            || ![0, 4].includes(existing.sessions_used ?? -1)
+            || existing.status !== 'active'
+        ) {
+            throw new Error('Stripe subscription is already linked to incompatible Checkout V2 data');
+        }
+        return existing as CheckoutV2Subscription;
+    }
+
+    const { data, error } = await supabaseAdmin
+        .from('subscriptions')
+        .insert(input)
+        .select(selection)
+        .single();
+    if (error || !data) throw error ?? new Error('Checkout V2 subscription insert returned no row');
+    return data as CheckoutV2Subscription;
+}
+
+async function listAllCheckoutLineItems(sessionId: string): Promise<Stripe.LineItem[]> {
+    const items: Stripe.LineItem[] = [];
+    let startingAfter: string | undefined;
+    for (let page = 0; page < 2; page += 1) {
+        const response = await stripe.checkout.sessions.listLineItems(sessionId, {
+            limit: 100,
+            expand: ['data.price.product'],
+            ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+        items.push(...response.data);
+        if (!response.has_more) return items;
+        startingAfter = response.data.at(-1)?.id;
+        if (!startingAfter) throw new Error('Checkout V2 line-item pagination cannot advance');
+    }
+    throw new Error('Checkout V2 has unexpectedly many line items');
+}
+
+async function listAllInvoiceLines(invoice: Stripe.Invoice): Promise<StripeInvoiceLineCompat[]> {
+    const initialLines = invoice.lines?.data as StripeInvoiceLineCompat[] | undefined;
+    if (!invoice.lines?.has_more) return initialLines ?? [];
+
+    const lines: StripeInvoiceLineCompat[] = [];
+    let startingAfter: string | undefined;
+    for (let page = 0; page < 10; page += 1) {
+        const response = await stripe.invoices.listLineItems(invoice.id, {
+            limit: 100,
+            expand: ['data.pricing.price_details.price'],
+            ...(startingAfter ? { starting_after: startingAfter } : {}),
+        });
+        lines.push(...response.data as StripeInvoiceLineCompat[]);
+        if (!response.has_more) return lines;
+        startingAfter = response.data.at(-1)?.id;
+        if (!startingAfter) throw new Error('Stripe invoice line pagination cannot advance');
+    }
+    throw new Error('Stripe invoice line pagination exceeded the bounded limit');
 }
 
 type WebhookEventProcessingStatus = 'processing' | 'succeeded' | 'failed';
@@ -528,6 +788,360 @@ export const POST: APIRoute = async (context) => {
 // ============================================
 // HANDLER: First-time checkout completed
 // ============================================
+async function handleCheckoutV2Completed(
+    supabaseAdmin: SupabaseClient<Database>,
+    session: Stripe.Checkout.Session,
+    stripeSubscription: Stripe.Subscription,
+    metadata: Stripe.Metadata,
+    context: APIContext,
+    stripeRuntime: StripeRuntimeContext
+) {
+    const userId = metadata.userId;
+    const packageId = metadata.packageId;
+    const packagePriceId = metadata.packagePriceId;
+    const crmOpportunityId = metadata.crmOpportunityId;
+    const checkoutIntentId = metadata.checkoutIntentId;
+    const slotPublicId = metadata.slotPublicId;
+    const initialPriceId = metadata.initialPriceId;
+    const recurringPriceId = metadata.recurringPriceId;
+    if (
+        !isUuid(userId) || !isUuid(packageId) || !isUuid(packagePriceId)
+        || !isUuid(crmOpportunityId) || !isUuid(checkoutIntentId) || !isUuid(slotPublicId)
+        || !isStripePriceId(initialPriceId) || !isStripePriceId(recurringPriceId)
+        || initialPriceId === recurringPriceId
+    ) {
+        throw new Error('Checkout V2 is missing immutable purchase metadata');
+    }
+
+    if (session.mode !== 'subscription' || session.payment_status !== 'paid') {
+        throw new Error('Checkout V2 must be a paid subscription-mode Session');
+    }
+    if (typeof session.livemode !== 'boolean' || session.livemode !== stripeRuntime.livemode) {
+        throw new Error('Checkout V2 Session mode does not match this runtime');
+    }
+    const stripeSubscriptionId = stripeObjectId(session.subscription);
+    const stripeInvoiceId = stripeObjectId(session.invoice);
+    const sessionCustomerId = stripeObjectId(session.customer);
+    const subscriptionCustomerId = stripeObjectId(stripeSubscription.customer);
+    if (!stripeSubscriptionId || stripeSubscription.id !== stripeSubscriptionId || !stripeInvoiceId) {
+        throw new Error('Checkout V2 has incomplete Stripe subscription or invoice identity');
+    }
+    if (
+        !isStripeCustomerId(sessionCustomerId)
+        || sessionCustomerId !== subscriptionCustomerId
+        || stripeSubscription.status !== 'trialing'
+        || stripeSubscription.livemode !== stripeRuntime.livemode
+    ) {
+        throw new Error('Checkout V2 Customer, mode or technical-trial state is invalid');
+    }
+
+    const firstClassAt = requireStripeTimestamp(metadata.firstClassAt, 'firstClassAt');
+    const renewalAnchorAt = requireStripeTimestamp(metadata.renewalAnchorAt, 'renewalAnchorAt');
+    if (renewalAnchorAt !== firstClassAt + CHECKOUT_V2_INTERVAL_SECONDS) {
+        throw new Error('Checkout V2 renewal anchor is not exactly 672 hours after the first class');
+    }
+    const subscriptionItem = stripeSubscription.items.data[0];
+    if (
+        stripeSubscription.items.data.length !== 1
+        || subscriptionItem?.quantity !== 1
+        || subscriptionItem.price.id !== recurringPriceId
+        || subscriptionItem.price.unit_amount !== CHECKOUT_V2_AMOUNT_CENTS
+        || subscriptionItem.price.currency !== PACKAGE_CURRENCY
+        || subscriptionItem.price.livemode !== stripeRuntime.livemode
+        || subscriptionItem.price.recurring?.interval !== 'day'
+        || subscriptionItem.price.recurring.interval_count !== 28
+        || stripeSubscription.trial_end !== renewalAnchorAt
+        || subscriptionItem.current_period_end !== renewalAnchorAt
+    ) {
+        throw new Error('Checkout V2 subscription Price or renewal anchor is invalid');
+    }
+
+    const [lineItems, authoritativeInvoice, packagePriceResult, snapshotResult, slotResult] = await Promise.all([
+        listAllCheckoutLineItems(session.id),
+        stripe.invoices.retrieve(stripeInvoiceId, {
+            expand: ['lines.data.pricing.price_details.price'],
+        }),
+        supabaseAdmin
+            .from('package_prices')
+            .select('*')
+            .eq('id', packagePriceId)
+            .single(),
+        supabaseAdmin
+            .from('checkout_v2_price_snapshots')
+            .select('*')
+            .eq('package_price_id', packagePriceId)
+            .single(),
+        supabaseAdmin
+            .from('bookable_slots')
+            .select('id, public_id, package_id, first_occurrence_at, timezone_name, status, sold_subscription_id')
+            .eq('public_id', slotPublicId)
+            .single(),
+    ]);
+    const packagePrice = packagePriceResult.data;
+    const snapshot = snapshotResult.data;
+    const slot = slotResult.data;
+    if (packagePriceResult.error || !packagePrice || snapshotResult.error || !snapshot || slotResult.error || !slot) {
+        throw new Error('Checkout V2 local offer, price snapshot or slot could not be loaded');
+    }
+    if (
+        packagePrice.id !== packagePriceId
+        || packagePrice.package_id !== packageId
+        || packagePrice.contract_schema_version !== 2
+        || packagePrice.amount_cents !== CHECKOUT_V2_AMOUNT_CENTS
+        || packagePrice.currency !== PACKAGE_CURRENCY
+        || packagePrice.sessions_per_period !== 4
+        || packagePrice.billing_interval_unit !== 'day'
+        || packagePrice.billing_interval_count !== 28
+        || packagePrice.class_duration_minutes !== 50
+        || packagePrice.stripe_price_id !== recurringPriceId
+        || packagePrice.stripe_account_id !== stripeRuntime.accountId
+        || packagePrice.stripe_livemode !== stripeRuntime.livemode
+        || snapshot.package_price_id !== packagePriceId
+        || snapshot.initial_stripe_price_id !== initialPriceId
+        || snapshot.recurring_stripe_price_id !== recurringPriceId
+        || snapshot.initial_amount_cents !== CHECKOUT_V2_AMOUNT_CENTS
+        || snapshot.recurring_amount_cents !== CHECKOUT_V2_AMOUNT_CENTS
+        || snapshot.currency !== PACKAGE_CURRENCY
+        || snapshot.recurring_interval_unit !== 'day'
+        || snapshot.recurring_interval_count !== 28
+        || snapshot.stripe_account_id !== stripeRuntime.accountId
+        || snapshot.stripe_livemode !== stripeRuntime.livemode
+        || !isUuid(slot.id)
+        || slot.public_id !== slotPublicId
+        || slot.package_id !== packageId
+        || !['available', 'sold'].includes(slot.status)
+        || Date.parse(slot.first_occurrence_at) / 1000 !== firstClassAt
+    ) {
+        throw new Error('Checkout V2 Stripe purchase does not match its immutable local snapshot');
+    }
+
+    if (lineItems.length !== 2) throw new Error('Checkout V2 must contain exactly two line items');
+    const prices = lineItems.map((line) => line.price);
+    const initialPrice = prices.find((price) => price?.id === initialPriceId);
+    const recurringPrice = prices.find((price) => price?.id === recurringPriceId);
+    if (
+        lineItems.some((line) => line.quantity !== 1)
+        || !initialPrice || !recurringPrice
+        || initialPrice.recurring !== null
+        || initialPrice.unit_amount !== CHECKOUT_V2_AMOUNT_CENTS
+        || initialPrice.currency !== PACKAGE_CURRENCY
+        || initialPrice.livemode !== stripeRuntime.livemode
+        || stripePriceProductId(initialPrice) !== packagePrice.stripe_product_id
+        || recurringPrice.recurring?.interval !== 'day'
+        || recurringPrice.recurring.interval_count !== 28
+        || recurringPrice.unit_amount !== CHECKOUT_V2_AMOUNT_CENTS
+        || recurringPrice.currency !== PACKAGE_CURRENCY
+        || recurringPrice.livemode !== stripeRuntime.livemode
+        || stripePriceProductId(recurringPrice) !== packagePrice.stripe_product_id
+        || session.amount_total !== CHECKOUT_V2_AMOUNT_CENTS
+        || session.currency !== PACKAGE_CURRENCY
+    ) {
+        throw new Error('Checkout V2 line items do not match the immutable Price pair');
+    }
+
+    const initialInvoiceLines = await listAllInvoiceLines(authoritativeInvoice);
+    if (
+        authoritativeInvoice.id !== stripeInvoiceId
+        || authoritativeInvoice.status !== 'paid'
+        || authoritativeInvoice.billing_reason !== 'subscription_create'
+        || authoritativeInvoice.amount_paid !== CHECKOUT_V2_AMOUNT_CENTS
+        || authoritativeInvoice.amount_due !== CHECKOUT_V2_AMOUNT_CENTS
+        || authoritativeInvoice.amount_remaining !== 0
+        || authoritativeInvoice.amount_overpaid !== 0
+        || authoritativeInvoice.starting_balance !== 0
+        || authoritativeInvoice.subtotal !== CHECKOUT_V2_AMOUNT_CENTS
+        || authoritativeInvoice.subtotal_excluding_tax !== CHECKOUT_V2_AMOUNT_CENTS
+        || authoritativeInvoice.total !== CHECKOUT_V2_AMOUNT_CENTS
+        || authoritativeInvoice.total_excluding_tax !== CHECKOUT_V2_AMOUNT_CENTS
+        || authoritativeInvoice.pre_payment_credit_notes_amount !== 0
+        || authoritativeInvoice.post_payment_credit_notes_amount !== 0
+        || (authoritativeInvoice.total_discount_amounts?.length ?? 0) !== 0
+        || (authoritativeInvoice.total_pretax_credit_amounts?.length ?? 0) !== 0
+        || (authoritativeInvoice.total_taxes?.length ?? 0) !== 0
+        || authoritativeInvoice.currency !== PACKAGE_CURRENCY
+        || authoritativeInvoice.livemode !== stripeRuntime.livemode
+        || invoiceSubscriptionId(authoritativeInvoice) !== stripeSubscriptionId
+        || stripeObjectId(authoritativeInvoice.customer) !== sessionCustomerId
+        || !exactCheckoutV2InitialInvoiceLines({
+            lines: initialInvoiceLines,
+            initialPriceId,
+            recurringPriceId,
+            productId: packagePrice.stripe_product_id,
+            renewalAnchorAt,
+            livemode: stripeRuntime.livemode,
+        })
+    ) {
+        throw new Error('Checkout V2 initial invoice is not the exact paid 259 EUR invoice');
+    }
+
+    const paymentIntentId = await requirePaidInvoicePaymentIntentId(stripeInvoiceId);
+    const { data: completedIntent, error: completedIntentError } = await supabaseAdmin.rpc('complete_checkout_intent', {
+        p_intent_id: checkoutIntentId,
+        p_opportunity_id: crmOpportunityId,
+        p_student_id: userId,
+        p_package_price_id: packagePriceId,
+        p_stripe_checkout_session_id: session.id,
+        p_stripe_customer_id: sessionCustomerId,
+    });
+    if (
+        completedIntentError || !completedIntent || completedIntent.id !== checkoutIntentId
+        || completedIntent.stripe_checkout_session_id !== session.id
+        || completedIntent.stripe_customer_id !== sessionCustomerId
+    ) {
+        throw new Error('Checkout V2 does not match its authorized checkout intent');
+    }
+
+    const contractStartsAt = localDateForInstant(new Date(firstClassAt * 1000), slot.timezone_name);
+    const contractEndsAt = addUtcDaysToDate(contractStartsAt, 28);
+    const subscription = await findOrCreateCheckoutV2Subscription(supabaseAdmin, {
+        student_id: userId,
+        package_id: packageId,
+        package_price_id: packagePriceId,
+        checkout_intent_id: checkoutIntentId,
+        contract_schema_version: 2,
+        status: 'active',
+        duration_months: null,
+        billing_interval_unit: 'day',
+        billing_interval_count: 28,
+        class_duration_minutes: 50,
+        starts_at: contractStartsAt,
+        ends_at: contractEndsAt,
+        sessions_total: 4,
+        contracted_sessions_per_period: 4,
+        sessions_used: 0,
+        stripe_subscription_id: stripeSubscriptionId,
+        stripe_invoice_id: stripeInvoiceId,
+    });
+    if (slot.status === 'sold' && slot.sold_subscription_id !== subscription.id) {
+        throw new Error('Checkout V2 sold slot belongs to a different subscription');
+    }
+    const paymentDescription = `${packagePrice.package_key} - Initial Checkout V2 cycle`;
+    const payment = await persistInvoicePayment(supabaseAdmin, {
+        student_id: userId,
+        subscription_id: subscription.id,
+        amount: CHECKOUT_V2_AMOUNT_CENTS,
+        currency: PACKAGE_CURRENCY,
+        status: 'succeeded',
+        stripe_invoice_id: stripeInvoiceId,
+        stripe_payment_intent_id: paymentIntentId,
+        description: paymentDescription,
+    });
+
+    const { data: consumedHold, error: consumeError } = await supabaseAdmin.rpc('consume_bookable_slot_hold', {
+        p_checkout_intent_id: checkoutIntentId,
+        p_subscription_id: subscription.id,
+    });
+    if (consumeError || !consumedHold || consumedHold.slot_id !== slot.id || consumedHold.status !== 'consumed') {
+        throw consumeError ?? new Error('Checkout V2 slot hold could not be consumed safely');
+    }
+    const { data: materializedSlot, error: materializeError } = await supabaseAdmin.rpc('materialize_bookable_slot_sessions', {
+        p_slot_id: slot.id,
+        p_subscription_id: subscription.id,
+    });
+    if (
+        materializeError || !materializedSlot || materializedSlot.id !== slot.id
+        || materializedSlot.status !== 'sold' || materializedSlot.sold_subscription_id !== subscription.id
+        || !materializedSlot.sessions_materialized_at
+    ) {
+        throw materializeError ?? new Error('Checkout V2 initial sessions could not be materialized safely');
+    }
+    const { data: firstOccurrence, error: firstOccurrenceError } = await supabaseAdmin
+        .from('bookable_slot_occurrences')
+        .select('session_id, starts_at')
+        .eq('slot_id', slot.id)
+        .eq('occurrence_index', 1)
+        .single();
+    if (
+        firstOccurrenceError || !firstOccurrence || !isUuid(firstOccurrence.session_id)
+        || Date.parse(firstOccurrence.starts_at) / 1000 !== firstClassAt
+    ) {
+        throw new Error('Checkout V2 first materialized session is invalid');
+    }
+    const { data: billingState, error: billingError } = await supabaseAdmin.rpc('initialize_checkout_v2_billing', {
+        p_subscription_id: subscription.id,
+        p_first_session_id: firstOccurrence.session_id,
+        p_initial_payment_id: payment.id,
+        p_initial_stripe_price_id: initialPriceId,
+        p_stripe_renewal_anchor_at: new Date(renewalAnchorAt * 1000).toISOString(),
+    });
+    if (
+        billingError || !billingState || billingState.subscription_id !== subscription.id
+        || billingState.first_session_id !== firstOccurrence.session_id
+        || Date.parse(billingState.stripe_renewal_anchor_at) / 1000 !== renewalAnchorAt
+    ) {
+        throw billingError ?? new Error('Checkout V2 billing foundation could not be initialized safely');
+    }
+
+    const { data: convertedOpportunity, error: opportunityError } = await supabaseAdmin
+        .from('crm_opportunities')
+        .update({
+            stage: 'won',
+            converted_subscription_id: subscription.id,
+            checkout_approved_at: null,
+            closed_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', crmOpportunityId)
+        .eq('preferred_package_id', packageId)
+        .is('converted_subscription_id', null)
+        .select('id')
+        .maybeSingle();
+    if (opportunityError) throw opportunityError;
+    if (!convertedOpportunity) {
+        const { data: alreadyConverted, error: lookupError } = await supabaseAdmin
+            .from('crm_opportunities')
+            .select('id')
+            .eq('id', crmOpportunityId)
+            .eq('converted_subscription_id', subscription.id)
+            .maybeSingle();
+        if (lookupError || !alreadyConverted) throw new Error('Checkout V2 could not consume its CRM approval');
+    }
+
+    await recordCrmActivityForProfileSafe(supabaseAdmin, {
+        profileId: userId,
+        lifecycleStage: 'customer',
+        source: 'stripe',
+        activityType: 'payment',
+        subject: 'Pago inicial recibido',
+        body: paymentDescription,
+        relatedEntityType: 'payment',
+        relatedEntityId: payment.id,
+        metadata: {
+            contract_schema_version: 2,
+            amount: CHECKOUT_V2_AMOUNT_CENTS,
+            currency: PACKAGE_CURRENCY,
+            subscription_id: subscription.id,
+            stripe_invoice_id: stripeInvoiceId,
+            stripe_payment_intent_id: paymentIntentId,
+        },
+    });
+
+    const { data: existingWelcomeJob, error: welcomeJobLookupError } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .select('id')
+        .eq('job_type', 'welcome_fulfillment')
+        .eq('subscription_id', subscription.id)
+        .limit(1)
+        .maybeSingle();
+    if (welcomeJobLookupError) throw welcomeJobLookupError;
+    const queued = existingWelcomeJob ? true : await enqueueWelcomeFulfillment(supabaseAdmin, {
+        userId,
+        packageId,
+        packageKey: packagePrice.package_key,
+        packageDisplayName: packagePrice.display_name,
+        subscriptionId: subscription.id,
+        startsAt: contractStartsAt,
+        endsAt: contractEndsAt,
+        sessionsTotal: 4,
+        amountTotal: CHECKOUT_V2_AMOUNT_CENTS,
+        currency: PACKAGE_CURRENCY,
+        legalPolicyVersion: completedIntent.legal_policy_version,
+        policyAcceptedAt: completedIntent.policy_accepted_at,
+    });
+    if (!queued) throw new Error('Checkout V2 welcome fulfillment could not be queued');
+    triggerFulfillmentProcessing(context, 5);
+}
+
 async function handleCheckoutCompleted(
     supabaseAdmin: SupabaseClient<Database>,
     session: Stripe.Checkout.Session,
@@ -550,6 +1164,19 @@ async function handleCheckoutCompleted(
     const packagePriceId = metadata.packagePriceId;
     const crmOpportunityId = metadata.crmOpportunityId;
     const checkoutIntentId = metadata.checkoutIntentId;
+
+    if (isCheckoutV2Metadata(metadata)) {
+        if (!stripeSubscription) throw new Error('Checkout V2 could not retrieve its Stripe subscription');
+        await handleCheckoutV2Completed(
+            supabaseAdmin,
+            session,
+            stripeSubscription,
+            metadata,
+            context,
+            stripeRuntime
+        );
+        return;
+    }
 
     if (session.payment_status !== 'paid') {
         console.log(`[Webhook] Checkout session ${session.id} is not paid; skipping activation`);
@@ -801,6 +1428,7 @@ async function handleCheckoutExpired(
     const opportunityId = metadata.crmOpportunityId;
     const studentId = metadata.userId;
     const packagePriceId = metadata.packagePriceId;
+    const checkoutV2 = isCheckoutV2Metadata(metadata);
     const hasAnyAppMetadata = [checkoutIntentId, opportunityId, studentId, packagePriceId]
         .some((value) => typeof value === 'string' && value.length > 0);
     const hasCompleteValidMetadata = [checkoutIntentId, opportunityId, studentId, packagePriceId]
@@ -839,23 +1467,49 @@ async function handleCheckoutExpired(
     ) {
         throw new Error('Expired checkout metadata does not match its local checkout intent');
     }
-    if (intent.status === 'expired') {
+    if (intent.status === 'expired' && !checkoutV2) {
         console.log(`[Webhook] Checkout intent ${intent.id} was already released`);
         return;
     }
 
-    const { data: releasedIntent, error: releaseError } = await supabaseAdmin
-        .rpc('release_expired_checkout_intent', {
-            p_intent_id: intent.id,
-            p_stripe_checkout_session_id: session.id,
+    if (intent.status !== 'expired') {
+        const { data: releasedIntent, error: releaseError } = await supabaseAdmin
+            .rpc('release_expired_checkout_intent', {
+                p_intent_id: intent.id,
+                p_stripe_checkout_session_id: session.id,
+            });
+        if (
+            releaseError
+            || !releasedIntent
+            || releasedIntent.id !== intent.id
+            || releasedIntent.status !== 'expired'
+        ) {
+            throw releaseError ?? new Error('Expired checkout intent could not be released safely');
+        }
+    }
+
+    if (checkoutV2) {
+        const metadataSlotPublicId = metadata.slotPublicId;
+        if (!isUuid(metadataSlotPublicId)) throw new Error('Expired Checkout V2 is missing its slot binding');
+        const { data: slot, error: slotError } = await supabaseAdmin
+            .from('bookable_slots')
+            .select('id, public_id')
+            .eq('public_id', metadataSlotPublicId)
+            .single();
+        if (slotError || !slot || !isUuid(slot.id) || slot.public_id !== metadataSlotPublicId) {
+            throw slotError ?? new Error('Expired Checkout V2 slot binding could not be resolved');
+        }
+        const { data: releasedHold, error: holdError } = await supabaseAdmin.rpc('release_bookable_slot_hold', {
+            p_checkout_intent_id: intent.id,
+            p_reason: 'stripe_checkout_session_expired',
         });
-    if (
-        releaseError
-        || !releasedIntent
-        || releasedIntent.id !== intent.id
-        || releasedIntent.status !== 'expired'
-    ) {
-        throw releaseError ?? new Error('Expired checkout intent could not be released safely');
+        if (
+            holdError || !releasedHold || releasedHold.checkout_intent_id !== intent.id
+            || releasedHold.slot_id !== slot.id
+            || !['expired', 'released'].includes(releasedHold.status)
+        ) {
+            throw holdError ?? new Error('Expired Checkout V2 slot hold could not be released safely');
+        }
     }
 }
 
@@ -967,6 +1621,48 @@ async function handleInvoiceUpcoming(
         return;
     }
 
+    if (subscription.contract_schema_version === 2) {
+        const { packagePrice } = await loadCheckoutV2RecurringSnapshot(
+            supabaseAdmin,
+            subscription,
+            stripeSubscription,
+            stripeRuntime
+        );
+        const subscriptionItem = stripeSubscription.items.data[0];
+        const periodEnd = Number.isInteger(subscriptionItem?.current_period_end)
+            && (subscriptionItem?.current_period_end ?? 0) > 0
+            ? subscriptionItem.current_period_end
+            : invoice.period_end;
+        const amountDue = invoice.amount_due ?? invoice.total ?? 0;
+        if (
+            !Number.isInteger(periodEnd) || (periodEnd ?? 0) <= 0
+            || invoice.currency !== PACKAGE_CURRENCY
+            || amountDue !== CHECKOUT_V2_AMOUNT_CENTS
+        ) {
+            throw new Error('Upcoming Checkout V2 invoice does not match the exact 28-day renewal');
+        }
+        const renewalAt = new Date((periodEnd as number) * 1000).toISOString();
+        const queued = await enqueueRenewalNotice(supabaseAdmin, {
+            stripeEventId: event.id,
+            stripeInvoiceId: typeof invoice.id === 'string' && invoice.id ? invoice.id : undefined,
+            stripeSubscriptionId,
+            userId: subscription.student_id,
+            packageId: subscription.package_id,
+            packageKey: packagePrice.package_key,
+            packageDisplayName: packagePrice.display_name,
+            subscriptionId: subscription.id,
+            renewalAt,
+            cancelBy: renewalAt,
+            billingIntervalUnit: 'day',
+            billingIntervalCount: 28,
+            amountTotal: CHECKOUT_V2_AMOUNT_CENTS,
+            currency: PACKAGE_CURRENCY,
+        });
+        if (!queued) throw new Error('Checkout V2 renewal notice fulfillment could not be queued');
+        triggerFulfillmentProcessing(context, 5);
+        return;
+    }
+
     const contractPrice = await assertManagedSubscriptionOffer(supabaseAdmin, subscription, stripeSubscription, stripeRuntime);
 
     const subscriptionItem = stripeSubscription.items.data[0];
@@ -1012,6 +1708,236 @@ async function handleInvoiceUpcoming(
 // ============================================
 // HANDLER: Recurring invoice paid (monthly renewal)
 // ============================================
+async function loadCheckoutV2RecurringSnapshot(
+    supabaseAdmin: SupabaseClient<Database>,
+    subscription: ManagedSubscription,
+    stripeSubscription: Stripe.Subscription,
+    stripeRuntime: StripeRuntimeContext
+) {
+    if (
+        subscription.contract_schema_version !== 2
+        || !subscription.package_price_id
+        || subscription.duration_months !== null
+        || subscription.billing_interval_unit !== 'day'
+        || subscription.billing_interval_count !== 28
+        || subscription.class_duration_minutes !== 50
+        || subscription.sessions_total !== 4
+        || subscription.contracted_sessions_per_period !== 4
+    ) {
+        throw new Error('Managed Checkout V2 subscription contract is invalid');
+    }
+    const [{ data: packagePrice, error: packagePriceError }, { data: snapshot, error: snapshotError }] = await Promise.all([
+        supabaseAdmin
+            .from('package_prices')
+            .select('*')
+            .eq('id', subscription.package_price_id)
+            .single(),
+        supabaseAdmin
+            .from('checkout_v2_price_snapshots')
+            .select('*')
+            .eq('package_price_id', subscription.package_price_id)
+            .single(),
+    ]);
+    if (packagePriceError || !packagePrice || snapshotError || !snapshot) {
+        throw new Error('Checkout V2 recurring price snapshot could not be loaded');
+    }
+    const item = stripeSubscription.items.data[0];
+    const price = item?.price;
+    if (
+        packagePrice.contract_schema_version !== 2
+        || packagePrice.package_id !== subscription.package_id
+        || packagePrice.stripe_price_id !== snapshot.recurring_stripe_price_id
+        || packagePrice.amount_cents !== CHECKOUT_V2_AMOUNT_CENTS
+        || packagePrice.currency !== PACKAGE_CURRENCY
+        || packagePrice.stripe_account_id !== stripeRuntime.accountId
+        || packagePrice.stripe_livemode !== stripeRuntime.livemode
+        || snapshot.package_price_id !== subscription.package_price_id
+        || snapshot.recurring_amount_cents !== CHECKOUT_V2_AMOUNT_CENTS
+        || snapshot.currency !== PACKAGE_CURRENCY
+        || snapshot.recurring_interval_unit !== 'day'
+        || snapshot.recurring_interval_count !== 28
+        || snapshot.stripe_account_id !== stripeRuntime.accountId
+        || snapshot.stripe_livemode !== stripeRuntime.livemode
+        || stripeSubscription.items.data.length !== 1
+        || item?.quantity !== 1
+        || !price
+        || price.id !== snapshot.recurring_stripe_price_id
+        || price.unit_amount !== CHECKOUT_V2_AMOUNT_CENTS
+        || price.currency !== PACKAGE_CURRENCY
+        || price.livemode !== stripeRuntime.livemode
+        || price.recurring?.interval !== 'day'
+        || price.recurring.interval_count !== 28
+        || stripePriceProductId(price) !== packagePrice.stripe_product_id
+    ) {
+        throw new Error('Stripe Checkout V2 recurring offer does not match the immutable snapshot');
+    }
+    return { packagePrice, snapshot };
+}
+
+async function handleCheckoutV2InvoicePaid(
+    supabaseAdmin: SupabaseClient<Database>,
+    eventInvoice: Stripe.Invoice,
+    subscription: ManagedSubscription,
+    stripeSubscription: Stripe.Subscription,
+    stripeRuntime: StripeRuntimeContext
+) {
+    if (eventInvoice.billing_reason === 'subscription_create') {
+        console.log('[Webhook] Skipping Checkout V2 initial invoice (handled by checkout.session.completed)');
+        return;
+    }
+    if (eventInvoice.billing_reason !== 'subscription_cycle') {
+        throw new Error('Checkout V2 paid invoice is not an exact subscription cycle');
+    }
+    if (!['active', 'trialing'].includes(stripeSubscription.status)) {
+        throw new Error('Checkout V2 paid renewal belongs to an inactive Stripe subscription');
+    }
+    const stripeSubscriptionId = invoiceSubscriptionId(eventInvoice);
+    if (!stripeSubscriptionId || stripeSubscriptionId !== subscription.stripe_subscription_id) {
+        throw new Error('Checkout V2 invoice subscription identity is invalid');
+    }
+    const { snapshot } = await loadCheckoutV2RecurringSnapshot(
+        supabaseAdmin,
+        subscription,
+        stripeSubscription,
+        stripeRuntime
+    );
+    const invoice = await stripe.invoices.retrieve(eventInvoice.id, {
+        expand: ['lines.data.pricing.price_details.price'],
+    });
+    if (
+        invoice.id !== eventInvoice.id
+        || invoice.status !== 'paid'
+        || invoice.billing_reason !== 'subscription_cycle'
+        || invoiceSubscriptionId(invoice) !== stripeSubscriptionId
+        || invoice.livemode !== stripeRuntime.livemode
+        || invoice.currency !== PACKAGE_CURRENCY
+        || invoice.amount_paid !== CHECKOUT_V2_AMOUNT_CENTS
+        || invoice.amount_due !== CHECKOUT_V2_AMOUNT_CENTS
+        || invoice.total !== CHECKOUT_V2_AMOUNT_CENTS
+        || stripeObjectId(invoice.customer) !== stripeObjectId(stripeSubscription.customer)
+    ) {
+        throw new Error('Checkout V2 renewal invoice is not the exact paid 259 EUR cycle');
+    }
+
+    const lines = await listAllInvoiceLines(invoice);
+    const recurringLines = lines.filter((line) => invoiceLinePriceId(line) === snapshot.recurring_stripe_price_id);
+    if (
+        recurringLines.length !== 1
+        || lines.some((line) => invoiceLineIsProration(line))
+        || lines.some((line) => {
+            const amount = line.amount ?? 0;
+            return line !== recurringLines[0] && amount !== 0;
+        })
+    ) {
+        throw new Error('Checkout V2 renewal invoice lines are ambiguous or prorated');
+    }
+    const recurringLine = recurringLines[0];
+    const periodStart = recurringLine.period?.start;
+    const periodEnd = recurringLine.period?.end;
+    if (
+        recurringLine.quantity !== 1
+        || recurringLine.amount !== CHECKOUT_V2_AMOUNT_CENTS
+        || recurringLine.currency !== PACKAGE_CURRENCY
+        || !Number.isInteger(periodStart) || !Number.isInteger(periodEnd)
+        || (periodEnd as number) - (periodStart as number) !== CHECKOUT_V2_INTERVAL_SECONDS
+    ) {
+        throw new Error('Checkout V2 renewal line has an invalid amount, quantity or 672-hour period');
+    }
+
+    const paymentIntentId = await requirePaidInvoicePaymentIntentId(invoice.id);
+    const paymentDescription = 'Checkout V2 renewal - 28 days';
+    const payment = await persistInvoicePayment(supabaseAdmin, {
+        student_id: subscription.student_id,
+        subscription_id: subscription.id,
+        amount: CHECKOUT_V2_AMOUNT_CENTS,
+        currency: PACKAGE_CURRENCY,
+        status: 'succeeded',
+        stripe_invoice_id: invoice.id,
+        stripe_payment_intent_id: paymentIntentId,
+        description: paymentDescription,
+    });
+
+    const { data: billingState, error: billingLookupError } = await supabaseAdmin
+        .from('checkout_v2_billing_state')
+        .select('subscription_id, first_class_at, anchor_state')
+        .eq('subscription_id', subscription.id)
+        .single();
+    if (billingLookupError || !billingState) {
+        throw billingLookupError ?? new Error('Checkout V2 billing state could not be loaded');
+    }
+    if (billingState.anchor_state === 'provisional') {
+        const firstClassAt = Date.parse(billingState.first_class_at);
+        if (!Number.isFinite(firstClassAt) || Date.now() < firstClassAt) {
+            throw new Error('Checkout V2 renewal arrived before its billing anchor could be fixed');
+        }
+        const { data: fixedState, error: fixError } = await supabaseAdmin.rpc('fix_checkout_v2_billing_anchor', {
+            p_subscription_id: subscription.id,
+            p_fixed_at: new Date(firstClassAt).toISOString(),
+        });
+        if (fixError || !fixedState || fixedState.anchor_state !== 'fixed') {
+            throw fixError ?? new Error('Checkout V2 billing anchor could not be fixed before renewal');
+        }
+    } else if (billingState.anchor_state !== 'fixed') {
+        throw new Error('Checkout V2 billing anchor has an unsupported state');
+    }
+
+    const renewalArgs = {
+        p_subscription_id: subscription.id,
+        p_stripe_subscription_id: stripeSubscriptionId,
+        p_stripe_invoice_id: invoice.id,
+        p_payment_id: payment.id,
+        p_recurring_stripe_price_id: snapshot.recurring_stripe_price_id,
+        p_period_start: new Date((periodStart as number) * 1000).toISOString(),
+        p_period_end: new Date((periodEnd as number) * 1000).toISOString(),
+    };
+    const { data: applied, error: renewalError } = await supabaseAdmin.rpc('apply_checkout_v2_renewal', renewalArgs);
+    if (renewalError || typeof applied !== 'boolean') {
+        throw renewalError ?? new Error('Checkout V2 renewal update failed');
+    }
+
+    // A replay can observe the cycle already inserted while its four sessions
+    // are still pending. Always invoke the idempotent materializer, even when
+    // apply_checkout_v2_renewal returns false.
+    const materializeRpc = supabaseAdmin.rpc as unknown as (
+        name: 'materialize_checkout_v2_cycle_sessions',
+        args: { p_subscription_id: string; p_stripe_invoice_id: string }
+    ) => Promise<{ data: { id?: string; materialization_state?: string } | null; error: { message?: string } | null }>;
+    const { data: materializedCycle, error: materializeError } = await materializeRpc(
+        'materialize_checkout_v2_cycle_sessions',
+        {
+            p_subscription_id: subscription.id,
+            p_stripe_invoice_id: invoice.id,
+        }
+    );
+    if (materializeError || !materializedCycle || materializedCycle.materialization_state !== 'ready') {
+        throw materializeError ?? new Error('Checkout V2 renewal sessions could not be materialized');
+    }
+
+    if (applied) {
+        await recordCrmActivityForProfileSafe(supabaseAdmin, {
+            profileId: subscription.student_id,
+            lifecycleStage: 'customer',
+            source: 'stripe',
+            activityType: 'payment',
+            subject: 'Renovacion pagada',
+            body: paymentDescription,
+            relatedEntityType: 'payment',
+            relatedEntityId: payment.id,
+            metadata: {
+                contract_schema_version: 2,
+                amount: CHECKOUT_V2_AMOUNT_CENTS,
+                currency: PACKAGE_CURRENCY,
+                subscription_id: subscription.id,
+                stripe_invoice_id: invoice.id,
+                stripe_payment_intent_id: paymentIntentId,
+                period_start: renewalArgs.p_period_start,
+                period_end: renewalArgs.p_period_end,
+            },
+        });
+    }
+    console.log(`[Webhook] Checkout V2 renewal ${invoice.id} reconciled and materialized`);
+}
+
 async function handleInvoicePaid(
     supabaseAdmin: SupabaseClient<Database>,
     invoice: Stripe.Invoice,
@@ -1032,6 +1958,17 @@ async function handleInvoicePaid(
     if (!resolved) return;
     const { subscription, stripeSubscription } = resolved;
     const userId = subscription.student_id;
+
+    if (subscription.contract_schema_version === 2) {
+        await handleCheckoutV2InvoicePaid(
+            supabaseAdmin,
+            invoice,
+            subscription,
+            stripeSubscription,
+            stripeRuntime
+        );
+        return;
+    }
 
     // The initial invoice is provisioned atomically by checkout.session.completed,
     // but it still has to resolve to the same local subscription first.
@@ -1165,15 +2102,32 @@ async function handleInvoicePaymentFailed(
         console.log(`[Webhook] Ignoring stale payment-failed event; Stripe subscription is ${stripeSubscription.status}`);
         return;
     }
-    await assertManagedSubscriptionOffer(supabaseAdmin, subscription, stripeSubscription, stripeRuntime);
+    const checkoutV2Failure = subscription.contract_schema_version === 2;
+    if (checkoutV2Failure) {
+        await loadCheckoutV2RecurringSnapshot(
+            supabaseAdmin,
+            subscription,
+            stripeSubscription,
+            stripeRuntime
+        );
+        const amountDue = invoice.amount_due ?? invoice.amount_remaining ?? invoice.total ?? 0;
+        if (invoice.currency !== PACKAGE_CURRENCY || amountDue !== CHECKOUT_V2_AMOUNT_CENTS) {
+            throw new Error('Failed Checkout V2 invoice does not match the exact 28-day renewal');
+        }
+    } else {
+        await assertManagedSubscriptionOffer(supabaseAdmin, subscription, stripeSubscription, stripeRuntime);
+    }
 
-    const failureMonths =
-        stripeSubscription.items.data[0]?.price.recurring?.interval === 'month'
+    const failureMonths = checkoutV2Failure
+        ? null
+        : stripeSubscription.items.data[0]?.price.recurring?.interval === 'month'
             ? stripeSubscription.items.data[0]?.price.recurring?.interval_count ?? 1
             : subscription.duration_months ?? 1;
     const paymentIntentId = await invoicePaymentIntentId(invoice.id);
 
-    const paymentDescription = `${failureMonths}-month payment failed`;
+    const paymentDescription = checkoutV2Failure
+        ? '28-day payment failed'
+        : `${failureMonths}-month payment failed`;
 
     const payment = await persistInvoicePayment(supabaseAdmin, {
             student_id: userId,
@@ -1215,7 +2169,9 @@ async function handleInvoicePaymentFailed(
             subscription_id: subscription.id,
             stripe_invoice_id: invoice.id,
             stripe_payment_intent_id: paymentIntentId,
-            failure_months: failureMonths,
+            ...(checkoutV2Failure
+                ? { billing_interval_unit: 'day', billing_interval_count: 28 }
+                : { failure_months: failureMonths }),
         },
     });
 
@@ -1574,8 +2530,13 @@ async function handleSubscriptionUpdated(supabaseAdmin: SupabaseClient<Database>
 
 type ManagedSubscription = Pick<
     Database['public']['Tables']['subscriptions']['Row'],
-    'id' | 'student_id' | 'package_id' | 'package_price_id' | 'sessions_total' | 'contracted_sessions_per_period' | 'duration_months' | 'ends_at' | 'status' | 'stripe_subscription_id' | 'stripe_invoice_id'
+    'id' | 'student_id' | 'package_id' | 'package_price_id' | 'sessions_total'
+    | 'contracted_sessions_per_period' | 'duration_months' | 'ends_at' | 'status'
+    | 'stripe_subscription_id' | 'stripe_invoice_id' | 'contract_schema_version'
+    | 'billing_interval_unit' | 'billing_interval_count' | 'class_duration_minutes'
 >;
+
+const MANAGED_SUBSCRIPTION_SELECTION = 'id, student_id, package_id, package_price_id, sessions_total, contracted_sessions_per_period, duration_months, ends_at, status, stripe_subscription_id, stripe_invoice_id, contract_schema_version, billing_interval_unit, billing_interval_count, class_duration_minutes';
 
 async function findManagedSubscription(
     supabaseAdmin: SupabaseClient<Database>,
@@ -1587,7 +2548,7 @@ async function findManagedSubscription(
     if (options.stripeSubscriptionId) {
         const { data, error } = await supabaseAdmin
             .from('subscriptions')
-            .select('id, student_id, package_id, package_price_id, sessions_total, contracted_sessions_per_period, duration_months, ends_at, status, stripe_subscription_id, stripe_invoice_id')
+            .select(MANAGED_SUBSCRIPTION_SELECTION)
             .eq('stripe_subscription_id', options.stripeSubscriptionId)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -1611,7 +2572,7 @@ async function findManagedSubscription(
 
     const { data, error } = await supabaseAdmin
         .from('subscriptions')
-        .select('id, student_id, package_id, package_price_id, sessions_total, contracted_sessions_per_period, duration_months, ends_at, status, stripe_subscription_id, stripe_invoice_id')
+        .select(MANAGED_SUBSCRIPTION_SELECTION)
         .eq('student_id', options.userId)
         .in('status', ['active', 'paused', 'pending'])
         .order('created_at', { ascending: false })
