@@ -718,9 +718,9 @@ export const POST: APIRoute = async (context) => {
             }
 
             case 'invoice.paid': {
-                // Recurring monthly payment succeeded
+                // Recurring payment succeeded
                 const invoice = event.data.object as Stripe.Invoice;
-                await handleInvoicePaid(supabaseAdmin, invoice, stripeRuntime);
+                await handleInvoicePaid(supabaseAdmin, invoice, stripeRuntime, context);
                 break;
             }
 
@@ -1779,7 +1779,8 @@ async function handleCheckoutV2InvoicePaid(
     eventInvoice: Stripe.Invoice,
     subscription: ManagedSubscription,
     stripeSubscription: Stripe.Subscription,
-    stripeRuntime: StripeRuntimeContext
+    stripeRuntime: StripeRuntimeContext,
+    context: APIContext
 ) {
     if (eventInvoice.billing_reason === 'subscription_create') {
         console.log('[Webhook] Skipping Checkout V2 initial invoice (handled by checkout.session.completed)');
@@ -1913,6 +1914,11 @@ async function handleCheckoutV2InvoicePaid(
         throw materializeError ?? new Error('Checkout V2 renewal sessions could not be materialized');
     }
 
+    // The deferred database trigger commits the durable cycle outbox in the
+    // same RPC transaction. This signal only starts processing sooner; the
+    // scheduled worker remains the recovery path if the signal is unavailable.
+    triggerFulfillmentProcessing(context, 5);
+
     if (applied) {
         await recordCrmActivityForProfileSafe(supabaseAdmin, {
             profileId: subscription.student_id,
@@ -1941,7 +1947,8 @@ async function handleCheckoutV2InvoicePaid(
 async function handleInvoicePaid(
     supabaseAdmin: SupabaseClient<Database>,
     invoice: Stripe.Invoice,
-    stripeRuntime: StripeRuntimeContext
+    stripeRuntime: StripeRuntimeContext,
+    context: APIContext
 ) {
     const stripeSubscriptionId = invoiceSubscriptionId(invoice);
     if (!stripeSubscriptionId) {
@@ -1965,7 +1972,8 @@ async function handleInvoicePaid(
             invoice,
             subscription,
             stripeSubscription,
-            stripeRuntime
+            stripeRuntime,
+            context
         );
         return;
     }

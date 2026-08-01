@@ -23,6 +23,7 @@ const bookableSlotsMigration = readFileSync('supabase/migrations/20260731185233_
 const checkoutV2BillingMigration = readFileSync('supabase/migrations/20260731225000_add_checkout_v2_billing_foundation.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2MaterializationMigration = readFileSync('supabase/migrations/20260801120000_materialize_checkout_v2_cycle_sessions.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutHoldProtectionMigration = readFileSync('supabase/migrations/20260801130000_protect_checkout_v2_slot_holds.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutV2CycleFulfillmentMigration = readFileSync('supabase/migrations/20260801140000_enqueue_checkout_v2_cycle_fulfillment.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -597,6 +598,46 @@ describe('database schema security invariants', () => {
             'p_hold_fingerprint: string;',
         ]) {
             expect(databaseTypes).toContain(typeSnippet);
+        }
+    });
+
+    it('commits one durable Calendar and Meet job with every ready Checkout V2 cycle', () => {
+        for (const snippet of [
+            'CREATE OR REPLACE FUNCTION private.ensure_checkout_v2_cycle_fulfillment(',
+            'CREATE OR REPLACE FUNCTION private.enqueue_checkout_v2_cycle_fulfillment()',
+            'CREATE OR REPLACE FUNCTION private.assert_checkout_v2_cycle_fulfillment_upgrade_safe()',
+            'SECURITY DEFINER',
+            'SECURITY INVOKER',
+            "session_count IS DISTINCT FROM 4",
+            'ARRAY[1, 2, 3, 4]::SMALLINT[]',
+            "'checkout_v2_cycle:' || cycle_row.id::TEXT",
+            "'checkoutV2CycleId', cycle_row.id",
+            "'sessionIds', pg_catalog.to_jsonb(session_ids)",
+            "'autoCreateMeeting', TRUE",
+            "'sendEmail', TRUE",
+            'ON CONFLICT (job_type, dedupe_key)',
+            'job_row.payload IS DISTINCT FROM cycle_payload',
+            "RAISE EXCEPTION 'checkout_v2_cycle_fulfillment_job_conflicts'",
+            'CREATE CONSTRAINT TRIGGER enqueue_checkout_v2_cycle_fulfillment_trigger',
+            'DEFERRABLE INITIALLY DEFERRED',
+            "'checkout_v2_cycle_fulfillment_upgrade_requires_exact_ready_cycle_jobs'",
+            'REVOKE ALL ON FUNCTION private.ensure_checkout_v2_cycle_fulfillment(UUID)',
+            'REVOKE ALL ON FUNCTION private.assert_checkout_v2_cycle_fulfillment_upgrade_safe()',
+            'SELECT private.assert_checkout_v2_cycle_fulfillment_upgrade_safe()',
+            'FROM PUBLIC, anon, authenticated, service_role',
+        ]) {
+            expect(checkoutV2CycleFulfillmentMigration).toContain(snippet);
+            expect(schema).toContain(snippet);
+        }
+
+        for (const functionName of [
+            'private.ensure_checkout_v2_cycle_fulfillment(',
+            'private.enqueue_checkout_v2_cycle_fulfillment()',
+            'private.assert_checkout_v2_cycle_fulfillment_upgrade_safe()',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutV2CycleFulfillmentMigration, functionName),
+            );
         }
     });
 
