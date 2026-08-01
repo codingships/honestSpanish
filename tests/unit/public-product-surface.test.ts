@@ -112,7 +112,8 @@ describe('public product surface', () => {
         }
         expect(blogIndex).toContain('href={`/${lang}/#planes`}');
         expect(blogLayout).toContain("return '/' + lang + '/#planes'");
-        expect(campusDashboard).toContain('href: `/${lang}/#planes`');
+        expect(campusDashboard).toContain("planStatus === 'unavailable' ? retryHref : `/${lang}/#planes`");
+        expect(campusDashboard).toContain('href={`/${lang}/#planes`}');
         expect(campusAccount).toContain('href={`/${lang}/#planes`}');
         expect(campusAccount).not.toMatch(/findCheckoutApproval|stripe_price_[136]m|priceTotalsCents/u);
         expect(llms).toContain('four individual online classes of 50 minutes');
