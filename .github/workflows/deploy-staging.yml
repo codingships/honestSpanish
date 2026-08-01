@@ -88,13 +88,20 @@ jobs:
             const fs = require("node:fs");
             const [file, sha] = process.argv.slice(1);
             const payload = JSON.parse(fs.readFileSync(file, "utf8"));
-            const passed = (payload.check_runs ?? []).some((run) =>
-              run.name === "build-and-test"
-              && run.head_sha === sha
-              && run.conclusion === "success"
-              && run.app?.slug === "github-actions"
+            const successful = new Set(
+              (payload.check_runs ?? [])
+                .filter((run) =>
+                  run.head_sha === sha
+                  && run.conclusion === "success"
+                  && run.app?.slug === "github-actions"
+                )
+                .map((run) => run.name)
             );
-            if (!passed) throw new Error("Refusing staging deploy: exact commit has no successful build-and-test check.");
+            const required = ["build-and-test", "database-contract"];
+            const missing = required.filter((name) => !successful.has(name));
+            if (missing.length > 0) {
+              throw new Error(`Refusing staging deploy: exact commit lacks successful checks: ${missing.join(", ")}`);
+            }
           ' "$checks_file" "$REQUESTED_COMMIT_SHA"
 
       - name: Install pnpm

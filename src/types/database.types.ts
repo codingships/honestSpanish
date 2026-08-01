@@ -367,6 +367,248 @@ export type Database = {
           },
         ];
       };
+      checkout_v2_billing_state: {
+        Row: {
+          anchor_fixed_at: string | null;
+          anchor_revision: number;
+          anchor_state: string;
+          created_at: string;
+          first_class_at: string;
+          first_session_id: string;
+          renewal_anchor_at: string;
+          stripe_renewal_anchor_at: string;
+          subscription_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          anchor_fixed_at?: string | null;
+          anchor_revision?: number;
+          anchor_state?: string;
+          created_at?: string;
+          first_class_at: string;
+          first_session_id: string;
+          renewal_anchor_at: string;
+          stripe_renewal_anchor_at: string;
+          subscription_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          anchor_fixed_at?: string | null;
+          anchor_revision?: number;
+          anchor_state?: string;
+          created_at?: string;
+          first_class_at?: string;
+          first_session_id?: string;
+          renewal_anchor_at?: string;
+          stripe_renewal_anchor_at?: string;
+          subscription_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_billing_state_first_session_id_fkey";
+            columns: ["first_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_billing_state_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: true;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      checkout_v2_cycles: {
+        Row: {
+          amount_cents: number;
+          created_at: string;
+          currency: string;
+          cycle_kind: string;
+          cycle_number: number;
+          ends_at: string;
+          id: string;
+          materialization_state: string;
+          payment_id: string;
+          sessions_materialized_at: string | null;
+          sessions_total: number;
+          starts_at: string;
+          stripe_invoice_id: string;
+          stripe_price_id: string;
+          subscription_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          amount_cents?: number;
+          created_at?: string;
+          currency?: string;
+          cycle_kind: string;
+          cycle_number: number;
+          ends_at: string;
+          id?: string;
+          materialization_state?: string;
+          payment_id: string;
+          sessions_materialized_at?: string | null;
+          sessions_total?: number;
+          starts_at: string;
+          stripe_invoice_id: string;
+          stripe_price_id: string;
+          subscription_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          amount_cents?: number;
+          created_at?: string;
+          currency?: string;
+          cycle_kind?: string;
+          cycle_number?: number;
+          ends_at?: string;
+          id?: string;
+          materialization_state?: string;
+          payment_id?: string;
+          sessions_materialized_at?: string | null;
+          sessions_total?: number;
+          starts_at?: string;
+          stripe_invoice_id?: string;
+          stripe_price_id?: string;
+          subscription_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_cycles_payment_id_fkey";
+            columns: ["payment_id"];
+            isOneToOne: true;
+            referencedRelation: "payments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_cycles_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      checkout_v2_price_snapshots: {
+        Row: {
+          created_at: string;
+          currency: string;
+          initial_amount_cents: number;
+          initial_stripe_price_id: string;
+          package_price_id: string;
+          recurring_amount_cents: number;
+          recurring_interval_count: number;
+          recurring_interval_unit: string;
+          recurring_stripe_price_id: string;
+          stripe_account_id: string;
+          stripe_livemode: boolean;
+        };
+        Insert: {
+          created_at?: string;
+          currency?: string;
+          initial_amount_cents?: number;
+          initial_stripe_price_id: string;
+          package_price_id: string;
+          recurring_amount_cents?: number;
+          recurring_interval_count?: number;
+          recurring_interval_unit?: string;
+          recurring_stripe_price_id: string;
+          stripe_account_id: string;
+          stripe_livemode: boolean;
+        };
+        Update: {
+          created_at?: string;
+          currency?: string;
+          initial_amount_cents?: number;
+          initial_stripe_price_id?: string;
+          package_price_id?: string;
+          recurring_amount_cents?: number;
+          recurring_interval_count?: number;
+          recurring_interval_unit?: string;
+          recurring_stripe_price_id?: string;
+          stripe_account_id?: string;
+          stripe_livemode?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_price_snapshots_package_price_id_fkey";
+            columns: ["package_price_id"];
+            isOneToOne: true;
+            referencedRelation: "package_prices";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      checkout_v2_weekly_allocations: {
+        Row: {
+          created_at: string;
+          duration_minutes: number;
+          id: string;
+          local_start_time: string;
+          release_reason: string | null;
+          released_at: string | null;
+          slot_id: string;
+          status: string;
+          subscription_id: string | null;
+          teacher_id: string;
+          timezone_name: string;
+          updated_at: string;
+          weekday: number;
+          weekly_start_minute: number | null;
+        };
+        Insert: {
+          created_at?: string;
+          duration_minutes?: number;
+          id?: string;
+          local_start_time: string;
+          release_reason?: string | null;
+          released_at?: string | null;
+          slot_id: string;
+          status?: string;
+          subscription_id?: string | null;
+          teacher_id: string;
+          timezone_name?: string;
+          updated_at?: string;
+          weekday: number;
+          weekly_start_minute?: number | null;
+        };
+        Update: {
+          created_at?: string;
+          duration_minutes?: number;
+          id?: string;
+          local_start_time?: string;
+          release_reason?: string | null;
+          released_at?: string | null;
+          slot_id?: string;
+          status?: string;
+          subscription_id?: string | null;
+          teacher_id?: string;
+          timezone_name?: string;
+          updated_at?: string;
+          weekday?: number;
+          weekly_start_minute?: number | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_allocation_slot_teacher_fkey";
+            columns: ["slot_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "bookable_slots";
+            referencedColumns: ["id", "teacher_id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_weekly_allocations_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       crm_activities: {
         Row: {
           activity_type: string;
@@ -1212,6 +1454,7 @@ export type Database = {
         Row: {
           amount: number;
           amount_refunded: number;
+          checkout_v2_cycle_id: string | null;
           created_at: string | null;
           currency: string | null;
           description: string | null;
@@ -1227,6 +1470,7 @@ export type Database = {
         Insert: {
           amount: number;
           amount_refunded?: number;
+          checkout_v2_cycle_id?: string | null;
           created_at?: string | null;
           currency?: string | null;
           description?: string | null;
@@ -1242,6 +1486,7 @@ export type Database = {
         Update: {
           amount?: number;
           amount_refunded?: number;
+          checkout_v2_cycle_id?: string | null;
           created_at?: string | null;
           currency?: string | null;
           description?: string | null;
@@ -1255,6 +1500,13 @@ export type Database = {
           subscription_id?: string | null;
         };
         Relationships: [
+          {
+            foreignKeyName: "payments_checkout_v2_cycle_id_fkey";
+            columns: ["checkout_v2_cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "payments_student_id_fkey";
             columns: ["student_id"];
@@ -1399,6 +1651,8 @@ export type Database = {
           cancellation_reason: string | null;
           cancelled_at: string | null;
           cancelled_by: string | null;
+          checkout_v2_cycle_id: string | null;
+          checkout_v2_cycle_session_index: number | null;
           completed_at: string | null;
           created_at: string | null;
           drive_doc_id: string | null;
@@ -1421,6 +1675,8 @@ export type Database = {
           cancellation_reason?: string | null;
           cancelled_at?: string | null;
           cancelled_by?: string | null;
+          checkout_v2_cycle_id?: string | null;
+          checkout_v2_cycle_session_index?: number | null;
           completed_at?: string | null;
           created_at?: string | null;
           drive_doc_id?: string | null;
@@ -1443,6 +1699,8 @@ export type Database = {
           cancellation_reason?: string | null;
           cancelled_at?: string | null;
           cancelled_by?: string | null;
+          checkout_v2_cycle_id?: string | null;
+          checkout_v2_cycle_session_index?: number | null;
           completed_at?: string | null;
           created_at?: string | null;
           drive_doc_id?: string | null;
@@ -1466,6 +1724,13 @@ export type Database = {
             columns: ["cancelled_by"];
             isOneToOne: false;
             referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_checkout_v2_cycle_id_fkey";
+            columns: ["checkout_v2_cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
             referencedColumns: ["id"];
           },
           {
@@ -1986,6 +2251,18 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      apply_checkout_v2_renewal: {
+        Args: {
+          p_payment_id: string;
+          p_period_end: string;
+          p_period_start: string;
+          p_recurring_stripe_price_id: string;
+          p_stripe_invoice_id: string;
+          p_stripe_subscription_id: string;
+          p_subscription_id: string;
+        };
+        Returns: boolean;
+      };
       apply_subscription_renewal: {
         Args: {
           p_new_ends_at: string;
@@ -2228,6 +2505,19 @@ export type Database = {
         };
         Returns: boolean;
       };
+      fix_checkout_v2_billing_anchor: {
+        Args: {
+          p_fixed_at: string;
+          p_subscription_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_billing_state"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_billing_state";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       get_available_slots: {
         Args: {
           p_date: string;
@@ -2248,6 +2538,22 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "bookable_slot_holds";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      initialize_checkout_v2_billing: {
+        Args: {
+          p_first_session_id: string;
+          p_initial_payment_id: string;
+          p_initial_stripe_price_id: string;
+          p_stripe_renewal_anchor_at: string;
+          p_subscription_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_billing_state"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_billing_state";
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -2278,6 +2584,21 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      reconcile_checkout_v2_provisional_anchor: {
+        Args: {
+          p_expected_revision: number;
+          p_new_first_local_date: string;
+          p_observed_stripe_renewal_anchor_at: string;
+          p_subscription_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_billing_state"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_billing_state";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       reconcile_stripe_refund: {
         Args: {
           p_amount_refunded: number;
@@ -2303,6 +2624,22 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "payments";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      register_checkout_v2_price_snapshot: {
+        Args: {
+          p_initial_stripe_price_id: string;
+          p_package_price_id: string;
+          p_recurring_stripe_price_id: string;
+          p_stripe_account_id: string;
+          p_stripe_livemode: boolean;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_price_snapshots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_price_snapshots";
           isOneToOne: true;
           isSetofReturn: false;
         };
