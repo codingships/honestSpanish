@@ -146,6 +146,180 @@ export type Database = {
           },
         ];
       };
+      acquisition_campaigns: {
+        Row: {
+          created_at: string;
+          created_by: string;
+          external_reference: string | null;
+          id: string;
+          name: string;
+          provider: string;
+          request_id: string;
+          utm_campaign: string | null;
+          utm_content: string | null;
+          utm_medium: string | null;
+          utm_source: string | null;
+          utm_term: string | null;
+        };
+        Insert: {
+          created_at?: string;
+          created_by: string;
+          external_reference?: string | null;
+          id?: string;
+          name: string;
+          provider: string;
+          request_id: string;
+          utm_campaign?: string | null;
+          utm_content?: string | null;
+          utm_medium?: string | null;
+          utm_source?: string | null;
+          utm_term?: string | null;
+        };
+        Update: {
+          created_at?: string;
+          created_by?: string;
+          external_reference?: string | null;
+          id?: string;
+          name?: string;
+          provider?: string;
+          request_id?: string;
+          utm_campaign?: string | null;
+          utm_content?: string | null;
+          utm_medium?: string | null;
+          utm_source?: string | null;
+          utm_term?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "acquisition_campaigns_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      acquisition_cost_allocation_ledger: {
+        Row: {
+          allocated_by: string;
+          amount_delta_cents: number;
+          basis: string;
+          campaign_id: string;
+          checkout_attribution_event_id: string | null;
+          checkout_intent_id: string;
+          contact_id: string;
+          created_at: string;
+          currency: string;
+          entry_kind: string;
+          first_cycle_id: string;
+          first_subscription_id: string;
+          id: string;
+          original_allocation_id: string | null;
+          reason: string | null;
+          request_id: string;
+          student_id: string;
+        };
+        Insert: {
+          allocated_by: string;
+          amount_delta_cents: number;
+          basis: string;
+          campaign_id: string;
+          checkout_attribution_event_id?: string | null;
+          checkout_intent_id: string;
+          contact_id: string;
+          created_at?: string;
+          currency?: string;
+          entry_kind: string;
+          first_cycle_id: string;
+          first_subscription_id: string;
+          id?: string;
+          original_allocation_id?: string | null;
+          reason?: string | null;
+          request_id: string;
+          student_id: string;
+        };
+        Update: {
+          allocated_by?: string;
+          amount_delta_cents?: number;
+          basis?: string;
+          campaign_id?: string;
+          checkout_attribution_event_id?: string | null;
+          checkout_intent_id?: string;
+          contact_id?: string;
+          created_at?: string;
+          currency?: string;
+          entry_kind?: string;
+          first_cycle_id?: string;
+          first_subscription_id?: string;
+          id?: string;
+          original_allocation_id?: string | null;
+          reason?: string | null;
+          request_id?: string;
+          student_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "acquisition_allocation_attribution_identity_fkey";
+            columns: [
+              "checkout_attribution_event_id",
+              "contact_id",
+              "checkout_intent_id",
+            ];
+            isOneToOne: false;
+            referencedRelation: "acquisition_attribution_events";
+            referencedColumns: ["id", "contact_id", "checkout_intent_id"];
+          },
+          {
+            foreignKeyName: "acquisition_allocation_contact_student_fkey";
+            columns: ["contact_id", "student_id"];
+            isOneToOne: false;
+            referencedRelation: "crm_contacts";
+            referencedColumns: ["id", "profile_id"];
+          },
+          {
+            foreignKeyName: "acquisition_allocation_cycle_subscription_fkey";
+            columns: ["first_cycle_id", "first_subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id", "subscription_id"];
+          },
+          {
+            foreignKeyName: "acquisition_allocation_subscription_identity_fkey";
+            columns: ["first_subscription_id", "student_id", "checkout_intent_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id", "student_id", "checkout_intent_id"];
+          },
+          {
+            foreignKeyName: "acquisition_cost_allocation_ledger_allocated_by_fkey";
+            columns: ["allocated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "acquisition_cost_allocation_ledger_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "acquisition_campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "acquisition_cost_allocation_ledger_original_allocation_id_fkey";
+            columns: ["original_allocation_id"];
+            isOneToOne: false;
+            referencedRelation: "acquisition_cost_allocation_ledger";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "acquisition_cost_allocation_ledger_student_id_fkey";
+            columns: ["student_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       bookable_slot_holds: {
         Row: {
           checkout_intent_id: string;
@@ -1801,6 +1975,83 @@ export type Database = {
           },
         ];
       };
+      operational_cost_ledger: {
+        Row: {
+          amount_delta_cents: number;
+          campaign_id: string | null;
+          cost_kind: string;
+          created_at: string;
+          currency: string;
+          description: string;
+          entry_kind: string;
+          id: string;
+          incurred_at: string;
+          original_cost_id: string | null;
+          recorded_by: string;
+          request_id: string;
+          student_id: string | null;
+        };
+        Insert: {
+          amount_delta_cents: number;
+          campaign_id?: string | null;
+          cost_kind: string;
+          created_at?: string;
+          currency?: string;
+          description: string;
+          entry_kind: string;
+          id?: string;
+          incurred_at: string;
+          original_cost_id?: string | null;
+          recorded_by: string;
+          request_id: string;
+          student_id?: string | null;
+        };
+        Update: {
+          amount_delta_cents?: number;
+          campaign_id?: string | null;
+          cost_kind?: string;
+          created_at?: string;
+          currency?: string;
+          description?: string;
+          entry_kind?: string;
+          id?: string;
+          incurred_at?: string;
+          original_cost_id?: string | null;
+          recorded_by?: string;
+          request_id?: string;
+          student_id?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "operational_cost_ledger_campaign_id_fkey";
+            columns: ["campaign_id"];
+            isOneToOne: false;
+            referencedRelation: "acquisition_campaigns";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "operational_cost_ledger_original_cost_id_fkey";
+            columns: ["original_cost_id"];
+            isOneToOne: false;
+            referencedRelation: "operational_cost_ledger";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "operational_cost_ledger_recorded_by_fkey";
+            columns: ["recorded_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "operational_cost_ledger_student_id_fkey";
+            columns: ["student_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       packages: {
         Row: {
           amount_cents: number | null;
@@ -3103,6 +3354,140 @@ export type Database = {
       };
     };
     Views: {
+      acquisition_allocation_candidates: {
+        Row: {
+          active_campaign_id: string | null;
+          active_campaign_name: string | null;
+          basis_candidate: string | null;
+          checkout_attribution_event_id: string | null;
+          checkout_intent_id: string | null;
+          contact_id: string | null;
+          first_cycle_id: string | null;
+          first_paid_at: string | null;
+          first_payment_id: string | null;
+          first_subscription_id: string | null;
+          has_active_allocation: boolean | null;
+          matched_campaign_id: string | null;
+          matched_campaign_name: string | null;
+          student_email: string | null;
+          student_full_name: string | null;
+          student_id: string;
+          utm_campaign: string | null;
+          utm_content: string | null;
+          utm_medium: string | null;
+          utm_source: string | null;
+          utm_term: string | null;
+        };
+        Relationships: [];
+      };
+      acquisition_campaign_unit_economics: {
+        Row: {
+          acquired_student_count: number | null;
+          allocated_acquisition_cost_cents: number | null;
+          attribution_mode: string | null;
+          campaign_id: string;
+          campaign_name: string | null;
+          campaign_spend_cents: number | null;
+          created_at: string | null;
+          currency: string | null;
+          direct_operational_cost_cents: number | null;
+          gross_revenue_cents: number | null;
+          net_revenue_cents: number | null;
+          provider: string | null;
+          provisional_contribution_cents: number | null;
+          refunds_cents: number | null;
+          teacher_compensation_cents: number | null;
+          unallocated_spend_cents: number | null;
+          utm_campaign: string | null;
+          utm_content: string | null;
+          utm_medium: string | null;
+          utm_source: string | null;
+          utm_term: string | null;
+        };
+        Relationships: [];
+      };
+      acquisition_cost_allocation_balances: {
+        Row: {
+          adjustment_amount_cents: number | null;
+          allocated_by: string | null;
+          balance_amount_cents: number | null;
+          basis: string | null;
+          campaign_id: string;
+          checkout_attribution_event_id: string | null;
+          checkout_intent_id: string | null;
+          contact_id: string | null;
+          created_at: string | null;
+          currency: string | null;
+          first_cycle_id: string | null;
+          first_subscription_id: string | null;
+          last_adjusted_at: string | null;
+          original_allocation_id: string;
+          original_amount_cents: number | null;
+          reason: string | null;
+          request_id: string | null;
+          student_id: string;
+        };
+        Relationships: [];
+      };
+      operational_cost_balances: {
+        Row: {
+          adjustment_amount_cents: number | null;
+          balance_amount_cents: number | null;
+          campaign_id: string | null;
+          cost_kind: string | null;
+          created_at: string | null;
+          currency: string | null;
+          description: string | null;
+          incurred_at: string | null;
+          last_adjusted_at: string | null;
+          original_amount_cents: number | null;
+          original_cost_id: string | null;
+          recorded_by: string | null;
+          request_id: string | null;
+          student_id: string | null;
+        };
+        Relationships: [];
+      };
+      portfolio_unit_economics: {
+        Row: {
+          allocated_acquisition_cost_cents: number | null;
+          campaign_spend_cents: number | null;
+          currency: string | null;
+          direct_operational_cost_cents: number | null;
+          gross_revenue_cents: number | null;
+          net_revenue_cents: number | null;
+          portfolio_key: string | null;
+          provisional_contribution_cents: number | null;
+          refunds_cents: number | null;
+          student_count: number | null;
+          teacher_compensation_cents: number | null;
+          unallocated_acquisition_cost_cents: number | null;
+        };
+        Relationships: [];
+      };
+      student_unit_economics: {
+        Row: {
+          acquisition_basis: string | null;
+          acquisition_cost_cents: number | null;
+          active_campaign_id: string | null;
+          active_campaign_name: string | null;
+          currency: string | null;
+          direct_operational_cost_cents: number | null;
+          first_cycle_id: string | null;
+          first_paid_at: string | null;
+          gross_revenue_cents: number | null;
+          net_revenue_cents: number | null;
+          paid_cycle_count: number | null;
+          provisional_contribution_cents: number | null;
+          refunds_cents: number | null;
+          student_email: string | null;
+          student_full_name: string | null;
+          student_id: string;
+          subscription_count: number | null;
+          teacher_compensation_cents: number | null;
+        };
+        Relationships: [];
+      };
       teacher_compensation_session_reconciliation_candidates: {
         Row: {
           cancellation_reason: string | null;
@@ -3212,6 +3597,38 @@ export type Database = {
       };
     };
     Functions: {
+      adjust_acquisition_cost_allocation: {
+        Args: {
+          p_admin_id: string;
+          p_amount_delta_cents: number;
+          p_original_allocation_id: string;
+          p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Database["public"]["Tables"]["acquisition_cost_allocation_ledger"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "acquisition_cost_allocation_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      adjust_operational_cost: {
+        Args: {
+          p_admin_id: string;
+          p_amount_delta_cents: number;
+          p_original_cost_id: string;
+          p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Database["public"]["Tables"]["operational_cost_ledger"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "operational_cost_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       adjust_teacher_compensation_work: {
         Args: {
           p_minutes_delta: number;
@@ -3224,6 +3641,27 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "teacher_compensation_work_adjustments";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      create_acquisition_campaign: {
+        Args: {
+          p_admin_id: string;
+          p_external_reference: string | null;
+          p_name: string;
+          p_provider: string;
+          p_request_id: string;
+          p_utm_campaign: string | null;
+          p_utm_content: string | null;
+          p_utm_medium: string | null;
+          p_utm_source: string | null;
+          p_utm_term: string | null;
+        };
+        Returns: Database["public"]["Tables"]["acquisition_campaigns"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "acquisition_campaigns";
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -3935,6 +4373,25 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      record_acquisition_cost_allocation: {
+        Args: {
+          p_admin_id: string;
+          p_amount_cents: number;
+          p_basis: string;
+          p_campaign_id: string;
+          p_checkout_attribution_event_id: string | null;
+          p_reason: string | null;
+          p_request_id: string;
+          p_student_id: string;
+        };
+        Returns: Database["public"]["Tables"]["acquisition_cost_allocation_ledger"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "acquisition_cost_allocation_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       record_acquisition_attribution_event: {
         Args: {
           p_checkout_intent_id: string | null;
@@ -3956,6 +4413,25 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "acquisition_attribution_events";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      record_operational_cost: {
+        Args: {
+          p_admin_id: string;
+          p_amount_cents: number;
+          p_campaign_id: string | null;
+          p_cost_kind: string;
+          p_description: string;
+          p_incurred_at: string;
+          p_request_id: string;
+          p_student_id: string | null;
+        };
+        Returns: Database["public"]["Tables"]["operational_cost_ledger"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "operational_cost_ledger";
           isOneToOne: true;
           isSetofReturn: false;
         };

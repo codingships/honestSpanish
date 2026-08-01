@@ -67,6 +67,14 @@ La atribución inicial registra únicamente un origen observado cuando ocurre un
 
 No se duplican compras, renovaciones ni devoluciones en este dominio. La atribución del checkout se relaciona con `subscriptions.checkout_intent_id`, ciclos y pagos existentes para calcular después ingresos, devoluciones y margen. Los UTM no se envían a Stripe y esta medición nunca bloquea una solicitud o una compra si falta o falla.
 
+## Contribución operativa provisional
+
+La medición económica interna conserva hechos y asignaciones explícitas sin convertirlos en contabilidad fiscal. `acquisition_campaigns` da una identidad estable a cada campaña y conserva, cuando existen, los UTM exactos usados para observarla. `operational_cost_ledger` registra gasto de captación o costes directos por alumno mediante movimientos append-only; cualquier corrección es un contramovimiento enlazado. `acquisition_cost_allocation_ledger` distribuye una parte del gasto de una campaña a un único alumno adquirido y congela su primer ciclo Checkout V2 pagado. Una asignación basada en checkout exige coincidencia exacta de los cinco UTM con el evento observado; una asignación manual no reclama un evento, puede referirse a cualquier campaña y exige un motivo auditado.
+
+Las agregaciones separan sus fuentes antes de unirlas para evitar productos cartesianos. El ingreso bruto y las devoluciones proceden una sola vez de `payments`; el precio contractual del ciclo y la operación de garantía no se vuelven a sumar o restar. El coste docente procede una sola vez de `teacher_compensation_ledger`. Las renovaciones aumentan el ingreso acumulado del alumno, pero no crean de nuevo su coste de adquisición.
+
+`student_unit_economics` muestra cobros, devoluciones, obligación docente devengada, costes directos registrados, captación asignada y contribución provisional. `acquisition_campaign_unit_economics` descuenta todo el gasto de la campaña aunque parte siga sin asignar, y `portfolio_unit_economics` hace lo mismo para la cartera completa. Estas vistas no incluyen comisiones de Stripe hasta disponer de una fuente autoritativa por movimiento, ni costes compartidos, reserva, fiscalidad, pago efectivo al profesor, remuneración fundadora no docente o reparto de beneficios.
+
 ## Remuneración docente
 
 La remuneración docente es un dominio interno separado de los cobros de alumnos, las devoluciones, el trabajo no docente y el beneficio distribuible. Su modelo se divide en estas superficies:

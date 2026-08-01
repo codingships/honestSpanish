@@ -1,0 +1,45 @@
+---
+import ProfitabilityManager from '../../../../components/admin/ProfitabilityManager';
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { getLangFromParam } from '../../../../i18n/utils';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const lang = getLangFromParam(Astro.params.lang);
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) return Astro.redirect(`/${lang}/login`);
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+---
+
+<CampusLayout title="Contribución operativa provisional" user={{ ...user, ...profile }} lang={lang}>
+    <div class="space-y-6">
+        <header>
+            <h1 class="font-display text-3xl uppercase text-[#006064]">Contribución operativa provisional</h1>
+            <p class="mt-2 max-w-4xl text-sm text-[#006064]/70">
+                Cobros, devoluciones, obligaciones docentes y costes expresamente registrados. Esta superficie ayuda a operar; no calcula el beneficio final ni ejecuta pagos.
+            </p>
+        </header>
+
+        <aside class="border-2 border-amber-800 bg-amber-50 p-5 text-sm text-amber-950" role="note" aria-label="Límites del cálculo">
+            <p class="font-bold uppercase">Lectura provisional, no reparto contable</p>
+            <p class="mt-2">
+                Excluye reserva, costes compartidos no registrados, fiscalidad, reparto y remuneración fundadora no docente. Una obligación docente devengada no equivale a que el profesor haya recibido un pago.
+                La contribución total de cartera resta todo el gasto de campaña, incluido el todavía no asignado; cada fila de alumno solo resta la captación que se le haya asignado expresamente.
+            </p>
+        </aside>
+
+        <ProfitabilityManager client:load lang={lang} />
+    </div>
+</CampusLayout>

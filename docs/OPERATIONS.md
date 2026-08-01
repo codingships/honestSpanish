@@ -84,6 +84,18 @@ Las entradas de remuneración no se editan ni se borran. La formación y las reu
 
 El total pendiente es un registro interno de obligaciones, no una orden de pago. Esta operativa no transfiere dinero, no marca obligaciones como pagadas y no sustituye facturas, retenciones ni decisiones fiscales. Cualquier liquidación futura se añadirá como un flujo separado que referencie el ledger sin reescribirlo.
 
+## Contribución operativa provisional
+
+La superficie de rentabilidad es administrativa y no ejecuta pagos. Su operación normal es:
+
+1. Crear una campaña con una identidad interna. Si la campaña usa atribución observada, conservar exactamente `utm_source`, `utm_medium` y `utm_campaign`; una campaña manual no finge UTM.
+2. Registrar cada gasto real de captación o coste directo con importe en céntimos, fecha, descripción y una petición idempotente.
+3. Cuando exista un primer ciclo Checkout V2 pagado, asignar explícitamente al alumno la parte acordada del gasto. No dividir el gasto automáticamente por el número actual de alumnos. La vía observada exige el evento de checkout coherente; la vía manual exige motivo.
+4. Corregir errores solo mediante un contramovimiento enlazado. El saldo de un coste o asignación nunca puede quedar por debajo de cero, y el total asignado de una campaña nunca puede superar su gasto neto registrado.
+5. Interpretar por separado la fila del alumno, la campaña y la cartera. El alumno descuenta solo captación asignada; campaña y cartera descuentan todo el gasto, incluido el todavía no asignado.
+
+La fórmula de cartera es `cobros - devoluciones - obligación docente devengada - costes directos registrados - gasto total de captación`. Es una contribución provisional: no contiene comisiones de Stripe sin conciliar, costes compartidos, reserva, impuestos, pago efectivo de obligaciones, trabajo fundador no docente ni reparto. Un cobro confirmado sigue visible aunque la materialización de sus clases esté pendiente o haya fallado. Un saldo sin asignar o un dato ausente se muestra; no se transforma en cero por conveniencia.
+
 ## Recuperación de la garantía Checkout V2
 
 La referencia operativa es una única fila de `checkout_v2_guarantee_operations`. Repetir una petición o una acción administrativa reanuda esa operación; nunca se cambia su importe, PaymentIntent, suscripción de Stripe ni identificadores congelados, y nunca se crea una devolución manual paralela.
