@@ -8,7 +8,7 @@ El código integrado todavía implementa parte de la oferta anterior. Mientras d
 
 Español Honesto ofrece clases individuales de español para adultos, orientadas a conversación, cultura y uso real del idioma. El alumno compra una plaza semanal concreta con un profesor identificado; no compra un banco anónimo de horas ni entra en un marketplace.
 
-La oferta inicial se dirige a adultos que quieren usar el español en situaciones reales. El mercado, geografía e idioma prioritarios de captación se decidirán mediante investigación específica antes de producir contenido o publicidad a escala. La web puede conservar rutas en español, inglés y ruso, pero todas deben describir el mismo producto.
+La captación inicial se realiza en inglés y se dirige a adultos que viven, trabajan o van a trasladarse a España. El español funciona como idioma de apoyo, no como mercado principal de adquisición. El ruso queda limitado a un piloto medido: solo se amplía si sus resultados justifican dedicarle contenido o publicidad. La web puede conservar rutas en español, inglés y ruso, pero todas deben describir el mismo producto.
 
 El servicio es exclusivamente para mayores de 18 años. Registro y compra exigen una declaración expresa de mayoría de edad; no se recoge fecha de nacimiento ni existe un flujo para menores.
 
@@ -108,7 +108,6 @@ No son un bloqueo general; detienen únicamente la tarea que dependa de ellos:
 
 - Confirmación fiscal/jurídica final del precio de 259 EUR, vendedor, facturación, IVA/IRPF y remuneraciones.
 - Cinco franjas concretas de Álex e Irene antes de publicar disponibilidad.
-- Mercado e idioma prioritarios antes de contenido o campañas nuevas.
 - Canal y compromiso realista de soporte antes de cobrar.
 - Textos legales, desistimiento, cancelación tardía, privacidad, cookies y retención antes de producción real.
 - Stripe live, producción, DNS y dinero real siempre requieren autorización explícita.
