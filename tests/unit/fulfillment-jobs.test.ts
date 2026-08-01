@@ -1023,6 +1023,67 @@ describe('fulfillment jobs', () => {
         expect(retryUpdate.run_at).not.toBe('9999-12-31T23:59:59.999Z');
     });
 
+    it('keeps bulk fulfillment pending without consuming an attempt while its Drive folder dependency is absent', async () => {
+        const job = createJob({
+            attempts: 2,
+            job_type: 'bulk_session_fulfillment',
+            max_attempts: 3,
+            payload: {
+                sessionIds: ['session-1', 'session-2', 'session-3', 'session-4'],
+                autoCreateMeeting: true,
+                sendEmail: true,
+            },
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [job], error: null }),
+        };
+        const failChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: job.id }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery())
+                .mockReturnValueOnce(failChain),
+        };
+        const sessionFulfillment = await import('../../src/lib/fulfillment/session-fulfillment');
+        vi.mocked(sessionFulfillment.fulfillSessionBatch).mockRejectedValueOnce(
+            new FulfillmentDependencyPendingError(
+                'bulk_session_fulfillment_waiting_for_drive_folder',
+            ),
+        );
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+
+        expect(sessionFulfillment.fulfillSessionBatch).toHaveBeenCalledWith(
+            supabaseAdmin,
+            ['session-1', 'session-2', 'session-3', 'session-4'],
+            expect.objectContaining({
+                autoCreateMeeting: true,
+                sendEmail: true,
+            }),
+        );
+        expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
+            attempts: 2,
+            status: 'pending',
+            last_error: 'bulk_session_fulfillment_waiting_for_drive_folder',
+        }));
+        const retryUpdate = failChain.update.mock.calls[0]?.[0] as { run_at?: string };
+        expect(Date.parse(retryUpdate.run_at ?? '')).toBeGreaterThan(Date.now());
+        expect(retryUpdate.run_at).not.toBe('9999-12-31T23:59:59.999Z');
+    });
+
     it('reschedules failed jobs that still have retry attempts', async () => {
         const selectChain: any = {
             select: vi.fn().mockReturnThis(),

@@ -5,6 +5,7 @@ import { getPrivateProfiles } from '../profiles-private';
 import { sendClassConfirmation } from '../email';
 import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
 import { DEFAULT_CLASS_DURATION_MINUTES } from '../class-duration';
+import { FulfillmentDependencyPendingError } from './dependency';
 import type { Database } from '../../types/database.types';
 
 type ProfileJoin = {
@@ -143,7 +144,8 @@ async function loadSessions(
 async function createArtifactsForSession(
     supabaseAdmin: SupabaseClient<Database>,
     session: SessionWithJoins,
-    options: Required<Pick<FulfillmentOptions, 'autoCreateMeeting' | 'sendEmail'>>,
+    options: Required<Pick<FulfillmentOptions, 'autoCreateMeeting' | 'sendEmail'>>
+        & Pick<FulfillmentOptions, 'emailEffectJob'>,
     privateProfiles: Awaited<ReturnType<typeof getPrivateProfiles>>
 ): Promise<ProcessedClass | null> {
     if (session.status !== 'scheduled' || !session.scheduled_at) return null;
@@ -155,33 +157,48 @@ async function createArtifactsForSession(
     const teacherEmail = teacher?.email || '';
     const studentPrivate = privateProfiles.get(session.student_id);
 
+    if (!studentPrivate?.drive_folder_id) {
+        throw new FulfillmentDependencyPendingError(
+            'session_fulfillment_waiting_for_drive_folder'
+        );
+    }
+
     let documentLink = session.drive_doc_url;
     let documentId = session.drive_doc_id;
-    let studentFolderLink: string | null = null;
 
-    if (studentPrivate?.drive_folder_id) {
-        if (!documentId || !documentLink) {
-            const level = (studentPrivate.current_level || 'A2') as 'A2' | 'B1' | 'B2' | 'C1';
-            const docResult = await createClassDocument({
-                studentName,
-                studentRootFolderId: studentPrivate.drive_folder_id,
-                level,
-                classDate: new Date(session.scheduled_at),
-            });
-
-            if (docResult) {
-                documentId = docResult.docId;
-                documentLink = docResult.docUrl;
-            }
+    if (documentId && !documentLink) {
+        documentLink = await getFileLink(documentId);
+    } else if (!documentId) {
+        if (!options.emailEffectJob) {
+            throw new Error('class_document_effect_context_required');
         }
+        const level = (studentPrivate.current_level || 'A2') as 'A2' | 'B1' | 'B2' | 'C1';
+        const docResult = await createClassDocument({
+            fulfillmentEffect: {
+                ...options.emailEffectJob,
+                effectKey: `google.drive.class_document.${session.id}`,
+                supabaseAdmin,
+            },
+            sessionId: session.id,
+            studentName,
+            studentRootFolderId: studentPrivate.drive_folder_id,
+            level,
+            classDate: new Date(session.scheduled_at),
+        });
 
-        studentFolderLink = await getFileLink(studentPrivate.drive_folder_id);
+        if (!docResult?.docId || !docResult.docUrl) {
+            throw new Error('class_document_creation_failed');
+        }
+        documentId = docResult.docId;
+        documentLink = docResult.docUrl;
     }
+
+    const studentFolderLink = await getFileLink(studentPrivate.drive_folder_id);
 
     let meetLink = session.meet_link;
     let calendarEventId = session.calendar_event_id;
 
-    if (options.autoCreateMeeting && !calendarEventId && studentEmail && teacherEmail) {
+    if (options.autoCreateMeeting && (!calendarEventId || !meetLink) && studentEmail && teacherEmail) {
         const scheduledAt = new Date(session.scheduled_at);
         const durationMinutes = session.duration_minutes || DEFAULT_CLASS_DURATION_MINUTES;
         const endTime = new Date(scheduledAt.getTime() + durationMinutes * 60000);
@@ -243,21 +260,32 @@ export async function fulfillSingleSession(
 
     const effectiveOptions = {
         autoCreateMeeting: options.autoCreateMeeting ?? true,
+        emailEffectJob: options.emailEffectJob,
         sendEmail: options.sendEmail ?? true,
     };
 
+    const session = sessions[0];
+    const student = one(session.student);
+    const teacher = one(session.teacher);
+    if (session.status === 'scheduled' && session.scheduled_at) {
+        if (!privateProfiles.get(session.student_id)?.drive_folder_id) {
+            throw new FulfillmentDependencyPendingError(
+                'session_fulfillment_waiting_for_drive_folder'
+            );
+        }
+        if (!student?.email || !teacher?.email) {
+            throw new Error(`Session ${session.id} is missing student or teacher email`);
+        }
+    }
+
     const processedClass = await createArtifactsForSession(
         supabaseAdmin,
-        sessions[0],
+        session,
         effectiveOptions,
         privateProfiles
     );
 
     if (!processedClass || !effectiveOptions.sendEmail) return;
-
-    const session = sessions[0];
-    const student = one(session.student);
-    const teacher = one(session.teacher);
     if (!student?.email || !teacher?.email) {
         throw new Error(`Session ${session.id} is missing student or teacher email`);
     }
@@ -305,9 +333,13 @@ export async function fulfillSessionBatch(
     sessionIds: string[],
     options: FulfillmentOptions = {}
 ) {
+    const requestedSessionIds = [...new Set(sessionIds.filter(Boolean))];
     const sessions = await loadSessions(supabaseAdmin, sessionIds);
     if (sessions.length === 0) {
         throw new Error('No sessions found for batch fulfillment');
+    }
+    if (sessions.length !== requestedSessionIds.length) {
+        throw new Error('Batch fulfillment is missing one or more sessions');
     }
 
     const privateProfiles = await getPrivateProfiles(
@@ -317,8 +349,41 @@ export async function fulfillSessionBatch(
 
     const effectiveOptions = {
         autoCreateMeeting: options.autoCreateMeeting ?? true,
+        emailEffectJob: options.emailEffectJob,
         sendEmail: options.sendEmail ?? true,
     };
+
+    const processableSessions = sessions.filter(
+        (session) => session.status === 'scheduled' && Boolean(session.scheduled_at)
+    );
+    if (processableSessions.length === 0) return;
+
+    const firstSession = processableSessions[0];
+    const student = one(firstSession.student);
+    const teacher = one(firstSession.teacher);
+    if (!student?.email || !teacher?.email) {
+        throw new Error('Batch fulfillment is missing student or teacher email');
+    }
+
+    for (const session of processableSessions) {
+        if (
+            session.student_id !== firstSession.student_id
+            || session.teacher_id !== firstSession.teacher_id
+            || session.subscription_id !== firstSession.subscription_id
+        ) {
+            throw new Error('Batch fulfillment sessions do not share one class assignment');
+        }
+        if (!privateProfiles.get(session.student_id)?.drive_folder_id) {
+            throw new FulfillmentDependencyPendingError(
+                'bulk_session_fulfillment_waiting_for_drive_folder'
+            );
+        }
+        const sessionStudent = one(session.student);
+        const sessionTeacher = one(session.teacher);
+        if (sessionStudent?.email !== student.email || sessionTeacher?.email !== teacher.email) {
+            throw new Error('Batch fulfillment sessions have inconsistent recipients');
+        }
+    }
 
     const processedClasses: ProcessedClass[] = [];
     for (const session of sessions) {
@@ -332,13 +397,6 @@ export async function fulfillSessionBatch(
     }
 
     if (!effectiveOptions.sendEmail || processedClasses.length === 0) return;
-
-    const firstSession = sessions[0];
-    const student = one(firstSession.student);
-    const teacher = one(firstSession.teacher);
-    if (!student?.email || !teacher?.email) {
-        throw new Error('Batch fulfillment is missing student or teacher email');
-    }
 
     const firstClass = processedClasses.sort((a, b) => a.date.getTime() - b.date.getTime())[0];
     const additionalClassCount = processedClasses.length - 1;
