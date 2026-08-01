@@ -330,7 +330,9 @@ export interface RenewalNoticeEmailData {
     packageName: string;
     renewalAt: string;
     cancelBy: string;
-    durationMonths: number;
+    durationMonths?: number;
+    billingIntervalUnit?: 'day' | 'week' | 'month' | 'year';
+    billingIntervalCount?: number;
     amountTotal: number;
     currency: string;
     accountUrl: string;
@@ -401,18 +403,43 @@ const renewalIntlLocales: Record<RenewalNoticeLocale, string> = {
     ru: 'ru-RU',
 };
 
-function renewalPeriodLabel(locale: RenewalNoticeLocale, months: number): string {
-    if (locale === 'es') return `${months} ${months === 1 ? 'mes' : 'meses'}`;
-    if (locale === 'en') return `${months} ${months === 1 ? 'month' : 'months'}`;
+function renewalPeriodLabel(
+    locale: RenewalNoticeLocale,
+    count: number,
+    interval: 'day' | 'week' | 'month' | 'year'
+): string {
+    if (locale === 'ru') {
+        const units = {
+            day: ['день', 'дня', 'дней'],
+            week: ['неделя', 'недели', 'недель'],
+            month: ['месяц', 'месяца', 'месяцев'],
+            year: ['год', 'года', 'лет'],
+        } as const;
+        const absoluteCount = Math.abs(count);
+        const lastTwoDigits = absoluteCount % 100;
+        const lastDigit = absoluteCount % 10;
+        const form = lastTwoDigits >= 11 && lastTwoDigits <= 14
+            ? 2
+            : lastDigit === 1
+                ? 0
+                : lastDigit >= 2 && lastDigit <= 4
+                    ? 1
+                    : 2;
+        return `${count} ${units[interval][form]}`;
+    }
 
-    const mod10 = months % 10;
-    const mod100 = months % 100;
-    const unit = mod10 === 1 && mod100 !== 11
-        ? 'месяц'
-        : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
-            ? 'месяца'
-            : 'месяцев';
-    return `${months} ${unit}`;
+    const units = {
+        es: {
+            day: ['día', 'días'], week: ['semana', 'semanas'],
+            month: ['mes', 'meses'], year: ['año', 'años'],
+        },
+        en: {
+            day: ['day', 'days'], week: ['week', 'weeks'],
+            month: ['month', 'months'], year: ['year', 'years'],
+        },
+    } as const;
+    const names = units[locale][interval];
+    return `${count} ${count === 1 ? names[0] : names[1]}`;
 }
 
 export function renewalNoticeSubject(locale: RenewalNoticeLocale): string {
@@ -430,9 +457,17 @@ export function renewalNoticeEmailTemplate(data: RenewalNoticeEmailData): string
 
     const currency = /^[a-z]{3}$/i.test(data.currency) ? data.currency.toUpperCase() : 'EUR';
     const amountTotal = Number.isInteger(data.amountTotal) && data.amountTotal >= 0 ? data.amountTotal : 0;
-    const durationMonths = Number.isInteger(data.durationMonths) && data.durationMonths > 0
-        ? data.durationMonths
-        : 1;
+    const hasVersionedInterval = ['day', 'week', 'month', 'year'].includes(
+        data.billingIntervalUnit ?? ''
+    ) && Number.isInteger(data.billingIntervalCount) && (data.billingIntervalCount ?? 0) > 0;
+    const interval = hasVersionedInterval
+        ? data.billingIntervalUnit as 'day' | 'week' | 'month' | 'year'
+        : 'month';
+    const intervalCount = hasVersionedInterval
+        ? data.billingIntervalCount as number
+        : Number.isInteger(data.durationMonths) && (data.durationMonths ?? 0) > 0
+            ? data.durationMonths as number
+            : 1;
     const formatDate = (value: Date) => new Intl.DateTimeFormat(intlLocale, {
         dateStyle: 'long',
         timeZone: 'Europe/Madrid',
@@ -457,7 +492,7 @@ export function renewalNoticeEmailTemplate(data: RenewalNoticeEmailData): string
                 <strong>${copy.plan}:</strong> ${packageName}<br>
                 <strong>${copy.chargeDate}:</strong> ${escapeEmailHtml(formatDate(renewalDate))}<br>
                 <strong>${copy.amount}:</strong> ${escapeEmailHtml(amount)}<br>
-                <strong>${copy.period}:</strong> ${escapeEmailHtml(renewalPeriodLabel(data.locale, durationMonths))}<br>
+                <strong>${copy.period}:</strong> ${escapeEmailHtml(renewalPeriodLabel(data.locale, intervalCount, interval))}<br>
                 <strong>${copy.deadline}:</strong> ${copy.deadlineText} (${escapeEmailHtml(formatDate(cancelDate))})
             </p>
         </div>

@@ -78,7 +78,7 @@ SELECT (
             7,
             7
         )::TIMESTAMP
-    ) + INTERVAL '6 days 2 hours 30 minutes'
+    ) + INTERVAL '9 hours'
 )::TIMESTAMP AS first_local
 \gset
 
@@ -96,8 +96,10 @@ INSERT INTO public.teacher_availability (
     TRUE
 );
 
-SELECT (
-    public.create_bookable_slot(
+SELECT
+    slot.id AS slot_id,
+    slot.public_id AS slot_public_id
+FROM public.create_bookable_slot(
         :'v2_package_id'::UUID,
         '10000000-0000-4000-8000-000000000002',
         'Europe/Madrid',
@@ -108,8 +110,7 @@ SELECT (
             (:'first_local'::TIMESTAMP + INTERVAL '21 days') AT TIME ZONE 'Europe/Madrid'
         ],
         '10000000-0000-4000-8000-000000000003'
-    )
-).id AS slot_id
+    ) AS slot
 \gset
 
 SELECT public.publish_bookable_slot(
@@ -117,45 +118,180 @@ SELECT public.publish_bookable_slot(
     '10000000-0000-4000-8000-000000000003'
 );
 
-INSERT INTO public.crm_contacts (
-    id,
-    profile_id,
-    primary_email,
-    lifecycle_stage
-) VALUES (
-    '30000000-0000-4000-8000-000000000001',
-    '10000000-0000-4000-8000-000000000001',
-    'student@test.invalid',
-    'qualified'
-);
-
-INSERT INTO public.crm_opportunities (
-    id,
-    contact_id,
-    stage,
-    preferred_package_id,
-    checkout_approved_at
-) VALUES (
-    '40000000-0000-4000-8000-000000000001',
-    '30000000-0000-4000-8000-000000000001',
-    'proposal',
-    :'v2_package_id'::UUID,
-    clock_timestamp()
-);
-
-SELECT (
-    public.claim_checkout_intent_for_slot(
-        '40000000-0000-4000-8000-000000000001',
-        '30000000-0000-4000-8000-000000000001',
+SELECT
+    intent.id AS checkout_intent_id,
+    intent.contact_id AS checkout_contact_id,
+    intent.opportunity_id AS checkout_opportunity_id
+FROM public.claim_direct_checkout_intent_for_slot(
         '10000000-0000-4000-8000-000000000001',
+        'STUDENT@test.invalid',
+        'Direct Student',
         :'package_price_id'::UUID,
         'en',
         'test-policy-v1',
         'https://example.test',
-        :'slot_id'::UUID
-    )
-).id AS checkout_intent_id
+        :'slot_public_id'::UUID
+    ) AS intent
 \gset
+
+INSERT INTO checkout_v2_test_ids (name, id) VALUES
+    ('direct_intent', :'checkout_intent_id'::UUID),
+    ('direct_contact', :'checkout_contact_id'::UUID),
+    ('direct_opportunity', :'checkout_opportunity_id'::UUID);
+
+SELECT intent.id AS replay_intent_id
+FROM public.claim_direct_checkout_intent_for_slot(
+    '10000000-0000-4000-8000-000000000001',
+    'student@test.invalid',
+    'Direct Student',
+    :'package_price_id'::UUID,
+    'en',
+    'test-policy-v1',
+    'https://example.test',
+    :'slot_public_id'::UUID
+) AS intent
+\gset
+
+INSERT INTO checkout_v2_test_ids (name, id)
+VALUES ('direct_intent_replay', :'replay_intent_id'::UUID);
+
+DO $$
+BEGIN
+    IF (SELECT id FROM checkout_v2_test_ids WHERE name = 'direct_intent')
+       IS DISTINCT FROM
+       (SELECT id FROM checkout_v2_test_ids WHERE name = 'direct_intent_replay')
+       OR (
+            SELECT COUNT(*)
+            FROM public.crm_contacts
+            WHERE profile_id = '10000000-0000-4000-8000-000000000001'
+       ) <> 1
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.crm_contacts
+            WHERE id = (
+                SELECT id FROM checkout_v2_test_ids WHERE name = 'direct_contact'
+            )
+              AND lower(primary_email) = 'student@test.invalid'
+              AND full_name = 'Direct Student'
+       )
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.crm_opportunities
+            WHERE id = (
+                SELECT id FROM checkout_v2_test_ids WHERE name = 'direct_opportunity'
+            )
+              AND stage = 'proposal'
+              AND interest = 'direct_checkout'
+              AND preferred_package_id = (
+                    SELECT id
+                    FROM public.packages
+                    WHERE name = 'individual_4x50_28d'
+                      AND contract_schema_version = 2
+              )
+              AND checkout_approved_at IS NOT NULL
+       )
+       OR (
+            SELECT COUNT(*)
+            FROM public.bookable_slot_holds
+            WHERE checkout_intent_id = (
+                SELECT id FROM checkout_v2_test_ids WHERE name = 'direct_intent'
+            )
+              AND status = 'held'
+       ) <> 1 THEN
+        RAISE EXCEPTION 'direct_checkout_claim_is_not_idempotent';
+    END IF;
+END
+$$;
+
+INSERT INTO public.teacher_availability (
+    teacher_id,
+    day_of_week,
+    start_time,
+    end_time,
+    is_active
+) VALUES (
+    '10000000-0000-4000-8000-000000000002',
+    EXTRACT(DOW FROM (:'first_local'::TIMESTAMP + INTERVAL '1 day'))::INTEGER,
+    :'first_local'::TIMESTAMP::TIME,
+    (:'first_local'::TIMESTAMP + INTERVAL '1 hour')::TIME,
+    TRUE
+);
+
+SELECT competing_slot.public_id AS competing_slot_public_id
+FROM public.create_bookable_slot(
+    :'v2_package_id'::UUID,
+    '10000000-0000-4000-8000-000000000002',
+    'Europe/Madrid',
+    ARRAY[
+        (:'first_local'::TIMESTAMP + INTERVAL '1 day') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '8 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '15 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '22 days') AT TIME ZONE 'Europe/Madrid'
+    ],
+    '10000000-0000-4000-8000-000000000003'
+) AS competing_slot
+\gset
+
+INSERT INTO checkout_v2_test_ids (name, id)
+VALUES ('competing_slot_public', :'competing_slot_public_id'::UUID);
+
+SELECT public.publish_bookable_slot(
+    slot.id,
+    '10000000-0000-4000-8000-000000000003'
+)
+FROM public.bookable_slots AS slot
+WHERE slot.public_id = :'competing_slot_public_id'::UUID;
+
+DO $$
+DECLARE
+    target_package_price_id UUID;
+    target_slot_public_id UUID;
+BEGIN
+    SELECT id INTO target_package_price_id
+    FROM public.package_prices
+    WHERE stripe_price_id = 'price_test_recurring_28d';
+
+    SELECT id INTO target_slot_public_id
+    FROM checkout_v2_test_ids
+    WHERE name = 'competing_slot_public';
+
+    PERFORM public.claim_direct_checkout_intent_for_slot(
+        '10000000-0000-4000-8000-000000000001',
+        'student@test.invalid',
+        'Direct Student',
+        target_package_price_id,
+        'en',
+        'test-policy-v1',
+        'https://example.test',
+        target_slot_public_id
+    );
+    RAISE EXCEPTION 'competing_direct_checkout_claim_was_accepted';
+EXCEPTION WHEN check_violation THEN
+    IF SQLERRM <> 'checkout_intent_already_has_another_slot_state' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF (
+        SELECT COUNT(*)
+        FROM public.checkout_intents
+        WHERE student_id = '10000000-0000-4000-8000-000000000001'
+          AND status IN ('creating', 'open')
+    ) <> 1 OR (
+        SELECT COUNT(*)
+        FROM public.bookable_slot_holds
+        WHERE status = 'held'
+          AND checkout_intent_id = (
+              SELECT id FROM checkout_v2_test_ids WHERE name = 'direct_intent'
+          )
+    ) <> 1 THEN
+        RAISE EXCEPTION 'competing_direct_checkout_claim_was_not_atomic';
+    END IF;
+END
+$$;
 
 SELECT public.snapshot_checkout_intent_customer(
     :'checkout_intent_id'::UUID,
@@ -164,7 +300,7 @@ SELECT public.snapshot_checkout_intent_customer(
 
 SELECT public.complete_checkout_intent(
     :'checkout_intent_id'::UUID,
-    '40000000-0000-4000-8000-000000000001',
+    :'checkout_opportunity_id'::UUID,
     '10000000-0000-4000-8000-000000000001',
     :'package_price_id'::UUID,
     'cs_test_isolated',
@@ -575,7 +711,9 @@ SELECT (
             'week',
             clock_timestamp() AT TIME ZONE allocation.timezone_name
         )
-        - INTERVAL '1 day'
+        + pg_catalog.make_interval(
+            days => ((allocation.weekday::INTEGER + 6) % 7) - 7
+          )
         + allocation.local_start_time
     ) AT TIME ZONE allocation.timezone_name
 ) AS simulated_first_class_at
@@ -748,23 +886,96 @@ BEGIN
     INSERT INTO public.sessions (
         subscription_id,
         student_id,
-        status,
-        checkout_v2_cycle_id,
-        checkout_v2_cycle_session_index
-    )
-    SELECT
-        cycle.subscription_id,
+        status
+    ) VALUES (
+        '50000000-0000-4000-8000-000000000001',
         '10000000-0000-4000-8000-000000000001',
-        'cancelled',
-        cycle.id,
-        1
-    FROM public.checkout_v2_cycles AS cycle
-    WHERE cycle.subscription_id = '50000000-0000-4000-8000-000000000001'
-      AND cycle.cycle_number = 2;
-    RAISE EXCEPTION 'pending_checkout_v2_cycle_accepted_a_session';
+        'cancelled'
+    );
+    RAISE EXCEPTION 'checkout_v2_session_without_cycle_was_accepted';
 EXCEPTION WHEN check_violation THEN
-    IF SQLERRM <> 'checkout_v2_cycle_subscription_binding_is_invalid' THEN
+    IF SQLERRM <> 'checkout_v2_session_requires_cycle' THEN
         RAISE;
+    END IF;
+END
+$$;
+
+SELECT public.materialize_checkout_v2_cycle_sessions(
+    '50000000-0000-4000-8000-000000000001',
+    'in_test_renewal_1'
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.checkout_v2_cycles
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+          AND cycle_number = 2
+          AND materialization_state = 'ready'
+          AND sessions_materialized_at IS NOT NULL
+    ) OR NOT EXISTS (
+        SELECT 1
+        FROM public.subscriptions
+        WHERE id = '50000000-0000-4000-8000-000000000001'
+          AND sessions_used = 4
+    ) OR (
+        SELECT COUNT(*)
+        FROM public.sessions
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+          AND checkout_v2_cycle_id IS NOT NULL
+    ) <> 8 OR (
+        SELECT COUNT(*)
+        FROM public.sessions AS session_row
+        JOIN public.checkout_v2_cycles AS cycle_row
+          ON cycle_row.id = session_row.checkout_v2_cycle_id
+        JOIN public.checkout_v2_billing_state AS billing_row
+          ON billing_row.subscription_id = cycle_row.subscription_id
+        JOIN public.checkout_v2_weekly_allocations AS allocation_row
+          ON allocation_row.subscription_id = cycle_row.subscription_id
+         AND allocation_row.status = 'active'
+        WHERE cycle_row.subscription_id = '50000000-0000-4000-8000-000000000001'
+          AND cycle_row.cycle_number = 2
+          AND session_row.checkout_v2_cycle_session_index BETWEEN 1 AND 4
+          AND session_row.student_id = '10000000-0000-4000-8000-000000000001'
+          AND session_row.teacher_id = allocation_row.teacher_id
+          AND session_row.duration_minutes = 50
+          AND session_row.status = 'scheduled'
+          AND EXTRACT(
+                DOW FROM session_row.scheduled_at AT TIME ZONE allocation_row.timezone_name
+              )::SMALLINT = allocation_row.weekday
+          AND (session_row.scheduled_at AT TIME ZONE allocation_row.timezone_name)::TIME(0)
+                = allocation_row.local_start_time
+          AND session_row.scheduled_at = (
+                (
+                    (billing_row.first_class_at AT TIME ZONE allocation_row.timezone_name)::DATE
+                    + 28
+                    + ((session_row.checkout_v2_cycle_session_index - 1) * 7)
+                    + allocation_row.local_start_time
+                ) AT TIME ZONE allocation_row.timezone_name
+          )
+    ) <> 4 THEN
+        RAISE EXCEPTION 'renewal_cycle_sessions_were_not_materialized_exactly';
+    END IF;
+END
+$$;
+
+SELECT public.materialize_checkout_v2_cycle_sessions(
+    '50000000-0000-4000-8000-000000000001',
+    'in_test_renewal_1'
+);
+
+DO $$
+BEGIN
+    IF (
+        SELECT COUNT(*)
+        FROM public.sessions AS session_row
+        JOIN public.checkout_v2_cycles AS cycle_row
+          ON cycle_row.id = session_row.checkout_v2_cycle_id
+        WHERE cycle_row.subscription_id = '50000000-0000-4000-8000-000000000001'
+          AND cycle_row.cycle_number = 2
+    ) <> 4 THEN
+        RAISE EXCEPTION 'renewal_cycle_materialization_replay_duplicated_sessions';
     END IF;
 END
 $$;
@@ -791,6 +1002,165 @@ BEGIN
     END IF;
 END
 $$;
+
+INSERT INTO public.payments (
+    id,
+    student_id,
+    subscription_id,
+    amount,
+    currency,
+    status,
+    stripe_payment_intent_id,
+    stripe_invoice_id
+) VALUES (
+    '60000000-0000-4000-8000-000000000003',
+    '10000000-0000-4000-8000-000000000001',
+    '50000000-0000-4000-8000-000000000001',
+    25900,
+    'eur',
+    'succeeded',
+    'pi_test_renewal_2',
+    'in_test_renewal_2'
+);
+
+SELECT ends_at AS renewal_period_2_start
+FROM public.checkout_v2_cycles
+WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+  AND cycle_number = 2
+\gset
+
+SELECT public.apply_checkout_v2_renewal(
+    '50000000-0000-4000-8000-000000000001',
+    'sub_test_isolated',
+    'in_test_renewal_2',
+    '60000000-0000-4000-8000-000000000003',
+    'price_test_recurring_28d',
+    :'renewal_period_2_start'::TIMESTAMPTZ,
+    :'renewal_period_2_start'::TIMESTAMPTZ + INTERVAL '672 hours'
+);
+
+DO $$
+DECLARE
+    cycle_row public.checkout_v2_cycles%ROWTYPE;
+    billing_row public.checkout_v2_billing_state%ROWTYPE;
+    allocation_row public.checkout_v2_weekly_allocations%ROWTYPE;
+    competing_session_at TIMESTAMPTZ;
+BEGIN
+    SELECT * INTO cycle_row
+    FROM public.checkout_v2_cycles
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND cycle_number = 3;
+
+    SELECT * INTO billing_row
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = cycle_row.subscription_id;
+
+    SELECT * INTO allocation_row
+    FROM public.checkout_v2_weekly_allocations
+    WHERE subscription_id = cycle_row.subscription_id
+      AND status = 'active';
+
+    competing_session_at := (
+        (billing_row.first_class_at AT TIME ZONE allocation_row.timezone_name)::DATE
+        + 56
+        + allocation_row.local_start_time
+    ) AT TIME ZONE allocation_row.timezone_name;
+
+    INSERT INTO public.sessions (
+        subscription_id,
+        student_id,
+        teacher_id,
+        scheduled_at,
+        duration_minutes,
+        status,
+        checkout_v2_cycle_id,
+        checkout_v2_cycle_session_index
+    ) VALUES (
+        cycle_row.subscription_id,
+        '10000000-0000-4000-8000-000000000001',
+        allocation_row.teacher_id,
+        competing_session_at,
+        50,
+        'scheduled',
+        cycle_row.id,
+        1
+    );
+
+    PERFORM public.materialize_checkout_v2_cycle_sessions(
+        cycle_row.subscription_id,
+        cycle_row.stripe_invoice_id
+    );
+    RAISE EXCEPTION 'conflicting_cycle_materialization_was_accepted';
+EXCEPTION WHEN check_violation THEN
+    IF SQLERRM <> 'checkout_v2_cycle_cannot_materialize_sessions' THEN
+        RAISE;
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.sessions AS session_row
+        JOIN public.checkout_v2_cycles AS pending_cycle
+          ON pending_cycle.id = session_row.checkout_v2_cycle_id
+        WHERE pending_cycle.subscription_id = '50000000-0000-4000-8000-000000000001'
+          AND pending_cycle.cycle_number = 3
+    ) OR NOT EXISTS (
+        SELECT 1
+        FROM public.checkout_v2_cycles
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+          AND cycle_number = 3
+          AND materialization_state = 'pending'
+          AND sessions_materialized_at IS NULL
+    ) OR NOT EXISTS (
+        SELECT 1
+        FROM public.subscriptions
+        WHERE id = '50000000-0000-4000-8000-000000000001'
+          AND sessions_used = 0
+    ) THEN
+        RAISE EXCEPTION 'conflicting_cycle_materialization_was_not_atomic';
+    END IF;
+END
+$$;
+
+SELECT public.materialize_checkout_v2_cycle_sessions(
+    '50000000-0000-4000-8000-000000000001',
+    'in_test_renewal_2'
+);
+
+INSERT INTO public.payments (
+    id,
+    student_id,
+    subscription_id,
+    amount,
+    currency,
+    status,
+    stripe_payment_intent_id,
+    stripe_invoice_id
+) VALUES (
+    '60000000-0000-4000-8000-000000000004',
+    '10000000-0000-4000-8000-000000000001',
+    '50000000-0000-4000-8000-000000000001',
+    25900,
+    'eur',
+    'succeeded',
+    'pi_test_renewal_3',
+    'in_test_renewal_3'
+);
+
+SELECT ends_at AS renewal_period_3_start
+FROM public.checkout_v2_cycles
+WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+  AND cycle_number = 3
+\gset
+
+SELECT public.apply_checkout_v2_renewal(
+    '50000000-0000-4000-8000-000000000001',
+    'sub_test_isolated',
+    'in_test_renewal_3',
+    '60000000-0000-4000-8000-000000000004',
+    'price_test_recurring_28d',
+    :'renewal_period_3_start'::TIMESTAMPTZ,
+    :'renewal_period_3_start'::TIMESTAMPTZ + INTERVAL '672 hours'
+);
 
 DO $$
 BEGIN
@@ -820,10 +1190,10 @@ SELECT (
         '10000000-0000-4000-8000-000000000002',
         'Europe/Madrid',
         ARRAY[
-            (:'first_local'::TIMESTAMP + INTERVAL '56 days') AT TIME ZONE 'Europe/Madrid',
-            (:'first_local'::TIMESTAMP + INTERVAL '63 days') AT TIME ZONE 'Europe/Madrid',
-            (:'first_local'::TIMESTAMP + INTERVAL '70 days') AT TIME ZONE 'Europe/Madrid',
-            (:'first_local'::TIMESTAMP + INTERVAL '77 days') AT TIME ZONE 'Europe/Madrid'
+            (:'first_local'::TIMESTAMP + INTERVAL '119 days') AT TIME ZONE 'Europe/Madrid',
+            (:'first_local'::TIMESTAMP + INTERVAL '126 days') AT TIME ZONE 'Europe/Madrid',
+            (:'first_local'::TIMESTAMP + INTERVAL '133 days') AT TIME ZONE 'Europe/Madrid',
+            (:'first_local'::TIMESTAMP + INTERVAL '140 days') AT TIME ZONE 'Europe/Madrid'
         ],
         '10000000-0000-4000-8000-000000000003'
     )
@@ -868,9 +1238,36 @@ BEGIN
 END
 $$;
 
+-- A ready cycle remains replayable after ordinary session evolution and after
+-- cancellation releases the durable weekly allocation. Replay must validate
+-- the already-materialized facts without requiring live capacity again.
+UPDATE public.sessions AS session_row
+SET
+    status = 'completed',
+    completed_at = session_row.scheduled_at + INTERVAL '50 minutes'
+FROM public.checkout_v2_cycles AS cycle_row
+WHERE cycle_row.id = session_row.checkout_v2_cycle_id
+  AND cycle_row.subscription_id = '50000000-0000-4000-8000-000000000001'
+  AND cycle_row.cycle_number = 2
+  AND session_row.checkout_v2_cycle_session_index = 1;
+
 UPDATE public.subscriptions
 SET status = 'cancelled'
 WHERE id = '50000000-0000-4000-8000-000000000001';
+
+DO $$
+BEGIN
+    PERFORM public.materialize_checkout_v2_cycle_sessions(
+        '50000000-0000-4000-8000-000000000001',
+        'in_test_renewal_3'
+    );
+    RAISE EXCEPTION 'terminal_subscription_materialized_pending_cycle';
+EXCEPTION WHEN check_violation THEN
+    IF SQLERRM <> 'checkout_v2_cycle_cannot_materialize_sessions' THEN
+        RAISE;
+    END IF;
+END
+$$;
 
 SELECT public.publish_bookable_slot(
     :'overlapping_slot_id'::UUID,
@@ -917,6 +1314,50 @@ END
 $$;
 
 DO $$
+DECLARE
+    replayed_cycle public.checkout_v2_cycles%ROWTYPE;
+BEGIN
+    SELECT * INTO replayed_cycle
+    FROM public.materialize_checkout_v2_cycle_sessions(
+        '50000000-0000-4000-8000-000000000001',
+        'in_test_renewal_1'
+    );
+
+    IF replayed_cycle.cycle_number <> 2
+       OR replayed_cycle.materialization_state <> 'ready'
+       OR replayed_cycle.sessions_materialized_at IS NULL
+       OR (
+            SELECT COUNT(*)
+            FROM public.sessions
+            WHERE checkout_v2_cycle_id = replayed_cycle.id
+       ) <> 4
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.sessions
+            WHERE checkout_v2_cycle_id = replayed_cycle.id
+              AND checkout_v2_cycle_session_index = 1
+              AND status = 'completed'
+              AND completed_at IS NOT NULL
+       )
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.subscriptions
+            WHERE id = replayed_cycle.subscription_id
+              AND status = 'cancelled'
+       )
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.checkout_v2_weekly_allocations
+            WHERE subscription_id = replayed_cycle.subscription_id
+              AND status = 'released'
+              AND release_reason = 'subscription_cancelled'
+       ) THEN
+        RAISE EXCEPTION 'ready_cycle_replay_after_allocation_release_is_not_idempotent';
+    END IF;
+END
+$$;
+
+DO $$
 BEGIN
     IF has_table_privilege('anon', 'public.checkout_v2_cycles', 'SELECT')
        OR has_table_privilege('authenticated', 'public.checkout_v2_billing_state', 'SELECT')
@@ -924,8 +1365,140 @@ BEGIN
        OR has_table_privilege('service_role', 'public.checkout_v2_cycles', 'INSERT')
        OR has_table_privilege('service_role', 'public.checkout_v2_cycles', 'UPDATE')
        OR has_table_privilege('service_role', 'public.checkout_v2_billing_state', 'UPDATE')
-       OR has_table_privilege('service_role', 'public.checkout_v2_price_snapshots', 'INSERT') THEN
+       OR has_table_privilege('service_role', 'public.checkout_v2_price_snapshots', 'INSERT')
+       OR has_function_privilege(
+            'anon',
+            'public.materialize_checkout_v2_cycle_sessions(uuid,text)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.materialize_checkout_v2_cycle_sessions(uuid,text)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'authenticated',
+            'public.claim_direct_checkout_intent_for_slot(uuid,text,text,uuid,text,text,text,uuid)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.claim_direct_checkout_intent_for_slot(uuid,text,text,uuid,text,text,text,uuid)',
+            'EXECUTE'
+       ) THEN
         RAISE EXCEPTION 'checkout_v2_financial_table_privileges_are_invalid';
+    END IF;
+END
+$$;
+
+-- Keep one mutable occurrence so the fractional-second constraint is reached
+-- before the separate immutability guard for published inventory.
+SELECT (
+    public.create_bookable_slot(
+        :'v2_package_id'::UUID,
+        '10000000-0000-4000-8000-000000000002',
+        'Europe/Madrid',
+        ARRAY[
+            (:'first_local'::TIMESTAMP + INTERVAL '196 days') AT TIME ZONE 'Europe/Madrid',
+            (:'first_local'::TIMESTAMP + INTERVAL '203 days') AT TIME ZONE 'Europe/Madrid',
+            (:'first_local'::TIMESTAMP + INTERVAL '210 days') AT TIME ZONE 'Europe/Madrid',
+            (:'first_local'::TIMESTAMP + INTERVAL '217 days') AT TIME ZONE 'Europe/Madrid'
+        ],
+        '10000000-0000-4000-8000-000000000003'
+    )
+).id;
+
+DO $$
+DECLARE
+    violated_constraint TEXT;
+BEGIN
+    INSERT INTO public.bookable_slots (
+        package_id,
+        teacher_id,
+        weekday,
+        local_start_time,
+        timezone_name,
+        first_occurrence_at,
+        created_by
+    )
+    SELECT
+        package_id,
+        teacher_id,
+        0,
+        TIME '02:30:00',
+        'Europe/Madrid',
+        (
+            date_trunc(
+                'week',
+                first_occurrence_at AT TIME ZONE 'Europe/Madrid'
+            ) + INTERVAL '6 days 2 hours 30 minutes'
+        ) AT TIME ZONE 'Europe/Madrid',
+        created_by
+    FROM public.bookable_slots
+    ORDER BY created_at
+    LIMIT 1;
+    RAISE EXCEPTION 'dst_unsafe_weekly_slot_was_accepted';
+EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS violated_constraint = CONSTRAINT_NAME;
+    IF violated_constraint <> 'bookable_slots_dst_safe_weekly_time_check' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    violated_constraint TEXT;
+BEGIN
+    INSERT INTO public.bookable_slots (
+        package_id,
+        teacher_id,
+        weekday,
+        local_start_time,
+        timezone_name,
+        first_occurrence_at,
+        created_by
+    )
+    SELECT
+        package_id,
+        teacher_id,
+        weekday,
+        local_start_time,
+        timezone_name,
+        first_occurrence_at + INTERVAL '0.123 seconds',
+        created_by
+    FROM public.bookable_slots
+    ORDER BY created_at
+    LIMIT 1;
+    RAISE EXCEPTION 'fractional_bookable_slot_was_accepted';
+EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS violated_constraint = CONSTRAINT_NAME;
+    IF violated_constraint <> 'bookable_slots_first_occurrence_whole_second_check' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    violated_constraint TEXT;
+BEGIN
+    UPDATE public.bookable_slot_occurrences
+    SET starts_at = starts_at + INTERVAL '0.123 seconds'
+    WHERE (slot_id, occurrence_index) = (
+        SELECT occurrence_row.slot_id, occurrence_row.occurrence_index
+        FROM public.bookable_slot_occurrences AS occurrence_row
+        JOIN public.bookable_slots AS slot_row
+          ON slot_row.id = occurrence_row.slot_id
+        WHERE slot_row.status = 'draft'
+        ORDER BY occurrence_row.slot_id, occurrence_row.occurrence_index
+        LIMIT 1
+    );
+    RAISE EXCEPTION 'fractional_bookable_occurrence_was_accepted';
+EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS violated_constraint = CONSTRAINT_NAME;
+    IF violated_constraint <> 'bookable_slot_occurrences_whole_second_check' THEN
+        RAISE;
     END IF;
 END
 $$;

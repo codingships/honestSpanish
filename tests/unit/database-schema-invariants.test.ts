@@ -21,6 +21,7 @@ const sessionStatusContractMigration = readFileSync('supabase/migrations/2026071
 const versionedOfferMigration = readFileSync('supabase/migrations/20260731151309_add_versioned_28_day_individual_offer.sql', 'utf8').replace(/\r\n/g, '\n');
 const bookableSlotsMigration = readFileSync('supabase/migrations/20260731185233_add_bookable_slots_and_holds.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2BillingMigration = readFileSync('supabase/migrations/20260731225000_add_checkout_v2_billing_foundation.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutV2MaterializationMigration = readFileSync('supabase/migrations/20260801120000_materialize_checkout_v2_cycle_sessions.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -509,7 +510,6 @@ describe('database schema security invariants', () => {
             'private.guard_checkout_v2_weekly_allocation()',
             'private.sync_checkout_v2_weekly_allocation()',
             'private.release_checkout_v2_allocation_on_subscription_end()',
-            'private.guard_checkout_v2_cycle_binding()',
             'private.guard_checkout_v2_session_position()',
             'private.guard_checkout_v2_materialized_session_delete()',
             'public.register_checkout_v2_price_snapshot(',
@@ -521,6 +521,16 @@ describe('database schema security invariants', () => {
         ]) {
             expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
                 canonicalLatestSqlFunction(checkoutV2BillingMigration, functionName),
+            );
+        }
+
+        for (const functionName of [
+            'private.guard_checkout_v2_cycle_binding()',
+            'public.materialize_checkout_v2_cycle_sessions(',
+            'public.claim_direct_checkout_intent_for_slot(',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutV2MaterializationMigration, functionName),
             );
         }
     });

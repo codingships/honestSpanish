@@ -17,6 +17,8 @@ export type FulfillmentJobPayload = {
     packageDisplayName?: Json;
     subscriptionId?: string | null;
     durationMonths?: number;
+    billingIntervalUnit?: 'day' | 'week' | 'month' | 'year';
+    billingIntervalCount?: number;
     startsAt?: string;
     endsAt?: string;
     sessionsTotal?: number;
@@ -100,7 +102,9 @@ export async function enqueueRenewalNotice(
         subscriptionId: string;
         renewalAt: string;
         cancelBy: string;
-        durationMonths: number;
+        durationMonths?: number;
+        billingIntervalUnit?: 'day' | 'week' | 'month' | 'year';
+        billingIntervalCount?: number;
         amountTotal: number;
         currency: string;
     }

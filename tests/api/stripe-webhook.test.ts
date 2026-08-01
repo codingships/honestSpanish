@@ -4,6 +4,9 @@ const stripeMocks = vi.hoisted(() => ({
     accountRetrieve: vi.fn(),
     constructEventAsync: vi.fn(),
     subscriptionRetrieve: vi.fn(),
+    checkoutLineItemsList: vi.fn(),
+    invoiceRetrieve: vi.fn(),
+    invoiceLineItemsList: vi.fn(),
     invoicePaymentList: vi.fn(),
     refundList: vi.fn(),
 }));
@@ -27,6 +30,9 @@ const packageId = '20000000-0000-4000-8000-000000000002';
 const packagePriceId = '30000000-0000-4000-8000-000000000003';
 const opportunityId = '40000000-0000-4000-8000-000000000004';
 const checkoutIntentId = '50000000-0000-4000-8000-000000000005';
+const slotId = '60000000-0000-4000-8000-000000000006';
+const firstSessionId = '70000000-0000-4000-8000-000000000007';
+const slotPublicId = '80000000-0000-4000-8000-000000000008';
 
 vi.mock('../../src/lib/stripe', () => ({
     stripe: {
@@ -38,6 +44,15 @@ vi.mock('../../src/lib/stripe', () => ({
         },
         subscriptions: {
             retrieve: stripeMocks.subscriptionRetrieve,
+        },
+        checkout: {
+            sessions: {
+                listLineItems: stripeMocks.checkoutLineItemsList,
+            },
+        },
+        invoices: {
+            retrieve: stripeMocks.invoiceRetrieve,
+            listLineItems: stripeMocks.invoiceLineItemsList,
         },
         invoicePayments: {
             list: stripeMocks.invoicePaymentList,
@@ -589,6 +604,496 @@ function makeRenewalSupabase() {
         renewalRpc,
         packagePriceQuery,
     };
+}
+
+function checkoutV2Event() {
+    return checkoutEvent({
+        livemode: false,
+        mode: 'subscription',
+        amount_total: 25900,
+        metadata: {
+            userId: studentId,
+            packageId,
+            packagePriceId,
+            crmOpportunityId: opportunityId,
+            checkoutIntentId,
+            contractSchemaVersion: '2',
+            slotPublicId,
+            firstClassAt: '2026-08-03T10:00:00.000Z',
+            renewalAnchorAt: '2026-08-31T10:00:00.000Z',
+            initialPriceId: 'price_initial_259',
+            recurringPriceId: 'price_recurring_28d',
+        },
+    });
+}
+
+function checkoutV2StripeSubscription() {
+    return {
+        id: 'sub_1',
+        customer: 'cus_checkout_1',
+        status: 'trialing',
+        livemode: false,
+        trial_end: Math.floor(Date.parse('2026-08-31T10:00:00.000Z') / 1000),
+        metadata: { contractSchemaVersion: '2', userId: studentId },
+        items: {
+            data: [{
+                quantity: 1,
+                current_period_end: Math.floor(Date.parse('2026-08-31T10:00:00.000Z') / 1000),
+                price: {
+                    id: 'price_recurring_28d',
+                    product: 'prod_v2',
+                    unit_amount: 25900,
+                    currency: 'eur',
+                    livemode: false,
+                    recurring: { interval: 'day', interval_count: 28 },
+                },
+            }],
+        },
+    };
+}
+
+function checkoutV2Invoice() {
+    const renewalAnchorAt = Math.floor(Date.parse('2026-08-31T10:00:00.000Z') / 1000);
+    return {
+        id: 'in_1',
+        status: 'paid',
+        billing_reason: 'subscription_create',
+        amount_paid: 25900,
+        amount_due: 25900,
+        amount_remaining: 0,
+        amount_overpaid: 0,
+        starting_balance: 0,
+        subtotal: 25900,
+        subtotal_excluding_tax: 25900,
+        total: 25900,
+        total_excluding_tax: 25900,
+        pre_payment_credit_notes_amount: 0,
+        post_payment_credit_notes_amount: 0,
+        total_discount_amounts: [],
+        total_pretax_credit_amounts: [],
+        total_taxes: [],
+        currency: 'eur',
+        livemode: false,
+        customer: 'cus_checkout_1',
+        parent: {
+            type: 'subscription_details',
+            subscription_details: { subscription: 'sub_1', metadata: {} },
+        },
+        lines: {
+            has_more: false,
+            data: [
+                {
+                    id: 'il_v2_initial',
+                    amount: 25900,
+                    currency: 'eur',
+                    quantity: 1,
+                    pricing: {
+                        price_details: {
+                            price: {
+                                id: 'price_initial_259',
+                                product: 'prod_v2',
+                                unit_amount: 25900,
+                                currency: 'eur',
+                                livemode: false,
+                                recurring: null,
+                            },
+                        },
+                    },
+                    parent: { invoice_item_details: { proration: false } },
+                    discount_amounts: [],
+                    discounts: [],
+                    pretax_credit_amounts: [],
+                    taxes: [],
+                },
+                {
+                    id: 'il_v2_trial',
+                    amount: 0,
+                    currency: 'eur',
+                    quantity: 1,
+                    period: {
+                        start: Math.floor(Date.parse('2026-08-03T10:00:00.000Z') / 1000),
+                        end: renewalAnchorAt,
+                    },
+                    pricing: {
+                        price_details: {
+                            price: {
+                                id: 'price_recurring_28d',
+                                product: 'prod_v2',
+                                unit_amount: 25900,
+                                currency: 'eur',
+                                livemode: false,
+                                recurring: { interval: 'day', interval_count: 28 },
+                            },
+                        },
+                    },
+                    parent: { subscription_item_details: { proration: false } },
+                    discount_amounts: [],
+                    discounts: [],
+                    pretax_credit_amounts: [],
+                    taxes: [],
+                },
+            ],
+        },
+    };
+}
+
+function makeCheckoutV2Supabase(replay = false) {
+    const processedInsert = vi.fn().mockResolvedValue({ error: null });
+    const processedFinalization = createProcessedWebhookFinalizationQuery();
+    const processedUpdate = vi.fn().mockReturnValue(processedFinalization);
+    const singleQuery = (result: { data: unknown; error: unknown }) => createSingleQueryForWebhook(result);
+    const packagePriceQuery = singleQuery({
+        data: {
+            id: packagePriceId,
+            package_id: packageId,
+            package_key: 'individual-v2',
+            display_name: { en: 'Individual Spanish' },
+            contract_schema_version: 2,
+            amount_cents: 25900,
+            currency: 'eur',
+            sessions_per_period: 4,
+            billing_interval_unit: 'day',
+            billing_interval_count: 28,
+            class_duration_minutes: 50,
+            stripe_price_id: 'price_recurring_28d',
+            stripe_product_id: 'prod_v2',
+            stripe_account_id: 'acct_test',
+            stripe_livemode: false,
+        },
+        error: null,
+    });
+    const snapshotQuery = singleQuery({
+        data: {
+            package_price_id: packagePriceId,
+            initial_stripe_price_id: 'price_initial_259',
+            recurring_stripe_price_id: 'price_recurring_28d',
+            initial_amount_cents: 25900,
+            recurring_amount_cents: 25900,
+            currency: 'eur',
+            recurring_interval_unit: 'day',
+            recurring_interval_count: 28,
+            stripe_account_id: 'acct_test',
+            stripe_livemode: false,
+        },
+        error: null,
+    });
+    const localSubscription = {
+        id: 'local-subscription-1',
+        student_id: studentId,
+        package_id: packageId,
+        package_price_id: packagePriceId,
+        checkout_intent_id: checkoutIntentId,
+        contract_schema_version: 2,
+        duration_months: null,
+        billing_interval_unit: 'day',
+        billing_interval_count: 28,
+        class_duration_minutes: 50,
+        starts_at: '2026-08-03',
+        ends_at: '2026-08-31',
+        sessions_total: 4,
+        contracted_sessions_per_period: 4,
+        sessions_used: replay ? 4 : 0,
+        status: 'active',
+        stripe_subscription_id: 'sub_1',
+        stripe_invoice_id: 'in_1',
+    };
+    const slotQuery = singleQuery({
+        data: {
+            id: slotId,
+            public_id: slotPublicId,
+            package_id: packageId,
+            first_occurrence_at: '2026-08-03T10:00:00.000Z',
+            timezone_name: 'Europe/Madrid',
+            status: replay ? 'sold' : 'available',
+            sold_subscription_id: replay ? localSubscription.id : null,
+        },
+        error: null,
+    });
+    const subscriptionLookup: any = {};
+    subscriptionLookup.select = vi.fn(() => subscriptionLookup);
+    subscriptionLookup.eq = vi.fn(() => subscriptionLookup);
+    subscriptionLookup.limit = vi.fn(() => subscriptionLookup);
+    subscriptionLookup.maybeSingle = vi.fn().mockResolvedValue({
+        data: replay ? localSubscription : null,
+        error: null,
+    });
+    const subscriptionInsert = vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: localSubscription, error: null }),
+        }),
+    });
+    const paymentRow = {
+        id: 'payment-v2-1',
+        student_id: studentId,
+        subscription_id: localSubscription.id,
+        amount: 25900,
+        currency: 'eur',
+        status: 'succeeded',
+        stripe_payment_intent_id: 'pi_1',
+    };
+    const paymentLookup: any = {};
+    paymentLookup.select = vi.fn(() => paymentLookup);
+    paymentLookup.eq = vi.fn(() => paymentLookup);
+    paymentLookup.order = vi.fn(() => paymentLookup);
+    paymentLookup.limit = vi.fn(() => paymentLookup);
+    paymentLookup.maybeSingle = vi.fn().mockResolvedValue({ data: replay ? paymentRow : null, error: null });
+    const paymentUpdate = vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+    const paymentInsert = vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: { id: paymentRow.id }, error: null }),
+        }),
+    });
+    const occurrenceQuery = singleQuery({
+        data: { session_id: firstSessionId, starts_at: '2026-08-03T10:00:00.000Z' },
+        error: null,
+    });
+    occurrenceQuery.eq = vi.fn(() => occurrenceQuery);
+    const opportunityMutation: any = {};
+    opportunityMutation.eq = vi.fn(() => opportunityMutation);
+    opportunityMutation.is = vi.fn(() => opportunityMutation);
+    opportunityMutation.select = vi.fn(() => opportunityMutation);
+    opportunityMutation.maybeSingle = vi.fn().mockResolvedValue({ data: { id: opportunityId }, error: null });
+    const opportunityUpdate = vi.fn(() => opportunityMutation);
+    const welcomeLookup: any = {};
+    welcomeLookup.select = vi.fn(() => welcomeLookup);
+    welcomeLookup.eq = vi.fn(() => welcomeLookup);
+    welcomeLookup.limit = vi.fn(() => welcomeLookup);
+    welcomeLookup.maybeSingle = vi.fn().mockResolvedValue({
+        data: replay ? { id: 'welcome-existing' } : null,
+        error: null,
+    });
+    const completeIntent = {
+        id: checkoutIntentId,
+        stripe_checkout_session_id: 'cs_1',
+        stripe_customer_id: 'cus_checkout_1',
+        legal_policy_version: '2026-07-10',
+        policy_accepted_at: '2026-07-10T10:00:00.000Z',
+    };
+    const rpc = vi.fn((name: string) => {
+        if (name === 'complete_checkout_intent') return Promise.resolve({ data: completeIntent, error: null });
+        if (name === 'consume_bookable_slot_hold') return Promise.resolve({
+            data: { checkout_intent_id: checkoutIntentId, slot_id: slotId, status: 'consumed' },
+            error: null,
+        });
+        if (name === 'materialize_bookable_slot_sessions') return Promise.resolve({
+            data: {
+                id: slotId,
+                status: 'sold',
+                sold_subscription_id: localSubscription.id,
+                sessions_materialized_at: '2026-08-01T12:00:00.000Z',
+            },
+            error: null,
+        });
+        if (name === 'initialize_checkout_v2_billing') return Promise.resolve({
+            data: {
+                subscription_id: localSubscription.id,
+                first_session_id: firstSessionId,
+                stripe_renewal_anchor_at: '2026-08-31T10:00:00.000Z',
+            },
+            error: null,
+        });
+        throw new Error(`Unexpected RPC ${name}`);
+    });
+    let subscriptionCalls = 0;
+    let paymentCalls = 0;
+    const from = vi.fn((table: string) => {
+        if (table === 'processed_webhook_events') return { insert: processedInsert, update: processedUpdate };
+        if (table === 'package_prices') return packagePriceQuery;
+        if (table === 'checkout_v2_price_snapshots') return snapshotQuery;
+        if (table === 'bookable_slots') return slotQuery;
+        if (table === 'bookable_slot_occurrences') return occurrenceQuery;
+        if (table === 'subscriptions') {
+            subscriptionCalls += 1;
+            return subscriptionCalls === 1 ? subscriptionLookup : { insert: subscriptionInsert };
+        }
+        if (table === 'payments') {
+            paymentCalls += 1;
+            return paymentCalls === 1 ? paymentLookup : { insert: paymentInsert, update: paymentUpdate };
+        }
+        if (table === 'crm_opportunities') return { update: opportunityUpdate };
+        if (table === 'fulfillment_jobs') return welcomeLookup;
+        throw new Error(`Unexpected table ${table}`);
+    });
+    return {
+        client: { from, rpc },
+        rpc,
+        subscriptionInsert,
+        paymentInsert,
+    };
+}
+
+function checkoutV2RenewalInvoice() {
+    const periodStart = Math.floor(Date.parse('2026-07-29T10:00:00.000Z') / 1000);
+    const periodEnd = Math.floor(Date.parse('2026-08-26T10:00:00.000Z') / 1000);
+    return {
+        id: 'in_v2_renewal',
+        status: 'paid',
+        billing_reason: 'subscription_cycle',
+        amount_paid: 25900,
+        amount_due: 25900,
+        total: 25900,
+        currency: 'eur',
+        livemode: false,
+        customer: 'cus_checkout_1',
+        parent: {
+            type: 'subscription_details',
+            subscription_details: { subscription: 'sub_v2', metadata: { contractSchemaVersion: '2' } },
+        },
+        lines: {
+            has_more: false,
+            data: [{
+                id: 'il_v2_renewal',
+                amount: 25900,
+                currency: 'eur',
+                quantity: 1,
+                period: { start: periodStart, end: periodEnd },
+                pricing: { price_details: { price: 'price_recurring_28d' } },
+                parent: { subscription_item_details: { proration: false } },
+            }],
+        },
+    };
+}
+
+function checkoutV2RenewalStripeSubscription(overrides: Record<string, unknown> = {}) {
+    return {
+        id: 'sub_v2',
+        customer: 'cus_checkout_1',
+        status: 'active',
+        cancel_at_period_end: false,
+        metadata: { userId: studentId, contractSchemaVersion: '2' },
+        items: {
+            data: [{
+                quantity: 1,
+                current_period_end: Math.floor(Date.parse('2026-08-26T10:00:00.000Z') / 1000),
+                price: {
+                    id: 'price_recurring_28d',
+                    product: 'prod_v2',
+                    unit_amount: 25900,
+                    currency: 'eur',
+                    livemode: false,
+                    recurring: { interval: 'day', interval_count: 28 },
+                },
+            }],
+        },
+        ...overrides,
+    };
+}
+
+function makeCheckoutV2RenewalSupabase(applied: boolean, provisional = false) {
+    const processedInsert = vi.fn().mockResolvedValue({ error: null });
+    const processedFinalization = createProcessedWebhookFinalizationQuery();
+    const processedUpdate = vi.fn().mockReturnValue(processedFinalization);
+    const subscription = {
+        id: 'local-subscription-v2',
+        student_id: studentId,
+        package_id: packageId,
+        package_price_id: packagePriceId,
+        sessions_total: 4,
+        contracted_sessions_per_period: 4,
+        duration_months: null,
+        ends_at: '2026-07-29',
+        status: 'active',
+        stripe_subscription_id: 'sub_v2',
+        stripe_invoice_id: 'in_1',
+        contract_schema_version: 2,
+        billing_interval_unit: 'day',
+        billing_interval_count: 28,
+        class_duration_minutes: 50,
+    };
+    const subscriptionLookup: any = {};
+    subscriptionLookup.select = vi.fn(() => subscriptionLookup);
+    subscriptionLookup.eq = vi.fn(() => subscriptionLookup);
+    subscriptionLookup.order = vi.fn(() => subscriptionLookup);
+    subscriptionLookup.limit = vi.fn(() => subscriptionLookup);
+    subscriptionLookup.maybeSingle = vi.fn().mockResolvedValue({ data: subscription, error: null });
+    const packagePriceQuery = createSingleQueryForWebhook({
+        data: {
+            id: packagePriceId,
+            package_id: packageId,
+            package_key: 'individual-v2',
+            display_name: { es: 'Individual', en: 'Individual', ru: 'Individual' },
+            contract_schema_version: 2,
+            amount_cents: 25900,
+            currency: 'eur',
+            stripe_price_id: 'price_recurring_28d',
+            stripe_product_id: 'prod_v2',
+            stripe_account_id: 'acct_test',
+            stripe_livemode: false,
+        },
+        error: null,
+    });
+    const snapshotQuery = createSingleQueryForWebhook({
+        data: {
+            package_price_id: packagePriceId,
+            recurring_stripe_price_id: 'price_recurring_28d',
+            recurring_amount_cents: 25900,
+            currency: 'eur',
+            recurring_interval_unit: 'day',
+            recurring_interval_count: 28,
+            stripe_account_id: 'acct_test',
+            stripe_livemode: false,
+        },
+        error: null,
+    });
+    const existingPayment = applied ? null : {
+        id: 'payment-v2-renewal',
+        student_id: studentId,
+        subscription_id: subscription.id,
+        amount: 25900,
+        currency: 'eur',
+        status: 'succeeded',
+        stripe_payment_intent_id: 'pi_v2_renewal',
+    };
+    const paymentLookup: any = {};
+    paymentLookup.select = vi.fn(() => paymentLookup);
+    paymentLookup.eq = vi.fn(() => paymentLookup);
+    paymentLookup.order = vi.fn(() => paymentLookup);
+    paymentLookup.limit = vi.fn(() => paymentLookup);
+    paymentLookup.maybeSingle = vi.fn().mockResolvedValue({ data: existingPayment, error: null });
+    const paymentUpdate = vi.fn().mockReturnValue({ eq: vi.fn().mockResolvedValue({ error: null }) });
+    const paymentInsert = vi.fn().mockReturnValue({
+        select: vi.fn().mockReturnValue({
+            single: vi.fn().mockResolvedValue({ data: { id: 'payment-v2-renewal' }, error: null }),
+        }),
+    });
+    const billingQuery = createSingleQueryForWebhook({
+        data: {
+            subscription_id: subscription.id,
+            first_class_at: '2026-07-01T10:00:00.000Z',
+            anchor_state: provisional ? 'provisional' : 'fixed',
+        },
+        error: null,
+    });
+    const rpc = vi.fn((name: string) => {
+        if (name === 'fix_checkout_v2_billing_anchor') return Promise.resolve({
+            data: { subscription_id: subscription.id, anchor_state: 'fixed' }, error: null,
+        });
+        if (name === 'apply_checkout_v2_renewal') return Promise.resolve({ data: applied, error: null });
+        if (name === 'materialize_checkout_v2_cycle_sessions') return Promise.resolve({
+            data: { id: 'cycle-v2-2', materialization_state: 'ready' }, error: null,
+        });
+        throw new Error(`Unexpected RPC ${name}`);
+    });
+    const subscriptionUpdateEq = vi.fn().mockResolvedValue({ error: null });
+    const subscriptionUpdate = vi.fn().mockReturnValue({ eq: subscriptionUpdateEq });
+    let subscriptionCalls = 0;
+    let paymentCalls = 0;
+    const from = vi.fn((table: string) => {
+        if (table === 'processed_webhook_events') return { insert: processedInsert, update: processedUpdate };
+        if (table === 'subscriptions') {
+            subscriptionCalls += 1;
+            return subscriptionCalls === 1 ? subscriptionLookup : { update: subscriptionUpdate };
+        }
+        if (table === 'package_prices') return packagePriceQuery;
+        if (table === 'checkout_v2_price_snapshots') return snapshotQuery;
+        if (table === 'checkout_v2_billing_state') return billingQuery;
+        if (table === 'payments') {
+            paymentCalls += 1;
+            return paymentCalls === 1 ? paymentLookup : { insert: paymentInsert, update: paymentUpdate };
+        }
+        throw new Error(`Unexpected table ${table}`);
+    });
+    return { client: { from, rpc }, rpc, paymentInsert, subscriptionUpdate };
 }
 
 function createSingleQueryForWebhook(result: { data: unknown; error: unknown }) {
@@ -1869,5 +2374,277 @@ describe('POST /api/stripe-webhook', () => {
         expect(response.status).toBe(200);
         expect(stripeMocks.refundList).not.toHaveBeenCalled();
         expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+    });
+
+    it('completes the Checkout V2 foundation as an ordered idempotent saga', async () => {
+        const v2 = makeCheckoutV2Supabase();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutV2Event());
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2StripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(checkoutV2Invoice());
+        stripeMocks.checkoutLineItemsList.mockResolvedValue({
+            has_more: false,
+            data: [
+                {
+                    id: 'li_initial',
+                    quantity: 1,
+                    price: {
+                        id: 'price_initial_259',
+                        product: 'prod_v2',
+                        unit_amount: 25900,
+                        currency: 'eur',
+                        livemode: false,
+                        recurring: null,
+                    },
+                },
+                {
+                    id: 'li_recurring',
+                    quantity: 1,
+                    price: {
+                        id: 'price_recurring_28d',
+                        product: 'prod_v2',
+                        unit_amount: 25900,
+                        currency: 'eur',
+                        livemode: false,
+                        recurring: { interval: 'day', interval_count: 28 },
+                    },
+                },
+            ],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(v2.rpc.mock.calls.map(([name]) => name)).toEqual([
+            'complete_checkout_intent',
+            'consume_bookable_slot_hold',
+            'materialize_bookable_slot_sessions',
+            'initialize_checkout_v2_billing',
+        ]);
+        expect(v2.subscriptionInsert).toHaveBeenCalledWith(expect.objectContaining({
+            contract_schema_version: 2,
+            checkout_intent_id: checkoutIntentId,
+            duration_months: null,
+            billing_interval_unit: 'day',
+            billing_interval_count: 28,
+            class_duration_minutes: 50,
+            sessions_total: 4,
+            sessions_used: 0,
+        }));
+        expect(fulfillmentMocks.enqueueWelcomeFulfillment).toHaveBeenCalledOnce();
+    });
+
+    it('rejects an initial Checkout V2 invoice with an extra concept even when the paid total stays 259 EUR', async () => {
+        const v2 = makeCheckoutV2Supabase();
+        const invoice = checkoutV2Invoice();
+        invoice.lines.data.push({
+            id: 'il_unexpected_zero_offset',
+            amount: 0,
+            currency: 'eur',
+            quantity: 1,
+            pricing: {
+                price_details: {
+                    price: {
+                        id: 'price_unexpected',
+                        product: 'prod_other',
+                        unit_amount: 100,
+                        currency: 'eur',
+                        livemode: false,
+                        recurring: null,
+                    },
+                },
+            },
+            parent: { invoice_item_details: { proration: false } },
+            discount_amounts: [],
+            discounts: [],
+            pretax_credit_amounts: [],
+            taxes: [],
+        });
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutV2Event());
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2StripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(invoice);
+        stripeMocks.checkoutLineItemsList.mockResolvedValue({
+            has_more: false,
+            data: [
+                {
+                    id: 'li_initial', quantity: 1,
+                    price: { id: 'price_initial_259', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: null },
+                },
+                {
+                    id: 'li_recurring', quantity: 1,
+                    price: { id: 'price_recurring_28d', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: { interval: 'day', interval_count: 28 } },
+                },
+            ],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(500);
+        expect(v2.rpc).not.toHaveBeenCalled();
+        expect(v2.subscriptionInsert).not.toHaveBeenCalled();
+    });
+
+    it('resumes Checkout V2 after durable steps already exist without duplicating rows', async () => {
+        const v2 = makeCheckoutV2Supabase(true);
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutV2Event());
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2StripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(checkoutV2Invoice());
+        stripeMocks.checkoutLineItemsList.mockResolvedValue({
+            has_more: false,
+            data: [
+                {
+                    id: 'li_initial', quantity: 1,
+                    price: { id: 'price_initial_259', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: null },
+                },
+                {
+                    id: 'li_recurring', quantity: 1,
+                    price: { id: 'price_recurring_28d', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: { interval: 'day', interval_count: 28 } },
+                },
+            ],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(v2.subscriptionInsert).not.toHaveBeenCalled();
+        expect(v2.paymentInsert).not.toHaveBeenCalled();
+        expect(v2.rpc).toHaveBeenCalledWith('initialize_checkout_v2_billing', expect.any(Object));
+        expect(fulfillmentMocks.enqueueWelcomeFulfillment).not.toHaveBeenCalled();
+    });
+
+    it('fixes a provisional V2 anchor, applies renewal and materializes its sessions', async () => {
+        const v2 = makeCheckoutV2RenewalSupabase(true, true);
+        const invoice = checkoutV2RenewalInvoice();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', invoice));
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2RenewalStripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(invoice);
+        stripeMocks.invoicePaymentList.mockResolvedValue({
+            data: [{ status: 'paid', payment: { type: 'payment_intent', payment_intent: 'pi_v2_renewal' } }],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(v2.rpc.mock.calls.map(([name]) => name)).toEqual([
+            'fix_checkout_v2_billing_anchor',
+            'apply_checkout_v2_renewal',
+            'materialize_checkout_v2_cycle_sessions',
+        ]);
+        expect(v2.rpc).toHaveBeenCalledWith('fix_checkout_v2_billing_anchor', {
+            p_subscription_id: 'local-subscription-v2',
+            p_fixed_at: '2026-07-01T10:00:00.000Z',
+        });
+    });
+
+    it('always materializes a replayed V2 renewal after apply returns false', async () => {
+        const v2 = makeCheckoutV2RenewalSupabase(false);
+        const invoice = checkoutV2RenewalInvoice();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', invoice));
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2RenewalStripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(invoice);
+        stripeMocks.invoicePaymentList.mockResolvedValue({
+            data: [{ status: 'paid', payment: { type: 'payment_intent', payment_intent: 'pi_v2_renewal' } }],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(v2.rpc).toHaveBeenCalledWith('apply_checkout_v2_renewal', expect.any(Object));
+        expect(v2.rpc).toHaveBeenCalledWith('materialize_checkout_v2_cycle_sessions', {
+            p_subscription_id: 'local-subscription-v2',
+            p_stripe_invoice_id: 'in_v2_renewal',
+        });
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+    });
+
+    it('enqueues the exact 28-day Checkout V2 renewal notice from invoice.upcoming', async () => {
+        const v2 = makeCheckoutV2RenewalSupabase(true);
+        const invoice = checkoutV2RenewalInvoice();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.upcoming', invoice));
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2RenewalStripeSubscription());
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(fulfillmentMocks.enqueueRenewalNotice).toHaveBeenCalledOnce();
+        expect(fulfillmentMocks.enqueueRenewalNotice).toHaveBeenCalledWith(
+            v2.client,
+            expect.objectContaining({
+                stripeEventId: 'evt_invoice_upcoming',
+                stripeInvoiceId: 'in_v2_renewal',
+                stripeSubscriptionId: 'sub_v2',
+                userId: studentId,
+                packageId,
+                packageKey: 'individual-v2',
+                packageDisplayName: { es: 'Individual', en: 'Individual', ru: 'Individual' },
+                subscriptionId: 'local-subscription-v2',
+                renewalAt: '2026-08-26T10:00:00.000Z',
+                cancelBy: '2026-08-26T10:00:00.000Z',
+                billingIntervalUnit: 'day',
+                billingIntervalCount: 28,
+                amountTotal: 25900,
+                currency: 'eur',
+            }),
+        );
+        expect(fulfillmentMocks.triggerFulfillmentProcessing).toHaveBeenCalledWith(expect.any(Object), 5);
+    });
+
+    it('records and pauses an exact 28-day Checkout V2 renewal after invoice.payment_failed', async () => {
+        const v2 = makeCheckoutV2RenewalSupabase(true);
+        const invoice = {
+            ...checkoutV2RenewalInvoice(),
+            status: 'open',
+            amount_paid: 0,
+            amount_remaining: 25900,
+        };
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.payment_failed', invoice));
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2RenewalStripeSubscription({ status: 'past_due' }));
+        stripeMocks.invoicePaymentList.mockResolvedValue({
+            data: [{
+                status: 'open',
+                payment: { type: 'payment_intent', payment_intent: 'pi_v2_failed' },
+            }],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(v2.paymentInsert).toHaveBeenCalledWith(expect.objectContaining({
+            student_id: studentId,
+            subscription_id: 'local-subscription-v2',
+            amount: 25900,
+            currency: 'eur',
+            status: 'failed',
+            stripe_invoice_id: 'in_v2_renewal',
+            stripe_payment_intent_id: 'pi_v2_failed',
+            description: '28-day payment failed',
+        }));
+        expect(v2.subscriptionUpdate).toHaveBeenCalledWith({
+            status: 'paused',
+            stripe_subscription_id: 'sub_v2',
+        });
+        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(
+            v2.client,
+            expect.objectContaining({
+                profileId: studentId,
+                metadata: expect.objectContaining({
+                    billing_interval_unit: 'day',
+                    billing_interval_count: 28,
+                }),
+            }),
+        );
     });
 });

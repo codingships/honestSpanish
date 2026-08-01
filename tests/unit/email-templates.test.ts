@@ -53,6 +53,31 @@ describe('lead application email', () => {
         expect(html).not.toMatch(mojibakePattern);
     });
 
+    it.each([
+        ['es', '28 d\u00edas'],
+        ['en', '28 days'],
+        ['ru', '28 \u0434\u043d\u0435\u0439'],
+    ] as const)('renders the versioned 28-day renewal period in %s without a legacy month count', (locale, period) => {
+        const html = renewalNoticeEmailTemplate({
+            locale,
+            studentName: 'Alina',
+            packageName: 'Individual',
+            renewalAt: '2026-10-10T12:00:00.000Z',
+            cancelBy: '2026-10-10T12:00:00.000Z',
+            billingIntervalUnit: 'day',
+            billingIntervalCount: 28,
+            amountTotal: 25900,
+            currency: 'eur',
+            accountUrl: 'https://example.com/account',
+            supportUrl: 'https://example.com/support',
+            termsUrl: 'https://example.com/terms',
+        });
+
+        expect(html).toContain(period);
+        expect(html).not.toContain('3 months');
+        expect(html).not.toMatch(mojibakePattern);
+    });
+
     it('exposes the English renewal notice in the admin preview tool', () => {
         const preview = buildEmailPreview('renewal');
 

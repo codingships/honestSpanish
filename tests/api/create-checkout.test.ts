@@ -320,7 +320,7 @@ describe('POST /api/create-checkout', () => {
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });
 
-    it.each(['staging', 'production'])('cannot reopen the legacy monthly checkout in %s', async (appEnvironment) => {
+    it.each(['staging', 'production'])('dispatches the v2 contract instead of reopening legacy checkout in %s', async (appEnvironment) => {
         runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
             if (key === 'CHECKOUT_ENABLED') return 'true';
             if (key === 'PUBLIC_APP_ENV') return appEnvironment;
@@ -331,14 +331,14 @@ describe('POST /api/create-checkout', () => {
 
         const response = await POST(context({ ...acceptedPolicies, priceId: 'price_valid_3m' }) as any);
 
-        await expect(response.json()).resolves.toEqual({ error: 'Checkout contract v2 is not implemented' });
-        expect(response.status).toBe(403);
+        await expect(response.json()).resolves.toEqual({ error: 'A valid slotPublicId is required' });
+        expect(response.status).toBe(400);
         expect(createSupabaseServerClient).not.toHaveBeenCalled();
         expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });
 
-    it.each([undefined, 'real-project-ref'])('requires the inert placeholder Supabase target, not %s', async (targetRef) => {
+    it.each([undefined, 'real-project-ref'])('keeps legacy isolated and dispatches v2 for target %s', async (targetRef) => {
         runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
             if (key === 'CHECKOUT_ENABLED') return 'true';
             if (key === 'PUBLIC_APP_ENV') return 'test';
@@ -352,8 +352,8 @@ describe('POST /api/create-checkout', () => {
 
         const response = await POST(context({ ...acceptedPolicies, priceId: 'price_valid_3m' }) as any);
 
-        await expect(response.json()).resolves.toEqual({ error: 'Checkout contract v2 is not implemented' });
-        expect(response.status).toBe(403);
+        await expect(response.json()).resolves.toEqual({ error: 'A valid slotPublicId is required' });
+        expect(response.status).toBe(400);
         expect(createSupabaseServerClient).not.toHaveBeenCalled();
         expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
