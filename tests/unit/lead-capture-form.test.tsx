@@ -39,7 +39,7 @@ function fillRequiredContactFields() {
 
 describe('LeadCaptureForm', () => {
     beforeEach(() => {
-        window.history.pushState(null, '', '/es');
+        window.history.pushState(null, '', '/es?utm_source=google&utm_medium=cpc');
         window.sessionStorage.clear();
         vi.stubGlobal('fetch', vi.fn());
     });
@@ -91,7 +91,7 @@ describe('LeadCaptureForm', () => {
     });
 
     it('applies URL preferred package data, submits full lead context and announces success', async () => {
-        window.history.pushState(null, '', '/es?preferredPackage=hybrid&preferredPackageLabel=Plan%20Hybrid#contacto');
+        window.history.pushState(null, '', '/es?preferredPackage=hybrid&preferredPackageLabel=Plan%20Hybrid&utm_source=google&utm_medium=cpc#contacto');
         let resolveFetch: (value: { ok: boolean; json: () => Promise<{ message: string }> }) => void = () => {};
         const pendingFetch = new Promise<{ ok: boolean; json: () => Promise<{ message: string }> }>((resolve) => {
             resolveFetch = resolve;
@@ -103,7 +103,7 @@ describe('LeadCaptureForm', () => {
         renderLeadCaptureForm(onSuccess);
 
         expect(await screen.findByText((_, element) => element?.textContent === 'Plan de interes: Plan Hybrid')).toBeVisible();
-        expect(window.location.search).toBe('');
+        expect(window.location.search).toBe('?utm_source=google&utm_medium=cpc');
         fillRequiredContactFields();
         fireEvent.change(screen.getByLabelText(translations.goal), {
             target: { value: 'Quiero vivir en Espana y hablar mejor.' },
@@ -151,6 +151,12 @@ describe('LeadCaptureForm', () => {
             adultConfirmed: true,
             lang: 'es',
             sourcePath: '/es',
+            attribution: expect.objectContaining({
+                landingPath: '/es',
+                entryLanguage: 'es',
+                utmSource: 'google',
+                utmMedium: 'cpc',
+            }),
             'cf-turnstile-response': 'unit-turnstile-token',
         });
     });

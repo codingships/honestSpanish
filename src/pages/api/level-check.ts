@@ -9,6 +9,7 @@ import { readRuntimeEnv } from '../../lib/runtime-env';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import type { Database, Json } from '../../types/database.types';
 import { ADULT_POLICY_VERSION, hasAcceptedAdultPolicy } from '../../lib/legal-policy';
+import { recordAcquisitionAttributionSafe } from '../../lib/crm/acquisition-attribution';
 
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 type LeadUpdate = Database['public']['Tables']['leads']['Update'];
@@ -284,6 +285,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const crmSync = savedLead ? await syncLeadCaptureToCrmSafe(supabaseAdmin, savedLead) : null;
 
     if (savedLead && crmSync?.status === 'synced') {
+        await recordAcquisitionAttributionSafe(supabaseAdmin, {
+            eventKind: 'level_check_submit',
+            attribution: payload.attribution,
+            leadId: savedLead.id,
+        });
         await recordLevelCheckInCrmSafe(supabaseAdmin, {
             lead: savedLead,
             contactId: crmSync.contactId,

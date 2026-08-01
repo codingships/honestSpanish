@@ -64,6 +64,27 @@ export type CrmSessionRecord = Pick<
   teacher: Pick<Tables<'profiles'>, 'full_name' | 'email'> | null;
 };
 
+export interface CrmAcquisitionAttributionRecord {
+  id: string;
+  request_id: string;
+  event_kind: 'application_submit' | 'level_check_submit' | 'checkout_start';
+  contact_id: string;
+  lead_id: string | null;
+  checkout_intent_id: string | null;
+  landing_path: string;
+  referrer_kind: 'direct' | 'internal' | 'external';
+  referrer_host: string | null;
+  referrer_path: string | null;
+  entry_language: 'es' | 'en' | 'ru';
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_term: string | null;
+  utm_content: string | null;
+  captured_at: string;
+  created_at: string;
+}
+
 export interface CrmContactDetail {
   isReady: boolean;
   contact: CrmContactRecord | null;
@@ -73,6 +94,10 @@ export interface CrmContactDetail {
   consents: CrmConsentRecord[];
   supportTickets: CrmSupportTicketRecord[];
   sessions: CrmSessionRecord[];
+  acquisitionAttributionReady: boolean;
+  acquisitionAttributionEvents: CrmAcquisitionAttributionRecord[];
+  firstObservedAttribution: CrmAcquisitionAttributionRecord | null;
+  latestCapturedAttribution: CrmAcquisitionAttributionRecord | null;
 }
 
 export const emptyCrmContactDetail: CrmContactDetail = {
@@ -84,6 +109,10 @@ export const emptyCrmContactDetail: CrmContactDetail = {
   consents: [],
   supportTickets: [],
   sessions: [],
+  acquisitionAttributionReady: false,
+  acquisitionAttributionEvents: [],
+  firstObservedAttribution: null,
+  latestCapturedAttribution: null,
 };
 
 function isMissingTable(error: { code?: string; message?: string } | null | undefined) {
@@ -189,12 +218,80 @@ async function loadContactById(
   };
 }
 
+type AttributionQueryResult = {
+  data: unknown;
+  error: { code?: string; message?: string } | null;
+};
+
+interface AttributionQuery extends PromiseLike<AttributionQueryResult> {
+  select(columns: string): AttributionQuery;
+  eq(column: string, value: string): AttributionQuery;
+  order(column: string, options: { ascending: boolean }): AttributionQuery;
+  limit(count: number): AttributionQuery;
+}
+
+async function loadAcquisitionAttribution(
+  supabase: AdminSupabaseClient,
+  contactId: string
+) {
+  const attributionClient = supabase as unknown as {
+    from(table: 'acquisition_attribution_events'): AttributionQuery;
+  };
+  const recent = await attributionClient
+    .from('acquisition_attribution_events')
+    .select('id, request_id, event_kind, contact_id, lead_id, checkout_intent_id, landing_path, referrer_kind, referrer_host, referrer_path, entry_language, utm_source, utm_medium, utm_campaign, utm_term, utm_content, captured_at, created_at')
+    .eq('contact_id', contactId)
+    .order('captured_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(12);
+
+  if (recent.error) {
+    if (isMissingTable(recent.error)) {
+      return {
+        isReady: false,
+        events: [] as CrmAcquisitionAttributionRecord[],
+        earliestVisible: null,
+        latestCaptured: null,
+      };
+    }
+    throw recent.error;
+  }
+
+  const earliest = await attributionClient
+    .from('acquisition_attribution_events')
+    .select('id, request_id, event_kind, contact_id, lead_id, checkout_intent_id, landing_path, referrer_kind, referrer_host, referrer_path, entry_language, utm_source, utm_medium, utm_campaign, utm_term, utm_content, captured_at, created_at')
+    .eq('contact_id', contactId)
+    .order('captured_at', { ascending: true })
+    .order('id', { ascending: true })
+    .limit(1);
+  if (earliest.error) {
+    if (isMissingTable(earliest.error)) {
+      return {
+        isReady: false,
+        events: [] as CrmAcquisitionAttributionRecord[],
+        earliestVisible: null,
+        latestCaptured: null,
+      };
+    }
+    throw earliest.error;
+  }
+
+  const events = (recent.data ?? []) as CrmAcquisitionAttributionRecord[];
+  const earliestEvents = (earliest.data ?? []) as CrmAcquisitionAttributionRecord[];
+  return {
+    isReady: true,
+    events,
+    earliestVisible: earliestEvents[0] ?? null,
+    latestCaptured: events[0] ?? null,
+  };
+}
+
 async function loadCrmDataForContact(
   supabase: AdminSupabaseClient,
   contactId: string,
   baseDetail: CrmContactDetail
 ): Promise<CrmContactDetail> {
-  const [opportunities, tasks, activities, consents] = await Promise.all([
+  const [opportunities, tasks, activities, consents, attribution] = await Promise.all([
     supabase
       .from('crm_opportunities')
       .select(`
@@ -232,6 +329,7 @@ async function loadCrmDataForContact(
       .select('id, channel, purpose, legal_basis, source, proof, notice_version, captured_at, opted_out_at, created_at, updated_at')
       .eq('contact_id', contactId)
       .order('created_at', { ascending: false }),
+    loadAcquisitionAttribution(supabase, contactId),
   ]);
 
   const firstError = [opportunities.error, tasks.error, activities.error, consents.error].find(Boolean);
@@ -246,6 +344,10 @@ async function loadCrmDataForContact(
     tasks: (tasks.data ?? []) as CrmTaskRecord[],
     activities: (activities.data ?? []) as CrmActivityRecord[],
     consents: (consents.data ?? []) as CrmConsentRecord[],
+    acquisitionAttributionReady: attribution.isReady,
+    acquisitionAttributionEvents: attribution.events,
+    firstObservedAttribution: attribution.earliestVisible,
+    latestCapturedAttribution: attribution.latestCaptured,
   };
 }
 

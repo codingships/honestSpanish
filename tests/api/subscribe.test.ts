@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
     loadLeadCaptureForCrm: vi.fn(),
     syncLeadCaptureToCrmSafe: vi.fn(),
     recordLeadEmailOutInCrmSafe: vi.fn(),
+    recordAcquisitionAttributionSafe: vi.fn(),
     readRuntimeEnv: vi.fn((key: string) => {
         if (key === 'TURNSTILE_SECRET_KEY') return 'turnstile-secret';
         if (key === 'ADMIN_EMAIL') return 'alejandro@espanolhonesto.com';
@@ -40,6 +41,10 @@ vi.mock('../../src/lib/crm/lead-capture', () => ({
     loadLeadCaptureForCrm: mocks.loadLeadCaptureForCrm,
     syncLeadCaptureToCrmSafe: mocks.syncLeadCaptureToCrmSafe,
     recordLeadEmailOutInCrmSafe: mocks.recordLeadEmailOutInCrmSafe,
+}));
+
+vi.mock('../../src/lib/crm/acquisition-attribution', () => ({
+    recordAcquisitionAttributionSafe: mocks.recordAcquisitionAttributionSafe,
 }));
 
 function postContext(body: Record<string, unknown>) {
@@ -86,6 +91,7 @@ describe('/api/subscribe', () => {
             taskId: '30000000-0000-4000-8000-000000000001',
         });
         mocks.recordLeadEmailOutInCrmSafe.mockResolvedValue({ status: 'created', activityId: 'activity-1' });
+        mocks.recordAcquisitionAttributionSafe.mockResolvedValue({ status: 'recorded' });
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             json: vi.fn().mockResolvedValue({ success: true }),
         }));
@@ -108,6 +114,16 @@ describe('/api/subscribe', () => {
             adultConfirmed: true,
             consent: true,
             'cf-turnstile-response': 'turnstile-token',
+            attribution: {
+                requestId: '90000000-0000-4000-8000-000000000001',
+                landingPath: '/es/espanol-para-vivir-en-espana',
+                referrerKind: 'external',
+                referrerHost: 'google.com',
+                entryLanguage: 'es',
+                utmSource: 'google',
+                utmMedium: 'cpc',
+                utmCampaign: 'vivir_en_espana',
+            },
         }) as any);
 
         expect(response.status).toBe(200);
@@ -155,6 +171,14 @@ describe('/api/subscribe', () => {
             subject: 'Application received - Espanol Honesto',
             template: 'lead_welcome',
         }));
+        expect(mocks.recordAcquisitionAttributionSafe).toHaveBeenCalledWith(expect.anything(), {
+            eventKind: 'application_submit',
+            attribution: expect.objectContaining({
+                requestId: '90000000-0000-4000-8000-000000000001',
+                utmCampaign: 'vivir_en_espana',
+            }),
+            leadId: '00000000-0000-4000-8000-000000000001',
+        });
     });
 
     it('redacts admin notification provider errors without failing lead capture', async () => {
@@ -271,7 +295,7 @@ describe('/api/subscribe', () => {
         expect(mocks.deliverEmail).toHaveBeenCalled();
     });
 
-    it('returns success without overwriting or syncing an existing email', async () => {
+    it('returns a neutral success for an existing email without CRM or notification side effects', async () => {
         mocks.insert.mockResolvedValue({
             error: {
                 code: '23505',
@@ -288,6 +312,12 @@ describe('/api/subscribe', () => {
             adultConfirmed: true,
             consent: true,
             'cf-turnstile-response': 'turnstile-token',
+            attribution: {
+                requestId: '90000000-0000-4000-8000-000000000001',
+                landingPath: '/en',
+                referrerKind: 'direct',
+                entryLanguage: 'en',
+            },
         }) as any);
         const body = await response.json() as JsonBody;
 
@@ -301,6 +331,7 @@ describe('/api/subscribe', () => {
         expect(mocks.update.mock.calls[0][0]).not.toHaveProperty('name');
         expect(mocks.loadLeadCaptureForCrm).not.toHaveBeenCalled();
         expect(mocks.syncLeadCaptureToCrmSafe).not.toHaveBeenCalled();
+        expect(mocks.recordAcquisitionAttributionSafe).not.toHaveBeenCalled();
         expect(mocks.deliverEmail).not.toHaveBeenCalled();
         expect(mocks.sendLeadWelcomeEmail).not.toHaveBeenCalled();
     });

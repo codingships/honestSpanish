@@ -61,6 +61,91 @@ export type Database = {
           },
         ];
       };
+      acquisition_attribution_events: {
+        Row: {
+          captured_at: string;
+          checkout_intent_id: string | null;
+          contact_id: string;
+          created_at: string;
+          entry_language: string;
+          event_kind: string;
+          id: string;
+          landing_path: string;
+          lead_id: string | null;
+          referrer_host: string | null;
+          referrer_kind: string;
+          referrer_path: string | null;
+          request_id: string;
+          utm_campaign: string | null;
+          utm_content: string | null;
+          utm_medium: string | null;
+          utm_source: string | null;
+          utm_term: string | null;
+        };
+        Insert: {
+          captured_at?: string;
+          checkout_intent_id?: string | null;
+          contact_id: string;
+          created_at?: string;
+          entry_language: string;
+          event_kind: string;
+          id?: string;
+          landing_path: string;
+          lead_id?: string | null;
+          referrer_host?: string | null;
+          referrer_kind: string;
+          referrer_path?: string | null;
+          request_id: string;
+          utm_campaign?: string | null;
+          utm_content?: string | null;
+          utm_medium?: string | null;
+          utm_source?: string | null;
+          utm_term?: string | null;
+        };
+        Update: {
+          captured_at?: string;
+          checkout_intent_id?: string | null;
+          contact_id?: string;
+          created_at?: string;
+          entry_language?: string;
+          event_kind?: string;
+          id?: string;
+          landing_path?: string;
+          lead_id?: string | null;
+          referrer_host?: string | null;
+          referrer_kind?: string;
+          referrer_path?: string | null;
+          request_id?: string;
+          utm_campaign?: string | null;
+          utm_content?: string | null;
+          utm_medium?: string | null;
+          utm_source?: string | null;
+          utm_term?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "acquisition_attribution_event_checkout_contact_fkey";
+            columns: ["checkout_intent_id", "contact_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_intents";
+            referencedColumns: ["id", "contact_id"];
+          },
+          {
+            foreignKeyName: "acquisition_attribution_event_lead_contact_fkey";
+            columns: ["lead_id", "contact_id"];
+            isOneToOne: false;
+            referencedRelation: "leads";
+            referencedColumns: ["id", "crm_contact_id"];
+          },
+          {
+            foreignKeyName: "acquisition_attribution_events_contact_id_fkey";
+            columns: ["contact_id"];
+            isOneToOne: false;
+            referencedRelation: "crm_contacts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       bookable_slot_holds: {
         Row: {
           checkout_intent_id: string;
@@ -3846,6 +3931,31 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "teacher_compensation_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      record_acquisition_attribution_event: {
+        Args: {
+          p_checkout_intent_id: string | null;
+          p_entry_language: string;
+          p_event_kind: string;
+          p_landing_path: string;
+          p_lead_id: string | null;
+          p_referrer_host: string | null;
+          p_referrer_kind: string;
+          p_referrer_path: string | null;
+          p_request_id: string;
+          p_utm_campaign: string | null;
+          p_utm_content: string | null;
+          p_utm_medium: string | null;
+          p_utm_source: string | null;
+          p_utm_term: string | null;
+        };
+        Returns: Database["public"]["Tables"]["acquisition_attribution_events"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "acquisition_attribution_events";
           isOneToOne: true;
           isSetofReturn: false;
         };

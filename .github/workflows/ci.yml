@@ -78,6 +78,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/checkout-v2-guarantee.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/teacher-compensation-ledger.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/teacher-compensation-operations.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/acquisition-attribution-foundation.sql
 
       - name: Verify clean canonical schema
         run: |
@@ -87,6 +88,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/checkout-v2-guarantee.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/teacher-compensation-ledger.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/teacher-compensation-operations.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/acquisition-attribution-foundation.sql
 
   build-and-test:
     runs-on: ubuntu-latest

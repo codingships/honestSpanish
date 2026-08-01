@@ -85,6 +85,7 @@ function acceptCheckoutPolicies() {
 
 describe('PricingModal', () => {
     beforeEach(() => {
+        window.history.pushState(null, '', '/es?utm_source=google&utm_campaign=first_students');
         fetchMock = vi.fn().mockResolvedValue(availabilityResponse());
         vi.stubGlobal('fetch', fetchMock);
         turnstile.reset.mockClear();
@@ -155,6 +156,12 @@ describe('PricingModal', () => {
             termsAccepted: true,
             serviceStartRequested: true,
             withdrawalLossAcknowledged: true,
+            attribution: expect.objectContaining({
+                landingPath: '/es',
+                entryLanguage: 'es',
+                utmSource: 'google',
+                utmCampaign: 'first_students',
+            }),
             'cf-turnstile-response': 'verified-turnstile-token',
         });
         expect(JSON.parse(String(init.body))).not.toHaveProperty('priceId');

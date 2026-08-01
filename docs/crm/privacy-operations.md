@@ -30,6 +30,7 @@ Datos personales gestionados por CRM:
 - Operacion: tareas, follow-ups, soporte vinculado, pagos fallidos, renovaciones, clases relevantes.
 - Comunicacion: notas internas y logs manuales de email, llamada o WhatsApp.
 - Consentimiento/procedencia: canal, finalidad, base legal, origen, prueba, version de aviso, opt-out.
+- Atribucion minima: ruta local, clase de referidor, host externo o ruta interna reducidos, idioma y los cinco UTM permitidos, siempre enlazados a una conversion real.
 
 Datos que no deben guardarse en CRM:
 
@@ -37,6 +38,7 @@ Datos que no deben guardarse en CRM:
 - Documentos privados completos si basta con referencia operativa.
 - Datos academicos sensibles que pertenezcan a notas docentes privadas.
 - Listas antiguas importadas sin procedencia y revision legal.
+- URLs completas, queries sin filtrar, click IDs publicitarios, IP, user-agent o identificadores persistentes dentro de la atribucion.
 
 ## Derechos De Personas
 
@@ -74,6 +76,8 @@ Implementado:
 - Comunicaciones salientes de ventas/marketing comprueban el ultimo consentimiento por canal/finalidad.
 - Opt-out bloquea comunicacion saliente de ventas/marketing.
 - Falta o revision manual de base legal exige motivo explicito para log manual.
+- Atribucion append-only solo en solicitud, diagnostico o checkout; no usa cookies, `localStorage` ni `sessionStorage` de marketing y no bloquea la operacion principal.
+- UTM, ruta y referidor se normalizan en cliente y de nuevo en servidor; el referidor externo conserva solo el host.
 
 Pendiente antes de produccion real:
 
@@ -83,6 +87,7 @@ Pendiente antes de produccion real:
 - Retention policy confirmada por tipo de dato.
 - Registro de subprocesadores definitivo en politica de privacidad.
 - Decision sobre analitica/cookies si se activa medicion adicional.
+- Inclusion de `acquisition_attribution_events` en exportacion, supresion/anonimizacion y plazos concretos de retencion.
 
 ## Retencion
 
