@@ -1,3 +1,4 @@
+import type { APIContext } from 'astro';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const adminMocks = vi.hoisted(() => ({
@@ -83,8 +84,8 @@ function adminClient(options: {
     return { client: { rpc, from }, rpc, from };
 }
 
-function context() {
-    return { locals: {} };
+function context(): Pick<APIContext, 'locals'> {
+    return { locals: {} } as Pick<APIContext, 'locals'>;
 }
 
 describe('Checkout V2 reschedule target discovery', () => {
