@@ -2,17 +2,19 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { hasVerifiedAdultAccount } from '../../lib/adult-account';
 import { ADULT_POLICY_VERSION } from '../../lib/legal-policy';
+import { appendAuthReturnTo, sanitizeAuthReturnTo } from '../../lib/auth-return-to';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
 
 export const prerender = false;
 
 const requestedLang = Astro.params.lang;
 const lang = requestedLang === 'en' || requestedLang === 'ru' ? requestedLang : 'es';
+const returnTo = sanitizeAuthReturnTo(Astro.url.searchParams.get('returnTo'));
 const supabase = createSupabaseServerClient(Astro);
 const { data: { user } } = await supabase.auth.getUser();
 
 if (!user) {
-    return Astro.redirect(`/${lang}/login`);
+    return Astro.redirect(appendAuthReturnTo(`/${lang}/login`, returnTo));
 }
 
 const { data: profile } = await supabase
@@ -23,11 +25,11 @@ const { data: profile } = await supabase
 
 if (!profile) {
     await supabase.auth.signOut({ scope: 'local' });
-    return Astro.redirect(`/${lang}/login?error=adult-attestation-required`);
+    return Astro.redirect(appendAuthReturnTo(`/${lang}/login?error=adult-attestation-required`, returnTo));
 }
 
 if (profile.role !== 'student' || hasVerifiedAdultAccount(profile)) {
-    return Astro.redirect(`/api/auth/post-login?lang=${lang}`);
+    return Astro.redirect(appendAuthReturnTo(`/api/auth/post-login?lang=${lang}`, returnTo));
 }
 
 const copy = {
@@ -84,7 +86,7 @@ const copy = {
             <form
                 id="adult-confirmation-form"
                 class="mt-6 space-y-5"
-                data-adult-confirmation-copy={JSON.stringify({ lang, ...copy })}
+                data-adult-confirmation-copy={JSON.stringify({ lang, returnTo, ...copy })}
             >
                 <label class="flex items-start gap-3 border-2 border-[#006064] bg-[#E0F7FA] p-4 text-sm leading-6 text-[#006064]">
                     <input id="adult-confirmed" type="checkbox" class="mt-1 h-5 w-5" aria-required="true" />
@@ -135,7 +137,7 @@ const copy = {
                     body: JSON.stringify({ adultConfirmed: true }),
                 });
                 if (!response.ok) throw new Error('adult_confirmation_failed');
-                window.location.assign(`/${pageCopy.lang || 'es'}/campus`);
+                window.location.assign(pageCopy.returnTo || `/${pageCopy.lang || 'es'}/campus`);
             } catch {
                 if (status) status.textContent = pageCopy.error || '';
                 if (submit instanceof HTMLButtonElement) {

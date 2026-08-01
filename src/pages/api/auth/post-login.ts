@@ -3,6 +3,7 @@ export const config = {
 };
 import type { APIRoute } from 'astro';
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from '../../../lib/adult-account';
+import { appendAuthReturnTo, sanitizeAuthReturnTo } from '../../../lib/auth-return-to';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
 export const prerender = false;
@@ -21,6 +22,7 @@ export const GET: APIRoute = async (context) => {
     // Validate language
     const validLangs = ['es', 'en', 'ru'];
     const safeLang = validLangs.includes(lang) ? lang : 'es';
+    const returnTo = sanitizeAuthReturnTo(url.searchParams.get('returnTo'));
 
     try {
         // Create Supabase client with request cookies
@@ -31,7 +33,7 @@ export const GET: APIRoute = async (context) => {
 
         if (userError || !user) {
             console.log('[post-login] No user found, redirecting to login');
-            return redirect(`/${safeLang}/login`);
+            return redirect(appendAuthReturnTo(`/${safeLang}/login`, returnTo));
         }
 
         // Get user role from profiles table
@@ -44,14 +46,17 @@ export const GET: APIRoute = async (context) => {
         if (profileError || !profile) {
             console.log('[post-login] Missing account profile');
             await supabase.auth.signOut({ scope: 'local' });
-            return redirect(`/${safeLang}/login?error=${ADULT_ATTESTATION_REQUIRED_QUERY}`);
+            return redirect(appendAuthReturnTo(
+                `/${safeLang}/login?error=${ADULT_ATTESTATION_REQUIRED_QUERY}`,
+                returnTo,
+            ));
         }
 
         const role = profile?.role || 'student';
 
         if (role === 'student' && !hasVerifiedAdultAccount(profile)) {
             console.log('[post-login] Student must complete adult self-attestation');
-            return redirect(`/${safeLang}/adult-confirmation`);
+            return redirect(appendAuthReturnTo(`/${safeLang}/adult-confirmation`, returnTo));
         }
 
         console.log('[post-login] User role:', role, '-> redirecting');
@@ -63,6 +68,7 @@ export const GET: APIRoute = async (context) => {
             case 'teacher':
                 return redirect(`/${safeLang}/campus/teacher`);
             case 'student':
+                return redirect(returnTo ?? `/${safeLang}/campus`);
             default:
                 return redirect(`/${safeLang}/campus`);
         }

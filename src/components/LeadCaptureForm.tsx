@@ -389,10 +389,12 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         </div>
                     )}
 
-                    <Turnstile
-                        siteKey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA'}
-                        onSuccess={(token: string) => setTurnstileToken(token)}
-                    />
+                    <div id="lead-capture-turnstile">
+                        <Turnstile
+                            siteKey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA'}
+                            onSuccess={(token: string) => setTurnstileToken(token)}
+                        />
+                    </div>
 
                     <button
                         type="submit"

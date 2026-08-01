@@ -20,11 +20,14 @@ vi.mock('../../src/lib/supabase-server', () => ({
     })),
 }));
 
-function contextFor(lang: string) {
+function contextFor(lang: string, returnTo?: string) {
     const redirects: string[] = [];
+    const url = new URL('http://localhost:4321/api/auth/post-login');
+    url.searchParams.set('lang', lang);
+    if (returnTo) url.searchParams.set('returnTo', returnTo);
     return {
         request: {
-            url: `http://localhost:4321/api/auth/post-login?lang=${encodeURIComponent(lang)}`,
+            url: url.toString(),
         },
         redirect: vi.fn((path: string) => {
             redirects.push(path);
@@ -35,6 +38,10 @@ function contextFor(lang: string) {
 }
 
 describe('/api/auth/post-login', () => {
+    const slotPublicId = '10000000-0000-4000-8000-000000000001';
+    const englishReturnTo = `/en?checkoutSlot=${slotPublicId}#planes`;
+    const spanishReturnTo = `/es?checkoutSlot=${slotPublicId}#planes`;
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.getUser.mockResolvedValue({
@@ -95,6 +102,50 @@ describe('/api/auth/post-login', () => {
         expect(context.redirect).toHaveBeenCalledWith('/es/campus/admin');
     });
 
+    it('returns only a verified student to an allowlisted public destination', async () => {
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('en', englishReturnTo);
+        await GET(context as any);
+
+        expect(context.redirect).toHaveBeenCalledWith(
+            englishReturnTo,
+        );
+    });
+
+    it.each([
+        'https://evil.example/es',
+        '//evil.example/es',
+        '/es/campus/admin',
+        '/es/%63ampus/admin',
+        '/es/login',
+    ])('ignores unsafe return destination %s', async (returnTo) => {
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('es', returnTo);
+        await GET(context as any);
+
+        expect(context.redirect).toHaveBeenCalledWith('/es/campus');
+    });
+
+    it.each([
+        ['admin', '/es/campus/admin'],
+        ['teacher', '/es/campus/teacher'],
+    ])('does not override the %s role destination with a public return', async (role, expected) => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role,
+                adult_confirmed: true,
+                adult_confirmed_at: '2026-07-10T10:00:00.000Z',
+                age_policy_version: '2026-07-10',
+            },
+            error: null,
+        });
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('es', spanishReturnTo);
+        await GET(context as any);
+
+        expect(context.redirect).toHaveBeenCalledWith(expected);
+    });
+
     it('redirects unauthenticated users back to the localized login page', async () => {
         mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
 
@@ -104,6 +155,18 @@ describe('/api/auth/post-login', () => {
 
         expect(context.redirect).toHaveBeenCalledWith('/ru/login');
         expect(mocks.single).not.toHaveBeenCalled();
+    });
+
+    it('preserves a safe destination while sending an unauthenticated user back to login', async () => {
+        mocks.getUser.mockResolvedValue({ data: { user: null }, error: null });
+
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('en', englishReturnTo);
+        await GET(context as any);
+
+        expect(context.redirect).toHaveBeenCalledWith(
+            `/en/login?returnTo=${encodeURIComponent(englishReturnTo)}`,
+        );
     });
 
     it('blocks the campus and clears the local session when the profile cannot be loaded', async () => {
@@ -134,6 +197,26 @@ describe('/api/auth/post-login', () => {
 
         expect(mocks.signOut).not.toHaveBeenCalled();
         expect(context.redirect).toHaveBeenCalledWith('/es/adult-confirmation');
+    });
+
+    it('preserves a safe destination through adult confirmation', async () => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'student',
+                adult_confirmed: true,
+                adult_confirmed_at: null,
+                age_policy_version: '2026-07-10',
+            },
+            error: null,
+        });
+
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('es', spanishReturnTo);
+        await GET(context as any);
+
+        expect(context.redirect).toHaveBeenCalledWith(
+            `/es/adult-confirmation?returnTo=${encodeURIComponent(spanishReturnTo)}`,
+        );
     });
 
     it.each([

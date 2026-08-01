@@ -25,9 +25,9 @@ const supportedCheckoutLangs = new Set(['es', 'en', 'ru']);
 const jsonHeaders = { 'Content-Type': 'application/json' };
 const maxCheckoutSessionRecoveryPages = 100;
 
-// R1 deliberately keeps the historical monthly implementation available only
-// to isolated tests. Staging and production must remain closed until R3
-// replaces this route with the capacity-backed v2 contract.
+// The historical monthly implementation remains reachable only inside the
+// explicitly isolated legacy test runtime. Every real runtime uses the
+// capacity-backed v2 contract below, even while its checkout gate is closed.
 function isIsolatedLegacyCheckoutTest(context: Parameters<typeof readRuntimeEnv>[1]): boolean {
     return readRuntimeEnv('PUBLIC_APP_ENV', context) === 'test'
         && readRuntimeEnv('E2E_RUNTIME_ISOLATED', context) === 'true'
@@ -168,7 +168,7 @@ type CheckoutRequest = {
 export const POST: APIRoute = async (context) => {
     try {
         if (!isCheckoutEnabled(context)) {
-            return jsonResponse({ error: 'Checkout is disabled' }, 403);
+            return jsonResponse({ error: 'Checkout is disabled', errorCode: 'CHECKOUT_DISABLED' }, 403);
         }
         if (!isIsolatedLegacyCheckoutTest(context)) return handleCheckoutV2(context);
 
@@ -186,7 +186,10 @@ export const POST: APIRoute = async (context) => {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
         if (!user.email || !user.email_confirmed_at) {
-            return jsonResponse({ error: 'A confirmed email is required before payment' }, 403);
+            return jsonResponse({
+                error: 'A confirmed email is required before payment',
+                errorCode: 'ACCOUNT_NOT_ELIGIBLE',
+            }, 403);
         }
 
         const { data: profile, error: profileError } = await supabase
@@ -196,7 +199,10 @@ export const POST: APIRoute = async (context) => {
             .single();
         if (profileError || !profile) return jsonResponse({ error: 'Profile not found' }, 404);
         if (profile.role !== 'student') {
-            return jsonResponse({ error: 'Only student accounts can purchase a plan' }, 403);
+            return jsonResponse({
+                error: 'Only student accounts can purchase a plan',
+                errorCode: 'ACCOUNT_NOT_ELIGIBLE',
+            }, 403);
         }
 
         const { data: activeSub, error: activeSubError } = await supabase

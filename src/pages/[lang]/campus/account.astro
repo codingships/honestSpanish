@@ -1,14 +1,8 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
 import { useTranslations } from '../../../i18n/utils';
-import { ui } from '../../../i18n/translations';
-import { findCheckoutApproval } from '../../../lib/checkout-approval';
-import { isCheckoutEnabled } from '../../../lib/checkout-enabled';
-import { getCheckoutReadyPackageOffers, isPackageKeyCheckoutEligible, type PackageCatalogSnapshot } from '../../../lib/package-pricing';
 import { getPrivateProfile } from '../../../lib/profiles-private';
-import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
-import ApprovedCheckoutCard from '../../../components/account/ApprovedCheckoutCard';
 import ProfileForm from '../../../components/account/ProfileForm';
 
 export const prerender = false;
@@ -55,96 +49,6 @@ if (profile.role === 'student') {
         .single();
     subscription = sub;
     profilePrivate = await getPrivateProfile(user.id);
-}
-
-let approvedCheckoutPlan: {
-    name: string;
-    displayName: string;
-    priceMonthlyCents: number;
-    sessionsPerMonth: number;
-    priceTotalsCents: Record<1 | 3 | 6, number>;
-    stripe_price_1m: string | null;
-    stripe_price_3m: string | null;
-    stripe_price_6m: string | null;
-} | null = null;
-
-if (
-    profile.role === 'student'
-    && !subscription
-    && isCheckoutEnabled(Astro)
-    && user.email
-    && user.email_confirmed_at
-) {
-    const supabaseAdmin = createSupabaseAdminClient();
-    const approval = await findCheckoutApproval(supabaseAdmin, {
-        userId: user.id,
-        email: user.email,
-        emailConfirmedAt: user.email_confirmed_at,
-    });
-
-    if (approval) {
-        const { data: approvedPackage } = await supabaseAdmin
-            .from('packages')
-            .select(`
-                id,
-                name,
-                display_name,
-                price_monthly,
-                catalog_version,
-                sessions_per_month,
-                has_group_session,
-                has_dual_teacher,
-                stripe_product_id,
-                stripe_price_1m,
-                stripe_price_3m,
-                stripe_price_6m,
-                is_active,
-                package_prices (
-                    catalog_version,
-                    package_key,
-                    duration_months,
-                    amount_cents,
-                    currency,
-                    sessions_per_month,
-                    sessions_per_period,
-                    has_group_session,
-                    has_dual_teacher,
-                    status,
-                    stripe_account_id,
-                    stripe_livemode,
-                    stripe_product_id,
-                    stripe_price_id
-                )
-            `)
-            .eq('id', approval.packageId)
-            .eq('is_active', true)
-            .single();
-
-        const activeOffers = approvedPackage && isPackageKeyCheckoutEligible(approvedPackage.name)
-            ? getCheckoutReadyPackageOffers(approvedPackage as PackageCatalogSnapshot)
-            : null;
-
-        if (
-            approvedPackage
-            && activeOffers
-        ) {
-            const displayName = approvedPackage.display_name as Record<string, string>;
-            approvedCheckoutPlan = {
-                name: approvedPackage.name,
-                displayName: displayName?.[lang] || displayName?.es || approvedPackage.name,
-                priceMonthlyCents: approvedPackage.price_monthly,
-                sessionsPerMonth: approvedPackage.sessions_per_month,
-                priceTotalsCents: {
-                    1: activeOffers.get(1)!.amount_cents,
-                    3: activeOffers.get(3)!.amount_cents,
-                    6: activeOffers.get(6)!.amount_cents,
-                },
-                stripe_price_1m: approvedPackage.stripe_price_1m,
-                stripe_price_3m: approvedPackage.stripe_price_3m,
-                stripe_price_6m: approvedPackage.stripe_price_6m,
-            };
-        }
-    }
 }
 
 const driveFolderUrl = profilePrivate?.drive_folder_url
@@ -353,18 +257,11 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                             </button>
                         )}
                     </div>
-                ) : approvedCheckoutPlan ? (
-                    <ApprovedCheckoutCard
-                        client:load
-                        plan={approvedCheckoutPlan}
-                        lang={lang}
-                        translations={ui[lang].pricing.modal}
-                    />
                 ) : (
                     <div>
                         <p class="text-[#006064]/60 font-mono mb-4">{t('campus.dashboard.noPlan')}</p>
                         <a 
-                            href={`/${lang}#precios`}
+                            href={`/${lang}/#planes`}
                             class="inline-block px-4 py-2 bg-[#006064] text-white font-bold uppercase text-sm border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                         >
                             {t('campus.dashboard.viewPlans')}

@@ -15,12 +15,13 @@ describe('student campus onboarding surface', () => {
         expect(campusDashboardSource).toContain('alwaysShowAction: true');
     });
 
-    it('keeps no-plan campus CTAs application-first while checkout live is final-only', () => {
-        expect(campusDashboardSource).toContain("requestPlace: 'Apply for a place'");
-        expect(campusDashboardSource).toContain('href: `/${lang}#contacto`');
-        expect(campusDashboardSource).toContain('href={`/${lang}#contacto`}');
-        expect(campusDashboardSource).toContain('{onboardingCopy.requestPlace}');
-        expect(campusDashboardSource).not.toContain('href: `/${lang}/#pricing`');
-        expect(campusDashboardSource).not.toContain('href={`/${lang}/#pricing`}');
+    it('sends no-plan students to real availability while keeping contact secondary', () => {
+        expect(campusDashboardSource).toContain("viewPlaces: 'View places'");
+        expect(campusDashboardSource).toContain('href: `/${lang}/#planes`');
+        expect(campusDashboardSource).toContain('href={`/${lang}/#planes`}');
+        expect(campusDashboardSource).toContain('{onboardingCopy.viewPlaces}');
+        expect(campusDashboardSource).toContain('href={`/${lang}/#contacto`}');
+        expect(campusDashboardSource).toContain('{onboardingCopy.contact}');
+        expect(campusDashboardSource).not.toContain('Apply for a place');
     });
 });

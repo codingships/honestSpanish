@@ -80,9 +80,18 @@ describe('adult account attestation', () => {
         const api = readFileSync('src/pages/api/auth/confirm-adult.ts', 'utf8');
 
         expect(page).toContain('/api/auth/confirm-adult');
-        expect(page).toContain("window.location.assign(`/${pageCopy.lang || 'es'}/campus`)");
+        expect(page).toContain("window.location.assign(pageCopy.returnTo || `/${pageCopy.lang || 'es'}/campus`)");
+        expect(page).toContain("sanitizeAuthReturnTo(Astro.url.searchParams.get('returnTo'))");
         expect(page).toContain('Подтверждение совершеннолетия');
         expect(api).toContain('ADULT_POLICY_VERSION');
         expect(api).toContain('adult_confirmed_at: adultConfirmedAt');
+    });
+
+    it('keeps no-plan purchase direct and removes the retired approval catalogue', () => {
+        const page = readFileSync('src/pages/[lang]/campus/account.astro', 'utf8');
+
+        expect(page).toContain('href={`/${lang}/#planes`}');
+        expect(page).not.toContain('findCheckoutApproval');
+        expect(page).not.toMatch(/stripe_price_[136]m|priceTotalsCents/u);
     });
 });

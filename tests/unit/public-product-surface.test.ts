@@ -8,6 +8,11 @@ const landing = read('src/components/LandingPage.astro');
 const segmentLanding = read('src/components/landing/SegmentLandingPage.astro');
 const pricing = read('src/components/PricingSection.tsx');
 const baseLayout = read('src/layouts/BaseLayout.astro');
+const rootPage = read('src/pages/index.astro');
+const blogIndex = read('src/pages/[lang]/blog/index.astro');
+const blogLayout = read('src/layouts/BlogLayout.astro');
+const campusDashboard = read('src/pages/[lang]/campus/index.astro');
+const campusAccount = read('src/pages/[lang]/campus/account.astro');
 const sitemap = read('src/lib/public-sitemap.ts');
 const llms = read('public/llms.txt');
 const spanishSegmentLandings = [
@@ -38,17 +43,29 @@ describe('public product surface', () => {
         }
     });
 
-    it('publishes one target offer while direct checkout remains unavailable', () => {
+    it('publishes one target offer while the runtime gate remains authoritative', () => {
         for (const source of [landing, segmentLanding]) {
-            expect(source).toContain("const checkoutMode = 'unavailable' as const");
+            expect(source).toContain("isCheckoutEnabled(Astro) ? 'checkout' : 'unavailable'");
             expect(source).toContain('checkoutMode={checkoutMode}');
-            expect(source).not.toContain("const checkoutMode = 'checkout'");
         }
+        expect(landing).toContain("title: checkoutMode === 'checkout'");
+        expect(landing).toContain('Payment is not yet enabled while final launch checks are completed');
+        expect(segmentLanding).toContain("body: checkoutMode === 'checkout'");
+        expect(segmentLanding).toContain('el pago todavía no está habilitado');
+        expect(landing).not.toContain('launch gates');
+        expect(segmentLanding).not.toContain('gates de lanzamiento');
+        expect(landing).not.toContain('while we connect real teacher and schedule inventory');
+        expect(segmentLanding).not.toContain('hasta conectar el inventario real');
 
         expect(pricing).toContain("checkoutMode = 'unavailable'");
-        expect(ui.es.pricing.applicationNote).toContain('profesor y horario antes de pagar');
-        expect(ui.en.pricing.applicationNote).toContain('teacher and schedule before paying');
-        expect(ui.ru.pricing.applicationNote).toContain('преподавателя');
+        expect(pricing).not.toContain('stripe_price_1m');
+        expect(pricing).not.toContain('stripe_price_3m');
+        expect(pricing).not.toContain('stripe_price_6m');
+        expect(ui.es.pricing.applicationNote).toContain('plazas reales con profesor y horario');
+        expect(ui.en.pricing.applicationNote).toMatch(/real places with a teacher and schedule/iu);
+        expect(ui.ru.pricing.applicationNote).toContain('преподавателем');
+        expect(ui.es.pricing.modal.viewAvailability).toBe('Ver plazas');
+        expect(ui.en.pricing.modal.viewAvailability).toBe('View places');
         expect(ui.es.pricing.modal.renewalDisclosure).toContain('259 EUR al reservar');
         expect(ui.es.pricing.modal.renewalDisclosure).toContain('28 días después de la primera clase');
         expect(ui.en.pricing.modal.renewalDisclosure).toContain('when the place is reserved');
@@ -90,10 +107,19 @@ describe('public product surface', () => {
         expect(terms).not.toMatch(/1, 3 and 6|30, 40 or 50|3 or 6-month/);
         expect(terms).toContain('La primera cuota de 259 EUR se cobra al reservar la plaza e incluye cuatro clases individuales de 50 minutos');
         expect(terms).toContain('The initial EUR 259 charge is collected when the place is reserved and includes four individual 50-minute classes');
+        for (const source of [blogIndex, blogLayout, campusDashboard, campusAccount]) {
+            expect(source).not.toMatch(/Solicitar plaza|Apply for a place|Оставить заявку/u);
+        }
+        expect(blogIndex).toContain('href={`/${lang}/#planes`}');
+        expect(blogLayout).toContain("return '/' + lang + '/#planes'");
+        expect(campusDashboard).toContain('href: `/${lang}/#planes`');
+        expect(campusAccount).toContain('href={`/${lang}/#planes`}');
+        expect(campusAccount).not.toMatch(/findCheckoutApproval|stripe_price_[136]m|priceTotalsCents/u);
         expect(llms).toContain('four individual online classes of 50 minutes');
         expect(llms).toContain('EUR 259 per 28-day cycle');
         expect(llms).toContain('days 0, 7, 14 and 21');
-        expect(llms).toContain('priority acquisition market, geography and language have not been selected yet');
+        expect(llms).toContain('Initial acquisition is in English for adults who live, work or plan to move to Spain');
+        expect(llms).toContain('Russian is limited to a measured pilot');
         expect(llms).not.toMatch(/Grupal Externo|Mensual Estándar|Híbrido Mensual|Intensivo Bootcamp|application-only at launch/iu);
     });
 
@@ -157,8 +183,10 @@ describe('public product surface', () => {
     });
 
     it('keeps canonical, hreflang and noindex protections on shared and private routes', () => {
+        expect(rootPage).toContain("return Astro.redirect('/en', 301)");
         expect(baseLayout).toContain('const canonicalUrl = publicUrl(pageLang, canonicalRoute)');
         expect(baseLayout).toContain('<link rel="canonical" href={canonicalUrl} />');
+        expect(baseLayout).toContain("const xDefaultLang = enabledAlternateLangs.has('en') ? 'en' : undefined");
         for (const language of ['es', 'en', 'ru', 'x-default']) {
             expect(baseLayout).toContain(`hreflang="${language}"`);
         }

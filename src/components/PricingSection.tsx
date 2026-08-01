@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import PricingModal from './PricingModal';
+import React, { useCallback, useEffect, useState } from 'react';
+import PricingModal, { type PricingModalTranslations } from './PricingModal';
 import { formatPackagePrice } from '../lib/package-pricing';
 
 interface Package {
@@ -10,9 +10,6 @@ interface Package {
     sessions_per_month: number;
     has_group_session?: boolean | null;
     has_dual_teacher?: boolean | null;
-    stripe_price_1m: string | null;
-    stripe_price_3m: string | null;
-    stripe_price_6m: string | null;
 }
 
 interface PricingSectionProps {
@@ -34,40 +31,15 @@ interface PricingSectionProps {
         recommended: string;
         applicationNote?: string;
         plans: Record<string, { name: string; description: string; features: string[] }>;
-        modal: {
-            title: string;
-            duration1: string;
-            duration3: string;
-            duration6: string;
-            save: string;
-            total: string;
-            perMonth: string;
-            continue: string;
-            login: string;
-            loading: string;
-            error: string;
-            close: string;
-            contact: string;
-            contactMessage: string;
-            adultConfirmation?: string;
-            termsAcceptance?: string;
-            termsLink?: string;
-            and?: string;
-            privacyLink?: string;
-            serviceStartRequest?: string;
-            withdrawalLossAcknowledgement?: string;
-            renewalDisclosure?: string;
-            sessionBankDisclosure?: string;
-            policyError?: string;
-        };
+        modal: Partial<PricingModalTranslations>;
     };
 }
 
 type PlanKey = string;
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const s = {
-    bg: 'bg-[#E0F7FA]',
-    text: 'text-[#006064]',
     accent: 'bg-[#006064]',
     accentText: 'text-white',
     border: 'border-[#006064]',
@@ -78,12 +50,10 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
     const [selectedPlan, setSelectedPlan] = useState<{
         name: string;
         displayName: string;
-        priceMonthlyCents: number;
-        sessionsPerMonth: number;
-        stripe_price_1m: string | null;
-        stripe_price_3m: string | null;
-        stripe_price_6m: string | null;
+        priceCents: number;
+        sessionsPerCycle: number;
     } | null>(null);
+    const [initialSlotPublicId, setInitialSlotPublicId] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const copy = {
         title: t.title || 'Planes',
@@ -92,32 +62,46 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             name: t.headers?.name || 'Plan',
             price: t.headers?.price || 'Precio',
             includes: t.headers?.includes || 'Incluye',
-            action: t.headers?.action || 'Accion',
+            action: t.headers?.action || 'Acción',
         },
         month: t.month || 'cada 28 días',
         select: t.select || 'Seleccionar',
         recommended: t.recommended || 'Recomendado',
         applicationNote: t.applicationNote || {
-            es: 'La compra directa se abrirá cuando puedas elegir una plaza real con profesor y horario antes de pagar.',
-            en: 'Direct purchase will open once you can choose a real place with a teacher and schedule before paying.',
-            ru: 'Прямая покупка откроется, когда до оплаты можно будет выбрать реальное место, преподавателя и расписание.',
+            es: 'Las plazas reales con profesor y horario aparecen aquí a medida que se publican. El pago seguirá cerrado hasta que lo habilitemos.',
+            en: 'Real places with a teacher and schedule appear here as they are published. Payment remains closed until we enable it.',
+            ru: 'Реальные места с преподавателем и расписанием появляются здесь по мере публикации. Оплата останется закрытой, пока мы её не включим.',
         }[lang],
         plans: t.plans || {},
         modal: {
-            title: t.modal?.title || 'Elige duracion',
-            duration1: t.modal?.duration1 || '1 mes',
-            duration3: t.modal?.duration3 || '3 meses',
-            duration6: t.modal?.duration6 || '6 meses',
-            save: t.modal?.save || 'Ahorra',
-            total: t.modal?.total || 'Total',
-            perMonth: t.modal?.perMonth || 'al mes',
-            continue: t.modal?.continue || 'Continuar',
-            login: t.modal?.login || 'Iniciar sesion',
-            loading: t.modal?.loading || 'Cargando...',
-            error: t.modal?.error || 'No se pudo continuar',
+            title: t.modal?.title || 'Elige profesor y horario antes de pagar',
+            availabilityLoading: t.modal?.availabilityLoading || 'Consultando plazas reales...',
+            availabilityEmpty: t.modal?.availabilityEmpty || 'Ahora mismo no hay plazas publicadas disponibles.',
+            availabilityError: t.modal?.availabilityError || 'No se pudo consultar la disponibilidad.',
+            retryAvailability: t.modal?.retryAvailability || 'Reintentar',
+            slotChoice: t.modal?.slotChoice || 'Plazas semanales disponibles',
+            teacher: t.modal?.teacher || 'Profesor',
+            weeklyTime: t.modal?.weeklyTime || 'Horario semanal',
+            timezone: t.modal?.timezone || 'Zona horaria',
+            firstClass: t.modal?.firstClass || 'Primera clase',
+            cycleDates: t.modal?.cycleDates || 'Cuatro clases del ciclo',
+            renewalDate: t.modal?.renewalDate || 'Siguiente cobro',
+            viewAvailability: t.modal?.viewAvailability || 'Ver plazas',
+            total: t.modal?.total || 'Cobro al reservar',
+            continue: t.modal?.continue || 'Reservar y pagar',
+            login: t.modal?.login || 'Inicia sesión para continuar',
+            loading: t.modal?.loading || 'Procesando...',
+            error: t.modal?.error || 'No se pudo continuar.',
             close: t.modal?.close || 'Cerrar',
-            contact: t.modal?.contact || 'Consultar',
-            contactMessage: t.modal?.contactMessage || 'Escribenos para confirmar disponibilidad.',
+            contact: t.modal?.contact || 'Consultar disponibilidad',
+            contactMessage: t.modal?.contactMessage || 'No se pudo publicar la oferta ahora mismo.',
+            checkoutClosed: t.modal?.checkoutClosed || 'Esta plaza es real, pero el pago todavía no está habilitado.',
+            securityError: t.modal?.securityError || 'La verificación de seguridad ha caducado o ha fallado.',
+            slotConflict: t.modal?.slotConflict || 'La plaza ya no está disponible. Consulta las opciones actualizadas.',
+            activeSubscription: t.modal?.activeSubscription || 'Ya tienes una suscripción activa. Puedes gestionarla desde tu cuenta.',
+            checkoutInProgress: t.modal?.checkoutInProgress || 'Ya hay una reserva en curso. Vuelve a intentarlo dentro de unos minutos.',
+            accountNotEligible: t.modal?.accountNotEligible || 'Esta cuenta necesita revisión antes de poder pagar. Escríbenos para comprobarla.',
+            paymentAccountConflict: t.modal?.paymentAccountConflict || 'Tu perfil de pago necesita revisión antes de continuar. Escríbenos para comprobarlo.',
             adultConfirmation: t.modal?.adultConfirmation || 'Confirmo que tengo 18 años o más.',
             termsAcceptance: t.modal?.termsAcceptance || 'He leído y acepto los',
             termsLink: t.modal?.termsLink || 'Términos',
@@ -125,28 +109,51 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             privacyLink: t.modal?.privacyLink || 'Política de Privacidad',
             serviceStartRequest: t.modal?.serviceStartRequest || 'Solicito que el servicio pueda comenzar durante el periodo legal de desistimiento.',
             withdrawalLossAcknowledgement: t.modal?.withdrawalLossAcknowledgement || 'Reconozco que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.',
-            renewalDisclosure: t.modal?.renewalDisclosure || 'Se cobran 259 EUR al reservar. La siguiente cuota se cobra 28 días después de la primera clase; si esa fecha cambia antes de empezar, se mueve el ancla y, después de comenzar, queda fija. Desde entonces se renueva cada 28 días hasta que canceles antes del siguiente cobro.',
-            sessionBankDisclosure: t.modal?.sessionBankDisclosure || 'Este periodo incluye {sessions} sesiones para usar durante {months} mes(es), sin tope mensual. Las no usadas caducan al terminar.',
-            policyError: t.modal?.policyError || 'Debes confirmar y aceptar las condiciones antes de continuar.',
-        },
+            renewalDisclosure: t.modal?.renewalDisclosure || 'La siguiente cuota se cobra 28 días después de la primera clase.',
+            sessionBankDisclosure: t.modal?.sessionBankDisclosure || 'Cada ciclo incluye cuatro clases individuales de 50 minutos.',
+            policyError: t.modal?.policyError || 'Debes confirmar y aceptar las cuatro condiciones antes de continuar.',
+        } satisfies PricingModalTranslations,
     };
 
-    const handleSelectPlan = (pkg: Package) => {
+    const handleSelectPlan = useCallback((pkg: Package, slotPublicId: string | null = null) => {
         setSelectedPlan({
             name: pkg.name,
-            displayName: pkg.display_name?.[lang] || pkg.display_name?.['es'] || pkg.name,
-            priceMonthlyCents: pkg.price_monthly,
-            sessionsPerMonth: pkg.sessions_per_month,
-            stripe_price_1m: pkg.stripe_price_1m,
-            stripe_price_3m: pkg.stripe_price_3m,
-            stripe_price_6m: pkg.stripe_price_6m,
+            displayName: pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name,
+            priceCents: pkg.price_monthly,
+            sessionsPerCycle: pkg.sessions_per_month,
         });
+        setInitialSlotPublicId(slotPublicId);
         setIsModalOpen(true);
-    };
+    }, [lang]);
 
-    // Get package data or use fallback
+    const closeModal = useCallback(() => {
+        setIsModalOpen(false);
+        setInitialSlotPublicId(null);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const url = new URL(window.location.href);
+        const slotPublicId = url.searchParams.get('checkoutSlot');
+        if (!slotPublicId) return;
+
+        if (!uuidPattern.test(slotPublicId)) {
+            url.searchParams.delete('checkoutSlot');
+            window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+            return;
+        }
+        if (!packages[0]) return;
+
+        url.searchParams.delete('checkoutSlot');
+        window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+        handleSelectPlan(packages[0], slotPublicId);
+    }, [handleSelectPlan, packages]);
+
     const getPriceDisplay = (pkg: Package | undefined): { label: string; hasPrice: boolean } => {
-        if (!pkg || !pkg.price_monthly) return { label: copy.modal.contact, hasPrice: false };
+        if (!pkg || !Number.isInteger(pkg.price_monthly) || pkg.price_monthly <= 0) {
+            return { label: copy.modal.contact, hasPrice: false };
+        }
         return { label: formatPackagePrice(pkg.price_monthly, lang), hasPrice: true };
     };
 
@@ -211,17 +218,16 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
 
     return (
         <>
-            <section id="planes" aria-labelledby="plans-heading" className={`bg-white py-24 px-4 md:px-8 border-b-2 ${s.border}`}>
+            <section id="planes" aria-labelledby="plans-heading" className={`border-b-2 bg-white px-4 py-24 md:px-8 ${s.border}`}>
                 <span id="pricing" className="block scroll-mt-20" aria-hidden="true" />
-                <div className="max-w-7xl mx-auto">
-                    <div className={`flex items-end justify-between mb-12 border-b-4 ${s.border} pb-4`}>
-                        <h2 id="plans-heading" className="font-display text-6xl md:text-8xl tracking-tighter">{copy.title}</h2>
-                        <span className="font-mono text-sm mb-2 hidden md:block">{copy.subtitle}</span>
+                <div className="mx-auto max-w-7xl">
+                    <div className={`mb-12 flex items-end justify-between border-b-4 pb-4 ${s.border}`}>
+                        <h2 id="plans-heading" className="font-display text-6xl tracking-tighter md:text-8xl">{copy.title}</h2>
+                        <span className="mb-2 hidden font-mono text-sm md:block">{copy.subtitle}</span>
                     </div>
 
                     <div className={`border-t-2 ${s.border}`}>
-                        {/* Headers - Desktop */}
-                        <div className="hidden md:grid grid-cols-12 gap-4 py-4 font-mono text-xs uppercase tracking-widest text-[#006064]">
+                        <div className="hidden grid-cols-12 gap-4 py-4 font-mono text-xs uppercase tracking-widest text-[#006064] md:grid">
                             <div className="col-span-3">{copy.headers.name}</div>
                             <div className="col-span-2">{copy.headers.price}</div>
                             <div className="col-span-5">{copy.headers.includes}</div>
@@ -229,94 +235,62 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                         </div>
 
                         {packages.length === 0 ? (
-                            <div className={`border-t-2 ${s.border} py-10 text-center`} role="status" aria-live="polite">
-                                <p className="mx-auto max-w-2xl text-sm font-bold text-[#006064]">
-                                    {copy.modal.contactMessage}
-                                </p>
+                            <div className={`border-t-2 py-10 text-center ${s.border}`} role="status" aria-live="polite">
+                                <p className="mx-auto max-w-2xl text-sm font-bold text-[#006064]">{copy.modal.contactMessage}</p>
                             </div>
                         ) : packages.map((pkg, index) => {
                             const key = pkg.name || `plan-${index}`;
                             const highlight = pkg.name === recommendedPlanName;
-                            const isRecommended = highlight;
-                            const checkoutReady = Boolean(pkg.stripe_price_1m && pkg.stripe_price_3m && pkg.stripe_price_6m);
-                            const checkoutEnabled = checkoutMode === 'checkout' && checkoutReady;
                             const planTranslations = copy.plans[key as PlanKey] ?? {
                                 name: pkg.display_name?.[lang] || pkg.display_name?.es || key,
                                 description: '',
                                 features: [],
                             };
-                            const canonicalPlanName = pkg.display_name?.[lang]
-                                || pkg.display_name?.es
-                                || pkg.name;
+                            const canonicalPlanName = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
                             const planFeatures = getPlanFeatures(pkg, planTranslations.features);
                             const priceDisplay = getPriceDisplay(pkg);
-                            const actionClass = `
-                                w-auto px-6 ${highlight ? 'py-4' : 'py-2'}
-                                ${highlight
-                                    ? `${s.accent} ${s.accentText} text-sm shadow-[4px_4px_0px_0px_currentColor] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px]`
-                                    : `hover:bg-[#006064] hover:text-white text-xs`
-                                }
-                                border ${s.border} font-bold uppercase transition-all
-                                disabled:opacity-50 disabled:cursor-not-allowed
-                            `;
+                            const actionClass = `w-auto border px-6 ${highlight ? 'py-4' : 'py-2'} ${highlight
+                                ? `${s.accent} ${s.accentText} text-sm shadow-[4px_4px_0px_0px_currentColor] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none`
+                                : 'text-xs hover:bg-[#006064] hover:text-white'} ${s.border} font-bold uppercase transition-all disabled:cursor-not-allowed disabled:opacity-50`;
 
                             return (
                                 <div
                                     key={key}
-                                    className={`
-                                        pricing-plan-card
-                                        grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-4 
-                                        ${highlight ? 'py-12' : 'py-8'} 
-                                        border-t-2 ${highlight ? 'border-b-2' : ''} ${s.border} 
-                                        items-center relative 
-                                        ${highlight ? s.secondaryBg : ''}
-                                    `}
+                                    className={`pricing-plan-card relative grid grid-cols-1 items-center gap-6 border-t-2 md:grid-cols-12 md:gap-4 ${highlight ? `border-b-2 py-12 ${s.secondaryBg}` : 'py-8'} ${s.border}`}
                                 >
-                                    {isRecommended && (
-                                        <div className={`absolute top-0 left-0 ${s.accent} ${s.accentText} px-2 py-1 text-[10px] font-bold uppercase tracking-widest`}>
+                                    {highlight && (
+                                        <div className={`absolute left-0 top-0 px-2 py-1 text-[10px] font-bold uppercase tracking-widest ${s.accent} ${s.accentText}`}>
                                             {copy.recommended}
                                         </div>
                                     )}
 
-                                    {/* Name & Description */}
                                     <div className="col-span-3">
-                                        <h3 className={`font-display ${highlight ? 'text-4xl' : 'text-3xl'}`}>
-                                            {canonicalPlanName}
-                                        </h3>
-                                        <p className="text-sm mt-1">{planTranslations.description}</p>
+                                        <h3 className={`font-display ${highlight ? 'text-4xl' : 'text-3xl'}`}>{canonicalPlanName}</h3>
+                                        <p className="mt-1 text-sm">{planTranslations.description}</p>
                                     </div>
 
-                                    {/* Price */}
-                                    <div className={`col-span-2 font-mono ${highlight ? 'text-3xl' : 'text-2xl'} font-bold`}>
+                                    <div className={`col-span-2 font-mono font-bold ${highlight ? 'text-3xl' : 'text-2xl'}`}>
                                         {priceDisplay.label}
-                                        {priceDisplay.hasPrice && (
-                                            <span className="block text-[11px] uppercase tracking-wide">
-                                                {copy.month}
-                                            </span>
-                                        )}
+                                        {priceDisplay.hasPrice && <span className="block text-[11px] uppercase tracking-wide">{copy.month}</span>}
                                     </div>
 
-                                    {/* Features */}
-                                    <div className={`col-span-5 text-sm ${highlight ? 'font-bold' : 'font-medium'} space-y-1`}>
-                                        {planFeatures.map((feature, idx) => (
-                                            <p key={idx}><span aria-hidden="true">{'\u2022'}</span> {feature}</p>
+                                    <div className={`col-span-5 space-y-1 text-sm ${highlight ? 'font-bold' : 'font-medium'}`}>
+                                        {planFeatures.map((feature, featureIndex) => (
+                                            <p key={featureIndex}><span aria-hidden="true">•</span> {feature}</p>
                                         ))}
                                     </div>
 
-                                    {/* Action Button */}
                                     <div className="col-span-2 flex justify-center">
                                         <button
                                             type="button"
-                                            onClick={() => {
-                                                if (checkoutEnabled) handleSelectPlan(pkg);
-                                            }}
-                                            disabled={!checkoutEnabled}
+                                            onClick={() => handleSelectPlan(pkg)}
+                                            disabled={!priceDisplay.hasPrice}
                                             data-plan={key}
                                             data-testid={`select-plan-${key}`}
-                                            aria-describedby="pricing-availability-note"
+                                            aria-describedby={checkoutMode === 'unavailable' ? 'pricing-availability-note' : undefined}
                                             className={actionClass}
                                         >
-                                            {checkoutEnabled ? copy.select : copy.modal.contact}
+                                            {copy.modal.viewAvailability}
                                         </button>
                                     </div>
                                 </div>
@@ -331,13 +305,14 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                 )}
             </section>
 
-            {/* Modal */}
             <PricingModal
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                onClose={closeModal}
                 plan={selectedPlan}
                 lang={lang}
                 isLoggedIn={isLoggedIn}
+                checkoutEnabled={checkoutMode === 'checkout'}
+                initialSlotPublicId={initialSlotPublicId}
                 translations={copy.modal}
             />
         </>

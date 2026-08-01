@@ -3,18 +3,20 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import AuthForm from '../../components/AuthForm.jsx';
 import { useTranslations } from '../../i18n/utils';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
+import { appendAuthReturnTo, sanitizeAuthReturnTo } from '../../lib/auth-return-to';
 
 export const prerender = false;
 
 const { lang = 'es' } = Astro.params as { lang?: 'es' | 'en' | 'ru' };
 const t = useTranslations(lang);
+const returnTo = sanitizeAuthReturnTo(Astro.url.searchParams.get('returnTo'));
 
 // Check if user is already logged in
 const supabase = createSupabaseServerClient(Astro);
 const { data: { user } } = await supabase.auth.getUser();
 
 if (user) {
-    return Astro.redirect(`/api/auth/post-login?lang=${lang}`);
+    return Astro.redirect(appendAuthReturnTo(`/api/auth/post-login?lang=${lang}`, returnTo));
 }
 
 // We pass the whole translation object for the current language to the React component
@@ -39,6 +41,7 @@ const confirmationFailed = Astro.url.searchParams.get('error') === 'confirmation
             lang={lang}
             translations={currentLangTranslations}
             initialError={confirmationFailed ? currentLangTranslations.auth.error.confirmationFailed : null}
+            returnTo={returnTo}
         />
     </main>
 </BaseLayout>

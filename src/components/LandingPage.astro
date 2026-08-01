@@ -3,6 +3,7 @@ import { Image } from 'astro:assets';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { ui } from '../i18n/translations';
 import type { LandingPackage } from '../lib/landing-data';
+import { isCheckoutEnabled } from '../lib/checkout-enabled';
 import PricingSection from './PricingSection';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
 import avatarAlejandro from '../assets/avatar_alejandro_team.png';
@@ -23,9 +24,9 @@ interface Props {
 const { lang, packages, isLoggedIn } = Astro.props;
 const t = useTranslations(lang);
 const localizedUi = ui[lang];
-// R1 publishes the target contract without accepting money. Capacity-backed
-// direct checkout is enabled only in its dedicated later slice.
-const checkoutMode = 'unavailable' as const;
+// The server-side gate remains authoritative. Closed environments can inspect
+// real availability, but only an explicitly enabled runtime can create a hold.
+const checkoutMode = isCheckoutEnabled(Astro) ? 'checkout' : 'unavailable';
 
 // Data structure helper for complex arrays 
 const problemsStatements = localizedUi.problems.statements;
@@ -210,11 +211,13 @@ const communityDetails = {
     },
 }[lang];
 
-const applicationNextSteps = {
+const purchaseNextSteps = {
     es: {
         eyebrow: 'Compra directa',
-        title: 'Así funcionará la contratación',
-        intro: 'La compra está temporalmente cerrada mientras conectamos el inventario real de profesores y horarios.',
+        title: checkoutMode === 'checkout' ? 'Así funciona la contratación' : 'Así funcionará la contratación',
+        intro: checkoutMode === 'checkout'
+            ? 'Elige una plaza real con profesor y horario, revisa las condiciones y completa el pago de forma directa.'
+            : 'Las plazas reales con profesor y horario aparecen aquí a medida que se publican. El pago todavía no está habilitado mientras completamos la preparación final del lanzamiento.',
         steps: [
             {
                 title: 'Elige una plaza',
@@ -232,8 +235,10 @@ const applicationNextSteps = {
     },
     en: {
         eyebrow: 'Direct purchase',
-        title: 'How purchasing will work',
-        intro: 'Purchasing is temporarily closed while we connect real teacher and schedule inventory.',
+        title: checkoutMode === 'checkout' ? 'How purchasing works' : 'How purchasing will work',
+        intro: checkoutMode === 'checkout'
+            ? 'Choose a real place with its teacher and weekly time, review the terms and complete payment directly.'
+            : 'Real places with a teacher and weekly time appear here as they are published. Payment is not yet enabled while final launch checks are completed.',
         steps: [
             {
                 title: 'Choose a place',
@@ -251,8 +256,10 @@ const applicationNextSteps = {
     },
     ru: {
         eyebrow: 'Прямая покупка',
-        title: 'Как будет работать покупка',
-        intro: 'Покупка временно закрыта, пока мы подключаем реальный инвентарь преподавателей и времени.',
+        title: checkoutMode === 'checkout' ? 'Как работает покупка' : 'Как будет работать покупка',
+        intro: checkoutMode === 'checkout'
+            ? 'Выберите реальное место с преподавателем и еженедельным временем, проверьте условия и завершите оплату напрямую.'
+            : 'Реальные места с преподавателем и расписанием появляются здесь по мере публикации. Оплата пока не включена: мы завершаем финальную подготовку к запуску.',
         steps: [
             {
                 title: 'Выберите место',
@@ -639,11 +646,11 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     <section id="contacto" class="py-24 px-6 border-t-2 border-[#006064] bg-[#E0F7FA]">
         <div class="max-w-6xl mx-auto grid grid-cols-1 gap-10 lg:grid-cols-[1fr_28rem] lg:items-start">
             <div>
-                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">{applicationNextSteps.eyebrow}</p>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{applicationNextSteps.title}</h2>
-                <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{applicationNextSteps.intro}</p>
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">{purchaseNextSteps.eyebrow}</p>
+                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{purchaseNextSteps.title}</h2>
+                <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{purchaseNextSteps.intro}</p>
                 <div class="mt-8 grid grid-cols-1 gap-4">
-                    {applicationNextSteps.steps.map((step, index) => (
+                    {purchaseNextSteps.steps.map((step, index) => (
                         <div class="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064]">
                             <p class="font-mono text-xs uppercase tracking-widest text-[#006064]">0{index + 1}</p>
                             <h3 class="mt-2 font-display text-2xl text-[#006064]">{step.title}</h3>

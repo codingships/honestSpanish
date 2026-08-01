@@ -196,7 +196,8 @@ const onboardingCopy = {
         classAssets: 'Meet y documento de clase',
         support: 'Soporte disponible',
         completeProfile: 'Completar perfil',
-        requestPlace: 'Solicitar plaza',
+        viewPlaces: 'Ver plazas',
+        contact: 'Hacer una consulta',
         viewClasses: 'Ver clases',
         openSupport: 'Abrir soporte',
         manualScheduling: 'Coordinamos disponibilidad manualmente',
@@ -217,7 +218,8 @@ const onboardingCopy = {
         classAssets: 'Meet and class document',
         support: 'Support available',
         completeProfile: 'Complete profile',
-        requestPlace: 'Apply for a place',
+        viewPlaces: 'View places',
+        contact: 'Ask a question',
         viewClasses: 'View classes',
         openSupport: 'Open support',
         manualScheduling: 'We coordinate availability manually',
@@ -238,7 +240,8 @@ const onboardingCopy = {
         classAssets: 'Meet и документ занятия',
         support: 'Поддержка доступна',
         completeProfile: 'Заполнить профиль',
-        requestPlace: 'Оставить заявку',
+        viewPlaces: 'Посмотреть места',
+        contact: 'Задать вопрос',
         viewClasses: 'Мои занятия',
         openSupport: 'Открыть поддержку',
         manualScheduling: 'Мы согласуем время вручную',
@@ -264,8 +267,8 @@ const onboardingItems: OnboardingItem[] = [
     {
         label: onboardingCopy.plan,
         done: hasPlan,
-        href: `/${lang}#contacto`,
-        cta: onboardingCopy.requestPlace,
+        href: `/${lang}/#planes`,
+        cta: onboardingCopy.viewPlaces,
     },
     {
         label: onboardingCopy.teacher,
@@ -378,8 +381,11 @@ const onboardingItems: OnboardingItem[] = [
                            {t('campus.dashboard.manageSub')}
                        </button>
                  ) : (
-                      <a href={`/${lang}#contacto`} class="block w-full text-center py-2 bg-[#006064] text-white text-xs font-bold uppercase border border-[#006064] hover:bg-[#004d40] transition-colors">
-                          {onboardingCopy.requestPlace}
+                      <a href={`/${lang}/#planes`} class="block w-full text-center py-2 bg-[#006064] text-white text-xs font-bold uppercase border border-[#006064] hover:bg-[#004d40] transition-colors">
+                          {onboardingCopy.viewPlaces}
+                      </a>
+                      <a href={`/${lang}/#contacto`} class="mt-2 block w-full text-center py-2 text-[#006064] text-xs font-bold uppercase underline underline-offset-4 hover:opacity-70">
+                          {onboardingCopy.contact}
                       </a>
                  )}
              </div>

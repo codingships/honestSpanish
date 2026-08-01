@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { ADULT_POLICY_VERSION } from '../lib/legal-policy';
+import { appendAuthReturnTo, sanitizeAuthReturnTo } from '../lib/auth-return-to';
 
 // Helper function to get lang from URL at redirect time
 const getLangFromUrl = () => {
@@ -10,8 +11,22 @@ const getLangFromUrl = () => {
     return ['es', 'en', 'ru'].includes(lang) ? lang : 'es';
 };
 
-export default function AuthForm({ lang: langProp, translations, initialError }) {
+/**
+ * @param {{
+ *   lang?: 'es' | 'en' | 'ru';
+ *   translations: any;
+ *   initialError?: string | null;
+ *   returnTo?: string | null;
+ * }} props
+ */
+export default function AuthForm({
+    lang: langProp,
+    translations,
+    initialError,
+    returnTo: requestedReturnTo = null,
+}) {
     const lang = langProp || getLangFromUrl();
+    const returnTo = sanitizeAuthReturnTo(requestedReturnTo);
 
     // mode: 'login' | 'register' | 'forgotPassword'
     const [mode, setMode] = useState('login');
@@ -46,8 +61,10 @@ export default function AuthForm({ lang: langProp, translations, initialError })
         try {
             // Best practice: don't reveal if email exists. Always show success.
             // Errors are intentionally swallowed to avoid email enumeration attacks.
+            const resetUrl = new URL(`/${lang}/reset-password`, window.location.origin);
+            if (returnTo) resetUrl.searchParams.set('returnTo', returnTo);
             await supabase.auth.resetPasswordForEmail(normalizedEmail, {
-                redirectTo: `${window.location.origin}/${lang}/reset-password`,
+                redirectTo: resetUrl.toString(),
             });
         } catch (err) {
             void err;
@@ -80,12 +97,13 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                 if (error) throw error;
 
                 const currentLang = lang;
-                window.location.href = `/api/auth/post-login?lang=${currentLang}`;
+                window.location.href = appendAuthReturnTo(`/api/auth/post-login?lang=${currentLang}`, returnTo);
             } else {
                 const fullName = normalizedEmail.split('@')[0];
                 const currentLang = lang;
                 const confirmationUrl = new URL('/api/auth/confirm', window.location.origin);
                 confirmationUrl.searchParams.set('lang', currentLang);
+                if (returnTo) confirmationUrl.searchParams.set('returnTo', returnTo);
 
                 const { data, error } = await supabase.auth.signUp({
                     email: normalizedEmail,
@@ -103,7 +121,7 @@ export default function AuthForm({ lang: langProp, translations, initialError })
                 if (error) throw error;
 
                 if (data?.session) {
-                    window.location.href = `/api/auth/post-login?lang=${currentLang}`;
+                    window.location.href = appendAuthReturnTo(`/api/auth/post-login?lang=${currentLang}`, returnTo);
                 } else {
                     setSuccessMessage(t.auth.success.registered);
                 }

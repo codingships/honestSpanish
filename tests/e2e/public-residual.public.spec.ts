@@ -9,15 +9,15 @@ async function expectPageHasNoMojibake(page: import('@playwright/test').Page) {
 }
 
 test.describe('Residual public routes', () => {
-    test('root route redirects permanently to the Spanish home', async ({ page }) => {
+    test('root route redirects permanently to the English acquisition home', async ({ page }) => {
         const response = await page.request.get('/', { maxRedirects: 0 });
 
         expect(response.status()).toBe(301);
-        expect(response.headers().location).toBe('/es');
+        expect(response.headers().location).toBe('/en');
 
         await page.goto('/', { waitUntil: 'domcontentloaded' });
-        await expect(page).toHaveURL(/\/es\/?$/);
-        await expect(page.locator('html')).toHaveAttribute('lang', 'es');
+        await expect(page).toHaveURL(/\/en\/?$/);
+        await expect(page.locator('html')).toHaveAttribute('lang', 'en');
         await expectPageHasNoMojibake(page);
     });
 
@@ -109,7 +109,8 @@ test.describe('Residual public routes', () => {
         await expect(main).toBeFocused();
         await expect(page.locator('article')).not.toHaveCount(0);
         await expect(page.locator('article a[href^="/es/blog/"]').first()).toBeVisible();
-        await expect(page.locator('a[href="/es#contacto"]')).toBeVisible();
+        await expect(page.locator('a[href="/es/#planes"]')).toBeVisible();
+        await expect(page.locator('a[href="/es/#contacto"]')).toBeVisible();
         await expectPageHasNoMojibake(page);
     });
 
@@ -136,7 +137,8 @@ test.describe('Residual public routes', () => {
             new RegExp(`${articleHref!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/?$`),
         );
         await expect(page.locator('nav a[href="/es/blog"]')).toBeVisible();
-        await expect(page.locator('section a[href="/es#contacto"]')).toBeVisible();
+        await expect(page.locator('section a[href="/es/#planes"]')).toBeVisible();
+        await expect(page.locator('section a[href="/es/#contacto"]')).toBeVisible();
         await expectPageHasNoMojibake(page);
     });
 

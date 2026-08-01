@@ -36,6 +36,10 @@ function middlewareContext(path: string) {
 }
 
 describe('campus adult-account middleware gate', () => {
+    const slotPublicId = '10000000-0000-4000-8000-000000000001';
+    const englishReturnTo = `/en?checkoutSlot=${slotPublicId}#planes`;
+    const spanishReturnTo = `/es?checkoutSlot=${slotPublicId}#planes`;
+
     beforeEach(() => {
         vi.clearAllMocks();
         for (const key of Object.keys(mocks.runtimeEnv)) delete mocks.runtimeEnv[key];
@@ -109,6 +113,38 @@ describe('campus adult-account middleware gate', () => {
         expect(response.status).toBe(302);
         expect(response.headers.get('Location')).toBe('/ru/adult-confirmation');
         expect(mocks.signOut).not.toHaveBeenCalled();
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('returns an authenticated verified student from login to a safe public destination', async () => {
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext(`/en/login?returnTo=${encodeURIComponent(englishReturnTo)}`);
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe(englishReturnTo);
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('does not let a safe public return override an authenticated internal role destination', async () => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'admin',
+                adult_confirmed: false,
+                adult_confirmed_at: null,
+                age_policy_version: null,
+            },
+            error: null,
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext(`/es/login?returnTo=${encodeURIComponent(spanishReturnTo)}`);
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.headers.get('Location')).toBe('/es/campus/admin');
         expect(next).not.toHaveBeenCalled();
     });
 

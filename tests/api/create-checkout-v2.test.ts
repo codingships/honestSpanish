@@ -265,6 +265,16 @@ async function installClients(server: unknown, admin: unknown) {
     vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as any);
 }
 
+async function expectCheckoutError(
+    response: Response,
+    status: 403 | 409,
+    error: string,
+    errorCode: string,
+) {
+    expect(response.status).toBe(status);
+    await expect(response.json()).resolves.toEqual({ error, errorCode });
+}
+
 describe('Checkout contract v2', () => {
     beforeEach(() => {
         vi.resetAllMocks();
@@ -363,6 +373,237 @@ describe('Checkout contract v2', () => {
         }), { idempotencyKey: `checkout-intent:${checkoutIntentId}` });
     });
 
+    it('returns a stable code when the authenticated account is not eligible', async () => {
+        const { server, admin } = makeClients();
+        server.auth.getUser.mockResolvedValue({
+            data: { user: { id: 'student-1', email: 'student@example.com', email_confirmed_at: null } },
+            error: null,
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(
+            response,
+            403,
+            'A confirmed email is required before payment',
+            'ACCOUNT_NOT_ELIGIBLE',
+        );
+        expect(admin.from).not.toHaveBeenCalled();
+    });
+
+    it('returns a stable code for an active subscription', async () => {
+        const active = makeClients();
+        const activeServerFrom = active.server.from.getMockImplementation()!;
+        active.server.from.mockImplementation((table: string) => (
+            table === 'subscriptions'
+                ? query({ data: { id: 'subscription-active' }, error: null })
+                : activeServerFrom(table)
+        ));
+        await installClients(active.server, active.admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const activeResponse = await POST(context({ ...policies, slotPublicId }) as any);
+        await expectCheckoutError(
+            activeResponse,
+            409,
+            'Ya tienes una suscripción activa o pendiente',
+            'ACTIVE_SUBSCRIPTION',
+        );
+
+    });
+
+    it('returns a different stable code for an unavailable slot', async () => {
+        const unavailable = makeClients();
+        const unavailableAdminFrom = unavailable.admin.from.getMockImplementation()!;
+        unavailable.admin.from.mockImplementation((table: string) => (
+            table === 'bookable_slots'
+                ? query({ data: null, error: { message: 'not found' } })
+                : unavailableAdminFrom(table)
+        ));
+        await installClients(unavailable.server, unavailable.admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const unavailableResponse = await POST(context({ ...policies, slotPublicId }) as any);
+        await expectCheckoutError(
+            unavailableResponse,
+            409,
+            'This place is not available for checkout',
+            'SLOT_UNAVAILABLE',
+        );
+    });
+
+    it('does not reconcile an unavailable checkout provider as a hold conflict', async () => {
+        const { server, admin } = makeClients();
+        admin.rpc.mockImplementation(async (name: string) => {
+            if (name === 'claim_direct_checkout_intent_for_slot') {
+                return { data: null, error: { message: 'upstream connection timed out', code: 'PGRST000' } };
+            }
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Checkout is temporarily unavailable',
+            errorCode: 'CHECKOUT_PROVIDER_UNAVAILABLE',
+        });
+        expect(admin.from).not.toHaveBeenCalledWith('bookable_slot_holds');
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('classifies a direct-checkout CRM identity conflict as an ineligible account', async () => {
+        const { server, admin } = makeClients();
+        admin.rpc.mockImplementation(async (name: string) => {
+            if (name === 'claim_direct_checkout_intent_for_slot') {
+                return {
+                    data: null,
+                    error: { message: 'direct_checkout_contact_identity_conflicts', code: '23505' },
+                };
+            }
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(
+            response,
+            403,
+            'The student account cannot claim this checkout',
+            'ACCOUNT_NOT_ELIGIBLE',
+        );
+        expect(admin.from).not.toHaveBeenCalledWith('bookable_slot_holds');
+    });
+
+    it.each([
+        [
+            'CHECKOUT_RECONCILING',
+            { ...checkoutIntent, status: 'completed' },
+            'Payment is being reconciled for the existing checkout',
+        ],
+        [
+            'CHECKOUT_IN_PROGRESS',
+            { ...checkoutIntent, package_price_id: '40000000-0000-4000-8000-000000000099' },
+            'You already have another checkout in progress',
+        ],
+    ])('returns %s for an existing checkout state', async (errorCode, intent, error) => {
+        const { server, admin } = makeClients();
+        admin.rpc.mockImplementation(async (name: string) => {
+            if (name === 'claim_direct_checkout_intent_for_slot') return { data: intent, error: null };
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(response, 409, error, errorCode);
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('returns a distinct code when a Stripe Customer balance changes the purchase', async () => {
+        stripeMock.customers.retrieve.mockResolvedValueOnce({
+            id: 'cus_v2', deleted: false, livemode: false, balance: 100, invoice_credit_balance: {},
+        });
+        const { server, admin } = makeClients();
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(
+            response,
+            409,
+            'The Stripe Customer has a balance that changes this purchase',
+            'CUSTOMER_BALANCE_CONFLICT',
+        );
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a reused Stripe Customer with an active discount', async () => {
+        stripeMock.customers.retrieve.mockResolvedValueOnce({
+            id: 'cus_v2',
+            deleted: false,
+            livemode: false,
+            balance: 0,
+            invoice_credit_balance: {},
+            discount: { id: 'di_legacy' },
+        });
+        const { server, admin } = makeClients();
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(
+            response,
+            409,
+            'The Stripe Customer has a discount that changes this purchase',
+            'CUSTOMER_DISCOUNT_CONFLICT',
+        );
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('returns the same idempotent Checkout Session when another request records it first', async () => {
+        const { server, admin } = makeClients();
+        const concurrentIntentQuery = query({
+            data: {
+                id: checkoutIntentId,
+                status: 'open',
+                stripe_customer_id: 'cus_v2',
+                stripe_checkout_session_id: 'cs_test_v2',
+            },
+            error: null,
+        });
+        concurrentIntentQuery.single.mockResolvedValueOnce({
+            data: null,
+            error: { message: 'The result contains 0 rows' },
+        });
+        const originalFrom = admin.from.getMockImplementation()!;
+        admin.from.mockImplementation((table: string) => (
+            table === 'checkout_intents' ? concurrentIntentQuery : originalFrom(table)
+        ));
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({ url: 'https://checkout.stripe.test/v2' });
+        expect(concurrentIntentQuery.maybeSingle).toHaveBeenCalledTimes(1);
+        expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns a stable configuration code for an invalid checkout expiry', async () => {
+        const invalidIntent = { ...checkoutIntent, expires_at: 'not-a-date' };
+        const { server, admin } = makeClients();
+        admin.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+            if (name === 'claim_direct_checkout_intent_for_slot') return { data: invalidIntent, error: null };
+            if (name === 'snapshot_checkout_intent_customer') {
+                return { data: { ...invalidIntent, stripe_customer_id: args.p_stripe_customer_id }, error: null };
+            }
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(
+            response,
+            409,
+            'Checkout reservation has an invalid expiry',
+            'CHECKOUT_CONFIGURATION_ERROR',
+        );
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
     it('proves an expired intent has no Stripe Session, releases its hold and retries safely', async () => {
         const staleIntent = {
             ...checkoutIntent,
@@ -374,6 +615,12 @@ describe('Checkout contract v2', () => {
             id: '50000000-0000-4000-8000-000000000002',
         };
         const { server, admin } = makeClients();
+        const originalFrom = admin.from.getMockImplementation()!;
+        admin.from.mockImplementation((table: string) => (
+            table === 'checkout_intents'
+                ? query({ data: { id: replacementIntent.id }, error: null })
+                : originalFrom(table)
+        ));
         let claimCount = 0;
         admin.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
             if (name === 'claim_direct_checkout_intent_for_slot') {
@@ -433,9 +680,15 @@ describe('Checkout contract v2', () => {
         };
         const { server, admin } = makeClients();
         const originalFrom = admin.from.getMockImplementation()!;
+        let checkoutIntentReads = 0;
         admin.from.mockImplementation((table: string) => {
             if (table === 'bookable_slot_holds') return query({ data: staleHold, error: null });
-            if (table === 'checkout_intents') return query({ data: staleConflictingIntent, error: null });
+            if (table === 'checkout_intents') {
+                checkoutIntentReads += 1;
+                return checkoutIntentReads === 1
+                    ? query({ data: staleConflictingIntent, error: null })
+                    : query({ data: { id: checkoutIntent.id }, error: null });
+            }
             return originalFrom(table);
         });
         let claimCount = 0;
@@ -516,6 +769,10 @@ describe('Checkout contract v2', () => {
             const response = await POST(context({ ...policies, slotPublicId, lang: 'en' }) as any);
 
             expect(response.status).toBe(409);
+            await expect(response.json()).resolves.toEqual({
+                error: 'Could not reserve this place for checkout',
+                errorCode: 'HOLD_CONFLICT',
+            });
             expect(stripeMock.checkout.sessions.retrieve).toHaveBeenCalledWith(session.id);
             expect(admin.rpc).toHaveBeenCalledTimes(1);
             expect(admin.rpc).not.toHaveBeenCalledWith(
@@ -572,6 +829,10 @@ describe('Checkout contract v2', () => {
         const response = await POST(context({ ...policies, slotPublicId, lang: 'en' }) as any);
 
         expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Could not reserve this place for checkout',
+            errorCode: 'HOLD_CONFLICT',
+        });
         expect(stripeMock.checkout.sessions.retrieve).not.toHaveBeenCalled();
         expect(admin.rpc).toHaveBeenCalledTimes(1);
         expect(admin.rpc).not.toHaveBeenCalledWith(
@@ -734,6 +995,10 @@ describe('Checkout contract v2', () => {
         const response = await POST(context({ ...policies, slotPublicId, lang: 'en' }) as any);
 
         expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Could not reserve this place for checkout',
+            errorCode: 'HOLD_CONFLICT',
+        });
         expect(holdLookupCount).toBe(2);
         expect(intentLookupCount).toBe(1);
         expect(stripeMock.checkout.sessions.list).toHaveBeenCalledTimes(1);
@@ -779,6 +1044,10 @@ describe('Checkout contract v2', () => {
         const response = await POST(context({ ...policies, slotPublicId }) as any);
 
         expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Stripe prices do not match the approved offer',
+            errorCode: 'OFFER_CONFIGURATION_ERROR',
+        });
         expect(admin.rpc).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });

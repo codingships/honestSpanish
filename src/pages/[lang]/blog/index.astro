@@ -28,18 +28,21 @@ const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.p
 const blogIndexCta = {
     es: {
         heading: '¿Quieres hablar de estos temas en español?',
-        body: 'Si estos artículos encajan con lo que necesitas, solicita plaza y cuéntanos tu nivel, objetivo y disponibilidad.',
-        button: 'Solicitar plaza',
+        body: 'Si estos artículos encajan con lo que necesitas, consulta las plazas reales con profesor, horario y fechas antes de reservar.',
+        button: 'Ver plazas',
+        contact: 'Hacer una consulta',
     },
     en: {
         heading: 'Want to discuss these topics in Spanish?',
-        body: 'If these articles match what you need, apply for a place and tell us your level, goal and availability.',
-        button: 'Apply for a place',
+        body: 'If these articles match what you need, view real places with their teacher, weekly time and dates before booking.',
+        button: 'View places',
+        contact: 'Ask a question',
     },
     ru: {
         heading: 'Хотите говорить об этом по-испански?',
-        body: 'Если эти статьи похожи на то, что вам нужно, оставьте заявку и расскажите о своем уровне, цели и расписании.',
-        button: 'Оставить заявку',
+        body: 'Если эти статьи похожи на то, что вам нужно, посмотрите реальные места с преподавателем, временем и датами до бронирования.',
+        button: 'Посмотреть места',
+        contact: 'Задать вопрос',
     },
 }[lang as 'es' | 'en' | 'ru'];
 
@@ -143,10 +146,16 @@ const accessibilityCopy = {
                 <h2 class="font-display text-4xl md:text-5xl leading-tight">{blogIndexCta.heading}</h2>
                 <p class="mt-4 text-lg font-bold text-white/85">{blogIndexCta.body}</p>
                 <a
-                    href={`/${lang}#contacto`}
+                    href={`/${lang}/#planes`}
                     class="mt-8 inline-block bg-white text-[#006064] px-8 py-4 text-sm font-bold uppercase tracking-widest border-2 border-white hover:bg-[#E0F7FA] transition-all"
                 >
                     {blogIndexCta.button}
+                </a>
+                <a
+                    href={`/${lang}/#contacto`}
+                    class="ml-0 mt-4 inline-block px-6 py-3 text-sm font-bold uppercase tracking-widest underline underline-offset-4 hover:text-[#E0F7FA] sm:ml-4 sm:mt-8"
+                >
+                    {blogIndexCta.contact}
                 </a>
             </div>
         </section>

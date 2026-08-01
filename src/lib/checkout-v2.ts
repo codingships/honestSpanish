@@ -44,6 +44,21 @@ type CheckoutV2Request = {
     withdrawalLossAcknowledged?: unknown;
 };
 
+export type CheckoutV2ErrorCode =
+    | 'CHECKOUT_DISABLED'
+    | 'ACCOUNT_NOT_ELIGIBLE'
+    | 'ACTIVE_SUBSCRIPTION'
+    | 'SLOT_UNAVAILABLE'
+    | 'OFFER_CONFIGURATION_ERROR'
+    | 'HOLD_CONFLICT'
+    | 'CHECKOUT_RECONCILING'
+    | 'CHECKOUT_IN_PROGRESS'
+    | 'CUSTOMER_CONFIGURATION_ERROR'
+    | 'CUSTOMER_BALANCE_CONFLICT'
+    | 'CUSTOMER_DISCOUNT_CONFLICT'
+    | 'CHECKOUT_PROVIDER_UNAVAILABLE'
+    | 'CHECKOUT_CONFIGURATION_ERROR';
+
 type DirectCheckoutClaimArgs = {
     p_student_id: string;
     p_primary_email: string;
@@ -65,6 +80,14 @@ const stripeMinimumSessionLifetimeSeconds = 30 * 60;
 
 function jsonResponse(payload: unknown, status: number): Response {
     return new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
+}
+
+function checkoutErrorResponse(
+    error: string,
+    errorCode: CheckoutV2ErrorCode,
+    status: 403 | 409 | 503 = 409,
+): Response {
+    return jsonResponse({ error, errorCode }, status);
 }
 
 function normalizeCheckoutLang(value: unknown): 'es' | 'en' | 'ru' {
@@ -99,23 +122,31 @@ function allBalancesAreZero(balances: Record<string, number> | null | undefined)
     return Object.values(balances ?? {}).every((amount) => amount === 0);
 }
 
-async function stripeCustomerHasNoApplicableBalance(input: {
+type StripeCustomerPurchaseConflict = 'configuration' | 'balance' | 'discount' | null;
+
+async function stripeCustomerPurchaseConflict(input: {
     customerId: string;
     runtimeLivemode: boolean;
-}): Promise<boolean> {
+}): Promise<StripeCustomerPurchaseConflict> {
     const [customer, cashBalance] = await Promise.all([
         stripe.customers.retrieve(input.customerId),
         stripe.customers.retrieveCashBalance(input.customerId),
     ]);
 
-    return !customer.deleted
-        && customer.id === input.customerId
-        && customer.livemode === input.runtimeLivemode
-        && customer.balance === 0
-        && allBalancesAreZero(customer.invoice_credit_balance)
-        && cashBalance.customer === input.customerId
-        && cashBalance.livemode === input.runtimeLivemode
-        && allBalancesAreZero(cashBalance.available);
+    if (
+        customer.deleted
+        || customer.id !== input.customerId
+        || customer.livemode !== input.runtimeLivemode
+        || cashBalance.customer !== input.customerId
+        || cashBalance.livemode !== input.runtimeLivemode
+    ) return 'configuration';
+    if (customer.discount != null) return 'discount';
+    if (
+        customer.balance !== 0
+        || !allBalancesAreZero(customer.invoice_credit_balance)
+        || !allBalancesAreZero(cashBalance.available)
+    ) return 'balance';
+    return null;
 }
 
 function renewalAnchorFor(firstOccurrenceAt: string): { iso: string; unix: number } | null {
@@ -221,6 +252,98 @@ async function claimDirectCheckoutIntent(
         }>;
     };
     return client.rpc('claim_direct_checkout_intent_for_slot', args);
+}
+
+type CheckoutClaimFailureKind = 'hold' | 'slot' | 'account' | 'offer' | 'configuration' | 'provider';
+
+function checkoutClaimFailureKind(error: unknown): CheckoutClaimFailureKind {
+    if (!error) return 'configuration';
+    const record = typeof error === 'object' && error !== null
+        ? error as Record<string, unknown>
+        : {};
+    const diagnostic = [record.message, record.details, record.hint, error]
+        .filter((value) => typeof value === 'string')
+        .join(' ');
+
+    if (/bookable_slot_is_held|checkout_hold_fingerprint_already_active/u.test(diagnostic)) return 'hold';
+    if (/direct_checkout_slot_is_not_available|bookable_slot_is_not_available/u.test(diagnostic)) return 'slot';
+    if (/direct_checkout_student_identity_is_invalid|direct_checkout_contact_identity_conflicts/u.test(diagnostic)) return 'account';
+    if (/direct_checkout_price_is_not_available|checkout_intent_offer_does_not_match_slot/u.test(diagnostic)) return 'offer';
+    if (
+        /invalid_direct_checkout_claim|invalid_bookable_slot_hold|direct_checkout_approval_conflicts|checkout_intent_cannot_hold_slot|checkout_intent_already_has_another_slot_state/u
+            .test(diagnostic)
+    ) return 'configuration';
+    return 'provider';
+}
+
+function checkoutClaimFailureResponse(error: unknown): Response {
+    switch (checkoutClaimFailureKind(error)) {
+        case 'hold':
+            return checkoutErrorResponse(
+                'Could not reserve this place for checkout',
+                'HOLD_CONFLICT',
+            );
+        case 'slot':
+            return checkoutErrorResponse(
+                'This place is not available for checkout',
+                'SLOT_UNAVAILABLE',
+            );
+        case 'account':
+            return checkoutErrorResponse(
+                'The student account cannot claim this checkout',
+                'ACCOUNT_NOT_ELIGIBLE',
+                403,
+            );
+        case 'offer':
+            return checkoutErrorResponse(
+                'The checkout offer is not available',
+                'OFFER_CONFIGURATION_ERROR',
+            );
+        case 'configuration':
+            return checkoutErrorResponse(
+                'Checkout could not be claimed safely',
+                'CHECKOUT_CONFIGURATION_ERROR',
+            );
+        case 'provider':
+            return checkoutErrorResponse(
+                'Checkout is temporarily unavailable',
+                'CHECKOUT_PROVIDER_UNAVAILABLE',
+                503,
+            );
+    }
+}
+
+async function recordCheckoutSessionOrConfirm(input: {
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    intentId: string;
+    customerId: string;
+    sessionId: string;
+}): Promise<boolean> {
+    const recorded = await input.supabaseAdmin
+        .from('checkout_intents')
+        .update({
+            status: 'open',
+            stripe_checkout_session_id: input.sessionId,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', input.intentId)
+        .eq('status', 'creating')
+        .eq('stripe_customer_id', input.customerId)
+        .is('stripe_checkout_session_id', null)
+        .select('id')
+        .single();
+    if (!recorded.error && recorded.data?.id === input.intentId) return true;
+
+    const concurrent = await input.supabaseAdmin
+        .from('checkout_intents')
+        .select('id, status, stripe_customer_id, stripe_checkout_session_id')
+        .eq('id', input.intentId)
+        .maybeSingle();
+    return !concurrent.error
+        && concurrent.data?.id === input.intentId
+        && concurrent.data.status === 'open'
+        && concurrent.data.stripe_customer_id === input.customerId
+        && concurrent.data.stripe_checkout_session_id === input.sessionId;
 }
 
 async function releaseV2CheckoutIntent(
@@ -481,7 +604,11 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
         if (!user.email || !user.email_confirmed_at) {
-            return jsonResponse({ error: 'A confirmed email is required before payment' }, 403);
+            return checkoutErrorResponse(
+                'A confirmed email is required before payment',
+                'ACCOUNT_NOT_ELIGIBLE',
+                403,
+            );
         }
 
         const { data: profile, error: profileError } = await supabase
@@ -491,7 +618,11 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             .single();
         if (profileError || !profile) return jsonResponse({ error: 'Profile not found' }, 404);
         if (profile.role !== 'student') {
-            return jsonResponse({ error: 'Only student accounts can purchase a plan' }, 403);
+            return checkoutErrorResponse(
+                'Only student accounts can purchase a plan',
+                'ACCOUNT_NOT_ELIGIBLE',
+                403,
+            );
         }
 
         const { data: activeSub, error: activeSubError } = await supabase
@@ -502,16 +633,25 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             .limit(1)
             .maybeSingle();
         if (activeSubError) return jsonResponse({ error: 'Could not verify existing subscriptions' }, 500);
-        if (activeSub) return jsonResponse({ error: 'Ya tienes una suscripción activa o pendiente' }, 409);
+        if (activeSub) return checkoutErrorResponse(
+            'Ya tienes una suscripción activa o pendiente',
+            'ACTIVE_SUBSCRIPTION',
+        );
 
         const supabaseAdmin = createSupabaseAdminClient();
         const offer = await loadCheckoutV2Offer(supabaseAdmin, slotPublicId);
-        if (!offer) return jsonResponse({ error: 'This place is not available for checkout' }, 409);
+        if (!offer) return checkoutErrorResponse(
+            'This place is not available for checkout',
+            'SLOT_UNAVAILABLE',
+        );
         const { slot, packageRow, packagePrice, priceSnapshot } = offer;
 
         const anchor = renewalAnchorFor(slot.first_occurrence_at);
         if (!anchor || Date.parse(slot.first_occurrence_at) <= Date.now()) {
-            return jsonResponse({ error: 'This place no longer has a valid first class' }, 409);
+            return checkoutErrorResponse(
+                'This place no longer has a valid first class',
+                'SLOT_UNAVAILABLE',
+            );
         }
 
         const [stripeAccount, initialPrice, recurringPrice] = await Promise.all([
@@ -542,7 +682,10 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             || stripeProductId(recurringPrice.product) !== productId
             || recurringPrice.recurring?.interval !== 'day'
             || recurringPrice.recurring.interval_count !== INITIAL_INDIVIDUAL_OFFER.billingIntervalCount
-        ) return jsonResponse({ error: 'Stripe prices do not match the approved offer' }, 409);
+        ) return checkoutErrorResponse(
+            'Stripe prices do not match the approved offer',
+            'OFFER_CONFIGURATION_ERROR',
+        );
 
         const claimArgs: DirectCheckoutClaimArgs = {
             p_student_id: user.id,
@@ -559,27 +702,35 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
         let claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
         let checkoutIntent = claim.data;
         if (claim.error || !checkoutIntent) {
-            const reconciled = await reconcileExpiredV2HoldConflicts({
-                supabaseAdmin,
-                slotId: slot.id,
-                holdFingerprint,
-                runtimeLivemode: runtime.livemode,
-            });
-            if (reconciled) {
-                claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
-                checkoutIntent = claim.data;
+            if (checkoutClaimFailureKind(claim.error) === 'hold') {
+                const reconciled = await reconcileExpiredV2HoldConflicts({
+                    supabaseAdmin,
+                    slotId: slot.id,
+                    holdFingerprint,
+                    runtimeLivemode: runtime.livemode,
+                });
+                if (reconciled) {
+                    claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
+                    checkoutIntent = claim.data;
+                }
             }
             if (claim.error || !checkoutIntent) {
-                return jsonResponse({ error: 'Could not reserve this place for checkout' }, 409);
+                return checkoutClaimFailureResponse(claim.error);
             }
         }
 
         for (let attempt = 0; attempt < 2; attempt += 1) {
             if (checkoutIntent.status === 'completed') {
-                return jsonResponse({ error: 'Payment is being reconciled for the existing checkout' }, 409);
+                return checkoutErrorResponse(
+                    'Payment is being reconciled for the existing checkout',
+                    'CHECKOUT_RECONCILING',
+                );
             }
             if (checkoutIntent.package_price_id !== packagePrice.id) {
-                return jsonResponse({ error: 'You already have another checkout in progress' }, 409);
+                return checkoutErrorResponse(
+                    'You already have another checkout in progress',
+                    'CHECKOUT_IN_PROGRESS',
+                );
             }
 
             const profilePrivate = await getPrivateProfile(user.id);
@@ -597,7 +748,10 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                 runtime,
             });
             if (!customerId && checkoutIntent.stripe_customer_id) {
-                return jsonResponse({ error: 'The Checkout Customer snapshot is no longer available' }, 409);
+                return checkoutErrorResponse(
+                    'The Checkout Customer snapshot is no longer available',
+                    'CUSTOMER_CONFIGURATION_ERROR',
+                );
             }
             if (!customerId) {
                 const customer = await stripe.customers.create({
@@ -611,10 +765,22 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                     stripe_customer_livemode: runtime.livemode,
                 });
             }
-            if (!await stripeCustomerHasNoApplicableBalance({
+            const customerConflict = await stripeCustomerPurchaseConflict({
                 customerId,
                 runtimeLivemode: runtime.livemode,
-            })) return jsonResponse({ error: 'The Stripe Customer has a balance that changes this purchase' }, 409);
+            });
+            if (customerConflict === 'configuration') return checkoutErrorResponse(
+                'The Stripe Customer snapshot is not compatible with this purchase',
+                'CUSTOMER_CONFIGURATION_ERROR',
+            );
+            if (customerConflict === 'discount') return checkoutErrorResponse(
+                'The Stripe Customer has a discount that changes this purchase',
+                'CUSTOMER_DISCOUNT_CONFLICT',
+            );
+            if (customerConflict === 'balance') return checkoutErrorResponse(
+                'The Stripe Customer has a balance that changes this purchase',
+                'CUSTOMER_BALANCE_CONFLICT',
+            );
 
             const snapshotted = await supabaseAdmin.rpc('snapshot_checkout_intent_customer', {
                 p_intent_id: checkoutIntent.id,
@@ -625,7 +791,10 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                 || !snapshotted.data
                 || snapshotted.data.id !== checkoutIntent.id
                 || snapshotted.data.stripe_customer_id !== customerId
-            ) return jsonResponse({ error: 'Checkout Customer could not be recorded safely' }, 409);
+            ) return checkoutErrorResponse(
+                'Checkout Customer could not be recorded safely',
+                'CUSTOMER_CONFIGURATION_ERROR',
+            );
             checkoutIntent = snapshotted.data;
 
             const policyAcceptedAt = checkoutIntent.policy_accepted_at;
@@ -685,7 +854,10 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                     checkoutIntentId: checkoutIntent.id,
                 });
                 if (recovered.length > 1) {
-                    return jsonResponse({ error: 'Multiple Stripe Sessions exist for this checkout' }, 409);
+                    return checkoutErrorResponse(
+                        'Multiple Stripe Sessions exist for this checkout',
+                        'CHECKOUT_CONFIGURATION_ERROR',
+                    );
                 }
                 if (recovered[0]) {
                     existingSession = await stripe.checkout.sessions.retrieve(
@@ -697,46 +869,53 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
 
             if (existingSession) {
                 if (!checkoutSessionMatchesV2({ session: existingSession, ...matchInput })) {
-                    return jsonResponse({ error: 'Stored Checkout Session does not match this place' }, 409);
+                    return checkoutErrorResponse(
+                        'Stored Checkout Session does not match this place',
+                        'CHECKOUT_CONFIGURATION_ERROR',
+                    );
                 }
                 if (existingSession.status === 'open' && existingSession.url) {
                     if (!checkoutIntent.stripe_checkout_session_id) {
-                        const recorded = await supabaseAdmin
-                            .from('checkout_intents')
-                            .update({
-                                status: 'open',
-                                stripe_checkout_session_id: existingSession.id,
-                                updated_at: new Date().toISOString(),
-                            })
-                            .eq('id', checkoutIntent.id)
-                            .eq('status', 'creating')
-                            .eq('stripe_customer_id', customerId)
-                            .is('stripe_checkout_session_id', null)
-                            .select('id')
-                            .single();
-                        if (recorded.error || !recorded.data) {
-                            return jsonResponse({ error: 'Recovered checkout could not be recorded safely' }, 409);
+                        if (!await recordCheckoutSessionOrConfirm({
+                            supabaseAdmin,
+                            intentId: checkoutIntent.id,
+                            customerId,
+                            sessionId: existingSession.id,
+                        })) {
+                            return checkoutErrorResponse(
+                                'Recovered checkout could not be recorded safely',
+                                'CHECKOUT_CONFIGURATION_ERROR',
+                            );
                         }
                     }
                     return jsonResponse({ url: existingSession.url }, 200);
                 }
                 if (existingSession.status !== 'expired' || attempt > 0) {
-                    return jsonResponse({ error: 'Payment is being reconciled for the existing checkout' }, 409);
+                    return checkoutErrorResponse(
+                        'Payment is being reconciled for the existing checkout',
+                        'CHECKOUT_RECONCILING',
+                    );
                 }
                 if (!await releaseV2CheckoutIntent(supabaseAdmin, checkoutIntent, existingSession.id)) {
-                    return jsonResponse({ error: 'Expired checkout could not release its place safely' }, 409);
+                    return checkoutErrorResponse(
+                        'Expired checkout could not release its place safely',
+                        'CHECKOUT_RECONCILING',
+                    );
                 }
                 claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
                 checkoutIntent = claim.data;
                 if (claim.error || !checkoutIntent) {
-                    return jsonResponse({ error: 'Could not reserve a replacement checkout' }, 409);
+                    return checkoutClaimFailureResponse(claim.error);
                 }
                 continue;
             }
 
             const intentExpiresAt = Date.parse(checkoutIntent.expires_at);
             if (!Number.isFinite(intentExpiresAt)) {
-                return jsonResponse({ error: 'Checkout reservation has an invalid expiry' }, 409);
+                return checkoutErrorResponse(
+                    'Checkout reservation has an invalid expiry',
+                    'CHECKOUT_CONFIGURATION_ERROR',
+                );
             }
             if (intentExpiresAt <= Date.now()) {
                 if (
@@ -747,12 +926,15 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                         customerId,
                     )
                 ) {
-                    return jsonResponse({ error: 'Expired checkout could not release its place safely' }, 409);
+                    return checkoutErrorResponse(
+                        'Expired checkout could not release its place safely',
+                        'CHECKOUT_RECONCILING',
+                    );
                 }
                 claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
                 checkoutIntent = claim.data;
                 if (claim.error || !checkoutIntent) {
-                    return jsonResponse({ error: 'Could not reserve a replacement checkout' }, 409);
+                    return checkoutClaimFailureResponse(claim.error);
                 }
                 continue;
             }
@@ -764,7 +946,10 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                 !Number.isInteger(checkoutExpiresAt)
                 || checkoutExpiresAt < nowSeconds + stripeMinimumSessionLifetimeSeconds
                 || checkoutExpiresAt >= firstClassAtSeconds
-            ) return jsonResponse({ error: 'This place cannot be held for a safe Checkout Session' }, 409);
+            ) return checkoutErrorResponse(
+                'This place cannot be held for a safe Checkout Session',
+                'CHECKOUT_CONFIGURATION_ERROR',
+            );
 
             const createdSession = await stripe.checkout.sessions.create({
                 mode: 'subscription',
@@ -793,32 +978,36 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             }, { idempotencyKey: `checkout-intent:${checkoutIntent.id}` });
 
             if (!checkoutSessionMatchesV2({ session: createdSession, ...matchInput })) {
-                return jsonResponse({ error: 'Stripe returned a Checkout Session for a different place' }, 409);
+                return checkoutErrorResponse(
+                    'Stripe returned a Checkout Session for a different place',
+                    'CHECKOUT_CONFIGURATION_ERROR',
+                );
             }
             if (createdSession.status !== 'open' || !createdSession.url) {
-                return jsonResponse({ error: 'Payment is being reconciled for the existing checkout' }, 409);
+                return checkoutErrorResponse(
+                    'Payment is being reconciled for the existing checkout',
+                    'CHECKOUT_RECONCILING',
+                );
             }
 
-            const recorded = await supabaseAdmin
-                .from('checkout_intents')
-                .update({
-                    status: 'open',
-                    stripe_checkout_session_id: createdSession.id,
-                    updated_at: new Date().toISOString(),
-                })
-                .eq('id', checkoutIntent.id)
-                .eq('status', 'creating')
-                .eq('stripe_customer_id', customerId)
-                .is('stripe_checkout_session_id', null)
-                .select('id')
-                .single();
-            if (recorded.error || !recorded.data) {
-                return jsonResponse({ error: 'Checkout Session could not be recorded safely' }, 409);
+            if (!await recordCheckoutSessionOrConfirm({
+                supabaseAdmin,
+                intentId: checkoutIntent.id,
+                customerId,
+                sessionId: createdSession.id,
+            })) {
+                return checkoutErrorResponse(
+                    'Checkout Session could not be recorded safely',
+                    'CHECKOUT_CONFIGURATION_ERROR',
+                );
             }
             return jsonResponse({ url: createdSession.url }, 200);
         }
 
-        return jsonResponse({ error: 'Could not create a stable Checkout Session' }, 409);
+        return checkoutErrorResponse(
+            'Could not create a stable Checkout Session',
+            'CHECKOUT_CONFIGURATION_ERROR',
+        );
     } catch (error) {
         console.error('Error creating checkout v2:', error);
         return jsonResponse({ error: 'Internal server error' }, 500);
