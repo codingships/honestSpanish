@@ -5,11 +5,28 @@ SET statement_timeout = '20s';
 
 CREATE EXTENSION IF NOT EXISTS dblink;
 
--- Keep the weekly cadence while placing the second class inside the 24-hour
--- boundary, so the real guarantee saga proves its durable provenance wins over
--- the ordinary late-cancellation rule.
-SELECT date_trunc('second', clock_timestamp()) - INTERVAL '6 days 23 hours'
-    AS guarantee_first_at
+-- Keep a safe same-day class time while placing the second class at the next
+-- Madrid noon, always inside the 24-hour boundary. Subtracting seven absolute
+-- days preserves the fixture's existing `first_at + 7 days` recurrence even
+-- when the test runs across a DST transition.
+WITH current_madrid AS (
+    SELECT clock_timestamp() AT TIME ZONE 'Europe/Madrid' AS local_now
+)
+SELECT date_trunc(
+    'second',
+    (
+        (
+            local_now::DATE
+            + CASE
+                WHEN local_now::TIME < TIME '12:00'
+                    THEN 0
+                ELSE 1
+            END
+            + TIME '12:00'
+        ) AT TIME ZONE 'Europe/Madrid'
+    ) - INTERVAL '7 days'
+) AS guarantee_first_at
+FROM current_madrid
 \gset
 
 -- Durable fixture. Replica mode is confined to setup/teardown so the test can
