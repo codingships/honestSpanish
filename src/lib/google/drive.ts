@@ -374,12 +374,15 @@ export async function getStudentLevelStructure(
     const drive = getDriveClient();
 
     try {
+        const rootFolderLiteral = escapeDriveQueryLiteral(rootFolderId);
         // Find level folder (e.g., "A2") within the root folder
-        const levelQuery = `name = '${level}' and '${rootFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const levelQuery = `name = '${level}' and '${rootFolderLiteral}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
         const levelResponse = await drive.files.list({
             q: levelQuery,
             fields: 'files(id, name)',
             spaces: 'drive',
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
         });
 
         const levelFolder = levelResponse.data.files?.[0];
@@ -389,11 +392,14 @@ export async function getStudentLevelStructure(
         }
 
         // Find "Ejercicios" folder within the level folder
-        const exercisesQuery = `name = 'Ejercicios' and '${levelFolder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const levelFolderLiteral = escapeDriveQueryLiteral(levelFolder.id);
+        const exercisesQuery = `name = 'Ejercicios' and '${levelFolderLiteral}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
         const exercisesResponse = await drive.files.list({
             q: exercisesQuery,
             fields: 'files(id, name)',
             spaces: 'drive',
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
         });
 
         const exercisesFolder = exercisesResponse.data.files?.[0];
@@ -403,21 +409,28 @@ export async function getStudentLevelStructure(
         }
 
         // Find "Audio" folder within Ejercicios
-        const audioQuery = `name = 'Audio' and '${exercisesFolder.id}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const exercisesFolderLiteral = escapeDriveQueryLiteral(exercisesFolder.id);
+        const audioQuery = `name = 'Audio' and '${exercisesFolderLiteral}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
         const audioResponse = await drive.files.list({
             q: audioQuery,
             fields: 'files(id, name)',
             spaces: 'drive',
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
         });
 
         const audioFolder = audioResponse.data.files?.[0];
 
         // Find index document (Google Doc) within Ejercicios folder
-        const indexQuery = `'${exercisesFolder.id}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false`;
+        const indexQuery = `'${exercisesFolderLiteral}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false`;
         const indexResponse = await drive.files.list({
             q: indexQuery,
-            fields: 'files(id, name)',
+            fields: 'files(id, name, createdTime)',
             spaces: 'drive',
+            orderBy: 'createdTime asc',
+            pageSize: 1,
+            includeItemsFromAllDrives: true,
+            supportsAllDrives: true,
         });
 
         const indexDoc = indexResponse.data.files?.[0];
@@ -440,6 +453,7 @@ export async function getStudentLevelStructure(
 }
 
 export interface CreateClassDocumentParams {
+    sessionId: string;
     studentName: string;
     studentRootFolderId: string;
     level: 'A2' | 'B1' | 'B2' | 'C1';
@@ -449,6 +463,48 @@ export interface CreateClassDocumentParams {
 export interface ClassDocumentResult {
     docId: string;
     docUrl: string;
+}
+
+const CLASS_DOCUMENT_SESSION_PROPERTY = 'honestSpanishSessionId';
+
+function escapeDriveQueryLiteral(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function classDocumentResult(file: drive_v3.Schema$File): ClassDocumentResult {
+    if (!file.id) {
+        throw new Error('class_document_identity_missing_id');
+    }
+    return {
+        docId: file.id,
+        docUrl: file.webViewLink || `https://docs.google.com/document/d/${file.id}/edit`,
+    };
+}
+
+async function findClassDocumentBySession(
+    driveClient: drive_v3.Drive,
+    exercisesFolderId: string,
+    sessionId: string,
+): Promise<ClassDocumentResult | null> {
+    const folderLiteral = escapeDriveQueryLiteral(exercisesFolderId);
+    const propertyLiteral = escapeDriveQueryLiteral(CLASS_DOCUMENT_SESSION_PROPERTY);
+    const sessionLiteral = escapeDriveQueryLiteral(sessionId);
+    const response = await driveClient.files.list({
+        q: `'${folderLiteral}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false and appProperties has { key = '${propertyLiteral}' and value = '${sessionLiteral}' }`,
+        fields: 'nextPageToken,incompleteSearch,files(id,name,webViewLink,createdTime,appProperties)',
+        spaces: 'drive',
+        pageSize: 2,
+        includeItemsFromAllDrives: true,
+        supportsAllDrives: true,
+    });
+    const matches = response.data.files ?? [];
+    if (response.data.incompleteSearch) {
+        throw new Error('class_document_identity_observation_incomplete');
+    }
+    if (response.data.nextPageToken || matches.length > 1) {
+        throw new Error('class_document_identity_conflict');
+    }
+    return matches[0] ? classDocumentResult(matches[0]) : null;
 }
 
 /**
@@ -470,7 +526,7 @@ function formatDateSpanish(date: Date): string {
 export async function createClassDocument(
     params: CreateClassDocumentParams
 ): Promise<ClassDocumentResult | null> {
-    const { studentName, studentRootFolderId, level, classDate } = params;
+    const { sessionId, studentName, studentRootFolderId, level, classDate } = params;
     const drive = getDriveClient();
 
     try {
@@ -485,6 +541,16 @@ export async function createClassDocument(
         const dateStr = formatDateSpanish(classDate);
         const docName = `${dateStr} - Ejercicios - ${studentName}`;
 
+        const existingDocument = await findClassDocumentBySession(
+            drive,
+            structure.exercisesFolderId,
+            sessionId,
+        );
+        if (existingDocument) {
+            console.log('[Drive] Found existing class document');
+            return existingDocument;
+        }
+
         // 3. Copy template document
         const templateId = googleConfig.templateDocId;
         if (!templateId) {
@@ -492,21 +558,56 @@ export async function createClassDocument(
             return null;
         }
 
-        const copyResponse = await drive.files.copy({
-            fileId: templateId,
-            requestBody: {
-                name: docName,
-                parents: [structure.exercisesFolderId],
-            },
-            fields: 'id, name, webViewLink',
-        });
+        let copyResponse: { data: drive_v3.Schema$File };
+        try {
+            copyResponse = await drive.files.copy({
+                fileId: templateId,
+                requestBody: {
+                    name: docName,
+                    parents: [structure.exercisesFolderId],
+                    appProperties: {
+                        [CLASS_DOCUMENT_SESSION_PROPERTY]: sessionId,
+                    },
+                },
+                fields: 'id, name, webViewLink, appProperties',
+                supportsAllDrives: true,
+            });
+        } catch (copyError) {
+            const reconciledDocument = await findClassDocumentBySession(
+                drive,
+                structure.exercisesFolderId,
+                sessionId,
+            );
+            if (!reconciledDocument) throw copyError;
 
-        const newDocId = copyResponse.data.id;
-        const newDocUrl = copyResponse.data.webViewLink || `https://docs.google.com/document/d/${newDocId}/edit`;
+            if (structure.indexDocId) {
+                try {
+                    await appendToIndexDocument(
+                        structure.indexDocId,
+                        classDate,
+                        reconciledDocument.docUrl,
+                    );
+                } catch (indexError) {
+                    console.warn('[Drive] Warning: Could not update index document:', describeGoogleError(indexError));
+                }
+            }
+            return reconciledDocument;
+        }
 
-        if (!newDocId) {
-            console.error('[Drive] Failed to copy template document');
-            return null;
+        let createdDocument: ClassDocumentResult;
+        if (copyResponse.data.id) {
+            createdDocument = classDocumentResult(copyResponse.data);
+        } else {
+            const reconciledDocument = await findClassDocumentBySession(
+                drive,
+                structure.exercisesFolderId,
+                sessionId,
+            );
+            if (!reconciledDocument) {
+                console.error('[Drive] Failed to copy template document');
+                return null;
+            }
+            createdDocument = reconciledDocument;
         }
 
         console.log('[Drive] Created class document');
@@ -514,7 +615,7 @@ export async function createClassDocument(
         // 4. Append to index document (non-blocking)
         if (structure.indexDocId) {
             try {
-                await appendToIndexDocument(structure.indexDocId, classDate, newDocUrl);
+                await appendToIndexDocument(structure.indexDocId, classDate, createdDocument.docUrl);
             } catch (indexError) {
                 console.warn('[Drive] Warning: Could not update index document:', describeGoogleError(indexError));
                 // Continue - document was created successfully
@@ -523,14 +624,11 @@ export async function createClassDocument(
             console.warn('[Drive] No index document found, skipping index update');
         }
 
-        return {
-            docId: newDocId,
-            docUrl: newDocUrl,
-        };
+        return createdDocument;
 
     } catch (error) {
         console.error('[Drive] Error creating class document:', describeGoogleError(error));
-        return null;
+        throw error;
     }
 }
 

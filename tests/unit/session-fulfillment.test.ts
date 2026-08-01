@@ -48,7 +48,15 @@ function createSessionsQuery(result: { data: unknown; error: unknown }) {
 describe('session fulfillment', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        privateProfileMocks.getPrivateProfiles.mockResolvedValue(new Map());
+        privateProfileMocks.getPrivateProfiles.mockResolvedValue(new Map([['student-1', {
+            drive_folder_id: 'student-folder-1',
+            current_level: 'B1',
+        }]]));
+        vi.mocked(createClassDocument).mockResolvedValue({
+            docId: 'doc-created',
+            docUrl: 'https://docs.example/doc-created',
+        });
+        vi.mocked(getFileLink).mockResolvedValue('https://drive.example/student-folder-1');
         emailMocks.sendClassConfirmation.mockResolvedValue(true);
         crmClassEmailMocks.recordClassEmailOutInCrmSafe.mockResolvedValue({ status: 'created' });
     });
@@ -249,6 +257,131 @@ describe('session fulfillment', () => {
             }),
         );
         expect(emailMocks.sendClassConfirmation.mock.calls[0]?.[1]?.date).not.toContain('+ 0');
+    });
+
+    it('waits for the welcome folder, creates four batch artifacts on retry, and replays without provider duplicates', async () => {
+        const sessions = Array.from({ length: 4 }, (_, index) => ({
+            id: `session-${index + 1}`,
+            subscription_id: 'subscription-1',
+            student_id: 'student-1',
+            teacher_id: 'teacher-1',
+            status: 'scheduled',
+            scheduled_at: `2026-08-${String(3 + index * 7).padStart(2, '0')}T10:00:00.000Z`,
+            duration_minutes: 50,
+            meet_link: null as string | null,
+            drive_doc_url: null as string | null,
+            drive_doc_id: null as string | null,
+            calendar_event_id: null as string | null,
+            student: {
+                id: 'student-1',
+                full_name: 'Student One',
+                email: 'student@example.com',
+            },
+            teacher: {
+                id: 'teacher-1',
+                full_name: 'Teacher One',
+                email: 'teacher@example.com',
+            },
+        }));
+        const sessionsQuery: any = {
+            select: vi.fn(() => sessionsQuery),
+            in: vi.fn((_field: string, ids: string[]) => Promise.resolve({
+                data: ids.map((id) => sessions.find((session) => session.id === id)),
+                error: null,
+            })),
+            update: vi.fn((values: Record<string, string>) => ({
+                eq: vi.fn((_field: string, id: string) => {
+                    Object.assign(sessions.find((session) => session.id === id)!, values);
+                    return Promise.resolve({ error: null });
+                }),
+            })),
+        };
+        const supabaseAdmin = {
+            from: vi.fn((table: string) => {
+                if (table === 'sessions') return sessionsQuery;
+                throw new Error(`Unexpected table ${table}`);
+            }),
+        };
+        let driveFolderReady = false;
+        privateProfileMocks.getPrivateProfiles.mockImplementation(async () => driveFolderReady
+            ? new Map([['student-1', {
+                drive_folder_id: 'student-folder-1',
+                current_level: 'B1',
+            }]])
+            : new Map());
+        let documentNumber = 0;
+        vi.mocked(createClassDocument).mockImplementation(async () => {
+            documentNumber += 1;
+            return {
+                docId: `doc-${documentNumber}`,
+                docUrl: `https://docs.example/doc-${documentNumber}`,
+            };
+        });
+        vi.mocked(getFileLink).mockResolvedValue('https://drive.example/student-folder-1');
+        vi.mocked(createClassEvent).mockImplementation(async ({ sessionId }) => ({
+            eventId: `event-${sessionId}`,
+            meetLink: `https://meet.example/${sessionId}`,
+            htmlLink: `https://calendar.example/${sessionId}`,
+        }));
+        const deliveredConfirmations = new Set<string>();
+        const confirmationProviderWrites: string[] = [];
+        emailMocks.sendClassConfirmation.mockImplementation(async (
+            recipient: string,
+            _data: unknown,
+            options?: { fulfillmentEffect?: { effectKey?: string } },
+        ) => {
+            const deliveryKey = `${options?.fulfillmentEffect?.effectKey}:${recipient}`;
+            if (!deliveredConfirmations.has(deliveryKey)) {
+                deliveredConfirmations.add(deliveryKey);
+                confirmationProviderWrites.push(deliveryKey);
+            }
+            return true;
+        });
+        const options = {
+            autoCreateMeeting: true,
+            emailEffectJob: {
+                jobId: '11111111-1111-4111-8111-111111111111',
+                leaseOwner: 'worker:test:1',
+            },
+            sendEmail: true,
+        };
+
+        await expect(fulfillSessionBatch(supabaseAdmin as any, sessions.map(({ id }) => id), options))
+            .rejects.toMatchObject({
+                name: 'FulfillmentDependencyPendingError',
+                message: 'bulk_session_fulfillment_waiting_for_drive_folder',
+            });
+
+        expect(createClassDocument).not.toHaveBeenCalled();
+        expect(getFileLink).not.toHaveBeenCalled();
+        expect(createClassEvent).not.toHaveBeenCalled();
+        expect(emailMocks.sendClassConfirmation).not.toHaveBeenCalled();
+        expect(crmClassEmailMocks.recordClassEmailOutInCrmSafe).not.toHaveBeenCalled();
+
+        driveFolderReady = true;
+        await fulfillSessionBatch(supabaseAdmin as any, sessions.map(({ id }) => id), options);
+
+        expect(createClassDocument).toHaveBeenCalledTimes(4);
+        expect(createClassEvent).toHaveBeenCalledTimes(4);
+        expect(sessions).toEqual(expect.arrayContaining(Array.from({ length: 4 }, (_, index) => expect.objectContaining({
+            id: `session-${index + 1}`,
+            drive_doc_id: `doc-${index + 1}`,
+            drive_doc_url: `https://docs.example/doc-${index + 1}`,
+            calendar_event_id: `event-session-${index + 1}`,
+            meet_link: `https://meet.example/session-${index + 1}`,
+        }))));
+        expect(deliveredConfirmations).toEqual(new Set([
+            'email.class_confirmation.student:student@example.com',
+            'email.class_confirmation.teacher:teacher@example.com',
+        ]));
+
+        await fulfillSessionBatch(supabaseAdmin as any, sessions.map(({ id }) => id), options);
+
+        expect(createClassDocument).toHaveBeenCalledTimes(4);
+        expect(createClassEvent).toHaveBeenCalledTimes(4);
+        expect(deliveredConfirmations.size).toBe(2);
+        expect(confirmationProviderWrites).toHaveLength(2);
+        expect(emailMocks.sendClassConfirmation).toHaveBeenCalledTimes(4);
     });
 
     it('skips cancelled sessions in a batch without creating provider artifacts or notifications', async () => {
