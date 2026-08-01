@@ -95,6 +95,20 @@ describe('useTranslations', () => {
         expect(typeof esResult).toBe('string');
         expect(typeof enResult).toBe('string');
     });
+
+    it('returns localized campus load errors for every supported locale', () => {
+        expect(useTranslations('es')('campus.loadError.title')).toBe('No se pudo cargar esta sección');
+        expect(useTranslations('es')('campus.loadError.message')).toContain('contacta con soporte');
+        expect(useTranslations('es')('campus.loadError.retry')).toBe('Reintentar');
+
+        expect(useTranslations('en')('campus.loadError.title')).toBe('This section could not be loaded');
+        expect(useTranslations('en')('campus.loadError.message')).toContain('contact support');
+        expect(useTranslations('en')('campus.loadError.retry')).toBe('Try again');
+
+        expect(useTranslations('ru')('campus.loadError.title')).toBe('Не удалось загрузить этот раздел');
+        expect(useTranslations('ru')('campus.loadError.message')).toContain('обратитесь в поддержку');
+        expect(useTranslations('ru')('campus.loadError.retry')).toBe('Повторить');
+    });
 });
 
 describe('getLocalizedPath', () => {

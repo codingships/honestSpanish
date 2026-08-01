@@ -1,6 +1,13 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
 import { useTranslations } from '../../../i18n/utils';
+import CampusLoadError from '../../../components/campus/CampusLoadError.astro';
+import {
+    reportCampusReadError,
+    resolveOptionalCampusQuery,
+    resolveRequiredCampusQuery,
+} from '../../../lib/campus-load-state';
 import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import ProfileForm from '../../../components/account/ProfileForm';
@@ -13,29 +20,45 @@ const t = useTranslations(lang);
 
 // Get Supabase client and verify user
 const supabase = createSupabaseServerClient(Astro);
-const { data: { user } } = await supabase.auth.getUser();
+const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-if (!user) {
+if (!user && !authError) {
     return Astro.redirect(`/${lang}/login`);
 }
 
-// Get profile
-const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, email, full_name, role, preferred_language, phone, timezone')
-    .eq('id', user.id)
-    .single();
+if (authError) {
+    reportCampusReadError('campus_account.auth', authError);
+}
 
-if (!profile) {
-    return Astro.redirect(`/${lang}/login`);
+// Get profile
+const profileResult = user
+    ? await supabase
+        .from('profiles')
+        .select('id, email, full_name, role, preferred_language, phone, timezone')
+        .eq('id', user.id)
+        .maybeSingle()
+    : { data: null, error: authError };
+const profileState = resolveRequiredCampusQuery(profileResult);
+const profile = profileState.status === 'ready' ? profileState.data : null;
+const roleVerified = profile !== null && ['student', 'teacher', 'admin'].includes(profile.role ?? '');
+const accessUnavailable = Boolean(authError) || profileState.status !== 'ready' || !roleVerified;
+
+if (profileState.status === 'error') {
+    reportCampusReadError('campus_account.profile', profileState.error);
+} else if (profileState.status === 'empty' && user) {
+    reportCampusReadError('campus_account.profile', { code: 'PROFILE_MISSING' });
+} else if (!roleVerified) {
+    reportCampusReadError('campus_account.profile', { code: 'PROFILE_ROLE_INVALID' });
 }
 
 // Keep the latest subscription visible even after cancellation so the student
 // can still see the durable outcome of a guarantee request or refund.
-let subscription = null;
-let profilePrivate = null;
-if (profile.role === 'student') {
-    const { data: sub } = await supabase
+let subscriptionState = resolveOptionalCampusQuery<any>({ data: null, error: null });
+type PrivateProfile = NonNullable<Awaited<ReturnType<typeof getPrivateProfile>>>;
+let profilePrivateState = resolveOptionalCampusQuery<PrivateProfile>({ data: null, error: null });
+
+if (!accessUnavailable && user && profile?.role === 'student') {
+    const subscriptionResult = await supabase
         .from('subscriptions')
         .select(`
             *,
@@ -48,9 +71,34 @@ if (profile.role === 'student') {
         .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-    subscription = sub;
-    profilePrivate = await getPrivateProfile(user.id);
+    subscriptionState = resolveOptionalCampusQuery(subscriptionResult);
+
+    try {
+        profilePrivateState = resolveOptionalCampusQuery({
+            data: await getPrivateProfile(user.id),
+            error: null,
+        });
+    } catch (error) {
+        profilePrivateState = resolveOptionalCampusQuery({ data: null, error });
+    }
 }
+
+if (subscriptionState.status === 'error') {
+    reportCampusReadError('campus_account.subscription', subscriptionState.error);
+}
+if (profilePrivateState.status === 'error') {
+    reportCampusReadError('campus_account.drive', profilePrivateState.error);
+}
+if (
+    accessUnavailable
+    || subscriptionState.status === 'error'
+    || profilePrivateState.status === 'error'
+) {
+    Astro.response.status = 503;
+}
+
+const subscription = subscriptionState.status === 'ready' ? subscriptionState.data : null;
+const profilePrivate = profilePrivateState.status === 'ready' ? profilePrivateState.data : null;
 
 const driveFolderUrl = profilePrivate?.drive_folder_url
     || (profilePrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${profilePrivate.drive_folder_id}` : null);
@@ -145,7 +193,20 @@ const driveUi: Record<'es' | 'en' | 'ru', {
 };
 ---
 
-<CampusLayout 
+{accessUnavailable || !user || !profile ? (
+    <BaseLayout
+        title={t('campus.account.title')}
+        description={t('campus.loadError.message')}
+        lang={lang}
+        noindex={true}
+    >
+        <main class="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-12">
+            <h1 class="sr-only">{t('campus.account.title')}</h1>
+            <CampusLoadError lang={lang} />
+        </main>
+    </BaseLayout>
+) : (
+<CampusLayout
     title={t('campus.account.title')}
     user={{ ...user, ...profile }}
     lang={lang}
@@ -230,7 +291,9 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                     {t('campus.account.subscription')}
                 </h2>
                 
-                {subscription ? (
+                {subscriptionState.status === 'error' ? (
+                    <CampusLoadError lang={lang} />
+                ) : subscription ? (
                     <div class="space-y-4">
                         <div class="flex justify-between items-center">
                             <div>
@@ -272,7 +335,7 @@ const driveUi: Record<'es' | 'en' | 'ru', {
             </div>
         )}
 
-        {profile.role === 'student' && subscription && (
+        {profile.role === 'student' && subscriptionState.status === 'ready' && subscription && (
             <GuaranteeCard
                 client:load
                 subscriptionId={subscription.id}
@@ -289,6 +352,9 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                     {driveUi[lang].subtitle}
                 </p>
 
+                {profilePrivateState.status === 'error' ? (
+                    <CampusLoadError lang={lang} />
+                ) : (
                 <div class="space-y-4">
                     <div class="flex flex-col gap-2 text-sm text-[#006064]">
                         <p class="font-bold">
@@ -347,6 +413,7 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                         </button>
                     </form>
                 </div>
+                )}
             </div>
         )}
 
@@ -376,6 +443,7 @@ const driveUi: Record<'es' | 'en' | 'ru', {
         </div>
     </div>
 </CampusLayout>
+)}
 
 <script>
     import { openBillingPortal } from '../../../lib/billing-portal-client';

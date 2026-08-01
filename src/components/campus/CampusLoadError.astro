@@ -1,0 +1,39 @@
+---
+import { getLangFromParam, useTranslations } from '../../i18n/utils';
+
+interface Props {
+    lang: string;
+    retryHref?: string;
+    title?: string;
+    message?: string;
+}
+
+const {
+    lang: langParam,
+    retryHref,
+    title,
+    message,
+} = Astro.props;
+const lang = getLangFromParam(langParam);
+const t = useTranslations(lang);
+const resolvedRetryHref = retryHref ?? `${Astro.url.pathname}${Astro.url.search}`;
+---
+
+<section
+    role="alert"
+    aria-atomic="true"
+    class="border-2 border-red-500 bg-red-50 p-5 text-red-800 shadow-[4px_4px_0px_0px_#ef4444]"
+>
+    <h2 class="font-display text-xl uppercase">
+        {title ?? t('campus.loadError.title')}
+    </h2>
+    <p class="mt-2 text-sm leading-6">
+        {message ?? t('campus.loadError.message')}
+    </p>
+    <a
+        href={resolvedRetryHref}
+        class="mt-4 inline-block border-2 border-red-700 bg-white px-4 py-2 text-xs font-bold uppercase text-red-800 hover:bg-red-100 focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-red-700"
+    >
+        {t('campus.loadError.retry')}
+    </a>
+</section>
