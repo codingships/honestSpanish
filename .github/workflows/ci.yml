@@ -14,6 +14,74 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  database-contract:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: 127.0.0.1
+      PGPORT: 5432
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Create isolated contract databases
+        run: |
+          createdb checkout_v2_fresh
+          createdb checkout_v2_incremental
+
+      - name: Verify migration delta against the event base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BASE_SHA:-}" ] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "No incremental base commit is available for this event."
+            exit 0
+          fi
+          git cat-file -e "$BASE_SHA^{commit}"
+          git show "${BASE_SHA}:db/schema.sql" > "$RUNNER_TEMP/base-schema.sql"
+          git diff --name-only --diff-filter=DMR "$BASE_SHA" HEAD -- 'supabase/migrations/*.sql' \
+            > "$RUNNER_TEMP/rewritten-migrations.txt"
+          if [ -s "$RUNNER_TEMP/rewritten-migrations.txt" ]; then
+            echo "Existing migrations are immutable; add a new migration instead."
+            sed 's/^/- /' "$RUNNER_TEMP/rewritten-migrations.txt"
+            exit 1
+          fi
+          git diff --name-only --diff-filter=A "$BASE_SHA" HEAD -- 'supabase/migrations/*.sql' \
+            | sort > "$RUNNER_TEMP/new-migrations.txt"
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/postgres-supabase-bootstrap.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f "$RUNNER_TEMP/base-schema.sql"
+          while IFS= read -r migration; do
+            [ -n "$migration" ] || continue
+            psql -X -1 -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f "$migration"
+          done < "$RUNNER_TEMP/new-migrations.txt"
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/checkout-v2-billing-foundation.sql
+
+      - name: Verify clean canonical schema
+        run: |
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/postgres-supabase-bootstrap.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f db/schema.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/checkout-v2-billing-foundation.sql
+
   build-and-test:
     runs-on: ubuntu-latest
 

@@ -20,6 +20,7 @@ const checkoutSnapshotMigration = readFileSync('supabase/migrations/202607102239
 const sessionStatusContractMigration = readFileSync('supabase/migrations/20260712195500_harden_sessions_status_contract.sql', 'utf8').replace(/\r\n/g, '\n');
 const versionedOfferMigration = readFileSync('supabase/migrations/20260731151309_add_versioned_28_day_individual_offer.sql', 'utf8').replace(/\r\n/g, '\n');
 const bookableSlotsMigration = readFileSync('supabase/migrations/20260731185233_add_bookable_slots_and_holds.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutV2BillingMigration = readFileSync('supabase/migrations/20260731225000_add_checkout_v2_billing_foundation.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -27,6 +28,17 @@ const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replac
 function canonicalSqlFunction(source: string, qualifiedName: string): string {
     const startMarker = `CREATE OR REPLACE FUNCTION ${qualifiedName}`;
     const start = source.indexOf(startMarker);
+    if (start < 0) throw new Error(`Missing SQL function: ${qualifiedName}`);
+
+    const end = source.indexOf('\n$$;', start);
+    if (end < 0) throw new Error(`Unterminated SQL function: ${qualifiedName}`);
+
+    return source.slice(start, end + '\n$$;'.length).replace(/\s+/g, ' ').trim();
+}
+
+function canonicalLatestSqlFunction(source: string, qualifiedName: string): string {
+    const startMarker = `CREATE OR REPLACE FUNCTION ${qualifiedName}`;
+    const start = source.lastIndexOf(startMarker);
     if (start < 0) throw new Error(`Missing SQL function: ${qualifiedName}`);
 
     const end = source.indexOf('\n$$;', start);
@@ -418,6 +430,97 @@ describe('database schema security invariants', () => {
         ]) {
             expect(canonicalSqlFunction(schema, functionName)).toBe(
                 canonicalSqlFunction(bookableSlotsMigration, functionName)
+            );
+        }
+    });
+
+    it('keeps Checkout V2 billing, four-date movement and weekly capacity atomic', () => {
+        for (const snippet of [
+            'CREATE TABLE public.checkout_v2_price_snapshots (',
+            'CREATE TABLE public.checkout_v2_cycles (',
+            'CREATE TABLE public.checkout_v2_billing_state (',
+            'CREATE TABLE public.checkout_v2_weekly_allocations (',
+            'stripe_price_id TEXT NOT NULL',
+            "materialization_state IN ('pending', 'ready')",
+            'sessions_materialized_at TIMESTAMPTZ',
+            'checkout_v2_cycle_session_index SMALLINT',
+            'sessions_checkout_v2_cycle_position_unique_idx',
+            "ends_at = starts_at + INTERVAL '672 hours'",
+            'checkout_v2_cycles_no_overlap_excl',
+            'checkout_v2_weekly_capacity_excl',
+            'CREATE OR REPLACE FUNCTION public.register_checkout_v2_price_snapshot(',
+            'CREATE OR REPLACE FUNCTION public.initialize_checkout_v2_billing(',
+            'p_initial_stripe_price_id TEXT',
+            'CREATE OR REPLACE FUNCTION public.reconcile_checkout_v2_provisional_anchor(',
+            'p_new_first_local_date DATE',
+            "SET scheduled_at = 'infinity'::TIMESTAMPTZ",
+            'checkout_v2_cycle_session_index - 1) * 7',
+            'CREATE OR REPLACE FUNCTION public.fix_checkout_v2_billing_anchor(',
+            'CREATE OR REPLACE FUNCTION public.apply_checkout_v2_renewal(',
+            'checkout_v2_renewal_requires_cycle_ledger',
+            'release_checkout_v2_allocation_on_subscription_end_trigger',
+            'checkout_v2_terminal_subscription_cannot_reopen',
+            'checkout_v2_billing_foundation_requires_zero_durable_v2_slots',
+            'checkout_v2_billing_foundation_rejects_unbound_active_subscription',
+            'unexpected_bookable_slot_validation_source',
+            'checkout_v2_cycle_binding_is_immutable',
+            "cycle_row.materialization_state = 'ready'",
+            'checkout_v2_materialized_session_cannot_be_deleted',
+            'pg_catalog.generate_series(0, 3)',
+            'REVOKE INSERT, UPDATE, DELETE ON TABLE public.checkout_v2_cycles',
+            'GRANT SELECT ON TABLE public.checkout_v2_cycles TO service_role',
+        ]) {
+            expect(checkoutV2BillingMigration).toContain(snippet);
+            expect(schema).toContain(snippet);
+        }
+
+        expect(checkoutV2BillingMigration).not.toContain(
+            'GRANT SELECT, INSERT, UPDATE ON TABLE public.checkout_v2_cycles',
+        );
+        expect(checkoutV2BillingMigration).not.toContain(
+            'sessions_used SMALLINT NOT NULL',
+        );
+
+        for (const typeSnippet of [
+            'checkout_v2_billing_state: {',
+            'checkout_v2_cycles: {',
+            'checkout_v2_price_snapshots: {',
+            'checkout_v2_weekly_allocations: {',
+            'checkout_v2_cycle_session_index: number | null;',
+            'materialization_state: string;',
+            'sessions_materialized_at: string | null;',
+            'stripe_price_id: string;',
+            'apply_checkout_v2_renewal: {',
+            'fix_checkout_v2_billing_anchor: {',
+            'initialize_checkout_v2_billing: {',
+            'p_initial_stripe_price_id: string;',
+            'reconcile_checkout_v2_provisional_anchor: {',
+            'p_new_first_local_date: string;',
+            'register_checkout_v2_price_snapshot: {',
+        ]) {
+            expect(databaseTypes).toContain(typeSnippet);
+        }
+
+        for (const functionName of [
+            'private.guard_subscription_checkout_binding()',
+            'private.guard_checkout_v2_price_snapshot()',
+            'private.guard_checkout_v2_billing_state()',
+            'private.guard_checkout_v2_cycle()',
+            'private.guard_checkout_v2_weekly_allocation()',
+            'private.sync_checkout_v2_weekly_allocation()',
+            'private.release_checkout_v2_allocation_on_subscription_end()',
+            'private.guard_checkout_v2_cycle_binding()',
+            'private.guard_checkout_v2_session_position()',
+            'private.guard_checkout_v2_materialized_session_delete()',
+            'public.register_checkout_v2_price_snapshot(',
+            'public.initialize_checkout_v2_billing(',
+            'public.reconcile_checkout_v2_provisional_anchor(',
+            'public.fix_checkout_v2_billing_anchor(',
+            'public.apply_checkout_v2_renewal(',
+            'public.apply_subscription_renewal(',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutV2BillingMigration, functionName),
             );
         }
     });
