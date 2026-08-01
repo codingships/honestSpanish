@@ -692,6 +692,8 @@ CREATE INDEX package_prices_package_version_idx ON package_prices(package_id, ca
 CREATE INDEX idx_sessions_student ON sessions(student_id);
 CREATE INDEX idx_sessions_teacher ON sessions(teacher_id);
 CREATE INDEX idx_sessions_scheduled ON sessions(scheduled_at);
+CREATE INDEX idx_sessions_teacher_scheduled_at ON sessions(teacher_id, scheduled_at);
+CREATE INDEX idx_sessions_student_scheduled_at ON sessions(student_id, scheduled_at);
 CREATE INDEX idx_sessions_status ON sessions(status);
 CREATE INDEX idx_sessions_reminder_pending
     ON sessions(scheduled_at, status, reminder_sent)

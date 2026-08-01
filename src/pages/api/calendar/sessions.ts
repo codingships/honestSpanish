@@ -1,7 +1,11 @@
 import type { APIRoute } from 'astro';
 import { normalizeClassDurationMinutes } from '../../../lib/class-duration';
 import { checkTeacherAvailabilitySlots } from '../../../lib/calendar/availability';
-import { compareDateKeys, normalizeDateInputToDateKey } from '../../../lib/calendar/madrid-time';
+import {
+    compareDateKeys,
+    madridWeekUtcRange,
+    normalizeDateInputToDateKey,
+} from '../../../lib/calendar/madrid-time';
 import { normalizeManualMeetingLink } from '../../../lib/calendar/meeting-link';
 import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
 import { recordFirstClassScheduledSafe } from '../../../lib/crm/onboarding';
@@ -24,42 +28,164 @@ type CreateSessionRequest = {
     autoCreateMeeting?: unknown;
 };
 
+const SESSION_STATUSES = new Set(['scheduled', 'completed', 'cancelled', 'no_show']);
+const MAX_SESSIONS_PER_WEEK = 500;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const READ_HEADERS = {
+    'Content-Type': 'application/json',
+    'Cache-Control': 'private, no-store',
+};
 
-// GET: Obtener sesiones (Sin cambios, solo añadido tipado)
-export const GET: APIRoute = async (context) => {
-    const supabase = createSupabaseServerClient(context);
-    const { data: { user } } = await supabase.auth.getUser();
+function calendarReadResponse(body: Record<string, unknown>, status: number): Response {
+    return new Response(JSON.stringify(body), { status, headers: READ_HEADERS });
+}
 
-    if (!user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+type CalendarReadSession = {
+    id: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    status: string;
+    meet_link: string | null;
+    teacher_notes: string | null;
+    drive_doc_url: string | null;
+    student: {
+        id: string;
+        full_name: string | null;
+        email: string;
+    };
+};
+
+function isNullableString(value: unknown): value is string | null {
+    return value === null || typeof value === 'string';
+}
+
+function normalizeCalendarReadSessions(data: unknown): CalendarReadSession[] | null {
+    if (!Array.isArray(data)) return null;
+
+    const normalized: CalendarReadSession[] = [];
+    for (const value of data) {
+        if (!value || typeof value !== 'object') return null;
+        const row = value as Record<string, unknown>;
+        const studentValue = row.student;
+        if (
+            typeof row.id !== 'string'
+            || typeof row.student_id !== 'string'
+            || typeof row.scheduled_at !== 'string'
+            || Number.isNaN(Date.parse(row.scheduled_at))
+            || typeof row.duration_minutes !== 'number'
+            || typeof row.status !== 'string'
+            || !SESSION_STATUSES.has(row.status)
+            || !isNullableString(row.meet_link)
+            || !isNullableString(row.teacher_notes)
+            || !isNullableString(row.drive_doc_url)
+        ) {
+            return null;
+        }
+
+        if (studentValue !== null && (
+            !studentValue
+            || typeof studentValue !== 'object'
+            || Array.isArray(studentValue)
+        )) {
+            return null;
+        }
+        const student = studentValue as Record<string, unknown> | null;
+        if (student !== null && (
+            typeof student.id !== 'string'
+            || !isNullableString(student.full_name)
+            || typeof student.email !== 'string'
+        )) {
+            return null;
+        }
+
+        normalized.push({
+            id: row.id,
+            scheduled_at: row.scheduled_at,
+            duration_minutes: row.duration_minutes,
+            status: row.status,
+            meet_link: row.meet_link,
+            teacher_notes: row.teacher_notes,
+            drive_doc_url: row.drive_doc_url,
+            student: student === null
+                ? { id: row.student_id, full_name: null, email: '' }
+                : {
+                    id: student.id as string,
+                    full_name: student.full_name as string | null,
+                    email: student.email as string,
+                },
+        });
     }
 
-    const { data: profile } = await supabase
+    return normalized;
+}
+
+// GET: bounded weekly read. The server owns Madrid-to-UTC range conversion.
+export const GET: APIRoute = async (context) => {
+    const supabase = createSupabaseServerClient(context);
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError) {
+        return calendarReadResponse({ error: 'Calendar is temporarily unavailable' }, 503);
+    }
+
+    if (!user) {
+        return calendarReadResponse({ error: 'Unauthorized' }, 401);
+    }
+
+    const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
+
+    if (profileError) {
+        return calendarReadResponse({ error: 'Calendar is temporarily unavailable' }, 503);
+    }
+
+    if (!profile || !['student', 'teacher', 'admin'].includes(profile.role || '')) {
+        return calendarReadResponse({ error: 'Forbidden' }, 403);
+    }
 
     const url = new URL(context.request.url);
+    const weekStartKey = url.searchParams.get('weekStart') || '';
     const studentId = url.searchParams.get('studentId');
     const teacherId = url.searchParams.get('teacherId');
     const status = url.searchParams.get('status');
-    const from = url.searchParams.get('from');
-    const to = url.searchParams.get('to');
+    const range = madridWeekUtcRange(weekStartKey);
 
-    // Supabase complex joins query
+    if (!range) {
+        return calendarReadResponse({ error: 'weekStart must be a valid Madrid Monday date' }, 400);
+    }
+
+    if (status && !SESSION_STATUSES.has(status)) {
+        return calendarReadResponse({ error: 'Invalid session status' }, 400);
+    }
+
+    if ((studentId && !UUID_PATTERN.test(studentId)) || (teacherId && !UUID_PATTERN.test(teacherId))) {
+        return calendarReadResponse({ error: 'Invalid profile identifier' }, 400);
+    }
+
+    if (profile.role === 'admin' && !studentId && !teacherId) {
+        return calendarReadResponse({ error: 'Admin calendar requests require a teacherId or studentId' }, 400);
+    }
+
     let query = supabase
         .from('sessions')
         .select(`
-            *,
-            student:profiles!sessions_student_id_fkey(id, full_name, email),
-            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email),
-            subscription:subscriptions(
-                id,
-                packages(name, display_name)
-            )
+            id,
+            student_id,
+            scheduled_at,
+            duration_minutes,
+            status,
+            meet_link,
+            teacher_notes,
+            drive_doc_url,
+            student:profiles!sessions_student_id_fkey(id, full_name, email)
         `)
-        .order('scheduled_at', { ascending: true });
+        .gte('scheduled_at', range.fromUtc)
+        .lt('scheduled_at', range.toUtcExclusive)
+        .order('scheduled_at', { ascending: true })
+        .limit(MAX_SESSIONS_PER_WEEK + 1);
 
     if (profile?.role === 'student') {
         query = query.eq('student_id', user.id);
@@ -71,19 +197,29 @@ export const GET: APIRoute = async (context) => {
     // teacherId filter: only admins can query other teachers' sessions
     if (teacherId && profile?.role === 'admin') query = query.eq('teacher_id', teacherId);
     if (status) query = query.eq('status', status);
-    if (from) query = query.gte('scheduled_at', from);
-    if (to) query = query.lte('scheduled_at', to);
 
     const { data, error } = await query;
 
     if (error) {
-        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+        return calendarReadResponse({ error: 'Calendar is temporarily unavailable' }, 503);
     }
 
-    return new Response(JSON.stringify({ sessions: data }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-    });
+    if (!Array.isArray(data)) {
+        return calendarReadResponse({ error: 'Calendar is temporarily unavailable' }, 503);
+    }
+    if (data.length > MAX_SESSIONS_PER_WEEK) {
+        return calendarReadResponse({ error: 'Too many sessions for the requested week' }, 422);
+    }
+
+    const sessions = normalizeCalendarReadSessions(data);
+    if (!sessions) {
+        return calendarReadResponse({ error: 'Calendar is temporarily unavailable' }, 503);
+    }
+
+    return calendarReadResponse({
+        weekStartKey: range.weekStartKey,
+        sessions,
+    }, 200);
 };
 
 // POST: Crear nueva sesión

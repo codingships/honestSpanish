@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ScheduleSessionModal from '../../src/components/calendar/ScheduleSessionModal';
+import { madridDateTimeToUtcIso } from '../../src/lib/calendar/madrid-time';
 
 const students = [
     { id: 'student-1', full_name: 'Ana Lopez', email: 'ana@example.com' },
@@ -41,10 +42,25 @@ const defaultProps = {
     onSessionCreated: vi.fn(),
 };
 
-const slotFor = (date: string, time: string) => ({
-    slot_start: `${date}T${time}:00`,
-    slot_end: `${date}T${time}:00`,
-});
+const slotFor = (date: string, time: string) => {
+    const instant = madridDateTimeToUtcIso(date, time);
+    if (!instant) throw new Error(`Invalid Madrid slot: ${date} ${time}`);
+    return {
+        slot_start: instant,
+        slot_end: new Date(Date.parse(instant) + 50 * 60_000).toISOString(),
+    };
+};
+
+const createdSession = {
+    id: 'session-new',
+    scheduled_at: '2026-10-10T08:00:00.000Z',
+    duration_minutes: 50,
+    status: 'scheduled',
+    meet_link: 'https://meet.google.com/abc-defg-hij',
+    teacher_notes: null,
+    drive_doc_url: null,
+    student: { id: 'student-1', full_name: 'Ana Lopez', email: 'ana@example.com' },
+};
 
 const deferred = <T,>() => {
     let resolve!: (value: T | PromiseLike<T>) => void;
@@ -54,15 +70,6 @@ const deferred = <T,>() => {
         reject = rej;
     });
     return { promise, resolve, reject };
-};
-
-const mockReload = () => {
-    const reload = vi.fn();
-    vi.stubGlobal('location', {
-        ...window.location,
-        reload,
-    });
-    return reload;
 };
 
 const installFetchWithSlots = () => {
@@ -75,7 +82,7 @@ const installFetchWithSlots = () => {
         }
 
         if (url.pathname === '/api/calendar/sessions') {
-            return Promise.resolve(Response.json({ session: { id: 'session-new' } }, { status: 201 }));
+            return Promise.resolve(Response.json({ session: createdSession }, { status: 201 }));
         }
 
         return Promise.reject(new Error(`Unexpected URL: ${url.toString()}`));
@@ -101,6 +108,7 @@ const chooseDateAndGoToTimeStep = async (date = '2026-10-10') => {
 afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    vi.useRealTimers();
 });
 
 describe('ScheduleSessionModal', () => {
@@ -111,6 +119,16 @@ describe('ScheduleSessionModal', () => {
         expect(screen.getByRole('button', { name: translations.close })).toHaveAttribute('type', 'button');
         expect(screen.getByLabelText(/selecciona el alumno/i)).toHaveValue('');
         expect(screen.getByRole('button', { name: translations.continue })).toBeDisabled();
+    });
+
+    it('uses the Madrid civil date for the earliest selectable day', () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(new Date('2026-07-15T22:30:00.000Z'));
+
+        render(<ScheduleSessionModal {...defaultProps} />);
+        selectStudentAndGoToDateStep();
+
+        expect(screen.getByLabelText(translations.selectDate)).toHaveAttribute('min', '2026-07-16');
     });
 
     it('clears a previously selected slot when date changes before confirmation', async () => {
@@ -163,8 +181,18 @@ describe('ScheduleSessionModal', () => {
         expect(screen.queryByRole('button', { name: /hora.*10:00/i })).not.toBeInTheDocument();
     });
 
+    it('shows a load error instead of treating a malformed slots payload as an empty day', async () => {
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({})));
+        render(<ScheduleSessionModal {...defaultProps} />);
+        selectStudentAndGoToDateStep();
+
+        fireEvent.change(screen.getByLabelText(translations.selectDate), { target: { value: '2026-10-10' } });
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(translations.errorLoadingSlots);
+        expect(screen.queryByText(translations.noSlotsDate)).toBeNull();
+    });
+
     it('submits a trimmed Meet link and locks close controls while pending', async () => {
-        const reload = mockReload();
         const submitResponse = deferred<Response>();
         const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
             const url = new URL(String(input), 'http://localhost:4321');
@@ -199,7 +227,7 @@ describe('ScheduleSessionModal', () => {
         expect(JSON.parse(String(sessionRequest.body))).toEqual(expect.objectContaining({
             studentId: 'student-1',
             teacherId: 'teacher-1',
-            scheduledAt: '2026-10-10T10:00:00',
+            scheduledAt: '2026-10-10T08:00:00.000Z',
             durationMinutes: 50,
             meetLink: 'https://meet.google.com/abc-defg-hij',
         }));
@@ -208,11 +236,37 @@ describe('ScheduleSessionModal', () => {
         expect(screen.getByRole('button', { name: '...' })).toBeDisabled();
 
         await act(async () => {
-            submitResponse.resolve(Response.json({ session: { id: 'session-new' } }, { status: 201 }));
+            submitResponse.resolve(Response.json({ session: createdSession }, { status: 201 }));
         });
 
-        await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith({ id: 'session-new' }));
+        await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith(createdSession));
         expect(onClose).toHaveBeenCalledTimes(1);
-        expect(reload).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps the modal open when the create endpoint returns a malformed session', async () => {
+        const fetchMock = vi.fn((input: RequestInfo | URL) => {
+            const url = new URL(String(input), 'http://localhost:4321');
+            if (url.pathname === '/api/calendar/available-slots') {
+                return Promise.resolve(Response.json({ slots: [slotFor('2026-10-10', '10:00')] }));
+            }
+            if (url.pathname === '/api/calendar/sessions') {
+                return Promise.resolve(Response.json({ session: { id: 'incomplete' } }, { status: 201 }));
+            }
+            return Promise.reject(new Error(`Unexpected URL: ${url.toString()}`));
+        });
+        vi.stubGlobal('fetch', fetchMock);
+        const onClose = vi.fn();
+        const onSessionCreated = vi.fn();
+
+        render(<ScheduleSessionModal {...defaultProps} onClose={onClose} onSessionCreated={onSessionCreated} />);
+        selectStudentAndGoToDateStep();
+        await chooseDateAndGoToTimeStep('2026-10-10');
+        fireEvent.click(await screen.findByRole('button', { name: /hora.*10:00/i }));
+        fireEvent.click(screen.getByRole('button', { name: translations.continue }));
+        fireEvent.click(screen.getByRole('button', { name: translations.confirm }));
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(translations.errorScheduling);
+        expect(onSessionCreated).not.toHaveBeenCalled();
+        expect(onClose).not.toHaveBeenCalled();
     });
 });

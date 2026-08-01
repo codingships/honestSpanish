@@ -2,6 +2,7 @@ import React from 'react';
 import type { Teacher, Student } from './hooks/useAdminCalendar'; // Reusamos tipos
 import { useAdminSchedule } from './hooks/useAdminSchedule';
 import { CLASS_DURATION_OPTIONS_MINUTES } from '../../lib/class-duration';
+import { MADRID_TIME_ZONE, madridDateKey } from '../../lib/calendar/madrid-time';
 
 interface AdminScheduleModalProps {
     isOpen: boolean;
@@ -29,11 +30,11 @@ export default function AdminScheduleModal({
 
     const formatTime = (dateStr: string) => {
         return new Date(dateStr).toLocaleTimeString(lang === 'es' ? 'es-ES' : 'en-US', {
-            hour: '2-digit', minute: '2-digit'
+            hour: '2-digit', minute: '2-digit', timeZone: MADRID_TIME_ZONE,
         });
     };
 
-    const today = new Date().toISOString().split('T')[0];
+    const today = madridDateKey(new Date());
     const titleId = 'admin-schedule-modal-title';
     const closeLabel = t.close || t.cancel || 'Cerrar';
     const canContinueFromTimeStep = Boolean(logic.selectedSlot || (logic.useCustomTime && logic.customTime));
@@ -159,7 +160,7 @@ export default function AdminScheduleModal({
                                 <>
                                     <p className="text-xs text-[#006064]/70">
                                         Se crearán clases cada <strong>
-                                            {new Date(logic.selectedDate + 'T00:00:00').toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', { weekday: 'long' })}
+                                            {new Date(logic.selectedDate + 'T12:00:00Z').toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', { weekday: 'long', timeZone: MADRID_TIME_ZONE })}
                                         </strong> hasta la fecha final.
                                     </p>
                                     <div>
@@ -286,7 +287,7 @@ export default function AdminScheduleModal({
                                 })()}</span>
 
                                 <span className="font-bold">Fecha:</span>
-                                <span>{logic.selectedDate ? new Date(logic.selectedDate + 'T00:00:00').toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' }) : '...'}</span>
+                                <span>{logic.selectedDate ? new Date(logic.selectedDate + 'T12:00:00Z').toLocaleDateString(lang === 'es' ? 'es-ES' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long', timeZone: MADRID_TIME_ZONE }) : '...'}</span>
 
                                 <span className="font-bold">Hora:</span>
                                 <span>{logic.useCustomTime ? logic.customTime : (logic.selectedSlot && formatTime(logic.selectedSlot.slot_start))}</span>

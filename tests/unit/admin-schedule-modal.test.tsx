@@ -112,7 +112,7 @@ describe('AdminScheduleModal', () => {
         expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/calendar/available-slots?teacherId=teacher-1&date=2026-02-20&duration=50');
 
         fireEvent.click(screen.getByRole('button', { name: /continuar/i }));
-        fireEvent.click(await screen.findByRole('button', { name: /Seleccionar hora: 10:00/i }));
+        fireEvent.click(await screen.findByRole('button', { name: /Seleccionar hora: 11:00/i }));
         fireEvent.click(screen.getByRole('button', { name: /continuar/i }));
 
         fireEvent.click(screen.getByRole('checkbox', { name: /Generar Google Meet/i }));
@@ -137,5 +137,35 @@ describe('AdminScheduleModal', () => {
             scheduled_at: '2026-02-20T10:00:00.000Z',
         });
         expect(onClose).toHaveBeenCalled();
+    });
+
+    it('converts a custom Madrid wall time to an explicit instant for a single class', async () => {
+        const onClose = vi.fn();
+        const fetchMock = vi
+            .fn((..._args: Parameters<typeof fetch>) => Promise.resolve(Response.json({})))
+            .mockResolvedValueOnce(Response.json({ slots: [] }))
+            .mockResolvedValueOnce(Response.json({
+                session: { id: 'session-custom', scheduled_at: '2026-07-15T08:00:00.000Z' },
+            }));
+        vi.stubGlobal('fetch', fetchMock);
+
+        render(<AdminScheduleModal {...defaultProps} onClose={onClose} />);
+        chooseStudentAndTeacher();
+        fireEvent.click(screen.getByRole('button', { name: /continuar/i }));
+        fireEvent.change(screen.getByLabelText(translations.selectDate), { target: { value: '2026-07-15' } });
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+        fireEvent.click(screen.getByRole('button', { name: /continuar/i }));
+        fireEvent.click(screen.getByRole('checkbox', { name: /Forzar hora manual/i }));
+        fireEvent.change(screen.getByLabelText(/Hora personalizada/i), { target: { value: '10:00' } });
+        fireEvent.click(screen.getByRole('button', { name: /continuar/i }));
+        fireEvent.click(screen.getByRole('button', { name: translations.confirm }));
+
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        const createRequest = fetchMock.mock.calls[1]?.[1] as RequestInit;
+        expect(JSON.parse(String(createRequest.body))).toEqual(expect.objectContaining({
+            scheduledAt: '2026-07-15T08:00:00.000Z',
+        }));
+        expect(onClose).toHaveBeenCalledTimes(1);
     });
 });

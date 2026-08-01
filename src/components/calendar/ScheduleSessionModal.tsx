@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useId } from 'react';
 import { CLASS_DURATION_OPTIONS_MINUTES, DEFAULT_CLASS_DURATION_MINUTES } from '../../lib/class-duration';
+import { MADRID_TIME_ZONE, madridDateKey } from '../../lib/calendar/madrid-time';
 
 interface Student {
     id: string;
@@ -12,6 +13,21 @@ interface Slot {
     slot_end: string;
 }
 
+type CreatedSession = {
+    id: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    status: string;
+    meet_link: string | null;
+    teacher_notes: string | null;
+    drive_doc_url: string | null;
+    student: {
+        id: string;
+        full_name: string | null;
+        email: string;
+    };
+};
+
 interface ScheduleSessionModalProps {
     isOpen: boolean;
     onClose: () => void;
@@ -20,23 +36,63 @@ interface ScheduleSessionModalProps {
     lang: string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     translations: Record<string, any>;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    onSessionCreated: (session: any) => void;
+    onSessionCreated: (session: CreatedSession) => void;
 }
-
-type SlotsResponse = {
-    error?: string;
-    slots?: Slot[];
-};
 
 type SessionCreateResponse = {
     error?: string;
     session?: unknown;
 };
 
+const isNullableString = (value: unknown): value is string | null => (
+    value === null || typeof value === 'string'
+);
+
+const hasExplicitOffset = (value: string) => /(?:Z|[+-]\d{2}:\d{2})$/i.test(value);
+
+const slotsFromPayload = (value: unknown): Slot[] | null => {
+    if (!value || typeof value !== 'object') return null;
+    const slots = (value as { slots?: unknown }).slots;
+    if (!Array.isArray(slots)) return null;
+
+    return slots.every((slot) => {
+        if (!slot || typeof slot !== 'object') return false;
+        const candidate = slot as Partial<Slot>;
+        if (
+            typeof candidate.slot_start !== 'string'
+            || typeof candidate.slot_end !== 'string'
+            || !hasExplicitOffset(candidate.slot_start)
+            || !hasExplicitOffset(candidate.slot_end)
+        ) {
+            return false;
+        }
+        const start = Date.parse(candidate.slot_start);
+        const end = Date.parse(candidate.slot_end);
+        return Number.isFinite(start) && Number.isFinite(end) && end > start;
+    }) ? slots as Slot[] : null;
+};
+
+const isCreatedSession = (value: unknown): value is CreatedSession => {
+    if (!value || typeof value !== 'object') return false;
+    const session = value as Partial<CreatedSession>;
+    const student = session.student as Partial<CreatedSession['student']> | null | undefined;
+
+    return typeof session.id === 'string'
+        && typeof session.scheduled_at === 'string'
+        && !Number.isNaN(Date.parse(session.scheduled_at))
+        && typeof session.duration_minutes === 'number'
+        && typeof session.status === 'string'
+        && isNullableString(session.meet_link)
+        && isNullableString(session.teacher_notes)
+        && isNullableString(session.drive_doc_url)
+        && Boolean(student)
+        && typeof student?.id === 'string'
+        && isNullableString(student?.full_name)
+        && typeof student?.email === 'string';
+};
+
 const formatDateInputValue = (date = new Date()) => {
-    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    return localDate.toISOString().split('T')[0];
+    return madridDateKey(date);
 };
 
 export default function ScheduleSessionModal({
@@ -113,9 +169,11 @@ export default function ScheduleSessionModal({
                     throw new Error('Failed to fetch slots');
                 }
 
-                const data = await response.json() as SlotsResponse;
+                const data: unknown = await response.json();
                 if (controller.signal.aborted) return;
-                setAvailableSlots(data.slots || []);
+                const slots = slotsFromPayload(data);
+                if (!slots) throw new Error('Invalid slots response');
+                setAvailableSlots(slots);
             } catch (err) {
                 if (err instanceof Error && err.name === 'AbortError') return;
                 setError(t.errorLoadingSlots || 'Error');
@@ -175,12 +233,12 @@ export default function ScheduleSessionModal({
             }
 
             const data = await response.json() as SessionCreateResponse;
+            if (!isCreatedSession(data.session)) {
+                throw new Error(t.errorScheduling || 'Invalid session response');
+            }
             onSessionCreated(data.session);
             setIsSubmitting(false);
             onClose();
-
-            // Recargar la página para mostrar la nueva sesión
-            window.location.reload();
         } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
             setError(err.message || t.errorScheduling || 'Error');
             setIsSubmitting(false);
@@ -190,7 +248,8 @@ export default function ScheduleSessionModal({
     const formatTime = (dateStr: string) => {
         return new Date(dateStr).toLocaleTimeString(lang === 'es' ? 'es-ES' : 'en-US', {
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            timeZone: MADRID_TIME_ZONE,
         });
     };
 
@@ -384,7 +443,7 @@ export default function ScheduleSessionModal({
                             <h3 className="font-bold text-[#006064] mb-2">{t.summary || '–'}</h3>
                             <div className="text-sm text-[#006064]/80 space-y-1">
                                 <p><strong>{t.studentLabel || ''}</strong> {students.find(s => s.id === selectedStudent)?.full_name || students.find(s => s.id === selectedStudent)?.email}</p>
-                                <p><strong>{t.dateLabel || ''}</strong> {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+                                <p><strong>{t.dateLabel || ''}</strong> {new Date(`${selectedDate}T12:00:00Z`).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long', timeZone: MADRID_TIME_ZONE })}</p>
                                 <p><strong>{t.timeLabel || ''}</strong> {selectedSlot && formatTime(selectedSlot.slot_start)}</p>
                                 <p><strong>{t.duration}:</strong> {duration} {t.minutes}</p>
                             </div>

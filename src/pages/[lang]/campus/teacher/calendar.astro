@@ -1,9 +1,21 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import BaseLayout from '../../../../layouts/BaseLayout.astro';
 import { getLangFromParam, useTranslations, type SupportedLang } from '../../../../i18n/utils';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 import TeacherCalendar from '../../../../components/calendar/TeacherCalendar';
 import AvailabilityManager from '../../../../components/calendar/AvailabilityManager';
+import CampusLoadError from '../../../../components/campus/CampusLoadError.astro';
+import {
+    reportCampusReadError,
+    resolveCampusCollectionQuery,
+    resolveRequiredCampusQuery,
+} from '../../../../lib/campus-load-state';
+import {
+    madridWeekStartDateKey,
+    madridWeekUtcRange,
+} from '../../../../lib/calendar/madrid-time';
+import { resolveTeacherCalendarAccess } from '../../../../lib/calendar/teacher-calendar-access';
 
 export const prerender = false;
 
@@ -28,71 +40,120 @@ interface CalendarSession {
 }
 
 const supabase = createSupabaseServerClient(Astro);
-const { data: { user } } = await supabase.auth.getUser();
+const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-if (!user) {
+if (authError) {
+    reportCampusReadError('teacher_calendar.auth', authError);
+}
+
+const profileResult = user && !authError
+    ? await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
+    : null;
+const profileState = profileResult ? resolveRequiredCampusQuery(profileResult) : null;
+const profile = profileState?.status === 'ready' ? profileState.data : null;
+const access = resolveTeacherCalendarAccess({
+    hasUser: Boolean(user),
+    authFailed: Boolean(authError),
+    profileStatus: profileState?.status || null,
+    profileRole: profile?.role,
+});
+const accessUnavailable = access === 'unavailable';
+const authenticatedUserId = user?.id || '';
+
+if (profileState?.status === 'error') {
+    reportCampusReadError('teacher_calendar.profile', profileState.error);
+} else if (profileState?.status === 'empty' && user) {
+    reportCampusReadError('teacher_calendar.profile', { code: 'PROFILE_MISSING' });
+}
+
+if (access === 'login') {
     return Astro.redirect(`/${lang}/login`);
 }
 
-const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+if (access === 'admin-calendar') {
+    return Astro.redirect(`/${lang}/campus/admin/calendar`);
+}
 
-if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
+if (access === 'campus') {
     return Astro.redirect(`/${lang}/campus`);
 }
 
-// Obtener disponibilidad actual
-const { data: availability } = await supabase
-    .from('teacher_availability')
-    .select('*')
-    .eq('teacher_id', user.id)
-    .eq('is_active', true)
-    .order('day_of_week')
-    .order('start_time');
+const initialWeekStartKey = madridWeekStartDateKey(new Date());
+const initialWeekRange = madridWeekUtcRange(initialWeekStartKey);
+if (!initialWeekRange) throw new Error('Could not derive the current Madrid week');
 
-// Obtener sesiones de la semana actual y siguiente
-const today = new Date();
-const startOfWeek = new Date(today);
-startOfWeek.setDate(today.getDate() - today.getDay() + 1); // Lunes
-startOfWeek.setHours(0, 0, 0, 0);
+const canLoadCalendar = access === 'teacher-calendar';
+const availabilityResult = canLoadCalendar
+    ? await supabase
+        .from('teacher_availability')
+        .select('*')
+        .eq('teacher_id', authenticatedUserId)
+        .eq('is_active', true)
+        .order('day_of_week')
+        .order('start_time')
+    : { data: [], error: null };
 
-const endOfNextWeek = new Date(startOfWeek);
-endOfNextWeek.setDate(startOfWeek.getDate() + 13); // 2 semanas
-endOfNextWeek.setHours(23, 59, 59, 999);
-
-const { data: sessions } = await supabase
-    .from('sessions')
-    .select(`
-        *,
-        student:profiles!sessions_student_id_fkey(id, full_name, email)
-    `)
-    .eq('teacher_id', user.id)
-    .gte('scheduled_at', startOfWeek.toISOString())
-    .lte('scheduled_at', endOfNextWeek.toISOString())
-    .neq('status', 'cancelled')
-    .order('scheduled_at');
-
-// Obtener estudiantes asignados para el modal de programar clase
-const { data: assignedStudents } = await supabase
-    .from('student_teachers')
-    .select(`
-        profiles!student_teachers_student_id_fkey (
+const sessionsResult = canLoadCalendar
+    ? await supabase
+        .from('sessions')
+        .select(`
             id,
-            full_name,
-            email
-        )
-    `)
-    .eq('teacher_id', user.id);
+            student_id,
+            scheduled_at,
+            duration_minutes,
+            status,
+            meet_link,
+            teacher_notes,
+            drive_doc_url,
+            student:profiles!sessions_student_id_fkey(id, full_name, email)
+        `)
+        .eq('teacher_id', authenticatedUserId)
+        .gte('scheduled_at', initialWeekRange.fromUtc)
+        .lt('scheduled_at', initialWeekRange.toUtcExclusive)
+        .order('scheduled_at')
+    : { data: [], error: null };
 
-const students = (assignedStudents || []).flatMap(({ profiles }): CalendarStudent[] => (
+const assignedStudentsResult = canLoadCalendar
+    ? await supabase
+        .from('student_teachers')
+        .select(`
+            profiles!student_teachers_student_id_fkey (
+                id,
+                full_name,
+                email
+            )
+        `)
+        .eq('teacher_id', authenticatedUserId)
+    : { data: [], error: null };
+
+const availabilityState = resolveCampusCollectionQuery(availabilityResult);
+const sessionsState = resolveCampusCollectionQuery(sessionsResult);
+const assignedStudentsState = resolveCampusCollectionQuery(assignedStudentsResult);
+
+if (availabilityState.status === 'error') {
+    reportCampusReadError('teacher_calendar.availability', availabilityState.error);
+}
+if (sessionsState.status === 'error') {
+    reportCampusReadError('teacher_calendar.sessions', sessionsState.error);
+}
+if (assignedStudentsState.status === 'error') {
+    reportCampusReadError('teacher_calendar.students', assignedStudentsState.error);
+}
+
+const availability = availabilityState.status === 'ready' ? availabilityState.data : [];
+const sessionRows = sessionsState.status === 'ready' ? sessionsState.data : [];
+const assignedStudentRows = assignedStudentsState.status === 'ready' ? assignedStudentsState.data : [];
+
+const students = assignedStudentRows.flatMap(({ profiles }): CalendarStudent[] => (
     profiles ? [profiles] : []
 ));
 
-const calendarSessions = (sessions || []).flatMap((session): CalendarSession[] => {
-    if (!session.scheduled_at || !session.student) return [];
+const calendarSessions = sessionRows.flatMap((session): CalendarSession[] => {
+    if (!session.scheduled_at || !session.student_id) return [];
     return [{
         id: session.id,
         scheduled_at: session.scheduled_at,
@@ -101,9 +162,29 @@ const calendarSessions = (sessions || []).flatMap((session): CalendarSession[] =
         meet_link: session.meet_link,
         teacher_notes: session.teacher_notes,
         drive_doc_url: session.drive_doc_url,
-        student: session.student,
+        student: session.student || {
+            id: session.student_id,
+            full_name: null,
+            email: '',
+        },
     }];
 });
+
+const calendarProjectionInvalid = students.length !== assignedStudentRows.length
+    || calendarSessions.length !== sessionRows.length;
+const hiddenHistoricalStudentIdentity = sessionRows.some((session) => !session.student);
+if (calendarProjectionInvalid) {
+    reportCampusReadError('teacher_calendar.projection', { code: 'CALENDAR_PROJECTION_INVALID' });
+}
+if (hiddenHistoricalStudentIdentity) {
+    reportCampusReadError('teacher_calendar.projection', { code: 'STUDENT_IDENTITY_UNAVAILABLE' });
+}
+
+const calendarLoadFailed = availabilityState.status === 'error'
+    || sessionsState.status === 'error'
+    || assignedStudentsState.status === 'error'
+    || calendarProjectionInvalid;
+if (accessUnavailable || calendarLoadFailed) Astro.response.status = 503;
 
 // Nombres de días en el idioma actual
 const dayNames: Record<SupportedLang, string[]> = {
@@ -163,15 +244,31 @@ const calendarTranslations = {
     setupAvailability: t('campus.teacher.calendar.setupAvailability'),
     summary: t('campus.teacher.calendar.summary'),
     studentLabel: t('campus.teacher.calendar.studentLabel'),
+    studentUnavailable: t('campus.teacher.calendar.studentUnavailable'),
     dateLabel: t('campus.teacher.calendar.dateLabel'),
     timeLabel: t('campus.teacher.calendar.timeLabel'),
     meetLinkOptional: t('campus.teacher.calendar.meetLinkOptional'),
     errorLoadingSlots: t('campus.teacher.calendar.errorLoadingSlots'),
     errorScheduling: t('campus.teacher.calendar.errorScheduling'),
+    loadError: t('campus.loadError.message'),
+    retry: t('campus.loadError.retry'),
 };
 ---
 
-<CampusLayout 
+{accessUnavailable || !user || !profile ? (
+    <BaseLayout
+        title={t('campus.teacher.calendar.title')}
+        description={t('campus.loadError.message')}
+        lang={lang}
+        noindex={true}
+    >
+        <main class="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-12">
+            <h1 class="sr-only">{t('campus.teacher.calendar.title')}</h1>
+            <CampusLoadError lang={lang} />
+        </main>
+    </BaseLayout>
+) : (
+<CampusLayout
     title={t('campus.teacher.calendar.title')}
     user={{ ...user, ...profile }}
     lang={lang}
@@ -186,6 +283,10 @@ const calendarTranslations = {
         </div>
     </div>
 
+    {calendarLoadFailed ? (
+        <CampusLoadError lang={lang} />
+    ) : (
+    <>
     <!-- Tabs -->
     <div class="flex border-b-2 border-[#006064] mb-6" role="tablist" aria-label={t('campus.teacher.calendar.title')}>
         <button 
@@ -215,8 +316,9 @@ const calendarTranslations = {
         <TeacherCalendar 
             client:load
             sessions={calendarSessions}
+            initialWeekStartKey={initialWeekStartKey}
             students={students}
-            teacherId={user.id}
+            teacherId={authenticatedUserId}
             lang={lang}
             translations={calendarTranslations}
         />
@@ -227,12 +329,15 @@ const calendarTranslations = {
         <AvailabilityManager 
             client:load
             initialAvailability={availability || []}
-            teacherId={user.id}
+            teacherId={authenticatedUserId}
             lang={lang}
             translations={calendarTranslations}
         />
     </div>
+    </>
+    )}
 </CampusLayout>
+)}
 
 <script>
     const tabCalendar = document.getElementById('tab-calendar');
