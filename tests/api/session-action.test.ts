@@ -38,8 +38,12 @@ vi.mock('../../src/lib/crm/onboarding', () => ({
     recordNoShowFollowUpSafe: onboardingMocks.recordNoShowFollowUpSafe,
 }));
 
-vi.mock('../../src/lib/internal-job-service', () => ({
+const jobServiceMocks = vi.hoisted(() => ({
     triggerFulfillmentProcessing: vi.fn(),
+}));
+
+vi.mock('../../src/lib/internal-job-service', () => ({
+    triggerFulfillmentProcessing: jobServiceMocks.triggerFulfillmentProcessing,
 }));
 
 const makeContext = (body: Record<string, unknown> = {}) => ({
@@ -90,6 +94,10 @@ const makeSessionActionAdminClient = (
         data: [restoredCancellationRow],
         error: null,
     },
+    sessionUpdateResponse: { data: Array<{ id: string }> | null; error: unknown } = {
+        data: [{ id: 'session-1' }],
+        error: null,
+    },
 ) => ({
     rpc: vi.fn().mockResolvedValue(cancellationRpcResponse),
     from: vi.fn((table: string) => {
@@ -100,15 +108,9 @@ const makeSessionActionAdminClient = (
                     return chain;
                 }),
                 eq: vi.fn().mockReturnThis(),
-                select: vi.fn().mockResolvedValue({ data: [{ id: 'session-1' }], error: null }),
+                select: vi.fn().mockResolvedValue(sessionUpdateResponse),
             };
             return chain;
-        }
-
-        if (table === 'fulfillment_jobs') {
-            return {
-                insert: vi.fn().mockResolvedValue({ error: null }),
-            };
         }
 
         if (table === 'subscriptions') {
@@ -529,7 +531,8 @@ describe('POST /api/calendar/session-action', () => {
         vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
-        await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
+        const body = await response.json() as JsonBody & { fulfillment?: string };
 
         expect(supabaseAdmin.rpc).toHaveBeenCalledWith('cancel_scheduled_session', {
             p_session_id: 'session-1',
@@ -538,6 +541,65 @@ describe('POST /api/calendar/session-action', () => {
             p_cancellation_reason: null,
         });
         expect(sessionsUpdateMock).not.toHaveBeenCalled();
+        expect(supabaseAdmin.from).not.toHaveBeenCalledWith('fulfillment_jobs');
+        expect(jobServiceMocks.triggerFulfillmentProcessing).toHaveBeenCalledWith(expect.any(Object), 3);
+        expect(body.fulfillment).toBe('queued');
+    });
+
+    it('returns 409 without side effects when cancellation conflicts with a reschedule', async () => {
+        const mockUser = { id: 'student-id', email: 'student@test.com' };
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            scheduled_at: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+            subscription: { id: 'sub-1', sessions_used: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+            calendar_event_id: 'event-1',
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'student' }, error: null });
+            } else if (table === 'sessions') {
+                chain.single.mockResolvedValue({ data: mockSession, error: null });
+            }
+            return chain;
+        });
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(makeSessionActionAdminClient(
+            undefined,
+            {
+                data: [],
+                error: {
+                    code: '23505',
+                    message: 'checkout_v2_reschedule_subscription_has_pending_operation',
+                },
+            },
+        ) as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
+
+        expect(response.status).toBe(409);
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordFirstClassCancelledSafe).not.toHaveBeenCalled();
+        expect(jobServiceMocks.triggerFulfillmentProcessing).not.toHaveBeenCalled();
     });
 
     it('marks a past session completed and records first-class onboarding activation', async () => {
@@ -629,6 +691,62 @@ describe('POST /api/calendar/session-action', () => {
             scheduledAt,
             completedAt: expect.any(String),
         }));
+    });
+
+    it('returns 409 without CRM or onboarding effects when completion hits the reschedule guard', async () => {
+        const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            scheduled_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+            subscription: { id: 'sub-1', sessions_used: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+            calendar_event_id: 'event-1',
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'sessions') {
+                chain.single.mockResolvedValue({ data: mockSession, error: null });
+            }
+            return chain;
+        });
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(makeSessionActionAdminClient(
+            undefined,
+            undefined,
+            {
+                data: null,
+                error: {
+                    code: '40001',
+                    message: 'checkout_v2_reschedule_session_is_locked',
+                },
+            },
+        ) as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'complete' }) as any);
+
+        expect(response.status).toBe(409);
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordFirstClassCompletedSafe).not.toHaveBeenCalled();
     });
 
     it('accepts a structured post-class report object for the JSONB report column', async () => {

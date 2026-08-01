@@ -14,6 +14,8 @@ import {
     renewalNoticeEmailTemplate,
     renewalNoticeSubject,
     classConfirmationTemplate,
+    classRescheduledTemplate,
+    classRescheduledSubject,
     classReminderTemplate,
     classCancelledTemplate,
     leadWelcomeTemplate,
@@ -25,6 +27,7 @@ import {
     type WelcomeEmailData,
     type RenewalNoticeEmailData,
     type ClassConfirmationData,
+    type ClassRescheduledData,
     type ClassReminderData,
     type ClassCancelledData,
     type LeadWelcomeEmailData,
@@ -135,6 +138,22 @@ export async function sendClassConfirmation(
         failureLabel: '[Email] Failed to send class confirmation:',
         thrownLabel: '[Email] Error sending class confirmation:',
         successLabel: '[Email] Class confirmation sent to',
+    }, options);
+}
+
+export async function sendClassRescheduled(
+    email: string,
+    data: ClassRescheduledData,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: classRescheduledSubject(data.locale),
+        html: classRescheduledTemplate(data),
+        source: 'class_rescheduled',
+        failureLabel: '[Email] Failed to send class reschedule:',
+        thrownLabel: '[Email] Error sending class reschedule:',
+        successLabel: '[Email] Class reschedule sent to',
     }, options);
 }
 

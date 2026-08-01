@@ -6,7 +6,9 @@ import { getPrivateProfile, upsertPrivateProfile } from '../profiles-private';
 import { sendRenewalNoticeEmail, sendWelcomeEmail } from '../email';
 import { getSiteUrl } from '../site-url';
 import { fulfillSessionBatch, fulfillSingleSession } from './session-fulfillment';
-import { cancelClassEvent } from '../google/calendar';
+import { FulfillmentDependencyPendingError } from './dependency';
+import { processSessionReschedule } from './session-reschedule';
+import { cancelClassEvent, deterministicClassEventId } from '../google/calendar';
 import { sendClassCancelled } from '../email';
 import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
 import type { Database } from '../../types/database.types';
@@ -20,6 +22,7 @@ import {
     enqueueFulfillmentJob,
     enqueueSessionCancellation,
     enqueueSessionFulfillment,
+    enqueueSessionReschedule,
     enqueueWelcomeFulfillment,
     enqueueRenewalNotice,
     isMissingJobsTable,
@@ -33,6 +36,7 @@ export {
     enqueueFulfillmentJob,
     enqueueSessionCancellation,
     enqueueSessionFulfillment,
+    enqueueSessionReschedule,
     enqueueWelcomeFulfillment,
     enqueueRenewalNotice,
     type FulfillmentJobPayload,
@@ -60,6 +64,18 @@ const STALE_PROCESSING_AFTER_MS = 20 * 60 * 1000;
 const MANUAL_RECONCILIATION_RUN_AT = '9999-12-31T23:59:59.999Z';
 export const STALE_PROCESSING_ERROR = 'STALE_PROCESSING_REQUIRES_RECONCILIATION';
 export const POST_EFFECT_FINALIZATION_ERROR = 'POST_EFFECT_FINALIZATION_REQUIRES_RECONCILIATION';
+
+function isSubscriptionProcessingContention(error: {
+    code?: string;
+    details?: string;
+    hint?: string;
+    message?: string;
+} | null): boolean {
+    if (error?.code !== '23505') return false;
+    return [error.message, error.details, error.hint]
+        .filter((value): value is string => typeof value === 'string')
+        .some((value) => value.includes('fulfillment_jobs_one_processing_subscription_idx'));
+}
 
 function nextRunAt(attempts: number): string {
     const delaySeconds = Math.min(30 * Math.pow(2, Math.max(attempts - 1, 0)), 30 * 60);
@@ -325,23 +341,22 @@ async function processSessionCancellation(
         throw error ?? new Error('Session not found for cancellation fulfillment');
     }
 
-    if (session.calendar_event_id) {
-        const cancelled = await cancelClassEvent(session.calendar_event_id);
-        if (!cancelled) {
-            throw new Error('Google Calendar event cancellation failed');
-        }
+    const calendarEventId = session.calendar_event_id ?? deterministicClassEventId(sessionId);
+    const cancelled = await cancelClassEvent(calendarEventId);
+    if (!cancelled) {
+        throw new Error('Google Calendar event cancellation failed');
+    }
 
-        const { error: cancellationStateError } = await supabaseAdmin
-            .from('sessions')
-            .update({
-                calendar_event_id: null,
-                meet_link: null,
-            })
-            .eq('id', sessionId);
+    const { error: cancellationStateError } = await supabaseAdmin
+        .from('sessions')
+        .update({
+            calendar_event_id: null,
+            meet_link: null,
+        })
+        .eq('id', sessionId);
 
-        if (cancellationStateError) {
-            throw cancellationStateError;
-        }
+    if (cancellationStateError) {
+        throw cancellationStateError;
     }
 
     if (payload.sendEmail === false || !session.scheduled_at) return;
@@ -460,6 +475,9 @@ async function processJob(
         case 'session_cancellation':
             await processSessionCancellation(supabaseAdmin, payload, job);
             return;
+        case 'session_reschedule':
+            await processSessionReschedule(supabaseAdmin, payload, job);
+            return;
         case 'renewal_notice':
             await processRenewalNotice(supabaseAdmin, payload, job);
             return;
@@ -519,6 +537,9 @@ export async function processDueFulfillmentJobs(options: {
             .maybeSingle();
 
         if (lockError) {
+            if (isSubscriptionProcessingContention(lockError)) {
+                continue;
+            }
             console.error('[Fulfillment] Could not lock job:', lockError);
             failed += 1;
             continue;
@@ -541,11 +562,12 @@ export async function processDueFulfillmentJobs(options: {
         if (processingError) {
             const message = processingError instanceof Error ? processingError.message : 'Unknown fulfillment error';
             const manualReview = isFulfillmentEffectManualReviewError(processingError);
-            const observationRetry = processingError instanceof FulfillmentEffectError
-                && (
+            const dependencyPending = processingError instanceof FulfillmentDependencyPendingError;
+            const observationRetry = dependencyPending
+                || (processingError instanceof FulfillmentEffectError && (
                     processingError.code === 'FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS'
                     || processingError.code === 'FULFILLMENT_EFFECT_IN_PROGRESS'
-                );
+                ));
             const exhausted = !observationRetry && attempts >= job.max_attempts;
             const { data: failedJob, error: failError } = await supabaseAdmin
                 .from('fulfillment_jobs')

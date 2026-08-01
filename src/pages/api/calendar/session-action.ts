@@ -1,13 +1,20 @@
 import type { APIRoute } from 'astro';
 import { recordCrmActivityForProfileSafe } from '../../../lib/crm/activity-sync';
 import { recordFirstClassCancelledSafe, recordFirstClassCompletedSafe, recordNoShowFollowUpSafe } from '../../../lib/crm/onboarding';
-import { enqueueSessionCancellation } from '../../../lib/fulfillment/queue';
 import { triggerFulfillmentProcessing } from '../../../lib/internal-job-service';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import type { Database, Json } from '../../../types/database.types';
 
 const NO_SHOW_GRACE_PERIOD_MS = 15 * 60 * 1000;
+
+const isRescheduleStateConflict = (error: { code?: string; message?: string } | null): boolean => (
+    error?.code === '40001'
+    || (
+        error?.code === '23505'
+        && error.message?.includes('checkout_v2_reschedule_subscription_has_pending_operation') === true
+    )
+);
 
 const isSessionReport = (value: unknown): value is Json => {
     return value === null || typeof value === 'string' || (typeof value === 'object' && !Array.isArray(value));
@@ -88,6 +95,11 @@ export const POST: APIRoute = async (context) => {
         });
 
         if (updateError) {
+            if (isRescheduleStateConflict(updateError)) {
+                return new Response(JSON.stringify({
+                    error: 'Session change conflicts with a reschedule in progress.',
+                }), { status: 409 });
+            }
             console.error('[SessionAction] Atomic session cancellation failed:', updateError);
             return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
         }
@@ -107,17 +119,7 @@ export const POST: APIRoute = async (context) => {
         const hoursUntilClass = cancelResult.hours_until_class;
         const subscriptionId = cancelResult.subscription_id ?? subscription?.id ?? null;
 
-        const fulfillmentQueued = await enqueueSessionCancellation(supabaseAdmin, {
-            sessionId,
-            subscriptionId,
-            studentId: session.student_id,
-            cancelledBy,
-            reason: cancellationReason,
-        });
-
-        if (fulfillmentQueued) {
-            triggerFulfillmentProcessing(context, 3);
-        }
+        triggerFulfillmentProcessing(context, 3);
 
         await recordCrmActivityForProfileSafe(supabaseAdmin, {
             profileId: session.student_id,
@@ -161,7 +163,7 @@ export const POST: APIRoute = async (context) => {
 
         return new Response(JSON.stringify({
             success: true,
-            fulfillment: fulfillmentQueued ? 'queued' : 'skipped',
+            fulfillment: 'queued',
             calendarEventQueued: Boolean(sessionData.calendar_event_id),
             quotaRestored,
             quotaConsumed: lateStudentCancellation,
@@ -228,6 +230,11 @@ export const POST: APIRoute = async (context) => {
         const { data: updatedRows, error: updateError } = await updateQuery.select('id');
 
         if (updateError) {
+            if (isRescheduleStateConflict(updateError)) {
+                return new Response(JSON.stringify({
+                    error: 'Session change conflicts with a reschedule in progress.',
+                }), { status: 409 });
+            }
             return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
         }
 

@@ -885,6 +885,1071 @@ JOIN public.checkout_v2_weekly_allocations AS allocation
 WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001'
 \gset
 
+-- The notice boundary is inclusive at exactly 24 hours and rejects one
+-- second less without relying on wall-clock timing in the test process.
+DO $$
+BEGIN
+    IF NOT private.checkout_v2_reschedule_has_sufficient_notice(
+        '2030-01-02 10:00:00+00'::TIMESTAMPTZ,
+        '2030-01-01 10:00:00+00'::TIMESTAMPTZ
+    ) OR private.checkout_v2_reschedule_has_sufficient_notice(
+        '2030-01-02 09:59:59+00'::TIMESTAMPTZ,
+        '2030-01-01 10:00:00+00'::TIMESTAMPTZ
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_reschedule_notice_boundary_is_wrong';
+    END IF;
+
+    IF (
+        (
+            '2027-10-25 09:00:00 Europe/Madrid'::TIMESTAMPTZ
+            AT TIME ZONE 'Europe/Madrid'
+        ) + INTERVAL '7 days'
+    ) AT TIME ZONE 'Europe/Madrid'
+        IS NOT DISTINCT FROM
+        '2027-10-25 09:00:00 Europe/Madrid'::TIMESTAMPTZ + INTERVAL '7 days' THEN
+        RAISE EXCEPTION 'checkout_v2_reschedule_dst_target_used_utc_interval';
+    END IF;
+END
+$$;
+
+SELECT
+    operation.id AS anchor_reschedule_operation_id,
+    operation.target_stripe_anchor_at AS anchor_reschedule_target_at
+FROM public.prepare_checkout_v2_reschedule(
+    '71000000-0000-4000-8000-000000000001',
+    :'first_session_id'::UUID,
+    '10000000-0000-4000-8000-000000000001',
+    :'moved_first_class_at'::TIMESTAMPTZ
+) AS operation
+\gset
+
+-- Exact request replay returns the same durable operation.
+DO $$
+DECLARE
+    replayed public.checkout_v2_reschedule_operations%ROWTYPE;
+BEGIN
+    SELECT * INTO replayed
+    FROM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000001',
+        (
+            SELECT first_session_id
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        ),
+        '10000000-0000-4000-8000-000000000001',
+        (
+            SELECT first_class_at + INTERVAL '7 days'
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        )
+    );
+
+    IF replayed.id IS DISTINCT FROM (
+        SELECT id
+        FROM public.checkout_v2_reschedule_operations
+        WHERE request_id = '71000000-0000-4000-8000-000000000001'
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_reschedule_request_replay_changed_identity';
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    PERFORM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000001',
+        (
+            SELECT first_session_id
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        ),
+        '10000000-0000-4000-8000-000000000001',
+        (
+            SELECT first_class_at + INTERVAL '14 days'
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        )
+    );
+    RAISE EXCEPTION 'checkout_v2_reschedule_request_id_was_reused';
+EXCEPTION WHEN unique_violation THEN
+    IF SQLERRM <> 'checkout_v2_reschedule_request_conflicts' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- The subscription advisory lock plus the partial unique index make a
+-- prepared Stripe saga exclusive until it is applied or reconciled.
+DO $$
+BEGIN
+    PERFORM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000002',
+        (
+            SELECT first_session_id
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        ),
+        '10000000-0000-4000-8000-000000000001',
+        (
+            SELECT first_class_at + INTERVAL '7 days'
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        )
+    );
+    RAISE EXCEPTION 'checkout_v2_subscription_accepted_two_pending_reschedules';
+EXCEPTION WHEN unique_violation THEN
+    IF SQLERRM <> 'checkout_v2_reschedule_subscription_has_pending_operation' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- Cancellation shares the same lock and cannot invalidate a prepared Stripe
+-- operation between prepare and apply.
+DO $$
+BEGIN
+    PERFORM public.cancel_scheduled_session(
+        (
+            SELECT first_session_id
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        ),
+        '10000000-0000-4000-8000-000000000001',
+        'student',
+        'concurrent cancellation test'
+    );
+    RAISE EXCEPTION 'checkout_v2_pending_reschedule_was_cancelled';
+EXCEPTION WHEN unique_violation THEN
+    IF SQLERRM <> 'checkout_v2_reschedule_subscription_has_pending_operation' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- Authenticated administrators may perform writes allowed by the session RLS
+-- policy without receiving 42501 from private ledger/slot lookups. The same
+-- trigger must still reject the write when a durable reservation is active.
+SAVEPOINT checkout_v2_authenticated_admin_guard;
+
+SELECT public.mark_checkout_v2_reschedule_outcome(
+    :'anchor_reschedule_operation_id'::UUID,
+    'failed',
+    'authenticated_admin_permission_fixture'
+);
+
+SELECT pg_catalog.set_config(
+    'request.jwt.claim.sub',
+    '10000000-0000-4000-8000-000000000003',
+    TRUE
+);
+SELECT pg_catalog.set_config(
+    'app.checkout_v2_test_first_session_id',
+    :'first_session_id',
+    TRUE
+);
+SET LOCAL ROLE authenticated;
+
+DO $$
+BEGIN
+    UPDATE public.sessions
+    SET teacher_id = teacher_id
+    WHERE id = current_setting(
+        'app.checkout_v2_test_first_session_id'
+    )::UUID;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'authenticated_admin_allowed_write_did_not_run';
+    END IF;
+END
+$$;
+
+RESET ROLE;
+ROLLBACK TO SAVEPOINT checkout_v2_authenticated_admin_guard;
+
+SELECT pg_catalog.set_config(
+    'request.jwt.claim.sub',
+    '10000000-0000-4000-8000-000000000003',
+    TRUE
+);
+SELECT pg_catalog.set_config(
+    'app.checkout_v2_test_first_session_id',
+    :'first_session_id',
+    TRUE
+);
+SET LOCAL ROLE authenticated;
+
+DO $$
+BEGIN
+    UPDATE public.sessions
+    SET status = 'completed'
+    WHERE id = current_setting(
+        'app.checkout_v2_test_first_session_id'
+    )::UUID;
+    RAISE EXCEPTION 'authenticated_admin_crossed_active_reschedule';
+EXCEPTION WHEN SQLSTATE '40001' THEN
+    IF SQLERRM <> 'checkout_v2_reschedule_session_is_locked' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+RESET ROLE;
+SELECT pg_catalog.set_config('request.jwt.claim.sub', '', TRUE);
+
+-- Manual review is allowed before our Stripe mutation when preflight discovers
+-- external divergence. It is terminal, blocks conflicting lifecycle writes,
+-- but leaves notes and provider artifact fields writable.
+DO $$
+DECLARE
+    operation_id UUID := (
+        SELECT id
+        FROM public.checkout_v2_reschedule_operations
+        WHERE request_id = '71000000-0000-4000-8000-000000000001'
+    );
+    first_session UUID := (
+        SELECT first_session_id
+        FROM public.checkout_v2_billing_state
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+    );
+BEGIN
+    PERFORM public.mark_checkout_v2_reschedule_outcome(
+        operation_id,
+        'manual_review',
+        'stripe_preflight_anchor_diverged'
+    );
+
+    PERFORM pg_catalog.set_config(
+        'app.checkout_v2_reschedule_operation_id',
+        '00000000-0000-4000-8000-000000000099',
+        TRUE
+    );
+
+    BEGIN
+        UPDATE public.sessions
+        SET status = 'completed'
+        WHERE id = first_session;
+        RAISE EXCEPTION 'checkout_v2_manual_review_allowed_completion';
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_session_is_locked' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        UPDATE public.sessions
+        SET status = 'no_show'
+        WHERE id = first_session;
+        RAISE EXCEPTION 'checkout_v2_manual_review_allowed_no_show';
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_session_is_locked' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        UPDATE public.sessions
+        SET scheduled_at = scheduled_at + INTERVAL '5 minutes'
+        WHERE id = first_session;
+        RAISE EXCEPTION 'checkout_v2_manual_review_allowed_time_change';
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_session_is_locked' THEN
+            RAISE;
+        END IF;
+    END;
+
+    UPDATE public.sessions
+    SET
+        teacher_notes = 'notes remain writable while reschedule is pending',
+        calendar_event_id = 'calendar_artifact_remains_writable'
+    WHERE id = first_session;
+
+    BEGIN
+        UPDATE public.checkout_v2_billing_state
+        SET updated_at = date_trunc('second', clock_timestamp())
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+        RAISE EXCEPTION 'checkout_v2_manual_review_allowed_billing_write';
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_billing_state_is_locked' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        UPDATE public.checkout_v2_cycles
+        SET updated_at = date_trunc('second', clock_timestamp())
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+          AND cycle_number = 1;
+        RAISE EXCEPTION 'checkout_v2_manual_review_allowed_cycle_write';
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_billing_state_is_locked' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        PERFORM public.mark_checkout_v2_reschedule_outcome(
+            operation_id,
+            'failed',
+            'must_not_reopen_manual_review'
+        );
+        RAISE EXCEPTION 'checkout_v2_manual_review_was_reopened';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_outcome_transition_is_not_allowed' THEN
+            RAISE;
+        END IF;
+    END;
+
+    PERFORM public.apply_checkout_v2_reschedule(
+        operation_id,
+        (
+            SELECT target_stripe_anchor_at
+            FROM public.checkout_v2_reschedule_operations
+            WHERE id = operation_id
+        )
+    );
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.checkout_v2_reschedule_operations
+        WHERE id = operation_id
+          AND status = 'applied'
+          AND last_error IS NULL
+          AND stripe_mutation_started_at IS NOT NULL
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_manual_review_was_not_reconciled';
+    END IF;
+
+    RAISE EXCEPTION 'checkout_v2_manual_review_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_manual_review_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- A provisional operation whose Stripe mutation boundary was crossed may leave
+-- manual review only when Stripe is then observed at the exact previous anchor.
+-- The recovery is idempotent and never clears the durable mutation marker.
+DO $$
+DECLARE
+    operation_row public.checkout_v2_reschedule_operations%ROWTYPE;
+    begun_operation public.checkout_v2_reschedule_operations%ROWTYPE;
+    recovered_operation public.checkout_v2_reschedule_operations%ROWTYPE;
+    replayed_operation public.checkout_v2_reschedule_operations%ROWTYPE;
+    previous_anchor TIMESTAMPTZ;
+BEGIN
+    SELECT * INTO operation_row
+    FROM public.checkout_v2_reschedule_operations
+    WHERE request_id = '71000000-0000-4000-8000-000000000001';
+
+    previous_anchor := operation_row.old_scheduled_at + INTERVAL '672 hours';
+
+    BEGIN
+        UPDATE public.checkout_v2_reschedule_operations
+        SET
+            status = 'failed',
+            last_error = 'stripe_confirmed_at_previous_anchor',
+            observed_stripe_anchor_at = previous_anchor + INTERVAL '1 second'
+        WHERE id = operation_row.id;
+        RAISE EXCEPTION 'lifecycle_constraint_accepted_wrong_previous_anchor';
+    EXCEPTION WHEN check_violation THEN
+        NULL;
+    END;
+
+    BEGIN
+        PERFORM public.mark_checkout_v2_reschedule_outcome(
+            operation_row.id,
+            'failed',
+            'requested_failure_must_not_record_observed_anchor',
+            previous_anchor
+        );
+        RAISE EXCEPTION 'requested_failure_recorded_observed_anchor';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_outcome_transition_is_not_allowed' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        UPDATE public.checkout_v2_reschedule_operations
+        SET
+            status = 'failed',
+            last_error = 'stripe_confirmed_at_previous_anchor'
+        WHERE id = operation_row.id;
+        RAISE EXCEPTION 'lifecycle_constraint_reserved_previous_anchor_reason_from_requested';
+    EXCEPTION WHEN check_violation THEN
+        NULL;
+    END;
+
+    BEGIN
+        PERFORM public.mark_checkout_v2_reschedule_outcome(
+            operation_row.id,
+            'failed',
+            'stripe_confirmed_at_previous_anchor'
+        );
+        RAISE EXCEPTION 'requested_operation_used_reserved_previous_anchor_reason';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_outcome_transition_is_not_allowed' THEN
+            RAISE;
+        END IF;
+    END;
+
+    -- An ambiguous begin may cross Stripe's external boundary without
+    -- persisting the local mutation marker. Exact observation at the previous
+    -- anchor still closes that manual-review operation safely. The nested
+    -- exception rolls this fixture back so the marked-start path stays separate.
+    BEGIN
+        PERFORM public.mark_checkout_v2_reschedule_outcome(
+            operation_row.id,
+            'manual_review',
+            'stripe_update_acceptance_unknown'
+        );
+
+        IF EXISTS (
+            SELECT 1
+            FROM public.checkout_v2_reschedule_operations
+            WHERE id = operation_row.id
+              AND stripe_mutation_started_at IS NOT NULL
+        ) THEN
+            RAISE EXCEPTION 'manual_review_without_stripe_start_fixture_invalid';
+        END IF;
+
+        SELECT * INTO recovered_operation
+        FROM public.mark_checkout_v2_reschedule_outcome(
+            operation_row.id,
+            'failed',
+            'stripe_confirmed_at_previous_anchor',
+            previous_anchor
+        );
+
+        IF recovered_operation.id IS DISTINCT FROM operation_row.id
+           OR recovered_operation.status IS DISTINCT FROM 'failed'
+           OR recovered_operation.last_error IS DISTINCT FROM
+                'stripe_confirmed_at_previous_anchor'
+           OR recovered_operation.observed_stripe_anchor_at IS DISTINCT FROM
+                previous_anchor
+           OR recovered_operation.stripe_mutation_started_at IS NOT NULL
+           OR recovered_operation.applied_at IS NOT NULL THEN
+            RAISE EXCEPTION 'manual_review_previous_anchor_recovery_without_start_was_not_exact';
+        END IF;
+
+        RAISE EXCEPTION 'manual_review_without_stripe_start_fixture_rollback';
+    EXCEPTION WHEN raise_exception THEN
+        IF SQLERRM <> 'manual_review_without_stripe_start_fixture_rollback' THEN
+            RAISE;
+        END IF;
+    END;
+
+    SELECT * INTO begun_operation
+    FROM public.begin_checkout_v2_reschedule_stripe_mutation(operation_row.id);
+
+    PERFORM public.mark_checkout_v2_reschedule_outcome(
+        operation_row.id,
+        'manual_review',
+        'stripe_update_acceptance_unknown'
+    );
+
+    BEGIN
+        PERFORM public.mark_checkout_v2_reschedule_outcome(
+            operation_row.id,
+            'failed',
+            'stripe_confirmed_at_previous_anchor',
+            previous_anchor + INTERVAL '1 second'
+        );
+        RAISE EXCEPTION 'manual_review_recovered_from_wrong_anchor';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_outcome_transition_is_not_allowed' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        PERFORM public.mark_checkout_v2_reschedule_outcome(
+            operation_row.id,
+            'failed',
+            'different_recovery_reason',
+            previous_anchor
+        );
+        RAISE EXCEPTION 'manual_review_recovered_with_wrong_reason';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_outcome_transition_is_not_allowed' THEN
+            RAISE;
+        END IF;
+    END;
+
+    SELECT * INTO recovered_operation
+    FROM public.mark_checkout_v2_reschedule_outcome(
+        operation_row.id,
+        'failed',
+        'stripe_confirmed_at_previous_anchor',
+        previous_anchor
+    );
+
+    IF recovered_operation.id IS DISTINCT FROM operation_row.id
+       OR recovered_operation.status IS DISTINCT FROM 'failed'
+       OR recovered_operation.last_error IS DISTINCT FROM
+            'stripe_confirmed_at_previous_anchor'
+       OR recovered_operation.observed_stripe_anchor_at IS DISTINCT FROM
+            previous_anchor
+       OR recovered_operation.stripe_mutation_started_at IS NULL
+       OR recovered_operation.stripe_mutation_started_at IS DISTINCT FROM
+            begun_operation.stripe_mutation_started_at
+       OR recovered_operation.applied_at IS NOT NULL THEN
+        RAISE EXCEPTION 'manual_review_previous_anchor_recovery_was_not_exact';
+    END IF;
+
+    SELECT * INTO replayed_operation
+    FROM public.mark_checkout_v2_reschedule_outcome(
+        operation_row.id,
+        'failed',
+        'stripe_confirmed_at_previous_anchor',
+        previous_anchor
+    );
+
+    IF replayed_operation IS DISTINCT FROM recovered_operation THEN
+        RAISE EXCEPTION 'manual_review_previous_anchor_recovery_replay_drifted';
+    END IF;
+
+    RAISE EXCEPTION 'manual_review_previous_anchor_recovery_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'manual_review_previous_anchor_recovery_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- A request that never crossed the Stripe boundary expires safely for a new
+-- action. Exact request replay remains inspectable before that sanitation.
+DO $$
+DECLARE
+    original_operation public.checkout_v2_reschedule_operations%ROWTYPE;
+    replayed public.checkout_v2_reschedule_operations%ROWTYPE;
+    replacement public.checkout_v2_reschedule_operations%ROWTYPE;
+BEGIN
+    SELECT * INTO original_operation
+    FROM public.checkout_v2_reschedule_operations
+    WHERE request_id = '71000000-0000-4000-8000-000000000001';
+
+    UPDATE public.checkout_v2_reschedule_operations
+    SET
+        created_at = date_trunc('second', clock_timestamp()) - INTERVAL '16 minutes',
+        updated_at = date_trunc('second', clock_timestamp()) - INTERVAL '16 minutes'
+    WHERE id = original_operation.id;
+
+    SELECT * INTO replayed
+    FROM public.prepare_checkout_v2_reschedule(
+        original_operation.request_id,
+        original_operation.session_id,
+        original_operation.actor_id,
+        original_operation.new_scheduled_at
+    );
+
+    IF replayed.status IS DISTINCT FROM 'requested' THEN
+        RAISE EXCEPTION 'checkout_v2_exact_retry_was_expired_before_reconciliation';
+    END IF;
+
+    BEGIN
+        PERFORM public.cancel_scheduled_session(
+            original_operation.session_id,
+            original_operation.actor_id,
+            'student',
+            'stale unstarted operation must not lock cancellation'
+        );
+        RAISE EXCEPTION 'checkout_v2_stale_cancel_fixture_rollback';
+    EXCEPTION WHEN raise_exception THEN
+        IF SQLERRM <> 'checkout_v2_stale_cancel_fixture_rollback' THEN
+            RAISE;
+        END IF;
+    END;
+
+    SELECT * INTO replacement
+    FROM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000012',
+        original_operation.session_id,
+        original_operation.actor_id,
+        original_operation.new_scheduled_at
+    );
+
+    IF replacement.status IS DISTINCT FROM 'requested'
+       OR (
+            SELECT status
+            FROM public.checkout_v2_reschedule_operations
+            WHERE id = original_operation.id
+       ) IS DISTINCT FROM 'failed'
+       OR (
+            SELECT last_error
+            FROM public.checkout_v2_reschedule_operations
+            WHERE id = original_operation.id
+       ) IS DISTINCT FROM 'expired_before_stripe_mutation' THEN
+        RAISE EXCEPTION 'checkout_v2_unstarted_expiration_is_not_safe';
+    END IF;
+
+    PERFORM public.mark_checkout_v2_reschedule_outcome(
+        replacement.id,
+        'failed',
+        'replacement_fixture_closed'
+    );
+
+    RAISE EXCEPTION 'checkout_v2_expiration_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_expiration_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- Applying a provisional anchor is forbidden until the irreversible Stripe
+-- boundary has been recorded durably.
+DO $$
+BEGIN
+    PERFORM public.apply_checkout_v2_reschedule(
+        (
+            SELECT id
+            FROM public.checkout_v2_reschedule_operations
+            WHERE request_id = '71000000-0000-4000-8000-000000000001'
+        ),
+        (
+            SELECT target_stripe_anchor_at
+            FROM public.checkout_v2_reschedule_operations
+            WHERE request_id = '71000000-0000-4000-8000-000000000001'
+        )
+    );
+    RAISE EXCEPTION 'checkout_v2_provisional_apply_skipped_begin';
+EXCEPTION WHEN check_violation THEN
+    IF SQLERRM <> 'checkout_v2_reschedule_observed_anchor_is_invalid' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+SELECT public.begin_checkout_v2_reschedule_stripe_mutation(
+    :'anchor_reschedule_operation_id'::UUID
+);
+SELECT public.begin_checkout_v2_reschedule_stripe_mutation(
+    :'anchor_reschedule_operation_id'::UUID
+);
+
+-- Once Stripe mutation has begun, the four provisional targets are reserved
+-- against sessions from every subscription, not only changes to this cycle.
+DO $$
+DECLARE
+    operation_row public.checkout_v2_reschedule_operations%ROWTYPE;
+BEGIN
+    SELECT * INTO operation_row
+    FROM public.checkout_v2_reschedule_operations
+    WHERE request_id = '71000000-0000-4000-8000-000000000001';
+
+    INSERT INTO public.subscriptions (
+        id,
+        student_id,
+        package_id,
+        status,
+        duration_months,
+        starts_at,
+        ends_at,
+        sessions_total,
+        contracted_sessions_per_period,
+        sessions_used,
+        stripe_subscription_id,
+        stripe_invoice_id,
+        contract_schema_version,
+        billing_interval_unit,
+        billing_interval_count,
+        class_duration_minutes
+    )
+    SELECT
+        '50000000-0000-4000-8000-000000000099',
+        '10000000-0000-4000-8000-000000000004',
+        (
+            SELECT id
+            FROM public.packages
+            WHERE contract_schema_version = 1
+            ORDER BY id
+            LIMIT 1
+        ),
+        'active',
+        1,
+        starts_at,
+        ends_at,
+        4,
+        4,
+        0,
+        'sub_reschedule_capacity_probe',
+        'in_reschedule_capacity_probe',
+        1,
+        'month',
+        1,
+        NULL
+    FROM public.subscriptions
+    WHERE id = operation_row.subscription_id;
+
+    BEGIN
+        INSERT INTO public.sessions (
+            id,
+            subscription_id,
+            student_id,
+            teacher_id,
+            scheduled_at,
+            duration_minutes,
+            status
+        )
+        SELECT
+            '70000000-0000-4000-8000-000000000099',
+            '50000000-0000-4000-8000-000000000099',
+            '10000000-0000-4000-8000-000000000004',
+            source_session.teacher_id,
+            operation_row.new_scheduled_at,
+            50,
+            'scheduled'
+        FROM public.sessions AS source_session
+        WHERE source_session.id = operation_row.session_id;
+
+        RAISE EXCEPTION 'checkout_v2_started_target_capacity_was_taken';
+    EXCEPTION WHEN SQLSTATE '40001' THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_session_is_locked' THEN
+            RAISE;
+        END IF;
+    END;
+
+    RAISE EXCEPTION 'checkout_v2_capacity_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_capacity_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    operation_row public.checkout_v2_reschedule_operations%ROWTYPE;
+BEGIN
+    SELECT * INTO operation_row
+    FROM public.checkout_v2_reschedule_operations
+    WHERE request_id = '71000000-0000-4000-8000-000000000001';
+
+    IF operation_row.stripe_mutation_started_at IS NULL
+       OR operation_row.stripe_mutation_started_at < operation_row.created_at THEN
+        RAISE EXCEPTION 'checkout_v2_stripe_mutation_begin_is_not_durable';
+    END IF;
+
+    UPDATE public.checkout_v2_reschedule_operations
+    SET
+        created_at = date_trunc('second', clock_timestamp()) - INTERVAL '16 minutes',
+        updated_at = GREATEST(
+            stripe_mutation_started_at,
+            date_trunc('second', clock_timestamp()) - INTERVAL '16 minutes'
+        )
+    WHERE id = operation_row.id;
+
+    BEGIN
+        PERFORM public.prepare_checkout_v2_reschedule(
+            '71000000-0000-4000-8000-000000000013',
+            operation_row.session_id,
+            operation_row.actor_id,
+            operation_row.new_scheduled_at
+        );
+        RAISE EXCEPTION 'checkout_v2_started_operation_was_autoexpired';
+    EXCEPTION WHEN unique_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_subscription_has_pending_operation' THEN
+            RAISE;
+        END IF;
+    END;
+
+    IF (
+        SELECT status
+        FROM public.checkout_v2_reschedule_operations
+        WHERE id = operation_row.id
+    ) IS DISTINCT FROM 'requested' THEN
+        RAISE EXCEPTION 'checkout_v2_started_operation_changed_terminal_state';
+    END IF;
+
+    RAISE EXCEPTION 'checkout_v2_started_expiration_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_started_expiration_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+SELECT public.apply_checkout_v2_reschedule(
+    :'anchor_reschedule_operation_id'::UUID,
+    :'anchor_reschedule_target_at'::TIMESTAMPTZ
+);
+
+-- Exact apply replay is idempotent and cannot enqueue duplicate jobs.
+SELECT public.apply_checkout_v2_reschedule(
+    :'anchor_reschedule_operation_id'::UUID,
+    :'anchor_reschedule_target_at'::TIMESTAMPTZ
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.checkout_v2_reschedule_operations AS operation
+        WHERE operation.request_id = '71000000-0000-4000-8000-000000000001'
+          AND operation.status = 'applied'
+          AND operation.operation_kind = 'provisional_anchor'
+          AND operation.observed_stripe_anchor_at = operation.target_stripe_anchor_at
+          AND operation.target_stripe_anchor_at =
+                operation.new_scheduled_at + INTERVAL '672 hours'
+    ) OR (
+        SELECT COUNT(*)
+        FROM public.fulfillment_jobs AS job
+        WHERE job.job_type = 'session_reschedule'
+          AND job.dedupe_key LIKE
+                'checkout_v2_reschedule:'
+                || (
+                    SELECT id::TEXT
+                    FROM public.checkout_v2_reschedule_operations
+                    WHERE request_id = '71000000-0000-4000-8000-000000000001'
+                ) || ':%'
+          AND job.payload->>'operationId' =
+                (
+                    SELECT id::TEXT
+                    FROM public.checkout_v2_reschedule_operations
+                    WHERE request_id = '71000000-0000-4000-8000-000000000001'
+                )
+          AND job.payload->'sendEmail' = 'true'::JSONB
+          AND (job.payload->>'previousScheduledAt')::TIMESTAMPTZ
+                IS DISTINCT FROM (job.payload->>'scheduledAt')::TIMESTAMPTZ
+    ) IS DISTINCT FROM 4 THEN
+        RAISE EXCEPTION 'checkout_v2_anchor_reschedule_or_jobs_are_incomplete';
+    END IF;
+
+    IF (
+        SELECT sessions_used
+        FROM public.subscriptions
+        WHERE id = '50000000-0000-4000-8000-000000000001'
+    ) IS DISTINCT FROM 4 THEN
+        RAISE EXCEPTION 'checkout_v2_anchor_reschedule_changed_quota';
+    END IF;
+END
+$$;
+
+UPDATE public.teacher_availability
+SET end_time = (:'first_local'::TIMESTAMP + INTERVAL '3 hours')::TIME
+WHERE teacher_id = '10000000-0000-4000-8000-000000000002'
+  AND day_of_week =
+        EXTRACT(DOW FROM (:'first_local'::TIMESTAMP + INTERVAL '2 days'))::INTEGER
+  AND start_time = :'first_local'::TIMESTAMP::TIME
+  AND is_active = TRUE;
+
+DO $$
+DECLARE
+    target_session public.sessions%ROWTYPE;
+BEGIN
+    SELECT * INTO target_session
+    FROM public.sessions
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND checkout_v2_cycle_session_index = 3;
+
+    IF NOT private.checkout_v2_reschedule_target_is_available(
+        target_session.teacher_id,
+        target_session.subscription_id,
+        target_session.checkout_v2_cycle_id,
+        target_session.id,
+        target_session.scheduled_at + INTERVAL '2 days 50 minutes',
+        target_session.duration_minutes,
+        FALSE
+    ) OR private.checkout_v2_reschedule_target_is_available(
+        target_session.teacher_id,
+        target_session.subscription_id,
+        target_session.checkout_v2_cycle_id,
+        target_session.id,
+        target_session.scheduled_at + INTERVAL '2 days 1 hour 1 minute',
+        target_session.duration_minutes,
+        FALSE
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_reschedule_slot_grid_is_not_enforced';
+    END IF;
+END
+$$;
+
+-- Failed is terminal only before Stripe mutation and releases the subscription
+-- for a new request; neither apply nor a different terminal status can reopen it.
+DO $$
+DECLARE
+    target_session public.sessions%ROWTYPE;
+    failed_operation public.checkout_v2_reschedule_operations%ROWTYPE;
+    replacement public.checkout_v2_reschedule_operations%ROWTYPE;
+BEGIN
+    SELECT * INTO target_session
+    FROM public.sessions
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND checkout_v2_cycle_session_index = 3;
+
+    SELECT * INTO failed_operation
+    FROM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000014',
+        target_session.id,
+        target_session.student_id,
+        target_session.scheduled_at + INTERVAL '2 days 50 minutes'
+    );
+
+    SELECT * INTO failed_operation
+    FROM public.mark_checkout_v2_reschedule_outcome(
+        failed_operation.id,
+        'failed',
+        'safe_failure_before_external_mutation'
+    );
+    PERFORM public.mark_checkout_v2_reschedule_outcome(
+        failed_operation.id,
+        'failed',
+        'safe_failure_before_external_mutation'
+    );
+
+    BEGIN
+        PERFORM public.mark_checkout_v2_reschedule_outcome(
+            failed_operation.id,
+            'manual_review',
+            'must_not_reopen_failed'
+        );
+        RAISE EXCEPTION 'checkout_v2_failed_operation_was_reopened';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_outcome_transition_is_not_allowed' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        PERFORM public.apply_checkout_v2_reschedule(failed_operation.id, NULL);
+        RAISE EXCEPTION 'checkout_v2_failed_operation_was_applied';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_operation_is_not_applicable' THEN
+            RAISE;
+        END IF;
+    END;
+
+    SELECT * INTO replacement
+    FROM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000015',
+        target_session.id,
+        target_session.student_id,
+        target_session.scheduled_at + INTERVAL '2 days 50 minutes'
+    );
+
+    IF replacement.status IS DISTINCT FROM 'requested' THEN
+        RAISE EXCEPTION 'checkout_v2_failed_operation_did_not_release_subscription';
+    END IF;
+
+    RAISE EXCEPTION 'checkout_v2_outcome_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_outcome_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- A one-session operation changes only that row. The nested block rolls the
+-- fixture back after also proving that replay never revives a later-cancelled
+-- session.
+DO $$
+DECLARE
+    target_session public.sessions%ROWTYPE;
+    prepared public.checkout_v2_reschedule_operations%ROWTYPE;
+    applied public.checkout_v2_reschedule_operations%ROWTYPE;
+    anchor_before public.checkout_v2_billing_state%ROWTYPE;
+    quota_before INTEGER;
+    other_session_times_before JSONB;
+BEGIN
+    SELECT * INTO target_session
+    FROM public.sessions
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND checkout_v2_cycle_session_index = 3;
+
+    SELECT * INTO anchor_before
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT sessions_used INTO quota_before
+    FROM public.subscriptions
+    WHERE id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT pg_catalog.jsonb_object_agg(id::TEXT, pg_catalog.to_jsonb(scheduled_at))
+    INTO other_session_times_before
+    FROM public.sessions
+    WHERE checkout_v2_cycle_id = target_session.checkout_v2_cycle_id
+      AND id <> target_session.id;
+
+    SELECT * INTO prepared
+    FROM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000003',
+        target_session.id,
+        '10000000-0000-4000-8000-000000000001',
+        target_session.scheduled_at + INTERVAL '2 days 50 minutes'
+    );
+
+    SELECT * INTO applied
+    FROM public.apply_checkout_v2_reschedule(prepared.id, NULL);
+
+    IF applied.status <> 'applied'
+       OR applied.operation_kind <> 'single_session'
+       OR (
+            SELECT scheduled_at
+            FROM public.sessions
+            WHERE id = target_session.id
+       ) IS DISTINCT FROM target_session.scheduled_at + INTERVAL '2 days 50 minutes'
+       OR (
+            SELECT pg_catalog.jsonb_object_agg(
+                id::TEXT,
+                pg_catalog.to_jsonb(scheduled_at)
+            )
+            FROM public.sessions
+            WHERE checkout_v2_cycle_id = target_session.checkout_v2_cycle_id
+              AND id <> target_session.id
+       ) IS DISTINCT FROM other_session_times_before
+       OR (
+            SELECT sessions_used
+            FROM public.subscriptions
+            WHERE id = target_session.subscription_id
+       ) IS DISTINCT FROM quota_before
+       OR (
+            SELECT anchor_revision
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = target_session.subscription_id
+       ) IS DISTINCT FROM anchor_before.anchor_revision
+       OR (
+            SELECT COUNT(*)
+            FROM public.fulfillment_jobs
+            WHERE job_type = 'session_reschedule'
+              AND dedupe_key =
+                    'checkout_v2_reschedule:' || prepared.id::TEXT
+                    || ':' || target_session.id::TEXT
+              AND payload->>'operationId' = prepared.id::TEXT
+              AND (payload->>'previousScheduledAt')::TIMESTAMPTZ =
+                    target_session.scheduled_at
+              AND (payload->>'scheduledAt')::TIMESTAMPTZ =
+                    target_session.scheduled_at + INTERVAL '2 days 50 minutes'
+              AND payload->'sendEmail' = 'true'::JSONB
+       ) <> 1 THEN
+        RAISE EXCEPTION 'checkout_v2_single_session_reschedule_is_not_exact';
+    END IF;
+
+    PERFORM public.cancel_scheduled_session(
+        target_session.id,
+        target_session.student_id,
+        'student',
+        'no-revival test'
+    );
+    PERFORM public.apply_checkout_v2_reschedule(prepared.id, NULL);
+
+    IF (
+        SELECT status
+        FROM public.sessions
+        WHERE id = target_session.id
+    ) IS DISTINCT FROM 'cancelled' THEN
+        RAISE EXCEPTION 'checkout_v2_applied_replay_revived_cancelled_session';
+    END IF;
+
+    RAISE EXCEPTION 'checkout_v2_single_session_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_single_session_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
 SELECT public.reconcile_checkout_v2_provisional_anchor(
     '50000000-0000-4000-8000-000000000001',
     1,
@@ -2011,4 +3076,383 @@ BEGIN
 END
 $$;
 
+-- Existing deployments may still contain legacy/ad-hoc sessions without a
+-- subscription even though the canonical schema is stricter. The compatible
+-- cancellation replacement continues to cancel them without quota writes.
+ALTER TABLE public.sessions ALTER COLUMN subscription_id DROP NOT NULL;
+
+INSERT INTO public.sessions (
+    id,
+    subscription_id,
+    student_id,
+    teacher_id,
+    scheduled_at,
+    duration_minutes,
+    status
+) VALUES (
+    '72000000-0000-4000-8000-000000000001',
+    NULL,
+    '10000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000002',
+    date_trunc('day', clock_timestamp()) + INTERVAL '10 years 3 hours',
+    50,
+    'scheduled'
+);
+
+INSERT INTO public.fulfillment_jobs (
+    id,
+    job_type,
+    session_id,
+    subscription_id,
+    student_id,
+    dedupe_key,
+    payload
+) VALUES (
+    '73000000-0000-4000-8000-000000000010',
+    'session_cancellation',
+    '72000000-0000-4000-8000-000000000001',
+    NULL,
+    '10000000-0000-4000-8000-000000000001',
+    'session_cancellation:72000000-0000-4000-8000-000000000001',
+    '{}'::JSONB
+);
+
+DO $$
+BEGIN
+    PERFORM public.cancel_scheduled_session(
+        '72000000-0000-4000-8000-000000000001',
+        '10000000-0000-4000-8000-000000000001',
+        'student',
+        'legacy ad-hoc cancellation test'
+    );
+    RAISE EXCEPTION 'session_cancellation_accepted_conflicting_outbox';
+EXCEPTION WHEN unique_violation THEN
+    IF SQLERRM <> 'session_cancellation_job_conflicts' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.sessions
+        WHERE id = '72000000-0000-4000-8000-000000000001'
+          AND status = 'scheduled'
+    ) THEN
+        RAISE EXCEPTION 'session_cancellation_conflict_did_not_roll_back_state';
+    END IF;
+END
+$$;
+
+DELETE FROM public.fulfillment_jobs
+WHERE id = '73000000-0000-4000-8000-000000000010';
+
+SELECT public.cancel_scheduled_session(
+    '72000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000001',
+    'student',
+    'legacy ad-hoc cancellation test'
+);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.sessions
+        WHERE id = '72000000-0000-4000-8000-000000000001'
+          AND subscription_id IS NULL
+          AND status = 'cancelled'
+          AND cancelled_at IS NOT NULL
+    )
+       OR (
+            SELECT COUNT(*)
+            FROM public.fulfillment_jobs
+            WHERE job_type = 'session_cancellation'
+              AND session_id = '72000000-0000-4000-8000-000000000001'
+              AND subscription_id IS NULL
+              AND student_id = '10000000-0000-4000-8000-000000000001'
+              AND dedupe_key =
+                    'session_cancellation:72000000-0000-4000-8000-000000000001'
+              AND payload = pg_catalog.jsonb_build_object(
+                    'sessionId',
+                    '72000000-0000-4000-8000-000000000001'::UUID,
+                    'cancelledBy',
+                    'student',
+                    'reason',
+                    'legacy ad-hoc cancellation test'
+              )
+       ) IS DISTINCT FROM 1 THEN
+        RAISE EXCEPTION 'legacy_session_without_subscription_was_not_cancelled';
+    END IF;
+END
+$$;
+
+DELETE FROM public.fulfillment_jobs
+WHERE dedupe_key = 'session_cancellation:72000000-0000-4000-8000-000000000001';
+
+DELETE FROM public.sessions
+WHERE id = '72000000-0000-4000-8000-000000000001';
+
+ALTER TABLE public.sessions ALTER COLUMN subscription_id SET NOT NULL;
+
+-- Both the migration precondition and the deferred trigger reject correlated
+-- timestamp drift without attempting a backfill.
+DO $$
+BEGIN
+    SET CONSTRAINTS validate_checkout_v2_first_session_after_session_write DEFERRED;
+
+    UPDATE public.sessions
+    SET scheduled_at = scheduled_at + INTERVAL '1 hour'
+    WHERE id = (
+        SELECT first_session_id
+        FROM public.checkout_v2_billing_state
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+    );
+
+    PERFORM private.assert_checkout_v2_first_session_coherence_upgrade_safe();
+    RAISE EXCEPTION 'checkout_v2_upgrade_guard_accepted_timestamp_drift';
+EXCEPTION WHEN object_not_in_prerequisite_state THEN
+    IF SQLERRM <>
+        'checkout_v2_reschedule_upgrade_requires_coherent_first_session_billing_cycle' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    SET CONSTRAINTS validate_checkout_v2_first_session_after_session_write DEFERRED;
+
+    UPDATE public.sessions
+    SET scheduled_at = scheduled_at + INTERVAL '1 hour'
+    WHERE id = (
+        SELECT first_session_id
+        FROM public.checkout_v2_billing_state
+        WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+    );
+
+    SET CONSTRAINTS validate_checkout_v2_first_session_after_session_write IMMEDIATE;
+    RAISE EXCEPTION 'checkout_v2_deferred_guard_accepted_timestamp_drift';
+EXCEPTION WHEN check_violation THEN
+    IF SQLERRM <> 'checkout_v2_first_session_billing_cycle_diverged' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- Workers may have several pending effects across one subscription, but only
+-- one may hold the processing lease while it calls an external provider.
+DO $$
+DECLARE
+    processing_index_definition TEXT;
+BEGIN
+    SELECT pg_catalog.pg_get_indexdef(index_row.indexrelid)
+    INTO processing_index_definition
+    FROM pg_catalog.pg_index AS index_row
+    WHERE index_row.indexrelid =
+        'public.fulfillment_jobs_one_processing_subscription_idx'::REGCLASS;
+
+    IF processing_index_definition IS DISTINCT FROM
+        'CREATE UNIQUE INDEX fulfillment_jobs_one_processing_subscription_idx '
+        || 'ON public.fulfillment_jobs USING btree (subscription_id) '
+        || 'WHERE ((subscription_id IS NOT NULL) '
+        || 'AND (status = ''processing''::text))' THEN
+        RAISE EXCEPTION 'processing_subscription_index_definition_drifted';
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    target_session public.sessions%ROWTYPE;
+    other_session public.sessions%ROWTYPE;
+BEGIN
+    SELECT session_row.* INTO target_session
+    FROM public.sessions AS session_row
+    JOIN public.checkout_v2_billing_state AS billing
+      ON billing.first_session_id = session_row.id
+    WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT session_row.* INTO other_session
+    FROM public.sessions AS session_row
+    WHERE session_row.checkout_v2_cycle_id = target_session.checkout_v2_cycle_id
+      AND session_row.id <> target_session.id
+    ORDER BY session_row.checkout_v2_cycle_session_index
+    LIMIT 1;
+
+    INSERT INTO public.fulfillment_jobs (
+        id,
+        job_type,
+        status,
+        session_id,
+        subscription_id,
+        student_id,
+        dedupe_key,
+        payload
+    ) VALUES
+        (
+            '73000000-0000-4000-8000-000000000001',
+            'session_reschedule',
+            'pending',
+            target_session.id,
+            target_session.subscription_id,
+            target_session.student_id,
+            'processing-session-lock:test:1',
+            '{}'::JSONB
+        ),
+        (
+            '73000000-0000-4000-8000-000000000002',
+            'session_reschedule',
+            'pending',
+            other_session.id,
+            other_session.subscription_id,
+            other_session.student_id,
+            'processing-subscription-lock:test:2',
+            '{}'::JSONB
+        );
+
+    UPDATE public.fulfillment_jobs
+    SET status = 'processing'
+    WHERE id = '73000000-0000-4000-8000-000000000001';
+
+    BEGIN
+        UPDATE public.fulfillment_jobs
+        SET status = 'processing'
+        WHERE id = '73000000-0000-4000-8000-000000000002';
+        RAISE EXCEPTION 'two_jobs_processed_the_same_subscription';
+    EXCEPTION WHEN unique_violation THEN
+        NULL;
+    END;
+
+    INSERT INTO public.fulfillment_jobs (
+        id,
+        job_type,
+        status,
+        session_id,
+        subscription_id,
+        student_id,
+        dedupe_key,
+        payload
+    ) VALUES
+        (
+            '73000000-0000-4000-8000-000000000003',
+            'session_reschedule',
+            'processing',
+            target_session.id,
+            NULL,
+            target_session.student_id,
+            'processing-legacy-nullable:test:1',
+            '{}'::JSONB
+        ),
+        (
+            '73000000-0000-4000-8000-000000000004',
+            'session_cancellation',
+            'processing',
+            target_session.id,
+            NULL,
+            target_session.student_id,
+            'processing-legacy-nullable:test:2',
+            '{}'::JSONB
+        );
+
+    RAISE EXCEPTION 'checkout_v2_processing_job_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_processing_job_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_class
+        WHERE oid = 'public.checkout_v2_reschedule_operations'::REGCLASS
+          AND relrowsecurity
+    )
+       OR NOT has_table_privilege(
+            'service_role',
+            'public.checkout_v2_reschedule_operations',
+            'SELECT'
+       )
+       OR has_table_privilege(
+            'service_role',
+            'public.checkout_v2_reschedule_operations',
+            'INSERT'
+       )
+       OR has_table_privilege(
+            'authenticated',
+            'public.checkout_v2_reschedule_operations',
+            'SELECT'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.prepare_checkout_v2_reschedule(uuid,uuid,uuid,timestamptz)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.apply_checkout_v2_reschedule(uuid,timestamptz)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.begin_checkout_v2_reschedule_stripe_mutation(uuid)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.mark_checkout_v2_reschedule_outcome(uuid,text,text,timestamptz)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.cancel_scheduled_session(uuid,uuid,text,text)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'authenticated',
+            'public.prepare_checkout_v2_reschedule(uuid,uuid,uuid,timestamptz)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'service_role',
+            'public.reconcile_checkout_v2_provisional_anchor(uuid,bigint,date,timestamptz)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'service_role',
+            'private.checkout_v2_reschedule_has_sufficient_notice(timestamptz,timestamptz)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'service_role',
+            'private.guard_session_against_bookable_slots()',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'service_role',
+            'private.guard_checkout_v2_reschedule_locked_state()',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'authenticated',
+            'public.begin_checkout_v2_reschedule_stripe_mutation(uuid)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'authenticated',
+            'public.mark_checkout_v2_reschedule_outcome(uuid,text,text,timestamptz)',
+            'EXECUTE'
+       ) THEN
+        RAISE EXCEPTION 'checkout_v2_reschedule_privileges_are_too_broad';
+    END IF;
+END
+$$;
+
 ROLLBACK;
+
+\ir checkout-v2-reschedule-concurrency.sql

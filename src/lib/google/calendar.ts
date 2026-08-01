@@ -3,6 +3,7 @@
  * Provides helper functions for event management with Meet integration
  */
 import { calendar, calendar_v3 } from '@googleapis/calendar';
+import { FulfillmentDependencyPendingError } from '../fulfillment/dependency';
 import { getAuthClient } from './auth';
 import { describeGoogleError } from './logging';
 
@@ -247,6 +248,7 @@ export async function checkTeacherAvailability(
 // ============================================
 
 export interface CreateClassEventOptions {
+    sessionId: string;
     summary: string;
     studentEmail: string;
     teacherEmail: string;
@@ -260,6 +262,130 @@ export interface ClassEventResult {
     eventId: string;
     meetLink: string;
     htmlLink: string;
+}
+
+const CLASS_EVENT_SESSION_PROPERTY = 'honestSpanishSessionId';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function googleStatus(error: unknown): number | null {
+    if (!error || typeof error !== 'object') return null;
+    if ('code' in error && Number.isFinite(Number((error as { code?: unknown }).code))) {
+        return Number((error as { code?: unknown }).code);
+    }
+    const response = 'response' in error
+        ? (error as { response?: { status?: unknown } }).response
+        : undefined;
+    if (response && Number.isFinite(Number(response.status))) {
+        return Number(response.status);
+    }
+    return null;
+}
+
+function isAmbiguousCalendarWrite(error: unknown): boolean {
+    const status = googleStatus(error);
+    return status === null
+        || status === 408
+        || status === 409
+        || status === 425
+        || status === 429
+        || status >= 500;
+}
+
+export function deterministicClassEventId(sessionId: string): string {
+    if (!UUID_PATTERN.test(sessionId)) {
+        throw new Error('class_calendar_event_requires_uuid_session_id');
+    }
+    return sessionId.replaceAll('-', '').toLowerCase();
+}
+
+function deterministicClassEventIdentity(sessionId: string): {
+    eventId: string;
+    conferenceRequestId: string;
+} {
+    const eventId = deterministicClassEventId(sessionId);
+    return {
+        eventId,
+        conferenceRequestId: eventId,
+    };
+}
+
+function normalizedAttendees(event: calendar_v3.Schema$Event): string[] | null {
+    const attendees = event.attendees ?? [];
+    if (attendees.some((attendee) => typeof attendee.email !== 'string' || !attendee.email.trim())) {
+        return null;
+    }
+    return [...new Set(attendees.map((attendee) => attendee.email!.trim().toLowerCase()))].sort();
+}
+
+function classEventResult(
+    event: calendar_v3.Schema$Event,
+    options: CreateClassEventOptions,
+    expectedEventId: string,
+    expectedConferenceRequestId: string,
+): ClassEventResult {
+    const expectedAttendees = [...new Set([
+        options.studentEmail.trim().toLowerCase(),
+        options.teacherEmail.trim().toLowerCase(),
+    ])].sort();
+    const actualAttendees = normalizedAttendees(event);
+    const startAt = event.start?.dateTime ? Date.parse(event.start.dateTime) : Number.NaN;
+    const endAt = event.end?.dateTime ? Date.parse(event.end.dateTime) : Number.NaN;
+    const privateSessionId = event.extendedProperties?.private?.[CLASS_EVENT_SESSION_PROPERTY];
+    const conferenceRequestId = event.conferenceData?.createRequest?.requestId;
+
+    if (
+        event.id !== expectedEventId
+        || event.status === 'cancelled'
+        || privateSessionId !== options.sessionId
+        || startAt !== options.startTime.getTime()
+        || endAt !== options.endTime.getTime()
+        || actualAttendees === null
+        || actualAttendees.length !== expectedAttendees.length
+        || actualAttendees.some((email, index) => email !== expectedAttendees[index])
+        || (
+            typeof conferenceRequestId === 'string'
+            && conferenceRequestId !== expectedConferenceRequestId
+        )
+    ) {
+        throw new Error('class_calendar_event_identity_mismatch');
+    }
+
+    const meetLink = event.conferenceData?.entryPoints?.find(
+        (entryPoint) => entryPoint.entryPointType === 'video'
+    )?.uri || event.hangoutLink || '';
+    const conferenceStatus = event.conferenceData?.createRequest?.status?.statusCode;
+    if (!meetLink) {
+        if (conferenceStatus === 'failure') {
+            throw new Error('class_calendar_event_conference_failed');
+        }
+        throw new FulfillmentDependencyPendingError('class_calendar_event_waiting_for_meet');
+    }
+
+    return {
+        eventId: expectedEventId,
+        meetLink,
+        htmlLink: event.htmlLink || '',
+    };
+}
+
+async function observeClassEvent(
+    calendarClient: calendar_v3.Calendar,
+    eventId: string,
+): Promise<calendar_v3.Schema$Event | null> {
+    try {
+        const response = await calendarClient.events.get({
+            calendarId: 'primary',
+            eventId,
+        });
+        return response.data;
+    } catch (error) {
+        const status = googleStatus(error);
+        if (status === 404 || status === 410) return null;
+        if (status === null || status === 408 || status === 425 || status === 429 || status >= 500) {
+            throw new FulfillmentDependencyPendingError('class_calendar_event_observation_pending');
+        }
+        throw error;
+    }
 }
 
 /**
@@ -286,6 +412,12 @@ function buildClassDescription(options: CreateClassEventOptions): string {
  */
 export async function createClassEvent(options: CreateClassEventOptions): Promise<ClassEventResult> {
     const calendar = getCalendarClient();
+    const { eventId, conferenceRequestId } = deterministicClassEventIdentity(options.sessionId);
+
+    const existingEvent = await observeClassEvent(calendar, eventId);
+    if (existingEvent) {
+        return classEventResult(existingEvent, options, eventId, conferenceRequestId);
+    }
 
     try {
         const response = await calendar.events.insert({
@@ -293,6 +425,7 @@ export async function createClassEvent(options: CreateClassEventOptions): Promis
             conferenceDataVersion: 1,
             sendUpdates: 'all', // Send invitations to attendees
             requestBody: {
+                id: eventId,
                 summary: options.summary,
                 description: buildClassDescription(options),
                 start: {
@@ -307,9 +440,14 @@ export async function createClassEvent(options: CreateClassEventOptions): Promis
                     { email: options.studentEmail },
                     { email: options.teacherEmail },
                 ],
+                extendedProperties: {
+                    private: {
+                        [CLASS_EVENT_SESSION_PROPERTY]: options.sessionId,
+                    },
+                },
                 conferenceData: {
                     createRequest: {
-                        requestId: `class-${crypto.randomUUID()}`,
+                        requestId: conferenceRequestId,
                         conferenceSolutionKey: {
                             type: 'hangoutsMeet',
                         },
@@ -325,23 +463,28 @@ export async function createClassEvent(options: CreateClassEventOptions): Promis
             },
         });
 
-        const event = response.data;
-        const meetLink = event.conferenceData?.entryPoints?.find(
-            ep => ep.entryPointType === 'video'
-        )?.uri || event.hangoutLink || '';
+        const result = classEventResult(response.data, options, eventId, conferenceRequestId);
 
         console.log('[Calendar] Created class event');
-        if (meetLink) {
-            console.log('[Calendar] Meet conference created');
-        }
-
-        return {
-            eventId: event.id || '',
-            meetLink,
-            htmlLink: event.htmlLink || '',
-        };
+        console.log('[Calendar] Meet conference created');
+        return result;
     } catch (error) {
         console.error('[Calendar] Error creating class event:', describeGoogleError(error));
+        if (error instanceof FulfillmentDependencyPendingError) throw error;
+
+        let reconciledEvent: calendar_v3.Schema$Event | null;
+        try {
+            reconciledEvent = await observeClassEvent(calendar, eventId);
+        } catch (observationError) {
+            if (isAmbiguousCalendarWrite(error)) throw observationError;
+            throw error;
+        }
+        if (reconciledEvent) {
+            return classEventResult(reconciledEvent, options, eventId, conferenceRequestId);
+        }
+        if (isAmbiguousCalendarWrite(error)) {
+            throw new FulfillmentDependencyPendingError('class_calendar_event_write_outcome_pending');
+        }
         throw error;
     }
 }
@@ -363,8 +506,9 @@ export async function updateCalendarEvent(
         endTime?: Date;
         description?: string;
         summary?: string;
+        operationId?: string;
     }
-): Promise<boolean> {
+): Promise<'accepted' | 'ambiguous' | 'retryable'> {
     const calendar = getCalendarClient();
 
     try {
@@ -392,17 +536,31 @@ export async function updateCalendarEvent(
             patch.summary = updates.summary;
         }
 
+        if (updates.operationId) {
+            patch.extendedProperties = {
+                private: {
+                    honestSpanishRescheduleOperationId: updates.operationId,
+                },
+            };
+        }
+
         await calendar.events.patch({
             calendarId: 'primary',
             eventId,
-            sendUpdates: 'all',
+            sendUpdates: 'none',
             requestBody: patch,
         });
 
         console.log('[Calendar] Updated event');
-        return true;
+        return 'accepted';
     } catch (error) {
+        const status = typeof error === 'object' && error !== null && 'code' in error
+            ? Number((error as { code?: number }).code)
+            : undefined;
         console.error('[Calendar] Failed to update event:', describeGoogleError(error));
-        return false;
+        if (status === 429 || (status !== undefined && status >= 500 && status <= 599)) {
+            return 'retryable';
+        }
+        return 'ambiguous';
     }
 }

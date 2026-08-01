@@ -601,6 +601,110 @@ export function classConfirmationTemplate(data: ClassConfirmationData): string {
 }
 
 // ============================================
+// Class Rescheduled Email
+// ============================================
+
+export interface ClassRescheduledData {
+    locale: 'es' | 'en' | 'ru';
+    recipientName: string;
+    isTeacher: boolean;
+    otherPartyName: string;
+    previousScheduledAt: string;
+    scheduledAt: string;
+    duration: number;
+    meetLink?: string;
+    documentLink?: string;
+}
+
+const classRescheduledCopy = {
+    es: {
+        subject: 'Clase reprogramada - Español Honesto',
+        title: 'La clase se ha reprogramado',
+        hello: 'Hola',
+        introStudent: 'Tu clase de español tiene una nueva fecha.',
+        introTeacher: 'La clase con tu estudiante tiene una nueva fecha.',
+        previous: 'Fecha anterior',
+        next: 'Nueva fecha',
+        duration: 'Duración',
+        minutes: 'minutos',
+        teacher: 'Profesor',
+        student: 'Estudiante',
+        join: 'UNIRSE A LA VIDEOLLAMADA',
+        document: 'Abrir documento de clase',
+    },
+    en: {
+        subject: 'Class rescheduled - Español Honesto',
+        title: 'The class has been rescheduled',
+        hello: 'Hello',
+        introStudent: 'Your Spanish class has a new date and time.',
+        introTeacher: 'The class with your student has a new date and time.',
+        previous: 'Previous date',
+        next: 'New date',
+        duration: 'Duration',
+        minutes: 'minutes',
+        teacher: 'Teacher',
+        student: 'Student',
+        join: 'JOIN THE VIDEO CALL',
+        document: 'Open class document',
+    },
+    ru: {
+        subject: 'Занятие перенесено - Español Honesto',
+        title: 'Занятие перенесено',
+        hello: 'Здравствуйте',
+        introStudent: 'У вашего занятия по испанскому новое время.',
+        introTeacher: 'У занятия с вашим учеником новое время.',
+        previous: 'Прежнее время',
+        next: 'Новое время',
+        duration: 'Продолжительность',
+        minutes: 'минут',
+        teacher: 'Преподаватель',
+        student: 'Ученик',
+        join: 'ПРИСОЕДИНИТЬСЯ К ВИДЕОЗВОНКУ',
+        document: 'Открыть документ занятия',
+    },
+} as const;
+
+export function classRescheduledSubject(locale: ClassRescheduledData['locale']): string {
+    return classRescheduledCopy[locale].subject;
+}
+
+export function classRescheduledTemplate(data: ClassRescheduledData): string {
+    const copy = classRescheduledCopy[data.locale];
+    const intlLocale = { es: 'es-ES', en: 'en-GB', ru: 'ru-RU' }[data.locale];
+    const format = (value: string) => {
+        const date = new Date(value);
+        if (!Number.isFinite(date.getTime())) throw new Error('Class reschedule requires valid dates');
+        return new Intl.DateTimeFormat(intlLocale, {
+            dateStyle: 'full',
+            timeStyle: 'short',
+            timeZone: 'Europe/Madrid',
+        }).format(date);
+    };
+    const recipientName = escapeEmailHtml(data.recipientName);
+    const otherPartyName = escapeEmailHtml(data.otherPartyName);
+    const previous = escapeEmailHtml(format(data.previousScheduledAt));
+    const next = escapeEmailHtml(format(data.scheduledAt));
+    const meetLink = safeEmailUrl(data.meetLink);
+    const documentLink = safeEmailUrl(data.documentLink);
+    const content = `
+        <h2 style="color: #006064; margin: 0 0 20px 0;">${copy.title}</h2>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.hello} ${recipientName},</p>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${data.isTeacher ? copy.introTeacher : copy.introStudent}</p>
+        <div style="background-color: #f9f9f9; padding: 25px; margin: 25px 0; border: 2px solid #006064;">
+            <p style="margin: 0; color: #333333; line-height: 1.9;">
+                <strong>${copy.previous}:</strong> ${previous}<br>
+                <strong>${copy.next}:</strong> ${next}<br>
+                <strong>${copy.duration}:</strong> ${escapeEmailHtml(String(data.duration))} ${copy.minutes}<br>
+                <strong>${data.isTeacher ? copy.student : copy.teacher}:</strong> ${otherPartyName}
+            </p>
+        </div>
+        ${meetLink ? `<p style="text-align: center; margin: 30px 0;"><a href="${meetLink}" style="display: inline-block; background-color: #006064; color: #ffffff; padding: 15px 32px; text-decoration: none; font-weight: bold;">${copy.join}</a></p>` : ''}
+        ${documentLink ? `<p style="color: #666666; font-size: 14px;"><a href="${documentLink}" style="color: #006064;">${copy.document}</a></p>` : ''}
+    `;
+    return baseTemplate(content, data.locale);
+}
+
+// ============================================
 // Class Reminder Email
 // ============================================
 

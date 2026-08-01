@@ -6,6 +6,7 @@ export type FulfillmentJobType =
     | 'bulk_session_fulfillment'
     | 'welcome_fulfillment'
     | 'session_cancellation'
+    | 'session_reschedule'
     | 'renewal_notice';
 
 export type FulfillmentJobPayload = {
@@ -30,6 +31,9 @@ export type FulfillmentJobPayload = {
     sendEmail?: boolean;
     cancelledBy?: 'admin' | 'teacher' | 'student';
     reason?: string | null;
+    operationId?: string;
+    previousScheduledAt?: string;
+    scheduledAt?: string;
     stripeEventId?: string;
     stripeInvoiceId?: string;
     stripeSubscriptionId?: string;
@@ -200,6 +204,34 @@ export async function enqueueSessionCancellation(
             sessionId: input.sessionId,
             cancelledBy: input.cancelledBy,
             reason: input.reason ?? null,
+        },
+    });
+}
+
+export async function enqueueSessionReschedule(
+    supabaseAdmin: SupabaseClient<Database>,
+    input: {
+        operationId: string;
+        sessionId: string;
+        subscriptionId?: string | null;
+        studentId?: string | null;
+        previousScheduledAt: string;
+        scheduledAt: string;
+        sendEmail?: boolean;
+    }
+): Promise<boolean> {
+    return enqueueFulfillmentJob(supabaseAdmin, {
+        jobType: 'session_reschedule',
+        sessionId: input.sessionId,
+        subscriptionId: input.subscriptionId ?? null,
+        studentId: input.studentId ?? null,
+        dedupeKey: `checkout_v2_reschedule:${input.operationId}:${input.sessionId}`,
+        payload: {
+            operationId: input.operationId,
+            sessionId: input.sessionId,
+            previousScheduledAt: input.previousScheduledAt,
+            scheduledAt: input.scheduledAt,
+            sendEmail: input.sendEmail ?? true,
         },
     });
 }
