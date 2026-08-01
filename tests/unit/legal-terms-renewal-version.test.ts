@@ -26,12 +26,14 @@ describe('legal terms version on automatic renewal', () => {
         expect(terms).toContain('La siguiente cuota se cobra 28 días después de la primera clase');
         expect(terms).toContain('hasta 28 días inclusive desde la fecha originalmente comprada');
         expect(terms).toContain('devolución de 194,25 EUR');
-        expect(terms).toContain('que soporte no haya reclasificado consume la segunda clase y cierra la garantía');
+        expect(terms).toContain('que soporte no haya excusado a efectos de la garantía consume la segunda clase y cierra la garantía');
+        expect(terms).toContain('ni revierte la remuneración docente generada');
         expect(terms).toContain('The initial EUR 259 charge is collected when the place is reserved');
         expect(terms).toContain('The next charge is collected 28 days after the first class');
         expect(terms).toContain('up to and including 28 days after the originally purchased date');
         expect(terms).toContain('EUR 194.25 refund');
-        expect(terms).toContain('that support has not reclassified consumes the second class and closes the guarantee');
+        expect(terms).toContain('that support has not excused for guarantee purposes consumes the second class and closes the guarantee');
+        expect(terms).toContain('does not erase the historical event or reverse the teacher compensation already generated');
         expect(terms).toContain('Первые 259 EUR списываются при бронировании места');
         expect(terms).toContain('через 28 дней после первого занятия');
         expect(terms).toContain('на 28 дней включительно от первоначально приобретённой даты');

@@ -1,0 +1,36 @@
+---
+import TeacherCompensationManager from '../../../../components/admin/TeacherCompensationManager';
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) return Astro.redirect(`/${lang}/login`);
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+---
+
+<CampusLayout title="Remuneración docente" user={{ ...user, ...profile }} lang={lang}>
+    <div class="space-y-6">
+        <header>
+            <h1 class="font-display text-3xl uppercase text-[#006064]">Remuneración docente</h1>
+            <p class="mt-2 max-w-3xl text-sm text-[#006064]/70">
+                Vínculos efectivos, reconciliación y obligaciones internas. Esta superficie no ejecuta pagos ni sustituye la documentación fiscal.
+            </p>
+        </header>
+
+        <TeacherCompensationManager client:load />
+    </div>
+</CampusLayout>
