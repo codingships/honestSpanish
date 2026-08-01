@@ -223,7 +223,8 @@ $$;
 
 -- Outcome matrix: external/founder completed, no-show on both rate tiers and
 -- a strict late student cancellation accrue. Exactly 24h, teacher cancellation
--- and guarantee invalidation do not accrue.
+-- and admin cancellation do not accrue. Guarantee invalidation is exercised by
+-- the real saga in checkout-v2-guarantee.sql.
 UPDATE public.sessions
 SET status = 'completed',
     completed_at = scheduled_at + INTERVAL '50 minutes'
@@ -268,8 +269,8 @@ WHERE id = '88070000-0000-4000-8000-000000000051';
 UPDATE public.sessions
 SET status = 'cancelled',
     cancelled_at = scheduled_at - INTERVAL '1 hour',
-    cancelled_by = student_id,
-    cancellation_reason = 'guarantee_refund'
+    cancelled_by = '88000000-0000-4000-8000-000000000001',
+    cancellation_reason = 'admin_cancelled'
 WHERE id = '88070000-0000-4000-8000-000000000061';
 
 UPDATE public.sessions

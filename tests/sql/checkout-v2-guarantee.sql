@@ -540,6 +540,24 @@ BEGIN
                   OR original_student_credit_consumed
                   OR student_credit_consumed
               )
+       )
+       OR EXISTS (
+            SELECT 1
+            FROM public.teacher_compensation_ledger
+            WHERE session_id IN (
+                '77900000-0000-4000-8000-000000000002',
+                '77900000-0000-4000-8000-000000000003',
+                '77900000-0000-4000-8000-000000000004'
+            )
+       )
+       OR EXISTS (
+            SELECT 1
+            FROM public.teacher_compensation_session_reconciliation_candidates
+            WHERE session_id IN (
+                '77900000-0000-4000-8000-000000000002',
+                '77900000-0000-4000-8000-000000000003',
+                '77900000-0000-4000-8000-000000000004'
+            )
        ) THEN
         RAISE EXCEPTION 'durable_guarantee_refund_progress_is_wrong:%',
             pg_catalog.row_to_json(progress);
