@@ -1,7 +1,14 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
 import { getLangFromParam, useTranslations } from '../../../i18n/utils';
+import CampusLoadError from '../../../components/campus/CampusLoadError.astro';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import {
+    reportCampusReadError,
+    resolveCampusCollectionQuery,
+    resolveRequiredCampusQuery,
+} from '../../../lib/campus-load-state';
 import StudentClassList from '../../../components/calendar/StudentClassList';
 
 export const prerender = false;
@@ -10,34 +17,63 @@ const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 const supabase = createSupabaseServerClient(Astro);
-const { data: { user } } = await supabase.auth.getUser();
+const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-if (!user) {
+if (!user && !authError) {
     return Astro.redirect(`/${lang}/login`);
 }
 
-const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+if (authError) {
+    reportCampusReadError('student_classes.auth', authError);
+}
+
+const profileResult = user
+    ? await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .maybeSingle()
+    : { data: null, error: authError };
+const profileState = resolveRequiredCampusQuery(profileResult);
+const profile = profileState.status === 'ready' ? profileState.data : null;
+const roleVerified = profile !== null && ['student', 'teacher', 'admin'].includes(profile.role ?? '');
+const accessUnavailable = Boolean(authError) || profileState.status !== 'ready' || !roleVerified;
+
+if (profileState.status === 'error') {
+    reportCampusReadError('student_classes.profile', profileState.error);
+} else if (profileState.status === 'empty' && user) {
+    reportCampusReadError('student_classes.profile', { code: 'PROFILE_MISSING' });
+} else if (!roleVerified) {
+    reportCampusReadError('student_classes.profile', { code: 'PROFILE_ROLE_INVALID' });
+}
 
 // Strictly prevent Teachers & Admins from entering the Student Dashboard
-if (profile?.role === 'admin') {
+if (!accessUnavailable && profile?.role === 'admin') {
     return Astro.redirect(`/${lang}/campus/admin`);
-} else if (profile?.role === 'teacher') {
+} else if (!accessUnavailable && profile?.role === 'teacher') {
     return Astro.redirect(`/${lang}/campus/teacher`);
 }
 
 // Obtener todas las sesiones del estudiante
-const { data: sessions } = await supabase
-    .from('sessions')
-    .select(`
-        *,
-        teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
-    `)
-    .eq('student_id', user.id)
-    .order('scheduled_at', { ascending: false });
+const sessionsResult = !accessUnavailable && user
+    ? await supabase
+        .from('sessions')
+        .select(`
+            *,
+            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+        `)
+        .eq('student_id', user.id)
+        .order('scheduled_at', { ascending: false })
+    : { data: [], error: null };
+const sessionsState = resolveCampusCollectionQuery(sessionsResult);
+
+if (sessionsState.status === 'error') {
+    reportCampusReadError('student_classes.sessions', sessionsState.error);
+}
+
+if (accessUnavailable || sessionsState.status === 'error') {
+    Astro.response.status = 503;
+}
 
 type ClassSession = {
     id: string;
@@ -51,7 +87,8 @@ type ClassSession = {
     teacher: { id: string; full_name: string | null; email: string } | null;
 };
 
-const classSessions: ClassSession[] = (sessions ?? []).flatMap((session) => {
+const sessionRows = sessionsState.status === 'ready' ? sessionsState.data : [];
+const classSessions: ClassSession[] = sessionRows.flatMap((session) => {
     if (!session.scheduled_at) return [];
     return [{
         id: session.id,
@@ -136,24 +173,42 @@ const classTranslations = {
 };
 ---
 
-<CampusLayout 
-    title={t('campus.student.classes.title')}
-    user={{ ...user, ...profile }}
-    lang={lang}
->
-    <!-- Header -->
-    <div class="mb-8">
-        <h1 class="font-display text-3xl text-[#006064] uppercase">{t('campus.student.classes.title')}</h1>
-        <p class="text-sm text-[#006064]/60 font-mono mt-1">
-            {t('campus.student.classes.subtitle')}
-        </p>
-    </div>
-
-    <StudentClassList 
-        client:load
-        upcomingSessions={upcomingSessions}
-        pastSessions={pastSessions}
+{accessUnavailable || !user || !profile ? (
+    <BaseLayout
+        title={t('campus.student.classes.title')}
+        description={t('campus.loadError.message')}
         lang={lang}
-        translations={classTranslations}
-    />
-</CampusLayout>
+        noindex={true}
+    >
+        <main class="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-12">
+            <h1 class="sr-only">{t('campus.student.classes.title')}</h1>
+            <CampusLoadError lang={lang} />
+        </main>
+    </BaseLayout>
+) : (
+    <CampusLayout
+        title={t('campus.student.classes.title')}
+        user={{ ...user, ...profile }}
+        lang={lang}
+    >
+        <!-- Header -->
+        <div class="mb-8">
+            <h1 class="font-display text-3xl text-[#006064] uppercase">{t('campus.student.classes.title')}</h1>
+            <p class="text-sm text-[#006064]/60 font-mono mt-1">
+                {t('campus.student.classes.subtitle')}
+            </p>
+        </div>
+
+        {sessionsState.status === 'error' ? (
+            <CampusLoadError lang={lang} />
+        ) : (
+            <StudentClassList
+                client:load
+                upcomingSessions={upcomingSessions}
+                pastSessions={pastSessions}
+                lang={lang}
+                translations={classTranslations}
+            />
+        )}
+    </CampusLayout>
+)}

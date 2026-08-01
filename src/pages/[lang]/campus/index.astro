@@ -1,6 +1,13 @@
 ---
 import CampusLayout from '../../../layouts/CampusLayout.astro';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import CampusLoadError from '../../../components/campus/CampusLoadError.astro';
 import { getLangFromParam, useTranslations } from '../../../i18n/utils';
+import {
+    reportCampusReadError,
+    resolveOptionalCampusQuery,
+    resolveRequiredCampusQuery,
+} from '../../../lib/campus-load-state';
 import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import NextClassCard from '../../../components/calendar/NextClassCard';
@@ -16,7 +23,7 @@ type AssignedTeacher = {
 
 type OnboardingItem = {
     label: string;
-    done: boolean;
+    status: 'ready' | 'pending' | 'unavailable';
     cta: string;
     href?: string;
     detail?: string | null;
@@ -37,114 +44,154 @@ const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
 
 const supabase = createSupabaseServerClient(Astro);
-const { data: { user } } = await supabase.auth.getUser();
+const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-if (!user) {
+if (!user && !authError) {
     return Astro.redirect(`/${lang}/login`);
 }
 
-let profile = null;
-const { data: profileData } = await supabase
-  .from('profiles')
-  .select('id, email, full_name, role, preferred_language, phone, timezone')
-  .eq('id', user.id)
-  .single();
+if (authError) {
+    reportCampusReadError('student_dashboard.auth', authError);
+}
 
-if (profileData) profile = profileData;
-const profilePrivate = profile ? await getPrivateProfile(profile.id) : null;
-const driveFolderUrl = profilePrivate?.drive_folder_url
-    || (profilePrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${profilePrivate.drive_folder_id}` : null);
+const profileResult = user
+    ? await supabase
+        .from('profiles')
+        .select('id, email, full_name, role, preferred_language, phone, timezone')
+        .eq('id', user.id)
+        .maybeSingle()
+    : { data: null, error: authError };
+const profileState = resolveRequiredCampusQuery(profileResult);
+const profile = profileState.status === 'ready' ? profileState.data : null;
+const roleVerified = profile !== null && ['student', 'teacher', 'admin'].includes(profile.role ?? '');
+const accessUnavailable = Boolean(authError) || profileState.status !== 'ready' || !roleVerified;
+
+if (profileState.status === 'error') {
+    reportCampusReadError('student_dashboard.profile', profileState.error);
+} else if (profileState.status === 'empty' && user) {
+    reportCampusReadError('student_dashboard.profile', { code: 'PROFILE_MISSING' });
+} else if (!roleVerified) {
+    reportCampusReadError('student_dashboard.profile', { code: 'PROFILE_ROLE_INVALID' });
+}
 
 // Strictly prevent Teachers & Admins from entering the Student Dashboard
-if (profile?.role === 'admin') {
+if (!accessUnavailable && profile?.role === 'admin') {
     return Astro.redirect(`/${lang}/campus/admin`);
-} else if (profile?.role === 'teacher') {
+} else if (!accessUnavailable && profile?.role === 'teacher') {
     return Astro.redirect(`/${lang}/campus/teacher`);
 }
 
-// 2. Fetch Active Subscription
-let subscription = null;
-try {
-  const { data: subData } = await supabase
-    .from('subscriptions')
-    .select(`
-      *,
-      packages (
-        name,
-        display_name,
-        sessions_per_month
-      )
-    `)
-    .eq('student_id', user.id)
-    .eq('status', 'active')
-    .gte('ends_at', new Date().toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .single();
+let subscriptionState = resolveOptionalCampusQuery<any>({ data: null, error: null });
+let nextSessionRowState = resolveOptionalCampusQuery<any>({ data: null, error: null });
+let assignmentState = resolveOptionalCampusQuery<any>({ data: null, error: null });
+type PrivateProfile = NonNullable<Awaited<ReturnType<typeof getPrivateProfile>>>;
+let profilePrivateState = resolveOptionalCampusQuery<PrivateProfile>({ data: null, error: null });
 
-  if (subData) subscription = subData;
-} catch (e) {
-  // Fail gracefully
+if (!accessUnavailable && user) {
+    const nowIso = new Date().toISOString();
+    const [subscriptionResult, sessionResult, assignmentResult, privateResult] = await Promise.all([
+        supabase
+            .from('subscriptions')
+            .select(`
+                *,
+                packages (
+                    name,
+                    display_name,
+                    sessions_per_month
+                )
+            `)
+            .eq('student_id', user.id)
+            .eq('status', 'active')
+            .gte('ends_at', nowIso)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        supabase
+            .from('sessions')
+            .select(`
+                *,
+                teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
+            `)
+            .eq('student_id', user.id)
+            .eq('status', 'scheduled')
+            .gte('scheduled_at', nowIso)
+            .order('scheduled_at', { ascending: true })
+            .limit(1)
+            .maybeSingle(),
+        supabase
+            .from('student_teachers')
+            .select(`
+                teacher:profiles!student_teachers_teacher_id_fkey(id, full_name, email)
+            `)
+            .eq('student_id', user.id)
+            .order('is_primary', { ascending: false })
+            .order('assigned_at', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        getPrivateProfile(user.id)
+            .then((data) => ({ data, error: null }))
+            .catch((error: unknown) => ({ data: null, error })),
+    ]);
+
+    subscriptionState = resolveOptionalCampusQuery(subscriptionResult);
+    nextSessionRowState = resolveOptionalCampusQuery(sessionResult);
+    assignmentState = resolveOptionalCampusQuery(assignmentResult);
+    profilePrivateState = resolveOptionalCampusQuery(privateResult);
 }
 
-// 3. Fetch Next Scheduled Session
-let nextSession: DashboardSession | null = null;
-try {
-    const { data: sessionData } = await supabase
-        .from('sessions')
-        .select(`
-            *,
-            teacher:profiles!sessions_teacher_id_fkey(id, full_name, email)
-        `)
-        .eq('student_id', user.id)
-        .eq('status', 'scheduled')
-        .gte('scheduled_at', new Date().toISOString())
-        .order('scheduled_at', { ascending: true })
-        .limit(1)
-        .single();
-
-    if (sessionData?.scheduled_at) {
-        nextSession = {
-            id: sessionData.id,
-            scheduled_at: sessionData.scheduled_at,
-            duration_minutes: sessionData.duration_minutes ?? 50,
-            status: sessionData.status ?? 'scheduled',
-            meet_link: sessionData.meet_link,
-            drive_doc_url: sessionData.drive_doc_url,
-            teacher: sessionData.teacher,
-        };
+for (const [surface, state] of [
+    ['student_dashboard.subscription', subscriptionState],
+    ['student_dashboard.next_session', nextSessionRowState],
+    ['student_dashboard.assignment', assignmentState],
+    ['student_dashboard.drive', profilePrivateState],
+] as const) {
+    if (state.status === 'error') {
+        reportCampusReadError(surface, state.error);
     }
-} catch (e) {
-    // No upcoming session
+}
+
+if (
+    accessUnavailable
+    || subscriptionState.status === 'error'
+    || nextSessionRowState.status === 'error'
+    || assignmentState.status === 'error'
+    || profilePrivateState.status === 'error'
+) {
+    Astro.response.status = 503;
+}
+
+const subscription = subscriptionState.status === 'ready' ? subscriptionState.data : null;
+const profilePrivate = profilePrivateState.status === 'ready' ? profilePrivateState.data : null;
+const driveFolderUrl = profilePrivate?.drive_folder_url
+    || (profilePrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${profilePrivate.drive_folder_id}` : null);
+
+let nextSession: DashboardSession | null = null;
+const sessionData = nextSessionRowState.status === 'ready' ? nextSessionRowState.data : null;
+if (sessionData?.scheduled_at) {
+    nextSession = {
+        id: sessionData.id,
+        scheduled_at: sessionData.scheduled_at,
+        duration_minutes: sessionData.duration_minutes ?? 50,
+        status: sessionData.status ?? 'scheduled',
+        meet_link: sessionData.meet_link,
+        drive_doc_url: sessionData.drive_doc_url,
+        teacher: sessionData.teacher,
+    };
 }
 
 let assignedTeacher: AssignedTeacher | null = null;
-try {
-    const { data: assignmentData } = await supabase
-        .from('student_teachers')
-        .select(`
-            teacher:profiles!student_teachers_teacher_id_fkey(id, full_name, email)
-        `)
-        .eq('student_id', user.id)
-        .order('is_primary', { ascending: false })
-        .order('assigned_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+const assignmentData = assignmentState.status === 'ready' ? assignmentState.data : null;
+const assignment = assignmentData as { teacher?: AssignedTeacher | AssignedTeacher[] | null } | null;
+const teacher = Array.isArray(assignment?.teacher)
+    ? assignment.teacher[0]
+    : assignment?.teacher;
 
-    const assignment = assignmentData as { teacher?: AssignedTeacher | AssignedTeacher[] | null } | null;
-    const teacher = Array.isArray(assignment?.teacher)
-        ? assignment.teacher[0]
-        : assignment?.teacher;
-
-    if (teacher) {
-        assignedTeacher = {
-            id: teacher.id,
-            full_name: teacher.full_name ?? null,
-            email: teacher.email ?? null,
-        };
-    }
-} catch (e) {
-    // Teacher assignment is useful for onboarding, but the dashboard must still load.
+if (teacher) {
+    assignedTeacher = {
+        id: teacher.id,
+        full_name: teacher.full_name ?? null,
+        email: teacher.email ?? null,
+    };
 }
 
 const formatDate = (dateString: string) => {
@@ -165,8 +212,8 @@ const packageName = packageDisplayName && typeof packageDisplayName === 'object'
             : subscription?.packages?.name ?? 'Plan')
     : subscription?.packages?.name ?? 'Plan';
 
-const sessionsTotal = subscription?.sessions_total || subscription?.packages?.sessions_per_month || 8;
-const sessionsUsed = subscription?.sessions_used || 0;
+const sessionsTotal = subscription?.sessions_total ?? subscription?.packages?.sessions_per_month ?? 0;
+const sessionsUsed = subscription?.sessions_used ?? 0;
 
 // Traducciones para NextClassCard
 const nextClassTranslations = {
@@ -257,53 +304,91 @@ const hasTeacher = Boolean(teacherForOnboarding);
 const hasDrive = Boolean(driveFolderUrl);
 const hasFirstClass = Boolean(nextSession);
 const hasClassAssets = Boolean(nextSession?.meet_link && nextSession?.drive_doc_url);
+const retryHref = `${Astro.url.pathname}${Astro.url.search}`;
+const planStatus: OnboardingItem['status'] = subscriptionState.status === 'error'
+    ? 'unavailable'
+    : hasPlan ? 'ready' : 'pending';
+const teacherStatus: OnboardingItem['status'] = assignmentState.status === 'error'
+    ? 'unavailable'
+    : hasTeacher ? 'ready' : 'pending';
+const driveStatus: OnboardingItem['status'] = profilePrivateState.status === 'error'
+    ? 'unavailable'
+    : hasDrive ? 'ready' : 'pending';
+const firstClassStatus: OnboardingItem['status'] = nextSessionRowState.status === 'error'
+    ? 'unavailable'
+    : hasFirstClass ? 'ready' : 'pending';
+const classAssetsStatus: OnboardingItem['status'] = nextSessionRowState.status === 'error'
+    ? 'unavailable'
+    : hasClassAssets ? 'ready' : 'pending';
 const onboardingItems: OnboardingItem[] = [
     {
         label: onboardingCopy.profile,
-        done: profileComplete,
+        status: profileComplete ? 'ready' : 'pending',
         href: `/${lang}/campus/account`,
         cta: onboardingCopy.completeProfile,
     },
     {
         label: onboardingCopy.plan,
-        done: hasPlan,
-        href: `/${lang}/#planes`,
-        cta: onboardingCopy.viewPlaces,
+        status: planStatus,
+        href: planStatus === 'unavailable' ? retryHref : `/${lang}/#planes`,
+        cta: planStatus === 'unavailable' ? t('campus.loadError.retry') : onboardingCopy.viewPlaces,
     },
     {
         label: onboardingCopy.teacher,
-        done: hasTeacher,
+        status: teacherStatus,
         detail: teacherForOnboarding?.full_name || teacherForOnboarding?.email || null,
-        cta: onboardingCopy.assigningTeacher,
+        href: teacherStatus === 'unavailable' ? retryHref : undefined,
+        cta: teacherStatus === 'unavailable' ? t('campus.loadError.retry') : onboardingCopy.assigningTeacher,
     },
     {
         label: onboardingCopy.drive,
-        done: hasDrive,
-        cta: onboardingCopy.waiting,
+        status: driveStatus,
+        href: driveStatus === 'unavailable' ? retryHref : undefined,
+        cta: driveStatus === 'unavailable' ? t('campus.loadError.retry') : onboardingCopy.waiting,
     },
     {
         label: onboardingCopy.firstClass,
-        done: hasFirstClass,
-        href: hasFirstClass ? `/${lang}/campus/classes` : undefined,
-        cta: hasFirstClass ? onboardingCopy.viewClasses : onboardingCopy.manualScheduling,
+        status: firstClassStatus,
+        href: firstClassStatus === 'unavailable'
+            ? retryHref
+            : hasFirstClass ? `/${lang}/campus/classes` : undefined,
+        cta: firstClassStatus === 'unavailable'
+            ? t('campus.loadError.retry')
+            : hasFirstClass ? onboardingCopy.viewClasses : onboardingCopy.manualScheduling,
     },
     {
         label: onboardingCopy.classAssets,
-        done: hasClassAssets,
-        href: `/${lang}/campus/classes`,
-        cta: hasFirstClass ? onboardingCopy.waiting : onboardingCopy.viewClasses,
+        status: classAssetsStatus,
+        href: classAssetsStatus === 'unavailable' ? retryHref : `/${lang}/campus/classes`,
+        cta: classAssetsStatus === 'unavailable'
+            ? t('campus.loadError.retry')
+            : hasFirstClass ? onboardingCopy.waiting : onboardingCopy.viewClasses,
     },
     {
         label: onboardingCopy.support,
-        done: true,
+        status: 'ready',
         href: `/${lang}/campus/support`,
         cta: onboardingCopy.openSupport,
         alwaysShowAction: true,
     },
 ];
+const onboardingHasUnavailable = onboardingItems.some((item) => item.status === 'unavailable');
 ---
 
-<CampusLayout 
+{accessUnavailable || !user || !profile ? (
+    <BaseLayout
+        title={t('campus.dashboard.title')}
+        description={t('campus.loadError.message')}
+        lang={lang}
+        noindex={true}
+    >
+        <main class="mx-auto flex min-h-screen max-w-2xl items-center px-4 py-12">
+            <h1 class="sr-only">{t('campus.dashboard.title')}</h1>
+            <CampusLoadError lang={lang} />
+        </main>
+    </BaseLayout>
+) : (
+<CampusLayout
     title={t('campus.dashboard.title')}
     user={{ ...user, ...profile }}
     lang={lang}
@@ -314,29 +399,52 @@ const onboardingItems: OnboardingItem[] = [
          <p class="font-mono text-[#006064]/60">{t('campus.dashboard.welcomeBack')}, {profile?.full_name || user.email}</p>
     </div>
 
+    {assignmentState.status === 'error' && (
+        <div class="mb-8">
+            <CampusLoadError lang={lang} title={onboardingCopy.teacher} />
+        </div>
+    )}
+
     <section class="mb-8 border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064]">
         <div class="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
                 <h2 class="font-display text-2xl text-[#006064] uppercase">{onboardingCopy.title}</h2>
                 <p class="font-mono text-xs text-[#006064]/70">{onboardingCopy.subtitle}</p>
             </div>
-            <span class="font-mono text-xs text-[#006064]/70">
-                {onboardingItems.filter((item) => item.done).length}/{onboardingItems.length}
-            </span>
+            {onboardingHasUnavailable ? (
+                <span class="font-mono text-xs font-bold text-red-700">
+                    {t('campus.loadError.title')}
+                </span>
+            ) : (
+                <span class="font-mono text-xs text-[#006064]/70">
+                    {onboardingItems.filter((item) => item.status === 'ready').length}/{onboardingItems.length}
+                </span>
+            )}
         </div>
         <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-            {onboardingItems.map((item) => (
-                <div class={`border-2 p-3 ${item.done ? 'border-green-600 bg-green-50 text-green-800' : 'border-[#006064]/30 bg-[#E0F7FA] text-[#006064]'}`}>
+            {onboardingItems.map((item) => {
+                const isReady = item.status === 'ready';
+                const isUnavailable = item.status === 'unavailable';
+                return (
+                <div class={`border-2 p-3 ${isReady
+                    ? 'border-green-600 bg-green-50 text-green-800'
+                    : isUnavailable
+                        ? 'border-red-500 bg-red-50 text-red-800'
+                        : 'border-[#006064]/30 bg-[#E0F7FA] text-[#006064]'}`}>
                     <div class="flex items-start justify-between gap-3">
                         <p class="text-sm font-bold leading-5">{item.label}</p>
-                        <span class={`shrink-0 px-2 py-1 text-[10px] font-bold uppercase ${item.done ? 'bg-green-100 text-green-800' : 'bg-white text-[#006064]'}`}>
-                            {item.done ? onboardingCopy.ready : (item.href ? onboardingCopy.action : onboardingCopy.pending)}
+                        <span class={`shrink-0 px-2 py-1 text-[10px] font-bold uppercase ${isReady
+                            ? 'bg-green-100 text-green-800'
+                            : isUnavailable ? 'bg-red-100 text-red-800' : 'bg-white text-[#006064]'}`}>
+                            {isReady
+                                ? onboardingCopy.ready
+                                : isUnavailable ? t('campus.loadError.title') : (item.href ? onboardingCopy.action : onboardingCopy.pending)}
                         </span>
                     </div>
                     {item.detail && (
                         <p class="mt-2 text-xs font-mono opacity-80">{item.detail}</p>
                     )}
-                    {(!item.done || item.alwaysShowAction) && (
+                    {(!isReady || item.alwaysShowAction) && (
                         item.href ? (
                             <a href={item.href} class="mt-3 inline-block text-xs font-bold uppercase underline">
                                 {item.cta}
@@ -346,12 +454,19 @@ const onboardingItems: OnboardingItem[] = [
                         )
                     )}
                 </div>
-            ))}
+                );
+            })}
         </div>
     </section>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-4 gap-6">
-         
+        {subscriptionState.status === 'error' ? (
+            <div class="md:col-span-2">
+                <CampusLoadError lang={lang} title={t('campus.dashboard.yourPlan')} />
+            </div>
+        ) : (
+        <div class="contents">
+
          <!-- CARD 1: TU PLAN -->
          <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
              <div>
@@ -420,15 +535,25 @@ const onboardingItems: OnboardingItem[] = [
              )}
          </div>
 
+        </div>
+        )}
+
          <!-- CARD 3: PROXIMA CLASE (Ahora funcional) -->
-         <NextClassCard 
-            client:load
-            session={nextSession}
-            lang={lang}
-            translations={nextClassTranslations}
-         />
+         {nextSessionRowState.status === 'error' ? (
+            <CampusLoadError lang={lang} title={t('campus.dashboard.nextClass')} />
+         ) : (
+            <NextClassCard
+                client:load
+                session={nextSession}
+                lang={lang}
+                translations={nextClassTranslations}
+            />
+         )}
 
          <!-- CARD 4: DRIVE -->
+         {profilePrivateState.status === 'error' ? (
+            <CampusLoadError lang={lang} title="Drive" />
+         ) : (
          <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] flex flex-col justify-between h-full">
              <div>
                  <div class="flex items-center justify-between mb-4">
@@ -450,9 +575,11 @@ const onboardingItems: OnboardingItem[] = [
                  )}
              </div>
          </div>
+         )}
 
     </div>
 </CampusLayout>
+)}
 
 <script>
     import { openBillingPortal } from '../../../lib/billing-portal-client';

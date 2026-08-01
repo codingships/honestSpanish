@@ -17,11 +17,22 @@ describe('student campus onboarding surface', () => {
 
     it('sends no-plan students to real availability while keeping contact secondary', () => {
         expect(campusDashboardSource).toContain("viewPlaces: 'View places'");
-        expect(campusDashboardSource).toContain('href: `/${lang}/#planes`');
+        expect(campusDashboardSource).toContain("planStatus === 'unavailable' ? retryHref : `/${lang}/#planes`");
         expect(campusDashboardSource).toContain('href={`/${lang}/#planes`}');
         expect(campusDashboardSource).toContain('{onboardingCopy.viewPlaces}');
         expect(campusDashboardSource).toContain('href={`/${lang}/#contacto`}');
         expect(campusDashboardSource).toContain('{onboardingCopy.contact}');
         expect(campusDashboardSource).not.toContain('Apply for a place');
+    });
+
+    it('keeps unavailable reads distinct from pending onboarding work', () => {
+        expect(campusDashboardSource).toContain("status: 'ready' | 'pending' | 'unavailable'");
+        expect(campusDashboardSource).toContain("subscriptionState.status === 'error'");
+        expect(campusDashboardSource).toContain("assignmentState.status === 'error'");
+        expect(campusDashboardSource).toContain("profilePrivateState.status === 'error'");
+        expect(campusDashboardSource).toContain("nextSessionRowState.status === 'error'");
+        expect(campusDashboardSource).toContain("t('campus.loadError.retry')");
+        expect(campusDashboardSource).toContain('<CampusLoadError');
+        expect(campusDashboardSource).not.toContain('// Fail gracefully');
     });
 });

@@ -62,6 +62,11 @@ export const ui = {
             passwordTooShort: "La contraseña debe tener al menos 6 caracteres",
         },
         campus: {
+            loadError: {
+                title: "No se pudo cargar esta sección",
+                message: "No hemos podido obtener los datos. Vuelve a intentarlo. Si el problema continúa, contacta con soporte.",
+                retry: "Reintentar",
+            },
             nav: {
                 dashboard: "Panel",
                 classes: "Mis clases",
@@ -678,6 +683,11 @@ export const ui = {
             passwordTooShort: "Password must be at least 6 characters",
         },
         campus: {
+            loadError: {
+                title: "This section could not be loaded",
+                message: "We could not retrieve the data. Try again. If the problem continues, contact support.",
+                retry: "Try again",
+            },
             nav: {
                 dashboard: "Dashboard",
                 classes: "My classes",
@@ -1291,6 +1301,11 @@ export const ui = {
             passwordTooShort: "Пароль должен содержать не менее 6 символов",
         },
         campus: {
+            loadError: {
+                title: "Не удалось загрузить этот раздел",
+                message: "Не удалось получить данные. Попробуйте ещё раз. Если проблема сохраняется, обратитесь в поддержку.",
+                retry: "Повторить",
+            },
             student: {
                 title: "Панель студента",
                 myClasses: "Мои занятия",

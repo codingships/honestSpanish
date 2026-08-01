@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { AuthApiError, AuthSessionMissingError } from '@supabase/supabase-js';
+import { ADULT_ATTESTATION_REQUIRED_QUERY } from '../../src/lib/adult-account';
 
 const mocks = vi.hoisted(() => ({
     runtimeEnv: {} as Record<string, string | undefined>,
@@ -21,6 +23,7 @@ vi.mock('../../src/lib/supabase-server', () => ({
             select: vi.fn().mockReturnThis(),
             eq: vi.fn().mockReturnThis(),
             single: mocks.single,
+            maybeSingle: mocks.single,
         })),
     })),
 }));
@@ -70,6 +73,125 @@ describe('campus adult-account middleware gate', () => {
         expect(response.status).toBe(200);
         expect(next).toHaveBeenCalledOnce();
         expect(mocks.signOut).not.toHaveBeenCalled();
+    });
+
+    it('returns a localized 503 without redirecting or signing out when auth verification fails', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.getUser.mockResolvedValue({
+            data: { user: null },
+            error: { code: 'AUTH_TIMEOUT', message: 'private provider detail' },
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es/campus/classes');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+        const body = await response.text();
+
+        expect(response.status).toBe(503);
+        expect(response.headers.get('Content-Type')).toContain('text/html');
+        expect(body).toContain('role="alert"');
+        expect(body).toContain('No se pudo cargar esta secci');
+        expect(body).toContain('href="/es/campus/classes"');
+        expect(context.redirect).not.toHaveBeenCalled();
+        expect(mocks.signOut).not.toHaveBeenCalled();
+        expect(next).not.toHaveBeenCalled();
+        expect(consoleError).toHaveBeenCalledWith('[CampusRead] Query failed', {
+            surface: 'middleware.auth',
+            code: 'AUTH_TIMEOUT',
+        });
+    });
+
+    it('keeps the SDK missing-session error on the normal anonymous login flow', async () => {
+        mocks.getUser.mockResolvedValue({
+            data: { user: null },
+            error: new AuthSessionMissingError(),
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es/login');
+        const next = vi.fn().mockResolvedValue(new Response('login'));
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(200);
+        expect(next).toHaveBeenCalledOnce();
+        expect(context.redirect).not.toHaveBeenCalled();
+        expect(mocks.signOut).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['missing session', new AuthSessionMissingError()],
+        ['invalid session token', new AuthApiError('Invalid token', 401, 'bad_jwt')],
+    ])('redirects anonymous campus access for %s instead of reporting an outage', async (_caseName, error) => {
+        mocks.getUser.mockResolvedValue({ data: { user: null }, error });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/en/campus');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/en/login');
+        expect(next).not.toHaveBeenCalled();
+        expect(mocks.signOut).not.toHaveBeenCalled();
+    });
+
+    it('does not hide an unrelated Auth API failure behind an anonymous redirect', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.getUser.mockResolvedValue({
+            data: { user: null },
+            error: new AuthApiError('Unexpected auth failure', 403, 'unexpected_failure'),
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/en/campus');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(503);
+        expect(context.redirect).not.toHaveBeenCalled();
+        expect(next).not.toHaveBeenCalled();
+        expect(mocks.signOut).not.toHaveBeenCalled();
+    });
+
+    it('returns 503 without losing the local session when the profile query fails', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.single.mockResolvedValue({
+            data: null,
+            error: { code: 'PGRST_TIMEOUT', details: 'private query detail' },
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/en/campus/account?tab=billing');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+        const body = await response.text();
+
+        expect(response.status).toBe(503);
+        expect(body).toContain('This section could not be loaded');
+        expect(body).toContain('href="/en/campus/account?tab=billing"');
+        expect(context.redirect).not.toHaveBeenCalled();
+        expect(mocks.signOut).not.toHaveBeenCalled();
+        expect(next).not.toHaveBeenCalled();
+        expect(consoleError).toHaveBeenCalledWith('[CampusRead] Query failed', {
+            surface: 'middleware.profile',
+            code: 'PGRST_TIMEOUT',
+        });
+    });
+
+    it('keeps the existing missing-profile recovery distinct from a query failure', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mocks.single.mockResolvedValue({ data: null, error: null });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es/campus');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe(`/es/login?error=${ADULT_ATTESTATION_REQUIRED_QUERY}`);
+        expect(mocks.signOut).toHaveBeenCalledWith({ scope: 'local' });
+        expect(next).not.toHaveBeenCalled();
     });
 
     it('routes an existing student to the server-backed confirmation flow when evidence is absent', async () => {
