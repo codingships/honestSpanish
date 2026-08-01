@@ -1857,4 +1857,158 @@ $$;
 
 SET CONSTRAINTS ALL IMMEDIATE;
 
+DO $$
+BEGIN
+    IF (
+        SELECT COUNT(*)
+        FROM public.fulfillment_jobs AS job_row
+        WHERE job_row.job_type = 'bulk_session_fulfillment'
+          AND job_row.dedupe_key LIKE 'checkout_v2_cycle:%'
+    ) IS DISTINCT FROM (
+        SELECT COUNT(*)
+        FROM public.checkout_v2_cycles AS cycle_row
+        WHERE cycle_row.materialization_state = 'ready'
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_ready_cycles_do_not_have_exactly_one_fulfillment_job';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.checkout_v2_cycles AS cycle_row
+        JOIN public.subscriptions AS subscription_row
+          ON subscription_row.id = cycle_row.subscription_id
+        WHERE cycle_row.materialization_state = 'ready'
+          AND NOT EXISTS (
+                SELECT 1
+                FROM public.fulfillment_jobs AS job_row
+                WHERE job_row.job_type = 'bulk_session_fulfillment'
+                  AND job_row.subscription_id = cycle_row.subscription_id
+                  AND job_row.student_id = subscription_row.student_id
+                  AND job_row.dedupe_key = 'checkout_v2_cycle:' || cycle_row.id::TEXT
+                  AND job_row.payload->>'checkoutV2CycleId' = cycle_row.id::TEXT
+                  AND job_row.payload->'sessionIds' = (
+                        SELECT pg_catalog.jsonb_agg(
+                            session_row.id::TEXT
+                            ORDER BY session_row.checkout_v2_cycle_session_index
+                        )
+                        FROM public.sessions AS session_row
+                        WHERE session_row.checkout_v2_cycle_id = cycle_row.id
+                  )
+                  AND job_row.payload->'autoCreateMeeting' = 'true'::JSONB
+                  AND job_row.payload->'sendEmail' = 'true'::JSONB
+          )
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_cycle_fulfillment_payload_is_not_exact';
+    END IF;
+
+    IF has_function_privilege(
+        'service_role',
+        'private.enqueue_checkout_v2_cycle_fulfillment()',
+        'EXECUTE'
+    ) OR has_function_privilege(
+        'authenticated',
+        'private.enqueue_checkout_v2_cycle_fulfillment()',
+        'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_cycle_fulfillment_trigger_is_publicly_callable';
+    END IF;
+
+    IF has_function_privilege(
+        'service_role',
+        'private.ensure_checkout_v2_cycle_fulfillment(uuid)',
+        'EXECUTE'
+    ) OR has_function_privilege(
+        'authenticated',
+        'private.ensure_checkout_v2_cycle_fulfillment(uuid)',
+        'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_cycle_fulfillment_helper_is_publicly_callable';
+    END IF;
+
+    IF has_function_privilege(
+        'service_role',
+        'private.assert_checkout_v2_cycle_fulfillment_upgrade_safe()',
+        'EXECUTE'
+    ) OR has_function_privilege(
+        'authenticated',
+        'private.assert_checkout_v2_cycle_fulfillment_upgrade_safe()',
+        'EXECUTE'
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_cycle_fulfillment_upgrade_guard_is_publicly_callable';
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    target_cycle_id UUID;
+    jobs_before INTEGER;
+    jobs_after INTEGER;
+BEGIN
+    SELECT COUNT(*) INTO jobs_before
+    FROM public.fulfillment_jobs;
+
+    PERFORM private.assert_checkout_v2_cycle_fulfillment_upgrade_safe();
+
+    SELECT COUNT(*) INTO jobs_after
+    FROM public.fulfillment_jobs;
+
+    IF jobs_after IS DISTINCT FROM jobs_before THEN
+        RAISE EXCEPTION 'checkout_v2_upgrade_guard_reenqueued_existing_effects';
+    END IF;
+
+    SELECT cycle_row.id INTO target_cycle_id
+    FROM public.checkout_v2_cycles AS cycle_row
+    WHERE cycle_row.materialization_state = 'ready'
+    ORDER BY cycle_row.created_at, cycle_row.id
+    LIMIT 1;
+
+    IF target_cycle_id IS NULL THEN
+        RAISE EXCEPTION 'checkout_v2_upgrade_guard_fixture_has_no_ready_cycle';
+    END IF;
+
+    DELETE FROM public.fulfillment_jobs
+    WHERE job_type = 'bulk_session_fulfillment'
+      AND dedupe_key = 'checkout_v2_cycle:' || target_cycle_id::TEXT;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'checkout_v2_upgrade_guard_fixture_has_no_cycle_job';
+    END IF;
+
+    BEGIN
+        PERFORM private.assert_checkout_v2_cycle_fulfillment_upgrade_safe();
+        RAISE EXCEPTION 'checkout_v2_upgrade_guard_accepted_missing_job';
+    EXCEPTION
+        WHEN SQLSTATE '55000' THEN
+            IF SQLERRM <>
+                'checkout_v2_cycle_fulfillment_upgrade_requires_exact_ready_cycle_jobs' THEN
+                RAISE;
+            END IF;
+    END;
+
+    SELECT COUNT(*) INTO jobs_after
+    FROM public.fulfillment_jobs;
+
+    IF jobs_after IS DISTINCT FROM jobs_before - 1
+       OR EXISTS (
+            SELECT 1
+            FROM public.fulfillment_jobs
+            WHERE job_type = 'bulk_session_fulfillment'
+              AND dedupe_key = 'checkout_v2_cycle:' || target_cycle_id::TEXT
+       ) THEN
+        RAISE EXCEPTION 'checkout_v2_upgrade_guard_created_external_work';
+    END IF;
+
+    PERFORM private.ensure_checkout_v2_cycle_fulfillment(target_cycle_id);
+    PERFORM private.assert_checkout_v2_cycle_fulfillment_upgrade_safe();
+
+    SELECT COUNT(*) INTO jobs_after
+    FROM public.fulfillment_jobs;
+
+    IF jobs_after IS DISTINCT FROM jobs_before THEN
+        RAISE EXCEPTION 'checkout_v2_upgrade_guard_fixture_was_not_restored';
+    END IF;
+END
+$$;
+
 ROLLBACK;

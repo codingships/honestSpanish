@@ -2541,6 +2541,11 @@ describe('POST /api/stripe-webhook', () => {
             p_subscription_id: 'local-subscription-v2',
             p_fixed_at: '2026-07-01T10:00:00.000Z',
         });
+        expect(fulfillmentMocks.triggerFulfillmentProcessing).toHaveBeenCalledOnce();
+        expect(fulfillmentMocks.triggerFulfillmentProcessing).toHaveBeenCalledWith(
+            expect.any(Object),
+            5,
+        );
     });
 
     it('always materializes a replayed V2 renewal after apply returns false', async () => {
@@ -2563,6 +2568,11 @@ describe('POST /api/stripe-webhook', () => {
             p_subscription_id: 'local-subscription-v2',
             p_stripe_invoice_id: 'in_v2_renewal',
         });
+        expect(fulfillmentMocks.triggerFulfillmentProcessing).toHaveBeenCalledOnce();
+        expect(fulfillmentMocks.triggerFulfillmentProcessing).toHaveBeenCalledWith(
+            expect.any(Object),
+            5,
+        );
         expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
     });
 
