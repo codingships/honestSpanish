@@ -68,10 +68,19 @@ describe('public product surface', () => {
         expect(ui.en.pricing.modal.viewAvailability).toBe('View places');
         expect(ui.es.pricing.modal.renewalDisclosure).toContain('259 EUR al reservar');
         expect(ui.es.pricing.modal.renewalDisclosure).toContain('28 días después de la primera clase');
+        expect(ui.es.pricing.modal.renewalDisclosure).toContain('autoservicio');
+        expect(ui.es.pricing.modal.renewalDisclosure).toContain('máximo inclusivo de 28 días');
+        expect(ui.es.pricing.modal.renewalDisclosure).toContain('soporte fuera de ese límite no la mueve automáticamente');
         expect(ui.en.pricing.modal.renewalDisclosure).toContain('when the place is reserved');
         expect(ui.en.pricing.modal.renewalDisclosure).toContain('28 days after the first class');
+        expect(ui.en.pricing.modal.renewalDisclosure).toContain('self-service reschedule');
+        expect(ui.en.pricing.modal.renewalDisclosure).toContain('inclusive maximum of 28 days');
+        expect(ui.en.pricing.modal.renewalDisclosure).toContain('support change outside that limit does not move it automatically');
         expect(ui.ru.pricing.modal.renewalDisclosure).toContain('при бронировании места');
         expect(ui.ru.pricing.modal.renewalDisclosure).toContain('через 28 дней после первого занятия');
+        expect(ui.ru.pricing.modal.renewalDisclosure).toContain('самостоятельный перенос');
+        expect(ui.ru.pricing.modal.renewalDisclosure).toContain('через 28 дней включительно');
+        expect(ui.ru.pricing.modal.renewalDisclosure).toContain('вне этого предела не сдвигает её автоматически');
         expect(landing).toContain('individual_4x50_28d');
         expect(landing).toContain('259 EUR');
         expect(landing).toContain('50 minutos');
@@ -97,6 +106,8 @@ describe('public product surface', () => {
             for (const fragment of retiredOfferFragments) {
                 expect(source).not.toContain(fragment);
             }
+            expect(source).not.toMatch(/A2\/B1|nivel aproximado A2|nivel mínimo|empezar desde cero|gente con base/iu);
+            expect(source).toMatch(/adapta|punto de partida/iu);
             expect(source).toContain('const pricingTranslations = ui.es.pricing');
             expect(source).toContain("ctaText: 'VER OFERTA'");
         }
@@ -114,6 +125,10 @@ describe('public product surface', () => {
         expect(blogLayout).toContain("return '/' + lang + '/#planes'");
         expect(campusDashboard).toContain("planStatus === 'unavailable' ? retryHref : `/${lang}/#planes`");
         expect(campusDashboard).toContain('href={`/${lang}/#planes`}');
+        expect(campusDashboard).not.toMatch(/Coordinamos disponibilidad manualmente|We coordinate availability manually|Мы согласуем время вручную/u);
+        expect(campusDashboard).not.toMatch(/coordinar la primera clase|coordinate the first class|согласования первого занятия/u);
+        expect(campusDashboard).toContain("teacherPending: 'El profesor se muestra desde la plaza elegida'");
+        expect(campusDashboard).toContain("schedulePending: 'Your dates are shown with the place you choose'");
         expect(campusAccount).toContain('href={`/${lang}/#planes`}');
         expect(campusAccount).not.toMatch(/findCheckoutApproval|stripe_price_[136]m|priceTotalsCents/u);
         expect(llms).toContain('four individual online classes of 50 minutes');

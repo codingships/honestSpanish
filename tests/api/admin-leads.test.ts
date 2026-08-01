@@ -600,7 +600,7 @@ describe('/api/admin/leads', () => {
         expect(mocks.recordLeadEmailOutInCrmSafe).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
             contactId: '10000000-0000-4000-8000-000000000005',
             opportunityId: '20000000-0000-4000-8000-000000000005',
-            subject: 'A few level questions - Espanol Honesto',
+            subject: 'Optional Spanish context - Espanol Honesto',
             template: 'level_check_invite',
         }));
         expect(auditInsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -794,7 +794,7 @@ describe('/api/admin/leads', () => {
         expect(mocks.recordLeadEmailOutInCrmSafe).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
             contactId: '10000000-0000-4000-8000-000000000005',
             opportunityId: '20000000-0000-4000-8000-000000000005',
-            subject: 'Suggested next step - Espanol Honesto',
+            subject: 'How direct booking will work - Espanol Honesto',
             template: 'proposal_next_step',
         }));
         expect(consentLookup.eq).toHaveBeenCalledWith('contact_id', '10000000-0000-4000-8000-000000000005');
@@ -921,7 +921,7 @@ describe('/api/admin/leads', () => {
         expect(mocks.recordLeadEmailOutInCrmSafe).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
             contactId: '10000000-0000-4000-8000-000000000005',
             opportunityId: '20000000-0000-4000-8000-000000000005',
-            subject: 'A little more context - Espanol Honesto',
+            subject: 'Optional context for your classes - Espanol Honesto',
             template: 'missing_info',
         }));
         expect(opportunityUpdate.update).toHaveBeenCalledWith({

@@ -45,9 +45,9 @@ function post({
 }
 
 const translatedPosts = [
-    post({ id: 'es/cuanto-tiempo-hablar-espanol-fluido', lang: 'es', translationKey: 'time-to-fluency' }),
-    post({ id: 'en/how-long-to-speak-spanish-fluently', lang: 'en', translationKey: 'time-to-fluency' }),
-    post({ id: 'ru/how-long-to-speak-spanish-fluently', lang: 'ru', translationKey: 'time-to-fluency' }),
+    post({ id: 'es/atascado-nivel-b1-espanol', lang: 'es', translationKey: 'stuck-at-b1' }),
+    post({ id: 'en/stuck-at-b1-spanish', lang: 'en', translationKey: 'stuck-at-b1' }),
+    post({ id: 'ru/stuck-at-b1-spanish', lang: 'ru', translationKey: 'stuck-at-b1' }),
 ];
 
 describe('public SEO contract', () => {
@@ -63,9 +63,9 @@ describe('public SEO contract', () => {
 
         expect(groups).toHaveLength(1);
         expect(getBlogAlternatePaths(translatedPosts[0], translatedPosts)).toEqual({
-            es: '/blog/cuanto-tiempo-hablar-espanol-fluido',
-            en: '/blog/how-long-to-speak-spanish-fluently',
-            ru: '/blog/how-long-to-speak-spanish-fluently',
+            es: '/blog/atascado-nivel-b1-espanol',
+            en: '/blog/stuck-at-b1-spanish',
+            ru: '/blog/stuck-at-b1-spanish',
         });
     });
 
@@ -97,12 +97,12 @@ describe('public SEO contract', () => {
         ]);
 
         expect(xml).toContain('<loc>https://espanolhonesto.com/es</loc>');
-        expect(xml).toContain('<loc>https://espanolhonesto.com/es/blog/cuanto-tiempo-hablar-espanol-fluido</loc>');
+        expect(xml).toContain('<loc>https://espanolhonesto.com/es/blog/atascado-nivel-b1-espanol</loc>');
         expect(xml).toContain(
-            'hreflang="en" href="https://espanolhonesto.com/en/blog/how-long-to-speak-spanish-fluently"',
+            'hreflang="en" href="https://espanolhonesto.com/en/blog/stuck-at-b1-spanish"',
         );
         expect(xml).toContain(
-            'hreflang="x-default" href="https://espanolhonesto.com/en/blog/how-long-to-speak-spanish-fluently"',
+            'hreflang="x-default" href="https://espanolhonesto.com/en/blog/stuck-at-b1-spanish"',
         );
         expect(xml).not.toContain('not-public-yet');
         expect(xml).not.toMatch(/\/(?:api|campus|login|legal|success|cancel|demo)(?:\/|<)/u);

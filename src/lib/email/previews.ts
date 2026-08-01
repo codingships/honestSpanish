@@ -34,9 +34,9 @@ export const emailPreviewLocales = ['es', 'en', 'ru'] as const;
 export type EmailPreviewLocale = typeof emailPreviewLocales[number];
 
 const previewPackageNames: Record<EmailPreviewLocale, { welcome: string; renewal: string }> = {
-    es: { welcome: 'Híbrido mensual', renewal: 'Mensual estándar' },
-    en: { welcome: 'Hybrid monthly', renewal: 'Standard monthly' },
-    ru: { welcome: 'Гибридный месяц', renewal: 'Стандартный месяц' },
+    es: { welcome: '4 clases individuales de 50 minutos', renewal: '4 clases individuales de 50 minutos' },
+    en: { welcome: '4 individual 50-minute classes', renewal: '4 individual 50-minute classes' },
+    ru: { welcome: '4 индивидуальных занятия по 50 минут', renewal: '4 индивидуальных занятия по 50 минут' },
 };
 
 export type EmailPreview = {
@@ -66,14 +66,24 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                     packageName: previewPackageNames[welcomeLocale].welcome,
                     loginUrl: `https://staging.espanolhonesto.com/${welcomeLocale}/login`,
                     driveFolderUrl: 'https://drive.google.com/example',
-                    durationMonths: 3,
-                    startsAt: '2026-10-10',
-                    endsAt: '2027-01-09',
-                    sessionsTotal: 12,
-                    amountTotal: 40500,
+                    sessionsTotal: 4,
+                    amountTotal: 25900,
                     currency: 'eur',
+                    contractSchemaVersion: 2,
+                    classDurationMinutes: 50,
+                    teacherName: 'Alejandro García',
+                    slotWeekday: 1,
+                    slotLocalStartTime: '10:00:00',
+                    timezoneName: 'Europe/Madrid',
+                    classStartsAt: [
+                        '2026-09-07T08:00:00.000Z',
+                        '2026-09-14T08:00:00.000Z',
+                        '2026-09-21T08:00:00.000Z',
+                        '2026-09-28T08:00:00.000Z',
+                    ],
+                    renewalAnchorAt: '2026-10-05T08:00:00.000Z',
                     legalPolicyVersion: '2026-07-10',
-                    policyAcceptedAt: '2026-10-10T12:00:00.000Z',
+                    policyAcceptedAt: '2026-09-01T10:00:00.000Z',
                     termsUrl: `https://staging.espanolhonesto.com/${welcomeLocale}/legal/terminos`,
                     supportUrl: `https://staging.espanolhonesto.com/${welcomeLocale}/campus/support`,
                 }),
@@ -88,10 +98,11 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
                     locale: renewalLocale,
                     studentName: 'Test User',
                     packageName: previewPackageNames[renewalLocale].renewal,
-                    renewalAt: '2026-10-10T12:00:00.000Z',
-                    cancelBy: '2026-10-10T12:00:00.000Z',
-                    durationMonths: 1,
-                    amountTotal: 14500,
+                    renewalAt: '2026-10-05T08:00:00.000Z',
+                    cancelBy: '2026-10-05T08:00:00.000Z',
+                    billingIntervalUnit: 'day',
+                    billingIntervalCount: 28,
+                    amountTotal: 25900,
                     currency: 'eur',
                     accountUrl: `https://staging.espanolhonesto.com/${renewalLocale}/campus/account`,
                     supportUrl: `https://staging.espanolhonesto.com/${renewalLocale}/campus/support`,
@@ -142,7 +153,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
         case 'lead':
             return {
                 type,
-                subject: 'Application received - Español Honesto',
+                subject: 'Direct booking details - Espanol Honesto',
                 html: leadWelcomeTemplate({
                     recipientName: 'Test User',
                 }),
@@ -150,7 +161,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
         case 'level-check':
             return {
                 type,
-                subject: 'A few level questions - Espanol Honesto',
+                subject: 'Optional Spanish context - Espanol Honesto',
                 html: levelCheckInviteTemplate({
                     recipientName: 'Test User',
                     diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=test%40example.com',
@@ -159,7 +170,7 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
         case 'missing-info':
             return {
                 type,
-                subject: 'A little more context - Espanol Honesto',
+                subject: 'Optional context for your classes - Espanol Honesto',
                 html: missingInfoEmailTemplate({
                     recipientName: 'Test User',
                     diagnosticUrl: 'https://staging.espanolhonesto.com/en/diagnostico?email=test%40example.com',
@@ -168,10 +179,9 @@ export function buildEmailPreview(type: EmailPreviewType, locale: EmailPreviewLo
         case 'proposal-next-step':
             return {
                 type,
-                subject: 'Suggested next step - Espanol Honesto',
+                subject: 'How direct booking will work - Espanol Honesto',
                 html: proposalNextStepEmailTemplate({
                     recipientName: 'Test User',
-                    planRecommendation: 'Start with a focused conversation plan for professional and everyday situations.',
                 }),
             };
         case 'support-received':

@@ -10,7 +10,7 @@ import { assertStripeRuntimeAccount, type StripeRuntimeContext } from '../../lib
 import { isPackageDuration, PACKAGE_CURRENCY } from '../../lib/package-pricing';
 import { observeCheckoutV2GuaranteeRefundFromWebhook } from '../../lib/checkout-v2-guarantee';
 import type Stripe from 'stripe';
-import type { Database } from '../../types/database.types';
+import type { Database, Json } from '../../types/database.types';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 function isStripePriceId(value: unknown): value is string {
@@ -69,6 +69,39 @@ const CHECKOUT_V2_CONTRACT_SCHEMA_VERSION = '2';
 const CHECKOUT_V2_AMOUNT_CENTS = 25_900;
 const CHECKOUT_V2_INTERVAL_HOURS = 672;
 const CHECKOUT_V2_INTERVAL_SECONDS = CHECKOUT_V2_INTERVAL_HOURS * 60 * 60;
+
+type WelcomeFulfillmentInput = Parameters<typeof enqueueWelcomeFulfillment>[1];
+
+function checkoutV2WelcomeSnapshotMatches(payload: Json, expected: WelcomeFulfillmentInput): boolean {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    const snapshot = payload as Record<string, Json | undefined>;
+    const scalarKeys = [
+        'userId',
+        'packageId',
+        'packageKey',
+        'subscriptionId',
+        'startsAt',
+        'endsAt',
+        'sessionsTotal',
+        'amountTotal',
+        'currency',
+        'legalPolicyVersion',
+        'policyAcceptedAt',
+        'contractSchemaVersion',
+        'classDurationMinutes',
+        'teacherName',
+        'slotWeekday',
+        'slotLocalStartTime',
+        'timezoneName',
+        'renewalAnchorAt',
+    ] as const;
+    if (scalarKeys.some((key) => snapshot[key] !== expected[key])) return false;
+
+    return Array.isArray(snapshot.classStartsAt)
+        && Array.isArray(expected.classStartsAt)
+        && snapshot.classStartsAt.length === expected.classStartsAt.length
+        && snapshot.classStartsAt.every((value, index) => value === expected.classStartsAt?.[index]);
+}
 
 function isCheckoutV2Metadata(metadata: Stripe.Metadata | null | undefined): boolean {
     return metadata?.contractSchemaVersion === CHECKOUT_V2_CONTRACT_SCHEMA_VERSION;
@@ -882,7 +915,7 @@ async function handleCheckoutV2Completed(
             .single(),
         supabaseAdmin
             .from('bookable_slots')
-            .select('id, public_id, package_id, first_occurrence_at, timezone_name, status, sold_subscription_id')
+            .select('id, public_id, package_id, first_occurrence_at, teacher_id, weekday, local_start_time, timezone_name, status, sold_subscription_id, teacher:profiles!bookable_slots_teacher_id_fkey(full_name)')
             .eq('public_id', slotPublicId)
             .single(),
     ]);
@@ -918,6 +951,13 @@ async function handleCheckoutV2Completed(
         || !isUuid(slot.id)
         || slot.public_id !== slotPublicId
         || slot.package_id !== packageId
+        || !isUuid(slot.teacher_id)
+        || !Number.isInteger(slot.weekday)
+        || slot.weekday < 0
+        || slot.weekday > 6
+        || !/^\d{2}:\d{2}(?::\d{2})?$/.test(slot.local_start_time)
+        || typeof slot.teacher?.full_name !== 'string'
+        || !slot.teacher.full_name.trim()
         || !['available', 'sold'].includes(slot.status)
         || Date.parse(slot.first_occurrence_at) / 1000 !== firstClassAt
     ) {
@@ -1054,21 +1094,32 @@ async function handleCheckoutV2Completed(
     ) {
         throw materializeError ?? new Error('Checkout V2 initial sessions could not be materialized safely');
     }
-    const { data: firstOccurrence, error: firstOccurrenceError } = await supabaseAdmin
+    const { data: slotOccurrences, error: slotOccurrencesError } = await supabaseAdmin
         .from('bookable_slot_occurrences')
-        .select('session_id, starts_at')
+        .select('session_id, starts_at, occurrence_index, teacher_id, duration_minutes')
         .eq('slot_id', slot.id)
-        .eq('occurrence_index', 1)
-        .single();
+        .order('occurrence_index', { ascending: true });
+    const firstOccurrence = slotOccurrences?.[0];
+    const firstSessionId = firstOccurrence?.session_id;
     if (
-        firstOccurrenceError || !firstOccurrence || !isUuid(firstOccurrence.session_id)
+        slotOccurrencesError
+        || slotOccurrences?.length !== 4
+        || slotOccurrences.some((occurrence, index) => (
+            occurrence.occurrence_index !== index + 1
+            || occurrence.teacher_id !== slot.teacher_id
+            || occurrence.duration_minutes !== 50
+            || !isUuid(occurrence.session_id)
+            || !Number.isFinite(Date.parse(occurrence.starts_at))
+        ))
+        || !firstOccurrence
+        || !isUuid(firstSessionId)
         || Date.parse(firstOccurrence.starts_at) / 1000 !== firstClassAt
     ) {
-        throw new Error('Checkout V2 first materialized session is invalid');
+        throw new Error('Checkout V2 materialized class schedule is invalid');
     }
     const { data: billingState, error: billingError } = await supabaseAdmin.rpc('initialize_checkout_v2_billing', {
         p_subscription_id: subscription.id,
-        p_first_session_id: firstOccurrence.session_id,
+        p_first_session_id: firstSessionId,
         p_initial_payment_id: payment.id,
         p_initial_stripe_price_id: initialPriceId,
         p_stripe_renewal_anchor_at: new Date(renewalAnchorAt * 1000).toISOString(),
@@ -1125,15 +1176,7 @@ async function handleCheckoutV2Completed(
         },
     });
 
-    const { data: existingWelcomeJob, error: welcomeJobLookupError } = await supabaseAdmin
-        .from('fulfillment_jobs')
-        .select('id')
-        .eq('job_type', 'welcome_fulfillment')
-        .eq('subscription_id', subscription.id)
-        .limit(1)
-        .maybeSingle();
-    if (welcomeJobLookupError) throw welcomeJobLookupError;
-    const queued = existingWelcomeJob ? true : await enqueueWelcomeFulfillment(supabaseAdmin, {
+    const welcomePayload: WelcomeFulfillmentInput = {
         userId,
         packageId,
         packageKey: packagePrice.package_key,
@@ -1146,7 +1189,54 @@ async function handleCheckoutV2Completed(
         currency: PACKAGE_CURRENCY,
         legalPolicyVersion: completedIntent.legal_policy_version,
         policyAcceptedAt: completedIntent.policy_accepted_at,
-    });
+        contractSchemaVersion: 2,
+        classDurationMinutes: 50,
+        teacherName: slot.teacher.full_name.trim(),
+        slotWeekday: slot.weekday,
+        slotLocalStartTime: slot.local_start_time,
+        timezoneName: slot.timezone_name,
+        classStartsAt: slotOccurrences.map((occurrence) => occurrence.starts_at),
+        renewalAnchorAt: new Date(renewalAnchorAt * 1000).toISOString(),
+    };
+    const { data: existingWelcomeJob, error: welcomeJobLookupError } = await supabaseAdmin
+        .from('fulfillment_jobs')
+        .select('id, status, attempts, payload')
+        .eq('job_type', 'welcome_fulfillment')
+        .eq('subscription_id', subscription.id)
+        .limit(1)
+        .maybeSingle();
+    if (welcomeJobLookupError) throw welcomeJobLookupError;
+    let queued: boolean;
+    if (!existingWelcomeJob) {
+        queued = await enqueueWelcomeFulfillment(supabaseAdmin, welcomePayload);
+    } else if (checkoutV2WelcomeSnapshotMatches(existingWelcomeJob.payload, welcomePayload)) {
+        queued = true;
+    } else {
+        if (existingWelcomeJob.status !== 'pending' || existingWelcomeJob.attempts !== 0) {
+            throw new Error('Existing Checkout V2 welcome fulfillment cannot be reconciled safely');
+        }
+        const { data: reconciledWelcomeJob, error: welcomeReconciliationError } = await supabaseAdmin
+            .from('fulfillment_jobs')
+            .update({
+                payload: welcomePayload as unknown as Json,
+                run_at: new Date().toISOString(),
+                last_error: null,
+            })
+            .eq('id', existingWelcomeJob.id)
+            .eq('status', 'pending')
+            .eq('attempts', 0)
+            .select('id, status, attempts, payload')
+            .maybeSingle();
+        if (
+            welcomeReconciliationError
+            || !reconciledWelcomeJob
+            || !checkoutV2WelcomeSnapshotMatches(reconciledWelcomeJob.payload, welcomePayload)
+        ) {
+            throw welcomeReconciliationError
+                ?? new Error('Existing Checkout V2 welcome fulfillment changed during reconciliation');
+        }
+        queued = true;
+    }
     if (!queued) throw new Error('Checkout V2 welcome fulfillment could not be queued');
     triggerFulfillmentProcessing(context, 5);
 }

@@ -1,64 +1,78 @@
 ---
 title: "How long does it take to speak Spanish fluently?"
-description: "An honest analysis of the real times to reach conversational fluency. No 3-month promises, just real data."
+description: "An honest answer: timing depends on your starting point, practice and real contact with Spanish. Learn to measure observable progress."
 publishedAt: 2025-01-15
 author: alejandro
 category: aprendizaje
-tags: ["fluency", "time", "levels", "B2"]
+tags: ["fluency", "time", "levels", "conversation"]
 image: "../../../assets/blog/tiempo-fluidez.png"
 imageAlt: "Watch next to Spanish books"
 lang: en
 translationKey: "time-to-fluency"
 ---
 
-The short answer? **Between 600 and 800 hours of deliberate practice to reach a solid B2 level.** If someone promised you fluency in three months studying 15 minutes a day, they lied to you.
+The honest answer is that **there is no universal timetable for speaking Spanish fluently**. Two people can study with the same frequency and progress differently because they do not share the same starting point, practice or reasons for using the language.
 
-Let's be brutally honest. The language industry lives on selling hope. Apps with green owls, magic 30-day courses, "revolutionary" methods. But after years of teaching Spanish to hundreds of students, the mathematical reality always prevails.
+A fixed date therefore tells you less than a concrete question: what do you want to do in Spanish that you cannot do yet?
 
-## What does "fluency" really mean?
+## First, define what “fluency” means for you
 
-Before talking about hours, let's define the goal. When in **Español Honesto** we talk about fluency to live in Spain, we don't mean reciting Don Quixote. We mean:
+“Speaking fluently” can refer to very different abilities:
 
-*   Understanding what the doctor tells you without using Google Translate.
-*   Solving a problem with your internet company over the phone (the final boss of Spanish bureaucracy).
-*   Having dinner with Spanish friends and not staying silent looking at your phone because you got lost in the conversation.
+- Handling a medical appointment and asking for clarification when something is unclear.
+- Taking part in a work meeting without preparing every sentence.
+- Following a group dinner and finding your way back into the conversation when you lose the thread.
+- Explaining a complex opinion in your own words.
 
-This is a **B2 (Upper Intermediate)** level according to the Common European Framework of Reference (CEFR). It is the turning point where the language ceases to be a barrier and becomes a tool.
+These abilities do not arrive all at once. You may work confidently in Spanish and still struggle on the phone, or chat with friends and need help with an administrative appointment.
 
-## The Real Numbers (CEFR Levels)
+## The variables that change the journey most
 
-According to data from the Foreign Service Institute (FSI) and our own experience in the classroom, this is the real breakdown for a native English speaker:
+### Your starting point
 
-### A1-A2 (The Advanced Tourist) - 150-200 hours
-This is where most app users stay. You can order a beer, say your name, and ask where the bathroom is. Useful for vacations, insufficient for living.
+Starting with no previous experience is different from understanding a great deal and needing to activate Spanish you already recognise. A level label is not the whole picture either: what matters is what you can currently do when listening, speaking, reading and writing.
 
-### B1 (The Stagnation) - 350-400 accumulated hours
-You start building complex sentences. You understand the main ideas. But you get tired quickly. A conversation of more than 20 minutes fries your brain. Many expats live trapped here for years.
+### The quality of your practice
 
-### B2 (Freedom) - 600-800 accumulated hours
-This is where the magic happens. You can nuance. You can make jokes (and understand them). You can consume real Spanish culture (cinema, books, podcasts for natives). This is where you live in Spanish.
+Repeating familiar exercises can feel productive without improving conversation. Progress is usually easier to observe when you combine comprehension, conversation, selective correction and later retrieval of what you learned.
 
-## Why don't the numbers add up for you?
+### Real contact with the language
 
-"But I've been in Spain for 2 years, I should be fluent."
+Living in Spain helps only when Spanish genuinely enters your routine. Shopping, working or socialising entirely in another language does not automatically create useful practice.
 
-Let's do the math. If you go to classes 2 hours a week and do 1 hour of homework, that's 3 hours a week. In a year (minus vacations) that's about 120 hours.
-At that pace, **it will take you 6 years to reach B2**.
+### Consistency and recovery
 
-That is the reality no one wants to see. Living in Spain doesn't teach you Spanish by osmosis. You need intensity.
+Sustainable practice lets you revisit mistakes, vocabulary and real situations. Breaks are part of the process too; what matters is being able to resume without treating every interruption as a complete restart.
 
-## The 8-10 Month Method
+### The distance between your practice and your goal
 
-At **Español Honesto**, our program is designed to compress those 600 hours into a period of 8 to 10 months. It's not magic, it's work density.
+If you want to speak in meetings, practise decisions, disagreement and explanation. If you want more autonomy in Spain, work on everyday situations, spontaneous conversation and cultural context. Your goal determines which practice is useful.
 
-How do we do it?
-1.  **Flipped Classroom**: You don't come to class to have grammar explained. You watch that at home. You come to class to use it.
-2.  **Comprehensible Input**: We bombard you with real Spanish adapted to your level, not with textbook sentences from 1990.
-3.  **Spacing Effect**: We review vocabulary just before your brain deletes it.
+## Observable milestones for measuring progress
 
-If you are willing to dedicate real time, the results are real. If you are looking for a shortcut, there are many other academies that will be happy to charge you the monthly fee for the next 6 years.
+Instead of counting months, notice whether you can:
 
-Your time is worth more than that.
+1. Make yourself understood and ask someone to rephrase.
+2. Sustain an everyday conversation and recover after getting stuck.
+3. Take part in life or work situations without preparing every sentence.
+4. Notice recurring errors and rephrase with greater precision.
+5. Recognise shifts in tone, humour and cultural references.
+6. Express complex positions in a voice that feels like your own.
 
-### Ready to start counting the hours for real?
-Talk to us and let's design a realistic plan for your goal.
+You do not have to complete one milestone perfectly before moving towards the next. They are signs of direction, not a calendar shared by everyone.
+
+## How to get an estimate that is actually useful
+
+Start with a real sample: a conversation, a comprehension task and a situation related to your goal. Record what you can do unaided, where you need support and which difficulties recur. Then define the next observable result and review whether your practice is moving you towards it.
+
+A useful estimate changes when the evidence changes. If you converse more independently, retrieve vocabulary more reliably and handle unfamiliar situations, you are progressing even when no universal date can summarise it.
+
+## The Español Honesto offer
+
+Español Honesto has one direct offer for adults: **four individual 50-minute online classes for EUR 259 in each 28-day cycle**. Before payment, you see the teacher, weekly time, time zone and all four planned dates.
+
+We do not sell a fluency date. We use the classes to work on conversation, correction and real situations from your starting point, and to identify the next observable milestone with you.
+
+### Ready to turn your goal into concrete practice?
+
+[See the available places and their terms](/en/#planes). If you first need to check whether it fits, [contact us](/en/#contacto).

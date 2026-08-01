@@ -12,6 +12,7 @@ import { cancelClassEvent, deterministicClassEventId } from '../google/calendar'
 import { sendClassCancelled } from '../email';
 import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
 import { recordCrmActivityForProfileSafe } from '../crm/activity-sync';
+import { INITIAL_INDIVIDUAL_OFFER } from '../package-pricing';
 import type { Database } from '../../types/database.types';
 import {
     FulfillmentEffectError,
@@ -133,6 +134,78 @@ function localizedPackageName(
     return typeof localized === 'string' && localized.trim() ? localized : fallback;
 }
 
+function assertCheckoutV2WelcomePayload(payload: FulfillmentJobPayload): void {
+    const isKnownCheckoutV2 = payload.contractSchemaVersion === 2
+        || payload.packageKey === INITIAL_INDIVIDUAL_OFFER.packageKey;
+    if (!isKnownCheckoutV2) return;
+
+    const classStartsAt = payload.classStartsAt;
+    const firstClassAt = Date.parse(classStartsAt?.[0] ?? '');
+    const renewalAnchorAt = Date.parse(payload.renewalAnchorAt ?? '');
+    const slotWeekday = payload.slotWeekday;
+    const expectedLocalTime = payload.slotLocalStartTime?.slice(0, 5);
+    const parsedClassDates = classStartsAt?.map((startsAt) => new Date(startsAt)) ?? [];
+    let validTimezone = false;
+    let localClassDays: number[] = [];
+    let classPatternValid = false;
+    try {
+        const localDateFormatter = new Intl.DateTimeFormat('en-US', {
+            timeZone: payload.timezoneName,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        });
+        const timeFormatter = new Intl.DateTimeFormat('en-GB', {
+            timeZone: payload.timezoneName,
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        });
+        localDateFormatter.format(new Date(firstClassAt));
+        validTimezone = true;
+        if (parsedClassDates.length === 4 && parsedClassDates.every((date) => Number.isFinite(date.getTime()))) {
+            localClassDays = parsedClassDates.map((date) => {
+                const parts = Object.fromEntries(
+                    localDateFormatter.formatToParts(date).map((part) => [part.type, part.value]),
+                );
+                return Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+            });
+            classPatternValid = parsedClassDates.every((date, index) => (
+                timeFormatter.format(date) === expectedLocalTime
+                && new Date(localClassDays[index]).getUTCDay() === slotWeekday
+                && (index === 0 || localClassDays[index] - localClassDays[index - 1] === 7 * 24 * 60 * 60 * 1000)
+            ));
+        }
+    } catch {
+        validTimezone = false;
+    }
+
+    if (
+        payload.contractSchemaVersion !== 2
+        || payload.amountTotal !== 25_900
+        || payload.currency?.toLowerCase() !== 'eur'
+        || payload.sessionsTotal !== 4
+        || payload.classDurationMinutes !== 50
+        || typeof payload.teacherName !== 'string'
+        || !payload.teacherName.trim()
+        || !Number.isInteger(slotWeekday)
+        || (slotWeekday ?? -1) < 0
+        || (slotWeekday ?? 7) > 6
+        || typeof payload.slotLocalStartTime !== 'string'
+        || !/^\d{2}:\d{2}(?::\d{2})?$/.test(payload.slotLocalStartTime)
+        || typeof payload.timezoneName !== 'string'
+        || !validTimezone
+        || classStartsAt?.length !== 4
+        || classStartsAt.some((startsAt) => !Number.isFinite(Date.parse(startsAt)))
+        || !classPatternValid
+        || !Number.isFinite(firstClassAt)
+        || !Number.isFinite(renewalAnchorAt)
+        || renewalAnchorAt !== firstClassAt + 28 * 24 * 60 * 60 * 1000
+    ) {
+        throw new Error('Checkout V2 welcome payload is incomplete or incoherent');
+    }
+}
+
 async function processRenewalNotice(
     supabaseAdmin: SupabaseClient<Database>,
     payload: FulfillmentJobPayload,
@@ -212,6 +285,7 @@ async function processWelcomeFulfillment(
     if (!payload.userId || !payload.packageId) {
         throw new Error('welcome_fulfillment requires userId and packageId');
     }
+    assertCheckoutV2WelcomePayload(payload);
 
     const { data: student, error: studentError } = await supabaseAdmin
         .from('profiles')
@@ -293,6 +367,14 @@ async function processWelcomeFulfillment(
         currency: payload.currency,
         legalPolicyVersion: payload.legalPolicyVersion,
         policyAcceptedAt: payload.policyAcceptedAt,
+        contractSchemaVersion: payload.contractSchemaVersion,
+        classDurationMinutes: payload.classDurationMinutes,
+        teacherName: payload.teacherName,
+        slotWeekday: payload.slotWeekday,
+        slotLocalStartTime: payload.slotLocalStartTime,
+        timezoneName: payload.timezoneName,
+        classStartsAt: payload.classStartsAt,
+        renewalAnchorAt: payload.renewalAnchorAt,
         termsUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/legal/terminos`,
         supportUrl: `${getSiteUrl('https://espanolhonesto.com')}/${welcomeLocale}/campus/support`,
     }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.welcome.student'));
