@@ -5,7 +5,10 @@ SET statement_timeout = '20s';
 
 CREATE EXTENSION IF NOT EXISTS dblink;
 
-SELECT date_trunc('second', clock_timestamp()) - INTERVAL '2 hours'
+-- Keep the weekly cadence while placing the second class inside the 24-hour
+-- boundary, so the real guarantee saga proves its durable provenance wins over
+-- the ordinary late-cancellation rule.
+SELECT date_trunc('second', clock_timestamp()) - INTERVAL '6 days 23 hours'
     AS guarantee_first_at
 \gset
 
@@ -136,7 +139,7 @@ INSERT INTO public.checkout_v2_cycles (
     :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '28 days',
     'price_guarantee_initial', 'in_guarantee_initial',
     '77700000-0000-4000-8000-000000000001',
-    'ready', date_trunc('second', clock_timestamp()) - INTERVAL '2 days'
+    'ready', date_trunc('second', clock_timestamp()) - INTERVAL '8 days'
 );
 
 UPDATE public.payments
@@ -512,6 +515,37 @@ SELECT (public.apply_checkout_v2_guarantee_termination(
     '77b00000-0000-4000-8000-000000000001',
     :'cancellation_started_at'::TIMESTAMPTZ - INTERVAL '3 seconds'
 )).terminated_at;
+
+DO $$
+DECLARE
+    progress public.checkout_v2_cycle_progress%ROWTYPE;
+BEGIN
+    SELECT * INTO progress
+    FROM public.checkout_v2_cycle_progress
+    WHERE cycle_id = '77800000-0000-4000-8000-000000000001';
+
+    IF progress.progress_state IS DISTINCT FROM 'ready'
+       OR progress.sessions_consumed IS DISTINCT FROM 1
+       OR progress.sessions_remaining IS DISTINCT FROM 3
+       OR EXISTS (
+            SELECT 1
+            FROM public.checkout_v2_session_consumption
+            WHERE session_id IN (
+                '77900000-0000-4000-8000-000000000002',
+                '77900000-0000-4000-8000-000000000003',
+                '77900000-0000-4000-8000-000000000004'
+            )
+              AND (
+                  consumption_kind IS DISTINCT FROM 'guarantee_refund_cancellation'
+                  OR original_student_credit_consumed
+                  OR student_credit_consumed
+              )
+       ) THEN
+        RAISE EXCEPTION 'durable_guarantee_refund_progress_is_wrong:%',
+            pg_catalog.row_to_json(progress);
+    END IF;
+END
+$$;
 
 SELECT (public.begin_checkout_v2_guarantee_refund(
     :'operation_id'::UUID,

@@ -18,7 +18,12 @@ const students = [
             id: 'sub-1',
             status: 'active',
             sessions_total: 4,
-            sessions_used: 2,
+            contract_schema_version: 2,
+            academicProgress: {
+                state: 'ready',
+                consumedSessions: 2,
+                sessionsTotal: 4,
+            },
             package: { name: 'standard', display_name: { es: 'Estandar' } },
         },
         primaryTeacher: { id: 'teacher-1', fullName: 'Ana Profesora' },
@@ -67,9 +72,50 @@ describe('UserManager', () => {
         expect(screen.getByText('Profesores: 2')).toHaveAttribute('role', 'status');
         expect(screen.getByText('standard (4 clases)')).toBeInTheDocument();
         expect(screen.getByText('2')).toBeInTheDocument();
-        expect(screen.getByText('4 dadas')).toBeInTheDocument();
+        expect(screen.getByText('4 consumidas')).toBeInTheDocument();
         expect(screen.getByLabelText('Tutor asignado para Marta Garcia')).toHaveValue('teacher-1');
         expect(screen.getByLabelText('Tutor asignado para sin-nombre@example.com')).toHaveValue('');
+    });
+
+    it('does not present pending, inconsistent or legacy progress as zero classes', async () => {
+        const progressStudents = [
+            {
+                ...students[0],
+                id: 'student-pending',
+                email: 'pending@example.com',
+                activeSubscription: {
+                    ...students[0].activeSubscription,
+                    academicProgress: { state: 'pending', consumedSessions: null, sessionsTotal: 4 },
+                },
+            },
+            {
+                ...students[0],
+                id: 'student-inconsistent',
+                email: 'inconsistent@example.com',
+                activeSubscription: {
+                    ...students[0].activeSubscription,
+                    academicProgress: { state: 'inconsistent', consumedSessions: null, sessionsTotal: null },
+                },
+            },
+            {
+                ...students[0],
+                id: 'student-legacy',
+                email: 'legacy@example.com',
+                activeSubscription: {
+                    ...students[0].activeSubscription,
+                    contract_schema_version: 1,
+                    academicProgress: { state: 'legacy', consumedSessions: null, sessionsTotal: null },
+                },
+            },
+        ];
+        vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({ teachers, students: progressStudents })));
+
+        render(<UserManager />);
+
+        expect(await screen.findByText('Preparando ciclo')).toHaveAttribute('role', 'status');
+        expect(screen.getByText('Progreso no disponible')).toHaveAttribute('role', 'alert');
+        expect(screen.getByText('Plan anterior')).toHaveAttribute('role', 'status');
+        expect(screen.queryByText('0')).not.toBeInTheDocument();
     });
 
     it('renders load failures and empty student lists semantically', async () => {

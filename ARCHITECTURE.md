@@ -50,6 +50,7 @@ Tablas centrales:
 - `subscriptions`, `payments`
 - `checkout_v2_billing_state`, `checkout_v2_cycles`
 - `checkout_v2_guarantee_operations`, `checkout_v2_session_incident_resolutions`
+- `checkout_v2_session_credit_adjustments` y las vistas de progreso de ciclo
 - `sessions`, `student_teachers`
 - `leads`
 - `acquisition_attribution_events`
@@ -58,6 +59,10 @@ Tablas centrales:
 - `admin_audit_log`
 
 RLS protege el acceso por rol. Las operaciones administrativas y de fulfillment usan la service role únicamente en código server-only.
+
+El progreso de Checkout V2 se deriva de los hechos de `sessions` por ciclo; `subscriptions.sessions_used` conserva su significado operativo de cuota reservada y no representa clases consumidas. `checkout_v2_session_consumption` clasifica cada posición materializada y `checkout_v2_cycle_progress` solo publica contadores de consumo cuando existen exactamente las cuatro posiciones y el ciclo está listo. Un ciclo pendiente o inconsistente conserva su estado explícito y no se presenta como un progreso real de 0/4.
+
+`checkout_v2_session_credit_adjustments` es un ledger append-only para decisiones administrativas que restauran crédito tras un no-show o una cancelación tardía del alumno. La restauración no altera el hecho original ni `teacher_compensation_ledger`. Todavía no existe una RPC de escritura: restaurar crédito sin materializar de forma atómica la sesión de reemplazo dejaría el contrato incompleto, por lo que esa operación se añadirá cuando se diseñe conjuntamente la reposición. Las lecturas masivas usan `get_checkout_v2_subscriptions_progress(UUID[])`, que deduplica y devuelve únicamente el ciclo con mayor `cycle_number` de cada suscripción. La aplicación la invoca en lotes de 500 para no depender de límites de URL o filas de PostgREST; la RPC rechaza más de 5.000 identificadores por llamada.
 
 ## Atribución de adquisición
 

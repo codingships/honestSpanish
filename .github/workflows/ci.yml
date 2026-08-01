@@ -68,6 +68,38 @@ jobs:
           fi
           git diff --name-only --diff-filter=A "$BASE_SHA" HEAD -- 'supabase/migrations/*.sql' \
             | sort > "$RUNNER_TEMP/new-migrations.txt"
+          base_max_migration_timestamp="$(
+            git ls-tree -r --name-only "$BASE_SHA" -- supabase/migrations \
+              | while IFS= read -r migration; do
+                  filename="${migration##*/}"
+                  timestamp="${filename%%_*}"
+                  if [[ "$timestamp" =~ ^[0-9]{14}$ ]]; then
+                    echo "$timestamp"
+                  fi
+                done \
+              | sort \
+              | tail -n 1
+          )"
+          declare -A new_migration_timestamps=()
+          while IFS= read -r migration; do
+            [ -n "$migration" ] || continue
+            filename="${migration##*/}"
+            timestamp="${filename%%_*}"
+            if [[ ! "$timestamp" =~ ^[0-9]{14}$ ]]; then
+              echo "New migration lacks a 14-digit timestamp: $migration"
+              exit 1
+            fi
+            if [ -n "$base_max_migration_timestamp" ] \
+               && [[ "$timestamp" < "$base_max_migration_timestamp" || "$timestamp" == "$base_max_migration_timestamp" ]]; then
+              echo "New migration $migration must sort after base maximum $base_max_migration_timestamp."
+              exit 1
+            fi
+            if [[ -n "${new_migration_timestamps[$timestamp]+present}" ]]; then
+              echo "New migrations must not share timestamp $timestamp."
+              exit 1
+            fi
+            new_migration_timestamps[$timestamp]="$migration"
+          done < "$RUNNER_TEMP/new-migrations.txt"
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/postgres-supabase-bootstrap.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f "$RUNNER_TEMP/base-schema.sql"
           while IFS= read -r migration; do
@@ -80,6 +112,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/teacher-compensation-operations.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/acquisition-attribution-foundation.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/provisional-unit-economics.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/checkout-v2-cycle-progress.sql
 
       - name: Verify clean canonical schema
         run: |
@@ -91,6 +124,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/teacher-compensation-operations.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/acquisition-attribution-foundation.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/provisional-unit-economics.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/checkout-v2-cycle-progress.sql
 
   build-and-test:
     runs-on: ubuntu-latest

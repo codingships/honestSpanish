@@ -10,8 +10,13 @@ interface Subscription {
     id: string;
     status: string;
     sessions_total: number;
-    sessions_used: number;
+    contract_schema_version: number;
     package: { name: string; display_name: unknown };
+    academicProgress: {
+        state: 'ready' | 'pending' | 'inconsistent' | 'legacy';
+        consumedSessions: number | null;
+        sessionsTotal: number | null;
+    };
 }
 
 interface Student {
@@ -27,6 +32,30 @@ type AdminUsersResponse = {
     error?: string;
     students?: Student[];
     teachers?: Teacher[];
+};
+
+const academicProgressCell = (subscription: Subscription) => {
+    const progress = subscription.academicProgress;
+    if (
+        progress.state === 'ready'
+        && progress.consumedSessions !== null
+        && progress.sessionsTotal !== null
+    ) {
+        return (
+            <div className="flex items-center gap-2">
+                <span className="font-bold">{progress.consumedSessions}</span>
+                <span className="text-gray-400">/</span>
+                <span>{progress.sessionsTotal} consumidas</span>
+            </div>
+        );
+    }
+    if (progress.state === 'pending') {
+        return <span role="status">Preparando ciclo</span>;
+    }
+    if (progress.state === 'legacy') {
+        return <span role="status">Plan anterior</span>;
+    }
+    return <span role="alert" className="text-red-700">Progreso no disponible</span>;
 };
 
 export default function UserManager() {
@@ -135,7 +164,7 @@ export default function UserManager() {
                         <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wider">
                             <th className="p-4 font-medium">Alumno</th>
                             <th className="p-4 font-medium">Plan Activo</th>
-                            <th className="p-4 font-medium">Progreso Mensual</th>
+                            <th className="p-4 font-medium">Clases consumidas</th>
                             <th className="w-[250px] p-4 font-medium">Tutor Asignado</th>
                         </tr>
                     </thead>
@@ -168,11 +197,7 @@ export default function UserManager() {
 
                                     <td className="p-4 text-gray-600">
                                         {student.activeSubscription ? (
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-bold">{student.activeSubscription.sessions_used}</span>
-                                                <span className="text-gray-400">/</span>
-                                                <span>{student.activeSubscription.sessions_total} dadas</span>
-                                            </div>
+                                            academicProgressCell(student.activeSubscription)
                                         ) : '-'}
                                     </td>
 

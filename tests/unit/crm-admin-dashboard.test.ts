@@ -108,8 +108,6 @@ describe('getCrmAdminDashboardSummary', () => {
             student_id: 'student-1',
             ends_at: '2026-06-30T00:00:00.000Z',
             status: 'active',
-            sessions_used: 3,
-            sessions_total: 4,
             profiles: { id: 'student-1', full_name: 'Ana Alumna', email: 'ana@example.com' },
             packages: { name: 'starter', display_name: { es: 'Inicial' }, price_monthly: 4900 },
         };

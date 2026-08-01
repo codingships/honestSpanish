@@ -937,7 +937,7 @@ async function createSubscriptionRenewalTask(
         subscription_status: subscription.status,
         ends_at: subscription.ends_at,
         days_remaining: daysRemaining,
-        sessions_used: subscription.sessions_used,
+        sessions_reserved: subscription.sessions_used,
         sessions_total: subscription.sessions_total,
         duration_months: subscription.duration_months,
         package_name: packageName,
