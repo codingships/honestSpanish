@@ -60,15 +60,16 @@ RLS protege el acceso por rol. Las operaciones administrativas y de fulfillment 
 
 ## Remuneración docente
 
-La remuneración docente es un dominio interno separado de los cobros de alumnos, las devoluciones, el trabajo no docente y el beneficio distribuible. Su modelo previsto se divide en cinco superficies conceptuales, cuyos nombres físicos quedan fijados por la migración que las implemente:
+La remuneración docente es un dominio interno separado de los cobros de alumnos, las devoluciones, el trabajo no docente y el beneficio distribuible. Su modelo se divide en estas superficies:
 
 - Una política versionada conserva las tarifas aprobadas y su moneda.
 - Un vínculo efectivo entre profesor y academia identifica si actúa como fundador o externo y qué términos le corresponden, sin inferirlo de su nombre ni de una sesión aislada.
 - Un hito duradero conserva la primera fecha en que se alcanzan diez alumnos activos y la referencia de 90 días desde el primer ciclo inicial listo. El hito de diez no se deshace por bajas posteriores.
 - Cada ciclo congela la versión de política y el escalón externo de 20/25 EUR. El ciclo que causa el hito conserva 20 EUR para un profesor externo; solo un ciclo que comienza después aplica 25 EUR.
 - Un ledger append-only registra cada obligación por clase con el profesor que realmente la imparte, su vínculo efectivo, sesión, alumno, suscripción, ciclo, tarifa y momento de origen. Esto permite una sustitución aceptada antes de la clase sin reescribir el ciclo; después de devengar, esa asignación económica queda congelada. Reintentos y reconciliaciones convergen sobre una sola entrada.
+- Un segundo ledger append-only registra únicamente formación y reuniones obligatorias por su intervalo real, congela el vínculo y la política aplicables y calcula 25 céntimos por minuto entero. Sus correcciones son entradas compensatorias enlazadas; nunca editan ni borran el original.
 
-Para este cálculo, alumno activo significa un alumno distinto con suscripción Checkout V2 `active` y ciclo inicial `ready`. La política aprobada valora la formación y las reuniones obligatorias de cualquier profesor a 25 céntimos por minuto real; su registro operativo y las entradas compensatorias pertenecen a una superficie posterior y no forman parte del primer ledger automático por clase. Una cancelación tardía o no-show genera obligación docente; una resolución de incidencia de garantía no la revierte porque solo cambia la elegibilidad de la garantía o el crédito del alumno.
+Para este cálculo, alumno activo significa un alumno distinto con suscripción Checkout V2 `active` y ciclo inicial `ready`. La formación o reunión obligatoria no se atribuye a un alumno ni se disfraza como clase, preparación ordinaria, marketing, mantenimiento o trabajo fundador. Una cancelación tardía o no-show genera obligación docente; una resolución de incidencia de garantía no la revierte porque solo cambia la elegibilidad de la garantía o el crédito del alumno.
 
 Este dominio calcula y conserva obligaciones pendientes. No ejecuta transferencias, no marca pagos a profesores y no modela facturas, retenciones, IVA, IRPF ni reparto de beneficios. Esas superficies requieren una decisión fiscal y una operativa de liquidación posteriores.
 

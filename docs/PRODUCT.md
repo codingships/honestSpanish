@@ -61,6 +61,8 @@ La resolución de una incidencia de la segunda sesión modifica exclusivamente l
 - A estos efectos, un alumno activo es un alumno distinto con una suscripción Checkout V2 en estado `active` y su ciclo inicial en estado `ready`. Alcanzar diez se registra una sola vez y es irreversible aunque el número de alumnos activos descienda después.
 - El ciclo que causa el hito de diez alumnos conserva la tarifa externa de 20 EUR. Solo los ciclos que comienzan después del hito aplican 25 EUR; la misma regla de posterioridad se aplica al hito de 90 días.
 - Formación y reuniones obligatorias: 15 EUR por hora real para cualquier profesor, equivalentes a 25 céntimos por minuto real registrado.
+- Ese trabajo obligatorio se registra separado de las clases y solo comprende formación o reuniones exigidas por la academia. La preparación ordinaria, el marketing, el mantenimiento y las demás tareas fundadoras no se convierten en trabajo docente por esta vía.
+- Una corrección no reescribe el registro original: añade una entrada compensatoria identificada y auditada.
 - La tarifa docente incluye preparación ordinaria, clase, nota breve, deberes normales y mensajes ordinarios.
 - Cancelaciones tardías y no-show liquidables generan obligación docente; cancelaciones de la academia no trasladan el coste al alumno.
 - El piloto con Irene se basa en confianza y control de calidad poco intrusivo: sin grabación, transcripción ni observación permanente.

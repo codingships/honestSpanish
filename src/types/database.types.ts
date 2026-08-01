@@ -2564,6 +2564,80 @@ export type Database = {
           },
         ];
       };
+      teacher_compensation_work_adjustments: {
+        Row: {
+          amount_delta_cents: number;
+          created_at: string;
+          currency: string;
+          id: string;
+          minutes_delta: number;
+          policy_version: number;
+          rate_cents_per_minute: number;
+          reason: string;
+          recorded_by: string;
+          request_id: string;
+          teacher_id: string;
+          work_entry_id: string;
+        };
+        Insert: {
+          amount_delta_cents: number;
+          created_at?: string;
+          currency: string;
+          id?: string;
+          minutes_delta: number;
+          policy_version?: number;
+          rate_cents_per_minute: number;
+          reason: string;
+          recorded_by: string;
+          request_id: string;
+          teacher_id: string;
+          work_entry_id: string;
+        };
+        Update: {
+          amount_delta_cents?: number;
+          created_at?: string;
+          currency?: string;
+          id?: string;
+          minutes_delta?: number;
+          policy_version?: number;
+          rate_cents_per_minute?: number;
+          reason?: string;
+          recorded_by?: string;
+          request_id?: string;
+          teacher_id?: string;
+          work_entry_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_work_adjustments_policy_version_fkey";
+            columns: ["policy_version"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_policy_versions";
+            referencedColumns: ["version"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_adjustments_recorded_by_fkey";
+            columns: ["recorded_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_adjustments_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_adjustment_identity_fkey";
+            columns: ["work_entry_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_work_ledger";
+            referencedColumns: ["id", "teacher_id"];
+          },
+        ];
+      };
       teacher_compensation_ledger: {
         Row: {
           amount_cents: number;
@@ -2815,6 +2889,92 @@ export type Database = {
         };
         Relationships: [];
       };
+      teacher_compensation_work_ledger: {
+        Row: {
+          amount_cents: number;
+          created_at: string;
+          currency: string;
+          description: string;
+          duration_minutes: number;
+          ended_at: string;
+          engagement_id: string;
+          engagement_kind: string;
+          id: string;
+          policy_version: number;
+          rate_cents_per_minute: number;
+          recorded_by: string;
+          request_id: string;
+          started_at: string;
+          teacher_id: string;
+          work_kind: string;
+        };
+        Insert: {
+          amount_cents: number;
+          created_at?: string;
+          currency: string;
+          description: string;
+          duration_minutes: number;
+          ended_at: string;
+          engagement_id: string;
+          engagement_kind: string;
+          id?: string;
+          policy_version?: number;
+          rate_cents_per_minute: number;
+          recorded_by: string;
+          request_id: string;
+          started_at: string;
+          teacher_id: string;
+          work_kind: string;
+        };
+        Update: {
+          amount_cents?: number;
+          created_at?: string;
+          currency?: string;
+          description?: string;
+          duration_minutes?: number;
+          ended_at?: string;
+          engagement_id?: string;
+          engagement_kind?: string;
+          id?: string;
+          policy_version?: number;
+          rate_cents_per_minute?: number;
+          recorded_by?: string;
+          request_id?: string;
+          started_at?: string;
+          teacher_id?: string;
+          work_kind?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_work_engagement_identity_fkey";
+            columns: ["engagement_id", "teacher_id", "engagement_kind"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_engagements";
+            referencedColumns: ["id", "teacher_id", "engagement_kind"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_ledger_policy_version_fkey";
+            columns: ["policy_version"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_policy_versions";
+            referencedColumns: ["version"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_ledger_recorded_by_fkey";
+            columns: ["recorded_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_ledger_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       teacher_availability: {
         Row: {
           created_at: string | null;
@@ -2858,9 +3018,131 @@ export type Database = {
       };
     };
     Views: {
-      [_ in never]: never;
+      teacher_compensation_session_reconciliation_candidates: {
+        Row: {
+          cancellation_reason: string | null;
+          cancelled_at: string | null;
+          cancelled_by: string | null;
+          completed_at: string | null;
+          cycle_id: string | null;
+          duration_minutes: number;
+          event_kind: string | null;
+          no_show_at: string | null;
+          scheduled_at: string | null;
+          session_id: string;
+          source_occurred_at: string | null;
+          status: string;
+          student_email: string;
+          student_full_name: string | null;
+          student_id: string;
+          subscription_id: string;
+          teacher_email: string | null;
+          teacher_full_name: string | null;
+          teacher_id: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sessions_checkout_v2_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_student_id_fkey";
+            columns: ["student_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_compensation_work_balances: {
+        Row: {
+          adjusted_amount_cents: number;
+          adjusted_minutes: number;
+          adjustment_amount_cents: number;
+          adjustment_minutes: number;
+          amount_cents: number;
+          created_at: string;
+          currency: string;
+          description: string;
+          duration_minutes: number;
+          ended_at: string;
+          engagement_id: string;
+          engagement_kind: string;
+          id: string;
+          policy_version: number;
+          rate_cents_per_minute: number;
+          recorded_by: string;
+          request_id: string;
+          started_at: string;
+          teacher_id: string;
+          work_kind: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_work_engagement_identity_fkey";
+            columns: ["engagement_id", "teacher_id", "engagement_kind"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_engagements";
+            referencedColumns: ["id", "teacher_id", "engagement_kind"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_ledger_policy_version_fkey";
+            columns: ["policy_version"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_policy_versions";
+            referencedColumns: ["version"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_ledger_recorded_by_fkey";
+            columns: ["recorded_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_work_ledger_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Functions: {
+      adjust_teacher_compensation_work: {
+        Args: {
+          p_minutes_delta: number;
+          p_reason: string;
+          p_recorded_by: string;
+          p_request_id: string;
+          p_work_entry_id: string;
+        };
+        Returns: Database["public"]["Tables"]["teacher_compensation_work_adjustments"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_work_adjustments";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       apply_checkout_v2_guarantee_termination: {
         Args: {
           p_operation_id: string;
@@ -3564,6 +3846,24 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "teacher_compensation_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      record_teacher_compensation_work: {
+        Args: {
+          p_description: string;
+          p_ended_at: string;
+          p_recorded_by: string;
+          p_request_id: string;
+          p_started_at: string;
+          p_teacher_id: string;
+          p_work_kind: string;
+        };
+        Returns: Database["public"]["Tables"]["teacher_compensation_work_ledger"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_work_ledger";
           isOneToOne: true;
           isSetofReturn: false;
         };
