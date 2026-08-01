@@ -2711,6 +2711,20 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      list_checkout_v2_reschedule_targets: {
+        Args: {
+          p_actor_id: string;
+          p_from: string;
+          p_ignored_pending_request_id?: string | null;
+          p_session_id: string;
+          p_to: string;
+        };
+        Returns: {
+          affected_scheduled_ats: string[];
+          operation_kind: string;
+          target_scheduled_at: string;
+        }[];
+      };
       materialize_checkout_v2_cycle_sessions: {
         Args: {
           p_stripe_invoice_id: string;

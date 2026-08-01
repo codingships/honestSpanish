@@ -1,5 +1,6 @@
 import React, { useEffect, useId, useState } from 'react';
 import StudentCancelModal from './StudentCancelModal';
+import StudentRescheduleModal, { type StudentRescheduleSession } from './StudentRescheduleModal';
 import { isClassJoinWindowOpen } from '../../lib/class-access';
 
 interface Session {
@@ -10,6 +11,7 @@ interface Session {
     meet_link: string | null;
     drive_doc_url: string | null;
     teacher_notes: string | null;
+    checkout_v2_cycle_id: string | null;
     teacher: {
         id: string;
         full_name: string | null;
@@ -22,6 +24,7 @@ interface StudentClassListProps {
     pastSessions: Session[];
     lang: string;
     translations: Record<string, unknown>;
+    onRescheduleApplied?: () => void;
 }
 
 const localeForLang = (lang: string) => (lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US');
@@ -31,7 +34,8 @@ export default function StudentClassList({
     upcomingSessions: initialUpcoming,
     pastSessions: initialPast,
     lang,
-    translations: tProp
+    translations: tProp,
+    onRescheduleApplied,
 }: StudentClassListProps) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const t = tProp as Record<string, any>;
@@ -45,6 +49,7 @@ export default function StudentClassList({
     const [pastSessions, setPastSessions] = useState(initialPast);
     const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
     const [cancelModalSession, setCancelModalSession] = useState<Session | null>(null);
+    const [rescheduleModalSession, setRescheduleModalSession] = useState<StudentRescheduleSession | null>(null);
     const [mounted, setMounted] = useState(false);
     const [now, setNow] = useState(() => new Date());
 
@@ -101,6 +106,16 @@ export default function StudentClassList({
         return session.status === 'scheduled';
     };
 
+    const canReschedule = (session: Session): session is Session & { teacher: NonNullable<Session['teacher']> } => {
+        const scheduledAt = new Date(session.scheduled_at).getTime();
+        return session.status === 'scheduled'
+            && Number.isFinite(scheduledAt)
+            && scheduledAt > now.getTime()
+            && scheduledAt - now.getTime() >= 24 * 60 * 60 * 1000
+            && !!session.checkout_v2_cycle_id
+            && !!session.teacher;
+    };
+
     const isLateCancellation = (session: Session) => {
         const sessionTime = new Date(session.scheduled_at);
         const hoursUntil = (sessionTime.getTime() - now.getTime()) / (1000 * 60 * 60);
@@ -133,10 +148,20 @@ export default function StudentClassList({
         setCancelModalSession(null);
     };
 
+    const handleRescheduleSuccess = () => {
+        setRescheduleModalSession(null);
+        if (onRescheduleApplied) {
+            onRescheduleApplied();
+            return;
+        }
+        window.location.reload();
+    };
+
     const renderSessionCard = (session: Session, isUpcoming: boolean) => {
         const statusBadge = getStatusBadge(session.status);
         const showJoinButton = isUpcoming && canJoin(session);
         const showCancelButton = isUpcoming && canCancel(session);
+        const rescheduleCandidate = isUpcoming && canReschedule(session) ? session : null;
         const lateCancellation = isUpcoming && isLateCancellation(session);
         const startingSoon = isUpcoming && isStartingSoon(session);
         const sessionDomId = safeDomId(session.id);
@@ -250,6 +275,17 @@ export default function StudentClassList({
                                 </a>
                             )}
 
+                            {rescheduleCandidate && (
+                                <button
+                                    type="button"
+                                    onClick={() => setRescheduleModalSession(rescheduleCandidate)}
+                                    aria-label={`${t.rescheduleClass}: ${sessionLabel}`}
+                                    className="px-6 py-3 bg-white text-[#006064] font-bold uppercase text-sm text-center border-2 border-[#006064] hover:bg-[#E0F7FA] transition-colors"
+                                >
+                                    {t.rescheduleClass}
+                                </button>
+                            )}
+
                             {showCancelButton && (
                                 <>
                                     <button
@@ -349,6 +385,17 @@ export default function StudentClassList({
                     lang={lang}
                     translations={t}
                     onSuccess={handleCancelSuccess}
+                />
+            )}
+
+            {rescheduleModalSession && (
+                <StudentRescheduleModal
+                    isOpen={!!rescheduleModalSession}
+                    onClose={() => setRescheduleModalSession(null)}
+                    session={rescheduleModalSession}
+                    lang={lang}
+                    translations={t}
+                    onSuccess={handleRescheduleSuccess}
                 />
             )}
         </div>

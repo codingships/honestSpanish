@@ -885,6 +885,831 @@ JOIN public.checkout_v2_weekly_allocations AS allocation
 WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001'
 \gset
 
+-- Availability discovery is a read-only projection of the durable prepare
+-- policy. Invalid windows and cross-student access fail before any targets are
+-- disclosed.
+DO $$
+DECLARE
+    target_session_id UUID;
+    moved_at TIMESTAMPTZ;
+BEGIN
+    SELECT first_session_id, first_class_at + INTERVAL '7 days'
+    INTO target_session_id, moved_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    BEGIN
+        PERFORM *
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at
+        );
+        RAISE EXCEPTION 'checkout_v2_reschedule_targets_accepted_empty_range';
+    EXCEPTION WHEN invalid_parameter_value THEN
+        IF SQLERRM <> 'invalid_checkout_v2_reschedule_target_range' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        PERFORM *
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at + INTERVAL '48 hours 1 second'
+        );
+        RAISE EXCEPTION 'checkout_v2_reschedule_targets_accepted_oversized_range';
+    EXCEPTION WHEN invalid_parameter_value THEN
+        IF SQLERRM <> 'invalid_checkout_v2_reschedule_target_range' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        PERFORM *
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000004',
+            moved_at,
+            moved_at + INTERVAL '1 hour'
+        );
+        RAISE EXCEPTION 'checkout_v2_reschedule_targets_cross_tenant_access_succeeded';
+    EXCEPTION WHEN insufficient_privilege THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_forbidden' THEN
+            RAISE;
+        END IF;
+    END;
+END
+$$;
+
+-- A provisional first-class move exposes one weekly-pattern target and all
+-- four Madrid-local affected sessions without creating a durable operation.
+DO $$
+DECLARE
+    listed_target RECORD;
+    operation_count_before BIGINT;
+    operation_count_after BIGINT;
+    expected_local TIMESTAMP;
+    target_index INTEGER;
+    target_session_id UUID;
+    moved_at TIMESTAMPTZ;
+BEGIN
+    SELECT first_session_id, first_class_at + INTERVAL '7 days'
+    INTO target_session_id, moved_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT COUNT(*) INTO operation_count_before
+    FROM public.checkout_v2_reschedule_operations;
+
+    SELECT * INTO listed_target
+    FROM public.list_checkout_v2_reschedule_targets(
+        target_session_id,
+        '10000000-0000-4000-8000-000000000001',
+        moved_at,
+        moved_at + INTERVAL '1 hour'
+    );
+
+    IF listed_target.target_scheduled_at IS DISTINCT FROM moved_at
+       OR listed_target.operation_kind IS DISTINCT FROM 'provisional_anchor'
+       OR pg_catalog.cardinality(listed_target.affected_scheduled_ats) <> 4 THEN
+        RAISE EXCEPTION 'checkout_v2_provisional_target_shape_is_wrong';
+    END IF;
+
+    FOR target_index IN 1..4 LOOP
+        expected_local :=
+            moved_at AT TIME ZONE 'Europe/Madrid'
+            + pg_catalog.make_interval(days => (target_index - 1) * 7);
+        IF listed_target.affected_scheduled_ats[target_index]
+                IS DISTINCT FROM expected_local AT TIME ZONE 'Europe/Madrid' THEN
+            RAISE EXCEPTION 'checkout_v2_provisional_target_did_not_preserve_local_pattern';
+        END IF;
+    END LOOP;
+
+    SELECT COUNT(*) INTO operation_count_after
+    FROM public.checkout_v2_reschedule_operations;
+    IF operation_count_after IS DISTINCT FROM operation_count_before THEN
+        RAISE EXCEPTION 'checkout_v2_target_listing_created_durable_state';
+    END IF;
+END
+$$;
+
+-- A sold 10:00 slot remains discoverable inside broad 09:00-18:00 teacher
+-- availability. Provisional discovery follows the sold allocation directly;
+-- 10:00 is intentionally not on a 50-minute grid anchored at 09:00.
+SAVEPOINT checkout_v2_target_sold_allocation_time;
+
+UPDATE public.teacher_availability
+SET end_time = TIME '18:00:00'
+WHERE teacher_id = '10000000-0000-4000-8000-000000000002'
+  AND day_of_week = EXTRACT(DOW FROM :'first_local'::TIMESTAMP)::INTEGER
+  AND start_time = TIME '09:00:00';
+
+SET LOCAL session_replication_role = replica;
+
+UPDATE public.checkout_v2_weekly_allocations
+SET local_start_time = TIME '10:00:00'
+WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+  AND status = 'active';
+
+UPDATE public.bookable_slots AS slot
+SET
+    local_start_time = TIME '10:00:00',
+    first_occurrence_at = slot.first_occurrence_at + INTERVAL '1 hour'
+WHERE slot.sold_subscription_id = '50000000-0000-4000-8000-000000000001';
+
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+    target_session_id UUID;
+    target_at TIMESTAMPTZ;
+    listed_target TIMESTAMPTZ;
+BEGIN
+    SELECT
+        billing.first_session_id,
+        (
+            (billing.first_class_at AT TIME ZONE allocation.timezone_name)::DATE
+                + 7
+                + allocation.local_start_time
+        ) AT TIME ZONE allocation.timezone_name
+    INTO target_session_id, target_at
+    FROM public.checkout_v2_billing_state AS billing
+    JOIN public.checkout_v2_weekly_allocations AS allocation
+      ON allocation.subscription_id = billing.subscription_id
+     AND allocation.status = 'active'
+    WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT target_scheduled_at INTO listed_target
+    FROM public.list_checkout_v2_reschedule_targets(
+        target_session_id,
+        '10000000-0000-4000-8000-000000000001',
+        target_at,
+        target_at + INTERVAL '1 hour'
+    );
+
+    IF listed_target IS DISTINCT FROM target_at
+       OR (listed_target AT TIME ZONE 'Europe/Madrid')::TIME
+            IS DISTINCT FROM TIME '10:00:00' THEN
+        RAISE EXCEPTION 'checkout_v2_sold_allocation_time_was_not_listed';
+    END IF;
+END
+$$;
+
+ROLLBACK TO SAVEPOINT checkout_v2_target_sold_allocation_time;
+
+-- Single-session discovery uses only the assigned teacher and keeps the
+-- moved session strictly between its cycle neighbours.
+SAVEPOINT checkout_v2_target_single_order;
+
+UPDATE public.teacher_availability
+SET end_time = (:'first_local'::TIMESTAMP + INTERVAL '2 hours 30 minutes')::TIME
+WHERE teacher_id = '10000000-0000-4000-8000-000000000002'
+  AND day_of_week = EXTRACT(DOW FROM :'first_local'::TIMESTAMP)::INTEGER
+  AND start_time = :'first_local'::TIMESTAMP::TIME;
+
+DO $$
+DECLARE
+    second_session_id UUID;
+    ordered_target TIMESTAMPTZ;
+    first_local_at TIMESTAMP;
+BEGIN
+    SELECT first_class_at AT TIME ZONE 'Europe/Madrid'
+    INTO first_local_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT id INTO second_session_id
+    FROM public.sessions
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND checkout_v2_cycle_session_index = 2;
+
+    SELECT target_scheduled_at INTO ordered_target
+    FROM public.list_checkout_v2_reschedule_targets(
+        second_session_id,
+        '10000000-0000-4000-8000-000000000001',
+        (first_local_at + INTERVAL '50 minutes') AT TIME ZONE 'Europe/Madrid',
+        ((first_local_at + INTERVAL '50 minutes') AT TIME ZONE 'Europe/Madrid')
+            + INTERVAL '50 minutes'
+    );
+
+    IF ordered_target IS DISTINCT FROM
+            (first_local_at + INTERVAL '50 minutes') AT TIME ZONE 'Europe/Madrid' THEN
+        RAISE EXCEPTION 'checkout_v2_single_target_was_not_listed';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            second_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            (first_local_at + INTERVAL '14 days 50 minutes') AT TIME ZONE 'Europe/Madrid',
+            ((first_local_at + INTERVAL '14 days 50 minutes') AT TIME ZONE 'Europe/Madrid')
+                + INTERVAL '50 minutes'
+        )
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_single_target_crossed_next_session';
+    END IF;
+END
+$$;
+
+UPDATE public.profiles
+SET role = 'teacher'
+WHERE id = '10000000-0000-4000-8000-000000000005';
+
+INSERT INTO public.teacher_availability (
+    teacher_id,
+    day_of_week,
+    start_time,
+    end_time,
+    is_active
+) VALUES (
+    '10000000-0000-4000-8000-000000000005',
+    EXTRACT(DOW FROM (:'first_local'::TIMESTAMP + INTERVAL '4 days'))::INTEGER,
+    :'first_local'::TIMESTAMP::TIME,
+    (:'first_local'::TIMESTAMP + INTERVAL '1 hour')::TIME,
+    TRUE
+);
+
+DO $$
+DECLARE
+    second_session_id UUID;
+    first_local_at TIMESTAMP;
+BEGIN
+    SELECT first_class_at AT TIME ZONE 'Europe/Madrid'
+    INTO first_local_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT id INTO second_session_id
+    FROM public.sessions
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND checkout_v2_cycle_session_index = 2;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            second_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            (first_local_at + INTERVAL '4 days') AT TIME ZONE 'Europe/Madrid',
+            ((first_local_at + INTERVAL '4 days') AT TIME ZONE 'Europe/Madrid')
+                + INTERVAL '1 hour'
+        )
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_target_used_unassigned_teacher_availability';
+    END IF;
+END
+$$;
+
+ROLLBACK TO SAVEPOINT checkout_v2_target_single_order;
+
+-- A scheduled-session conflict in any occurrence suppresses the entire
+-- provisional four-session cascade.
+SAVEPOINT checkout_v2_target_session_conflict;
+
+INSERT INTO public.subscriptions (
+    id,
+    student_id,
+    package_id,
+    status,
+    duration_months,
+    starts_at,
+    ends_at,
+    sessions_total,
+    contracted_sessions_per_period,
+    sessions_used,
+    stripe_subscription_id,
+    stripe_invoice_id,
+    contract_schema_version,
+    billing_interval_unit,
+    billing_interval_count,
+    class_duration_minutes
+) VALUES (
+    '50000000-0000-4000-8000-000000000098',
+    '10000000-0000-4000-8000-000000000004',
+    (
+        SELECT id
+        FROM public.packages
+        WHERE contract_schema_version = 1
+        ORDER BY id
+        LIMIT 1
+    ),
+    'active',
+    1,
+    (:'first_local'::TIMESTAMP)::DATE,
+    (:'first_local'::TIMESTAMP)::DATE + 60,
+    4,
+    4,
+    0,
+    'sub_target_conflict_probe',
+    'in_target_conflict_probe',
+    1,
+    'month',
+    1,
+    NULL
+);
+
+INSERT INTO public.sessions (
+    id,
+    subscription_id,
+    student_id,
+    teacher_id,
+    scheduled_at,
+    duration_minutes,
+    status
+) VALUES (
+    '70000000-0000-4000-8000-000000000098',
+    '50000000-0000-4000-8000-000000000098',
+    '10000000-0000-4000-8000-000000000004',
+    '10000000-0000-4000-8000-000000000002',
+    (:'first_local'::TIMESTAMP + INTERVAL '28 days') AT TIME ZONE 'Europe/Madrid',
+    50,
+    'scheduled'
+);
+
+DO $$
+DECLARE
+    target_session_id UUID;
+    moved_at TIMESTAMPTZ;
+BEGIN
+    SELECT first_session_id, first_class_at + INTERVAL '7 days'
+    INTO target_session_id, moved_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at + INTERVAL '1 hour'
+        )
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_provisional_target_ignored_session_conflict';
+    END IF;
+END
+$$;
+
+ROLLBACK TO SAVEPOINT checkout_v2_target_session_conflict;
+
+-- A bookable occurrence is also a reservation boundary, even when no session
+-- has yet been materialized for it.
+SAVEPOINT checkout_v2_target_reservation_conflict;
+
+INSERT INTO public.bookable_slots (
+    id,
+    package_id,
+    teacher_id,
+    weekday,
+    local_start_time,
+    timezone_name,
+    first_occurrence_at,
+    created_by
+) VALUES (
+    '40000000-0000-4000-8000-000000000098',
+    :'v2_package_id'::UUID,
+    '10000000-0000-4000-8000-000000000002',
+    EXTRACT(DOW FROM :'first_local'::TIMESTAMP)::SMALLINT,
+    :'first_local'::TIMESTAMP::TIME,
+    'Europe/Madrid',
+    (:'first_local'::TIMESTAMP + INTERVAL '28 days') AT TIME ZONE 'Europe/Madrid',
+    '10000000-0000-4000-8000-000000000003'
+);
+
+INSERT INTO public.bookable_slot_occurrences (
+    slot_id,
+    occurrence_index,
+    teacher_id,
+    starts_at
+)
+SELECT
+    '40000000-0000-4000-8000-000000000098',
+    occurrence_index,
+    '10000000-0000-4000-8000-000000000002',
+    (:'first_local'::TIMESTAMP
+        + pg_catalog.make_interval(days => 21 + occurrence_index * 7))
+        AT TIME ZONE 'Europe/Madrid'
+FROM pg_catalog.generate_series(1, 4) AS occurrence(occurrence_index);
+
+-- Isolate the occurrence-reservation predicate without also creating a
+-- recurrent allocation for this synthetic conflicting slot.
+SET LOCAL session_replication_role = replica;
+
+UPDATE public.bookable_slots
+SET
+    status = 'available',
+    published_at = clock_timestamp(),
+    published_by = '10000000-0000-4000-8000-000000000003'
+WHERE id = '40000000-0000-4000-8000-000000000098';
+
+UPDATE public.bookable_slot_occurrences
+SET blocks_teacher = TRUE
+WHERE slot_id = '40000000-0000-4000-8000-000000000098';
+
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+    target_session_id UUID;
+    moved_at TIMESTAMPTZ;
+BEGIN
+    SELECT first_session_id, first_class_at + INTERVAL '7 days'
+    INTO target_session_id, moved_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at + INTERVAL '1 hour'
+        )
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_provisional_target_ignored_reservation';
+    END IF;
+END
+$$;
+
+ROLLBACK TO SAVEPOINT checkout_v2_target_reservation_conflict;
+
+-- Self-service is inclusive through 28 days from the immutable first
+-- occurrence of the sold slot. The following weekly occurrence requires
+-- support and is not advertised by the listing RPC.
+DO $$
+DECLARE
+    target_session_id UUID;
+    horizon_at TIMESTAMPTZ;
+BEGIN
+    SELECT billing.first_session_id,
+        (
+            (sold_slot.first_occurrence_at AT TIME ZONE allocation.timezone_name)
+                + INTERVAL '28 days'
+        ) AT TIME ZONE allocation.timezone_name
+    INTO target_session_id, horizon_at
+    FROM public.checkout_v2_billing_state AS billing
+    JOIN public.checkout_v2_weekly_allocations AS allocation
+      ON allocation.subscription_id = billing.subscription_id
+    JOIN public.bookable_slots AS sold_slot
+      ON sold_slot.id = allocation.slot_id
+     AND sold_slot.sold_subscription_id = billing.subscription_id
+    WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            horizon_at,
+            horizon_at + INTERVAL '1 hour'
+        ) AS target
+        WHERE target.target_scheduled_at = horizon_at
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_inclusive_self_service_horizon_was_not_listed';
+    END IF;
+
+    IF EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            horizon_at + INTERVAL '7 days',
+            horizon_at + INTERVAL '7 days 1 hour'
+        )
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_post_horizon_target_was_listed';
+    END IF;
+END
+$$;
+
+-- The horizon follows Madrid civil time, not 672 absolute hours. Across the
+-- CEST-to-CET transition the same local time on day +28 remains inclusive.
+SAVEPOINT checkout_v2_local_horizon_dst;
+SET LOCAL session_replication_role = replica;
+
+UPDATE public.bookable_slots AS sold_slot
+SET first_occurrence_at =
+        TIMESTAMP '2035-10-01 09:00:00' AT TIME ZONE 'Europe/Madrid'
+FROM public.checkout_v2_weekly_allocations AS allocation
+WHERE allocation.subscription_id = '50000000-0000-4000-8000-000000000001'
+  AND allocation.slot_id = sold_slot.id;
+
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+    first_at TIMESTAMPTZ :=
+        TIMESTAMP '2035-10-01 09:00:00' AT TIME ZONE 'Europe/Madrid';
+    same_local_time_day_28 TIMESTAMPTZ :=
+        TIMESTAMP '2035-10-29 09:00:00' AT TIME ZONE 'Europe/Madrid';
+BEGIN
+    IF same_local_time_day_28 - first_at <> INTERVAL '673 hours' THEN
+        RAISE EXCEPTION 'checkout_v2_dst_horizon_fixture_did_not_cross_cest_to_cet';
+    END IF;
+
+    IF NOT private.checkout_v2_reschedule_is_within_self_service_horizon(
+        '50000000-0000-4000-8000-000000000001',
+        same_local_time_day_28
+    ) OR private.checkout_v2_reschedule_is_within_self_service_horizon(
+        '50000000-0000-4000-8000-000000000001',
+        same_local_time_day_28 + INTERVAL '1 second'
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_local_self_service_horizon_is_not_inclusive';
+    END IF;
+END
+$$;
+
+ROLLBACK TO SAVEPOINT checkout_v2_local_horizon_dst;
+
+-- Prepare uses the same trigger boundary. A +28-day request can cross the
+-- Stripe mutation boundary, and every later UPDATE is revalidated there too.
+DO $$
+DECLARE
+    prepared public.checkout_v2_reschedule_operations%ROWTYPE;
+    begun public.checkout_v2_reschedule_operations%ROWTYPE;
+    horizon_at TIMESTAMPTZ;
+BEGIN
+    SELECT (
+        (sold_slot.first_occurrence_at AT TIME ZONE allocation.timezone_name)
+            + INTERVAL '28 days'
+    ) AT TIME ZONE allocation.timezone_name
+    INTO horizon_at
+    FROM public.checkout_v2_weekly_allocations AS allocation
+    JOIN public.bookable_slots AS sold_slot
+      ON sold_slot.id = allocation.slot_id
+    WHERE allocation.subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND sold_slot.sold_subscription_id = allocation.subscription_id;
+
+    SELECT * INTO prepared
+    FROM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000028',
+        (
+            SELECT first_session_id
+            FROM public.checkout_v2_billing_state
+            WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+        ),
+        '10000000-0000-4000-8000-000000000001',
+        horizon_at
+    );
+
+    SELECT * INTO begun
+    FROM public.begin_checkout_v2_reschedule_stripe_mutation(prepared.id);
+    IF begun.stripe_mutation_started_at IS NULL THEN
+        RAISE EXCEPTION 'checkout_v2_horizon_guard_blocked_valid_boundary';
+    END IF;
+
+    BEGIN
+        UPDATE public.checkout_v2_reschedule_operations
+        SET
+            new_scheduled_at = horizon_at + INTERVAL '7 days',
+            target_stripe_anchor_at = horizon_at + INTERVAL '35 days'
+        WHERE id = begun.id;
+        RAISE EXCEPTION 'checkout_v2_boundary_update_crossed_self_service_horizon';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_exceeds_self_service_horizon' THEN
+            RAISE;
+        END IF;
+    END;
+
+    RAISE EXCEPTION 'checkout_v2_horizon_boundary_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_horizon_boundary_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- Neither direct ledger writes nor prepare can persist a +35-day target.
+DO $$
+DECLARE
+    horizon_at TIMESTAMPTZ;
+BEGIN
+    SELECT (
+        (sold_slot.first_occurrence_at AT TIME ZONE allocation.timezone_name)
+            + INTERVAL '28 days'
+    ) AT TIME ZONE allocation.timezone_name
+    INTO horizon_at
+    FROM public.checkout_v2_weekly_allocations AS allocation
+    JOIN public.bookable_slots AS sold_slot
+      ON sold_slot.id = allocation.slot_id
+    WHERE allocation.subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND sold_slot.sold_subscription_id = allocation.subscription_id;
+
+    BEGIN
+        INSERT INTO public.checkout_v2_reschedule_operations (
+            request_id,
+            session_id,
+            subscription_id,
+            cycle_id,
+            actor_id,
+            operation_kind,
+            old_scheduled_at,
+            new_scheduled_at,
+            expected_anchor_revision,
+            target_stripe_anchor_at
+        )
+        SELECT
+            '71000000-0000-4000-8000-000000000035',
+            billing.first_session_id,
+            billing.subscription_id,
+            session_row.checkout_v2_cycle_id,
+            session_row.student_id,
+            'provisional_anchor',
+            session_row.scheduled_at,
+            horizon_at + INTERVAL '7 days',
+            billing.anchor_revision,
+            horizon_at + INTERVAL '35 days'
+        FROM public.checkout_v2_billing_state AS billing
+        JOIN public.sessions AS session_row
+          ON session_row.id = billing.first_session_id
+        WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001';
+        RAISE EXCEPTION 'checkout_v2_direct_insert_crossed_self_service_horizon';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_exceeds_self_service_horizon' THEN
+            RAISE;
+        END IF;
+    END;
+
+    BEGIN
+        PERFORM public.prepare_checkout_v2_reschedule(
+            '71000000-0000-4000-8000-000000000036',
+            (
+                SELECT first_session_id
+                FROM public.checkout_v2_billing_state
+                WHERE subscription_id = '50000000-0000-4000-8000-000000000001'
+            ),
+            '10000000-0000-4000-8000-000000000001',
+            horizon_at + INTERVAL '7 days'
+        );
+        RAISE EXCEPTION 'checkout_v2_prepare_crossed_self_service_horizon';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_exceeds_self_service_horizon' THEN
+            RAISE;
+        END IF;
+    END;
+END
+$$;
+
+-- The upgrade assertion fails closed if an older deployment contains an
+-- active requested/manual-review operation beyond the immutable horizon.
+DO $$
+DECLARE
+    horizon_at TIMESTAMPTZ;
+BEGIN
+    SELECT (
+        (sold_slot.first_occurrence_at AT TIME ZONE allocation.timezone_name)
+            + INTERVAL '28 days'
+    ) AT TIME ZONE allocation.timezone_name
+    INTO horizon_at
+    FROM public.checkout_v2_weekly_allocations AS allocation
+    JOIN public.bookable_slots AS sold_slot
+      ON sold_slot.id = allocation.slot_id
+    WHERE allocation.subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND sold_slot.sold_subscription_id = allocation.subscription_id;
+
+    SET LOCAL session_replication_role = replica;
+
+    INSERT INTO public.checkout_v2_reschedule_operations (
+        request_id,
+        session_id,
+        subscription_id,
+        cycle_id,
+        actor_id,
+        operation_kind,
+        old_scheduled_at,
+        new_scheduled_at,
+        expected_anchor_revision,
+        target_stripe_anchor_at
+    )
+    SELECT
+        '71000000-0000-4000-8000-000000000037',
+        billing.first_session_id,
+        billing.subscription_id,
+        session_row.checkout_v2_cycle_id,
+        session_row.student_id,
+        'provisional_anchor',
+        session_row.scheduled_at,
+        horizon_at + INTERVAL '7 days',
+        billing.anchor_revision,
+        horizon_at + INTERVAL '35 days'
+    FROM public.checkout_v2_billing_state AS billing
+    JOIN public.sessions AS session_row
+      ON session_row.id = billing.first_session_id
+    WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SET LOCAL session_replication_role = origin;
+
+    BEGIN
+        PERFORM private.assert_checkout_v2_reschedule_self_service_horizon_upgrade_safe();
+        RAISE EXCEPTION 'checkout_v2_horizon_upgrade_assertion_accepted_invalid_operation';
+    EXCEPTION WHEN SQLSTATE '55000' THEN
+        IF SQLERRM <>
+            'checkout_v2_reschedule_upgrade_exceeds_self_service_horizon' THEN
+            RAISE;
+        END IF;
+    END;
+
+    RAISE EXCEPTION 'checkout_v2_horizon_upgrade_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_horizon_upgrade_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+-- The migration is prospective: an already-applied historical operation does
+-- not fail the upgrade assertion and harmless metadata reconciliation remains
+-- possible, while its structural contract stays immutable outside the limit.
+DO $$
+DECLARE
+    horizon_at TIMESTAMPTZ;
+    historical_operation_id UUID;
+BEGIN
+    SELECT (
+        (sold_slot.first_occurrence_at AT TIME ZONE allocation.timezone_name)
+            + INTERVAL '28 days'
+    ) AT TIME ZONE allocation.timezone_name
+    INTO horizon_at
+    FROM public.checkout_v2_weekly_allocations AS allocation
+    JOIN public.bookable_slots AS sold_slot
+      ON sold_slot.id = allocation.slot_id
+    WHERE allocation.subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND sold_slot.sold_subscription_id = allocation.subscription_id;
+
+    SET LOCAL session_replication_role = replica;
+
+    INSERT INTO public.checkout_v2_reschedule_operations (
+        request_id,
+        session_id,
+        subscription_id,
+        cycle_id,
+        actor_id,
+        operation_kind,
+        old_scheduled_at,
+        new_scheduled_at,
+        expected_anchor_revision,
+        target_stripe_anchor_at,
+        observed_stripe_anchor_at,
+        stripe_mutation_started_at,
+        status,
+        applied_at
+    )
+    SELECT
+        '71000000-0000-4000-8000-000000000039',
+        billing.first_session_id,
+        billing.subscription_id,
+        session_row.checkout_v2_cycle_id,
+        session_row.student_id,
+        'provisional_anchor',
+        session_row.scheduled_at,
+        horizon_at + INTERVAL '7 days',
+        billing.anchor_revision,
+        horizon_at + INTERVAL '35 days',
+        horizon_at + INTERVAL '35 days',
+        date_trunc('second', clock_timestamp()) + INTERVAL '1 second',
+        'applied',
+        date_trunc('second', clock_timestamp()) + INTERVAL '2 seconds'
+    FROM public.checkout_v2_billing_state AS billing
+    JOIN public.sessions AS session_row
+      ON session_row.id = billing.first_session_id
+    WHERE billing.subscription_id = '50000000-0000-4000-8000-000000000001'
+    RETURNING id INTO historical_operation_id;
+
+    SET LOCAL session_replication_role = origin;
+
+    PERFORM private.assert_checkout_v2_reschedule_self_service_horizon_upgrade_safe();
+
+    UPDATE public.checkout_v2_reschedule_operations
+    SET updated_at = date_trunc('second', updated_at) + INTERVAL '1 second'
+    WHERE id = historical_operation_id;
+
+    BEGIN
+        UPDATE public.checkout_v2_reschedule_operations
+        SET
+            new_scheduled_at = new_scheduled_at + INTERVAL '7 days',
+            target_stripe_anchor_at = target_stripe_anchor_at + INTERVAL '7 days',
+            observed_stripe_anchor_at = observed_stripe_anchor_at + INTERVAL '7 days'
+        WHERE id = historical_operation_id;
+        RAISE EXCEPTION 'checkout_v2_historical_operation_structural_change_was_accepted';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_exceeds_self_service_horizon' THEN
+            RAISE;
+        END IF;
+    END;
+
+    RAISE EXCEPTION 'checkout_v2_historical_horizon_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_historical_horizon_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
 -- The notice boundary is inclusive at exactly 24 hours and rejects one
 -- second less without relying on wall-clock timing in the test process.
 DO $$
@@ -922,6 +1747,121 @@ FROM public.prepare_checkout_v2_reschedule(
     :'moved_first_class_at'::TIMESTAMPTZ
 ) AS operation
 \gset
+
+DO $$
+DECLARE
+    target_session_id UUID;
+    moved_at TIMESTAMPTZ;
+BEGIN
+    SELECT first_session_id, first_class_at + INTERVAL '7 days'
+    INTO target_session_id, moved_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    BEGIN
+        PERFORM *
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at + INTERVAL '1 second'
+        );
+        RAISE EXCEPTION 'checkout_v2_get_targets_ignored_pending_operation';
+    EXCEPTION WHEN unique_violation THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_subscription_has_pending_operation' THEN
+            RAISE;
+        END IF;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at + INTERVAL '1 second',
+            '71000000-0000-4000-8000-000000000001'
+        ) AS target
+        WHERE target.target_scheduled_at = moved_at
+          AND target.operation_kind = 'provisional_anchor'
+          AND pg_catalog.cardinality(target.affected_scheduled_ats) = 4
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_exact_pending_request_was_not_ignored';
+    END IF;
+
+    BEGIN
+        PERFORM *
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at + INTERVAL '1 second',
+            moved_at + INTERVAL '2 seconds',
+            '71000000-0000-4000-8000-000000000001'
+        );
+        RAISE EXCEPTION 'checkout_v2_mismatched_pending_request_was_ignored';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <>
+            'checkout_v2_reschedule_ignored_pending_request_is_invalid' THEN
+            RAISE;
+        END IF;
+    END;
+END
+$$;
+
+-- A browser may recover after a pre-Stripe request was abandoned. At the
+-- exact 15-minute boundary it no longer blocks listing; prepare remains the
+-- only operation allowed to close it durably.
+DO $$
+DECLARE
+    target_session_id UUID;
+    moved_at TIMESTAMPTZ;
+    operations_before BIGINT;
+    operations_after BIGINT;
+BEGIN
+    SELECT first_session_id, first_class_at + INTERVAL '7 days'
+    INTO target_session_id, moved_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    SELECT COUNT(*) INTO operations_before
+    FROM public.checkout_v2_reschedule_operations;
+
+    UPDATE public.checkout_v2_reschedule_operations
+    SET
+        created_at = date_trunc('second', statement_timestamp())
+            - INTERVAL '15 minutes',
+        updated_at = date_trunc('second', statement_timestamp())
+            - INTERVAL '15 minutes'
+    WHERE request_id = '71000000-0000-4000-8000-000000000001'
+      AND status = 'requested'
+      AND stripe_mutation_started_at IS NULL;
+
+    IF NOT FOUND OR NOT EXISTS (
+        SELECT 1
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at + INTERVAL '1 second'
+        ) AS target
+        WHERE target.target_scheduled_at = moved_at
+    ) THEN
+        RAISE EXCEPTION 'checkout_v2_expired_pre_boundary_request_blocked_listing';
+    END IF;
+
+    SELECT COUNT(*) INTO operations_after
+    FROM public.checkout_v2_reschedule_operations;
+    IF operations_after IS DISTINCT FROM operations_before THEN
+        RAISE EXCEPTION 'checkout_v2_expired_listing_changed_durable_state';
+    END IF;
+
+    RAISE EXCEPTION 'checkout_v2_expired_listing_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_expired_listing_fixture_rollback' THEN
+        RAISE;
+    END IF;
+END
+$$;
 
 -- Exact request replay returns the same durable operation.
 DO $$
@@ -1528,6 +2468,35 @@ SELECT public.begin_checkout_v2_reschedule_stripe_mutation(
 SELECT public.begin_checkout_v2_reschedule_stripe_mutation(
     :'anchor_reschedule_operation_id'::UUID
 );
+
+DO $$
+DECLARE
+    target_session_id UUID;
+    moved_at TIMESTAMPTZ;
+BEGIN
+    SELECT first_session_id, first_class_at + INTERVAL '7 days'
+    INTO target_session_id, moved_at
+    FROM public.checkout_v2_billing_state
+    WHERE subscription_id = '50000000-0000-4000-8000-000000000001';
+
+    BEGIN
+        PERFORM *
+        FROM public.list_checkout_v2_reschedule_targets(
+            target_session_id,
+            '10000000-0000-4000-8000-000000000001',
+            moved_at,
+            moved_at + INTERVAL '1 second',
+            '71000000-0000-4000-8000-000000000001'
+        );
+        RAISE EXCEPTION 'checkout_v2_post_boundary_pending_request_was_ignored';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <>
+            'checkout_v2_reschedule_ignored_pending_request_is_invalid' THEN
+            RAISE;
+        END IF;
+    END;
+END
+$$;
 
 -- Once Stripe mutation has begun, the four provisional targets are reserved
 -- against sessions from every subscription, not only changes to this cycle.
@@ -2356,6 +3325,42 @@ BEGIN
           )
     ) <> 4 THEN
         RAISE EXCEPTION 'renewal_cycle_sessions_were_not_materialized_exactly';
+    END IF;
+END
+$$;
+
+-- The initial-sale horizon does not restrict ordinary single-session changes
+-- in later renewal cycles; their existing notice and ordering rules still do.
+DO $$
+DECLARE
+    renewal_session public.sessions%ROWTYPE;
+    prepared public.checkout_v2_reschedule_operations%ROWTYPE;
+BEGIN
+    SELECT session_row.* INTO STRICT renewal_session
+    FROM public.sessions AS session_row
+    JOIN public.checkout_v2_cycles AS cycle_row
+      ON cycle_row.id = session_row.checkout_v2_cycle_id
+    WHERE cycle_row.subscription_id = '50000000-0000-4000-8000-000000000001'
+      AND cycle_row.cycle_number = 2
+      AND session_row.checkout_v2_cycle_session_index = 3;
+
+    SELECT * INTO prepared
+    FROM public.prepare_checkout_v2_reschedule(
+        '71000000-0000-4000-8000-000000000038',
+        renewal_session.id,
+        renewal_session.student_id,
+        renewal_session.scheduled_at + INTERVAL '2 days 50 minutes'
+    );
+
+    IF prepared.operation_kind IS DISTINCT FROM 'single_session'
+       OR prepared.status IS DISTINCT FROM 'requested' THEN
+        RAISE EXCEPTION 'checkout_v2_later_cycle_single_session_was_not_prepared';
+    END IF;
+
+    RAISE EXCEPTION 'checkout_v2_later_cycle_single_session_fixture_rollback';
+EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM <> 'checkout_v2_later_cycle_single_session_fixture_rollback' THEN
+        RAISE;
     END IF;
 END
 $$;
@@ -3411,6 +4416,36 @@ BEGIN
        OR NOT has_function_privilege(
             'service_role',
             'public.cancel_scheduled_session(uuid,uuid,text,text)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.list_checkout_v2_reschedule_targets(uuid,uuid,timestamptz,timestamptz,uuid)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'authenticated',
+            'public.list_checkout_v2_reschedule_targets(uuid,uuid,timestamptz,timestamptz,uuid)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'anon',
+            'public.list_checkout_v2_reschedule_targets(uuid,uuid,timestamptz,timestamptz,uuid)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'service_role',
+            'private.checkout_v2_reschedule_is_within_self_service_horizon(uuid,timestamptz)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'service_role',
+            'private.guard_checkout_v2_reschedule_self_service_horizon()',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'service_role',
+            'private.assert_checkout_v2_reschedule_self_service_horizon_upgrade_safe()',
             'EXECUTE'
        )
        OR has_function_privilege(

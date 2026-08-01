@@ -47,6 +47,7 @@ type ClassSession = {
     meet_link: string | null;
     drive_doc_url: string | null;
     teacher_notes: string | null;
+    checkout_v2_cycle_id: string | null;
     teacher: { id: string; full_name: string | null; email: string } | null;
 };
 
@@ -60,6 +61,7 @@ const classSessions: ClassSession[] = (sessions ?? []).flatMap((session) => {
         meet_link: session.meet_link,
         drive_doc_url: session.drive_doc_url,
         teacher_notes: session.teacher_notes,
+        checkout_v2_cycle_id: session.checkout_v2_cycle_id ?? null,
         teacher: session.teacher,
     }];
 });
@@ -106,6 +108,31 @@ const classTranslations = {
     cancelReason: t('campus.student.classes.cancelReason'),
     cancelReasonPlaceholder: t('campus.student.classes.cancelReasonPlaceholder'),
     cancelError: t('campus.student.classes.cancelError'),
+    rescheduleClass: t('campus.student.classes.rescheduleClass'),
+    rescheduleTitle: t('campus.student.classes.rescheduleTitle'),
+    rescheduleIntro: t('campus.student.classes.rescheduleIntro'),
+    rescheduleDateLabel: t('campus.student.classes.rescheduleDateLabel'),
+    rescheduleTargetsLabel: t('campus.student.classes.rescheduleTargetsLabel'),
+    rescheduleChooseTarget: t('campus.student.classes.rescheduleChooseTarget'),
+    rescheduleLoadingTargets: t('campus.student.classes.rescheduleLoadingTargets'),
+    rescheduleNoTargets: t('campus.student.classes.rescheduleNoTargets'),
+    rescheduleAffectedDates: t('campus.student.classes.rescheduleAffectedDates'),
+    rescheduleProvisionalWarning: t('campus.student.classes.rescheduleProvisionalWarning'),
+    reschedulePendingNotice: t('campus.student.classes.reschedulePendingNotice'),
+    rescheduleConfirm: t('campus.student.classes.rescheduleConfirm'),
+    rescheduleRetry: t('campus.student.classes.rescheduleRetry'),
+    rescheduleSubmitting: t('campus.student.classes.rescheduleSubmitting'),
+    rescheduleClose: t('campus.student.classes.rescheduleClose'),
+    rescheduleTargetsError: t('campus.student.classes.rescheduleTargetsError'),
+    rescheduleNetworkError: t('campus.student.classes.rescheduleNetworkError'),
+    rescheduleConflict: t('campus.student.classes.rescheduleConflict'),
+    rescheduleReview: t('campus.student.classes.rescheduleReview'),
+    rescheduleRetryable: t('campus.student.classes.rescheduleRetryable'),
+    rescheduleForbidden: t('campus.student.classes.rescheduleForbidden'),
+    rescheduleNotFound: t('campus.student.classes.rescheduleNotFound'),
+    rescheduleSessionExpired: t('campus.student.classes.rescheduleSessionExpired'),
+    rescheduleInvalid: t('campus.student.classes.rescheduleInvalid'),
+    rescheduleStorageError: t('campus.student.classes.rescheduleStorageError'),
 };
 ---
 

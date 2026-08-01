@@ -114,6 +114,29 @@ INSERT INTO public.checkout_v2_billing_state (
     'provisional', 1
 );
 
+INSERT INTO public.bookable_slots (
+    id, package_id, teacher_id, weekday, local_start_time, timezone_name,
+    first_occurrence_at, status, published_at, published_by, sold_at,
+    sold_subscription_id, sessions_materialized_at, created_by
+) VALUES (
+    '74700000-0000-4000-8000-000000000001',
+    '74100000-0000-4000-8000-000000000001',
+    '74000000-0000-4000-8000-000000000002',
+    EXTRACT(DOW FROM TIMESTAMPTZ '2035-01-01 10:00:00+00'
+        AT TIME ZONE 'Europe/Madrid')::SMALLINT,
+    (TIMESTAMPTZ '2035-01-01 10:00:00+00'
+        AT TIME ZONE 'Europe/Madrid')::TIME(0),
+    'Europe/Madrid',
+    TIMESTAMPTZ '2035-01-01 10:00:00+00',
+    'sold',
+    TIMESTAMPTZ '2034-12-01 00:00:00+00',
+    '74000000-0000-4000-8000-000000000002',
+    TIMESTAMPTZ '2034-12-01 00:05:00+00',
+    '74200000-0000-4000-8000-000000000001',
+    TIMESTAMPTZ '2034-12-01 00:10:00+00',
+    '74000000-0000-4000-8000-000000000002'
+);
+
 INSERT INTO public.checkout_v2_weekly_allocations (
     id, subscription_id, slot_id, teacher_id, weekday, local_start_time,
     duration_minutes, timezone_name, status
