@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react';
 import { DEFAULT_CLASS_DURATION_MINUTES } from '../../../lib/class-duration';
+import {
+    dayOfWeekForDateKey,
+    MADRID_TIME_ZONE,
+    madridDateTimeToUtcIso,
+} from '../../../lib/calendar/madrid-time';
 
 export interface Slot {
     slot_start: string;
@@ -22,6 +27,13 @@ type RecurringSessionsResponse = {
     errors?: string[];
     sessions?: unknown[];
 };
+
+const madridTimeFromInstant = (value: string): string => new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone: MADRID_TIME_ZONE,
+}).format(new Date(value));
 
 interface UseAdminScheduleProps {
     isOpen: boolean;
@@ -137,7 +149,12 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
 
         if (useCustomTime) {
             if (!customTime) return;
-            scheduledAt = `${selectedDate}T${customTime}:00`;
+            const customInstant = madridDateTimeToUtcIso(selectedDate, customTime);
+            if (!customInstant) {
+                setError('La hora seleccionada no existe o es ambigua en Europe/Madrid');
+                return;
+            }
+            scheduledAt = customInstant;
         } else if (selectedSlot) {
             scheduledAt = selectedSlot.slot_start;
         } else {
@@ -152,8 +169,8 @@ export function useAdminSchedule({ isOpen, onSessionCreated, onClose }: UseAdmin
         try {
             if (isRecurring) {
                 // Recurring: call bulk endpoint
-                const dayOfWeek = new Date(selectedDate + 'T00:00:00').getDay();
-                const time = useCustomTime ? customTime : new Date(scheduledAt).toTimeString().slice(0, 5);
+                const dayOfWeek = dayOfWeekForDateKey(selectedDate);
+                const time = useCustomTime ? customTime : madridTimeFromInstant(scheduledAt);
 
                 const response = await fetch('/api/calendar/recurring-sessions', {
                     method: 'POST',

@@ -179,6 +179,15 @@ export default function TeacherCalendar({
     const selectWeek = (weekStartKey: string) => {
         setSelectedSession(null);
         const cachedSessions = sessionCache.current.get(weekStartKey);
+        if (weekStartKey === currentWeekStartKey) {
+            if (cachedSessions) {
+                setSessions(cachedSessions);
+                setLoadState('ready');
+            } else if (loadState === 'error') {
+                invalidateCalendar();
+            }
+            return;
+        }
         setSessions(cachedSessions || []);
         setLoadState(cachedSessions ? 'ready' : 'loading');
         setCurrentWeekStartKey(weekStartKey);

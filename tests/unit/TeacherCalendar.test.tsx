@@ -311,6 +311,25 @@ describe('TeacherCalendar - controls and navigation', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 
+    it('retries when Today selects the same failed current week', async () => {
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                json: vi.fn().mockResolvedValue({ error: 'sanitized' }),
+            })
+            .mockResolvedValueOnce(successfulWeekResponse('2026-02-16'));
+        renderCalendar();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Agendar curso' }));
+        fireEvent.click(screen.getByRole('button', { name: 'Completar curso mock' }));
+        expect(await screen.findByRole('alert')).toHaveTextContent('No se pudo cargar esta semana');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Hoy' }));
+
+        expect(await screen.findByRole('grid', { name: 'Horario semanal' })).toBeInTheDocument();
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
     it('refreshes the visible week after bulk scheduling without resetting navigation', async () => {
         renderCalendar();
         fireEvent.click(screen.getByRole('button', { name: 'Agendar curso' }));
