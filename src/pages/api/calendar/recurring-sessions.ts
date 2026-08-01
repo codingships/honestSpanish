@@ -207,7 +207,9 @@ export const POST: APIRoute = async (context) => {
     while (compareDateKeys(currentDateKey, endDateKey) <= 0 && scheduledDates.length < sessionsRemaining) {
         const scheduledAt = madridDateTimeToUtcIso(currentDateKey, time);
         if (!scheduledAt) {
-            return new Response(JSON.stringify({ error: 'time must be HH:mm' }), { status: 400 });
+            return new Response(JSON.stringify({
+                error: 'time is invalid, ambiguous, or unavailable in Europe/Madrid'
+            }), { status: 400 });
         }
         scheduledDates.push(scheduledAt);
         currentDateKey = addDaysToDateKey(currentDateKey, 7);

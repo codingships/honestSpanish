@@ -267,6 +267,55 @@ describe('POST /api/calendar/recurring-sessions', () => {
         expect(body.error).toBe('Recurring sessions cannot be scheduled after the subscription end date');
     });
 
+    it('rejects a Madrid DST gap with an explicit scheduling error', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: { id: 'teacher-1' } }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                gte: vi.fn().mockReturnThis(),
+                order: vi.fn().mockReturnThis(),
+                limit: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+                maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'student' }, error: null }),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'student_teachers') {
+                chain.single.mockResolvedValue({ data: { id: 'assignment-1' }, error: null });
+            } else if (table === 'subscriptions') {
+                chain.single.mockResolvedValue({
+                    data: {
+                        id: 'sub-1',
+                        sessions_used: 0,
+                        sessions_total: 4,
+                        ends_at: '2026-04-05',
+                    },
+                    error: null,
+                });
+            }
+            return chain;
+        });
+        await setClient(mockSupabase);
+
+        const { POST } = await import('../../src/pages/api/calendar/recurring-sessions');
+        const response = await POST(makeContext({
+            studentId: 'student-1',
+            dayOfWeek: 0,
+            time: '02:30',
+            startDate: '2026-03-29',
+            endDate: '2026-03-29',
+        }) as any);
+        const body = await response.json() as JsonBody;
+
+        expect(response.status).toBe(400);
+        expect(body.error).toBe('time is invalid, ambiguous, or unavailable in Europe/Madrid');
+    });
+
     it('records first-class onboarding from the earliest recurring session', async () => {
         vi.stubEnv('E2E_DISABLE_EXTERNAL_INTEGRATIONS', 'true');
         vi.stubEnv('NODE_ENV', 'test');

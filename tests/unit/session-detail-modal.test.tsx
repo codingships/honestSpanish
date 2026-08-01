@@ -80,15 +80,6 @@ const deferred = <T,>() => {
     return { promise, resolve, reject };
 };
 
-const mockReload = () => {
-    const reload = vi.fn();
-    vi.stubGlobal('location', {
-        ...window.location,
-        reload,
-    });
-    return reload;
-};
-
 const renderModal = (props: Partial<typeof defaultProps> = {}) => render(
     <SessionDetailModal
         {...defaultProps}
@@ -163,7 +154,6 @@ describe('SessionDetailModal', () => {
         vi.useRealTimers();
         vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
         vi.setSystemTime(new Date('2026-02-16T10:00:00.000Z'));
-        const reload = mockReload();
         const pendingNoShow = deferred<Response>();
         const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
             void input;
@@ -199,7 +189,6 @@ describe('SessionDetailModal', () => {
         });
 
         expect(onClose).toHaveBeenCalledTimes(1);
-        expect(reload).toHaveBeenCalledTimes(1);
     });
 
     it('resets editable notes when a different session is shown in the same mounted modal', () => {

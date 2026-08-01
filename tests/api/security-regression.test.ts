@@ -61,6 +61,7 @@ describe('H-5: sessions GET teacherId restricted to admin', () => {
 
     it('teacher role: ignores teacherId param (cannot see other teachers)', async () => {
         const mockUser = { id: 'teacher-a', email: 'a@test.com' };
+        const otherTeacherId = '22222222-2222-4222-8222-222222222222';
         const mockSupabase = createMockSupabaseClient({
             auth: { getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }) },
         });
@@ -75,8 +76,9 @@ describe('H-5: sessions GET teacherId restricted to admin', () => {
                 }),
                 order: vi.fn().mockReturnThis(),
                 gte: vi.fn().mockReturnThis(),
-                lte: vi.fn().mockReturnThis(),
-                single: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
+                lt: vi.fn().mockReturnThis(),
+                limit: vi.fn().mockReturnThis(),
+                maybeSingle: vi.fn().mockResolvedValue({ data: { role: 'teacher' }, error: null }),
             };
             // After all chaining, resolve with empty sessions
             chain.then = vi.fn((cb: any) => cb({ data: [], error: null }));
@@ -87,10 +89,13 @@ describe('H-5: sessions GET teacherId restricted to admin', () => {
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
 
         const { GET } = await import('../../src/pages/api/calendar/sessions');
-        await GET(makeGetContext('/api/calendar/sessions', { teacherId: 'teacher-b' }) as any);
+        await GET(makeGetContext('/api/calendar/sessions', {
+            teacherId: otherTeacherId,
+            weekStart: '2026-02-16',
+        }) as any);
 
-        // The teacherId=teacher-b should NOT appear in eq calls for non-admin
-        const teacherIdCalls = eqCalls.filter(([col, val]) => col === 'teacher_id' && val === 'teacher-b');
+        // The other teacher ID should NOT appear in eq calls for non-admin.
+        const teacherIdCalls = eqCalls.filter(([col, val]) => col === 'teacher_id' && val === otherTeacherId);
         expect(teacherIdCalls).toHaveLength(0);
     });
 });

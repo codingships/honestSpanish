@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { MADRID_TIME_ZONE } from '../../lib/calendar/madrid-time';
 import PostClassReport from './PostClassReport';
 
 interface Session {
@@ -86,7 +87,8 @@ export default function SessionDetailModal({
             day: 'numeric',
             month: 'long',
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            timeZone: MADRID_TIME_ZONE,
         });
     };
 
@@ -96,11 +98,10 @@ export default function SessionDetailModal({
         onClose();
     };
 
-    const scheduleCloseAndReload = () => {
+    const scheduleClose = () => {
         clearCloseTimer();
         closeTimerRef.current = setTimeout(() => {
             onClose();
-            window.location.reload();
         }, 1000);
     };
 
@@ -138,7 +139,7 @@ export default function SessionDetailModal({
             setMessage({ type: 'success', text: t.updated });
 
             if (action !== 'update_notes') {
-                scheduleCloseAndReload();
+                scheduleClose();
             }
         } catch (err: unknown) {
             setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error' });
@@ -213,7 +214,7 @@ export default function SessionDetailModal({
             onSessionUpdate(updatedSession);
             setMessage({ type: 'success', text: t.updated });
 
-            scheduleCloseAndReload();
+            scheduleClose();
         } catch (err: unknown) {
             setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Error' });
             throw err; // Para que el modal muestre el error
@@ -259,7 +260,7 @@ export default function SessionDetailModal({
                 <div className="flex justify-between items-start mb-6">
                     <div>
                         <h2 id={titleId} className="font-display text-xl text-[#006064]">
-                            {session.student?.full_name || session.student?.email}
+                            {session.student?.full_name || session.student?.email || t.studentUnavailable || 'Student unavailable'}
                         </h2>
                         <p className="text-sm text-[#006064]/60">{session.student?.email}</p>
                     </div>
