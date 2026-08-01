@@ -294,7 +294,8 @@ $$;
 -- converge on the unique durable operation.
 SELECT dblink_connect(
     'checkout_v2_guarantee_race',
-    'host=127.0.0.1 port=5432 dbname=' || current_database()
+    'host=127.0.0.1 port=' || current_setting('port')
+        || ' dbname=' || current_database()
         || ' user=postgres password=postgres sslmode=disable'
 );
 
