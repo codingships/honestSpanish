@@ -84,10 +84,14 @@ describe('staging environment isolation', () => {
         expect(preparer).toContain("EMAIL_MONTHLY_RECIPIENT_LIMIT: '100'");
         expect(preparer).toContain("CHECKOUT_ENABLED: 'false'");
         expect(preparer).toContain("const cronSecret = requireStagingSecret('CRON_SECRET')");
+        expect(preparer).toContain(
+            "const checkoutHoldFingerprintSecret = requireStagingSecret('CHECKOUT_HOLD_FINGERPRINT_SECRET')",
+        );
         expect(preparer).toContain("const internalJobSecret = requireStagingSecret('INTERNAL_JOB_SECRET')");
         expect(preparer).toContain("const levelCheckTokenSecret = requireStagingSecret('LEVEL_CHECK_TOKEN_SECRET')");
         expect(preparer).toContain('INTERNAL_JOB_SECRET: internalJobSecret');
         expect(preparer).toContain('CRON_SECRET: cronSecret');
+        expect(preparer).toContain('CHECKOUT_HOLD_FINGERPRINT_SECRET: checkoutHoldFingerprintSecret');
         expect(preparer).toContain('LEVEL_CHECK_TOKEN_SECRET: levelCheckTokenSecret');
         expect(preparer).toContain('must already contain the provisioned staging secret');
         expect(preparer).not.toContain('randomBytes');

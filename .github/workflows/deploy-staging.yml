@@ -156,6 +156,7 @@ jobs:
       - name: Validate complete expected runtime contract
         env:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
           CHECKOUT_ENABLED: "false"
           CHECKOUT_ENABLED_OVERRIDE: "false"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -213,6 +214,7 @@ jobs:
           PUBLIC_STRIPE_PUBLISHABLE_KEY: ${{ secrets.PUBLIC_STRIPE_PUBLISHABLE_KEY }}
           PUBLIC_TURNSTILE_SITE_KEY: ${{ secrets.PUBLIC_TURNSTILE_SITE_KEY }}
           TURNSTILE_SECRET_KEY: "build-only-placeholder-turnstile"
+          CHECKOUT_HOLD_FINGERPRINT_SECRET: "build-only-placeholder-checkout-hold-fingerprint"
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
           CRON_SECRET: "build-only-placeholder-cron"
           INTERNAL_JOB_SECRET: "build-only-placeholder-internal-job"
@@ -269,6 +271,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
           CHECKOUT_ENABLED: "false"
           CHECKOUT_ENABLED_OVERRIDE: "false"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -467,6 +470,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           BASELINE_VERSION: ${{ steps.baseline.outputs.web_version }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_RECIPIENT_ALLOWLIST: ${{ secrets.EMAIL_RECIPIENT_ALLOWLIST }}
           INTERNAL_JOB_SECRET: ${{ secrets.INTERNAL_JOB_SECRET }}
@@ -581,6 +585,7 @@ jobs:
         timeout-minutes: 5
         env:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
           CHECKOUT_ENABLED: "false"
           CHECKOUT_ENABLED_OVERRIDE: "false"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
@@ -631,6 +636,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
           CHECKOUT_ENABLED: "false"
           CHECKOUT_ENABLED_OVERRIDE: "false"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}

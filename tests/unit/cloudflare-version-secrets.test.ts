@@ -55,6 +55,9 @@ describe('version-scoped Cloudflare Worker secrets', () => {
         expect(fulfillment.CRON_SECRET).toBe('value-for-CRON_SECRET');
         expect(fulfillment.SUPPORT_ALERT_EMAIL).toBe('value-for-SUPPORT_ALERT_EMAIL');
         expect(web.STRIPE_SECRET_KEY).toBe('value-for-STRIPE_SECRET_KEY');
+        expect(web.CHECKOUT_HOLD_FINGERPRINT_SECRET)
+            .toBe('value-for-CHECKOUT_HOLD_FINGERPRINT_SECRET');
+        expect(fulfillment.CHECKOUT_HOLD_FINGERPRINT_SECRET).toBeUndefined();
         expect(fulfillment.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY)
             .toBe('value-for-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY');
 
@@ -70,6 +73,16 @@ describe('version-scoped Cloudflare Worker secrets', () => {
 
         expect(() => writeCloudflareVersionSecrets(input)).toThrow(
             'Missing version-scoped Worker secrets: LEVEL_CHECK_TOKEN_SECRET',
+        );
+        expect(existsSync(input.outputPath)).toBe(false);
+    });
+
+    it('refuses a checkout hold fingerprint secret shorter than the runtime minimum', () => {
+        const input = fixture();
+        input.env.CHECKOUT_HOLD_FINGERPRINT_SECRET = 'too-short';
+
+        expect(() => writeCloudflareVersionSecrets(input)).toThrow(
+            'CHECKOUT_HOLD_FINGERPRINT_SECRET must contain at least 32 UTF-8 bytes',
         );
         expect(existsSync(input.outputPath)).toBe(false);
     });

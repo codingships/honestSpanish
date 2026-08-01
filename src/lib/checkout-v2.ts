@@ -1,5 +1,9 @@
 import type { APIRoute } from 'astro';
 import type Stripe from 'stripe';
+import {
+    createCheckoutHoldFingerprint,
+    normalizeCheckoutClientAddress,
+} from './checkout-hold-fingerprint';
 import { CHECKOUT_TERMS_VERSION, hasAcceptedCheckoutPolicies } from './legal-policy';
 import {
     INITIAL_INDIVIDUAL_OFFER,
@@ -7,16 +11,19 @@ import {
     PACKAGE_CURRENCY,
 } from './package-pricing';
 import { getPrivateProfile, upsertPrivateProfile } from './profiles-private';
+import { readRuntimeEnv } from './runtime-env';
 import { getSiteUrl } from './site-url';
 import { stripe } from './stripe';
 import { validatedStripeCustomerId } from './stripe-customer';
 import { assertStripePaymentReadiness, assertStripeRuntimeAccount } from './stripe-runtime-guard';
 import { createSupabaseAdminClient } from './supabase-admin';
 import { createSupabaseServerClient } from './supabase-server';
+import { verifyCheckoutTurnstile } from './turnstile';
 import type { Database } from '../types/database.types';
 
 type CheckoutContext = Parameters<APIRoute>[0];
 type CheckoutIntent = Database['public']['Tables']['checkout_intents']['Row'];
+type BookableSlotHold = Database['public']['Tables']['bookable_slot_holds']['Row'];
 type BookableSlot = Pick<
     Database['public']['Tables']['bookable_slots']['Row'],
     'id' | 'public_id' | 'package_id' | 'teacher_id' | 'status' | 'contract_schema_version'
@@ -29,6 +36,7 @@ type PriceSnapshot = Database['public']['Tables']['checkout_v2_price_snapshots']
 
 type CheckoutV2Request = {
     slotPublicId?: unknown;
+    'cf-turnstile-response'?: unknown;
     lang?: unknown;
     adultConfirmed?: unknown;
     termsAccepted?: unknown;
@@ -45,6 +53,7 @@ type DirectCheckoutClaimArgs = {
     p_legal_policy_version: string;
     p_site_url: string;
     p_slot_public_id: string;
+    p_hold_fingerprint: string;
 };
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
@@ -67,6 +76,14 @@ function normalizeCheckoutLang(value: unknown): 'es' | 'en' | 'ru' {
 function isUuid(value: unknown): value is string {
     return typeof value === 'string'
         && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function readCheckoutClientAddress(context: CheckoutContext): string | null {
+    try {
+        return normalizeCheckoutClientAddress(context.clientAddress);
+    } catch {
+        return null;
+    }
 }
 
 function stripeProductId(product: string | Stripe.Product | Stripe.DeletedProduct): string {
@@ -224,6 +241,132 @@ async function releaseV2CheckoutIntent(
     return !hold.error && Boolean(hold.data);
 }
 
+async function releaseAbandonedV2CheckoutIntent(
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+    intent: CheckoutIntent,
+    customerId: string,
+): Promise<boolean> {
+    const released = await supabaseAdmin.rpc('release_abandoned_checkout_intent', {
+        p_intent_id: intent.id,
+        p_stripe_customer_id: customerId,
+    });
+    if (released.error || !released.data || released.data.status !== 'expired') return false;
+
+    const hold = await supabaseAdmin.rpc('release_bookable_slot_hold', {
+        p_checkout_intent_id: intent.id,
+        p_reason: 'checkout_abandoned_without_stripe_session',
+    });
+    return !hold.error && Boolean(hold.data);
+}
+
+async function releaseExpiredV2Hold(
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+    intent: CheckoutIntent,
+): Promise<boolean> {
+    const hold = await supabaseAdmin.rpc('release_bookable_slot_hold', {
+        p_checkout_intent_id: intent.id,
+        p_reason: 'checkout_intent_already_expired',
+    });
+    return !hold.error && Boolean(hold.data);
+}
+
+async function reconcileOneExpiredV2Hold(input: {
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    hold: BookableSlotHold;
+    runtimeLivemode: boolean;
+}): Promise<boolean> {
+    const intentResult = await input.supabaseAdmin
+        .from('checkout_intents')
+        .select('*')
+        .eq('id', input.hold.checkout_intent_id)
+        .single();
+    const intent = intentResult.data;
+    const intentExpiresAt = intent ? Date.parse(intent.expires_at) : Number.NaN;
+    if (
+        intentResult.error
+        || !intent
+        || !Number.isFinite(intentExpiresAt)
+        || intentExpiresAt > Date.now()
+    ) return false;
+
+    if (intent.status === 'expired') {
+        return releaseExpiredV2Hold(input.supabaseAdmin, intent);
+    }
+    if (!['creating', 'open'].includes(intent.status) || !intent.stripe_customer_id) {
+        return false;
+    }
+
+    const sessions = await listCheckoutSessionsForIntent({
+        customerId: intent.stripe_customer_id,
+        checkoutIntentId: intent.id,
+    });
+    if (sessions.length === 0) {
+        return intent.status === 'creating'
+            && intent.stripe_checkout_session_id === null
+            && releaseAbandonedV2CheckoutIntent(
+                input.supabaseAdmin,
+                intent,
+                intent.stripe_customer_id,
+            );
+    }
+    if (sessions.length !== 1) return false;
+
+    const session = await stripe.checkout.sessions.retrieve(sessions[0]!.id);
+    if (
+        session.status !== 'expired'
+        || session.livemode !== input.runtimeLivemode
+        || stripeCustomerId(session.customer) !== intent.stripe_customer_id
+        || session.metadata?.checkoutIntentId !== intent.id
+        || (
+            intent.stripe_checkout_session_id !== null
+            && intent.stripe_checkout_session_id !== session.id
+        )
+    ) return false;
+
+    return releaseV2CheckoutIntent(input.supabaseAdmin, intent, session.id);
+}
+
+async function reconcileExpiredV2HoldConflicts(input: {
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>;
+    slotId: string;
+    holdFingerprint: string;
+    runtimeLivemode: boolean;
+}): Promise<boolean> {
+    const expiredBefore = new Date().toISOString();
+    const [bySlot, byFingerprint] = await Promise.all([
+        input.supabaseAdmin
+            .from('bookable_slot_holds')
+            .select('*')
+            .eq('slot_id', input.slotId)
+            .eq('status', 'held')
+            .lte('expires_at', expiredBefore)
+            .maybeSingle(),
+        input.supabaseAdmin
+            .from('bookable_slot_holds')
+            .select('*')
+            .eq('hold_fingerprint', input.holdFingerprint)
+            .eq('status', 'held')
+            .lte('expires_at', expiredBefore)
+            .maybeSingle(),
+    ]);
+    if (bySlot.error || byFingerprint.error) return false;
+
+    const holds = new Map<string, BookableSlotHold>();
+    for (const hold of [bySlot.data, byFingerprint.data]) {
+        if (hold) holds.set(hold.id, hold);
+    }
+    if (holds.size === 0) return false;
+
+    for (const hold of holds.values()) {
+        if (!await reconcileOneExpiredV2Hold({
+            supabaseAdmin: input.supabaseAdmin,
+            hold,
+            runtimeLivemode: input.runtimeLivemode,
+        })) return false;
+    }
+    return true;
+}
+
 async function loadCheckoutV2Offer(
     supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
     slotPublicId: string,
@@ -312,6 +455,28 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
         }
         const slotPublicId = body.slotPublicId;
 
+        const clientAddress = readCheckoutClientAddress(context);
+        if (!clientAddress) {
+            return jsonResponse({ error: 'Checkout verification is temporarily unavailable' }, 503);
+        }
+        const turnstile = await verifyCheckoutTurnstile({
+            token: body['cf-turnstile-response'],
+            clientAddress,
+            context,
+        });
+        if (!turnstile.ok) {
+            return turnstile.reason === 'invalid'
+                ? jsonResponse({ error: 'Checkout verification failed' }, 400)
+                : jsonResponse({ error: 'Checkout verification is temporarily unavailable' }, 503);
+        }
+        const holdFingerprint = await createCheckoutHoldFingerprint({
+            clientAddress,
+            secret: readRuntimeEnv('CHECKOUT_HOLD_FINGERPRINT_SECRET', context) ?? '',
+        });
+        if (!holdFingerprint) {
+            return jsonResponse({ error: 'Checkout verification is temporarily unavailable' }, 503);
+        }
+
         const supabase = createSupabaseServerClient(context);
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
@@ -388,12 +553,25 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             p_legal_policy_version: CHECKOUT_TERMS_VERSION,
             p_site_url: getSiteUrl(),
             p_slot_public_id: slotPublicId,
+            p_hold_fingerprint: holdFingerprint,
         };
 
         let claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
         let checkoutIntent = claim.data;
         if (claim.error || !checkoutIntent) {
-            return jsonResponse({ error: 'Could not reserve this place for checkout' }, 409);
+            const reconciled = await reconcileExpiredV2HoldConflicts({
+                supabaseAdmin,
+                slotId: slot.id,
+                holdFingerprint,
+                runtimeLivemode: runtime.livemode,
+            });
+            if (reconciled) {
+                claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
+                checkoutIntent = claim.data;
+            }
+            if (claim.error || !checkoutIntent) {
+                return jsonResponse({ error: 'Could not reserve this place for checkout' }, 409);
+            }
         }
 
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -546,6 +724,29 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                     return jsonResponse({ error: 'Payment is being reconciled for the existing checkout' }, 409);
                 }
                 if (!await releaseV2CheckoutIntent(supabaseAdmin, checkoutIntent, existingSession.id)) {
+                    return jsonResponse({ error: 'Expired checkout could not release its place safely' }, 409);
+                }
+                claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);
+                checkoutIntent = claim.data;
+                if (claim.error || !checkoutIntent) {
+                    return jsonResponse({ error: 'Could not reserve a replacement checkout' }, 409);
+                }
+                continue;
+            }
+
+            const intentExpiresAt = Date.parse(checkoutIntent.expires_at);
+            if (!Number.isFinite(intentExpiresAt)) {
+                return jsonResponse({ error: 'Checkout reservation has an invalid expiry' }, 409);
+            }
+            if (intentExpiresAt <= Date.now()) {
+                if (
+                    attempt > 0
+                    || !await releaseAbandonedV2CheckoutIntent(
+                        supabaseAdmin,
+                        checkoutIntent,
+                        customerId,
+                    )
+                ) {
                     return jsonResponse({ error: 'Expired checkout could not release its place safely' }, 409);
                 }
                 claim = await claimDirectCheckoutIntent(supabaseAdmin, claimArgs);

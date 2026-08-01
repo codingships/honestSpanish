@@ -90,6 +90,7 @@ describe('manual staging deploy environment boundary', () => {
             'STRIPE_SECRET_KEY',
             'STRIPE_WEBHOOK_SECRET',
             'TURNSTILE_SECRET_KEY',
+            'CHECKOUT_HOLD_FINGERPRINT_SECRET',
             'CRON_SECRET',
             'INTERNAL_JOB_SECRET',
         ]) {
