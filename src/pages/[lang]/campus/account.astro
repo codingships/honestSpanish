@@ -4,6 +4,7 @@ import { useTranslations } from '../../../i18n/utils';
 import { getPrivateProfile } from '../../../lib/profiles-private';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import ProfileForm from '../../../components/account/ProfileForm';
+import GuaranteeCard from '../../../components/account/GuaranteeCard';
 
 export const prerender = false;
 
@@ -29,7 +30,8 @@ if (!profile) {
     return Astro.redirect(`/${lang}/login`);
 }
 
-// Get active subscription for students
+// Keep the latest subscription visible even after cancellation so the student
+// can still see the durable outcome of a guarantee request or refund.
 let subscription = null;
 let profilePrivate = null;
 if (profile.role === 'student') {
@@ -43,10 +45,9 @@ if (profile.role === 'student') {
             )
         `)
         .eq('student_id', user.id)
-        .in('status', ['active', 'pending', 'paused'])
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
     subscription = sub;
     profilePrivate = await getPrivateProfile(user.id);
 }
@@ -269,6 +270,14 @@ const driveUi: Record<'es' | 'en' | 'ru', {
                     </div>
                 )}
             </div>
+        )}
+
+        {profile.role === 'student' && subscription && (
+            <GuaranteeCard
+                client:load
+                subscriptionId={subscription.id}
+                lang={lang}
+            />
         )}
 
         {profile.role === 'student' && (

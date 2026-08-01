@@ -121,7 +121,7 @@ const { data: allTeachers } = await supabase
 // Get payment history
 const { data: payments } = await supabase
     .from('payments')
-    .select('id, amount, status, created_at')
+    .select('id, amount, amount_refunded, currency, status, checkout_v2_cycle_id, created_at')
     .eq('student_id', studentId)
     .order('created_at', { ascending: false })
     .limit(10);
@@ -448,7 +448,15 @@ const assignModalTranslations = {
 
         <!-- Payment History -->
         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Historial de Pagos</h2>
+            <div class="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <h2 class="font-display text-xl text-[#006064] uppercase">Historial de Pagos</h2>
+                <a
+                    href={`/${lang}/campus/admin/guarantees?studentId=${studentId}`}
+                    class="text-xs font-bold uppercase text-[#006064] underline"
+                >
+                    Ver garantías
+                </a>
+            </div>
             
             {payments && payments.length > 0 ? (
                 <div class="space-y-2">
@@ -459,11 +467,19 @@ const assignModalTranslations = {
                             </div>
                             <div class="flex items-center gap-2">
                                 <span class={`px-2 py-0.5 text-xs font-bold rounded ${
-                                    payment.status === 'succeeded' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
+                                    payment.status === 'succeeded' && payment.amount_refunded === 0
+                                        ? 'bg-green-100 text-green-700'
+                                        : payment.status === 'refunded'
+                                            ? 'bg-yellow-100 text-yellow-800'
+                                            : 'bg-gray-100 text-gray-700'
                                 }`}>
                                     {payment.status}
                                 </span>
-                                <span class="font-mono font-bold text-[#006064]">{formatCurrency(payment.amount)}</span>
+                                <div class="text-right font-mono text-xs text-[#006064]">
+                                    <p>Bruto: <strong>{formatCurrency(payment.amount)}</strong></p>
+                                    <p>Devuelto: <strong>{formatCurrency(payment.amount_refunded || 0)}</strong></p>
+                                    <p>Neto: <strong>{formatCurrency(Math.max(0, payment.amount - (payment.amount_refunded || 0)))}</strong></p>
+                                </div>
                             </div>
                         </div>
                     ))}

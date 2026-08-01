@@ -7,6 +7,7 @@ export type FulfillmentJobType =
     | 'welcome_fulfillment'
     | 'session_cancellation'
     | 'session_reschedule'
+    | 'guarantee_refund'
     | 'renewal_notice';
 
 export type FulfillmentJobPayload = {
@@ -29,7 +30,7 @@ export type FulfillmentJobPayload = {
     policyAcceptedAt?: string;
     autoCreateMeeting?: boolean;
     sendEmail?: boolean;
-    cancelledBy?: 'admin' | 'teacher' | 'student';
+    cancelledBy?: 'admin' | 'teacher' | 'student' | 'guarantee';
     reason?: string | null;
     operationId?: string;
     previousScheduledAt?: string;
@@ -39,6 +40,7 @@ export type FulfillmentJobPayload = {
     stripeSubscriptionId?: string;
     renewalAt?: string;
     cancelBy?: string;
+    refundAmount?: number;
     smokeMarker?: string;
     smokeRunId?: string;
 };

@@ -8,6 +8,7 @@ import { readRuntimeEnv } from '../../lib/runtime-env';
 import { isRequiredStripeWebhookEvent } from '../../lib/stripe-webhook-events';
 import { assertStripeRuntimeAccount, type StripeRuntimeContext } from '../../lib/stripe-runtime-guard';
 import { isPackageDuration, PACKAGE_CURRENCY } from '../../lib/package-pricing';
+import { observeCheckoutV2GuaranteeRefundFromWebhook } from '../../lib/checkout-v2-guarantee';
 import type Stripe from 'stripe';
 import type { Database } from '../../types/database.types';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -739,6 +740,14 @@ export const POST: APIRoute = async (context) => {
             case 'charge.refunded': {
                 const charge = event.data.object as Stripe.Charge;
                 await handleChargeRefunded(supabaseAdmin, charge, stripeRuntime);
+                break;
+            }
+
+            case 'refund.created':
+            case 'refund.updated':
+            case 'refund.failed': {
+                const refund = event.data.object as Stripe.Refund;
+                await observeCheckoutV2GuaranteeRefundFromWebhook({ refund });
                 break;
             }
 
@@ -2412,6 +2421,11 @@ async function handleChargeRefunded(
         stripeRuntime
     );
     const refundedAt = new Date(authoritativeRefund.created * 1000).toISOString();
+
+    // A guarantee refund can be observed through refund.* before or after this
+    // aggregate charge event. The operation RPC is idempotent and converges on
+    // the same terminal state regardless of webhook ordering or duplication.
+    await observeCheckoutV2GuaranteeRefundFromWebhook({ refund: authoritativeRefund });
 
     const { data: reconciledPayment, error: updateError } = await supabaseAdmin
         .rpc('reconcile_stripe_refund', {

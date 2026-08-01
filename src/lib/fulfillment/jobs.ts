@@ -3,7 +3,7 @@ import { createSupabaseAdminClient } from '../supabase-admin';
 import { recordPostPaymentOnboardingSafe } from '../crm/onboarding';
 import { createStudentFolderStructure } from '../google/student-folder';
 import { getPrivateProfile, upsertPrivateProfile } from '../profiles-private';
-import { sendRenewalNoticeEmail, sendWelcomeEmail } from '../email';
+import { sendGuaranteeRefundEmail, sendRenewalNoticeEmail, sendWelcomeEmail } from '../email';
 import { getSiteUrl } from '../site-url';
 import { fulfillSessionBatch, fulfillSingleSession } from './session-fulfillment';
 import { FulfillmentDependencyPendingError } from './dependency';
@@ -11,6 +11,7 @@ import { processSessionReschedule } from './session-reschedule';
 import { cancelClassEvent, deterministicClassEventId } from '../google/calendar';
 import { sendClassCancelled } from '../email';
 import { recordClassEmailOutInCrmSafe } from '../crm/class-email';
+import { recordCrmActivityForProfileSafe } from '../crm/activity-sync';
 import type { Database } from '../../types/database.types';
 import {
     FulfillmentEffectError,
@@ -424,6 +425,93 @@ async function processSessionCancellation(
     });
 }
 
+async function processGuaranteeRefund(
+    supabaseAdmin: SupabaseClient<Database>,
+    payload: FulfillmentJobPayload,
+    job: FulfillmentJobRow,
+) {
+    const operationId = payload.operationId;
+    const refundAmount = payload.refundAmount;
+    const currency = payload.currency?.toLowerCase();
+    const studentId = job.student_id;
+    const subscriptionId = job.subscription_id;
+    if (
+        !operationId
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)
+        || !studentId
+        || !subscriptionId
+        || (payload.userId !== undefined && payload.userId !== studentId)
+        || (payload.subscriptionId !== undefined && payload.subscriptionId !== subscriptionId)
+        || job.dedupe_key !== `guarantee_refund:${operationId}`
+        || refundAmount !== 19425
+        || currency !== 'eur'
+        || payload.sendEmail !== true
+    ) {
+        throw new Error('guarantee_refund payload does not match the Checkout V2 contract');
+    }
+
+    const { data: operation, error: operationError } = await supabaseAdmin
+        .from('checkout_v2_guarantee_operations')
+        .select('id, actor_id, subscription_id, status, refund_amount_cents, currency, stripe_refund_id, refunded_at')
+        .eq('id', operationId)
+        .maybeSingle();
+    if (
+        operationError
+        || !operation
+        || operation.actor_id !== studentId
+        || operation.subscription_id !== subscriptionId
+        || operation.status !== 'refunded'
+        || operation.refund_amount_cents !== refundAmount
+        || operation.currency !== currency
+        || !operation.stripe_refund_id
+        || !operation.refunded_at
+    ) {
+        throw operationError ?? new Error('Guarantee refund operation is not terminal or does not match the job');
+    }
+
+    const { data: student, error } = await supabaseAdmin
+        .from('profiles')
+        .select('id, email, full_name, preferred_language')
+        .eq('id', studentId)
+        .single();
+    if (error || !student?.email || student.id !== studentId) {
+        throw error ?? new Error('Guarantee refund student is unavailable');
+    }
+
+    const locale = student.preferred_language === 'es' || student.preferred_language === 'ru'
+        ? student.preferred_language
+        : 'en';
+    const sent = await sendGuaranteeRefundEmail(student.email, {
+        locale,
+        studentName: student.full_name || student.email.split('@')[0],
+        refundAmount,
+        currency,
+        accountUrl: `${getSiteUrl('https://espanolhonesto.com')}/${locale}/campus/account`,
+        supportUrl: `${getSiteUrl('https://espanolhonesto.com')}/${locale}/campus/support`,
+    }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.guarantee_refund.student'));
+    if (!sent) throw new Error('Resend did not accept guarantee refund confirmation');
+
+    await recordCrmActivityForProfileSafe(supabaseAdmin, {
+        profileId: studentId,
+        email: student.email,
+        fullName: student.full_name,
+        source: 'guarantee_refund',
+        activityType: 'email_out',
+        subject: 'Garantía y devolución confirmadas',
+        body: 'guarantee_refund_confirmed',
+        relatedEntityType: 'checkout_v2_guarantee',
+        relatedEntityId: operationId,
+        metadata: {
+            automated: true,
+            purpose: 'transactional',
+            template: 'guarantee_refund',
+            subscription_id: subscriptionId,
+            refund_amount: refundAmount,
+            currency,
+        },
+    });
+}
+
 function fulfillmentEmailOptions(
     supabaseAdmin: SupabaseClient<Database>,
     job: FulfillmentJobRow,
@@ -477,6 +565,9 @@ async function processJob(
             return;
         case 'session_reschedule':
             await processSessionReschedule(supabaseAdmin, payload, job);
+            return;
+        case 'guarantee_refund':
+            await processGuaranteeRefund(supabaseAdmin, payload, job);
             return;
         case 'renewal_notice':
             await processRenewalNotice(supabaseAdmin, payload, job);

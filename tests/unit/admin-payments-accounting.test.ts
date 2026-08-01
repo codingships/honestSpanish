@@ -14,6 +14,7 @@ describe('admin payment accounting', () => {
         expect(paymentsPage).toContain("t('campus.admin.payments.refundedAmount')");
         expect(translations).toContain('Partially refunded');
         expect(translations).toContain('Частичный возврат');
+        expect(paymentsPage).toContain('/campus/admin/guarantees');
     });
 
     it('builds Stripe links from the immutable offer mode instead of always using test mode', () => {

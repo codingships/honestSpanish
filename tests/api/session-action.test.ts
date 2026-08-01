@@ -602,6 +602,51 @@ describe('POST /api/calendar/session-action', () => {
         expect(jobServiceMocks.triggerFulfillmentProcessing).not.toHaveBeenCalled();
     });
 
+    it('does not complete a class before its scheduled duration has elapsed', async () => {
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({
+                    data: { user: { id: 'teacher-id', email: 'teacher@test.com' } },
+                    error: null,
+                }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'sessions') {
+                chain.single.mockResolvedValue({
+                    data: {
+                        id: 'session-1', subscription_id: 'sub-1', student_id: 'student-id',
+                        teacher_id: 'teacher-id', status: 'scheduled', duration_minutes: 50,
+                        scheduled_at: new Date(Date.now() - 20 * 60_000).toISOString(),
+                        subscription: { id: 'sub-1', sessions_used: 1, contract_schema_version: 2 },
+                        student: { full_name: 'Student', email: 'student@test.com' },
+                        teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+                    },
+                    error: null,
+                });
+            }
+            return chain;
+        });
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'complete' }) as any);
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Session cannot be completed before its scheduled end.',
+        });
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+    });
+
     it('marks a past session completed and records first-class onboarding activation', async () => {
         const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
         const scheduledAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -693,7 +738,74 @@ describe('POST /api/calendar/session-action', () => {
         }));
     });
 
-    it('returns 409 without CRM or onboarding effects when completion hits the reschedule guard', async () => {
+    it('idempotently fixes the first Checkout V2 billing anchor after completion', async () => {
+        const scheduledAt = new Date(Date.now() - 60 * 60_000).toISOString();
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({
+                    data: { user: { id: 'teacher-id', email: 'teacher@test.com' } }, error: null,
+                }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), single: vi.fn(),
+            };
+            chain.single.mockResolvedValue(table === 'profiles'
+                ? { data: { role: 'teacher' }, error: null }
+                : {
+                    data: {
+                        id: 'session-1', subscription_id: 'sub-1', student_id: 'student-id',
+                        teacher_id: 'teacher-id', status: 'completed', scheduled_at: scheduledAt,
+                        duration_minutes: 50,
+                        subscription: { id: 'sub-1', sessions_used: 1, contract_schema_version: 2 },
+                        student: { full_name: 'Student', email: 'student@test.com' },
+                        teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+                    },
+                    error: null,
+                });
+            return chain;
+        });
+        const billingQuery: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                    subscription_id: 'sub-1', first_session_id: 'session-1', first_class_at: scheduledAt,
+                    anchor_state: 'provisional', anchor_fixed_at: null,
+                },
+                error: null,
+            }),
+        };
+        const admin = {
+            from: vi.fn((table: string) => {
+                if (table === 'checkout_v2_billing_state') return billingQuery;
+                throw new Error(`Unexpected admin table ${table}`);
+            }),
+            rpc: vi.fn().mockResolvedValue({
+                data: { anchor_state: 'fixed', anchor_fixed_at: scheduledAt }, error: null,
+            }),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as any);
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'complete' }) as any);
+
+        expect(response.status).toBe(200);
+        expect(admin.rpc).toHaveBeenCalledWith('fix_checkout_v2_billing_anchor', {
+            p_subscription_id: 'sub-1',
+            p_fixed_at: scheduledAt,
+        });
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ['reschedule', 'checkout_v2_reschedule_session_is_locked'],
+        ['guarantee', 'checkout_v2_guarantee_state_is_locked'],
+    ])('returns 409 without side effects when completion hits the %s guard', async (_kind, guardMessage) => {
         const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
         const mockSession = {
             id: 'session-1',
@@ -736,7 +848,7 @@ describe('POST /api/calendar/session-action', () => {
                 data: null,
                 error: {
                     code: '40001',
-                    message: 'checkout_v2_reschedule_session_is_locked',
+                    message: guardMessage,
                 },
             },
         ) as any);
