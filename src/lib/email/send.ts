@@ -13,6 +13,8 @@ import {
     welcomeEmailSubject,
     renewalNoticeEmailTemplate,
     renewalNoticeSubject,
+    guaranteeRefundEmailTemplate,
+    guaranteeRefundSubject,
     classConfirmationTemplate,
     classRescheduledTemplate,
     classRescheduledSubject,
@@ -26,6 +28,7 @@ import {
     supportTicketUpdatedTemplate,
     type WelcomeEmailData,
     type RenewalNoticeEmailData,
+    type GuaranteeRefundEmailData,
     type ClassConfirmationData,
     type ClassRescheduledData,
     type ClassReminderData,
@@ -120,6 +123,22 @@ export async function sendRenewalNoticeEmail(
         failureLabel: '[Email] Failed to send renewal notice:',
         thrownLabel: '[Email] Error sending renewal notice:',
         successLabel: '[Email] Renewal notice sent to',
+    }, options);
+}
+
+export async function sendGuaranteeRefundEmail(
+    email: string,
+    data: GuaranteeRefundEmailData,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: guaranteeRefundSubject(data.locale),
+        html: guaranteeRefundEmailTemplate(data),
+        source: 'guarantee_refund',
+        failureLabel: '[Email] Failed to send guarantee refund confirmation:',
+        thrownLabel: '[Email] Error sending guarantee refund confirmation:',
+        successLabel: '[Email] Guarantee refund confirmation sent to',
     }, options);
 }
 

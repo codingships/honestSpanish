@@ -424,6 +424,178 @@ export type Database = {
           },
         ];
       };
+      checkout_v2_guarantee_operations: {
+        Row: {
+          actor_id: string;
+          cancellation_started_at: string | null;
+          claimed_at: string | null;
+          created_at: string;
+          currency: string;
+          cycle_id: string;
+          first_session_id: string;
+          fourth_session_id: string;
+          gross_amount_cents: number;
+          id: string;
+          last_error: string | null;
+          lease_expires_at: string | null;
+          lease_token: string | null;
+          payment_id: string;
+          refund_amount_cents: number;
+          refund_created_at: string | null;
+          refund_started_at: string | null;
+          refund_status: string | null;
+          refunded_at: string | null;
+          request_id: string;
+          second_session_id: string;
+          status: string;
+          stripe_cancelled_at: string | null;
+          stripe_customer_id: string;
+          stripe_invoice_id: string;
+          stripe_payment_intent_id: string;
+          stripe_refund_id: string | null;
+          stripe_subscription_id: string;
+          support_ticket_id: string | null;
+          terminated_at: string | null;
+          third_session_id: string;
+          subscription_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          actor_id: string;
+          cancellation_started_at?: string | null;
+          claimed_at?: string | null;
+          created_at?: string;
+          currency: string;
+          cycle_id: string;
+          first_session_id: string;
+          fourth_session_id: string;
+          gross_amount_cents: number;
+          id?: string;
+          last_error?: string | null;
+          lease_expires_at?: string | null;
+          lease_token?: string | null;
+          payment_id: string;
+          refund_amount_cents: number;
+          refund_created_at?: string | null;
+          refund_started_at?: string | null;
+          refund_status?: string | null;
+          refunded_at?: string | null;
+          request_id: string;
+          second_session_id: string;
+          status?: string;
+          stripe_cancelled_at?: string | null;
+          stripe_customer_id: string;
+          stripe_invoice_id: string;
+          stripe_payment_intent_id: string;
+          stripe_refund_id?: string | null;
+          stripe_subscription_id: string;
+          support_ticket_id?: string | null;
+          terminated_at?: string | null;
+          third_session_id: string;
+          subscription_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          actor_id?: string;
+          cancellation_started_at?: string | null;
+          claimed_at?: string | null;
+          created_at?: string;
+          currency?: string;
+          cycle_id?: string;
+          first_session_id?: string;
+          fourth_session_id?: string;
+          gross_amount_cents?: number;
+          id?: string;
+          last_error?: string | null;
+          lease_expires_at?: string | null;
+          lease_token?: string | null;
+          payment_id?: string;
+          refund_amount_cents?: number;
+          refund_created_at?: string | null;
+          refund_started_at?: string | null;
+          refund_status?: string | null;
+          refunded_at?: string | null;
+          request_id?: string;
+          second_session_id?: string;
+          status?: string;
+          stripe_cancelled_at?: string | null;
+          stripe_customer_id?: string;
+          stripe_invoice_id?: string;
+          stripe_payment_intent_id?: string;
+          stripe_refund_id?: string | null;
+          stripe_subscription_id?: string;
+          support_ticket_id?: string | null;
+          terminated_at?: string | null;
+          third_session_id?: string;
+          subscription_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_actor_id_fkey";
+            columns: ["actor_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: true;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_first_session_id_fkey";
+            columns: ["first_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_fourth_session_id_fkey";
+            columns: ["fourth_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_payment_id_fkey";
+            columns: ["payment_id"];
+            isOneToOne: true;
+            referencedRelation: "payments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_second_session_id_fkey";
+            columns: ["second_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: true;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_support_ticket_id_fkey";
+            columns: ["support_ticket_id"];
+            isOneToOne: true;
+            referencedRelation: "support_tickets";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operations_third_session_id_fkey";
+            columns: ["third_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       checkout_v2_reschedule_operations: {
         Row: {
           actor_id: string;
@@ -509,6 +681,80 @@ export type Database = {
           },
           {
             foreignKeyName: "checkout_v2_reschedule_operations_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      checkout_v2_session_incident_resolutions: {
+        Row: {
+          admin_id: string;
+          created_at: string;
+          cycle_id: string;
+          id: string;
+          incident_at: string;
+          original_scheduled_at: string;
+          original_status: string;
+          reason: string;
+          resolution: string;
+          session_id: string;
+          session_index: number;
+          subscription_id: string;
+        };
+        Insert: {
+          admin_id: string;
+          created_at?: string;
+          cycle_id: string;
+          id?: string;
+          incident_at: string;
+          original_scheduled_at: string;
+          original_status: string;
+          reason: string;
+          resolution?: string;
+          session_id: string;
+          session_index: number;
+          subscription_id: string;
+        };
+        Update: {
+          admin_id?: string;
+          created_at?: string;
+          cycle_id?: string;
+          id?: string;
+          incident_at?: string;
+          original_scheduled_at?: string;
+          original_status?: string;
+          reason?: string;
+          resolution?: string;
+          session_id?: string;
+          session_index?: number;
+          subscription_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_session_incident_resolutions_admin_id_fkey";
+            columns: ["admin_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_session_incident_resolutions_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_session_incident_resolutions_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_session_incident_resolutions_subscription_id_fkey";
             columns: ["subscription_id"];
             isOneToOne: false;
             referencedRelation: "subscriptions";
@@ -2262,6 +2508,125 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      apply_checkout_v2_guarantee_termination: {
+        Args: {
+          p_operation_id: string;
+          p_stripe_cancelled_at: string;
+          p_worker_token: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      begin_checkout_v2_guarantee_cancellation: {
+        Args: { p_operation_id: string; p_worker_token: string };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      begin_checkout_v2_guarantee_refund: {
+        Args: { p_operation_id: string; p_worker_token: string };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      claim_checkout_v2_guarantee: {
+        Args: { p_operation_id: string; p_worker_token: string };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      excuse_checkout_v2_guarantee_incident: {
+        Args: { p_admin_id: string; p_reason: string; p_session_id: string };
+        Returns: Database["public"]["Tables"]["checkout_v2_session_incident_resolutions"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_session_incident_resolutions";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      get_checkout_v2_guarantee_state: {
+        Args: { p_actor_id: string; p_subscription_id: string };
+        Returns: {
+          currency: string;
+          operation_id: string;
+          reason: string;
+          refund_amount_cents: number;
+          state: string;
+          subscription_id: string;
+          updated_at: string;
+        }[];
+      };
+      mark_checkout_v2_guarantee_outcome: {
+        Args: {
+          p_error: string;
+          p_operation_id: string;
+          p_status: string;
+          p_worker_token: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      observe_checkout_v2_guarantee_refund: {
+        Args: {
+          p_amount_cents: number;
+          p_currency: string;
+          p_operation_id: string;
+          p_refund_created_at: string;
+          p_refund_status: string;
+          p_stripe_payment_intent_id: string;
+          p_stripe_refund_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      prepare_checkout_v2_guarantee: {
+        Args: { p_actor_id: string; p_request_id: string; p_subscription_id: string };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      resolve_checkout_v2_guarantee_review: {
+        Args: { p_admin_id: string; p_operation_id: string; p_reason: string };
+        Returns: Database["public"]["Tables"]["checkout_v2_guarantee_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_guarantee_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       acquire_staging_integration_smoke_lease: {
         Args: {
           p_lease_name: string;

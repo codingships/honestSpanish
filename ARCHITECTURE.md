@@ -24,7 +24,7 @@ Astro contiene:
 Los límites principales son:
 
 - Auth y RBAC: `src/middleware.ts`, clientes Supabase SSR y `profiles.role`.
-- Billing: `checkout_intents`, `package_prices`, Stripe Checkout y webhooks.
+- Billing: `checkout_intents`, `package_prices`, ciclos Checkout V2, Stripe Checkout y webhooks.
 - Scheduling: `sessions`, disponibilidad y cuotas.
 - Fulfillment: `fulfillment_jobs`, Google Workspace y Resend.
 - Administración: CRM, usuarios, ofertas, pagos, sesiones y recuperación operativa.
@@ -48,6 +48,8 @@ Tablas centrales:
 - `profiles`, `profiles_private`
 - `packages`, `package_prices`, `checkout_intents`
 - `subscriptions`, `payments`
+- `checkout_v2_billing_state`, `checkout_v2_cycles`
+- `checkout_v2_guarantee_operations`, `checkout_v2_session_incident_resolutions`
 - `sessions`, `student_teachers`
 - `leads`
 - `fulfillment_jobs`
@@ -65,3 +67,13 @@ RLS protege el acceso por rol. Las operaciones administrativas y de fulfillment 
 - Sentry registra errores técnicos según el entorno.
 
 Cada entorno usa sus propios recursos y credenciales. Un recurso de otro proyecto o de otro entorno nunca se usa como sustituto.
+
+## Garantía del primer ciclo
+
+La garantía de Checkout V2 es una saga financiera duradera, no una suma calculada por el navegador ni una devolución aislada en Stripe. PostgreSQL decide la elegibilidad bajo bloqueo y congela en `checkout_v2_guarantee_operations` la compra, el ciclo inicial, las cuatro sesiones, el PaymentIntent y el importe contractual de 19.425 céntimos. Solo puede existir una operación por suscripción.
+
+El orden irreversible es: validar el contrato local y remoto, cancelar inmediatamente la suscripción de Stripe, reflejar la terminación local e invalidar las sesiones 2–4, y crear la devolución parcial con una clave de idempotencia estable. Los webhooks de refund y `charge.refunded` reconcilian la misma operación; nunca crean una segunda. Los estados pendientes quedan visibles y los resultados ambiguos pasan a revisión manual con ticket de soporte.
+
+Una excepción de soporte a una cancelación tardía o no-show de la segunda sesión se registra por separado en `checkout_v2_session_incident_resolutions`. Ese ledger es inmutable y auditado: reclasifica la incidencia para evaluar la garantía, pero no reabre ni reprograma una clase.
+
+Tras confirmar Stripe la devolución, un único trabajo `guarantee_refund` envía la confirmación transaccional y registra el efecto en CRM. Las cancelaciones de Calendar de las tres sesiones restantes son trabajos deduplicados independientes; un fallo de Google o correo no altera el resultado financiero ya confirmado.

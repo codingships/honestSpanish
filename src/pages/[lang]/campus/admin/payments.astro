@@ -170,7 +170,15 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
 >
     <!-- Header with Metrics -->
     <div class="mb-8">
-        <h1 class="font-display text-3xl text-[#006064] uppercase mb-6">{t('campus.admin.payments.title')}</h1>
+        <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h1 class="font-display text-3xl text-[#006064] uppercase">{t('campus.admin.payments.title')}</h1>
+            <a
+                href={`/${lang}/campus/admin/guarantees`}
+                class="inline-flex border-2 border-[#006064] bg-white px-4 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA]"
+            >
+                Garantías y devoluciones
+            </a>
+        </div>
         
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">

@@ -25,6 +25,10 @@ const crmMocks = vi.hoisted(() => ({
     recordCrmActivityForProfileSafe: vi.fn().mockResolvedValue({ status: 'created' }),
 }));
 
+const guaranteeMocks = vi.hoisted(() => ({
+    observeCheckoutV2GuaranteeRefundFromWebhook: vi.fn().mockResolvedValue(false),
+}));
+
 const studentId = '10000000-0000-4000-8000-000000000001';
 const packageId = '20000000-0000-4000-8000-000000000002';
 const packagePriceId = '30000000-0000-4000-8000-000000000003';
@@ -78,6 +82,10 @@ vi.mock('../../src/lib/internal-job-service', () => ({
 
 vi.mock('../../src/lib/crm/activity-sync', () => ({
     recordCrmActivityForProfileSafe: crmMocks.recordCrmActivityForProfileSafe,
+}));
+
+vi.mock('../../src/lib/checkout-v2-guarantee', () => ({
+    observeCheckoutV2GuaranteeRefundFromWebhook: guaranteeMocks.observeCheckoutV2GuaranteeRefundFromWebhook,
 }));
 
 function webhookContext(signature: string | null = 't=123,v1=test') {
@@ -1223,6 +1231,30 @@ describe('POST /api/stripe-webhook', () => {
         expect(response.status).toBe(400);
         await expect(response.text()).resolves.toContain('Missing stripe-signature header');
     });
+
+    it.each(['refund.created', 'refund.updated', 'refund.failed'] as const)(
+        'converges %s through the guarantee refund observer',
+        async (type) => {
+            const refund = stripeRefund({
+                amount: 19_425,
+                payment_intent: 'pi_guarantee',
+                metadata: { guaranteeOperationId: '40000000-0000-4000-8000-000000000004' },
+            });
+            stripeMocks.constructEventAsync.mockResolvedValue({
+                id: `evt_${type.replace('.', '_')}`,
+                type,
+                livemode: false,
+                data: { object: refund },
+            });
+            guaranteeMocks.observeCheckoutV2GuaranteeRefundFromWebhook.mockResolvedValueOnce(true);
+            const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+            const response = await POST(webhookContext() as any);
+
+            expect(response.status).toBe(200);
+            expect(guaranteeMocks.observeCheckoutV2GuaranteeRefundFromWebhook).toHaveBeenCalledWith({ refund });
+        },
+    );
 
     it('returns 400 on webhook signature verification failure', async () => {
         stripeMocks.constructEventAsync.mockRejectedValue(new Error('Firma Invalida'));

@@ -16,6 +16,16 @@ const isRescheduleStateConflict = (error: { code?: string; message?: string } | 
     )
 );
 
+const isGuaranteeStateConflict = (error: { code?: string; message?: string } | null): boolean => (
+    error?.message?.includes('checkout_v2_guarantee_') === true
+    && (
+        error.code === '23505'
+        || error.code === '23514'
+        || error.code === '40001'
+        || error.code === '55000'
+    )
+);
+
 const isSessionReport = (value: unknown): value is Json => {
     return value === null || typeof value === 'string' || (typeof value === 'object' && !Array.isArray(value));
 };
@@ -65,7 +75,7 @@ export const POST: APIRoute = async (context) => {
             *,
             student:profiles!sessions_student_id_fkey(full_name, email),
             teacher:profiles!sessions_teacher_id_fkey(full_name, email),
-            subscription:subscriptions(id, sessions_used)
+            subscription:subscriptions(id, sessions_used, contract_schema_version)
         `)
         .eq('id', sessionId)
         .single();
@@ -85,6 +95,30 @@ export const POST: APIRoute = async (context) => {
 
     const supabaseAdmin = createSupabaseAdminClient();
 
+    const fixFirstV2AnchorIfApplicable = async (): Promise<boolean> => {
+        const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
+        if (!subscription?.id || subscription.contract_schema_version !== 2) return true;
+
+        const { data: billingState, error: billingError } = await supabaseAdmin
+            .from('checkout_v2_billing_state')
+            .select('subscription_id, first_session_id, first_class_at, anchor_state, anchor_fixed_at')
+            .eq('subscription_id', subscription.id)
+            .maybeSingle();
+        if (billingError) return false;
+        if (!billingState || billingState.first_session_id !== sessionId) return true;
+        if (billingState.anchor_state === 'fixed') {
+            return billingState.anchor_fixed_at === billingState.first_class_at;
+        }
+
+        const { data: fixedState, error: fixError } = await supabaseAdmin.rpc('fix_checkout_v2_billing_anchor', {
+            p_subscription_id: subscription.id,
+            p_fixed_at: billingState.first_class_at,
+        });
+        return !fixError
+            && fixedState?.anchor_state === 'fixed'
+            && fixedState.anchor_fixed_at === billingState.first_class_at;
+    };
+
     if (action === 'cancel') {
         const cancelledBy = isAdmin ? 'admin' : (isTeacher ? 'teacher' : 'student');
         const { data: cancelRows, error: updateError } = await supabaseAdmin.rpc('cancel_scheduled_session', {
@@ -95,6 +129,11 @@ export const POST: APIRoute = async (context) => {
         });
 
         if (updateError) {
+            if (isGuaranteeStateConflict(updateError)) {
+                return new Response(JSON.stringify({
+                    error: 'Session change conflicts with a guarantee operation in progress.',
+                }), { status: 409 });
+            }
             if (isRescheduleStateConflict(updateError)) {
                 return new Response(JSON.stringify({
                     error: 'Session change conflicts with a reschedule in progress.',
@@ -175,12 +214,29 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Forbidden. Only teachers and admins can modify session states.' }), { status: 403 });
         }
 
+        if (action === 'complete' && session.status === 'completed') {
+            if (!await fixFirstV2AnchorIfApplicable()) {
+                return new Response(JSON.stringify({ error: 'Billing anchor could not be fixed.' }), { status: 503 });
+            }
+            return new Response(JSON.stringify({ success: true }), { status: 200 });
+        }
+
         if ((action === 'complete' || action === 'no_show') && session.status !== 'scheduled') {
             return new Response(JSON.stringify({ error: 'Only scheduled sessions can be completed or marked as no_show.' }), { status: 409 });
         }
 
         if ((action === 'complete' || action === 'no_show') && session.scheduled_at && new Date(session.scheduled_at) > new Date()) {
             return new Response(JSON.stringify({ error: 'Session has not started yet.' }), { status: 409 });
+        }
+
+        if (action === 'complete' && session.scheduled_at) {
+            const durationMinutes = Number.isInteger(session.duration_minutes) && session.duration_minutes > 0
+                ? session.duration_minutes
+                : 50;
+            const completionAvailableAt = new Date(session.scheduled_at).getTime() + durationMinutes * 60_000;
+            if (Date.now() < completionAvailableAt) {
+                return new Response(JSON.stringify({ error: 'Session cannot be completed before its scheduled end.' }), { status: 409 });
+            }
         }
 
         if (action === 'no_show' && session.scheduled_at) {
@@ -230,6 +286,11 @@ export const POST: APIRoute = async (context) => {
         const { data: updatedRows, error: updateError } = await updateQuery.select('id');
 
         if (updateError) {
+            if (isGuaranteeStateConflict(updateError)) {
+                return new Response(JSON.stringify({
+                    error: 'Session change conflicts with a guarantee operation in progress.',
+                }), { status: 409 });
+            }
             if (isRescheduleStateConflict(updateError)) {
                 return new Response(JSON.stringify({
                     error: 'Session change conflicts with a reschedule in progress.',
@@ -281,6 +342,9 @@ export const POST: APIRoute = async (context) => {
 
             if (action === 'complete') {
                 const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
+                if (!await fixFirstV2AnchorIfApplicable()) {
+                    return new Response(JSON.stringify({ error: 'Billing anchor could not be fixed.' }), { status: 503 });
+                }
                 await recordFirstClassCompletedSafe(supabaseAdmin, {
                     profileId: session.student_id,
                     email: session.student?.email ?? null,

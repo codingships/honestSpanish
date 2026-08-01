@@ -1,0 +1,46 @@
+---
+import GuaranteeOperationsManager from '../../../../components/admin/GuaranteeOperationsManager';
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) return Astro.redirect(`/${lang}/login`);
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+
+const requestedStudentId = Astro.url.searchParams.get('studentId');
+const studentId = requestedStudentId
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestedStudentId)
+    ? requestedStudentId
+    : null;
+---
+
+<CampusLayout title="Garantías" user={{ ...user, ...profile }} lang={lang}>
+    <div class="space-y-6">
+        <header>
+            <h1 class="font-display text-3xl uppercase text-[#006064]">Garantías y devoluciones</h1>
+            <p class="mt-2 max-w-3xl text-sm text-[#006064]/70">
+                Seguimiento operativo de la garantía de 194,25 EUR, conciliación de la misma operación y registro auditado de incidencias justificadas.
+            </p>
+        </header>
+
+        <GuaranteeOperationsManager
+            client:load
+            lang={lang}
+            studentId={studentId}
+        />
+    </div>
+</CampusLayout>

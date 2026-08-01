@@ -513,6 +513,108 @@ export function renewalNoticeEmailTemplate(data: RenewalNoticeEmailData): string
 }
 
 // ============================================
+// Checkout V2 Guarantee Refund
+// ============================================
+
+export type GuaranteeRefundLocale = 'es' | 'en' | 'ru';
+
+export interface GuaranteeRefundEmailData {
+    locale: GuaranteeRefundLocale;
+    studentName: string;
+    refundAmount: number;
+    currency: string;
+    accountUrl: string;
+    supportUrl: string;
+}
+
+const guaranteeRefundCopy = {
+    es: {
+        subject: 'Devolución de tu garantía confirmada - Español Honesto',
+        title: 'Tu garantía ya se ha aplicado',
+        hello: 'Hola',
+        intro: 'Hemos confirmado la devolución correspondiente a las tres clases restantes de tu primer ciclo.',
+        refund: 'Importe devuelto',
+        method: 'La devolución se ha enviado al mismo medio de pago de la compra. Tu banco puede tardar varios días en reflejarla.',
+        firstClass: 'La primera clase permanece pagada.',
+        remainingClasses: 'Las otras tres clases han quedado invalidadas y retiradas del calendario.',
+        renewal: 'La renovación automática y los cobros futuros de esta suscripción están cancelados.',
+        accountButton: 'VER ESTADO EN MI CUENTA',
+        support: 'Contactar con soporte',
+        signoff: 'Equipo de Español Honesto',
+    },
+    en: {
+        subject: 'Your guarantee refund is confirmed - Español Honesto',
+        title: 'Your guarantee has been applied',
+        hello: 'Hello',
+        intro: 'We have confirmed the refund for the three remaining classes in your first cycle.',
+        refund: 'Amount refunded',
+        method: 'The refund was sent to the original payment method. Your bank may take several days to display it.',
+        firstClass: 'Your first class remains paid.',
+        remainingClasses: 'The other three classes have been invalidated and removed from the calendar.',
+        renewal: 'Automatic renewal and future charges for this subscription are cancelled.',
+        accountButton: 'VIEW STATUS IN MY ACCOUNT',
+        support: 'Contact support',
+        signoff: 'The Español Honesto team',
+    },
+    ru: {
+        subject: 'Возврат по гарантии подтверждён - Español Honesto',
+        title: 'Гарантия применена',
+        hello: 'Здравствуйте',
+        intro: 'Мы подтвердили возврат стоимости трёх оставшихся занятий первого цикла.',
+        refund: 'Сумма возврата',
+        method: 'Возврат отправлен на исходный способ оплаты. Банку может потребоваться несколько дней, чтобы отобразить его.',
+        firstClass: 'Первое занятие остаётся оплаченным.',
+        remainingClasses: 'Остальные три занятия аннулированы и удалены из календаря.',
+        renewal: 'Автопродление и будущие списания по этой подписке отменены.',
+        accountButton: 'ПОСМОТРЕТЬ СТАТУС',
+        support: 'Связаться с поддержкой',
+        signoff: 'Команда Español Honesto',
+    },
+} as const;
+
+export function guaranteeRefundSubject(locale: GuaranteeRefundLocale): string {
+    return guaranteeRefundCopy[locale].subject;
+}
+
+export function guaranteeRefundEmailTemplate(data: GuaranteeRefundEmailData): string {
+    const copy = guaranteeRefundCopy[data.locale];
+    const currency = /^[a-z]{3}$/i.test(data.currency) ? data.currency.toUpperCase() : 'EUR';
+    if (!Number.isInteger(data.refundAmount) || data.refundAmount <= 0) {
+        throw new Error('Guarantee refund email requires a positive integer amount');
+    }
+    const amount = new Intl.NumberFormat(renewalIntlLocales[data.locale], {
+        style: 'currency',
+        currency,
+    }).format(data.refundAmount / 100);
+    const studentName = escapeEmailHtml(data.studentName);
+    const accountUrl = safeEmailUrl(data.accountUrl);
+    const supportUrl = safeEmailUrl(data.supportUrl);
+
+    const content = `
+        <h2 style="color: #006064; margin: 0 0 20px 0;">${copy.title}</h2>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.hello} ${studentName},</p>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.intro}</p>
+
+        <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
+            <p style="margin: 0; color: #006064; font-size: 18px;"><strong>${copy.refund}: ${escapeEmailHtml(amount)}</strong></p>
+        </div>
+
+        <ul style="color: #333333; font-size: 16px; line-height: 1.8; padding-left: 22px;">
+            <li>${copy.firstClass}</li>
+            <li>${copy.remainingClasses}</li>
+            <li>${copy.renewal}</li>
+        </ul>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.method}</p>
+
+        ${accountUrl ? `<p style="text-align: center; margin: 30px 0;"><a href="${accountUrl}" style="display: inline-block; background-color: #006064; color: #ffffff; padding: 15px 32px; text-decoration: none; font-weight: bold;">${copy.accountButton}</a></p>` : ''}
+        ${supportUrl ? `<p style="color: #666666; font-size: 14px;"><a href="${supportUrl}" style="color: #006064;">${copy.support}</a></p>` : ''}
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.signoff}</p>
+    `;
+
+    return baseTemplate(content, data.locale);
+}
+
+// ============================================
 // Class Confirmation Email
 // ============================================
 
@@ -792,7 +894,7 @@ export interface ClassCancelledData {
     recipientName: string;
     date: string;
     time: string;
-    cancelledBy: 'student' | 'teacher' | 'admin';
+    cancelledBy: 'student' | 'teacher' | 'admin' | 'guarantee';
     reason?: string;
 }
 
@@ -801,6 +903,7 @@ export function classCancelledTemplate(data: ClassCancelledData): string {
         student: 'the student',
         teacher: 'the teacher',
         admin: 'the admin team',
+        guarantee: 'the first-class guarantee',
     }[data.cancelledBy];
     const recipientName = escapeEmailHtml(data.recipientName);
     const date = escapeEmailHtml(data.date);

@@ -75,12 +75,14 @@ jobs:
             psql -X -1 -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f "$migration"
           done < "$RUNNER_TEMP/new-migrations.txt"
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/checkout-v2-billing-foundation.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/checkout-v2-guarantee.sql
 
       - name: Verify clean canonical schema
         run: |
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/postgres-supabase-bootstrap.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f db/schema.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/checkout-v2-billing-foundation.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/checkout-v2-guarantee.sql
 
   build-and-test:
     runs-on: ubuntu-latest

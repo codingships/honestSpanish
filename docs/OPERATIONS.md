@@ -61,6 +61,20 @@ Toda evolución de esquema es una migración nueva en `supabase/migrations/`. No
 
 Antes de una migración destructiva o producción se decide explícitamente backup, rollback y recurso exacto. Un despliegue de código sin cambios de esquema no ejecuta `db push`, repair ni migraciones por inercia.
 
+## Recuperación de la garantía Checkout V2
+
+La referencia operativa es una única fila de `checkout_v2_guarantee_operations`. Repetir una petición o una acción administrativa reanuda esa operación; nunca se cambia su importe, PaymentIntent, suscripción de Stripe ni identificadores congelados, y nunca se crea una devolución manual paralela.
+
+- `processing`: comprobar la operación existente y reanudarla; el lease evita dos escritores simultáneos.
+- `refund_pending`: esperar o reconciliar el mismo refund mediante webhook/lectura de Stripe. No se crea otro refund.
+- `retryable`: reintentar la misma operación desde administración después de comprobar la identidad y el modo de Stripe.
+- `manual_review`: trabajar desde el ticket enlazado y comparar el snapshot local con Stripe. Si existe un refund ID, administración solo puede reconciliar ese refund mediante lecturas y `observe`; un refund `failed` o `canceled` exige una decisión financiera manual y nunca dispara un segundo refund. Si todavía no existe refund, la misma operación solo puede volver a `retryable` después de cerrar el ticket y registrar un motivo auditado; entonces se reanuda sin cambiar el snapshot.
+- `refunded`: estado terminal. Verificar 19.425 céntimos en EUR, suscripción cancelada, una sesión consumida, tres invalidadas y jobs deduplicados; no repetir efectos financieros.
+
+Una cancelación tardía o no-show de la segunda sesión solo se puede excusar desde administración, con un motivo obligatorio, mediante el ledger inmutable de incidencias. La acción no cambia el estado histórico de la sesión ni la reprograma. Toda corrección distinta pasa por soporte y una decisión explícita.
+
+Los fallos posteriores de Calendar, email o CRM se recuperan en `fulfillment_jobs`; no justifican revertir ni repetir la devolución. Antes de probar este flujo en staging se hace el preflight exacto de Supabase y Stripe Sandbox y se usan exclusivamente datos de prueba.
+
 ## Producción
 
 La única realidad operativa de producción es Cloudflare Pages, según `docs/ENVIRONMENTS.md`. Este repositorio no ofrece aliases, builds, validadores ni entornos Wrangler para Workers o colas de producción.
