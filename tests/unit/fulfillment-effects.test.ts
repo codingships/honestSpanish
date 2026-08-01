@@ -52,6 +52,15 @@ function claimed(effectId = '22222222-2222-4222-8222-222222222222', generation =
     };
 }
 
+function drivePayload() {
+    return {
+        documentName: '03/08/26 - Ejercicios - Student',
+        exercisesFolderId: 'drive-exercises-folder-1',
+        sessionId: '33333333-3333-4333-8333-333333333333',
+        templateId: 'drive-template-1',
+    };
+}
+
 describe('durable fulfillment email effects', () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -368,5 +377,189 @@ describe('durable fulfillment email effects', () => {
         expect(new Set(teacherKeys)).toEqual(new Set([
             `fulfillment/${JOB_ID}/email.class_confirmation.teacher`,
         ]));
+    });
+});
+
+describe('durable fulfillment Google Drive copy effects', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('finalizes an accepted copy with its document identity and replays it without copying again', async () => {
+        const persistedResult = {
+            document_id: 'drive-doc-1',
+            document_url: 'https://docs.google.com/document/d/drive-doc-1/edit',
+        };
+        const rpc = vi.fn()
+            .mockResolvedValueOnce(claimed())
+            .mockResolvedValueOnce({ data: true, error: null })
+            .mockResolvedValueOnce({
+                data: [{
+                    attempt_generation: 1,
+                    claimed: false,
+                    effect_id: '22222222-2222-4222-8222-222222222222',
+                    effect_status: 'succeeded',
+                    provider_id: 'drive-doc-1',
+                    result: persistedResult,
+                }],
+                error: null,
+            });
+        const copy = vi.fn().mockResolvedValue({
+            documentId: 'drive-doc-1',
+            documentUrl: persistedResult.document_url,
+            outcome: 'accepted',
+        });
+        const { runFulfillmentDriveCopyEffect } = await import('../../src/lib/fulfillment/effects');
+        const effectContext = context(rpc, 'drive.copy.session.33333333-3333-4333-8333-333333333333');
+
+        await expect(runFulfillmentDriveCopyEffect(
+            effectContext,
+            drivePayload(),
+            copy,
+        )).resolves.toEqual({
+            documentId: 'drive-doc-1',
+            documentUrl: persistedResult.document_url,
+            replayed: false,
+        });
+        await expect(runFulfillmentDriveCopyEffect(
+            effectContext,
+            drivePayload(),
+            copy,
+        )).resolves.toEqual({
+            documentId: 'drive-doc-1',
+            documentUrl: persistedResult.document_url,
+            replayed: true,
+        });
+
+        expect(copy).toHaveBeenCalledTimes(1);
+        expect(rpc).toHaveBeenNthCalledWith(1, 'claim_fulfillment_effect', expect.objectContaining({
+            p_effect_type: 'google.drive.copy',
+        }));
+        expect(rpc).toHaveBeenNthCalledWith(2, 'finalize_fulfillment_effect', expect.objectContaining({
+            p_outcome: 'succeeded',
+            p_provider_id: 'drive-doc-1',
+            p_result: persistedResult,
+        }));
+    });
+
+    it('marks ambiguous provider acceptance for manual review and never invokes the copy callback again', async () => {
+        const rpc = vi.fn()
+            .mockResolvedValueOnce(claimed())
+            .mockResolvedValueOnce({ data: true, error: null })
+            .mockResolvedValueOnce({
+                data: [{
+                    attempt_generation: 1,
+                    claimed: false,
+                    effect_id: '22222222-2222-4222-8222-222222222222',
+                    effect_status: 'ambiguous',
+                    provider_id: null,
+                    result: null,
+                }],
+                error: null,
+            });
+        const copy = vi.fn().mockResolvedValue({ outcome: 'ambiguous' });
+        const {
+            runFulfillmentDriveCopyEffect,
+        } = await import('../../src/lib/fulfillment/effects');
+        const effectContext = context(rpc, 'drive.copy.session.33333333-3333-4333-8333-333333333333');
+
+        await expect(runFulfillmentDriveCopyEffect(
+            effectContext,
+            drivePayload(),
+            copy,
+        )).rejects.toMatchObject({
+            code: 'FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS',
+            requiresManualReview: true,
+        });
+        await expect(runFulfillmentDriveCopyEffect(
+            effectContext,
+            drivePayload(),
+            copy,
+        )).rejects.toMatchObject({
+            code: 'FULFILLMENT_EFFECT_MANUAL_REVIEW',
+            requiresManualReview: true,
+        });
+
+        expect(copy).toHaveBeenCalledTimes(1);
+        expect(rpc).toHaveBeenNthCalledWith(2, 'finalize_fulfillment_effect', expect.objectContaining({
+            p_error: { code: 'google_drive_copy_acceptance_ambiguous' },
+            p_outcome: 'ambiguous',
+        }));
+    });
+
+    it('finalizes a retryable rejection as failed and reports a delivery failure', async () => {
+        const rpc = vi.fn()
+            .mockResolvedValueOnce(claimed())
+            .mockResolvedValueOnce({ data: true, error: null });
+        const copy = vi.fn().mockResolvedValue({ outcome: 'retryable' });
+        const { runFulfillmentDriveCopyEffect } = await import('../../src/lib/fulfillment/effects');
+
+        await expect(runFulfillmentDriveCopyEffect(
+            context(rpc, 'drive.copy.session.33333333-3333-4333-8333-333333333333'),
+            drivePayload(),
+            copy,
+        )).rejects.toMatchObject({
+            code: 'FULFILLMENT_EFFECT_DELIVERY_FAILED',
+            requiresManualReview: false,
+        });
+
+        expect(rpc).toHaveBeenNthCalledWith(2, 'finalize_fulfillment_effect', expect.objectContaining({
+            p_error: { code: 'google_drive_copy_retryable_failure' },
+            p_outcome: 'failed',
+        }));
+    });
+
+    it('recovers a committed success after the finalization response is lost without copying twice', async () => {
+        const persistedResult = {
+            document_id: 'drive-doc-1',
+            document_url: 'https://docs.google.com/document/d/drive-doc-1/edit',
+        };
+        const rpc = vi.fn()
+            .mockResolvedValueOnce(claimed())
+            .mockRejectedValueOnce(new Error('database response lost after commit'))
+            .mockResolvedValueOnce({ data: false, error: null })
+            .mockResolvedValueOnce({
+                data: [{
+                    attempt_generation: 1,
+                    claimed: false,
+                    effect_id: '22222222-2222-4222-8222-222222222222',
+                    effect_status: 'succeeded',
+                    provider_id: 'drive-doc-1',
+                    result: persistedResult,
+                }],
+                error: null,
+            });
+        const copy = vi.fn().mockResolvedValue({
+            documentId: 'drive-doc-1',
+            documentUrl: persistedResult.document_url,
+            outcome: 'accepted',
+        });
+        const { runFulfillmentDriveCopyEffect } = await import('../../src/lib/fulfillment/effects');
+        const effectContext = context(rpc, 'drive.copy.session.33333333-3333-4333-8333-333333333333');
+
+        await expect(runFulfillmentDriveCopyEffect(
+            effectContext,
+            drivePayload(),
+            copy,
+        )).rejects.toMatchObject({
+            code: 'FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS',
+            requiresManualReview: false,
+        });
+        await expect(runFulfillmentDriveCopyEffect(
+            effectContext,
+            drivePayload(),
+            copy,
+        )).resolves.toEqual({
+            documentId: 'drive-doc-1',
+            documentUrl: persistedResult.document_url,
+            replayed: true,
+        });
+
+        expect(copy).toHaveBeenCalledTimes(1);
+        expect(rpc).toHaveBeenNthCalledWith(3, 'finalize_fulfillment_effect', expect.objectContaining({
+            p_error: { code: 'effect_finalization_lost_after_drive_copy' },
+            p_outcome: 'ambiguous',
+            p_provider_id: 'drive-doc-1',
+        }));
     });
 });

@@ -9,6 +9,7 @@ import { getEmailFrom } from '../email/client';
 
 const EFFECT_TYPE_RESEND_EMAIL = 'resend.email';
 const EFFECT_TYPE_GOOGLE_CALENDAR_PATCH = 'google.calendar.patch';
+const EFFECT_TYPE_GOOGLE_DRIVE_COPY = 'google.drive.copy';
 const EFFECT_LEASE_SECONDS = 120;
 const EFFECT_KEY_PATTERN = /^[a-z0-9][a-z0-9_.:/-]*$/;
 const LEASE_OWNER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
@@ -21,6 +22,7 @@ export type FulfillmentEmailEffectContext = {
 };
 
 export type FulfillmentCalendarEffectContext = FulfillmentEmailEffectContext;
+export type FulfillmentDriveCopyEffectContext = FulfillmentEmailEffectContext;
 
 export type FulfillmentEmailMessage = {
     email: string;
@@ -37,6 +39,34 @@ export type FulfillmentCalendarPatchPayload = {
 };
 
 export type FulfillmentCalendarPatchOutcome = 'accepted' | 'ambiguous' | 'retryable';
+
+export type FulfillmentDriveCopyPayload = {
+    documentName: string;
+    exercisesFolderId: string;
+    sessionId: string;
+    templateId: string;
+};
+
+export type FulfillmentDriveCopyOutcome =
+    | {
+        documentId: string;
+        documentUrl: string;
+        outcome: 'accepted';
+    }
+    | {
+        documentId?: string | null;
+        documentUrl?: string | null;
+        outcome: 'ambiguous';
+    }
+    | {
+        outcome: 'retryable';
+    };
+
+export type FulfillmentDriveCopyResult = {
+    documentId: string;
+    documentUrl: string;
+    replayed: boolean;
+};
 
 export type FulfillmentEffectErrorCode =
     | 'FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS'
@@ -246,6 +276,143 @@ export async function runFulfillmentCalendarPatchEffect(
     }
 
     return { replayed: false };
+}
+
+function driveCopyResultJson(
+    documentId?: string | null,
+    documentUrl?: string | null,
+): Json {
+    return {
+        document_id: documentId ?? null,
+        document_url: documentUrl ?? null,
+    };
+}
+
+function readDriveCopyReplayResult(claim: {
+    provider_id: string | null;
+    result: Json | null;
+}): FulfillmentDriveCopyResult {
+    const result = claim.result;
+    const documentId = claim.provider_id
+        ?? (result && !Array.isArray(result) && typeof result === 'object'
+            ? result.document_id
+            : null);
+    const documentUrl = result && !Array.isArray(result) && typeof result === 'object'
+        ? result.document_url
+        : null;
+
+    if (typeof documentId !== 'string' || !documentId || typeof documentUrl !== 'string' || !documentUrl) {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_MANUAL_REVIEW', true);
+    }
+    return { documentId, documentUrl, replayed: true };
+}
+
+export async function runFulfillmentDriveCopyEffect(
+    context: FulfillmentDriveCopyEffectContext,
+    payload: FulfillmentDriveCopyPayload,
+    copy: () => Promise<FulfillmentDriveCopyOutcome>,
+): Promise<FulfillmentDriveCopyResult> {
+    assertContext(context);
+    const payloadSha256 = await deterministicSha256({
+        channel: EFFECT_TYPE_GOOGLE_DRIVE_COPY,
+        ...payload,
+        version: 1,
+    });
+    const claim = await claimEffect(context, EFFECT_TYPE_GOOGLE_DRIVE_COPY, payloadSha256);
+
+    if (!claim.claimed) {
+        if (claim.effect_status === 'succeeded') return readDriveCopyReplayResult(claim);
+        if (claim.effect_status === 'processing') {
+            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_IN_PROGRESS', false);
+        }
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_MANUAL_REVIEW', true);
+    }
+    if (claim.effect_status !== 'processing') {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_CLAIM_FAILED', false);
+    }
+
+    let copyOutcome: FulfillmentDriveCopyOutcome = { outcome: 'ambiguous' };
+    try {
+        copyOutcome = await copy();
+    } catch {
+        copyOutcome = { outcome: 'ambiguous' };
+    }
+
+    if (copyOutcome.outcome === 'retryable') {
+        const result = driveCopyResultJson();
+        let finalized = false;
+        try {
+            finalized = await finalizeEffect({
+                attemptGeneration: claim.attempt_generation,
+                context,
+                effectId: claim.effect_id,
+                error: { code: 'google_drive_copy_retryable_failure' },
+                outcome: 'failed',
+                result,
+            });
+        } catch {
+            finalized = false;
+        }
+        if (!finalized) {
+            await bestEffortMarkAmbiguous({
+                attemptGeneration: claim.attempt_generation,
+                context,
+                effectId: claim.effect_id,
+                reason: 'effect_finalization_lost_after_drive_retryable_failure',
+                result,
+            });
+            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS', false);
+        }
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_DELIVERY_FAILED', false);
+    }
+
+    const result = driveCopyResultJson(copyOutcome.documentId, copyOutcome.documentUrl);
+    if (
+        copyOutcome.outcome === 'ambiguous'
+        || !copyOutcome.documentId
+        || !copyOutcome.documentUrl
+    ) {
+        await bestEffortMarkAmbiguous({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            providerId: copyOutcome.documentId ?? null,
+            reason: 'google_drive_copy_acceptance_ambiguous',
+            result,
+        });
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS', true);
+    }
+
+    let finalized = false;
+    try {
+        finalized = await finalizeEffect({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            outcome: 'succeeded',
+            providerId: copyOutcome.documentId,
+            result,
+        });
+    } catch {
+        finalized = false;
+    }
+    if (!finalized) {
+        await bestEffortMarkAmbiguous({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            providerId: copyOutcome.documentId,
+            reason: 'effect_finalization_lost_after_drive_copy',
+            result,
+        });
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS', false);
+    }
+
+    return {
+        documentId: copyOutcome.documentId,
+        documentUrl: copyOutcome.documentUrl,
+        replayed: false,
+    };
 }
 
 function safeDeliveryError(result: Extract<IdempotentEmailDeliveryResult, { ok: false }>): Json {

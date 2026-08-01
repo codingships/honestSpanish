@@ -105,6 +105,10 @@ describe('session fulfillment', () => {
 
         await fulfillSingleSession(supabaseAdmin as any, sessionId, {
             autoCreateMeeting: true,
+            emailEffectJob: {
+                jobId: '11111111-1111-4111-8111-111111111111',
+                leaseOwner: 'worker:test:1',
+            },
             sendEmail: false,
         });
 

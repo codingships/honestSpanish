@@ -144,7 +144,8 @@ async function loadSessions(
 async function createArtifactsForSession(
     supabaseAdmin: SupabaseClient<Database>,
     session: SessionWithJoins,
-    options: Required<Pick<FulfillmentOptions, 'autoCreateMeeting' | 'sendEmail'>>,
+    options: Required<Pick<FulfillmentOptions, 'autoCreateMeeting' | 'sendEmail'>>
+        & Pick<FulfillmentOptions, 'emailEffectJob'>,
     privateProfiles: Awaited<ReturnType<typeof getPrivateProfiles>>
 ): Promise<ProcessedClass | null> {
     if (session.status !== 'scheduled' || !session.scheduled_at) return null;
@@ -168,8 +169,16 @@ async function createArtifactsForSession(
     if (documentId && !documentLink) {
         documentLink = await getFileLink(documentId);
     } else if (!documentId) {
+        if (!options.emailEffectJob) {
+            throw new Error('class_document_effect_context_required');
+        }
         const level = (studentPrivate.current_level || 'A2') as 'A2' | 'B1' | 'B2' | 'C1';
         const docResult = await createClassDocument({
+            fulfillmentEffect: {
+                ...options.emailEffectJob,
+                effectKey: `google.drive.class_document.${session.id}`,
+                supabaseAdmin,
+            },
             sessionId: session.id,
             studentName,
             studentRootFolderId: studentPrivate.drive_folder_id,
@@ -251,6 +260,7 @@ export async function fulfillSingleSession(
 
     const effectiveOptions = {
         autoCreateMeeting: options.autoCreateMeeting ?? true,
+        emailEffectJob: options.emailEffectJob,
         sendEmail: options.sendEmail ?? true,
     };
 
@@ -339,6 +349,7 @@ export async function fulfillSessionBatch(
 
     const effectiveOptions = {
         autoCreateMeeting: options.autoCreateMeeting ?? true,
+        emailEffectJob: options.emailEffectJob,
         sendEmail: options.sendEmail ?? true,
     };
 

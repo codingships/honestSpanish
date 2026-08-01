@@ -7,6 +7,10 @@ import { docs } from '@googleapis/docs';
 import { getAuthClient } from './auth';
 import { googleConfig } from './config';
 import { describeGoogleError } from './logging';
+import {
+    runFulfillmentDriveCopyEffect,
+    type FulfillmentDriveCopyEffectContext,
+} from '../fulfillment/effects';
 
 let cachedDriveClient: drive_v3.Drive | null = null;
 type DrivePermissionRole = 'reader' | 'writer' | 'commenter';
@@ -453,6 +457,7 @@ export async function getStudentLevelStructure(
 }
 
 export interface CreateClassDocumentParams {
+    fulfillmentEffect: FulfillmentDriveCopyEffectContext;
     sessionId: string;
     studentName: string;
     studentRootFolderId: string;
@@ -479,6 +484,36 @@ function classDocumentResult(file: drive_v3.Schema$File): ClassDocumentResult {
         docId: file.id,
         docUrl: file.webViewLink || `https://docs.google.com/document/d/${file.id}/edit`,
     };
+}
+
+function driveStatus(error: unknown): number | null {
+    if (!error || typeof error !== 'object') return null;
+    if ('code' in error && Number.isFinite(Number((error as { code?: unknown }).code))) {
+        return Number((error as { code?: unknown }).code);
+    }
+    const response = 'response' in error
+        ? (error as { response?: { status?: unknown } }).response
+        : undefined;
+    return response && Number.isFinite(Number(response.status))
+        ? Number(response.status)
+        : null;
+}
+
+function isAmbiguousDriveWrite(error: unknown): boolean {
+    const status = driveStatus(error);
+    return status === null
+        || status === 408
+        || status === 409
+        || status === 425
+        || status === 429
+        || status >= 500;
+}
+
+function isClassDocumentIdentitySafetyError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : '';
+    return message === 'class_document_identity_conflict'
+        || message === 'class_document_identity_missing_id'
+        || message === 'class_document_identity_observation_incomplete';
 }
 
 async function findClassDocumentBySession(
@@ -526,7 +561,14 @@ function formatDateSpanish(date: Date): string {
 export async function createClassDocument(
     params: CreateClassDocumentParams
 ): Promise<ClassDocumentResult | null> {
-    const { sessionId, studentName, studentRootFolderId, level, classDate } = params;
+    const {
+        fulfillmentEffect,
+        sessionId,
+        studentName,
+        studentRootFolderId,
+        level,
+        classDate,
+    } = params;
     const drive = getDriveClient();
 
     try {
@@ -541,16 +583,6 @@ export async function createClassDocument(
         const dateStr = formatDateSpanish(classDate);
         const docName = `${dateStr} - Ejercicios - ${studentName}`;
 
-        const existingDocument = await findClassDocumentBySession(
-            drive,
-            structure.exercisesFolderId,
-            sessionId,
-        );
-        if (existingDocument) {
-            console.log('[Drive] Found existing class document');
-            return existingDocument;
-        }
-
         // 3. Copy template document
         const templateId = googleConfig.templateDocId;
         if (!templateId) {
@@ -558,69 +590,102 @@ export async function createClassDocument(
             return null;
         }
 
-        let copyResponse: { data: drive_v3.Schema$File };
-        try {
-            copyResponse = await drive.files.copy({
-                fileId: templateId,
-                requestBody: {
-                    name: docName,
-                    parents: [structure.exercisesFolderId],
-                    appProperties: {
-                        [CLASS_DOCUMENT_SESSION_PROPERTY]: sessionId,
-                    },
-                },
-                fields: 'id, name, webViewLink, appProperties',
-                supportsAllDrives: true,
-            });
-        } catch (copyError) {
-            const reconciledDocument = await findClassDocumentBySession(
-                drive,
-                structure.exercisesFolderId,
+        let appendNewDocumentToIndex = false;
+        const copyResult = await runFulfillmentDriveCopyEffect(
+            fulfillmentEffect,
+            {
+                documentName: docName,
+                exercisesFolderId: structure.exercisesFolderId,
                 sessionId,
-            );
-            if (!reconciledDocument) throw copyError;
-
-            if (structure.indexDocId) {
+                templateId,
+            },
+            async () => {
+                let existingDocument: ClassDocumentResult | null;
                 try {
-                    await appendToIndexDocument(
-                        structure.indexDocId,
-                        classDate,
-                        reconciledDocument.docUrl,
+                    existingDocument = await findClassDocumentBySession(
+                        drive,
+                        structure.exercisesFolderId,
+                        sessionId,
                     );
-                } catch (indexError) {
-                    console.warn('[Drive] Warning: Could not update index document:', describeGoogleError(indexError));
+                } catch (observationError) {
+                    return {
+                        outcome: isClassDocumentIdentitySafetyError(observationError)
+                            ? 'ambiguous' as const
+                            : 'retryable' as const,
+                    };
                 }
-            }
-            return reconciledDocument;
-        }
+                if (existingDocument) {
+                    return {
+                        outcome: 'accepted' as const,
+                        documentId: existingDocument.docId,
+                        documentUrl: existingDocument.docUrl,
+                    };
+                }
 
-        let createdDocument: ClassDocumentResult;
-        if (copyResponse.data.id) {
-            createdDocument = classDocumentResult(copyResponse.data);
-        } else {
-            const reconciledDocument = await findClassDocumentBySession(
-                drive,
-                structure.exercisesFolderId,
-                sessionId,
-            );
-            if (!reconciledDocument) {
-                console.error('[Drive] Failed to copy template document');
-                return null;
-            }
-            createdDocument = reconciledDocument;
-        }
+                try {
+                    const copyResponse = await drive.files.copy({
+                        fileId: templateId,
+                        requestBody: {
+                            name: docName,
+                            parents: [structure.exercisesFolderId],
+                            appProperties: {
+                                [CLASS_DOCUMENT_SESSION_PROPERTY]: sessionId,
+                            },
+                        },
+                        fields: 'id, name, webViewLink, appProperties',
+                        supportsAllDrives: true,
+                    });
+                    if (!copyResponse.data.id) {
+                        return { outcome: 'ambiguous' as const };
+                    }
+                    const createdDocument = classDocumentResult(copyResponse.data);
+                    appendNewDocumentToIndex = true;
+                    return {
+                        outcome: 'accepted' as const,
+                        documentId: createdDocument.docId,
+                        documentUrl: createdDocument.docUrl,
+                    };
+                } catch (copyError) {
+                    let reconciledDocument: ClassDocumentResult | null = null;
+                    try {
+                        reconciledDocument = await findClassDocumentBySession(
+                            drive,
+                            structure.exercisesFolderId,
+                            sessionId,
+                        );
+                    } catch {
+                        return { outcome: 'ambiguous' as const };
+                    }
+                    if (reconciledDocument) {
+                        appendNewDocumentToIndex = true;
+                        return {
+                            outcome: 'accepted' as const,
+                            documentId: reconciledDocument.docId,
+                            documentUrl: reconciledDocument.docUrl,
+                        };
+                    }
+                    return {
+                        outcome: isAmbiguousDriveWrite(copyError) ? 'ambiguous' as const : 'retryable' as const,
+                    };
+                }
+            },
+        );
+        const createdDocument = {
+            docId: copyResult.documentId,
+            docUrl: copyResult.documentUrl,
+        };
 
         console.log('[Drive] Created class document');
 
         // 4. Append to index document (non-blocking)
-        if (structure.indexDocId) {
+        if (appendNewDocumentToIndex && structure.indexDocId) {
             try {
                 await appendToIndexDocument(structure.indexDocId, classDate, createdDocument.docUrl);
             } catch (indexError) {
                 console.warn('[Drive] Warning: Could not update index document:', describeGoogleError(indexError));
                 // Continue - document was created successfully
             }
-        } else {
+        } else if (appendNewDocumentToIndex) {
             console.warn('[Drive] No index document found, skipping index update');
         }
 
