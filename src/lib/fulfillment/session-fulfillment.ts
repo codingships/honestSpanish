@@ -146,7 +146,7 @@ async function createArtifactsForSession(
     options: Required<Pick<FulfillmentOptions, 'autoCreateMeeting' | 'sendEmail'>>,
     privateProfiles: Awaited<ReturnType<typeof getPrivateProfiles>>
 ): Promise<ProcessedClass | null> {
-    if (!session.scheduled_at) return null;
+    if (session.status !== 'scheduled' || !session.scheduled_at) return null;
 
     const student = one(session.student);
     const teacher = one(session.teacher);
@@ -187,6 +187,7 @@ async function createArtifactsForSession(
         const endTime = new Date(scheduledAt.getTime() + durationMinutes * 60000);
 
         const calendarResult = await createClassEvent({
+            sessionId: session.id,
             summary: `Clase de Español - ${studentName}`,
             studentEmail,
             teacherEmail,

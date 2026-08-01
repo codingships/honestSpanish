@@ -424,6 +424,98 @@ export type Database = {
           },
         ];
       };
+      checkout_v2_reschedule_operations: {
+        Row: {
+          actor_id: string;
+          applied_at: string | null;
+          created_at: string;
+          cycle_id: string;
+          expected_anchor_revision: number;
+          id: string;
+          last_error: string | null;
+          new_scheduled_at: string;
+          observed_stripe_anchor_at: string | null;
+          old_scheduled_at: string;
+          operation_kind: string;
+          request_id: string;
+          session_id: string;
+          status: string;
+          stripe_mutation_started_at: string | null;
+          subscription_id: string;
+          target_stripe_anchor_at: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          actor_id: string;
+          applied_at?: string | null;
+          created_at?: string;
+          cycle_id: string;
+          expected_anchor_revision: number;
+          id?: string;
+          last_error?: string | null;
+          new_scheduled_at: string;
+          observed_stripe_anchor_at?: string | null;
+          old_scheduled_at: string;
+          operation_kind: string;
+          request_id: string;
+          session_id: string;
+          status?: string;
+          stripe_mutation_started_at?: string | null;
+          subscription_id: string;
+          target_stripe_anchor_at?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          actor_id?: string;
+          applied_at?: string | null;
+          created_at?: string;
+          cycle_id?: string;
+          expected_anchor_revision?: number;
+          id?: string;
+          last_error?: string | null;
+          new_scheduled_at?: string;
+          observed_stripe_anchor_at?: string | null;
+          old_scheduled_at?: string;
+          operation_kind?: string;
+          request_id?: string;
+          session_id?: string;
+          status?: string;
+          stripe_mutation_started_at?: string | null;
+          subscription_id?: string;
+          target_stripe_anchor_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_reschedule_operations_actor_id_fkey";
+            columns: ["actor_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_reschedule_operations_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_reschedule_operations_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_reschedule_operations_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       checkout_v2_cycles: {
         Row: {
           amount_cents: number;
@@ -2266,6 +2358,29 @@ export type Database = {
         };
         Returns: boolean;
       };
+      apply_checkout_v2_reschedule: {
+        Args: {
+          p_observed_stripe_anchor_at?: string | null;
+          p_operation_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_reschedule_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_reschedule_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      begin_checkout_v2_reschedule_stripe_mutation: {
+        Args: { p_operation_id: string };
+        Returns: Database["public"]["Tables"]["checkout_v2_reschedule_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_reschedule_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       apply_subscription_renewal: {
         Args: {
           p_new_ends_at: string;
@@ -2618,6 +2733,36 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      prepare_checkout_v2_reschedule: {
+        Args: {
+          p_actor_id: string;
+          p_new_scheduled_at: string;
+          p_request_id: string;
+          p_session_id: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_reschedule_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_reschedule_operations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      mark_checkout_v2_reschedule_outcome: {
+        Args: {
+          p_last_error: string;
+          p_observed_stripe_anchor_at?: string | null;
+          p_operation_id: string;
+          p_status: string;
+        };
+        Returns: Database["public"]["Tables"]["checkout_v2_reschedule_operations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "checkout_v2_reschedule_operations";
           isOneToOne: true;
           isSetofReturn: false;
         };

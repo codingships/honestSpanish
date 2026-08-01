@@ -8,6 +8,7 @@ import {
 import { getEmailFrom } from '../email/client';
 
 const EFFECT_TYPE_RESEND_EMAIL = 'resend.email';
+const EFFECT_TYPE_GOOGLE_CALENDAR_PATCH = 'google.calendar.patch';
 const EFFECT_LEASE_SECONDS = 120;
 const EFFECT_KEY_PATTERN = /^[a-z0-9][a-z0-9_.:/-]*$/;
 const LEASE_OWNER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
@@ -19,12 +20,23 @@ export type FulfillmentEmailEffectContext = {
     supabaseAdmin: SupabaseClient<Database>;
 };
 
+export type FulfillmentCalendarEffectContext = FulfillmentEmailEffectContext;
+
 export type FulfillmentEmailMessage = {
     email: string;
     html: string;
     source: string;
     subject: string;
 };
+
+export type FulfillmentCalendarPatchPayload = {
+    eventId: string;
+    operationId: string;
+    previousScheduledAt: string;
+    scheduledAt: string;
+};
+
+export type FulfillmentCalendarPatchOutcome = 'accepted' | 'ambiguous' | 'retryable';
 
 export type FulfillmentEffectErrorCode =
     | 'FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS'
@@ -104,6 +116,138 @@ function assertContext(context: FulfillmentEmailEffectContext): void {
     }
 }
 
+async function claimEffect(
+    context: FulfillmentEmailEffectContext,
+    effectType: string,
+    payloadSha256: string,
+) {
+    const { data: claimRows, error: claimError } = await context.supabaseAdmin.rpc(
+        'claim_fulfillment_effect',
+        {
+            p_effect_key: context.effectKey,
+            p_effect_type: effectType,
+            p_job_id: context.jobId,
+            p_lease_owner: context.leaseOwner,
+            p_lease_seconds: EFFECT_LEASE_SECONDS,
+            p_payload_sha256: payloadSha256,
+        },
+    );
+
+    if (claimError) {
+        const messageText = claimError.message ?? '';
+        if (messageText.includes('fulfillment_effect_identity_mismatch')) {
+            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_IDENTITY_MISMATCH', true);
+        }
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_CLAIM_FAILED', false);
+    }
+
+    const claim = claimRows?.[0];
+    if (!claim) {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_CLAIM_FAILED', false);
+    }
+    return claim;
+}
+
+export async function runFulfillmentCalendarPatchEffect(
+    context: FulfillmentCalendarEffectContext,
+    payload: FulfillmentCalendarPatchPayload,
+    patch: () => Promise<FulfillmentCalendarPatchOutcome>,
+): Promise<{ replayed: boolean }> {
+    assertContext(context);
+    const payloadSha256 = await deterministicSha256({
+        channel: EFFECT_TYPE_GOOGLE_CALENDAR_PATCH,
+        ...payload,
+        version: 1,
+    });
+    const claim = await claimEffect(context, EFFECT_TYPE_GOOGLE_CALENDAR_PATCH, payloadSha256);
+
+    if (!claim.claimed) {
+        if (claim.effect_status === 'succeeded') return { replayed: true };
+        if (claim.effect_status === 'processing') {
+            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_IN_PROGRESS', false);
+        }
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_MANUAL_REVIEW', true);
+    }
+    if (claim.effect_status !== 'processing') {
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_CLAIM_FAILED', false);
+    }
+
+    const result: Json = {
+        event_id: payload.eventId,
+        operation_id: payload.operationId,
+    };
+    let patchOutcome: FulfillmentCalendarPatchOutcome = 'ambiguous';
+    try {
+        patchOutcome = await patch();
+    } catch {
+        patchOutcome = 'ambiguous';
+    }
+    if (patchOutcome === 'retryable') {
+        let finalized = false;
+        try {
+            finalized = await finalizeEffect({
+                attemptGeneration: claim.attempt_generation,
+                context,
+                effectId: claim.effect_id,
+                error: { code: 'google_calendar_patch_retryable_failure' },
+                outcome: 'failed',
+                result,
+            });
+        } catch {
+            finalized = false;
+        }
+        if (!finalized) {
+            await bestEffortMarkAmbiguous({
+                attemptGeneration: claim.attempt_generation,
+                context,
+                effectId: claim.effect_id,
+                reason: 'effect_finalization_lost_after_calendar_retryable_failure',
+                result,
+            });
+            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS', false);
+        }
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_DELIVERY_FAILED', false);
+    }
+    if (patchOutcome === 'ambiguous') {
+        await bestEffortMarkAmbiguous({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            providerId: payload.eventId,
+            reason: 'google_calendar_patch_acceptance_ambiguous',
+            result,
+        });
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS', true);
+    }
+
+    let finalized = false;
+    try {
+        finalized = await finalizeEffect({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            outcome: 'succeeded',
+            providerId: payload.eventId,
+            result,
+        });
+    } catch {
+        finalized = false;
+    }
+    if (!finalized) {
+        await bestEffortMarkAmbiguous({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            providerId: payload.eventId,
+            reason: 'effect_finalization_lost_after_calendar_patch',
+            result,
+        });
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS', true);
+    }
+
+    return { replayed: false };
+}
+
 function safeDeliveryError(result: Extract<IdempotentEmailDeliveryResult, { ok: false }>): Json {
     return {
         code: result.acceptance === 'ambiguous'
@@ -181,30 +325,7 @@ export async function sendFulfillmentEmailEffect(
         version: 1,
     });
 
-    const { data: claimRows, error: claimError } = await context.supabaseAdmin.rpc(
-        'claim_fulfillment_effect',
-        {
-            p_effect_key: context.effectKey,
-            p_effect_type: EFFECT_TYPE_RESEND_EMAIL,
-            p_job_id: context.jobId,
-            p_lease_owner: context.leaseOwner,
-            p_lease_seconds: EFFECT_LEASE_SECONDS,
-            p_payload_sha256: payloadSha256,
-        },
-    );
-
-    if (claimError) {
-        const messageText = claimError.message ?? '';
-        if (messageText.includes('fulfillment_effect_identity_mismatch')) {
-            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_IDENTITY_MISMATCH', true);
-        }
-        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_CLAIM_FAILED', false);
-    }
-
-    const claim = claimRows?.[0];
-    if (!claim) {
-        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_CLAIM_FAILED', false);
-    }
+    const claim = await claimEffect(context, EFFECT_TYPE_RESEND_EMAIL, payloadSha256);
     if (!claim.claimed) {
         if (claim.effect_status === 'succeeded') {
             return {

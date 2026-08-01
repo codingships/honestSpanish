@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { FulfillmentDependencyPendingError } from '../../src/lib/fulfillment/dependency';
 
 vi.mock('../../src/lib/supabase-admin', () => ({
     createSupabaseAdminClient: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('../../src/lib/email', () => ({
 
 vi.mock('../../src/lib/google/calendar', () => ({
     cancelClassEvent: vi.fn(),
+    deterministicClassEventId: vi.fn((sessionId: string) => sessionId.replaceAll('-', '').toLowerCase()),
 }));
 
 vi.mock('../../src/lib/crm/class-email', () => ({
@@ -38,6 +40,14 @@ vi.mock('../../src/lib/site-url', () => ({
 vi.mock('../../src/lib/fulfillment/session-fulfillment', () => ({
     fulfillSingleSession: vi.fn(),
     fulfillSessionBatch: vi.fn(),
+}));
+
+const rescheduleMocks = vi.hoisted(() => ({
+    processSessionReschedule: vi.fn(),
+}));
+
+vi.mock('../../src/lib/fulfillment/session-reschedule', () => ({
+    processSessionReschedule: rescheduleMocks.processSessionReschedule,
 }));
 
 const createJob = (overrides: Record<string, unknown> = {}) => ({
@@ -642,15 +652,17 @@ describe('fulfillment jobs', () => {
         expect(successChain.eq).toHaveBeenCalledWith('attempts', 1);
     });
 
-    it('uses separate durable effect keys for student and teacher cancellation emails', async () => {
+    it('deletes a deterministic orphan event and uses separate durable cancellation email effects', async () => {
+        const sessionId = '418f47a2-9b6d-4c31-8a4e-123456789abc';
         const job = createJob({
             id: 'job-cancellation',
             job_type: 'session_cancellation',
+            session_id: sessionId,
             payload: {
                 cancelledBy: 'admin',
                 reason: 'Cambio de horario',
                 sendEmail: true,
-                sessionId: 'session-1',
+                sessionId,
             },
         });
         const selectChain: any = {
@@ -665,7 +677,7 @@ describe('fulfillment jobs', () => {
                 calendar_event_id: null,
                 drive_doc_url: 'https://docs.example/class',
                 duration_minutes: 50,
-                id: 'session-1',
+                id: sessionId,
                 meet_link: 'https://meet.example/class',
                 scheduled_at: '2026-08-01T10:00:00.000Z',
                 student: {
@@ -684,6 +696,10 @@ describe('fulfillment jobs', () => {
             },
             error: null,
         });
+        const cancellationStateChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockResolvedValue({ error: null }),
+        };
         const successChain: any = {
             update: vi.fn().mockReturnThis(),
             eq: vi.fn().mockReturnThis(),
@@ -695,11 +711,14 @@ describe('fulfillment jobs', () => {
                 .mockReturnValueOnce(selectChain)
                 .mockReturnValueOnce(createLockQuery())
                 .mockReturnValueOnce(sessionQuery)
+                .mockReturnValueOnce(cancellationStateChain)
                 .mockReturnValueOnce(successChain),
         };
         const email = await import('../../src/lib/email');
+        const calendar = await import('../../src/lib/google/calendar');
         const crmClassEmail = await import('../../src/lib/crm/class-email');
         vi.mocked(email.sendClassCancelled).mockResolvedValue(true);
+        vi.mocked(calendar.cancelClassEvent).mockResolvedValue(true);
         vi.mocked(crmClassEmail.recordClassEmailOutInCrmSafe).mockResolvedValue({ status: 'created' });
         const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
 
@@ -707,6 +726,12 @@ describe('fulfillment jobs', () => {
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
         })).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0 });
+
+        expect(calendar.cancelClassEvent).toHaveBeenCalledWith('418f47a29b6d4c318a4e123456789abc');
+        expect(cancellationStateChain.update).toHaveBeenCalledWith({
+            calendar_event_id: null,
+            meet_link: null,
+        });
 
         expect(email.sendClassCancelled).toHaveBeenNthCalledWith(
             1,
@@ -905,6 +930,97 @@ describe('fulfillment jobs', () => {
         })).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0 });
         expect(sessionFulfillment.fulfillSingleSession).not.toHaveBeenCalled();
         expect(supabaseAdmin.from).toHaveBeenCalledTimes(2);
+    });
+
+    it('treats the per-subscription processing unique conflict as expected contention', async () => {
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [createJob()], error: null }),
+        };
+        const lockChain = createLockQuery({
+            data: null,
+            error: {
+                code: '23505',
+                message: 'duplicate key value violates unique constraint "fulfillment_jobs_one_processing_subscription_idx"',
+            },
+        });
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(lockChain),
+        };
+        const sessionFulfillment = await import('../../src/lib/fulfillment/session-fulfillment');
+        vi.mocked(sessionFulfillment.fulfillSingleSession).mockResolvedValue(undefined);
+        const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0 });
+
+        expect(sessionFulfillment.fulfillSingleSession).not.toHaveBeenCalled();
+        expect(errorLog).not.toHaveBeenCalled();
+        expect(supabaseAdmin.from).toHaveBeenCalledTimes(2);
+    });
+
+    it('requeues a pending fulfillment dependency without consuming an attempt', async () => {
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({
+                data: [createJob({
+                    attempts: 2,
+                    job_type: 'session_reschedule',
+                    max_attempts: 3,
+                    payload: {
+                        operationId: 'operation-1',
+                        previousScheduledAt: '2026-08-03T08:00:00.000Z',
+                        scheduledAt: '2026-08-05T10:00:00.000Z',
+                        sessionId: 'session-1',
+                    },
+                })],
+                error: null,
+            }),
+        };
+        const failChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: 'job-1' }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery())
+                .mockReturnValueOnce(failChain),
+        };
+        rescheduleMocks.processSessionReschedule.mockRejectedValueOnce(
+            new FulfillmentDependencyPendingError(
+                'session_reschedule_waiting_for_calendar_event',
+            ),
+        );
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+
+        expect(rescheduleMocks.processSessionReschedule).toHaveBeenCalledTimes(1);
+        expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
+            attempts: 2,
+            status: 'pending',
+            last_error: 'session_reschedule_waiting_for_calendar_event',
+        }));
+        const retryUpdate = failChain.update.mock.calls[0]?.[0] as { run_at?: string };
+        expect(Date.parse(retryUpdate.run_at ?? '')).toBeGreaterThan(Date.now());
+        expect(retryUpdate.run_at).not.toBe('9999-12-31T23:59:59.999Z');
     });
 
     it('reschedules failed jobs that still have retry attempts', async () => {

@@ -27,6 +27,7 @@ export {
     getCalendarClient,
     createEventWithMeet,
     createClassEvent,
+    deterministicClassEventId,
     cancelClassEvent,
     updateCalendarEvent,
     getEvent,

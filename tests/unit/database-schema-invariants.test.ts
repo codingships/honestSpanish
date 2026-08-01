@@ -24,6 +24,7 @@ const checkoutV2BillingMigration = readFileSync('supabase/migrations/20260731225
 const checkoutV2MaterializationMigration = readFileSync('supabase/migrations/20260801120000_materialize_checkout_v2_cycle_sessions.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutHoldProtectionMigration = readFileSync('supabase/migrations/20260801130000_protect_checkout_v2_slot_holds.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2CycleFulfillmentMigration = readFileSync('supabase/migrations/20260801140000_enqueue_checkout_v2_cycle_fulfillment.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutV2RescheduleMigration = readFileSync('supabase/migrations/20260801150000_add_checkout_v2_reschedule_operations.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -420,7 +421,6 @@ describe('database schema security invariants', () => {
             'private.guard_bookable_slot_occurrence()',
             'private.validate_bookable_slot_occurrences()',
             'private.sync_bookable_slot_occurrence_blocking()',
-            'private.guard_session_against_bookable_slots()',
             'private.guard_bookable_slot_hold()',
             'private.validate_versioned_checkout_slot_hold()',
             'public.create_bookable_slot(',
@@ -435,6 +435,10 @@ describe('database schema security invariants', () => {
                 canonicalSqlFunction(bookableSlotsMigration, functionName)
             );
         }
+
+        expect(canonicalLatestSqlFunction(schema, 'private.guard_session_against_bookable_slots()')).toBe(
+            canonicalLatestSqlFunction(checkoutV2RescheduleMigration, 'private.guard_session_against_bookable_slots()'),
+        );
     });
 
     it('keeps Checkout V2 billing, four-date movement and weekly capacity atomic', () => {
@@ -528,12 +532,16 @@ describe('database schema security invariants', () => {
 
         for (const functionName of [
             'private.guard_checkout_v2_cycle_binding()',
-            'public.materialize_checkout_v2_cycle_sessions(',
         ]) {
             expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
                 canonicalLatestSqlFunction(checkoutV2MaterializationMigration, functionName),
             );
         }
+
+
+        expect(canonicalLatestSqlFunction(schema, 'public.materialize_checkout_v2_cycle_sessions(')).toBe(
+            canonicalLatestSqlFunction(checkoutV2RescheduleMigration, 'public.materialize_checkout_v2_cycle_sessions('),
+        );
     });
 
     it('limits live Checkout V2 holds by an opaque network fingerprint without legacy RPC bypasses', () => {
@@ -639,6 +647,132 @@ describe('database schema security invariants', () => {
                 canonicalLatestSqlFunction(checkoutV2CycleFulfillmentMigration, functionName),
             );
         }
+    });
+
+    it('keeps Checkout V2 rescheduling durable, serialized and service-role only', () => {
+        for (const snippet of [
+            'CREATE TABLE public.checkout_v2_reschedule_operations (',
+            'request_id UUID NOT NULL UNIQUE',
+            "operation_kind IN ('provisional_anchor', 'single_session')",
+            "status IN ('requested', 'applied', 'failed', 'manual_review')",
+            'stripe_mutation_started_at TIMESTAMPTZ',
+            'checkout_v2_reschedule_one_pending_subscription_idx',
+            "WHERE status IN ('requested', 'manual_review')",
+            "'session_reschedule'",
+            'fulfillment_jobs_one_processing_subscription_idx',
+            "WHERE subscription_id IS NOT NULL AND status = 'processing'",
+            "'checkout_v2_reschedule_upgrade_requires_one_processing_job_per_subscription'",
+            'CREATE OR REPLACE FUNCTION public.prepare_checkout_v2_reschedule(',
+            'CREATE OR REPLACE FUNCTION public.begin_checkout_v2_reschedule_stripe_mutation(',
+            'CREATE OR REPLACE FUNCTION public.mark_checkout_v2_reschedule_outcome(',
+            'p_observed_stripe_anchor_at TIMESTAMPTZ DEFAULT NULL',
+            "'stripe_confirmed_at_previous_anchor'",
+            "observed_stripe_anchor_at IS NULL\n                    AND last_error <> 'stripe_confirmed_at_previous_anchor'",
+            "last_error = 'stripe_confirmed_at_previous_anchor'\n                    AND observed_stripe_anchor_at IS NOT NULL",
+            "operation_row.status = 'requested'\n            AND p_observed_stripe_anchor_at IS NULL\n            AND p_last_error <> 'stripe_confirmed_at_previous_anchor'",
+            'CREATE OR REPLACE FUNCTION public.apply_checkout_v2_reschedule(',
+            "last_error = 'expired_before_stripe_mutation'",
+            "pending_operation.status IN ('requested', 'manual_review')",
+            "operation_row.old_scheduled_at < operation_row.created_at + INTERVAL '24 hours'",
+            'operation_row.stripe_mutation_started_at IS NULL',
+            'CREATE OR REPLACE FUNCTION private.checkout_v2_reschedule_has_sufficient_notice(',
+            "p_scheduled_at >= p_requested_at + INTERVAL '24 hours'",
+            'CREATE OR REPLACE FUNCTION private.checkout_v2_reschedule_target_is_available(',
+            'target_local::TIME - availability.start_time',
+            'p_duration_minutes::BIGINT * 60',
+            'allocation_row.subscription_id IS DISTINCT FROM p_subscription_id',
+            'session_row.teacher_id IS DISTINCT FROM allocation_row.teacher_id',
+            "RAISE EXCEPTION 'checkout_v2_reschedule_subscription_has_pending_operation'",
+            'CREATE OR REPLACE FUNCTION public.cancel_scheduled_session(',
+            'pg_catalog.hashtextextended(v_discovered_subscription_id::TEXT, 42854)',
+            'CREATE OR REPLACE FUNCTION private.guard_session_against_bookable_slots()',
+            'SECURITY DEFINER',
+            'FROM PUBLIC, anon, authenticated, service_role',
+            'operation.stripe_mutation_started_at IS NOT NULL',
+            'CREATE OR REPLACE FUNCTION public.materialize_checkout_v2_cycle_sessions(',
+            'pg_catalog.hashtextextended(p_subscription_id::TEXT, 42854)',
+            "'session_cancellation:' || v_session.id::TEXT",
+            "'sessionId', v_session.id",
+            "'cancelledBy', p_cancelled_by_role",
+            "'reason', p_cancellation_reason",
+            "RAISE EXCEPTION 'session_cancellation_job_conflicts'",
+            'CREATE OR REPLACE FUNCTION private.guard_checkout_v2_reschedule_locked_state()',
+            "current_setting('app.checkout_v2_reschedule_operation_id', TRUE)",
+            'operation.id::TEXT IS DISTINCT FROM bypass_operation_id',
+            "RAISE EXCEPTION 'checkout_v2_reschedule_session_is_locked'",
+            "USING ERRCODE = '40001'",
+            'guard_checkout_v2_reschedule_subscription_state',
+            'guard_checkout_v2_reschedule_billing_state',
+            'guard_checkout_v2_reschedule_cycle_state',
+            "'app.checkout_v2_reschedule_operation_id'",
+            'CREATE OR REPLACE FUNCTION private.validate_checkout_v2_first_session_coherence()',
+            'DEFERRABLE INITIALLY DEFERRED',
+            'CREATE OR REPLACE FUNCTION private.assert_checkout_v2_first_session_coherence_upgrade_safe()',
+            "'checkout_v2_reschedule_upgrade_requires_coherent_first_session_billing_cycle'",
+            "'checkout_v2_reschedule:' || operation_row.id::TEXT",
+            "'operationId', operation_row.id",
+            "'previousScheduledAt', old_session_times -> moved_session.id::TEXT",
+            "'scheduledAt', moved_session.scheduled_at",
+            "'sendEmail', TRUE",
+            'REVOKE INSERT, UPDATE, DELETE ON TABLE public.checkout_v2_reschedule_operations',
+            'GRANT SELECT ON TABLE public.checkout_v2_reschedule_operations TO service_role',
+            'GRANT EXECUTE ON FUNCTION public.prepare_checkout_v2_reschedule(',
+            'GRANT EXECUTE ON FUNCTION public.begin_checkout_v2_reschedule_stripe_mutation(UUID)',
+            'GRANT EXECUTE ON FUNCTION public.mark_checkout_v2_reschedule_outcome(',
+            'GRANT EXECUTE ON FUNCTION public.apply_checkout_v2_reschedule(',
+            'REVOKE EXECUTE ON FUNCTION public.reconcile_checkout_v2_provisional_anchor(',
+            'SELECT private.assert_checkout_v2_first_session_coherence_upgrade_safe()',
+        ]) {
+            expect(checkoutV2RescheduleMigration).toContain(snippet);
+            expect(schema).toContain(snippet);
+        }
+
+        for (const typeSnippet of [
+            'checkout_v2_reschedule_operations: {',
+            'expected_anchor_revision: number;',
+            'target_stripe_anchor_at: string | null;',
+            'observed_stripe_anchor_at: string | null;',
+            'stripe_mutation_started_at: string | null;',
+            'apply_checkout_v2_reschedule: {',
+            'p_observed_stripe_anchor_at?: string | null;',
+            'begin_checkout_v2_reschedule_stripe_mutation: {',
+            'mark_checkout_v2_reschedule_outcome: {',
+            'prepare_checkout_v2_reschedule: {',
+            'p_new_scheduled_at: string;',
+        ]) {
+            expect(databaseTypes).toContain(typeSnippet);
+        }
+
+        expect(databaseTypes).toContain(
+            'mark_checkout_v2_reschedule_outcome: {\n'
+            + '        Args: {\n'
+            + '          p_last_error: string;\n'
+            + '          p_observed_stripe_anchor_at?: string | null;',
+        );
+
+        for (const functionName of [
+            'public.cancel_scheduled_session(',
+            'private.checkout_v2_reschedule_has_sufficient_notice(',
+            'private.checkout_v2_reschedule_target_is_available(',
+            'private.guard_checkout_v2_reschedule_locked_state()',
+            'public.prepare_checkout_v2_reschedule(',
+            'public.begin_checkout_v2_reschedule_stripe_mutation(',
+            'public.mark_checkout_v2_reschedule_outcome(',
+            'public.apply_checkout_v2_reschedule(',
+            'private.validate_checkout_v2_first_session_coherence()',
+            'private.assert_checkout_v2_first_session_coherence_upgrade_safe()',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutV2RescheduleMigration, functionName),
+            );
+        }
+
+        expect(checkoutV2RescheduleMigration).not.toContain(
+            'GRANT INSERT, UPDATE ON TABLE public.checkout_v2_reschedule_operations',
+        );
+        expect(checkoutV2RescheduleMigration).not.toContain(
+            'GRANT EXECUTE ON FUNCTION public.reconcile_checkout_v2_provisional_anchor',
+        );
     });
 
     it('serializes checkout claims and preserves unambiguous billing lifecycle state', () => {
