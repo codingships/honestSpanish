@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Turnstile } from '@marsidev/react-turnstile';
+import { captureAcquisitionAttribution } from '../lib/acquisition-attribution';
 
 interface LevelCheckTranslations {
     title: string;
@@ -122,6 +123,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
         setErrorMessage('');
 
         try {
+            const attribution = captureAcquisitionAttribution(lang);
             const response = await fetch('/api/level-check', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -130,6 +132,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                     ...(leadToken ?? {}),
                     lang,
                     sourcePath: typeof window === 'undefined' ? '' : window.location.pathname,
+                    ...(attribution ? { attribution } : {}),
                     'cf-turnstile-response': turnstileToken,
                 }),
             });

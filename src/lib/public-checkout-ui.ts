@@ -1,7 +1,12 @@
 import type { PublicBookableSlot } from './public-bookable-slots';
+import {
+    appendAcquisitionAttribution,
+    type AcquisitionAttribution,
+} from './acquisition-attribution';
 
 export type CheckoutLanguage = 'es' | 'en' | 'ru';
 
+const maxAuthReturnToLength = 1_024;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const localTimePattern = /^(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d$/;
 const renewalPeriodMs = 28 * 24 * 60 * 60 * 1000;
@@ -127,7 +132,16 @@ export function parseBookableSlotsResponse(value: unknown, nowMs = Date.now()): 
     return slots;
 }
 
-export function buildCheckoutLoginUrl(lang: CheckoutLanguage, slotPublicId: string): string {
-    const returnTo = `/${lang}?checkoutSlot=${encodeURIComponent(slotPublicId)}#planes`;
+export function buildCheckoutLoginUrl(
+    lang: CheckoutLanguage,
+    slotPublicId: string,
+    attribution?: AcquisitionAttribution | null,
+): string {
+    const params = new URLSearchParams({ checkoutSlot: slotPublicId });
+    if (attribution) appendAcquisitionAttribution(params, attribution);
+    let returnTo = `/${lang}?${params.toString()}#planes`;
+    if (returnTo.length > maxAuthReturnToLength) {
+        returnTo = `/${lang}?checkoutSlot=${encodeURIComponent(slotPublicId)}#planes`;
+    }
     return `/${lang}/login?returnTo=${encodeURIComponent(returnTo)}`;
 }

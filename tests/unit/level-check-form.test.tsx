@@ -42,7 +42,7 @@ function consentCheckbox() {
 
 describe('LevelCheckForm', () => {
     beforeEach(() => {
-        window.history.pushState(null, '', '/es/diagnostico?email=prefilled@example.com');
+        window.history.pushState(null, '', '/es/diagnostico?email=prefilled@example.com&utm_source=organic');
         vi.stubGlobal('fetch', vi.fn());
     });
 
@@ -152,6 +152,11 @@ describe('LevelCheckForm', () => {
             consent: true,
             lang: 'es',
             sourcePath: '/es/diagnostico',
+            attribution: expect.objectContaining({
+                landingPath: '/es/diagnostico',
+                entryLanguage: 'es',
+                utmSource: 'organic',
+            }),
             'cf-turnstile-response': 'unit-level-token',
         });
     });

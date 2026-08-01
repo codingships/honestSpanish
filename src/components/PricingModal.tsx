@@ -2,6 +2,10 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
 import { formatPackagePrice } from '../lib/package-pricing';
 import { buildCheckoutLoginUrl, parseBookableSlotsResponse } from '../lib/public-checkout-ui';
+import {
+    captureAcquisitionAttribution,
+    type AcquisitionAttribution,
+} from '../lib/acquisition-attribution';
 import type { PublicBookableSlot } from '../lib/public-bookable-slots';
 
 export interface PricingModalTranslations {
@@ -310,9 +314,13 @@ export default function PricingModal({
 
     const selectedSlot = slots.find((slot) => slot.publicId === selectedSlotPublicId) ?? null;
 
-    const loginWithSelection = () => {
+    const loginWithSelection = (attribution?: AcquisitionAttribution | null) => {
         if (!selectedSlot) return;
-        window.location.assign(buildCheckoutLoginUrl(lang, selectedSlot.publicId));
+        window.location.assign(buildCheckoutLoginUrl(
+            lang,
+            selectedSlot.publicId,
+            attribution ?? captureAcquisitionAttribution(lang),
+        ));
     };
 
     const handleContinue = async () => {
@@ -320,8 +328,9 @@ export default function PricingModal({
             setError(t.slotConflict);
             return;
         }
+        const attribution = captureAcquisitionAttribution(lang);
         if (!isLoggedIn) {
-            loginWithSelection();
+            loginWithSelection(attribution);
             return;
         }
         if (!checkoutEnabled) return;
@@ -352,6 +361,7 @@ export default function PricingModal({
                     termsAccepted,
                     serviceStartRequested,
                     withdrawalLossAcknowledged,
+                    ...(attribution ? { attribution } : {}),
                     'cf-turnstile-response': turnstileToken,
                 }),
             });
@@ -368,7 +378,7 @@ export default function PricingModal({
                 : null;
 
             if (response.status === 401) {
-                loginWithSelection();
+                loginWithSelection(attribution);
                 return;
             }
             if (response.status === 409 && (errorCode === 'SLOT_UNAVAILABLE' || errorCode === 'HOLD_CONFLICT')) {

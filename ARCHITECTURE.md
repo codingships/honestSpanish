@@ -52,11 +52,20 @@ Tablas centrales:
 - `checkout_v2_guarantee_operations`, `checkout_v2_session_incident_resolutions`
 - `sessions`, `student_teachers`
 - `leads`
+- `acquisition_attribution_events`
 - `fulfillment_jobs`
 - `processed_webhook_events`
 - `admin_audit_log`
 
 RLS protege el acceso por rol. Las operaciones administrativas y de fulfillment usan la service role únicamente en código server-only.
+
+## Atribución de adquisición
+
+La atribución inicial registra únicamente un origen observado cuando ocurre una conversión verificable: solicitud de plaza, diagnóstico válido o inicio de checkout. No instala analítica de navegación ni crea un identificador persistente del visitante. El navegador reduce la entrada a ruta local, idioma, clase de referidor y los cinco parámetros UTM permitidos; el servidor vuelve a normalizarla antes de escribir.
+
+`acquisition_attribution_events` es un ledger append-only e idempotente enlazado al contacto y al `lead` o `checkout_intent` que valida el evento. `crm_contacts.source` y `source_path` permanecen como compatibilidad operativa, pero no son la fuente de verdad para reporting porque son mutables. La ficha CRM denomina primer y último origen a los primeros y últimos eventos realmente capturados, no a una visita histórica que el sistema no observa.
+
+No se duplican compras, renovaciones ni devoluciones en este dominio. La atribución del checkout se relaciona con `subscriptions.checkout_intent_id`, ciclos y pagos existentes para calcular después ingresos, devoluciones y margen. Los UTM no se envían a Stripe y esta medición nunca bloquea una solicitud o una compra si falta o falla.
 
 ## Remuneración docente
 

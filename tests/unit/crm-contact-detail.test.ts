@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { getCrmContactDetail, getCrmContactDetailByContactId } from '../../src/lib/crm/contact-detail';
 
 function createQuery(result: { data: unknown; error: unknown }) {
@@ -35,6 +36,15 @@ function createClient(tableQueries: Record<string, any | any[]>) {
 }
 
 describe('getCrmContactDetail', () => {
+    it('labels the CRM attribution window without claiming pre-capture history', () => {
+        const page = readFileSync('src/pages/[lang]/campus/admin/crm/contact/[id].astro', 'utf8');
+
+        expect(page).toContain('Primer origen observado');
+        expect(page).toContain('Ultima atribucion capturada');
+        expect(page).toContain('No reconstruye visitas anteriores a esta captura.');
+        expect(page).toContain('Atribucion pendiente de migracion');
+    });
+
     it('keeps operational history available when CRM tables are not migrated yet', async () => {
         const supportTicket = {
             id: 'ticket-1',
@@ -178,6 +188,10 @@ describe('getCrmContactDetail', () => {
             crm_tasks: createQuery({ data: [task], error: null }),
             crm_activities: createQuery({ data: [activity], error: null }),
             crm_consents: createQuery({ data: [consent], error: null }),
+            acquisition_attribution_events: [
+                createQuery({ data: [], error: null }),
+                createQuery({ data: [], error: null }),
+            ],
         });
 
         const detail = await getCrmContactDetail(client as any, {
@@ -235,6 +249,10 @@ describe('getCrmContactDetail', () => {
             crm_tasks: createQuery({ data: [], error: null }),
             crm_activities: createQuery({ data: [], error: null }),
             crm_consents: createQuery({ data: [], error: null }),
+            acquisition_attribution_events: [
+                createQuery({ data: [], error: null }),
+                createQuery({ data: [], error: null }),
+            ],
         });
 
         const detail = await getCrmContactDetailByContactId(client as any, {
@@ -248,5 +266,90 @@ describe('getCrmContactDetail', () => {
         expect(detail.sessions).toEqual([]);
         expect(client.from).not.toHaveBeenCalledWith('support_tickets');
         expect(client.from).not.toHaveBeenCalledWith('sessions');
+    });
+
+    it('loads at most twelve recent attribution events and labels the visible window boundaries', async () => {
+        const contact = {
+            id: 'contact-1',
+            profile_id: null,
+            primary_email: 'lead@example.com',
+            lifecycle_stage: 'lead',
+        };
+        const latest = {
+            id: 'event-latest',
+            request_id: '10000000-0000-4000-8000-000000000001',
+            event_kind: 'checkout_start',
+            contact_id: contact.id,
+            lead_id: null,
+            checkout_intent_id: 'checkout-1',
+            landing_path: '/en',
+            referrer_kind: 'external',
+            referrer_host: 'google.com',
+            referrer_path: null,
+            entry_language: 'en',
+            utm_source: 'google',
+            utm_medium: 'cpc',
+            utm_campaign: 'move_to_spain',
+            utm_term: null,
+            utm_content: null,
+            captured_at: '2026-08-01T12:00:00.000Z',
+            created_at: '2026-08-01T12:00:00.000Z',
+        };
+        const earliestVisible = {
+            ...latest,
+            id: 'event-earliest-visible',
+            event_kind: 'application_submit',
+            captured_at: '2026-08-01T10:00:00.000Z',
+        };
+        const attributionQuery = createQuery({ data: [latest, earliestVisible], error: null });
+        const earliestQuery = createQuery({ data: [earliestVisible], error: null });
+        const client = createClient({
+            crm_contacts: createQuery({ data: contact, error: null }),
+            crm_opportunities: createQuery({ data: [], error: null }),
+            crm_tasks: createQuery({ data: [], error: null }),
+            crm_activities: createQuery({ data: [], error: null }),
+            crm_consents: createQuery({ data: [], error: null }),
+            acquisition_attribution_events: [attributionQuery, earliestQuery],
+        });
+
+        const detail = await getCrmContactDetailByContactId(client as any, { contactId: contact.id });
+
+        expect(attributionQuery.limit).toHaveBeenCalledWith(12);
+        expect(earliestQuery.limit).toHaveBeenCalledWith(1);
+        expect(attributionQuery.order).toHaveBeenNthCalledWith(1, 'captured_at', { ascending: false });
+        expect(attributionQuery.order).toHaveBeenNthCalledWith(2, 'id', { ascending: false });
+        expect(earliestQuery.order).toHaveBeenNthCalledWith(1, 'captured_at', { ascending: true });
+        expect(earliestQuery.order).toHaveBeenNthCalledWith(2, 'id', { ascending: true });
+        expect(detail.acquisitionAttributionReady).toBe(true);
+        expect(detail.acquisitionAttributionEvents).toEqual([latest, earliestVisible]);
+        expect(detail.latestCapturedAttribution).toEqual(latest);
+        expect(detail.firstObservedAttribution).toEqual(earliestVisible);
+    });
+
+    it('keeps the CRM detail usable when attribution has not been migrated', async () => {
+        const contact = {
+            id: 'contact-1',
+            profile_id: null,
+            primary_email: 'lead@example.com',
+            lifecycle_stage: 'lead',
+        };
+        const client = createClient({
+            crm_contacts: createQuery({ data: contact, error: null }),
+            crm_opportunities: createQuery({ data: [], error: null }),
+            crm_tasks: createQuery({ data: [], error: null }),
+            crm_activities: createQuery({ data: [], error: null }),
+            crm_consents: createQuery({ data: [], error: null }),
+            acquisition_attribution_events: createQuery({
+                data: null,
+                error: { code: 'PGRST205', message: 'Could not find the table in the schema cache' },
+            }),
+        });
+
+        const detail = await getCrmContactDetailByContactId(client as any, { contactId: contact.id });
+
+        expect(detail.isReady).toBe(true);
+        expect(detail.contact).toEqual(contact);
+        expect(detail.acquisitionAttributionReady).toBe(false);
+        expect(detail.acquisitionAttributionEvents).toEqual([]);
     });
 });

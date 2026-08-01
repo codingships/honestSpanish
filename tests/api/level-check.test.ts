@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
     syncLeadCaptureToCrmSafe: vi.fn(),
     recordLevelCheckInCrmSafe: vi.fn(),
     verifyLeadEmailToken: vi.fn(),
+    recordAcquisitionAttributionSafe: vi.fn(),
 }));
 
 vi.mock('../../src/lib/supabase-admin', () => ({
@@ -30,6 +31,10 @@ vi.mock('../../src/lib/crm/lead-capture', () => ({
 
 vi.mock('../../src/lib/crm/level-check', () => ({
     recordLevelCheckInCrmSafe: mocks.recordLevelCheckInCrmSafe,
+}));
+
+vi.mock('../../src/lib/crm/acquisition-attribution', () => ({
+    recordAcquisitionAttributionSafe: mocks.recordAcquisitionAttributionSafe,
 }));
 
 vi.mock('../../src/lib/lead-email-token', () => ({
@@ -81,6 +86,12 @@ const validPayload = {
     adultConfirmed: true,
     consent: true,
     'cf-turnstile-response': 'turnstile-token',
+    attribution: {
+        requestId: '90000000-0000-4000-8000-000000000001',
+        landingPath: '/en/diagnostico',
+        referrerKind: 'direct',
+        entryLanguage: 'en',
+    },
 };
 
 const crmLead = {
@@ -122,6 +133,7 @@ describe('/api/level-check', () => {
             taskId: '30000000-0000-4000-8000-000000000001',
         });
         mocks.recordLevelCheckInCrmSafe.mockResolvedValue({ status: 'recorded', activityId: 'activity-1', taskId: 'task-1' });
+        mocks.recordAcquisitionAttributionSafe.mockResolvedValue({ status: 'recorded' });
         mocks.verifyLeadEmailToken.mockResolvedValue(true);
         vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
             json: vi.fn().mockResolvedValue({ success: true }),
@@ -199,6 +211,11 @@ describe('/api/level-check', () => {
             }),
         }));
         expect(mocks.recordLevelCheckInCrmSafe.mock.calls[0][1].metadata).not.toHaveProperty('written_sample');
+        expect(mocks.recordAcquisitionAttributionSafe).toHaveBeenCalledWith(expect.anything(), {
+            eventKind: 'level_check_submit',
+            attribution: validPayload.attribution,
+            leadId: crmLead.id,
+        });
     });
 
     it('does not overwrite an existing lead when the public diagnostic has no signed token', async () => {
@@ -219,6 +236,7 @@ describe('/api/level-check', () => {
         expect(mocks.loadLeadCaptureForCrm).not.toHaveBeenCalled();
         expect(mocks.syncLeadCaptureToCrmSafe).not.toHaveBeenCalled();
         expect(mocks.recordLevelCheckInCrmSafe).not.toHaveBeenCalled();
+        expect(mocks.recordAcquisitionAttributionSafe).not.toHaveBeenCalled();
     });
 
     it('creates a minimal lead if the diagnostic link is opened before an application exists', async () => {

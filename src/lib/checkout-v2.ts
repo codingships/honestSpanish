@@ -20,6 +20,7 @@ import { createSupabaseAdminClient } from './supabase-admin';
 import { createSupabaseServerClient } from './supabase-server';
 import { verifyCheckoutTurnstile } from './turnstile';
 import type { Database } from '../types/database.types';
+import { recordAcquisitionAttributionSafe } from './crm/acquisition-attribution';
 
 type CheckoutContext = Parameters<APIRoute>[0];
 type CheckoutIntent = Database['public']['Tables']['checkout_intents']['Row'];
@@ -42,6 +43,7 @@ type CheckoutV2Request = {
     termsAccepted?: unknown;
     serviceStartRequested?: unknown;
     withdrawalLossAcknowledged?: unknown;
+    attribution?: unknown;
 };
 
 export type CheckoutV2ErrorCode =
@@ -719,6 +721,7 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             }
         }
 
+        let attributionRecorded = false;
         for (let attempt = 0; attempt < 2; attempt += 1) {
             if (checkoutIntent.status === 'completed') {
                 return checkoutErrorResponse(
@@ -731,6 +734,14 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                     'You already have another checkout in progress',
                     'CHECKOUT_IN_PROGRESS',
                 );
+            }
+            if (!attributionRecorded) {
+                await recordAcquisitionAttributionSafe(supabaseAdmin, {
+                    eventKind: 'checkout_start',
+                    attribution: body.attribution,
+                    checkoutIntentId: checkoutIntent.id,
+                });
+                attributionRecorded = true;
             }
 
             const profilePrivate = await getPrivateProfile(user.id);

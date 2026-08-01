@@ -91,6 +91,23 @@ const timelineItems = [
         date: ticket.created_at,
     }] : []),
 ].sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime()).slice(0, 15);
+
+const attributionEventLabels: Record<string, string> = {
+    application_submit: 'Solicitud enviada',
+    level_check_submit: 'Diagnostico enviado',
+    checkout_start: 'Checkout iniciado',
+};
+
+const describeAttribution = (event: typeof crmDetail.latestCapturedAttribution) => {
+    if (!event) return '-';
+    const campaign = [event.utm_source, event.utm_medium, event.utm_campaign].filter(Boolean).join(' / ');
+    const referrer = event.referrer_kind === 'external'
+        ? event.referrer_host
+        : event.referrer_kind === 'internal'
+            ? event.referrer_path
+            : 'Directo';
+    return campaign || referrer || 'Directo';
+};
 ---
 
 <CampusLayout
@@ -202,6 +219,58 @@ const timelineItems = [
                 <p class="font-bold text-[#006064]">Contacto CRM no encontrado</p>
                 <p class="text-sm text-[#006064]/70 mt-1">El identificador no corresponde a ningun contacto CRM visible.</p>
             </div>
+        )}
+    </div>
+
+    <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] mb-6">
+        <div class="flex flex-col gap-2 md:flex-row md:items-start md:justify-between mb-4">
+            <div>
+                <h2 class="font-display text-xl text-[#006064] uppercase">Atribucion de captacion</h2>
+                <p class="text-sm text-[#006064]/70 font-mono mt-1">Primer y ultimo evento observados, mas una ventana de los 12 eventos recientes. No reconstruye visitas anteriores a esta captura.</p>
+            </div>
+            {crmDetail.acquisitionAttributionReady && (
+                <span class="text-xs font-mono uppercase text-[#006064]/60">{crmDetail.acquisitionAttributionEvents.length} eventos cargados</span>
+            )}
+        </div>
+
+        {!crmDetail.acquisitionAttributionReady ? (
+            <div class="bg-[#E0F7FA] border border-[#006064] p-4">
+                <p class="font-bold text-[#006064]">Atribucion pendiente de migracion</p>
+                <p class="text-sm text-[#006064]/70 mt-1">La ficha CRM sigue disponible; esta seccion aparecera al aplicar su tabla.</p>
+            </div>
+        ) : crmDetail.acquisitionAttributionEvents.length > 0 ? (
+            <>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+                    {[{
+                        label: 'Primer origen observado',
+                        event: crmDetail.firstObservedAttribution,
+                    }, {
+                        label: 'Ultima atribucion capturada',
+                        event: crmDetail.latestCapturedAttribution,
+                    }].map(({ label, event }) => event && (
+                        <div class="border border-[#006064]/30 p-4">
+                            <p class="text-xs font-mono uppercase text-[#006064]/60">{label}</p>
+                            <p class="font-bold text-[#006064] mt-1">{describeAttribution(event)}</p>
+                            <p class="text-sm text-[#006064]/70 mt-1">{event.landing_path} · {attributionEventLabels[event.event_kind] || event.event_kind}</p>
+                            <p class="text-xs font-mono text-[#006064]/60 mt-2">{formatDateTime(event.captured_at)}</p>
+                        </div>
+                    ))}
+                </div>
+                <div class="divide-y divide-[#006064]/10">
+                    {crmDetail.acquisitionAttributionEvents.map((event) => (
+                        <div class="grid grid-cols-1 gap-2 py-3 md:grid-cols-[10rem_1fr_auto] md:items-start">
+                            <span class="text-xs font-bold uppercase text-[#006064]">{attributionEventLabels[event.event_kind] || event.event_kind}</span>
+                            <div>
+                                <p class="text-sm text-[#006064]">{describeAttribution(event)}</p>
+                                <p class="text-xs font-mono text-[#006064]/60 mt-1">{event.landing_path} · {event.entry_language}</p>
+                            </div>
+                            <p class="text-xs font-mono text-[#006064]/70 md:text-right">{formatDateTime(event.captured_at)}</p>
+                        </div>
+                    ))}
+                </div>
+            </>
+        ) : (
+            <p class="text-[#006064]/60 font-mono text-sm">Sin atribuciones capturadas todavia.</p>
         )}
     </div>
 

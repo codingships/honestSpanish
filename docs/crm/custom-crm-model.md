@@ -214,6 +214,22 @@ Many-to-many link between imports and contacts.
 - `row_metadata jsonb not null default '{}'`
 - primary key `(batch_id, contact_id)`
 
+### `acquisition_attribution_events`
+
+Ledger inmutable del origen observado en una conversión. No sustituye a `crm_contacts` ni registra visitas anónimas.
+
+- `request_id uuid unique`: frontera de idempotencia.
+- `event_kind`: solicitud, diagnóstico o inicio de checkout.
+- `contact_id`: contacto central al que pertenece el hecho.
+- `lead_id` o `checkout_intent_id`: operación que demuestra la conversión.
+- `landing_path`, `referrer_kind`, `referrer_host` o `referrer_path`: procedencia minimizada, nunca URL completa ni query cruda.
+- `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`: única allowlist de campaña.
+- `entry_language`, `captured_at`: idioma y hora del servidor.
+
+La tabla es append-only, admin-only mediante código server-side y comprueba con claves compuestas que el lead o checkout pertenece al mismo contacto. Los campos mutables `crm_contacts.source` y `source_path` quedan como compatibilidad visual; el ledger es la fuente de verdad de atribución.
+
+“Primer origen” y “último origen” significan primero y último observados al convertir. Sin cookies ni almacenamiento persistente no se afirma conocer la primera visita histórica, otra pestaña, otro dispositivo ni otra sesión.
+
 ## Existing Tables To Keep
 
 Keep these tables as operational/domain tables and connect them into CRM views:

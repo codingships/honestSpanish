@@ -29,6 +29,7 @@ const runtimeEnvMock = vi.hoisted(() => ({
     }),
 }));
 const turnstileFetchMock = vi.hoisted(() => vi.fn());
+const attributionMock = vi.hoisted(() => ({ recordAcquisitionAttributionSafe: vi.fn() }));
 
 vi.mock('../../src/lib/stripe', () => ({ stripe: stripeMock }));
 vi.mock('../../src/lib/profiles-private', () => privateProfileMock);
@@ -37,6 +38,7 @@ vi.mock('../../src/lib/runtime-env', () => runtimeEnvMock);
 vi.mock('../../src/lib/site-url', () => ({ getSiteUrl: vi.fn(() => 'https://staging.example.test') }));
 vi.mock('../../src/lib/supabase-server', () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock('../../src/lib/supabase-admin', () => ({ createSupabaseAdminClient: vi.fn() }));
+vi.mock('../../src/lib/crm/acquisition-attribution', () => attributionMock);
 
 const slotPublicId = '10000000-0000-4000-8000-000000000001';
 const slotId = '20000000-0000-4000-8000-000000000001';
@@ -292,6 +294,7 @@ describe('Checkout contract v2', () => {
             stripe_customer_livemode: false,
         });
         privateProfileMock.upsertPrivateProfile.mockResolvedValue(undefined);
+        attributionMock.recordAcquisitionAttributionSafe.mockResolvedValue({ status: 'recorded' });
         stripeMock.accounts.retrieve.mockResolvedValue({ id: 'acct_test', country: 'ES' });
         stripeMock.prices.retrieve
             .mockResolvedValueOnce({
@@ -322,7 +325,18 @@ describe('Checkout contract v2', () => {
         await installClients(server, admin);
         const { POST } = await import('../../src/pages/api/create-checkout');
 
-        const response = await POST(context({ ...policies, slotPublicId, lang: 'en' }) as any);
+        const checkoutAttribution = {
+            requestId: '90000000-0000-4000-8000-000000000001',
+            landingPath: '/en',
+            referrerKind: 'direct',
+            entryLanguage: 'en',
+        };
+        const response = await POST(context({
+            ...policies,
+            slotPublicId,
+            lang: 'en',
+            attribution: checkoutAttribution,
+        }) as any);
 
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toEqual({ url: 'https://checkout.stripe.test/v2' });
@@ -339,6 +353,11 @@ describe('Checkout contract v2', () => {
         });
         const claim = admin.rpc.mock.calls.find(([name]) => name === 'claim_direct_checkout_intent_for_slot');
         expect(JSON.stringify(claim?.[1])).not.toContain('203.0.113.10');
+        expect(attributionMock.recordAcquisitionAttributionSafe).toHaveBeenCalledWith(admin, {
+            eventKind: 'checkout_start',
+            attribution: checkoutAttribution,
+            checkoutIntentId,
+        });
         const siteverifyRequest = turnstileFetchMock.mock.calls[0]?.[1];
         expect(turnstileFetchMock.mock.calls[0]?.[0]).toBe(
             'https://challenges.cloudflare.com/turnstile/v0/siteverify',

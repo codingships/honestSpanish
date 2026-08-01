@@ -10,6 +10,7 @@ import { readRuntimeEnv } from '../../lib/runtime-env';
 import type { Database } from '../../types/database.types';
 import { describeEmailSendError } from '../../lib/email/errors';
 import { ADULT_POLICY_VERSION, hasAcceptedAdultPolicy } from '../../lib/legal-policy';
+import { recordAcquisitionAttributionSafe } from '../../lib/crm/acquisition-attribution';
 
 type LeadInsert = Database['public']['Tables']['leads']['Insert'];
 
@@ -218,6 +219,13 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
         const crmSync = savedLead
             ? await syncLeadCaptureToCrmSafe(supabaseAdmin, savedLead)
             : null;
+        if (savedLead && crmSync?.status === 'synced') {
+            await recordAcquisitionAttributionSafe(supabaseAdmin, {
+                eventKind: 'application_submit',
+                attribution: payload.attribution,
+                leadId: savedLead.id,
+            });
+        }
 
         // 2. Send Admin Notification through the shared quota/safety gate.
         const adminNotification = await deliverEmail({
