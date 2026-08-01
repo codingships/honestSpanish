@@ -1,7 +1,14 @@
 ---
 import CampusLayout from '../../../../../layouts/CampusLayout.astro';
+import CampusLoadError from '../../../../../components/campus/CampusLoadError.astro';
 import { getLangFromParam, useTranslations } from '../../../../../i18n/utils';
+import { reportCampusReadError } from '../../../../../lib/campus-load-state';
+import {
+    loadCheckoutV2ProgressForSubscription,
+    resolveCheckoutV2AcademicProgress,
+} from '../../../../../lib/checkout-v2-progress';
 import { getPrivateProfile } from '../../../../../lib/profiles-private';
+import { createSupabaseAdminClient } from '../../../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
 import TeacherNotes from '../../../../../components/TeacherNotes';
 import ProgressBar from '../../../../../components/ProgressBar.astro';
@@ -68,10 +75,14 @@ const driveFolderUrl = studentPrivate?.drive_folder_url
     || (studentPrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${studentPrivate.drive_folder_id}` : null);
 
 // Get active subscription with package info
-const { data: subscription } = await supabase
+const { data: subscription, error: subscriptionError } = await supabase
     .from('subscriptions')
     .select(`
-        *,
+        id,
+        status,
+        starts_at,
+        ends_at,
+        contract_schema_version,
         packages (
             name,
             display_name
@@ -81,7 +92,52 @@ const { data: subscription } = await supabase
     .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
+
+if (subscriptionError) {
+    reportCampusReadError('teacher_student.subscription', subscriptionError);
+    Astro.response.status = 503;
+}
+
+type TeacherProgress =
+    | { status: 'ready'; consumed: number; total: number }
+    | { status: 'pending' | 'legacy' | 'error' | 'none' };
+
+let progress: TeacherProgress = subscription ? { status: 'legacy' } : { status: 'none' };
+
+if (subscription?.contract_schema_version === 2) {
+    try {
+        const cycleProgress = await loadCheckoutV2ProgressForSubscription(
+            createSupabaseAdminClient(),
+            subscription.id,
+        );
+        const resolvedProgress = resolveCheckoutV2AcademicProgress(
+            subscription.contract_schema_version,
+            cycleProgress,
+        );
+
+        if (resolvedProgress.state === 'ready') {
+            progress = {
+                status: 'ready',
+                consumed: resolvedProgress.consumed,
+                total: resolvedProgress.total,
+            };
+        } else if (resolvedProgress.state === 'pending') {
+            progress = { status: 'pending' };
+        } else {
+            const code = resolvedProgress.state === 'missing'
+                ? 'CHECKOUT_V2_PROGRESS_MISSING'
+                : 'CHECKOUT_V2_PROGRESS_INCONSISTENT';
+            reportCampusReadError('teacher_student.cycle_progress', { code });
+            Astro.response.status = 503;
+            progress = { status: 'error' };
+        }
+    } catch (error) {
+        reportCampusReadError('teacher_student.cycle_progress', error);
+        Astro.response.status = 503;
+        progress = { status: 'error' };
+    }
+}
 
 // Helper function for package name
 type SubscriptionPackage = {
@@ -153,7 +209,9 @@ const languageNames: Record<string, string> = {
                 {t('campus.teacher.currentPlan')}
             </h2>
             
-            {subscription ? (
+            {subscriptionError ? (
+                <CampusLoadError lang={lang} title={t('campus.teacher.currentPlan')} />
+            ) : subscription ? (
                 <div class="space-y-4">
                     <div>
                         <p class="text-2xl font-display text-[#006064]">{getPackageName(subscription)}</p>
@@ -162,17 +220,32 @@ const languageNames: Record<string, string> = {
                         </p>
                     </div>
                     
+                    {progress.status === 'ready' && (
                     <div>
                         <div class="flex justify-between text-sm mb-1">
-                            <span class="font-mono">{t('campus.teacher.sessions')}</span>
-                            <span class="font-bold">{subscription.sessions_used} / {subscription.sessions_total}</span>
+                            <span class="font-mono">{t('campus.dashboard.sessions')}</span>
+                            <span class="font-bold">{progress.consumed} / {progress.total} {t('campus.dashboard.sessionsUsed')}</span>
                         </div>
                         <ProgressBar
-                            value={subscription.sessions_used}
-                            max={subscription.sessions_total}
-                            label={t('campus.teacher.sessions')}
+                            value={progress.consumed}
+                            max={progress.total}
+                            label={t('campus.dashboard.sessions')}
                         />
                     </div>
+                    )}
+                    {progress.status === 'pending' && (
+                        <p class="text-sm text-[#006064]/70" role="status">
+                            {t('campus.dashboard.progressPending')}
+                        </p>
+                    )}
+                    {progress.status === 'legacy' && (
+                        <p class="text-sm text-[#006064]/70" role="status">
+                            {t('campus.dashboard.progressUnavailable')}
+                        </p>
+                    )}
+                    {progress.status === 'error' && (
+                        <CampusLoadError lang={lang} title={t('campus.dashboard.sessions')} />
+                    )}
                 </div>
             ) : (
                 <p class="text-[#006064]/60 font-mono">{t('campus.teacher.noPlan')}</p>

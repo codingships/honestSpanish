@@ -65,4 +65,17 @@ describe('student campus read truth', () => {
         expect(assignmentError).toBeGreaterThan(-1);
         expect(assignmentAlert).toBeGreaterThan(assignmentError);
     });
+
+    it('derives academic progress from Checkout V2 facts instead of the reservation counter', () => {
+        expect(dashboard).not.toContain('sessions_used');
+        expect(dashboard).toContain('loadCheckoutV2ProgressForSubscription');
+        expect(dashboard).toContain('resolveCheckoutV2AcademicProgress');
+        expect(dashboard).toContain('cycleProgressTotals.consumed');
+        expect(dashboard).toContain('cycleProgressTotals.total');
+        expect(dashboard).toContain("cycleProgressPresentation?.state === 'inconsistent'");
+        expect(dashboard).toContain('CHECKOUT_V2_PROGRESS_INCONSISTENT');
+        expect(dashboard).toContain("cycleProgressState.status === 'error'");
+        expect(dashboard).toContain("t('campus.dashboard.progressPending')");
+        expect(dashboard).toContain("t('campus.dashboard.progressUnavailable')");
+    });
 });

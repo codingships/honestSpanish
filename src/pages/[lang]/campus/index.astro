@@ -8,7 +8,13 @@ import {
     resolveOptionalCampusQuery,
     resolveRequiredCampusQuery,
 } from '../../../lib/campus-load-state';
+import {
+    loadCheckoutV2ProgressForSubscription,
+    resolveCheckoutV2AcademicProgress,
+    type CheckoutV2CycleProgress,
+} from '../../../lib/checkout-v2-progress';
 import { getPrivateProfile } from '../../../lib/profiles-private';
+import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import NextClassCard from '../../../components/calendar/NextClassCard';
 import ProgressBar from '../../../components/ProgressBar.astro';
@@ -86,6 +92,7 @@ let nextSessionRowState = resolveOptionalCampusQuery<any>({ data: null, error: n
 let assignmentState = resolveOptionalCampusQuery<any>({ data: null, error: null });
 type PrivateProfile = NonNullable<Awaited<ReturnType<typeof getPrivateProfile>>>;
 let profilePrivateState = resolveOptionalCampusQuery<PrivateProfile>({ data: null, error: null });
+let cycleProgressState = resolveOptionalCampusQuery<CheckoutV2CycleProgress>({ data: null, error: null });
 
 if (!accessUnavailable && user) {
     const nowIso = new Date().toISOString();
@@ -139,8 +146,32 @@ if (!accessUnavailable && user) {
     profilePrivateState = resolveOptionalCampusQuery(privateResult);
 }
 
+const subscriptionForProgress = subscriptionState.status === 'ready'
+    ? subscriptionState.data
+    : null;
+if (subscriptionForProgress?.contract_schema_version === 2) {
+    try {
+        const progress = await loadCheckoutV2ProgressForSubscription(
+            createSupabaseAdminClient(),
+            subscriptionForProgress.id,
+        );
+        cycleProgressState = progress
+            ? resolveRequiredCampusQuery<CheckoutV2CycleProgress>({ data: progress, error: null })
+            : resolveRequiredCampusQuery<CheckoutV2CycleProgress>({
+                data: null,
+                error: { code: 'CHECKOUT_V2_PROGRESS_MISSING' },
+            });
+    } catch (error) {
+        cycleProgressState = resolveRequiredCampusQuery<CheckoutV2CycleProgress>({
+            data: null,
+            error,
+        });
+    }
+}
+
 for (const [surface, state] of [
     ['student_dashboard.subscription', subscriptionState],
+    ['student_dashboard.cycle_progress', cycleProgressState],
     ['student_dashboard.next_session', nextSessionRowState],
     ['student_dashboard.assignment', assignmentState],
     ['student_dashboard.drive', profilePrivateState],
@@ -153,6 +184,7 @@ for (const [surface, state] of [
 if (
     accessUnavailable
     || subscriptionState.status === 'error'
+    || cycleProgressState.status === 'error'
     || nextSessionRowState.status === 'error'
     || assignmentState.status === 'error'
     || profilePrivateState.status === 'error'
@@ -161,6 +193,26 @@ if (
 }
 
 const subscription = subscriptionState.status === 'ready' ? subscriptionState.data : null;
+const cycleProgress = cycleProgressState.status === 'ready' ? cycleProgressState.data : null;
+const cycleProgressPresentation = subscription
+    ? resolveCheckoutV2AcademicProgress(subscription.contract_schema_version, cycleProgress)
+    : null;
+const cycleProgressTotals = cycleProgressPresentation?.state === 'ready'
+    ? cycleProgressPresentation
+    : null;
+const cycleProgressInconsistent = cycleProgressState.status !== 'error'
+    && (
+        cycleProgressPresentation?.state === 'missing'
+        || cycleProgressPresentation?.state === 'inconsistent'
+    );
+
+if (cycleProgressInconsistent) {
+    reportCampusReadError('student_dashboard.cycle_progress', {
+        code: 'CHECKOUT_V2_PROGRESS_INCONSISTENT',
+    });
+    Astro.response.status = 503;
+}
+
 const profilePrivate = profilePrivateState.status === 'ready' ? profilePrivateState.data : null;
 const driveFolderUrl = profilePrivate?.drive_folder_url
     || (profilePrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${profilePrivate.drive_folder_id}` : null);
@@ -211,9 +263,6 @@ const packageName = packageDisplayName && typeof packageDisplayName === 'object'
             ? packageDisplayName.es
             : subscription?.packages?.name ?? 'Plan')
     : subscription?.packages?.name ?? 'Plan';
-
-const sessionsTotal = subscription?.sessions_total ?? subscription?.packages?.sessions_per_month ?? 0;
-const sessionsUsed = subscription?.sessions_used ?? 0;
 
 // Traducciones para NextClassCard
 const nextClassTranslations = {
@@ -513,20 +562,30 @@ const onboardingHasUnavailable = onboardingItems.some((item) => item.status === 
                  <span class="text-2xl">📊</span>
              </div>
 
-             {subscription ? (
+             {cycleProgressState.status === 'error' || cycleProgressInconsistent ? (
+                <CampusLoadError lang={lang} title={t('campus.dashboard.sessions')} />
+             ) : cycleProgressPresentation?.state === 'pending' ? (
+                <div class="flex-1 flex items-center" role="status">
+                    <p class="text-sm text-[#006064]/70">{t('campus.dashboard.progressPending')}</p>
+                </div>
+             ) : subscription && cycleProgressTotals ? (
                 <div>
                     <div class="flex items-end gap-2 mb-2">
-                         <span class="font-display text-4xl text-[#006064]">{sessionsUsed}</span>
-                         <span class="text-lg text-[#006064]/50 font-bold mb-1">/ {sessionsTotal}</span>
+                         <span class="font-display text-4xl text-[#006064]">{cycleProgressTotals.consumed}</span>
+                         <span class="text-lg text-[#006064]/50 font-bold mb-1">/ {cycleProgressTotals.total}</span>
                     </div>
                     <p class="text-xs text-[#006064]/60 uppercase font-bold mb-4">{t('campus.dashboard.sessionsUsed')}</p>
                     
                     <ProgressBar
-                        value={sessionsUsed}
-                        max={sessionsTotal}
+                        value={cycleProgressTotals.consumed}
+                        max={cycleProgressTotals.total}
                         label={t('campus.dashboard.sessionsUsed')}
                         rounded={true}
                     />
+                </div>
+             ) : subscription ? (
+                <div class="flex-1 flex items-center" role="status">
+                    <p class="text-sm text-[#006064]/70">{t('campus.dashboard.progressUnavailable')}</p>
                 </div>
              ) : (
                 <div class="flex-1 flex items-center justify-center">

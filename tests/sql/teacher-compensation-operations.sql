@@ -157,7 +157,7 @@ INSERT INTO public.sessions (
         date_trunc('minute', clock_timestamp()) + INTERVAL '12 hours',
         50, 'cancelled', NULL, NULL,
         date_trunc('minute', clock_timestamp()) - INTERVAL '1 hour',
-        '99000000-0000-4000-8000-000000000005', 'guarantee_refund',
+        '99000000-0000-4000-8000-000000000002', 'teacher_cancelled',
         '99070000-0000-4000-8000-000000000001', 4
     );
 COMMIT;

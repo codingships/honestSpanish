@@ -55,7 +55,7 @@ export type CrmDashboardFailedPayment = Pick<
 
 export type CrmDashboardEndingSubscription = Pick<
   Subscription,
-  'id' | 'student_id' | 'ends_at' | 'status' | 'sessions_used' | 'sessions_total'
+  'id' | 'student_id' | 'ends_at' | 'status'
 > & {
   profiles: CampusProfileSummary | null;
   packages: Pick<Tables<'packages'>, 'name' | 'display_name' | 'price_monthly'> | null;
@@ -562,8 +562,6 @@ export async function getCrmAdminDashboardSummary(
         student_id,
         ends_at,
         status,
-        sessions_used,
-        sessions_total,
         profiles!subscriptions_student_id_fkey (
           id,
           full_name,

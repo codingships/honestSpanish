@@ -1,8 +1,17 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import CampusLoadError from '../../../../components/campus/CampusLoadError.astro';
 import { useTranslations } from '../../../../i18n/utils';
+import { reportCampusReadError } from '../../../../lib/campus-load-state';
+import {
+    loadLatestCheckoutV2Progress,
+    resolveCheckoutV2AcademicProgress,
+    type CheckoutV2CycleProgress,
+} from '../../../../lib/checkout-v2-progress';
 import { getPrivateProfiles } from '../../../../lib/profiles-private';
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+import type { Json } from '../../../../types/database.types';
 
 export const prerender = false;
 
@@ -29,8 +38,10 @@ if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
     return Astro.redirect(`/${lang}/campus`);
 }
 
+const supabaseAdmin = createSupabaseAdminClient();
+
 // Get assigned students with subscriptions
-const { data: students } = await supabase
+const { data: students, error: studentsError } = await supabase
     .from('student_teachers')
     .select(`
         student_id,
@@ -45,55 +56,179 @@ const { data: students } = await supabase
     `)
     .eq('teacher_id', user.id);
 
-const privateProfiles = await getPrivateProfiles(
-    (students || [])
-        .map((st: any) => st.profiles?.id)
-        .filter(Boolean)
-);
+if (studentsError) {
+    reportCampusReadError('teacher_dashboard.students', studentsError);
+    Astro.response.status = 503;
+}
 
-// For each student, get their active subscription
-const studentsWithSubs = await Promise.all(
-    (students || []).map(async (st: any) => {
-        const studentProfile = st.profiles;
-        const privateProfile = privateProfiles.get(studentProfile.id);
-        
-        const { data: subscription } = await supabase
+const assignedStudents = (students ?? []).filter((assignment: any) => assignment.profiles);
+const assignedStudentIds = assignedStudents.map((assignment: any) => assignment.profiles.id);
+const assignedStudentIdBatches = Array.from(
+    { length: Math.ceil(assignedStudentIds.length / 100) },
+    (_, index) => assignedStudentIds.slice(index * 100, (index + 1) * 100),
+);
+let privateProfiles: Awaited<ReturnType<typeof getPrivateProfiles>> = new Map();
+let privateProfilesFailed = false;
+
+try {
+    const privateProfileBatches = await Promise.all(
+        assignedStudentIdBatches.map((studentIds) => getPrivateProfiles(studentIds, supabaseAdmin)),
+    );
+    for (const batch of privateProfileBatches) {
+        for (const [profileId, profilePrivate] of batch) {
+            privateProfiles.set(profileId, profilePrivate);
+        }
+    }
+} catch (error) {
+    privateProfilesFailed = true;
+    reportCampusReadError('teacher_dashboard.private_profiles', error);
+    Astro.response.status = 503;
+}
+
+type TeacherProgress =
+    | { status: 'ready'; consumed: number; total: number }
+    | { status: 'pending' | 'legacy' | 'error' | 'none' };
+
+type ActiveSubscription = {
+    id: string;
+    student_id: string;
+    status: string | null;
+    contract_schema_version: number | null;
+    ends_at: string | null;
+    packages: { name: string; display_name: Json } | null;
+};
+
+let activeSubscriptionRows: ActiveSubscription[] = [];
+let subscriptionBatchFailed = false;
+
+if (assignedStudentIdBatches.length > 0) {
+    const subscriptionResults = await Promise.all(assignedStudentIdBatches.map((studentIds) => (
+        supabase
             .from('subscriptions')
             .select(`
+                id,
+                student_id,
                 status,
-                sessions_used,
-                sessions_total,
+                contract_schema_version,
                 ends_at,
                 packages (
                     name,
                     display_name
                 )
             `)
-            .eq('student_id', studentProfile.id)
+            .in('student_id', studentIds)
             .eq('status', 'active')
             .order('created_at', { ascending: false })
-            .limit(1)
-            .single();
+    )));
+    const subscriptionsError = subscriptionResults.find((result) => result.error)?.error;
 
-        return {
-            ...studentProfile,
-            ...privateProfile,
-            subscription,
-            isPrimary: st.is_primary
-        };
-    })
-);
+    if (subscriptionsError) {
+        subscriptionBatchFailed = true;
+        reportCampusReadError('teacher_dashboard.subscriptions', subscriptionsError);
+        Astro.response.status = 503;
+    } else {
+        activeSubscriptionRows = subscriptionResults.flatMap((result) => (
+            (result.data ?? []) as ActiveSubscription[]
+        ));
+    }
+}
+
+const activeSubscriptionByStudent = new Map<string, ActiveSubscription>();
+for (const subscription of activeSubscriptionRows) {
+    if (!activeSubscriptionByStudent.has(subscription.student_id)) {
+        activeSubscriptionByStudent.set(subscription.student_id, subscription);
+    }
+}
+
+const studentsWithSubs = assignedStudents.map((assignment: any) => {
+    const studentProfile = assignment.profiles;
+    return {
+        ...studentProfile,
+        ...privateProfiles.get(studentProfile.id),
+        subscription: activeSubscriptionByStudent.get(studentProfile.id) ?? null,
+        isPrimary: assignment.is_primary,
+    };
+});
+
+const checkoutV2SubscriptionIds = studentsWithSubs
+    .map((student) => student.subscription)
+    .filter((subscription): subscription is NonNullable<typeof subscription> => (
+        subscription?.contract_schema_version === 2
+    ))
+    .map((subscription) => subscription.id);
+
+let progressBySubscription = new Map<string, CheckoutV2CycleProgress>();
+let progressBatchFailed = false;
+
+if (checkoutV2SubscriptionIds.length > 0) {
+    try {
+        progressBySubscription = await loadLatestCheckoutV2Progress(
+            supabaseAdmin,
+            checkoutV2SubscriptionIds,
+        );
+    } catch (error) {
+        progressBatchFailed = true;
+        reportCampusReadError('teacher_dashboard.cycle_progress', error);
+        Astro.response.status = 503;
+    }
+}
+
+const studentsWithProgress = studentsWithSubs.map((student) => {
+    const subscription = student.subscription;
+    let progress: TeacherProgress = { status: 'none' };
+
+    if (subscriptionBatchFailed) {
+        progress = { status: 'error' };
+    } else if (subscription?.contract_schema_version !== 2) {
+        progress = subscription ? { status: 'legacy' } : { status: 'none' };
+    } else if (progressBatchFailed) {
+        progress = { status: 'error' };
+    } else {
+        const cycleProgress = progressBySubscription.get(subscription.id);
+        const resolvedProgress = resolveCheckoutV2AcademicProgress(
+            subscription.contract_schema_version,
+            cycleProgress,
+        );
+
+        if (resolvedProgress.state === 'ready') {
+            progress = {
+                status: 'ready',
+                consumed: resolvedProgress.consumed,
+                total: resolvedProgress.total,
+            };
+        } else if (resolvedProgress.state === 'pending') {
+            progress = { status: 'pending' };
+        } else {
+            const code = resolvedProgress.state === 'missing'
+                ? 'CHECKOUT_V2_PROGRESS_MISSING'
+                : 'CHECKOUT_V2_PROGRESS_INCONSISTENT';
+            reportCampusReadError('teacher_dashboard.cycle_progress', { code });
+            Astro.response.status = 503;
+            progress = { status: 'error' };
+        }
+    }
+
+    return { ...student, progress };
+});
 
 // Calculate stats
-const totalStudents = studentsWithSubs.length;
-const activeStudents = studentsWithSubs.filter(s => s.subscription?.status === 'active').length;
+const totalStudents = studentsWithProgress.length;
+const activeStudents = studentsWithProgress.filter(s => s.subscription?.status === 'active').length;
+const teacherRosterLoadError = Boolean(
+    studentsError || privateProfilesFailed || subscriptionBatchFailed,
+);
 
 // Get historical completed sessions by this teacher
-const { count: completedSessionsCount } = await supabase
+const { count: completedSessionsCount, error: completedSessionsError } = await supabase
     .from('sessions')
     .select('*', { count: 'exact', head: true })
     .eq('teacher_id', user.id)
     .eq('status', 'completed');
+
+if (completedSessionsError) {
+    reportCampusReadError('teacher_dashboard.completed_sessions', completedSessionsError);
+    Astro.response.status = 503;
+}
 
 // Helper functions
 const getPackageName = (sub: any) => {
@@ -127,18 +262,23 @@ const getStatusBadge = (sub: any) => {
         
         <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-                <p class="text-3xl font-display text-[#006064]">{totalStudents}</p>
+                <p class="text-3xl font-display text-[#006064]">{teacherRosterLoadError ? '—' : totalStudents}</p>
                 <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.totalStudents')}</p>
             </div>
             <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-                <p class="text-3xl font-display text-[#006064]">{activeStudents}</p>
+                <p class="text-3xl font-display text-[#006064]">{teacherRosterLoadError ? '—' : activeStudents}</p>
                 <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.activeStudents')}</p>
             </div>
             <div class="bg-white p-4 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
-                <p class="text-3xl font-display text-[#006064]">{completedSessionsCount || 0}</p>
+                <p class="text-3xl font-display text-[#006064]">{completedSessionsError ? '—' : completedSessionsCount ?? 0}</p>
                 <p class="text-xs font-mono uppercase text-[#006064]/60">{t('campus.teacher.sessions')}</p>
             </div>
         </div>
+        {completedSessionsError && (
+            <div class="mt-5">
+                <CampusLoadError lang={lang} title={t('campus.teacher.sessions')} />
+            </div>
+        )}
     </div>
 
     <!-- Search Bar -->
@@ -151,18 +291,24 @@ const getStatusBadge = (sub: any) => {
         />
     </div>
 
+    {progressBatchFailed && (
+        <div class="mb-6">
+            <CampusLoadError lang={lang} title={t('campus.dashboard.sessions')} />
+        </div>
+    )}
+
     <!-- Students List -->
-    {studentsWithSubs.length === 0 ? (
+    {teacherRosterLoadError ? (
+        <CampusLoadError lang={lang} title={t('campus.teacher.title')} />
+    ) : studentsWithProgress.length === 0 ? (
         <div class="bg-white p-12 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] text-center">
             <p class="text-[#006064]/60 font-mono">{t('campus.teacher.noStudents')}</p>
         </div>
     ) : (
         <div class="space-y-4" id="students-container">
-            {studentsWithSubs.map((student) => {
+            {studentsWithProgress.map((student) => {
                 const status = getStatusBadge(student.subscription);
                 const packageName = getPackageName(student.subscription);
-                const sessionsUsed = student.subscription?.sessions_used || 0;
-                const sessionsTotal = student.subscription?.sessions_total || 0;
                 const driveFolderUrl = student.drive_folder_url || (student.drive_folder_id ? `https://drive.google.com/drive/folders/${student.drive_folder_id}` : null);
                 
                 return (
@@ -191,9 +337,24 @@ const getStatusBadge = (sub: any) => {
                             <!-- Subscription Info -->
                             <div class="flex-shrink-0 text-left md:text-right">
                                 <p class="font-bold text-[#006064]">{packageName}</p>
-                                {student.subscription && (
+                                {student.progress.status === 'ready' && (
                                     <p class="text-sm text-[#006064]/60">
-                                        {t('campus.teacher.sessions')}: {sessionsUsed}/{sessionsTotal}
+                                        {t('campus.dashboard.sessions')}: {student.progress.consumed}/{student.progress.total} {t('campus.dashboard.sessionsUsed')}
+                                    </p>
+                                )}
+                                {student.progress.status === 'pending' && (
+                                    <p class="text-sm text-[#006064]/70" role="status">
+                                        {t('campus.dashboard.progressPending')}
+                                    </p>
+                                )}
+                                {student.progress.status === 'legacy' && (
+                                    <p class="text-sm text-[#006064]/70" role="status">
+                                        {t('campus.dashboard.progressUnavailable')}
+                                    </p>
+                                )}
+                                {student.progress.status === 'error' && !progressBatchFailed && (
+                                    <p class="mt-2 text-sm text-red-700" role="alert">
+                                        {t('campus.dashboard.progressUnavailable')}
                                     </p>
                                 )}
                             </div>

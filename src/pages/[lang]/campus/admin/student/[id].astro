@@ -1,6 +1,14 @@
 ---
 import CampusLayout from '../../../../../layouts/CampusLayout.astro';
+import CampusLoadError from '../../../../../components/campus/CampusLoadError.astro';
 import { getLangFromParam, useTranslations } from '../../../../../i18n/utils';
+import { reportCampusReadError } from '../../../../../lib/campus-load-state';
+import {
+    loadCheckoutV2ProgressHistory,
+    resolveCheckoutV2AcademicProgress,
+    type CheckoutV2AcademicProgress,
+    type CheckoutV2CycleProgress,
+} from '../../../../../lib/checkout-v2-progress';
 import { emptyCrmContactDetail, getCrmContactDetail } from '../../../../../lib/crm/contact-detail';
 import { getPrivateProfile } from '../../../../../lib/profiles-private';
 import { createSupabaseAdminClient } from '../../../../../lib/supabase-admin';
@@ -45,6 +53,8 @@ if (!currentProfile || currentProfile.role !== 'admin') {
     return Astro.redirect(`/${lang}/campus`);
 }
 
+const supabaseAdmin = createSupabaseAdminClient();
+
 // Get student profile
 const { data: student, error: studentError } = await supabase
     .from('profiles')
@@ -61,7 +71,7 @@ const driveFolderUrl = studentPrivate?.drive_folder_url
     || (studentPrivate?.drive_folder_id ? `https://drive.google.com/drive/folders/${studentPrivate.drive_folder_id}` : null);
 
 // Get active subscription with package info
-const { data: subscription } = await supabase
+const { data: subscription, error: subscriptionError } = await supabase
     .from('subscriptions')
     .select(`
         *,
@@ -74,18 +84,23 @@ const { data: subscription } = await supabase
     .eq('status', 'active')
     .order('created_at', { ascending: false })
     .limit(1)
-    .single();
+    .maybeSingle();
+
+if (subscriptionError) {
+    reportCampusReadError('admin_student.subscription', subscriptionError);
+    Astro.response.status = 503;
+}
 
 // Get all subscriptions (history)
-const { data: subscriptionHistory } = await supabase
+const { data: subscriptionHistory, error: subscriptionHistoryError } = await supabase
     .from('subscriptions')
     .select(`
         id,
         status,
         starts_at,
         ends_at,
-        sessions_used,
         sessions_total,
+        contract_schema_version,
         created_at,
         packages (
             name,
@@ -94,6 +109,93 @@ const { data: subscriptionHistory } = await supabase
     `)
     .eq('student_id', studentId)
     .order('created_at', { ascending: false });
+
+if (subscriptionHistoryError) {
+    reportCampusReadError('admin_student.subscription_history', subscriptionHistoryError);
+    Astro.response.status = 503;
+}
+
+const checkoutV2SubscriptionIds = (subscriptionHistory ?? [])
+    .filter((item) => item.contract_schema_version === 2)
+    .map((item) => item.id);
+let cycleProgressHistory = new Map<string, CheckoutV2CycleProgress[]>();
+let cycleProgressLoadError = Boolean(subscriptionHistoryError);
+
+if (!cycleProgressLoadError) {
+    try {
+        cycleProgressHistory = await loadCheckoutV2ProgressHistory(
+            supabaseAdmin,
+            checkoutV2SubscriptionIds,
+        );
+    } catch (error) {
+        cycleProgressLoadError = true;
+        reportCampusReadError('admin_student.cycle_progress', error);
+        Astro.response.status = 503;
+    }
+}
+
+const cycleProgressContractError = !cycleProgressLoadError && (subscriptionHistory ?? []).some((item) => {
+    if (item.contract_schema_version !== 2) return false;
+    const cycles = cycleProgressHistory.get(item.id) ?? [];
+    if (cycles.length === 0) return true;
+    return cycles.some((cycle) => {
+        const resolved = resolveCheckoutV2AcademicProgress(2, cycle);
+        return resolved.state === 'missing' || resolved.state === 'inconsistent';
+    });
+});
+
+if (cycleProgressContractError) {
+    reportCampusReadError('admin_student.cycle_progress', {
+        code: 'CHECKOUT_V2_PROGRESS_INCONSISTENT',
+    });
+    Astro.response.status = 503;
+}
+
+const currentCycleProgress = subscription?.contract_schema_version === 2
+    ? (cycleProgressHistory.get(subscription.id) ?? [])[0] ?? null
+    : null;
+const currentCyclePresentation = subscription
+    ? resolveCheckoutV2AcademicProgress(
+        subscription.contract_schema_version,
+        currentCycleProgress,
+    )
+    : null;
+type SubscriptionHistoryRow = NonNullable<typeof subscriptionHistory>[number];
+type SubscriptionCycleHistoryItem = {
+    subscription: SubscriptionHistoryRow;
+    progress: CheckoutV2CycleProgress | null;
+    academicProgress: CheckoutV2AcademicProgress;
+};
+const subscriptionCycleHistory: SubscriptionCycleHistoryItem[] = [];
+for (const item of subscriptionHistory ?? []) {
+    if (item.contract_schema_version !== 2) {
+        subscriptionCycleHistory.push({
+            subscription: item,
+            progress: null,
+            academicProgress: resolveCheckoutV2AcademicProgress(
+                item.contract_schema_version,
+                null,
+            ),
+        });
+        continue;
+    }
+    const cycles = cycleProgressHistory.get(item.id) ?? [];
+    if (cycles.length === 0) {
+        subscriptionCycleHistory.push({
+            subscription: item,
+            progress: null,
+            academicProgress: resolveCheckoutV2AcademicProgress(2, null),
+        });
+        continue;
+    }
+    for (const progress of cycles) {
+        subscriptionCycleHistory.push({
+            subscription: item,
+            progress,
+            academicProgress: resolveCheckoutV2AcademicProgress(2, progress),
+        });
+    }
+}
 
 // Get assigned teacher
 const { data: teacherAssignment } = await supabase
@@ -128,7 +230,6 @@ const { data: payments } = await supabase
 
 let crmDetail = emptyCrmContactDetail;
 try {
-    const supabaseAdmin = createSupabaseAdminClient();
     crmDetail = await getCrmContactDetail(supabaseAdmin, {
         profileId: studentId,
         email: student.email,
@@ -368,7 +469,9 @@ const assignModalTranslations = {
         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064]">
             <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Plan Actual</h2>
             
-            {subscription ? (
+            {subscriptionError ? (
+                <CampusLoadError lang={lang} />
+            ) : subscription ? (
                 <div class="space-y-4">
                     <div>
                         <p class="text-2xl font-display text-[#006064]">{getPackageName(subscription)}</p>
@@ -377,17 +480,33 @@ const assignModalTranslations = {
                         </p>
                     </div>
                     
-                    <div>
-                        <div class="flex justify-between text-sm mb-1">
-                            <span class="font-mono">Sesiones</span>
-                            <span class="font-bold">{subscription.sessions_used} / {subscription.sessions_total}</span>
+                    {cycleProgressLoadError || cycleProgressContractError ? (
+                        <CampusLoadError lang={lang} />
+                    ) : subscription.contract_schema_version !== 2 ? (
+                        <p class="text-sm text-[#006064]/70">
+                            {t('campus.dashboard.progressUnavailable')}
+                        </p>
+                    ) : currentCyclePresentation?.state === 'pending' ? (
+                        <p class="text-sm text-[#006064]/70">
+                            {t('campus.dashboard.progressPending')}
+                        </p>
+                    ) : currentCyclePresentation?.state === 'ready' ? (
+                        <div>
+                            <div class="flex justify-between text-sm mb-1">
+                                <span class="font-mono">Clases consumidas</span>
+                                <span class="font-bold">{currentCyclePresentation.consumed} / {currentCyclePresentation.total}</span>
+                            </div>
+                            <ProgressBar
+                                value={currentCyclePresentation.consumed}
+                                max={currentCyclePresentation.total}
+                                label="Clases consumidas"
+                            />
                         </div>
-                        <ProgressBar
-                            value={subscription.sessions_used}
-                            max={subscription.sessions_total}
-                            label="Sesiones"
-                        />
-                    </div>
+                    ) : (
+                        <p class="text-sm text-[#006064]/70">
+                            {t('campus.dashboard.progressUnavailable')}
+                        </p>
+                    )}
                 </div>
             ) : (
                 <p class="text-[#006064]/60 font-mono">Sin plan activo</p>
@@ -493,26 +612,36 @@ const assignModalTranslations = {
         <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] lg:col-span-2">
             <h2 class="font-display text-xl text-[#006064] uppercase mb-4">Historial de Suscripciones</h2>
             
-            {subscriptionHistory && subscriptionHistory.length > 0 ? (
+            {cycleProgressLoadError || cycleProgressContractError ? (
+                <CampusLoadError lang={lang} />
+            ) : subscriptionCycleHistory.length > 0 ? (
                 <div class="overflow-x-auto">
                     <table class="w-full text-sm">
                         <thead>
                             <tr class="border-b-2 border-[#006064]">
                                 <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Plan</th>
+                                <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Ciclo</th>
                                 <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Periodo</th>
-                                <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Sesiones</th>
+                                <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Clases consumidas</th>
                                 <th class="text-left py-2 font-mono text-xs uppercase text-[#006064]/60">Estado</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-[#006064]/10">
-                            {subscriptionHistory.map(sub => (
+                            {subscriptionCycleHistory.map(({ subscription: sub, progress, academicProgress }) => (
                                 <tr>
                                     <td class="py-2 font-bold text-[#006064]">{getPackageName(sub)}</td>
                                     <td class="py-2 text-[#006064]/70">
-                                        {formatDate(sub.starts_at)} — {formatDate(sub.ends_at)}
+                                        {progress?.cycle_number ? `#${progress.cycle_number}` : '—'}
                                     </td>
                                     <td class="py-2 text-[#006064]/70">
-                                        {sub.sessions_used} / {sub.sessions_total}
+                                        {formatDate(progress?.starts_at ?? sub.starts_at)} — {formatDate(progress?.ends_at ?? sub.ends_at)}
+                                    </td>
+                                    <td class="py-2 text-[#006064]/70">
+                                        {academicProgress.state === 'ready'
+                                            ? `${academicProgress.consumed} / ${academicProgress.total}`
+                                            : academicProgress.state === 'pending'
+                                                ? t('campus.dashboard.progressPending')
+                                                : t('campus.dashboard.progressUnavailable')}
                                     </td>
                                     <td class="py-2">
                                         <span class={`px-2 py-0.5 text-xs font-bold rounded ${

@@ -1021,6 +1021,74 @@ export type Database = {
           },
         ];
       };
+      checkout_v2_session_credit_adjustments: {
+        Row: {
+          admin_id: string;
+          created_at: string;
+          cycle_id: string;
+          effect: string;
+          id: string;
+          reason: string;
+          request_id: string;
+          session_id: string;
+          session_index: number;
+          subscription_id: string;
+        };
+        Insert: {
+          admin_id: string;
+          created_at?: string;
+          cycle_id: string;
+          effect?: string;
+          id?: string;
+          reason: string;
+          request_id: string;
+          session_id: string;
+          session_index: number;
+          subscription_id: string;
+        };
+        Update: {
+          admin_id?: string;
+          created_at?: string;
+          cycle_id?: string;
+          effect?: string;
+          id?: string;
+          reason?: string;
+          request_id?: string;
+          session_id?: string;
+          session_index?: number;
+          subscription_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_session_credit_adjustments_admin_id_fkey";
+            columns: ["admin_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_session_credit_adjustments_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_session_credit_adjustments_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_session_credit_adjustments_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       checkout_v2_cycles: {
         Row: {
           amount_cents: number;
@@ -3429,6 +3497,55 @@ export type Database = {
         };
         Relationships: [];
       };
+      checkout_v2_cycle_progress: {
+        Row: {
+          cycle_id: string | null;
+          cycle_kind: string | null;
+          cycle_number: number | null;
+          ends_at: string | null;
+          materialization_state: string | null;
+          progress_state: string | null;
+          sessions_completed: number | null;
+          sessions_consumed: number | null;
+          sessions_late_student_cancelled: number | null;
+          sessions_materialized: number | null;
+          sessions_materialized_at: string | null;
+          sessions_no_show: number | null;
+          sessions_remaining: number | null;
+          sessions_restored: number | null;
+          sessions_scheduled: number | null;
+          sessions_total: number | null;
+          starts_at: string | null;
+          student_id: string | null;
+          subscription_id: string | null;
+        };
+        Relationships: [];
+      };
+      checkout_v2_session_consumption: {
+        Row: {
+          cancellation_reason: string | null;
+          cancelled_at: string | null;
+          cancelled_by: string | null;
+          completed_at: string | null;
+          consumption_kind: string | null;
+          credit_adjustment_id: string | null;
+          credit_adjustment_request_id: string | null;
+          credit_restored: boolean | null;
+          credit_restored_at: string | null;
+          cycle_id: string | null;
+          cycle_number: number | null;
+          no_show_at: string | null;
+          original_consumption_kind: string | null;
+          original_student_credit_consumed: boolean | null;
+          scheduled_at: string | null;
+          session_id: string | null;
+          session_index: number | null;
+          session_status: string | null;
+          student_credit_consumed: boolean | null;
+          subscription_id: string | null;
+        };
+        Relationships: [];
+      };
       operational_cost_balances: {
         Row: {
           adjustment_amount_cents: number | null;
@@ -3628,6 +3745,54 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      get_checkout_v2_subscription_progress: {
+        Args: { p_subscription_id: string };
+        Returns: {
+          cycle_id: string;
+          cycle_kind: string;
+          cycle_number: number;
+          ends_at: string;
+          materialization_state: string;
+          progress_state: string;
+          sessions_completed: number | null;
+          sessions_consumed: number | null;
+          sessions_late_student_cancelled: number | null;
+          sessions_materialized: number;
+          sessions_materialized_at: string | null;
+          sessions_no_show: number | null;
+          sessions_remaining: number | null;
+          sessions_restored: number | null;
+          sessions_scheduled: number | null;
+          sessions_total: number;
+          starts_at: string;
+          student_id: string;
+          subscription_id: string;
+        }[];
+      };
+      get_checkout_v2_subscriptions_progress: {
+        Args: { p_subscription_ids: string[] };
+        Returns: {
+          cycle_id: string;
+          cycle_kind: string;
+          cycle_number: number;
+          ends_at: string;
+          materialization_state: string;
+          progress_state: string;
+          sessions_completed: number | null;
+          sessions_consumed: number | null;
+          sessions_late_student_cancelled: number | null;
+          sessions_materialized: number;
+          sessions_materialized_at: string | null;
+          sessions_no_show: number | null;
+          sessions_remaining: number | null;
+          sessions_restored: number | null;
+          sessions_scheduled: number | null;
+          sessions_total: number;
+          starts_at: string;
+          student_id: string;
+          subscription_id: string;
+        }[];
       };
       adjust_teacher_compensation_work: {
         Args: {

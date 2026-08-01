@@ -58,7 +58,6 @@ const totalRevenue = revenueData?.reduce(
     (sum, payment) => sum + Math.max(0, (payment.amount || 0) - (payment.amount_refunded || 0)),
     0,
 ) || 0;
-const totalPayments = revenueData?.length || 0;
 
 // 2. User counts
 const { count: studentCount } = await supabase
@@ -475,7 +474,7 @@ const commercialPulseItems = [
                                     <a href={studentHref(subscription.student_id)} class="block">
                                         <div>
                                             <p class="font-bold text-[#006064] text-sm">{campusProfileLabel(subscription.profiles)}</p>
-                                            <p class="text-xs text-[#006064]/70">{getPackageName(subscription.packages)} - {subscription.sessions_used ?? 0}/{subscription.sessions_total} sesiones</p>
+                                            <p class="text-xs text-[#006064]/70">{getPackageName(subscription.packages)}</p>
                                         </div>
                                         <span class="font-mono text-xs text-[#006064]/70">{daysUntil(subscription.ends_at)} dias</span>
                                     </a>
