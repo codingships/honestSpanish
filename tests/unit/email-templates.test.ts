@@ -5,6 +5,8 @@ import {
     classCancelledTemplate,
     classConfirmationTemplate,
     classReminderTemplate,
+    checkoutV2CycleRescheduledSubject,
+    checkoutV2CycleRescheduledTemplate,
     leadWelcomeTemplate,
     levelCheckInviteTemplate,
     missingInfoEmailTemplate,
@@ -83,7 +85,9 @@ describe('lead application email', () => {
 
         expect(preview.subject).toBe('Your subscription renewal notice - Español Honesto');
         expect(preview.html).toContain('Your subscription will renew soon');
-        expect(preview.html).toContain('Standard monthly');
+        expect(preview.html).toContain('4 individual 50-minute classes');
+        expect(preview.html).toContain('28 days');
+        expect(preview.html).toContain('259');
         expect(preview.html).not.toContain('£');
         expect(preview.html).toContain('€');
         expect(preview.html).toContain('/en/campus/account');
@@ -91,45 +95,51 @@ describe('lead application email', () => {
         expect(preview.html).not.toMatch(mojibakePattern);
     });
 
-    it('confirms the application and explains fit review before purchase', () => {
+    it('confirms interest without turning context into an application gate', () => {
         const html = leadWelcomeTemplate({ recipientName: 'Alina' });
 
-        expect(html).toContain('Application received, Alina');
+        expect(html).toContain('Your details are saved, Alina');
         expect(html).toContain('Español Honesto');
-        expect(html).toContain('review your level, goals and availability');
-        expect(html).toContain('a short diagnostic or a plan proposal');
-        expect(html).toContain('You do not need to buy anything yet');
-        expect(html).toContain('adults and professionals');
+        expect(html).toContain('Four individual 50-minute classes cost EUR 259');
+        expect(html).toContain('When direct booking is enabled');
+        expect(html).toContain('When checkout is enabled');
+        expect(html).toContain('will not require approval before purchase');
+        expect(html).toContain('will never become a booking gate');
+        expect(html).not.toContain('You can book directly');
+        expect(html).not.toMatch(/confirm fit|plan proposal|wait for approval/i);
         expect(html).not.toContain('EXPLORAR EL BLOG');
         expect(html).not.toMatch(mojibakePattern);
     });
 
-    it('keeps the lead preview aligned with application review', () => {
+    it('keeps the lead preview aligned with direct booking', () => {
         const preview = buildEmailPreview('lead');
 
-        expect(preview.subject).toBe('Application received - Español Honesto');
-        expect(preview.html).toContain('Application received, Test User');
-        expect(preview.html).toContain('First we confirm fit, availability and expectations');
+        expect(preview.subject).toBe('Direct booking details - Espanol Honesto');
+        expect(preview.html).toContain('Your details are saved, Test User');
+        expect(preview.html).toContain('will not require approval before purchase');
+        expect(preview.html).toContain('When direct booking is enabled');
         expect(preview.html).not.toMatch(mojibakePattern);
     });
 
-    it('invites selected leads to the lightweight diagnostic without implying an official exam', () => {
+    it('offers the lightweight diagnostic as optional context without blocking purchase', () => {
         const html = levelCheckInviteTemplate({
             recipientName: 'Alina',
             diagnosticUrl: 'https://example.com/en/diagnostico?email=alina%40example.com',
         });
         const preview = buildEmailPreview('level-check');
 
-        expect(preview.subject).toBe('A few level questions - Espanol Honesto');
-        expect(html).toContain('A few level questions, Alina');
-        expect(html).toContain('short diagnostic, not an official exam');
+        expect(preview.subject).toBe('Optional Spanish context - Espanol Honesto');
+        expect(html).toContain('Optional Spanish context, Alina');
+        expect(html).toContain('not an official exam, eligibility check or condition for booking');
         expect(html).toContain('A short written sample in Spanish');
         expect(html).toContain('Optional audio only later');
         expect(html).toContain('OPEN DIAGNOSTIC');
+        expect(html).toContain('will not create a review or recommendation gate');
+        expect(html).toContain('When direct booking is enabled');
         expect(html).not.toMatch(mojibakePattern);
     });
 
-    it('keeps paid student welcome emails encoding-safe', () => {
+    it('keeps legacy paid-student welcome emails compatible while the preview shows Checkout V2', () => {
         const preview = buildEmailPreview('welcome');
         const html = welcomeEmailTemplate({
             locale: 'en',
@@ -151,8 +161,12 @@ describe('lead application email', () => {
 
         expect(preview.subject).toBe('Your subscription confirmation - Español Honesto');
         expect(preview.html).toContain('Contract confirmation');
-        expect(preview.html).toContain('Subscription period: 3 month(s)');
-        expect(preview.html).toContain('Classes available in this period: 12');
+        expect(preview.html).toContain('EUR 259 charged when you reserved the place');
+        expect(preview.html).toContain('4 individual 50-minute classes');
+        expect(preview.html).toContain('Teacher: Alejandro García');
+        expect(preview.html).toContain('Europe/Madrid');
+        expect(preview.html).toContain('exactly 28 days after the first class');
+        expect(preview.html).toContain('EUR 194.25 refund');
         expect(preview.html).toContain('Terms version: 2026-07-10');
         expect(preview.html).toContain('/en/legal/terminos');
         expect(html).toContain('Welcome, Alina');
@@ -174,6 +188,168 @@ describe('lead application email', () => {
         expect(html).not.toMatch(mojibakePattern);
     });
 
+    it.each([
+        ['es', '259 EUR cobrados al reservar', 'Profesor: Alejandro García', 'Siguiente cobro', '194,25 EUR', 'al menos 24 horas', 'no-show', 'salvo que soporte reclasifique una incidencia justificada'],
+        ['en', 'EUR 259 charged when you reserved', 'Teacher: Alejandro García', 'Next charge', 'EUR 194.25', 'at least 24 hours', 'no-show', 'unless support reclassifies a justified incident'],
+        ['ru', '259 EUR списаны при бронировании', 'Преподаватель: Alejandro García', 'Следующее списание', '194,25 EUR', 'не менее чем за 24 часа', 'неявка', 'если только служба поддержки не переклассифицирует подтверждённый уважительный случай'],
+    ] as const)(
+        'renders the complete immutable Checkout V2 welcome contract in %s',
+        (locale, paid, teacher, renewal, refund, timely, late, justifiedIncident) => {
+            const html = welcomeEmailTemplate({
+                locale,
+                studentName: 'Alina',
+                packageName: 'Hybrid monthly legacy label',
+                loginUrl: `https://example.com/${locale}/login`,
+                sessionsTotal: 4,
+                amountTotal: 25900,
+                currency: 'eur',
+                contractSchemaVersion: 2,
+                classDurationMinutes: 50,
+                teacherName: 'Alejandro García',
+                slotWeekday: 1,
+                slotLocalStartTime: '10:00:00',
+                timezoneName: 'Europe/Madrid',
+                classStartsAt: [
+                    '2026-09-07T08:00:00.000Z',
+                    '2026-09-14T08:00:00.000Z',
+                    '2026-09-21T08:00:00.000Z',
+                    '2026-09-28T08:00:00.000Z',
+                ],
+                renewalAnchorAt: '2026-10-05T08:00:00.000Z',
+                legalPolicyVersion: 'checkout-v2-2026-08-01',
+                policyAcceptedAt: '2026-09-01T10:00:00.000Z',
+                termsUrl: `https://example.com/${locale}/legal/terminos`,
+                supportUrl: `https://example.com/${locale}/campus/support`,
+            });
+
+            expect(html).toContain(paid);
+            expect(html).toContain(teacher);
+            expect(html).toContain('Europe/Madrid');
+            expect(html).toContain(renewal);
+            expect(html).toContain(refund);
+            expect(html).toContain(timely);
+            expect(html).toContain(late);
+            expect(html).toContain(justifiedIncident);
+            expect(html).toContain('checkout-v2-2026-08-01');
+            expect(html.match(/Europe\/Madrid/g)).toHaveLength(6);
+            expect(html).not.toMatch(/Hybrid monthly|Híbrido|Гибрид|3 month|405|145|coordinate your first class manually|30, 40 or 50/iu);
+            expect(html).not.toMatch(mojibakePattern);
+        },
+    );
+
+    it('states the complete provisional-anchor movement boundary in every Checkout V2 locale', () => {
+        const render = (locale: 'es' | 'en' | 'ru') => welcomeEmailTemplate({
+            locale,
+            studentName: 'Alina',
+            packageName: 'Individual',
+            loginUrl: `https://example.com/${locale}/login`,
+            sessionsTotal: 4,
+            amountTotal: 25_900,
+            currency: 'eur',
+            contractSchemaVersion: 2,
+            classDurationMinutes: 50,
+            teacherName: 'Alejandro García',
+            slotWeekday: 1,
+            slotLocalStartTime: '10:00:00',
+            timezoneName: 'Europe/Madrid',
+            classStartsAt: [
+                '2026-09-07T08:00:00.000Z',
+                '2026-09-14T08:00:00.000Z',
+                '2026-09-21T08:00:00.000Z',
+                '2026-09-28T08:00:00.000Z',
+            ],
+            renewalAnchorAt: '2026-10-05T08:00:00.000Z',
+        });
+
+        const es = render('es');
+        expect(es).toContain('autoservicio');
+        expect(es).toContain('al menos 24 horas');
+        expect(es).toContain('máximo inclusivo de 28 días');
+        expect(es).toContain('soporte fuera de ese límite');
+        expect(es).toContain('ancla queda fija');
+
+        const en = render('en');
+        expect(en).toContain('self-service');
+        expect(en).toContain('at least 24 hours');
+        expect(en).toContain('inclusive maximum of 28 days');
+        expect(en).toContain('support outside that limit');
+        expect(en).toContain('renewal anchor is fixed');
+
+        const ru = render('ru');
+        expect(ru).toContain('самостоятельный перенос');
+        expect(ru).toContain('не менее чем за 24 часа');
+        expect(ru).toContain('28 дней включительно');
+        expect(ru).toContain('службу поддержки вне этого предела');
+        expect(ru).toContain('дата продления фиксируется');
+    });
+
+    it('fails closed instead of sending an incomplete Checkout V2 contract', () => {
+        expect(() => welcomeEmailTemplate({
+            locale: 'en',
+            studentName: 'Alina',
+            packageName: 'Individual',
+            loginUrl: 'https://example.com/en/login',
+            sessionsTotal: 4,
+            amountTotal: 25900,
+            currency: 'eur',
+            contractSchemaVersion: 2,
+            classDurationMinutes: 50,
+        })).toThrow('Checkout V2 welcome contract');
+    });
+
+    it('keeps the weekly local class time through Madrid DST while renewal remains exactly 672 hours after class one', () => {
+        const html = welcomeEmailTemplate({
+            locale: 'en',
+            studentName: 'Alina',
+            packageName: 'Individual',
+            loginUrl: 'https://example.com/en/login',
+            sessionsTotal: 4,
+            amountTotal: 25900,
+            currency: 'eur',
+            contractSchemaVersion: 2,
+            classDurationMinutes: 50,
+            teacherName: 'Alejandro García',
+            slotWeekday: 1,
+            slotLocalStartTime: '10:00:00',
+            timezoneName: 'Europe/Madrid',
+            classStartsAt: [
+                '2026-10-12T08:00:00.000Z',
+                '2026-10-19T08:00:00.000Z',
+                '2026-10-26T09:00:00.000Z',
+                '2026-11-02T09:00:00.000Z',
+            ],
+            renewalAnchorAt: '2026-11-09T08:00:00.000Z',
+        });
+
+        expect(html.match(/10:00/g)).toHaveLength(5);
+        expect(html).toContain('9 November 2026 at 09:00');
+    });
+
+    it('rejects V2 class dates that do not preserve the announced weekly local pattern', () => {
+        expect(() => welcomeEmailTemplate({
+            locale: 'en',
+            studentName: 'Alina',
+            packageName: 'Individual',
+            loginUrl: 'https://example.com/en/login',
+            sessionsTotal: 4,
+            amountTotal: 25900,
+            currency: 'eur',
+            contractSchemaVersion: 2,
+            classDurationMinutes: 50,
+            teacherName: 'Alejandro García',
+            slotWeekday: 1,
+            slotLocalStartTime: '10:00:00',
+            timezoneName: 'Europe/Madrid',
+            classStartsAt: [
+                '2026-09-07T08:00:00.000Z',
+                '2026-09-15T08:00:00.000Z',
+                '2026-09-21T08:00:00.000Z',
+                '2026-09-28T08:00:00.000Z',
+            ],
+            renewalAnchorAt: '2026-10-05T08:00:00.000Z',
+        })).toThrow('Checkout V2 welcome contract');
+    });
+
     it.each(['es', 'en', 'ru'] as const)('previews localized welcome and renewal emails in %s', (locale) => {
         const welcome = buildEmailPreview('welcome', locale);
         const renewal = buildEmailPreview('renewal', locale);
@@ -186,14 +362,14 @@ describe('lead application email', () => {
         expect(renewal.html).toContain(`/${locale}/campus/account`);
         expect(renewal.html).toContain(`/${locale}/legal/terminos`);
         expect(welcome.html).toContain({
-            es: 'Híbrido mensual',
-            en: 'Hybrid monthly',
-            ru: 'Гибридный месяц',
+            es: '4 clases individuales de 50 minutos',
+            en: '4 individual 50-minute classes',
+            ru: '4 индивидуальных занятия по 50 минут',
         }[locale]);
         expect(renewal.html).toContain({
-            es: 'Mensual estándar',
-            en: 'Standard monthly',
-            ru: 'Стандартный месяц',
+            es: '4 clases individuales de 50 minutos',
+            en: '4 individual 50-minute classes',
+            ru: '4 индивидуальных занятия по 50 минут',
         }[locale]);
         expect(renewal.html).toContain({
             es: '¿Tienes dudas? Responde a este correo.',
@@ -313,7 +489,7 @@ describe('lead application email', () => {
         expect(combinedHtml).toContain('Hybrid &lt;img src=x&gt;');
         expect(combinedHtml).toContain('Teacher &lt;img src=x&gt;');
         expect(combinedHtml).toContain('&lt;img src=x onerror=alert(1)&gt;');
-        expect(combinedHtml).toContain('&lt;b&gt;Conversation plan&lt;/b&gt;');
+        expect(combinedHtml).not.toContain('Conversation plan');
         expect(combinedHtml).not.toContain('<script');
         expect(combinedHtml).not.toContain('<img');
         expect(combinedHtml).not.toContain('<svg');
@@ -321,7 +497,7 @@ describe('lead application email', () => {
         expect(combinedHtml).not.toContain('javascript:alert');
     });
 
-    it('keeps sales follow-up emails manual, sober and pre-payment', () => {
+    it('keeps sales follow-up aligned with the single offer and direct booking', () => {
         const missingInfoHtml = missingInfoEmailTemplate({
             recipientName: 'Alina',
             diagnosticUrl: 'https://example.com/en/diagnostico',
@@ -333,12 +509,22 @@ describe('lead application email', () => {
         const missingInfoPreview = buildEmailPreview('missing-info');
         const proposalPreview = buildEmailPreview('proposal-next-step');
 
-        expect(missingInfoPreview.subject).toBe('A little more context - Espanol Honesto');
-        expect(proposalPreview.subject).toBe('Suggested next step - Espanol Honesto');
-        expect(missingInfoHtml).toContain('we need a little more context');
-        expect(missingInfoHtml).toContain('A direct reply to this email is perfectly fine');
-        expect(proposalHtml).toContain('before any payment');
-        expect(proposalHtml).toContain('No pressure and no automatic checkout yet');
+        expect(missingInfoPreview.subject).toBe('Optional context for your classes - Espanol Honesto');
+        expect(proposalPreview.subject).toBe('How direct booking will work - Espanol Honesto');
+        expect(missingInfoHtml).toContain('This is optional');
+        expect(missingInfoHtml).toContain('without a review, recommendation or approval');
+        expect(missingInfoHtml).toMatch(/When direct\s+booking is enabled/);
+        expect(missingInfoHtml).toContain('when checkout is enabled');
+        expect(missingInfoHtml).toContain('four individual 50-minute classes for EUR 259');
+        expect(proposalHtml).toContain('four individual 50-minute classes for EUR 259');
+        expect(proposalHtml).toContain('renewed every 28 days');
+        expect(proposalHtml).toContain('teacher, weekly time, time zone, all four class dates');
+        expect(proposalHtml).toContain('Booking will be direct');
+        expect(proposalHtml).toContain('When checkout is enabled');
+        expect(proposalHtml).not.toContain('Hybrid plan');
+        expect(proposalHtml).not.toContain('coordinate the first class manually');
+        expect([missingInfoHtml, proposalHtml].join('\n')).not.toMatch(/before suggesting a plan|if it looks like a fit|wait for approval/i);
+        expect([missingInfoHtml, proposalHtml].join('\n')).not.toMatch(/you can already book|return to the availability shown on the website when you are ready/i);
         expect(missingInfoHtml).not.toMatch(mojibakePattern);
         expect(proposalHtml).not.toMatch(mojibakePattern);
     });
@@ -424,5 +610,69 @@ describe('lead application email', () => {
         expect(emailTemplateManagerSource).toContain(
             "import type { EmailPreviewLocale, EmailPreviewType }",
         );
+    });
+});
+
+describe('Checkout V2 provisional-anchor reschedule email', () => {
+    const contract = {
+        recipientName: 'Alina <student>',
+        otherPartyName: 'Alejandro <teacher>',
+        classStartsAt: [
+            '2026-10-12T08:00:00.000Z',
+            '2026-10-19T08:00:00.000Z',
+            '2026-10-26T09:00:00.000Z',
+            '2026-11-02T09:00:00.000Z',
+        ],
+        renewalAnchorAt: '2026-11-09T08:00:00.000Z',
+        timezoneName: 'Europe/Madrid',
+        amountCents: 25_900,
+        currency: 'EUR',
+    };
+
+    it.each([
+        ['es', 'Nuevas fechas', 'Próximo cobro', '259 EUR'],
+        ['en', 'New dates', 'Next charge', 'EUR 259'],
+        ['ru', 'Новые даты', 'Следующее списание', '259 EUR'],
+    ] as const)('renders four dates and the exact next charge in %s', (locale, dates, charge, amount) => {
+        const html = checkoutV2CycleRescheduledTemplate({
+            ...contract,
+            locale,
+            isTeacher: false,
+        });
+
+        expect(checkoutV2CycleRescheduledSubject(locale, false)).toContain('Español Honesto');
+        expect(html).toContain(dates);
+        expect(html).toContain(charge);
+        expect(html).toContain(amount);
+        expect(html.match(/Europe\/Madrid/g)).toHaveLength(6);
+        expect(html).toContain('Alina &lt;student&gt;');
+        expect(html).toContain('Alejandro &lt;teacher&gt;');
+        expect(html).not.toMatch(mojibakePattern);
+    });
+
+    it('renders one teacher summary without billing information', () => {
+        const html = checkoutV2CycleRescheduledTemplate({
+            ...contract,
+            locale: 'en',
+            isTeacher: true,
+        });
+
+        expect(checkoutV2CycleRescheduledSubject('en', true)).toBe(
+            'First cycle rescheduled - Español Honesto',
+        );
+        expect(html).toContain('four new dates with your student');
+        expect(html.match(/Europe\/Madrid/g)).toHaveLength(5);
+        expect(html).not.toContain('EUR 259');
+        expect(html).not.toContain('Next charge');
+        expect(html).not.toMatch(mojibakePattern);
+    });
+
+    it('fails closed on an incoherent renewal anchor', () => {
+        expect(() => checkoutV2CycleRescheduledTemplate({
+            ...contract,
+            locale: 'en',
+            isTeacher: false,
+            renewalAnchorAt: '2026-11-10T08:00:00.000Z',
+        })).toThrow('exact renewal anchor');
     });
 });

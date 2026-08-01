@@ -168,7 +168,7 @@ describe('/api/subscribe', () => {
         expect(mocks.recordLeadEmailOutInCrmSafe).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
             contactId: '10000000-0000-4000-8000-000000000001',
             opportunityId: '20000000-0000-4000-8000-000000000001',
-            subject: 'Application received - Espanol Honesto',
+            subject: 'Direct booking details - Espanol Honesto',
             template: 'lead_welcome',
         }));
         expect(mocks.recordAcquisitionAttributionSafe).toHaveBeenCalledWith(expect.anything(), {

@@ -214,8 +214,8 @@ function addHoursIso(date: Date, hours: number) {
 
 function salesEmailSubject(template: SalesEmailTemplate) {
     return template === 'missing_info'
-        ? 'A little more context - Espanol Honesto'
-        : 'Suggested next step - Espanol Honesto';
+        ? 'Optional context for your classes - Espanol Honesto'
+        : 'How direct booking will work - Espanol Honesto';
 }
 
 function salesEmailOpportunityStage(template: SalesEmailTemplate): CrmOpportunityStage {
@@ -1240,7 +1240,7 @@ async function sendLevelCheckInvite(
             lead: crmLead,
             contactId: crmSync.contactId,
             opportunityId: crmSync.opportunityId,
-            subject: 'A few level questions - Espanol Honesto',
+            subject: 'Optional Spanish context - Espanol Honesto',
             template: 'level_check_invite',
         });
     }

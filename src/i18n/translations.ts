@@ -405,16 +405,16 @@ export const ui = {
         progress: {
             manifesto: "/ MANIFIESTO 003",
             headline: "TU CAMINO",
-            subheadline: "Los 6 niveles hacia la fluidez y maestría.",
-            paragraph: "Aprender español requiere tiempo y constancia. Te mostramos los 6 niveles para dominar el idioma y cuándo alcanzarás los hitos más importantes para poder comunicarte sin esfuerzo.",
-            closing: "El tiempo pasa igual. Al menos, haz que cuente.",
+            subheadline: "Seis hitos observables, no un calendario universal.",
+            paragraph: "El progreso depende del punto de partida, la práctica y el contacto real con el idioma. Estos hitos describen capacidades que puedes observar; no prometen que todo el mundo llegue a ellas en el mismo plazo.",
+            closing: "Mide lo que ya puedes hacer y decide el siguiente paso.",
             levels: [
-                { title: "NIVEL 1", duration: "5 MESES", description: "Comunicación básica. Puedes entender conversaciones, dirigirte a la gente y sentirte más o menos cómodo en el día a día." },
-                { title: "NIVEL 2", duration: "10 MESES", description: "Comunicación con relativa soltura. Ganas confianza para hablar de temas variados y defenderte bien." },
-                { title: "NIVEL 3", duration: "15 MESES", description: "Fluidez conversacional. Aunque sigas cometiendo algunos errores gramaticales, hablas sin frenos ni bloqueos." },
-                { title: "NIVEL 4", duration: "", description: "Perfeccionamiento. Reducción drástica de los errores y ampliación de vocabulario complejo." },
-                { title: "NIVEL 5", duration: "", description: "Dominio. Entiendes el humor, sarcasmo y matices culturales casi como un nativo." },
-                { title: "NIVEL 6", duration: "", description: "Maestría real. Tu competencia en español es prácticamente bilingüe." }
+                { title: "NIVEL 1", duration: "INTERACCIÓN BÁSICA", description: "Te haces entender en situaciones sencillas y puedes pedir aclaraciones cuando algo se escapa." },
+                { title: "NIVEL 2", duration: "CONVERSACIÓN SOSTENIDA", description: "Mantienes intercambios cotidianos, explicas ideas breves y recuperas la conversación después de un bloqueo." },
+                { title: "NIVEL 3", duration: "AUTONOMÍA COTIDIANA", description: "Participas en conversaciones de vida, trabajo y ciudad sin preparar cada frase de antemano." },
+                { title: "NIVEL 4", duration: "PRECISIÓN CRECIENTE", description: "Detectas patrones de error, eliges mejor el registro y reformulas con más claridad." },
+                { title: "NIVEL 5", duration: "MATIZ CULTURAL", description: "Reconoces humor, referencias y diferencias de tono, y preguntas cuando el contexto no está claro." },
+                { title: "NIVEL 6", duration: "VOZ PROPIA", description: "Expresas posiciones complejas con recursos propios y sigues ampliando precisión, vocabulario y criterio." }
             ]
         },
         team: {
@@ -442,12 +442,12 @@ export const ui = {
             label: "/ FAQ",
             headline: "PREGUNTAS FRECUENTES",
             items: [
-                { question: "¿Qué nivel necesito para empezar?", answer: "Recomendamos un nivel A2 mínimo. Si estás en cero absoluto, hay opciones mejores que nosotros para los primeros pasos. Nuestro fuerte es sacarte del atasco del B1-B2." },
-                { question: "¿Cómo son las clases online?", answer: "Por videollamada, en clases individuales de 50 minutos. Tú ya has trabajado parte del material antes. La sesión se dedica a conversación, corrección y práctica de situaciones reales." },
-                { question: "¿Qué pasa si tengo que cancelar una clase?", answer: "Avisa con 24 horas de antelación y la reprogramamos sin problema. Menos de 24 horas, la clase se pierde. Somos flexibles, pero el compromiso es mutuo." },
-                { question: "¿Puedo cambiar de plan?", answer: "Sí. Pídenos el cambio antes de la renovación; lo revisamos contigo y, si procede, se aplica al siguiente periodo. No cambiamos ni prorrateamos el periodo ya pagado." },
-                { question: "¿Ofrecéis clases para empresas?", answer: "Sí, pero es un servicio diferente. Escríbenos y hablamos de las necesidades específicas de tu equipo." },
-                { question: "¿Puedo aprender español en 3 meses?", answer: "Puedes mejorar en tres meses, pero no prometemos milagros. Si quieres hablar con más criterio y confianza, necesitas continuidad, materiales buenos y conversaciones exigentes." }
+                { question: "¿Necesito un nivel mínimo para empezar?", answer: "No exigimos un nivel mínimo para comprar. Antes de elegir una plaza puedes consultar si nuestro trabajo individual de conversación, cultura y uso real del idioma encaja con tus objetivos." },
+                { question: "¿Qué incluye la oferta?", answer: "Una única oferta directa para adultos: cuatro clases individuales online de 50 minutos por 259 EUR en cada ciclo de 28 días." },
+                { question: "¿Elijo profesor y horario antes de pagar?", answer: "Sí. Antes de pagar ves el profesor, la franja semanal, la zona horaria, la primera fecha y las cuatro fechas previstas del ciclo." },
+                { question: "¿Cuándo se cobra y se renueva?", answer: "Los primeros 259 EUR se cobran al reservar. El siguiente cobro es 28 días después de la primera clase. Si cambias esa primera fecha mediante autoservicio dentro de la ventana permitida —hasta un máximo inclusivo de 28 días desde la fecha originalmente comprada—, el ancla se mueve con ella. Un cambio excepcional gestionado por soporte fuera de esa ventana no mueve automáticamente el ancla. El ancla queda fija cuando comienza la primera clase." },
+                { question: "¿Puedo reprogramar o cancelar una clase?", answer: "Con al menos 24 horas puedes reprogramar sin consumirla. Una cancelación con menos de 24 horas o un no-show consume la clase, salvo una incidencia justificada que soporte reclasifique." },
+                { question: "¿Cómo funciona la garantía?", answer: "Después de completar la primera clase y antes de comenzar la segunda puedes pedir 194,25 EUR por las tres clases restantes. Reprogramar la segunda con al menos 24 horas conserva la ventana; una cancelación tardía o no-show la consume y la cierra, salvo reclasificación de soporte. La devolución invalida esas sesiones y cancela las renovaciones futuras." }
             ]
         },
         pricing: {
@@ -506,7 +506,7 @@ export const ui = {
                 privacyLink: "Política de Privacidad",
                 serviceStartRequest: "Solicito que el servicio pueda comenzar durante los 14 días de desistimiento. Entiendo que, si desisto después de que haya empezado, podrá descontarse la parte proporcional ya prestada.",
                 withdrawalLossAcknowledgement: "Reconozco expresamente que, una vez ejecutado íntegramente el servicio, perderé el derecho de desistimiento.",
-                renewalDisclosure: "Se cobran 259 EUR al reservar. La siguiente cuota se cobra 28 días después de la primera clase; si esa fecha cambia antes de empezar, se mueve el ancla y, después de comenzar, queda fija. Desde entonces se renueva cada 28 días hasta que canceles antes del siguiente cobro.",
+                renewalDisclosure: "Se cobran 259 EUR al reservar. La siguiente cuota se cobra 28 días después de la primera clase. Solo una reprogramación por autoservicio, con al menos 24 horas de antelación y hasta un máximo inclusivo de 28 días desde la fecha original, mueve las cuatro clases y el ancla; un cambio excepcional por soporte fuera de ese límite no la mueve automáticamente. Después de comenzar la primera clase, el ancla queda fija. Desde entonces se renueva cada 28 días hasta que canceles antes del siguiente cobro.",
                 sessionBankDisclosure: "Cada ciclo de 28 días incluye cuatro clases individuales de 50 minutos.",
                 policyError: "Debes confirmar la mayoría de edad y aceptar las cuatro condiciones antes de continuar.",
             },
@@ -1131,16 +1131,16 @@ export const ui = {
         progress: {
             manifesto: "/ MANIFESTO 003",
             headline: "YOUR PATH",
-            subheadline: "The 6 levels to fluency and mastery.",
-            paragraph: "Learning Spanish requires time and consistency. We show you the 6 levels to master the language and when you will reach the most important milestones to communicate effortlessly.",
-            closing: "Time passes anyway. At least make it count.",
+            subheadline: "Six observable milestones, not a universal timetable.",
+            paragraph: "Progress depends on your starting point, practice and real contact with the language. These milestones describe abilities you can observe; they do not promise that everyone will reach them in the same amount of time.",
+            closing: "Measure what you can already do and choose the next step.",
             levels: [
-                { title: "LEVEL 1", duration: "5 MONTHS", description: "Basic communication. You can understand conversations, address people, and feel somewhat comfortable in your day-to-day." },
-                { title: "LEVEL 2", duration: "10 MONTHS", description: "Communication with relative ease. You gain confidence to talk about varied topics and handle yourself well." },
-                { title: "LEVEL 3", duration: "15 MONTHS", description: "Conversational fluency. Even with some grammatical errors, you speak without stopping or freezing." },
-                { title: "LEVEL 4", duration: "", description: "Perfection. Drastic reduction of errors and expansion of complex vocabulary." },
-                { title: "LEVEL 5", duration: "", description: "Mastery. You understand humor, sarcasm, and cultural nuances almost like a native." },
-                { title: "LEVEL 6", duration: "", description: "True mastery. Your competence in Spanish is practically bilingual." }
+                { title: "LEVEL 1", duration: "BASIC INTERACTION", description: "You make yourself understood in simple situations and ask for clarification when something is unclear." },
+                { title: "LEVEL 2", duration: "SUSTAINED CONVERSATION", description: "You maintain everyday exchanges, explain short ideas and recover the conversation after getting stuck." },
+                { title: "LEVEL 3", duration: "EVERYDAY AUTONOMY", description: "You take part in conversations about life, work and the city without preparing every sentence in advance." },
+                { title: "LEVEL 4", duration: "GROWING PRECISION", description: "You notice recurring errors, choose register more deliberately and rephrase with greater clarity." },
+                { title: "LEVEL 5", duration: "CULTURAL NUANCE", description: "You recognise humour, references and shifts in tone, and ask when the context is unclear." },
+                { title: "LEVEL 6", duration: "YOUR OWN VOICE", description: "You express complex positions with your own resources while continuing to build precision, vocabulary and judgement." }
             ]
         },
         team: {
@@ -1168,12 +1168,12 @@ export const ui = {
             label: "/ FAQ",
             headline: "FREQUENTLY ASKED QUESTIONS",
             items: [
-                { question: "What level do I need to start?", answer: "We recommend a minimum A2 level. If you are starting from absolute zero, there are better options for the first steps. Our strength is getting you unstuck from B1-B2." },
-                { question: "How are the online classes?", answer: "By video call, in individual 50-minute classes. You have already worked through part of the material beforehand. The session focuses on conversation, correction and practice for real situations." },
-                { question: "What happens if I have to cancel a class?", answer: "Notify us 24 hours in advance and we reschedule without problem. Less than 24 hours, the class is lost. We are flexible, but the commitment is mutual." },
-                { question: "Can I change plans?", answer: "Yes. Ask us before renewal; we will review the change with you and, when appropriate, apply it to the next period. We do not change or prorate a period that has already been paid." },
-                { question: "Do you offer classes for companies?", answer: "Yes, but it is a different service. Write to us and we can talk about the specific needs of your team." },
-                { question: "Can I learn Spanish in 3 months?", answer: "You can improve in three months, but we do not promise miracles. Speaking with more judgment and confidence takes continuity, strong materials and demanding conversations." }
+                { question: "Do I need a minimum level to start?", answer: "There is no minimum level required to purchase. Before choosing a place, you can ask whether our individual work on conversation, culture and real-life Spanish fits your goals." },
+                { question: "What does the offer include?", answer: "One direct offer for adults: four individual 50-minute online classes for EUR 259 in each 28-day cycle." },
+                { question: "Do I choose the teacher and time before paying?", answer: "Yes. Before payment you see the teacher, weekly time, time zone, first date and all four planned dates in the cycle." },
+                { question: "When am I charged and when does it renew?", answer: "The first EUR 259 is charged when you reserve. The next charge is 28 days after the first class. If you change that first date through self-service within the permitted window —up to and including 28 days after the date originally purchased—, the anchor moves with it. An exceptional change handled by support outside that window does not automatically move the anchor. The anchor becomes fixed when the first class starts." },
+                { question: "Can I reschedule or cancel a class?", answer: "With at least 24 hours' notice you can reschedule without consuming it. A later cancellation or no-show consumes the class unless support records a justified reclassification." },
+                { question: "How does the guarantee work?", answer: "After completing the first class and before the second begins, you can request EUR 194.25 for the three remaining classes. Rescheduling the second with at least 24 hours' notice keeps the window open; a late cancellation or no-show consumes it and closes the window unless support reclassifies the incident. The refund invalidates those sessions and cancels future renewals." }
             ]
         },
         pricing: {
@@ -1232,7 +1232,7 @@ export const ui = {
                 privacyLink: "Privacy Policy",
                 serviceStartRequest: "I request that the service may begin during the 14-day withdrawal period. I understand that, if I withdraw after it begins, the proportion already supplied may be deducted.",
                 withdrawalLossAcknowledgement: "I expressly acknowledge that, once the service has been fully performed, I will lose my right of withdrawal.",
-                renewalDisclosure: "EUR 259 is charged when the place is reserved. The next charge is collected 28 days after the first class; if that date changes before classes begin, the renewal anchor moves with it and becomes fixed once the first class starts. It then renews every 28 days until you cancel before the next charge.",
+                renewalDisclosure: "EUR 259 is charged when the place is reserved. The next charge is collected 28 days after the first class. Only a self-service reschedule requested at least 24 hours ahead and up to an inclusive maximum of 28 days from the original date moves all four classes and the renewal anchor; an exceptional support change outside that limit does not move it automatically. Once the first class begins, the renewal anchor is fixed. It then renews every 28 days until you cancel before the next charge.",
                 sessionBankDisclosure: "Each 28-day cycle includes four individual 50-minute classes.",
                 policyError: "Confirm that you are an adult and accept all four conditions before continuing.",
             },
@@ -1752,16 +1752,16 @@ export const ui = {
         progress: {
             manifesto: "/ МАНИФЕСТ 003",
             headline: "ТВОЙ ПУТЬ",
-            subheadline: "6 уровней к беглости и мастерству.",
-            paragraph: "Изучение испанского требует времени и постоянства. Мы показываем вам 6 уровней овладения языком и когда вы достигнете самых важных рубежей, чтобы общаться без усилий.",
-            closing: "Время все равно проходит. Пусть оно имеет значение.",
+            subheadline: "Шесть наблюдаемых этапов, а не универсальный график.",
+            paragraph: "Прогресс зависит от исходного уровня, практики и реального контакта с языком. Эти этапы описывают наблюдаемые умения, но не обещают всем одинаковый срок.",
+            closing: "Оценивайте то, что уже умеете, и выбирайте следующий шаг.",
             levels: [
-                { title: "УРОВЕНЬ 1", duration: "5 МЕСЯЦЕВ", description: "Базовое общение. Ты понимаешь разговоры, можешь обращаться к людям и чувствуешь себя более-менее комфортно в повседневной жизни." },
-                { title: "УРОВЕНЬ 2", duration: "10 МЕСЯЦЕВ", description: "Общение с относительной легкостью. Ты обретаешь уверенность, чтобы говорить на разные темы и хорошо справляться." },
-                { title: "УРОВЕНЬ 3", duration: "15 МЕСЯЦЕВ", description: "Разговорная беглость. Даже если ты все еще совершаешь некоторые грамматические ошибки, ты говоришь без тормозов и блоков." },
-                { title: "УРОВЕНЬ 4", duration: "", description: "Улучшение. Резкое сокращение количества ошибок и расширение сложного словарного запаса." },
-                { title: "УРОВЕНЬ 5", duration: "", description: "Владение. Ты понимаешь юмор, сарказм и культурные нюансы почти как носитель языка." },
-                { title: "УРОВЕНЬ 6", duration: "", description: "Настоящее мастерство. Твоя компетентность в испанском практически двуязычна." }
+                { title: "УРОВЕНЬ 1", duration: "БАЗОВОЕ ОБЩЕНИЕ", description: "Вы объясняетесь в простых ситуациях и просите уточнить то, что осталось непонятным." },
+                { title: "УРОВЕНЬ 2", duration: "УСТОЙЧИВЫЙ РАЗГОВОР", description: "Вы поддерживаете повседневный обмен репликами, кратко объясняете мысли и возвращаетесь к разговору после заминки." },
+                { title: "УРОВЕНЬ 3", duration: "БЫТОВАЯ САМОСТОЯТЕЛЬНОСТЬ", description: "Вы участвуете в разговорах о жизни, работе и городе, не готовя заранее каждую фразу." },
+                { title: "УРОВЕНЬ 4", duration: "РАСТУЩАЯ ТОЧНОСТЬ", description: "Вы замечаете повторяющиеся ошибки, осознаннее выбираете регистр и яснее переформулируете мысли." },
+                { title: "УРОВЕНЬ 5", duration: "КУЛЬТУРНЫЕ НЮАНСЫ", description: "Вы распознаёте юмор, отсылки и изменения тона и задаёте вопросы, когда контекст неясен." },
+                { title: "УРОВЕНЬ 6", duration: "СОБСТВЕННЫЙ ГОЛОС", description: "Вы выражаете сложные позиции своими средствами и продолжаете развивать точность, словарный запас и языковое чутьё." }
             ]
         },
         team: {
@@ -1789,12 +1789,12 @@ export const ui = {
             label: "/ FAQ",
             headline: "ЧАСТО ЗАДАВАЕМЫЕ ВОПРОСЫ",
             items: [
-                { question: "Какой уровень мне нужен для начала?", answer: "Мы рекомендуем минимум уровень A2. Если вы начинаете с нуля, есть лучшие варианты для первых шагов. Наша сила — вытащить вас из застоя B1-B2." },
-                { question: "Как проходят онлайн-уроки?", answer: "По видеосвязи, в индивидуальных занятиях по 50 минут. Часть материала вы заранее прорабатываете самостоятельно. На занятии мы сосредотачиваемся на разговоре, исправлениях и практике реальных ситуаций." },
-                { question: "Что произойдет, если мне нужно отменить урок?", answer: "Сообщите нам за 24 часа, и мы перенесем урок без проблем. Менее чем за 24 часа урок сгорает. Мы гибки, но обязательства взаимны." },
-                { question: "Могу ли я сменить план?", answer: "Да. Сообщите нам об этом до продления: мы обсудим изменение с вами и, если оно подходит, применим его к следующему периоду. Уже оплаченный период не меняется и не пересчитывается." },
-                { question: "Предлагаете ли вы уроки для компаний?", answer: "Да, но это отдельная услуга. Напишите нам, и мы обсудим конкретные потребности вашей команды." },
-                { question: "Могу ли я выучить испанский за 3 месяца?", answer: "За три месяца можно заметно продвинуться, но мы не обещаем чудес. Для уверенной и осмысленной речи нужны регулярность, хорошие материалы и содержательные разговоры." }
+                { question: "Нужен ли минимальный уровень для начала?", answer: "Для покупки нет обязательного минимального уровня. До выбора места можно уточнить, подходит ли вашим целям наша индивидуальная работа с разговорной речью, культурой и живым испанским." },
+                { question: "Что входит в предложение?", answer: "Одно прямое предложение для взрослых: четыре индивидуальных онлайн-занятия по 50 минут за 259 EUR в каждом 28-дневном цикле." },
+                { question: "Я выбираю преподавателя и время до оплаты?", answer: "Да. До оплаты вы видите преподавателя, еженедельное время, часовой пояс, первую дату и все четыре запланированные даты цикла." },
+                { question: "Когда списывается оплата и происходит продление?", answer: "Первые 259 EUR списываются при бронировании. Следующее списание происходит через 28 дней после первого занятия. Если самостоятельно перенести первую дату в пределах разрешённого окна —не более чем на 28 дней включительно от первоначально приобретённой даты—, дата продления сдвигается вместе с ней. Исключительный перенос через поддержку за пределами этого окна не сдвигает дату продления автоматически. Дата продления фиксируется с началом первого занятия." },
+                { question: "Можно ли перенести или отменить занятие?", answer: "При уведомлении не менее чем за 24 часа занятие можно перенести без списания. Более поздняя отмена или неявка расходует занятие, если поддержка не зафиксирует обоснованную переклассификацию." },
+                { question: "Как работает гарантия?", answer: "После завершения первого занятия и до начала второго можно запросить возврат 194,25 EUR за три оставшихся занятия. Перенос второго занятия не менее чем за 24 часа сохраняет окно гарантии; поздняя отмена или неявка расходует занятие и закрывает окно, если поддержка не переклассифицирует случай. Возврат аннулирует эти занятия и отменяет будущие продления." }
             ]
         },
         pricing: {
@@ -1853,7 +1853,7 @@ export const ui = {
                 privacyLink: "Политику конфиденциальности",
                 serviceStartRequest: "Прошу разрешить начать оказание услуг в течение 14-дневного срока отказа. Я понимаю, что при отказе после начала может быть удержана пропорциональная стоимость уже оказанной части.",
                 withdrawalLossAcknowledgement: "Я прямо подтверждаю, что после полного исполнения услуги утрачу право на отказ от договора.",
-                renewalDisclosure: "259 EUR списываются при бронировании места. Следующее списание происходит через 28 дней после первого занятия; если дата первого занятия меняется до его начала, дата продления сдвигается вместе с ней, а после начала фиксируется. Затем подписка продлевается каждые 28 дней, пока вы не отмените её до следующего списания.",
+                renewalDisclosure: "259 EUR списываются при бронировании места. Следующее списание происходит через 28 дней после первого занятия. Только самостоятельный перенос не менее чем за 24 часа и не позднее чем через 28 дней включительно от исходной даты сдвигает все четыре занятия и дату продления; исключительный перенос через службу поддержки вне этого предела не сдвигает её автоматически. После начала первого занятия дата продления фиксируется. Затем подписка продлевается каждые 28 дней, пока вы не отмените её до следующего списания.",
                 sessionBankDisclosure: "Каждый 28-дневный цикл включает четыре индивидуальных занятия по 50 минут.",
                 policyError: "Подтвердите совершеннолетие и примите все четыре условия перед продолжением.",
             },

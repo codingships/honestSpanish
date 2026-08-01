@@ -7,11 +7,14 @@ describe('student campus onboarding surface', () => {
     it('keeps post-payment onboarding visible for teacher, materials, first class and support', () => {
         expect(campusDashboardSource).toContain("type AssignedTeacher");
         expect(campusDashboardSource).toContain(".from('student_teachers')");
-        expect(campusDashboardSource).toContain('Teacher assigned');
+        expect(campusDashboardSource).toContain('Teacher for your place');
         expect(campusDashboardSource).toContain('Drive folder prepared');
-        expect(campusDashboardSource).toContain('First class scheduled');
+        expect(campusDashboardSource).toContain('Dates for your place');
         expect(campusDashboardSource).toContain('Support available');
-        expect(campusDashboardSource).toContain('We coordinate availability manually');
+        expect(campusDashboardSource).toContain('Your teacher is shown with the place you choose');
+        expect(campusDashboardSource).toContain('Your dates are shown with the place you choose');
+        expect(campusDashboardSource).not.toContain('We coordinate availability manually');
+        expect(campusDashboardSource).not.toContain('Assigned before we coordinate the first class');
         expect(campusDashboardSource).toContain('alwaysShowAction: true');
     });
 

@@ -83,6 +83,14 @@ export interface WelcomeEmailData {
     policyAcceptedAt?: string;
     termsUrl?: string;
     supportUrl?: string;
+    contractSchemaVersion?: number;
+    classDurationMinutes?: number;
+    teacherName?: string;
+    slotWeekday?: number;
+    slotLocalStartTime?: string;
+    timezoneName?: string;
+    classStartsAt?: string[];
+    renewalAnchorAt?: string;
 }
 
 const welcomeEmailCopy = {
@@ -107,6 +115,17 @@ const welcomeEmailCopy = {
         provider: 'Prestador',
         adultOnly: 'Servicio exclusivo para personas de 18 años o más.',
         service: 'Las clases duran 30, 40 o 50 minutos según el producto confirmado; la duración estándar es de 50 minutos. Google Meet no corta automáticamente la llamada.',
+        checkoutV2Plan: '4 clases individuales de 50 minutos',
+        checkoutV2Offer: '259 EUR cobrados al reservar por cuatro clases individuales de 50 minutos.',
+        teacher: 'Profesor',
+        weeklySlot: 'Franja semanal',
+        classDates: 'Tus cuatro clases',
+        renewalDate: 'Siguiente cobro',
+        renewalRule: 'La siguiente cuota de 259 EUR se cobra exactamente 28 días después de la primera clase. Solo un cambio mediante autoservicio antes de empezar, solicitado con al menos 24 horas y hasta un máximo inclusivo de 28 días desde la fecha original, mueve las cuatro fechas y el ancla. Un cambio gestionado por soporte fuera de ese límite no la mueve automáticamente. Tras comenzar la primera clase, el ancla queda fija.',
+        guaranteeTitle: 'Garantía del primer ciclo',
+        guarantee: 'Después de completar la primera clase y antes de comenzar la segunda, puedes solicitar la devolución de 194,25 EUR por las tres clases restantes. La devolución cancela todas las renovaciones futuras.',
+        guaranteeWindow: 'Reprogramar la segunda clase con al menos 24 horas de antelación mantiene abierta la garantía. Una cancelación tardía o un no-show consume esa segunda clase y cierra la ventana, salvo que soporte reclasifique una incidencia justificada.',
+        checkoutV2Service: 'Este contrato incluye exclusivamente cuatro clases individuales de 50 minutos por cada ciclo literal de 28 días.',
         cancellationChannel: 'Puedes desactivar la renovación desde el portal de pagos o solicitarlo a soporte. Mantendrás el acceso hasta el final del periodo pagado, salvo reembolso o derecho legal distinto.',
         withdrawal: 'Desistimiento: como consumidor dispones de 14 días naturales desde la celebración del contrato. Si pediste el inicio durante ese plazo, podrá descontarse la parte proporcional ya prestada cuando legalmente proceda.',
         withdrawalLoss: 'El derecho de desistimiento solo se pierde tras la ejecución íntegra del servicio cuando solicitaste expresamente su inicio y reconociste esa consecuencia.',
@@ -120,6 +139,12 @@ const welcomeEmailCopy = {
             'Abre el campus y comprueba que puedes acceder a tu panel y materiales.',
             'Responde con cualquier limitación de horario antes de la primera clase.',
             'Coordinaremos manualmente la primera clase respetando la disponibilidad real.',
+            'Tu carpeta de materiales debería estar lista antes de la primera clase.',
+        ],
+        checkoutV2Steps: [
+            'Abre el campus y comprueba que puedes acceder a tu panel y materiales.',
+            'Revisa debajo el profesor, la franja semanal, la zona horaria y las cuatro fechas que reservaste.',
+            'Si necesitas reprogramar, hazlo con al menos 24 horas de antelación desde el campus o pide ayuda a soporte.',
             'Tu carpeta de materiales debería estar lista antes de la primera clase.',
         ],
         openCampus: 'ABRIR CAMPUS',
@@ -148,6 +173,17 @@ const welcomeEmailCopy = {
         provider: 'Provider',
         adultOnly: 'The service is available only to people aged 18 or over.',
         service: 'Classes last 30, 40 or 50 minutes according to the confirmed product; the standard duration is 50 minutes. Google Meet does not automatically end the call.',
+        checkoutV2Plan: '4 individual 50-minute classes',
+        checkoutV2Offer: 'EUR 259 charged when you reserved the place for four individual 50-minute classes.',
+        teacher: 'Teacher',
+        weeklySlot: 'Weekly time',
+        classDates: 'Your four classes',
+        renewalDate: 'Next charge',
+        renewalRule: 'The next EUR 259 charge is collected exactly 28 days after the first class. Only a self-service change before classes begin, requested at least 24 hours ahead and up to an inclusive maximum of 28 days from the original date, moves all four dates and the renewal anchor. A change handled by support outside that limit does not move the anchor automatically. Once the first class begins, the renewal anchor is fixed.',
+        guaranteeTitle: 'First-cycle guarantee',
+        guarantee: 'After completing the first class and before the second begins, you may request a EUR 194.25 refund for the three remaining classes. The refund cancels all future renewals.',
+        guaranteeWindow: 'Rescheduling the second class at least 24 hours ahead keeps the guarantee window open. A late cancellation or no-show consumes that second class and closes the window, unless support reclassifies a justified incident.',
+        checkoutV2Service: 'This contract includes exactly four individual 50-minute classes in each literal 28-day cycle.',
         cancellationChannel: 'You may disable renewal through the billing portal or ask support. Access remains until the end of the paid period unless a refund or another statutory right applies.',
         withdrawal: 'Withdrawal: as a consumer you have 14 calendar days from conclusion of the contract. If you requested an early start, the proportion already supplied may be deducted where legally applicable.',
         withdrawalLoss: 'The withdrawal right is lost only after full performance where you expressly requested commencement and acknowledged that consequence.',
@@ -161,6 +197,12 @@ const welcomeEmailCopy = {
             'Open the campus and check that you can access your dashboard and materials.',
             'Reply with any schedule limits before your first class.',
             'We will coordinate your first class manually, respecting real availability.',
+            'Your materials folder should be ready before the first class.',
+        ],
+        checkoutV2Steps: [
+            'Open the campus and check that you can access your dashboard and materials.',
+            'Review below the teacher, weekly time, time zone and four dates you reserved.',
+            'If you need to reschedule, do so at least 24 hours ahead from the campus or ask support for help.',
             'Your materials folder should be ready before the first class.',
         ],
         openCampus: 'OPEN CAMPUS',
@@ -189,6 +231,17 @@ const welcomeEmailCopy = {
         provider: 'Исполнитель',
         adultOnly: 'Услуга доступна только лицам от 18 лет.',
         service: 'Занятия длятся 30, 40 или 50 минут в зависимости от продукта; стандартная длительность — 50 минут. Google Meet не завершает звонок автоматически.',
+        checkoutV2Plan: '4 индивидуальных занятия по 50 минут',
+        checkoutV2Offer: '259 EUR списаны при бронировании места за четыре индивидуальных занятия по 50 минут.',
+        teacher: 'Преподаватель',
+        weeklySlot: 'Еженедельное время',
+        classDates: 'Ваши четыре занятия',
+        renewalDate: 'Следующее списание',
+        renewalRule: 'Следующие 259 EUR списываются ровно через 28 дней после первого занятия. Только самостоятельный перенос до начала, оформленный не менее чем за 24 часа и не позднее чем через 28 дней включительно от исходной даты, сдвигает все четыре даты и дату продления. Изменение через службу поддержки вне этого предела не переносит дату продления автоматически. После начала первого занятия дата продления фиксируется.',
+        guaranteeTitle: 'Гарантия первого цикла',
+        guarantee: 'После завершения первого занятия и до начала второго можно запросить возврат 194,25 EUR за три оставшихся занятия. Возврат отменяет все будущие продления.',
+        guaranteeWindow: 'Перенос второго занятия не менее чем за 24 часа сохраняет гарантийное окно. Поздняя отмена или неявка списывает второе занятие и закрывает окно, если только служба поддержки не переклассифицирует подтверждённый уважительный случай.',
+        checkoutV2Service: 'Этот договор включает ровно четыре индивидуальных занятия по 50 минут в каждом цикле продолжительностью 28 календарных дней.',
         cancellationChannel: 'Отключить продление можно в платёжном портале или через поддержку. Доступ сохраняется до конца оплаченного периода, если иное не следует из возврата или закона.',
         withdrawal: 'Отказ от договора: у потребителя есть 14 календарных дней с момента заключения договора. При запросе досрочного начала может быть удержана пропорциональная стоимость оказанной части, если это допускается законом.',
         withdrawalLoss: 'Право на отказ утрачивается только после полного исполнения, если вы прямо попросили начать услугу и подтвердили понимание этого последствия.',
@@ -202,6 +255,12 @@ const welcomeEmailCopy = {
             'Откройте личный кабинет и проверьте доступ к панели и материалам.',
             'Сообщите о любых ограничениях по расписанию до первого занятия.',
             'Мы вручную согласуем первое занятие с учётом реальной доступности.',
+            'Папка с материалами должна быть готова до первого занятия.',
+        ],
+        checkoutV2Steps: [
+            'Откройте личный кабинет и проверьте доступ к панели и материалам.',
+            'Ниже проверьте преподавателя, еженедельное время, часовой пояс и четыре выбранные даты.',
+            'Если нужен перенос, оформите его не менее чем за 24 часа в личном кабинете или обратитесь в поддержку.',
             'Папка с материалами должна быть готова до первого занятия.',
         ],
         openCampus: 'ОТКРЫТЬ КАБИНЕТ',
@@ -236,7 +295,91 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
     const amountPaid = Number.isInteger(data.amountTotal) && (data.amountTotal ?? 0) >= 0
         ? new Intl.NumberFormat(intlLocale, { style: 'currency', currency }).format((data.amountTotal ?? 0) / 100)
         : '';
-    const hasContractDetails = Boolean(durationMonths && startsAt && endsAt && sessionsTotal && amountPaid);
+    const isCheckoutV2 = data.contractSchemaVersion === 2;
+    const hasLegacyContractDetails = !isCheckoutV2
+        && Boolean(durationMonths && startsAt && endsAt && sessionsTotal && amountPaid);
+    let checkoutV2WeeklySlot = '';
+    let checkoutV2ClassDates: string[] = [];
+    let checkoutV2RenewalAt = '';
+
+    if (isCheckoutV2) {
+        const classStartsAt = data.classStartsAt;
+        const timezoneName = data.timezoneName;
+        const firstClassAt = new Date(classStartsAt?.[0] ?? '');
+        const renewalAnchorAt = new Date(data.renewalAnchorAt ?? '');
+        let instantFormatter: Intl.DateTimeFormat;
+        let weekdayFormatter: Intl.DateTimeFormat;
+        let timeFormatter: Intl.DateTimeFormat;
+        let localDateFormatter: Intl.DateTimeFormat;
+        try {
+            instantFormatter = new Intl.DateTimeFormat(intlLocale, {
+                timeZone: timezoneName,
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            });
+            weekdayFormatter = new Intl.DateTimeFormat(intlLocale, {
+                timeZone: timezoneName,
+                weekday: 'long',
+            });
+            timeFormatter = new Intl.DateTimeFormat('en-GB', {
+                timeZone: timezoneName,
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+            });
+            localDateFormatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: timezoneName,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+            });
+            instantFormatter.format(firstClassAt);
+        } catch {
+            throw new Error('Checkout V2 welcome contract has an invalid time zone or date');
+        }
+
+        const expectedLocalTime = data.slotLocalStartTime?.slice(0, 5);
+        const parsedClassDates = classStartsAt?.map((startsAt) => new Date(startsAt)) ?? [];
+        const hasInvalidClassDate = parsedClassDates.some((date) => Number.isNaN(date.getTime()));
+        const localClassDays = hasInvalidClassDate ? [] : parsedClassDates.map((date) => {
+            const parts = Object.fromEntries(
+                localDateFormatter.formatToParts(date).map((part) => [part.type, part.value]),
+            );
+            return Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day));
+        });
+        if (
+            data.amountTotal !== 25_900
+            || currency !== 'EUR'
+            || data.sessionsTotal !== 4
+            || data.classDurationMinutes !== 50
+            || typeof data.teacherName !== 'string'
+            || !data.teacherName.trim()
+            || !Number.isInteger(data.slotWeekday)
+            || !/^\d{2}:\d{2}(?::\d{2})?$/.test(data.slotLocalStartTime ?? '')
+            || !timezoneName
+            || parsedClassDates.length !== 4
+            || hasInvalidClassDate
+            || parsedClassDates.some((date, index) => (
+                (index > 0 && date.getTime() <= parsedClassDates[index - 1].getTime())
+                || timeFormatter.format(date) !== expectedLocalTime
+                || new Date(localClassDays[index]).getUTCDay() !== data.slotWeekday
+                || (index > 0 && localClassDays[index] - localClassDays[index - 1] !== 7 * 24 * 60 * 60 * 1000)
+            ))
+            || Number.isNaN(renewalAnchorAt.getTime())
+            || renewalAnchorAt.getTime() !== firstClassAt.getTime() + 28 * 24 * 60 * 60 * 1000
+        ) {
+            throw new Error('Checkout V2 welcome contract is incomplete or incoherent');
+        }
+
+        checkoutV2WeeklySlot = `${weekdayFormatter.format(firstClassAt)}, ${expectedLocalTime} (${timezoneName})`;
+        checkoutV2ClassDates = parsedClassDates.map((date) => `${instantFormatter.format(date)} (${timezoneName})`);
+        checkoutV2RenewalAt = `${instantFormatter.format(renewalAnchorAt)} (${timezoneName})`;
+    }
     const providerDetails = [
         legalIdentity.ownerName,
         legalIdentity.taxId,
@@ -248,11 +391,30 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
         <h2 style="color: #006064; margin: 0 0 20px 0;">${copy.welcome}, ${studentName}</h2>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            ${copy.planActive}: <strong>${packageName}</strong>.
-        </p>
+             ${copy.planActive}: <strong>${isCheckoutV2 ? copy.checkoutV2Plan : packageName}</strong>.
+         </p>
 
-        ${hasContractDetails ? `
-        <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
+         ${isCheckoutV2 ? `
+         <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
+             <p style="margin: 0 0 12px 0; color: #006064; font-weight: bold;">${copy.contractSummary}</p>
+             <ul style="margin: 0; padding-left: 20px; color: #333333; line-height: 1.7;">
+                 <li>${copy.checkoutV2Offer}</li>
+                 <li>${copy.teacher}: ${escapeEmailHtml(data.teacherName ?? '')}</li>
+                 <li>${copy.weeklySlot}: ${escapeEmailHtml(checkoutV2WeeklySlot)}</li>
+                 <li>${copy.classDates}:
+                     <ol style="margin: 8px 0 0; padding-left: 20px;">
+                         ${checkoutV2ClassDates.map((date) => `<li>${escapeEmailHtml(date)}</li>`).join('')}
+                     </ol>
+                 </li>
+                 <li>${copy.renewalDate}: ${escapeEmailHtml(checkoutV2RenewalAt)}. ${copy.renewalRule}</li>
+             </ul>
+             <p style="margin: 16px 0 8px; color: #006064; font-weight: bold;">${copy.guaranteeTitle}</p>
+             <p style="margin: 0 0 8px; color: #333333; font-size: 13px; line-height: 1.7;">${copy.guarantee}</p>
+             <p style="margin: 0; color: #333333; font-size: 13px; line-height: 1.7;">${copy.guaranteeWindow}</p>
+             ${legalPolicyVersion ? `<p style="margin: 12px 0 0 0; color: #666666; font-size: 12px;">${copy.termsVersion}: ${legalPolicyVersion}${policyAcceptedAt ? ` · ${copy.accepted} ${policyAcceptedAt}` : ''}</p>` : ''}
+         </div>
+         ` : hasLegacyContractDetails ? `
+         <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
             <p style="margin: 0 0 12px 0; color: #006064; font-weight: bold;">${copy.contractSummary}</p>
             <ul style="margin: 0; padding-left: 20px; color: #333333; line-height: 1.7;">
                 <li>${copy.plan}: ${packageName}</li>
@@ -272,7 +434,7 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
             <p style="color: #333333; font-size: 13px; line-height: 1.6;"><strong>${copy.provider}:</strong> ${providerDetails}</p>
             <ul style="margin: 0; padding-left: 20px; color: #333333; font-size: 13px; line-height: 1.7;">
                 <li>${copy.adultOnly}</li>
-                <li>${copy.service}</li>
+                 <li>${isCheckoutV2 ? copy.checkoutV2Service : copy.service}</li>
                 <li>${copy.cancellationChannel}</li>
                 <li>${copy.withdrawal}</li>
                 <li>${copy.withdrawalLoss}</li>
@@ -287,7 +449,7 @@ export function welcomeEmailTemplate(data: WelcomeEmailData): string {
         <div style="background-color: #E0F7FA; padding: 20px; margin: 25px 0; border-left: 4px solid #006064;">
             <p style="margin: 0 0 10px 0; color: #006064; font-weight: bold;">${copy.nextSteps}:</p>
             <ol style="margin: 0; padding-left: 20px; color: #333333;">
-                ${copy.steps.map((step) => `<li style="margin-bottom: 8px;">${step}</li>`).join('')}
+                 ${(isCheckoutV2 ? copy.checkoutV2Steps : copy.steps).map((step) => `<li style="margin-bottom: 8px;">${step}</li>`).join('')}
             </ol>
         </div>
 
@@ -731,6 +893,7 @@ const classRescheduledCopy = {
         minutes: 'minutos',
         teacher: 'Profesor',
         student: 'Estudiante',
+        timeZone: 'Zona horaria',
         join: 'UNIRSE A LA VIDEOLLAMADA',
         document: 'Abrir documento de clase',
     },
@@ -746,6 +909,7 @@ const classRescheduledCopy = {
         minutes: 'minutes',
         teacher: 'Teacher',
         student: 'Student',
+        timeZone: 'Time zone',
         join: 'JOIN THE VIDEO CALL',
         document: 'Open class document',
     },
@@ -761,6 +925,7 @@ const classRescheduledCopy = {
         minutes: 'минут',
         teacher: 'Преподаватель',
         student: 'Ученик',
+        timeZone: 'Часовой пояс',
         join: 'ПРИСОЕДИНИТЬСЯ К ВИДЕОЗВОНКУ',
         document: 'Открыть документ занятия',
     },
@@ -802,6 +967,150 @@ export function classRescheduledTemplate(data: ClassRescheduledData): string {
         </div>
         ${meetLink ? `<p style="text-align: center; margin: 30px 0;"><a href="${meetLink}" style="display: inline-block; background-color: #006064; color: #ffffff; padding: 15px 32px; text-decoration: none; font-weight: bold;">${copy.join}</a></p>` : ''}
         ${documentLink ? `<p style="color: #666666; font-size: 14px;"><a href="${documentLink}" style="color: #006064;">${copy.document}</a></p>` : ''}
+    `;
+    return baseTemplate(content, data.locale);
+}
+
+// ============================================
+// Checkout V2 Initial Cycle Rescheduled Email
+// ============================================
+
+export interface CheckoutV2CycleRescheduledData {
+    locale: 'es' | 'en' | 'ru';
+    recipientName: string;
+    isTeacher: boolean;
+    otherPartyName: string;
+    classStartsAt: string[];
+    renewalAnchorAt: string;
+    timezoneName: string;
+    amountCents: number;
+    currency: string;
+}
+
+const checkoutV2CycleRescheduledCopy = {
+    es: {
+        subjectStudent: 'Tus cuatro clases tienen nuevas fechas - Español Honesto',
+        subjectTeacher: 'Primer ciclo reprogramado - Español Honesto',
+        title: 'El primer ciclo se ha reprogramado',
+        hello: 'Hola',
+        introStudent: 'Estas son las cuatro fechas nuevas de tus clases.',
+        introTeacher: 'Estas son las cuatro fechas nuevas con tu estudiante.',
+        classDates: 'Nuevas fechas',
+        teacher: 'Profesor',
+        student: 'Estudiante',
+        timeZone: 'Zona horaria',
+        nextCharge: 'Próximo cobro',
+        exactAmount: '259 EUR',
+        renewalRule: 'La fecha de renovación se ha movido con la primera clase y quedará fija cuando esta comience.',
+    },
+    en: {
+        subjectStudent: 'Your four classes have new dates - Español Honesto',
+        subjectTeacher: 'First cycle rescheduled - Español Honesto',
+        title: 'The first cycle has been rescheduled',
+        hello: 'Hello',
+        introStudent: 'These are the four new dates for your classes.',
+        introTeacher: 'These are the four new dates with your student.',
+        classDates: 'New dates',
+        teacher: 'Teacher',
+        student: 'Student',
+        timeZone: 'Time zone',
+        nextCharge: 'Next charge',
+        exactAmount: 'EUR 259',
+        renewalRule: 'The renewal date moved with the first class and becomes fixed when that class begins.',
+    },
+    ru: {
+        subjectStudent: 'Новые даты четырёх занятий - Español Honesto',
+        subjectTeacher: 'Первый цикл перенесён - Español Honesto',
+        title: 'Первый цикл перенесён',
+        hello: 'Здравствуйте',
+        introStudent: 'Вот четыре новые даты ваших занятий.',
+        introTeacher: 'Вот четыре новые даты занятий с вашим учеником.',
+        classDates: 'Новые даты',
+        teacher: 'Преподаватель',
+        student: 'Ученик',
+        timeZone: 'Часовой пояс',
+        nextCharge: 'Следующее списание',
+        exactAmount: '259 EUR',
+        renewalRule: 'Дата продления сдвинулась вместе с первым занятием и будет зафиксирована после его начала.',
+    },
+} as const;
+
+export function checkoutV2CycleRescheduledSubject(
+    locale: CheckoutV2CycleRescheduledData['locale'],
+    isTeacher: boolean,
+): string {
+    const copy = checkoutV2CycleRescheduledCopy[locale];
+    return isTeacher ? copy.subjectTeacher : copy.subjectStudent;
+}
+
+export function checkoutV2CycleRescheduledTemplate(
+    data: CheckoutV2CycleRescheduledData,
+): string {
+    const copy = checkoutV2CycleRescheduledCopy[data.locale];
+    const intlLocale = { es: 'es-ES', en: 'en-GB', ru: 'ru-RU' }[data.locale];
+    if (
+        data.classStartsAt.length !== 4
+        || data.amountCents !== 25_900
+        || data.currency.toUpperCase() !== 'EUR'
+    ) {
+        throw new Error('Checkout V2 cycle reschedule contract is incomplete');
+    }
+    let formatter: Intl.DateTimeFormat;
+    try {
+        formatter = new Intl.DateTimeFormat(intlLocale, {
+            timeZone: data.timezoneName,
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+        });
+    } catch {
+        throw new Error('Checkout V2 cycle reschedule has an invalid time zone');
+    }
+    const classDates = data.classStartsAt.map((value) => {
+        const date = new Date(value);
+        if (!Number.isFinite(date.getTime())) {
+            throw new Error('Checkout V2 cycle reschedule requires valid class dates');
+        }
+        return `${formatter.format(date)} (${data.timezoneName})`;
+    });
+    if (classDates.some((_, index) => (
+        index > 0
+        && new Date(data.classStartsAt[index]).getTime()
+            <= new Date(data.classStartsAt[index - 1]).getTime()
+    ))) {
+        throw new Error('Checkout V2 cycle reschedule requires ordered class dates');
+    }
+    const renewalAnchor = new Date(data.renewalAnchorAt);
+    const firstClass = new Date(data.classStartsAt[0]);
+    if (
+        !Number.isFinite(renewalAnchor.getTime())
+        || renewalAnchor.getTime() !== firstClass.getTime() + 28 * 24 * 60 * 60 * 1000
+    ) {
+        throw new Error('Checkout V2 cycle reschedule requires the exact renewal anchor');
+    }
+    const recipientName = escapeEmailHtml(data.recipientName);
+    const otherPartyName = escapeEmailHtml(data.otherPartyName);
+    const timezoneName = escapeEmailHtml(data.timezoneName);
+    const content = `
+        <h2 style="color: #006064; margin: 0 0 20px 0;">${copy.title}</h2>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.hello} ${recipientName},</p>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${data.isTeacher ? copy.introTeacher : copy.introStudent}</p>
+        <div style="background-color: #f9f9f9; padding: 25px; margin: 25px 0; border: 2px solid #006064;">
+            <p style="margin: 0 0 10px; color: #006064; font-weight: bold;">${copy.classDates}</p>
+            <ol style="margin: 0 0 14px; padding-left: 22px; color: #333333; line-height: 1.9;">
+                ${classDates.map((date) => `<li>${escapeEmailHtml(date)}</li>`).join('')}
+            </ol>
+            <p style="margin: 0; color: #333333; line-height: 1.7;">
+                <strong>${data.isTeacher ? copy.student : copy.teacher}:</strong> ${otherPartyName}<br>
+                <strong>${copy.timeZone}:</strong> ${timezoneName}
+                ${data.isTeacher ? '' : `<br><strong>${copy.nextCharge}:</strong> ${copy.exactAmount} · ${escapeEmailHtml(formatter.format(renewalAnchor))} (${timezoneName})`}
+            </p>
+        </div>
+        ${data.isTeacher ? '' : `<p style="color: #333333; font-size: 14px; line-height: 1.6;">${copy.renewalRule}</p>`}
     `;
     return baseTemplate(content, data.locale);
 }
@@ -958,27 +1267,28 @@ export interface LeadWelcomeEmailData {
 export function leadWelcomeTemplate(data: LeadWelcomeEmailData): string {
     const name = data.recipientName ? escapeEmailHtml(data.recipientName) : 'there';
     const content = `
-        <h2 style="color: #006064; margin: 0 0 20px 0;">Application received, ${name}</h2>
+        <h2 style="color: #006064; margin: 0 0 20px 0;">Your details are saved, ${name}</h2>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            Thanks for applying for a place at <strong>Español Honesto</strong>. We have received your information
-            and will review your level, goals and availability before suggesting a next step.
+            Thanks for your interest in <strong>Español Honesto</strong>. When direct booking is enabled, you will be
+            able to book from the real places shown on the website. The information you shared helps us understand and
+            support you, but it is not an application and will not require approval before purchase.
         </p>
 
         <div style="background-color: #E0F7FA; padding: 25px; margin: 25px 0; border-left: 4px solid #006064;">
             <p style="margin: 0 0 10px 0; font-size: 18px; color: #006064; font-weight: bold;">
-                What happens now?
+                One offer, direct booking
             </p>
-            <ol style="margin: 0; padding-left: 20px; color: #333333; font-size: 14px; line-height: 1.6;">
-                <li style="margin-bottom: 8px;">We read your application to understand your link with Spain, your approximate level and what you need.</li>
-                <li style="margin-bottom: 8px;">If it looks like a fit, we will reply with the next step: a few level questions, a short diagnostic or a plan proposal.</li>
-                <li style="margin-bottom: 0;">You do not need to buy anything yet. First we confirm fit, availability and expectations.</li>
-            </ol>
+            <p style="margin: 0; color: #333333; font-size: 15px; line-height: 1.6;">
+                Four individual 50-minute classes cost EUR 259 and renew every 28 days. When checkout is enabled, each
+                real available place will show the teacher, weekly time, time zone, all four dates and the exact next
+                charge before payment.
+            </p>
         </div>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            Español Honesto is for adults and professionals who already have a base and want more serious conversation:
-            culture, work, everyday life and real contact with Spain.
+            Any diagnostic or extra context is optional and will never become a booking gate. When booking opens, if no
+            displayed place works for you, or you want help before choosing, reply to this email and we will support you.
         </p>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6; margin-top: 30px;">
@@ -1003,16 +1313,16 @@ export function missingInfoEmailTemplate(data: MissingInfoEmailData): string {
     const name = data.recipientName ? escapeEmailHtml(data.recipientName) : 'there';
     const diagnosticUrl = safeEmailUrl(data.diagnosticUrl);
     const content = `
-        <h2 style="color: #006064; margin: 0 0 20px 0;">One more detail, ${name}</h2>
+        <h2 style="color: #006064; margin: 0 0 20px 0;">Optional context, ${name}</h2>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            Thanks again for your application. Before suggesting a plan, we need a little more context
-            so that we do not push you into the wrong format.
+            If you would like more tailored support, you can share a little more context. This is optional. When direct
+            booking is enabled, you will be able to book a real available place without a review, recommendation or approval.
         </p>
 
         <div style="background-color: #E0F7FA; padding: 25px; margin: 25px 0; border-left: 4px solid #006064;">
             <p style="margin: 0 0 10px 0; font-size: 18px; color: #006064; font-weight: bold;">
-                Could you reply with:
+                Helpful context, if you want to share it
             </p>
             <ol style="margin: 0; padding-left: 20px; color: #333333; font-size: 14px; line-height: 1.6;">
                 <li style="margin-bottom: 8px;">where you use Spanish now, or where you want to use it;</li>
@@ -1023,7 +1333,7 @@ export function missingInfoEmailTemplate(data: MissingInfoEmailData): string {
 
         ${diagnosticUrl ? `
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            If it is easier, you can also answer through this short diagnostic:
+            If it is easier, you can share the same optional context through this short diagnostic:
         </p>
 
         <table width="100%" cellpadding="0" cellspacing="0" style="margin: 25px 0;">
@@ -1038,7 +1348,9 @@ export function missingInfoEmailTemplate(data: MissingInfoEmailData): string {
         ` : ''}
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            A direct reply to this email is perfectly fine.
+            Our single offer is four individual 50-minute classes for EUR 259, renewed every 28 days. The website
+            will show the teacher, weekly time, four dates and exact next charge before payment when checkout is enabled.
+            A direct reply to this email is also welcome if you want support.
         </p>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6; margin-top: 30px;">
@@ -1057,33 +1369,33 @@ export interface ProposalNextStepEmailData {
 
 export function proposalNextStepEmailTemplate(data: ProposalNextStepEmailData): string {
     const name = data.recipientName ? escapeEmailHtml(data.recipientName) : 'there';
-    const planRecommendation = data.planRecommendation ? escapeEmailHtml(data.planRecommendation) : '';
     const content = `
-        <h2 style="color: #006064; margin: 0 0 20px 0;">Suggested next step, ${name}</h2>
+        <h2 style="color: #006064; margin: 0 0 20px 0;">How direct booking will work, ${name}</h2>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            We have reviewed your application and it looks like there may be a good fit.
-            The useful next step is to confirm the format and availability before any payment.
+            Español Honesto currently has one offer: four individual 50-minute classes for EUR 259,
+            renewed every 28 days until you cancel before the next charge.
         </p>
 
-        ${planRecommendation ? `
         <div style="background-color: #E0F7FA; padding: 25px; margin: 25px 0; border-left: 4px solid #006064;">
             <p style="margin: 0 0 10px 0; font-size: 18px; color: #006064; font-weight: bold;">
-                Initial recommendation
+                Choose a real available place when booking opens
             </p>
             <p style="margin: 0; color: #333333; font-size: 15px; line-height: 1.6;">
-                ${planRecommendation}
+                When checkout is enabled, each place will show the teacher, weekly time, time zone, all four class dates
+                and the exact next charge date before payment. Booking will be direct: no plan recommendation or manual
+                approval will be required.
             </p>
         </div>
-        ` : ''}
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            Please reply with any schedule limits, questions or concerns. Then we can confirm the plan,
-            coordinate the first class manually and only send payment instructions when everything is clear.
+            When booking opens, return to the availability shown on the website. If no displayed place works for you,
+            or you have a question beforehand, reply to this email and we will help without creating a purchase gate.
         </p>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            No pressure and no automatic checkout yet: we prefer to make the decision cleanly.
+            Once checkout is enabled, payment will be taken only after you choose a specific teacher and weekly time
+            and accept the displayed conditions.
         </p>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6; margin-top: 30px;">
@@ -1266,16 +1578,16 @@ export function levelCheckInviteTemplate(data: LevelCheckInviteEmailData): strin
     const name = data.recipientName ? escapeEmailHtml(data.recipientName) : 'there';
     const diagnosticUrl = safeEmailUrl(data.diagnosticUrl);
     const content = `
-        <h2 style="color: #006064; margin: 0 0 20px 0;">A few level questions, ${name}</h2>
+        <h2 style="color: #006064; margin: 0 0 20px 0;">Optional Spanish context, ${name}</h2>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            Before suggesting a plan, we would like to understand how you actually use Spanish.
-            This is a short diagnostic, not an official exam.
+            If you want, these short questions can help your teacher understand how you actually use Spanish.
+            This is optional context, not an official exam, eligibility check or condition for booking.
         </p>
 
         <div style="background-color: #E0F7FA; padding: 25px; margin: 25px 0; border-left: 4px solid #006064;">
             <p style="margin: 0 0 10px 0; font-size: 18px; color: #006064; font-weight: bold;">
-                What we ask for
+                What you can share
             </p>
             <ol style="margin: 0; padding-left: 20px; color: #333333; font-size: 14px; line-height: 1.6;">
                 <li style="margin-bottom: 8px;">A few closed questions about your level and main blocker.</li>
@@ -1297,7 +1609,9 @@ export function levelCheckInviteTemplate(data: LevelCheckInviteEmailData): strin
         ` : ''}
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">
-            We review it manually and use it only to decide the next honest step: proposal, waitlist, or a better format.
+            This diagnostic will not create a review or recommendation gate. Español Honesto has one offer: four
+            individual 50-minute classes for EUR 259, renewed every 28 days. When direct booking is enabled, you will
+            choose a real available teacher and weekly time on the website; reply to this email if you want help.
         </p>
 
         <p style="color: #333333; font-size: 16px; line-height: 1.6; margin-top: 30px;">

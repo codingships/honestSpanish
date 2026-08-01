@@ -160,6 +160,7 @@ describe('fulfillment jobs', () => {
             job_type: 'welcome_fulfillment',
             subscription_id: 'subscription-1',
             student_id: 'student-1',
+            dedupe_key: 'welcome_fulfillment:subscription-1',
             payload: expect.objectContaining({
                 userId: 'student-1',
                 packageId: 'package-1',
@@ -179,9 +180,38 @@ describe('fulfillment jobs', () => {
         }));
     });
 
-    it('treats a renewal-notice unique-key conflict as an idempotent enqueue', async () => {
+    it('accepts a unique-key conflict only when the persisted job is canonically equivalent', async () => {
         const insert = vi.fn().mockResolvedValue({ error: { code: '23505' } });
-        const supabaseAdmin = { from: vi.fn().mockReturnValue({ insert }) };
+        const lookup: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                    job_type: 'renewal_notice',
+                    session_id: null,
+                    subscription_id: 'subscription-1',
+                    student_id: 'student-1',
+                    payload: {
+                        currency: 'eur',
+                        amountTotal: 27000,
+                        durationMonths: 3,
+                        cancelBy: '2026-10-10T00:00:00.000Z',
+                        renewalAt: '2026-10-10T00:00:00.000Z',
+                        subscriptionId: 'subscription-1',
+                        packageId: 'package-1',
+                        userId: 'student-1',
+                        stripeSubscriptionId: 'sub_1',
+                        stripeEventId: 'evt_upcoming_retry',
+                    },
+                },
+                error: null,
+            }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce({ insert })
+                .mockReturnValueOnce(lookup),
+        };
         const { enqueueRenewalNotice } = await import('../../src/lib/fulfillment/jobs');
 
         await expect(enqueueRenewalNotice(supabaseAdmin as any, {
@@ -196,6 +226,63 @@ describe('fulfillment jobs', () => {
             amountTotal: 27000,
             currency: 'eur',
         })).resolves.toBe(true);
+
+        expect(lookup.eq).toHaveBeenCalledWith(
+            'job_type',
+            'renewal_notice',
+        );
+        expect(lookup.eq).toHaveBeenCalledWith(
+            'dedupe_key',
+            'renewal_notice:sub_1:2026-10-10T00:00:00.000Z',
+        );
+    });
+
+    it('rejects a unique-key conflict when the persisted payload differs', async () => {
+        const insert = vi.fn().mockResolvedValue({ error: { code: '23505' } });
+        const lookup: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                    job_type: 'renewal_notice',
+                    session_id: null,
+                    subscription_id: 'subscription-1',
+                    student_id: 'student-1',
+                    payload: {
+                        stripeEventId: 'evt_upcoming_retry',
+                        stripeSubscriptionId: 'sub_1',
+                        userId: 'student-1',
+                        packageId: 'package-1',
+                        subscriptionId: 'subscription-1',
+                        renewalAt: '2026-10-10T00:00:00.000Z',
+                        cancelBy: '2026-10-10T00:00:00.000Z',
+                        durationMonths: 3,
+                        amountTotal: 99999,
+                        currency: 'eur',
+                    },
+                },
+                error: null,
+            }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce({ insert })
+                .mockReturnValueOnce(lookup),
+        };
+        const { enqueueRenewalNotice } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(enqueueRenewalNotice(supabaseAdmin as any, {
+            stripeEventId: 'evt_upcoming_retry',
+            stripeSubscriptionId: 'sub_1',
+            userId: 'student-1',
+            packageId: 'package-1',
+            subscriptionId: 'subscription-1',
+            renewalAt: '2026-10-10T00:00:00.000Z',
+            cancelBy: '2026-10-10T00:00:00.000Z',
+            durationMonths: 3,
+            amountTotal: 27000,
+            currency: 'eur',
+        })).rejects.toThrow('Fulfillment dedupe conflict does not match the requested job');
     });
 
     it('enqueues a versioned 28-day renewal notice without a legacy month count', async () => {
@@ -312,6 +399,22 @@ describe('fulfillment jobs', () => {
                 userId: 'student-1',
                 packageId: 'package-1',
                 subscriptionId: 'subscription-1',
+                sessionsTotal: 4,
+                amountTotal: 25900,
+                currency: 'eur',
+                contractSchemaVersion: 2,
+                classDurationMinutes: 50,
+                teacherName: 'Teacher One',
+                slotWeekday: 1,
+                slotLocalStartTime: '10:00:00',
+                timezoneName: 'Europe/Madrid',
+                classStartsAt: [
+                    '2026-09-07T08:00:00.000Z',
+                    '2026-09-14T08:00:00.000Z',
+                    '2026-09-21T08:00:00.000Z',
+                    '2026-09-28T08:00:00.000Z',
+                ],
+                renewalAnchorAt: '2026-10-05T08:00:00.000Z',
             },
             session_id: null,
             subscription_id: 'subscription-1',
@@ -341,8 +444,12 @@ describe('fulfillment jobs', () => {
         const packageQuery = createSingleQuery({
             data: {
                 id: 'package-1',
-                name: 'hybrid',
-                display_name: { es: 'Plan Híbrido', en: 'Hybrid Plan', ru: 'Гибридный план' },
+                name: 'individual_4x50_28d',
+                display_name: {
+                    es: '4 clases individuales de 50 minutos',
+                    en: '4 individual 50-minute classes',
+                    ru: '4 индивидуальных занятия по 50 минут',
+                },
             },
             error: null,
         });
@@ -396,9 +503,25 @@ describe('fulfillment jobs', () => {
             expect.objectContaining({
                 locale: 'en',
                 studentName: 'Student One',
-                packageName: 'Hybrid Plan',
+                packageName: '4 individual 50-minute classes',
                 loginUrl: 'https://example.com/en/login',
                 driveFolderUrl: 'https://drive.google.com/folder-1',
+                sessionsTotal: 4,
+                amountTotal: 25900,
+                currency: 'eur',
+                contractSchemaVersion: 2,
+                classDurationMinutes: 50,
+                teacherName: 'Teacher One',
+                slotWeekday: 1,
+                slotLocalStartTime: '10:00:00',
+                timezoneName: 'Europe/Madrid',
+                classStartsAt: [
+                    '2026-09-07T08:00:00.000Z',
+                    '2026-09-14T08:00:00.000Z',
+                    '2026-09-21T08:00:00.000Z',
+                    '2026-09-28T08:00:00.000Z',
+                ],
+                renewalAnchorAt: '2026-10-05T08:00:00.000Z',
             }),
             expect.objectContaining({
                 fulfillmentEffect: expect.objectContaining({
@@ -415,9 +538,58 @@ describe('fulfillment jobs', () => {
             fullName: 'Student One',
             subscriptionId: 'subscription-1',
             packageId: 'package-1',
-            packageName: 'Hybrid Plan',
+            packageName: '4 individual 50-minute classes',
             driveFolderUrl: 'https://drive.google.com/folder-1',
         });
+    });
+
+    it('fails a legacy Checkout V2 welcome job before email or onboarding side effects', async () => {
+        const job = createJob({
+            id: 'job-legacy-v2-welcome',
+            job_type: 'welcome_fulfillment',
+            payload: {
+                userId: 'student-1',
+                packageId: 'package-1',
+                packageKey: 'individual_4x50_28d',
+                subscriptionId: 'subscription-1',
+                sessionsTotal: 4,
+                amountTotal: 25900,
+                currency: 'eur',
+            },
+            session_id: null,
+            subscription_id: 'subscription-1',
+            student_id: 'student-1',
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [job], error: null }),
+        };
+        const failureChain = createLockQuery({ data: { id: job.id }, error: null });
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery({ data: { id: job.id }, error: null }))
+                .mockReturnValueOnce(failureChain),
+        };
+        const email = await import('../../src/lib/email');
+        const google = await import('../../src/lib/google/student-folder');
+        const crmOnboarding = await import('../../src/lib/crm/onboarding');
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+
+        expect(failureChain.update).toHaveBeenCalledWith(expect.objectContaining({
+            last_error: 'Checkout V2 welcome payload is incomplete or incoherent',
+        }));
+        expect(email.sendWelcomeEmail).not.toHaveBeenCalled();
+        expect(google.createStudentFolderStructure).not.toHaveBeenCalled();
+        expect(crmOnboarding.recordPostPaymentOnboardingSafe).not.toHaveBeenCalled();
     });
 
     it('uses English login as the welcome email fallback when profile language is unknown', async () => {

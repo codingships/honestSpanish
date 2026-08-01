@@ -18,6 +18,8 @@ import {
     classConfirmationTemplate,
     classRescheduledTemplate,
     classRescheduledSubject,
+    checkoutV2CycleRescheduledTemplate,
+    checkoutV2CycleRescheduledSubject,
     classReminderTemplate,
     classCancelledTemplate,
     leadWelcomeTemplate,
@@ -31,6 +33,7 @@ import {
     type GuaranteeRefundEmailData,
     type ClassConfirmationData,
     type ClassRescheduledData,
+    type CheckoutV2CycleRescheduledData,
     type ClassReminderData,
     type ClassCancelledData,
     type LeadWelcomeEmailData,
@@ -176,6 +179,22 @@ export async function sendClassRescheduled(
     }, options);
 }
 
+export async function sendCheckoutV2CycleRescheduled(
+    email: string,
+    data: CheckoutV2CycleRescheduledData,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
+    return sendTransactionalEmail({
+        email,
+        subject: checkoutV2CycleRescheduledSubject(data.locale, data.isTeacher),
+        html: checkoutV2CycleRescheduledTemplate(data),
+        source: 'checkout_v2_cycle_rescheduled',
+        failureLabel: '[Email] Failed to send Checkout V2 cycle reschedule:',
+        thrownLabel: '[Email] Error sending Checkout V2 cycle reschedule:',
+        successLabel: '[Email] Checkout V2 cycle reschedule sent to',
+    }, options);
+}
+
 export async function sendClassReminder(email: string, data: ClassReminderData): Promise<boolean> {
     return sendTransactionalEmail({
         email,
@@ -248,7 +267,7 @@ export async function sendLeadWelcomeEmail(
 ): Promise<boolean> {
     return sendTransactionalEmail({
         email,
-        subject: 'Application received - Español Honesto',
+        subject: 'Direct booking details - Espanol Honesto',
         html: leadWelcomeTemplate(data),
         source: 'lead_welcome',
         failureLabel: '[Email] Failed to send lead welcome email:',
@@ -263,7 +282,7 @@ export async function sendLevelCheckInviteEmail(
 ): Promise<boolean> {
     return sendTransactionalEmail({
         email,
-        subject: 'A few level questions - Espanol Honesto',
+        subject: 'Optional Spanish context - Espanol Honesto',
         html: levelCheckInviteTemplate(data),
         source: 'level_check_invite',
         failureLabel: '[Email] Failed to send level check invite:',
@@ -278,7 +297,7 @@ export async function sendMissingInfoEmail(
 ): Promise<boolean> {
     return sendTransactionalEmail({
         email,
-        subject: 'A little more context - Espanol Honesto',
+        subject: 'Optional context for your classes - Espanol Honesto',
         html: missingInfoEmailTemplate(data),
         source: 'missing_info',
         failureLabel: '[Email] Failed to send missing info email:',
@@ -293,7 +312,7 @@ export async function sendProposalNextStepEmail(
 ): Promise<boolean> {
     return sendTransactionalEmail({
         email,
-        subject: 'Suggested next step - Espanol Honesto',
+        subject: 'How direct booking will work - Espanol Honesto',
         html: proposalNextStepEmailTemplate(data),
         source: 'proposal_next_step',
         failureLabel: '[Email] Failed to send proposal next step email:',

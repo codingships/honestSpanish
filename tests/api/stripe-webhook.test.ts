@@ -37,6 +37,7 @@ const checkoutIntentId = '50000000-0000-4000-8000-000000000005';
 const slotId = '60000000-0000-4000-8000-000000000006';
 const firstSessionId = '70000000-0000-4000-8000-000000000007';
 const slotPublicId = '80000000-0000-4000-8000-000000000008';
+const teacherId = '90000000-0000-4000-8000-000000000009';
 
 vi.mock('../../src/lib/stripe', () => ({
     stripe: {
@@ -745,7 +746,10 @@ function checkoutV2Invoice() {
     };
 }
 
-function makeCheckoutV2Supabase(replay = false) {
+function makeCheckoutV2Supabase(
+    replay = false,
+    existingWelcome: 'none' | 'current' | 'legacy-pending' | 'legacy-succeeded' = replay ? 'current' : 'none',
+) {
     const processedInsert = vi.fn().mockResolvedValue({ error: null });
     const processedFinalization = createProcessedWebhookFinalizationQuery();
     const processedUpdate = vi.fn().mockReturnValue(processedFinalization);
@@ -754,7 +758,7 @@ function makeCheckoutV2Supabase(replay = false) {
         data: {
             id: packagePriceId,
             package_id: packageId,
-            package_key: 'individual-v2',
+            package_key: 'individual_4x50_28d',
             display_name: { en: 'Individual Spanish' },
             contract_schema_version: 2,
             amount_cents: 25900,
@@ -811,7 +815,11 @@ function makeCheckoutV2Supabase(replay = false) {
             public_id: slotPublicId,
             package_id: packageId,
             first_occurrence_at: '2026-08-03T10:00:00.000Z',
+            teacher_id: teacherId,
+            weekday: 1,
+            local_start_time: '12:00:00',
             timezone_name: 'Europe/Madrid',
+            teacher: { full_name: 'Alejandro García' },
             status: replay ? 'sold' : 'available',
             sold_subscription_id: replay ? localSubscription.id : null,
         },
@@ -851,11 +859,18 @@ function makeCheckoutV2Supabase(replay = false) {
             single: vi.fn().mockResolvedValue({ data: { id: paymentRow.id }, error: null }),
         }),
     });
-    const occurrenceQuery = singleQuery({
-        data: { session_id: firstSessionId, starts_at: '2026-08-03T10:00:00.000Z' },
+    const occurrenceQuery: any = {};
+    occurrenceQuery.select = vi.fn(() => occurrenceQuery);
+    occurrenceQuery.eq = vi.fn(() => occurrenceQuery);
+    occurrenceQuery.order = vi.fn().mockResolvedValue({
+        data: [
+            { session_id: firstSessionId, starts_at: '2026-08-03T10:00:00.000Z', occurrence_index: 1, teacher_id: teacherId, duration_minutes: 50 },
+            { session_id: '70000000-0000-4000-8000-000000000022', starts_at: '2026-08-10T10:00:00.000Z', occurrence_index: 2, teacher_id: teacherId, duration_minutes: 50 },
+            { session_id: '70000000-0000-4000-8000-000000000023', starts_at: '2026-08-17T10:00:00.000Z', occurrence_index: 3, teacher_id: teacherId, duration_minutes: 50 },
+            { session_id: '70000000-0000-4000-8000-000000000024', starts_at: '2026-08-24T10:00:00.000Z', occurrence_index: 4, teacher_id: teacherId, duration_minutes: 50 },
+        ],
         error: null,
     });
-    occurrenceQuery.eq = vi.fn(() => occurrenceQuery);
     const opportunityMutation: any = {};
     opportunityMutation.eq = vi.fn(() => opportunityMutation);
     opportunityMutation.is = vi.fn(() => opportunityMutation);
@@ -866,10 +881,71 @@ function makeCheckoutV2Supabase(replay = false) {
     welcomeLookup.select = vi.fn(() => welcomeLookup);
     welcomeLookup.eq = vi.fn(() => welcomeLookup);
     welcomeLookup.limit = vi.fn(() => welcomeLookup);
+    const currentWelcomePayload = {
+        userId: studentId,
+        packageId,
+        packageKey: 'individual_4x50_28d',
+        packageDisplayName: { en: 'Individual Spanish' },
+        subscriptionId: localSubscription.id,
+        startsAt: '2026-08-03',
+        endsAt: '2026-08-31',
+        sessionsTotal: 4,
+        amountTotal: 25900,
+        currency: 'eur',
+        legalPolicyVersion: '2026-07-10',
+        policyAcceptedAt: '2026-07-10T10:00:00.000Z',
+        contractSchemaVersion: 2,
+        classDurationMinutes: 50,
+        teacherName: 'Alejandro García',
+        slotWeekday: 1,
+        slotLocalStartTime: '12:00:00',
+        timezoneName: 'Europe/Madrid',
+        classStartsAt: [
+            '2026-08-03T10:00:00.000Z',
+            '2026-08-10T10:00:00.000Z',
+            '2026-08-17T10:00:00.000Z',
+            '2026-08-24T10:00:00.000Z',
+        ],
+        renewalAnchorAt: '2026-08-31T10:00:00.000Z',
+    };
+    const existingWelcomeRow = existingWelcome === 'none'
+        ? null
+        : {
+            id: 'welcome-existing',
+            status: existingWelcome === 'legacy-succeeded' ? 'succeeded' : 'pending',
+            attempts: existingWelcome === 'legacy-succeeded' ? 1 : 0,
+            payload: existingWelcome === 'current'
+                ? currentWelcomePayload
+                : {
+                    userId: studentId,
+                    packageId,
+                    packageKey: 'individual_4x50_28d',
+                    subscriptionId: localSubscription.id,
+                    sessionsTotal: 4,
+                    amountTotal: 25900,
+                    currency: 'eur',
+                },
+        };
     welcomeLookup.maybeSingle = vi.fn().mockResolvedValue({
-        data: replay ? { id: 'welcome-existing' } : null,
+        data: existingWelcomeRow,
         error: null,
     });
+    const welcomeUpdateQuery: any = {};
+    welcomeUpdateQuery.eq = vi.fn(() => welcomeUpdateQuery);
+    welcomeUpdateQuery.select = vi.fn(() => welcomeUpdateQuery);
+    const welcomeUpdate = vi.fn((values: Record<string, unknown>) => {
+        welcomeUpdateQuery.maybeSingle = vi.fn().mockResolvedValue({
+            data: {
+                id: 'welcome-existing',
+                status: 'pending',
+                attempts: 0,
+                payload: values.payload,
+            },
+            error: null,
+        });
+        return welcomeUpdateQuery;
+    });
+    welcomeLookup.update = welcomeUpdate;
     const completeIntent = {
         id: checkoutIntentId,
         stripe_checkout_session_id: 'cs_1',
@@ -927,6 +1003,7 @@ function makeCheckoutV2Supabase(replay = false) {
         rpc,
         subscriptionInsert,
         paymentInsert,
+        welcomeUpdate,
     };
 }
 
@@ -1018,7 +1095,7 @@ function makeCheckoutV2RenewalSupabase(applied: boolean, provisional = false) {
         data: {
             id: packagePriceId,
             package_id: packageId,
-            package_key: 'individual-v2',
+            package_key: 'individual_4x50_28d',
             display_name: { es: 'Individual', en: 'Individual', ru: 'Individual' },
             contract_schema_version: 2,
             amount_cents: 25900,
@@ -2464,7 +2541,33 @@ describe('POST /api/stripe-webhook', () => {
             sessions_total: 4,
             sessions_used: 0,
         }));
-        expect(fulfillmentMocks.enqueueWelcomeFulfillment).toHaveBeenCalledOnce();
+        expect(fulfillmentMocks.enqueueWelcomeFulfillment).toHaveBeenCalledWith(v2.client, {
+            userId: studentId,
+            packageId,
+            packageKey: 'individual_4x50_28d',
+            packageDisplayName: { en: 'Individual Spanish' },
+            subscriptionId: 'local-subscription-1',
+            startsAt: '2026-08-03',
+            endsAt: '2026-08-31',
+            sessionsTotal: 4,
+            amountTotal: 25900,
+            currency: 'eur',
+            legalPolicyVersion: '2026-07-10',
+            policyAcceptedAt: '2026-07-10T10:00:00.000Z',
+            contractSchemaVersion: 2,
+            classDurationMinutes: 50,
+            teacherName: 'Alejandro García',
+            slotWeekday: 1,
+            slotLocalStartTime: '12:00:00',
+            timezoneName: 'Europe/Madrid',
+            classStartsAt: [
+                '2026-08-03T10:00:00.000Z',
+                '2026-08-10T10:00:00.000Z',
+                '2026-08-17T10:00:00.000Z',
+                '2026-08-24T10:00:00.000Z',
+            ],
+            renewalAnchorAt: '2026-08-31T10:00:00.000Z',
+        });
     });
 
     it('rejects an initial Checkout V2 invoice with an extra concept even when the paid total stays 259 EUR', async () => {
@@ -2547,6 +2650,77 @@ describe('POST /api/stripe-webhook', () => {
         expect(v2.paymentInsert).not.toHaveBeenCalled();
         expect(v2.rpc).toHaveBeenCalledWith('initialize_checkout_v2_billing', expect.any(Object));
         expect(fulfillmentMocks.enqueueWelcomeFulfillment).not.toHaveBeenCalled();
+        expect(v2.welcomeUpdate).not.toHaveBeenCalled();
+    });
+
+    it('reconciles an untouched legacy welcome job with the complete V2 snapshot on replay', async () => {
+        const v2 = makeCheckoutV2Supabase(true, 'legacy-pending');
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutV2Event());
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2StripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(checkoutV2Invoice());
+        stripeMocks.checkoutLineItemsList.mockResolvedValue({
+            has_more: false,
+            data: [
+                {
+                    id: 'li_initial', quantity: 1,
+                    price: { id: 'price_initial_259', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: null },
+                },
+                {
+                    id: 'li_recurring', quantity: 1,
+                    price: { id: 'price_recurring_28d', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: { interval: 'day', interval_count: 28 } },
+                },
+            ],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(v2.welcomeUpdate).toHaveBeenCalledWith(expect.objectContaining({
+            last_error: null,
+            payload: expect.objectContaining({
+                contractSchemaVersion: 2,
+                classDurationMinutes: 50,
+                teacherName: 'Alejandro García',
+                classStartsAt: [
+                    '2026-08-03T10:00:00.000Z',
+                    '2026-08-10T10:00:00.000Z',
+                    '2026-08-17T10:00:00.000Z',
+                    '2026-08-24T10:00:00.000Z',
+                ],
+                renewalAnchorAt: '2026-08-31T10:00:00.000Z',
+            }),
+        }));
+        expect(fulfillmentMocks.enqueueWelcomeFulfillment).not.toHaveBeenCalled();
+    });
+
+    it('fails closed when a legacy V2 welcome job may already have produced effects', async () => {
+        const v2 = makeCheckoutV2Supabase(true, 'legacy-succeeded');
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(checkoutV2Event());
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2StripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(checkoutV2Invoice());
+        stripeMocks.checkoutLineItemsList.mockResolvedValue({
+            has_more: false,
+            data: [
+                {
+                    id: 'li_initial', quantity: 1,
+                    price: { id: 'price_initial_259', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: null },
+                },
+                {
+                    id: 'li_recurring', quantity: 1,
+                    price: { id: 'price_recurring_28d', product: 'prod_v2', unit_amount: 25900, currency: 'eur', livemode: false, recurring: { interval: 'day', interval_count: 28 } },
+                },
+            ],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(500);
+        expect(v2.welcomeUpdate).not.toHaveBeenCalled();
+        expect(fulfillmentMocks.enqueueWelcomeFulfillment).not.toHaveBeenCalled();
     });
 
     it('fixes a provisional V2 anchor, applies renewal and materializes its sessions', async () => {
@@ -2628,7 +2802,7 @@ describe('POST /api/stripe-webhook', () => {
                 stripeSubscriptionId: 'sub_v2',
                 userId: studentId,
                 packageId,
-                packageKey: 'individual-v2',
+                packageKey: 'individual_4x50_28d',
                 packageDisplayName: { es: 'Individual', en: 'Individual', ru: 'Individual' },
                 subscriptionId: 'local-subscription-v2',
                 renewalAt: '2026-08-26T10:00:00.000Z',

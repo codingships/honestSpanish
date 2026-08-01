@@ -271,7 +271,7 @@ export const POST: APIRoute = async ({ request, locals: _locals, clientAddress }
                 lead: savedLead,
                 contactId: crmSync.contactId,
                 opportunityId: crmSync.opportunityId,
-                subject: 'Application received - Espanol Honesto',
+                subject: 'Direct booking details - Espanol Honesto',
                 template: 'lead_welcome',
             });
         }

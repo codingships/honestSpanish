@@ -28,6 +28,14 @@ export type FulfillmentJobPayload = {
     currency?: string;
     legalPolicyVersion?: string;
     policyAcceptedAt?: string;
+    contractSchemaVersion?: number;
+    classDurationMinutes?: number;
+    teacherName?: string;
+    slotWeekday?: number;
+    slotLocalStartTime?: string;
+    timezoneName?: string;
+    classStartsAt?: string[];
+    renewalAnchorAt?: string;
     autoCreateMeeting?: boolean;
     sendEmail?: boolean;
     cancelledBy?: 'admin' | 'teacher' | 'student' | 'guarantee';
@@ -57,6 +65,25 @@ export function isMissingJobsTable(error: { code?: string; message?: string } | 
     return error?.code === '42P01' || error?.message?.includes('fulfillment_jobs') === true;
 }
 
+function canonicalJson(value: unknown): string {
+    const normalize = (candidate: unknown): unknown => {
+        if (Array.isArray(candidate)) return candidate.map(normalize);
+        if (candidate && typeof candidate === 'object') {
+            return Object.fromEntries(
+                Object.entries(candidate)
+                    .filter(([, child]) => child !== undefined)
+                    .sort(([left], [right]) => left.localeCompare(right))
+                    .map(([key, child]) => [key, normalize(child)]),
+            );
+        }
+        return candidate;
+    };
+
+    const serialized = JSON.stringify(normalize(value));
+    if (serialized === undefined) throw new Error('Fulfillment payload is not valid JSON');
+    return serialized;
+}
+
 export async function enqueueFulfillmentJob(
     supabaseAdmin: SupabaseClient<Database>,
     input: {
@@ -83,6 +110,23 @@ export async function enqueueFulfillmentJob(
 
     if (error) {
         if (error.code === '23505' && input.dedupeKey) {
+            const { data: existingJob, error: lookupError } = await supabaseAdmin
+                .from('fulfillment_jobs')
+                .select('job_type, session_id, subscription_id, student_id, payload')
+                .eq('job_type', input.jobType)
+                .eq('dedupe_key', input.dedupeKey)
+                .maybeSingle();
+            if (lookupError) throw lookupError;
+
+            const equivalent = existingJob
+                && existingJob.job_type === input.jobType
+                && existingJob.session_id === (input.sessionId ?? null)
+                && existingJob.subscription_id === (input.subscriptionId ?? null)
+                && existingJob.student_id === (input.studentId ?? null)
+                && canonicalJson(existingJob.payload) === canonicalJson(input.payload);
+            if (!equivalent) {
+                throw new Error('Fulfillment dedupe conflict does not match the requested job');
+            }
             return true;
         }
         if (isMissingJobsTable(error)) {
@@ -177,12 +221,23 @@ export async function enqueueWelcomeFulfillment(
         currency?: string;
         legalPolicyVersion?: string;
         policyAcceptedAt?: string;
+        contractSchemaVersion?: number;
+        classDurationMinutes?: number;
+        teacherName?: string;
+        slotWeekday?: number;
+        slotLocalStartTime?: string;
+        timezoneName?: string;
+        classStartsAt?: string[];
+        renewalAnchorAt?: string;
     }
 ): Promise<boolean> {
     return enqueueFulfillmentJob(supabaseAdmin, {
         jobType: 'welcome_fulfillment',
         subscriptionId: input.subscriptionId ?? null,
         studentId: input.userId,
+        dedupeKey: input.subscriptionId
+            ? `welcome_fulfillment:${input.subscriptionId}`
+            : null,
         payload: input,
     });
 }
