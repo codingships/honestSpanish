@@ -602,6 +602,70 @@ describe('POST /api/calendar/session-action', () => {
         expect(jobServiceMocks.triggerFulfillmentProcessing).not.toHaveBeenCalled();
     });
 
+    it.each([
+        {
+            label: 'a compensation state conflict',
+            databaseError: { code: '40001', message: 'teacher_compensation_state_conflicts' },
+            expectedStatus: 409,
+            expectedMessage: 'Session compensation conflicts with the current state. Refresh and try again.',
+        },
+        {
+            label: 'missing compensation configuration',
+            databaseError: { code: '55000', message: 'teacher_compensation_precondition_missing' },
+            expectedStatus: 503,
+            expectedMessage: 'Teacher compensation is not configured for this session. Contact an administrator before trying again.',
+        },
+    ])('fails cancellation safely for $label', async ({ databaseError, expectedStatus, expectedMessage }) => {
+        const mockUser = { id: 'student-id', email: 'student@test.com' };
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            scheduled_at: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+            subscription: { id: 'sub-1', sessions_used: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+            calendar_event_id: 'event-1',
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'student' }, error: null });
+            } else if (table === 'sessions') {
+                chain.single.mockResolvedValue({ data: mockSession, error: null });
+            }
+            return chain;
+        });
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(makeSessionActionAdminClient(
+            undefined,
+            { data: [], error: databaseError },
+        ) as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'cancel' }) as any);
+
+        expect(response.status).toBe(expectedStatus);
+        await expect(response.json()).resolves.toEqual({ error: expectedMessage });
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordFirstClassCancelledSafe).not.toHaveBeenCalled();
+        expect(jobServiceMocks.triggerFulfillmentProcessing).not.toHaveBeenCalled();
+    });
+
     it('does not complete a class before its scheduled duration has elapsed', async () => {
         const mockSupabase = createMockSupabaseClient({
             auth: {
@@ -861,6 +925,77 @@ describe('POST /api/calendar/session-action', () => {
         expect(onboardingMocks.recordFirstClassCompletedSafe).not.toHaveBeenCalled();
     });
 
+    it.each([
+        {
+            action: 'complete',
+            databaseError: { code: '40001', message: 'teacher_compensation_state_conflicts' },
+            expectedStatus: 409,
+            expectedMessage: 'Session compensation conflicts with the current state. Refresh and try again.',
+        },
+        {
+            action: 'no_show',
+            databaseError: { code: '55000', message: 'teacher_compensation_precondition_missing' },
+            expectedStatus: 503,
+            expectedMessage: 'Teacher compensation is not configured for this session. Contact an administrator before trying again.',
+        },
+    ])('fails $action safely when PostgreSQL rejects the compensation invariant', async ({
+        action,
+        databaseError,
+        expectedStatus,
+        expectedMessage,
+    }) => {
+        const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            duration_minutes: 50,
+            scheduled_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+            subscription: { id: 'sub-1', sessions_used: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+            calendar_event_id: 'event-1',
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'sessions') {
+                chain.single.mockResolvedValue({ data: mockSession, error: null });
+            }
+            return chain;
+        });
+
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(makeSessionActionAdminClient(
+            undefined,
+            undefined,
+            { data: null, error: databaseError },
+        ) as any);
+
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+        const response = await POST(makeContext({ sessionId: 'session-1', action }) as any);
+
+        expect(response.status).toBe(expectedStatus);
+        await expect(response.json()).resolves.toEqual({ error: expectedMessage });
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordFirstClassCompletedSafe).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordNoShowFollowUpSafe).not.toHaveBeenCalled();
+    });
+
     it('accepts a structured post-class report object for the JSONB report column', async () => {
         const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
         const scheduledAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
@@ -1027,8 +1162,11 @@ describe('POST /api/calendar/session-action', () => {
         expect(body.success).toBe(true);
         expect(sessionUpdate).toHaveBeenCalledWith(expect.objectContaining({
             status: 'no_show',
+            no_show_at: expect.any(String),
             teacher_notes: 'Student did not join the call.',
         }));
+        const noShowUpdate = sessionUpdate.mock.calls[0]?.[0] as Record<string, unknown>;
+        expect(noShowUpdate.no_show_at).toBe(noShowUpdate.updated_at);
         expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(supabaseAdmin, expect.objectContaining({
             profileId: 'student-id',
             email: 'student@test.com',
@@ -1045,7 +1183,66 @@ describe('POST /api/calendar/session-action', () => {
             sessionId: 'session-1',
             teacherId: 'teacher-id',
             scheduledAt,
-            noShowAt: expect.any(String),
+            noShowAt: noShowUpdate.no_show_at,
         }));
+    });
+
+    it('does not rewrite no_show_at when notes are updated later', async () => {
+        const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
+        const noShowAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'no_show',
+            scheduled_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+            no_show_at: noShowAt,
+            subscription: { id: 'sub-1', sessions_used: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+            calendar_event_id: 'event-1',
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({ data: { user: mockUser }, error: null }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            if (table === 'profiles') {
+                chain.single.mockResolvedValue({ data: { role: 'teacher' }, error: null });
+            } else if (table === 'sessions') {
+                chain.single.mockResolvedValue({ data: mockSession, error: null });
+            }
+            return chain;
+        });
+
+        const sessionUpdate = vi.fn();
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(
+            makeSessionActionAdminClient(sessionUpdate) as any,
+        );
+
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+        const response = await POST(makeContext({
+            sessionId: 'session-1',
+            action: 'update_notes',
+            notes: 'Follow-up note.',
+        }) as any);
+
+        expect(response.status).toBe(200);
+        const notesUpdate = sessionUpdate.mock.calls[0]?.[0] as Record<string, unknown>;
+        expect(notesUpdate).toEqual({
+            updated_at: expect.any(String),
+            teacher_notes: 'Follow-up note.',
+        });
+        expect(notesUpdate).not.toHaveProperty('no_show_at');
     });
 });

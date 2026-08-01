@@ -61,6 +61,28 @@ Toda evolución de esquema es una migración nueva en `supabase/migrations/`. No
 
 Antes de una migración destructiva o producción se decide explícitamente backup, rollback y recurso exacto. Un despliegue de código sin cambios de esquema no ejecuta `db push`, repair ni migraciones por inercia.
 
+## Remuneración docente
+
+Antes de publicar una plaza se comprueba que su profesor tiene un vínculo y unos términos efectivos para la fecha del ciclo. No se publica una plaza sin términos, no se infiere fundador o externo por nombre y no se crea una obligación de importe cero como sustituto de una configuración ausente.
+
+Antes de habilitar checkout tras instalar el ledger en una base que ya contenga ciclos Checkout V2, se consulta por una vía server-only `teacher_compensation_milestones.ten_active_history_state`. El estado `requires_confirmation` es un gate obligatorio: se mantiene checkout detenido y un administrador contrasta el histórico real, sin inferirlo de los alumnos que continúan activos. La confirmación se registra una sola vez mediante `confirm_teacher_compensation_ten_active_history`, con un `request_id` único, motivo y uno de estos resultados:
+
+- `not_reached`, sin ciclo ni recuento, solo cuando nunca se alcanzaron diez alumnos simultáneamente.
+- `reached`, con el ciclo inicial listo que causó el hito y el recuento observado, que debe ser al menos diez.
+
+Después se verifica que el estado sea `tracking`. Cada ciclo listo anterior a la migración se prepara explícitamente y en orden cronológico mediante `reconcile_teacher_compensation_cycle`; esto crea únicamente su snapshot económico. Solo las sesiones históricas realmente liquidables se materializan después mediante `reconcile_teacher_compensation_session`. No se habilita tráfico si permanece `requires_confirmation`, hay ciclos listos sin snapshot o falta el vínculo de alguno de sus profesores.
+
+La operación normal es:
+
+1. Registrar los términos antes de activar la plaza.
+2. Congelar en cada ciclo la tarifa aplicable según el tipo de profesor y los hitos duraderos. El ciclo que alcanza diez alumnos activos conserva 20 EUR para externos y los ciclos posteriores aplican 25 EUR; el hito no se revierte si después baja el número de alumnos.
+3. Materializar de forma idempotente una obligación por clase completada, cancelación tardía del alumno o no-show liquidable.
+4. Ejecutar una reconciliación explícita antes de cerrar cada periodo operativo y después de recuperar una incidencia. La reconciliación busca sesiones liquidables sin entrada, duplicados, ciclos sin snapshot y términos ausentes; crea solo lo que falta de forma idempotente y no recalcula entradas históricas ya congeladas.
+
+Las entradas de remuneración no se editan ni se borran. La política aprobada para formación y reuniones obligatorias es de 25 céntimos por minuto real para cualquier profesor, pero este primer ledger automático no registra todavía ese trabajo ni crea ajustes. La superficie posterior deberá expresar cualquier corrección mediante una entrada compensatoria enlazada y auditada. Resolver una incidencia de garantía no crea esa corrección: la cancelación tardía o el no-show continúan siendo liquidables al profesor aunque cambie el crédito o la elegibilidad del alumno.
+
+El total pendiente es un registro interno de obligaciones, no una orden de pago. Esta operativa no transfiere dinero, no marca obligaciones como pagadas y no sustituye facturas, retenciones ni decisiones fiscales. Cualquier liquidación futura se añadirá como un flujo separado que referencie el ledger sin reescribirlo.
+
 ## Recuperación de la garantía Checkout V2
 
 La referencia operativa es una única fila de `checkout_v2_guarantee_operations`. Repetir una petición o una acción administrativa reanuda esa operación; nunca se cambia su importe, PaymentIntent, suscripción de Stripe ni identificadores congelados, y nunca se crea una devolución manual paralela.

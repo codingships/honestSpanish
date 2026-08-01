@@ -2001,6 +2001,7 @@ export type Database = {
           duration_minutes: number;
           id: string;
           meet_link: string | null;
+          no_show_at: string | null;
           post_class_report: Json | null;
           reminder_sent: boolean;
           scheduled_at: string | null;
@@ -2025,6 +2026,7 @@ export type Database = {
           duration_minutes?: number;
           id?: string;
           meet_link?: string | null;
+          no_show_at?: string | null;
           post_class_report?: Json | null;
           reminder_sent?: boolean;
           scheduled_at?: string | null;
@@ -2049,6 +2051,7 @@ export type Database = {
           duration_minutes?: number;
           id?: string;
           meet_link?: string | null;
+          no_show_at?: string | null;
           post_class_report?: Json | null;
           reminder_sent?: boolean;
           scheduled_at?: string | null;
@@ -2461,6 +2464,356 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      teacher_compensation_cycle_terms: {
+        Row: {
+          active_students_observed: number;
+          currency: string;
+          cycle_id: string;
+          external_class_rate_cents: number;
+          founder_class_rate_cents: number;
+          policy_version: number;
+          rate_basis: string;
+          snapshotted_at: string;
+          threshold_effective_at: string | null;
+        };
+        Insert: {
+          active_students_observed: number;
+          currency: string;
+          cycle_id: string;
+          external_class_rate_cents: number;
+          founder_class_rate_cents: number;
+          policy_version?: number;
+          rate_basis: string;
+          snapshotted_at?: string;
+          threshold_effective_at?: string | null;
+        };
+        Update: {
+          active_students_observed?: number;
+          currency?: string;
+          cycle_id?: string;
+          external_class_rate_cents?: number;
+          founder_class_rate_cents?: number;
+          policy_version?: number;
+          rate_basis?: string;
+          snapshotted_at?: string;
+          threshold_effective_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_cycle_terms_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: true;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_cycle_terms_policy_version_fkey";
+            columns: ["policy_version"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_policy_versions";
+            referencedColumns: ["version"];
+          },
+        ];
+      };
+      teacher_compensation_engagements: {
+        Row: {
+          configured_by: string;
+          created_at: string;
+          effective_from: string;
+          engagement_kind: string;
+          id: string;
+          reason: string;
+          request_id: string;
+          teacher_id: string;
+        };
+        Insert: {
+          configured_by: string;
+          created_at?: string;
+          effective_from: string;
+          engagement_kind: string;
+          id?: string;
+          reason: string;
+          request_id: string;
+          teacher_id: string;
+        };
+        Update: {
+          configured_by?: string;
+          created_at?: string;
+          effective_from?: string;
+          engagement_kind?: string;
+          id?: string;
+          reason?: string;
+          request_id?: string;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_engagements_configured_by_fkey";
+            columns: ["configured_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_engagements_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_compensation_ledger: {
+        Row: {
+          amount_cents: number;
+          cancellation_reason: string | null;
+          cancelled_at: string | null;
+          cancelled_by: string | null;
+          class_rate_cents: number;
+          completed_at: string | null;
+          created_at: string;
+          currency: string;
+          cycle_id: string;
+          cycle_terms_id: string;
+          engagement_id: string;
+          engagement_kind: string;
+          event_kind: string;
+          id: string;
+          idempotency_key: string;
+          no_show_at: string | null;
+          scheduled_at: string;
+          session_id: string;
+          session_status: string;
+          source_occurred_at: string;
+          student_id: string;
+          subscription_id: string;
+          teacher_id: string;
+        };
+        Insert: {
+          amount_cents: number;
+          cancellation_reason?: string | null;
+          cancelled_at?: string | null;
+          cancelled_by?: string | null;
+          class_rate_cents: number;
+          completed_at?: string | null;
+          created_at?: string;
+          currency: string;
+          cycle_id: string;
+          cycle_terms_id: string;
+          engagement_id: string;
+          engagement_kind: string;
+          event_kind: string;
+          id?: string;
+          idempotency_key: string;
+          no_show_at?: string | null;
+          scheduled_at: string;
+          session_id: string;
+          session_status: string;
+          source_occurred_at: string;
+          student_id: string;
+          subscription_id: string;
+          teacher_id: string;
+        };
+        Update: {
+          amount_cents?: number;
+          cancellation_reason?: string | null;
+          cancelled_at?: string | null;
+          cancelled_by?: string | null;
+          class_rate_cents?: number;
+          completed_at?: string | null;
+          created_at?: string;
+          currency?: string;
+          cycle_id?: string;
+          cycle_terms_id?: string;
+          engagement_id?: string;
+          engagement_kind?: string;
+          event_kind?: string;
+          id?: string;
+          idempotency_key?: string;
+          no_show_at?: string | null;
+          scheduled_at?: string;
+          session_id?: string;
+          session_status?: string;
+          source_occurred_at?: string;
+          student_id?: string;
+          subscription_id?: string;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_ledger_cancelled_by_fkey";
+            columns: ["cancelled_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_ledger_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_ledger_cycle_terms_id_fkey";
+            columns: ["cycle_terms_id"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_cycle_terms";
+            referencedColumns: ["cycle_id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_ledger_engagement_id_fkey";
+            columns: ["engagement_id"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_engagements";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_ledger_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_ledger_student_id_fkey";
+            columns: ["student_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_ledger_subscription_id_fkey";
+            columns: ["subscription_id"];
+            isOneToOne: false;
+            referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_ledger_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_compensation_milestones: {
+        Row: {
+          created_at: string;
+          first_ready_initial_at: string | null;
+          first_ready_initial_cycle_id: string | null;
+          policy_version: number;
+          ten_active_bootstrap_request_id: string | null;
+          ten_active_confirmation_reason: string | null;
+          ten_active_confirmed_by: string | null;
+          ten_active_history_confirmation: string | null;
+          ten_active_history_state: string;
+          ten_active_reached_at: string | null;
+          ten_active_students_count: number | null;
+          ten_active_trigger_cycle_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          first_ready_initial_at?: string | null;
+          first_ready_initial_cycle_id?: string | null;
+          policy_version: number;
+          ten_active_bootstrap_request_id?: string | null;
+          ten_active_confirmation_reason?: string | null;
+          ten_active_confirmed_by?: string | null;
+          ten_active_history_confirmation?: string | null;
+          ten_active_history_state: string;
+          ten_active_reached_at?: string | null;
+          ten_active_students_count?: number | null;
+          ten_active_trigger_cycle_id?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          first_ready_initial_at?: string | null;
+          first_ready_initial_cycle_id?: string | null;
+          policy_version?: number;
+          ten_active_bootstrap_request_id?: string | null;
+          ten_active_confirmation_reason?: string | null;
+          ten_active_confirmed_by?: string | null;
+          ten_active_history_confirmation?: string | null;
+          ten_active_history_state?: string;
+          ten_active_reached_at?: string | null;
+          ten_active_students_count?: number | null;
+          ten_active_trigger_cycle_id?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_milestones_first_ready_initial_cycle_id_fkey";
+            columns: ["first_ready_initial_cycle_id"];
+            isOneToOne: true;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_milestones_policy_version_fkey";
+            columns: ["policy_version"];
+            isOneToOne: true;
+            referencedRelation: "teacher_compensation_policy_versions";
+            referencedColumns: ["version"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_milestones_ten_active_confirmed_by_fkey";
+            columns: ["ten_active_confirmed_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_milestones_ten_active_trigger_cycle_id_fkey";
+            columns: ["ten_active_trigger_cycle_id"];
+            isOneToOne: true;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_compensation_policy_versions: {
+        Row: {
+          active_student_threshold: number;
+          created_at: string;
+          currency: string;
+          elapsed_day_threshold: number;
+          external_initial_class_rate_cents: number;
+          external_raised_class_rate_cents: number;
+          founder_class_rate_cents: number;
+          mandatory_work_rate_cents_per_hour: number;
+          mandatory_work_rate_cents_per_minute: number;
+          version: number;
+        };
+        Insert: {
+          active_student_threshold: number;
+          created_at?: string;
+          currency: string;
+          elapsed_day_threshold: number;
+          external_initial_class_rate_cents: number;
+          external_raised_class_rate_cents: number;
+          founder_class_rate_cents: number;
+          mandatory_work_rate_cents_per_hour: number;
+          mandatory_work_rate_cents_per_minute: number;
+          version: number;
+        };
+        Update: {
+          active_student_threshold?: number;
+          created_at?: string;
+          currency?: string;
+          elapsed_day_threshold?: number;
+          external_initial_class_rate_cents?: number;
+          external_raised_class_rate_cents?: number;
+          founder_class_rate_cents?: number;
+          mandatory_work_rate_cents_per_hour?: number;
+          mandatory_work_rate_cents_per_minute?: number;
+          version?: number;
+        };
+        Relationships: [];
       };
       teacher_availability: {
         Row: {
@@ -2941,6 +3294,40 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      confirm_teacher_compensation_ten_active_history: {
+        Args: {
+          p_admin_id: string;
+          p_confirmation: string;
+          p_observed_count: number | null;
+          p_reason: string;
+          p_request_id: string;
+          p_trigger_cycle_id: string | null;
+        };
+        Returns: Database["public"]["Tables"]["teacher_compensation_milestones"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_milestones";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      configure_teacher_compensation_engagement: {
+        Args: {
+          p_configured_by: string;
+          p_effective_from: string;
+          p_engagement_kind: string;
+          p_reason: string;
+          p_request_id: string;
+          p_teacher_id: string;
+        };
+        Returns: Database["public"]["Tables"]["teacher_compensation_engagements"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_engagements";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       consume_bookable_slot_hold: {
         Args: {
           p_checkout_intent_id: string;
@@ -3157,6 +3544,26 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "checkout_v2_billing_state";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      reconcile_teacher_compensation_cycle: {
+        Args: { p_admin_id: string; p_cycle_id: string };
+        Returns: Database["public"]["Tables"]["teacher_compensation_cycle_terms"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_cycle_terms";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      reconcile_teacher_compensation_session: {
+        Args: { p_admin_id: string; p_session_id: string };
+        Returns: Database["public"]["Tables"]["teacher_compensation_ledger"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_ledger";
           isOneToOne: true;
           isSetofReturn: false;
         };

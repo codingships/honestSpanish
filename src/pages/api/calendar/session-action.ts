@@ -26,6 +26,24 @@ const isGuaranteeStateConflict = (error: { code?: string; message?: string } | n
     )
 );
 
+const teacherCompensationErrorResponse = (
+    error: { code?: string; message?: string } | null,
+): Response | null => {
+    if (error?.code === '40001' && error.message === 'teacher_compensation_state_conflicts') {
+        return new Response(JSON.stringify({
+            error: 'Session compensation conflicts with the current state. Refresh and try again.',
+        }), { status: 409 });
+    }
+
+    if (error?.code === '55000' && error.message === 'teacher_compensation_precondition_missing') {
+        return new Response(JSON.stringify({
+            error: 'Teacher compensation is not configured for this session. Contact an administrator before trying again.',
+        }), { status: 503 });
+    }
+
+    return null;
+};
+
 const isSessionReport = (value: unknown): value is Json => {
     return value === null || typeof value === 'string' || (typeof value === 'object' && !Array.isArray(value));
 };
@@ -129,6 +147,8 @@ export const POST: APIRoute = async (context) => {
         });
 
         if (updateError) {
+            const compensationResponse = teacherCompensationErrorResponse(updateError);
+            if (compensationResponse) return compensationResponse;
             if (isGuaranteeStateConflict(updateError)) {
                 return new Response(JSON.stringify({
                     error: 'Session change conflicts with a guarantee operation in progress.',
@@ -256,6 +276,7 @@ export const POST: APIRoute = async (context) => {
             updateData.completed_at = stateChangedAt;
         } else if (action === 'no_show') {
             updateData.status = 'no_show';
+            updateData.no_show_at = stateChangedAt;
         }
 
         if (body.notes !== undefined) {
@@ -286,6 +307,8 @@ export const POST: APIRoute = async (context) => {
         const { data: updatedRows, error: updateError } = await updateQuery.select('id');
 
         if (updateError) {
+            const compensationResponse = teacherCompensationErrorResponse(updateError);
+            if (compensationResponse) return compensationResponse;
             if (isGuaranteeStateConflict(updateError)) {
                 return new Response(JSON.stringify({
                     error: 'Session change conflicts with a guarantee operation in progress.',

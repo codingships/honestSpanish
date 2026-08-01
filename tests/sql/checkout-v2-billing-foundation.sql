@@ -25,6 +25,15 @@ UPDATE public.profiles
 SET role = 'admin'
 WHERE id = '10000000-0000-4000-8000-000000000003';
 
+SELECT public.configure_teacher_compensation_engagement(
+    '11000000-0000-4000-8000-000000000001',
+    '10000000-0000-4000-8000-000000000002',
+    'founder',
+    TIMESTAMPTZ '2020-01-01 00:00:00+00',
+    '10000000-0000-4000-8000-000000000003',
+    'Checkout V2 billing fixture teacher'
+);
+
 SELECT
     id AS v2_package_id,
     catalog_version AS v2_catalog_version
@@ -2077,7 +2086,8 @@ BEGIN
 
     BEGIN
         UPDATE public.sessions
-        SET status = 'no_show'
+        SET status = 'no_show',
+            no_show_at = date_trunc('second', clock_timestamp())
         WHERE id = first_session;
         RAISE EXCEPTION 'checkout_v2_manual_review_allowed_no_show';
     EXCEPTION WHEN SQLSTATE '40001' THEN
@@ -3643,13 +3653,15 @@ BEGIN
 END
 $$;
 
--- A ready cycle remains replayable after ordinary session evolution and after
--- cancellation releases the durable weekly allocation. Replay must validate
--- the already-materialized facts without requiring live capacity again.
+-- A ready cycle remains replayable after a non-payable teacher cancellation
+-- and after cancellation releases the durable weekly allocation. Replay must
+-- validate the already-materialized facts without requiring live capacity again.
 UPDATE public.sessions AS session_row
 SET
-    status = 'completed',
-    completed_at = session_row.scheduled_at + INTERVAL '50 minutes'
+    status = 'cancelled',
+    cancelled_at = session_row.scheduled_at - INTERVAL '1 hour',
+    cancelled_by = '10000000-0000-4000-8000-000000000002',
+    cancellation_reason = 'teacher_cancelled'
 FROM public.checkout_v2_cycles AS cycle_row
 WHERE cycle_row.id = session_row.checkout_v2_cycle_id
   AND cycle_row.subscription_id = '50000000-0000-4000-8000-000000000001'
@@ -3741,8 +3753,9 @@ BEGIN
             FROM public.sessions
             WHERE checkout_v2_cycle_id = replayed_cycle.id
               AND checkout_v2_cycle_session_index = 1
-              AND status = 'completed'
-              AND completed_at IS NOT NULL
+              AND status = 'cancelled'
+              AND cancelled_by = teacher_id
+              AND cancellation_reason = 'teacher_cancelled'
        )
        OR NOT EXISTS (
             SELECT 1

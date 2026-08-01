@@ -40,7 +40,7 @@ Una plaza se retiene temporalmente durante checkout y se libera si el pago no te
 
 - Con al menos 24 horas de antelación, el alumno puede reprogramar y conserva la clase.
 - Antes de impartir la primera clase, el autoservicio puede desplazar la primera fecha —y con ella las cuatro sesiones y el siguiente cobro— hasta un máximo inclusivo de 28 días desde la primera fecha originalmente comprada. Más allá requiere soporte y no mueve automáticamente el ancla de renovación.
-- Con menos de 24 horas o en caso de no-show, la clase se considera consumida y el profesor se paga. Si soporte documenta una incidencia justificada y la reclasifica, deja de ser una cancelación tardía o no-show a todos los efectos; sin esa reclasificación, la regla se aplica íntegramente. La redacción jurídica final puede ajustar su presentación sin exigir rehacer el modelo.
+- Con menos de 24 horas o en caso de no-show, la clase se considera consumida y el profesor se paga. Soporte puede documentar una incidencia justificada y reclasificarla para restituir el crédito del alumno o evaluar la garantía, pero esa excepción no borra el hecho histórico ni revierte la obligación docente ya generada. La redacción jurídica final puede ajustar su presentación sin exigir rehacer el modelo.
 - Si cancela la academia o el profesor, el alumno conserva la clase.
 - La academia puede proponer un sustituto y el alumno puede rechazarlo.
 - Reprogramar es una única operación: la nueva reserva y la liberación de la anterior no pueden duplicar ni perder el crédito.
@@ -51,12 +51,16 @@ Después de completar la primera clase y antes de comenzar la segunda, el alumno
 
 Para la versión de 259 EUR, el importe de referencia de las tres clases es 194,25 EUR. El cálculo se realiza desde el snapshot contractual de la compra, no desde el catálogo vigente. Una devolución invalida las tres sesiones restantes, cancela las renovaciones futuras y no puede ejecutarse dos veces. La revisión jurídica final confirmará desistimiento y consentimiento para comenzar antes de catorce días sin alterar esta regla comercial salvo decisión expresa del propietario.
 
+La resolución de una incidencia de la segunda sesión modifica exclusivamente la elegibilidad de la garantía y, cuando corresponda, el crédito del alumno. Una cancelación tardía o un no-show siguen siendo liquidables al profesor y esa resolución no revierte su remuneración.
+
 ## Profesor y remuneración operativa
 
 - Fundadores: 40 EUR por clase de 50 minutos.
 - Profesor externo: 20 EUR por clase al comenzar.
-- La tarifa externa sube a 25 EUR desde el primer ciclo posterior a alcanzar diez alumnos activos o 90 días desde la primera venta, lo que ocurra antes.
-- Formación y reuniones obligatorias: 15 EUR por hora real.
+- La tarifa externa sube a 25 EUR desde el primer ciclo posterior al primero de estos dos hitos: alcanzar diez alumnos activos o cumplir 90 días desde que el primer ciclo inicial de Checkout V2 queda listo.
+- A estos efectos, un alumno activo es un alumno distinto con una suscripción Checkout V2 en estado `active` y su ciclo inicial en estado `ready`. Alcanzar diez se registra una sola vez y es irreversible aunque el número de alumnos activos descienda después.
+- El ciclo que causa el hito de diez alumnos conserva la tarifa externa de 20 EUR. Solo los ciclos que comienzan después del hito aplican 25 EUR; la misma regla de posterioridad se aplica al hito de 90 días.
+- Formación y reuniones obligatorias: 15 EUR por hora real para cualquier profesor, equivalentes a 25 céntimos por minuto real registrado.
 - La tarifa docente incluye preparación ordinaria, clase, nota breve, deberes normales y mensajes ordinarios.
 - Cancelaciones tardías y no-show liquidables generan obligación docente; cancelaciones de la academia no trasladan el coste al alumno.
 - El piloto con Irene se basa en confianza y control de calidad poco intrusivo: sin grabación, transcripción ni observación permanente.
