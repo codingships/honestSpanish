@@ -1,5 +1,5 @@
 export const ADULT_POLICY_VERSION = '2026-07-10';
-export const CHECKOUT_TERMS_VERSION = '2026-07-31';
+export const CHECKOUT_TERMS_VERSION = '2026-08-01';
 export const MINIMUM_CUSTOMER_AGE = 18;
 
 export function hasAcceptedAdultPolicy(value: unknown): value is true {

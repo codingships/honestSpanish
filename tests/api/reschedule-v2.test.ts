@@ -16,6 +16,14 @@ const fulfillmentMocks = vi.hoisted(() => ({
     triggerFulfillmentProcessing: vi.fn(),
 }));
 
+const targetMocks = vi.hoisted(() => ({
+    assertCheckoutV2RescheduleTargetAvailable: vi.fn(),
+    classifyCheckoutV2ReschedulePreflight: vi.fn(),
+    failCheckoutV2ReschedulePreflightConflict: vi.fn(),
+    listCheckoutV2RescheduleTargets: vi.fn(),
+    normalizeCheckoutV2RescheduleTargetWindow: vi.fn(),
+}));
+
 vi.mock('../../src/lib/stripe', () => ({
     stripe: {
         accounts: { retrieve: stripeMocks.accountRetrieve },
@@ -36,6 +44,14 @@ vi.mock('../../src/lib/supabase-server', () => ({
 
 vi.mock('../../src/lib/internal-job-service', () => ({
     triggerFulfillmentProcessing: fulfillmentMocks.triggerFulfillmentProcessing,
+}));
+
+vi.mock('../../src/lib/checkout-v2-reschedule-targets', () => ({
+    assertCheckoutV2RescheduleTargetAvailable: targetMocks.assertCheckoutV2RescheduleTargetAvailable,
+    classifyCheckoutV2ReschedulePreflight: targetMocks.classifyCheckoutV2ReschedulePreflight,
+    failCheckoutV2ReschedulePreflightConflict: targetMocks.failCheckoutV2ReschedulePreflightConflict,
+    listCheckoutV2RescheduleTargets: targetMocks.listCheckoutV2RescheduleTargets,
+    normalizeCheckoutV2RescheduleTargetWindow: targetMocks.normalizeCheckoutV2RescheduleTargetWindow,
 }));
 
 vi.mock('../../src/lib/runtime-env', () => ({
@@ -314,6 +330,13 @@ describe('POST /api/calendar/reschedule-v2', () => {
         vi.clearAllMocks();
         supabaseMocks.createSupabaseServerClient.mockReturnValue(authenticatedServer());
         stripeMocks.accountRetrieve.mockResolvedValue({ id: 'acct_test', country: 'US' });
+        targetMocks.assertCheckoutV2RescheduleTargetAvailable.mockResolvedValue({
+            scheduledAt: newScheduledAt,
+            operationKind: 'single_session',
+            affectedScheduledAts: [newScheduledAt],
+        });
+        targetMocks.classifyCheckoutV2ReschedulePreflight.mockResolvedValue({ mode: 'fresh' });
+        targetMocks.failCheckoutV2ReschedulePreflightConflict.mockResolvedValue(undefined);
     });
 
     it('requires a cookie-authenticated user', async () => {
@@ -352,6 +375,13 @@ describe('POST /api/calendar/reschedule-v2', () => {
         const response = await post({ ...validBody, actorId: 'attacker-controlled' });
 
         expect(response.status).toBe(200);
+        expect(targetMocks.assertCheckoutV2RescheduleTargetAvailable).toHaveBeenCalledWith({
+            context: expect.any(Object),
+            actorId,
+            sessionId,
+            newScheduledAt,
+            ignoredPendingRequestId: null,
+        });
         expect(admin.rpc).toHaveBeenNthCalledWith(1, 'prepare_checkout_v2_reschedule', {
             p_request_id: requestId,
             p_session_id: sessionId,
@@ -368,6 +398,122 @@ describe('POST /api/calendar/reschedule-v2', () => {
         ]);
         expect(stripeMocks.subscriptionUpdate).not.toHaveBeenCalled();
         expect(fulfillmentMocks.triggerFulfillmentProcessing).toHaveBeenCalledWith(expect.any(Object), 3);
+    });
+
+    it('fails closed before the durable operation when the confirmed Google/DB target is unavailable', async () => {
+        targetMocks.assertCheckoutV2RescheduleTargetAvailable.mockRejectedValueOnce(
+            new (await import('../../src/lib/checkout-v2-reschedule')).CheckoutV2RescheduleError(
+                'RESCHEDULE_CONFLICT',
+                409,
+            ),
+        );
+
+        const response = await post();
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Reschedule could not be completed',
+            errorCode: 'RESCHEDULE_CONFLICT',
+        });
+        expect(supabaseMocks.createSupabaseAdminClient).not.toHaveBeenCalled();
+        expect(stripeMocks.subscriptionUpdate).not.toHaveBeenCalled();
+        expect(fulfillmentMocks.triggerFulfillmentProcessing).not.toHaveBeenCalled();
+    });
+
+    it('does not re-run the external preflight for an applied replay', async () => {
+        targetMocks.classifyCheckoutV2ReschedulePreflight.mockResolvedValueOnce({ mode: 'reconcile' });
+        const admin = adminClient({ prepared: operation('single_session', 'applied') });
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(admin.client);
+
+        const response = await post();
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({ success: true, replayed: true });
+        expect(targetMocks.assertCheckoutV2RescheduleTargetAvailable).not.toHaveBeenCalled();
+        expect(rpcNames(admin.rpc)).toEqual(['prepare_checkout_v2_reschedule']);
+    });
+
+    it('revalidates Google and DB for a recorded request that has not crossed its mutation boundary', async () => {
+        targetMocks.classifyCheckoutV2ReschedulePreflight.mockResolvedValueOnce({
+            mode: 'revalidate',
+            ignoredPendingRequestId: requestId,
+            operationId,
+        });
+        const admin = adminClient({ prepared: operation('single_session', 'requested') });
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(admin.client);
+
+        const response = await post();
+
+        expect(response.status).toBe(200);
+        expect(targetMocks.assertCheckoutV2RescheduleTargetAvailable).toHaveBeenCalledWith({
+            context: expect.any(Object),
+            actorId,
+            sessionId,
+            newScheduledAt,
+            ignoredPendingRequestId: requestId,
+        });
+        expect(rpcNames(admin.rpc)).toEqual([
+            'prepare_checkout_v2_reschedule',
+            'apply_checkout_v2_reschedule',
+        ]);
+    });
+
+    it('closes an exact pre-boundary request when target revalidation becomes a conflict', async () => {
+        targetMocks.classifyCheckoutV2ReschedulePreflight.mockResolvedValueOnce({
+            mode: 'revalidate',
+            ignoredPendingRequestId: requestId,
+            operationId,
+        });
+        targetMocks.assertCheckoutV2RescheduleTargetAvailable.mockRejectedValueOnce(
+            new (await import('../../src/lib/checkout-v2-reschedule')).CheckoutV2RescheduleError(
+                'RESCHEDULE_CONFLICT',
+                409,
+            ),
+        );
+
+        const response = await post();
+
+        expect(response.status).toBe(409);
+        expect(targetMocks.failCheckoutV2ReschedulePreflightConflict).toHaveBeenCalledWith({
+            operationId,
+            requestId,
+            sessionId,
+            actorId,
+            newScheduledAt,
+        });
+        expect(fulfillmentMocks.triggerFulfillmentProcessing).not.toHaveBeenCalled();
+    });
+
+    it('retains the exact request on retryable revalidation and fails to review if closing races a boundary', async () => {
+        targetMocks.classifyCheckoutV2ReschedulePreflight.mockResolvedValue({
+            mode: 'revalidate',
+            ignoredPendingRequestId: requestId,
+            operationId,
+        });
+        const { CheckoutV2RescheduleError } = await import('../../src/lib/checkout-v2-reschedule');
+        targetMocks.assertCheckoutV2RescheduleTargetAvailable.mockRejectedValueOnce(
+            new CheckoutV2RescheduleError('RESCHEDULE_RETRYABLE', 503),
+        );
+
+        const retryable = await post();
+
+        expect(retryable.status).toBe(503);
+        expect(targetMocks.failCheckoutV2ReschedulePreflightConflict).not.toHaveBeenCalled();
+
+        targetMocks.assertCheckoutV2RescheduleTargetAvailable.mockRejectedValueOnce(
+            new CheckoutV2RescheduleError('RESCHEDULE_CONFLICT', 409),
+        );
+        targetMocks.failCheckoutV2ReschedulePreflightConflict.mockRejectedValueOnce(
+            new CheckoutV2RescheduleError('RESCHEDULE_REQUIRES_REVIEW', 409),
+        );
+
+        const raced = await post();
+
+        expect(raced.status).toBe(409);
+        await expect(raced.json()).resolves.toEqual({
+            error: 'Reschedule could not be completed',
+            errorCode: 'RESCHEDULE_REQUIRES_REVIEW',
+        });
     });
 
     it('maps an ownership rejection without exposing its database message', async () => {

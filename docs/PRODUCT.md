@@ -26,7 +26,7 @@ El servicio es exclusivamente para mayores de 18 años. Registro y compra exigen
 | Horario | Franja semanal, zona horaria y primera fecha identificadas antes de pagar |
 | Compra | Directa B2C; revisión manual solo como excepción o recuperación |
 
-Los primeros 259 EUR se cobran al reservar la plaza. Antes de confirmar la compra se muestran las cuatro fechas previstas —días 0, 7, 14 y 21 desde la primera clase— y la fecha exacta de la siguiente renovación, que se cobra 28 días después de esa primera clase. Si la primera fecha cambia antes de empezar, se desplazan el ancla y las cuatro fechas; una vez comenzada la primera clase, el ancla queda fija. No se aceptan prorratas ni fechas implícitas distintas de lo comunicado al alumno.
+Los primeros 259 EUR se cobran al reservar la plaza. Antes de confirmar la compra se muestran las cuatro fechas previstas —días 0, 7, 14 y 21 desde la primera clase— y la fecha exacta de la siguiente renovación, que se cobra 28 días después de esa primera clase. Si el alumno cambia la primera fecha mediante autoservicio dentro del plazo permitido antes de empezar, se desplazan el ancla y las cuatro fechas. Un cambio excepcional gestionado por soporte fuera de ese plazo no mueve automáticamente el ancla; una vez comenzada la primera clase, el ancla queda fija. No se aceptan prorratas ni fechas implícitas distintas de lo comunicado al alumno.
 
 Un cambio futuro de precio o condiciones crea una versión contractual nueva. Nunca reescribe compras, sesiones o obligaciones históricas.
 
@@ -39,6 +39,7 @@ Una plaza se retiene temporalmente durante checkout y se libera si el pago no te
 ## Reprogramación, cancelaciones y sustituciones
 
 - Con al menos 24 horas de antelación, el alumno puede reprogramar y conserva la clase.
+- Antes de impartir la primera clase, el autoservicio puede desplazar la primera fecha —y con ella las cuatro sesiones y el siguiente cobro— hasta un máximo inclusivo de 28 días desde la primera fecha originalmente comprada. Más allá requiere soporte y no mueve automáticamente el ancla de renovación.
 - Con menos de 24 horas o en caso de no-show, la clase se considera consumida y el profesor se paga. Si soporte documenta una incidencia justificada y la reclasifica, deja de ser una cancelación tardía o no-show a todos los efectos; sin esa reclasificación, la regla se aplica íntegramente. La redacción jurídica final puede ajustar su presentación sin exigir rehacer el modelo.
 - Si cancela la academia o el profesor, el alumno conserva la clase.
 - La academia puede proponer un sustituto y el alumno puede rechazarlo.

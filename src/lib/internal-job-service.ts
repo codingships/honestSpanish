@@ -137,7 +137,7 @@ export async function checkTeacherAvailabilityViaInternalService(
 
 export async function filterSlotsAgainstGoogleViaInternalService<TSlot extends { slot_start: string; slot_end: string }>(
     context: Pick<APIContext, 'locals'>,
-    input: { teacherEmail: string; slots: TSlot[] }
+    input: { teacherEmail: string; slots: TSlot[]; ignoredEventIds?: string[] }
 ): Promise<TSlot[]> {
     const result = await callInternalJobService<{ slots: TSlot[] }>(
         '/internal/google/filter-available-slots',

@@ -120,7 +120,7 @@ type RescheduleRpc = (
 
 const STRIPE_CONFIRMED_AT_PREVIOUS_ANCHOR = 'stripe_confirmed_at_previous_anchor';
 
-function databaseFailure(error: DatabaseError | null): CheckoutV2RescheduleError {
+export function checkoutV2DatabaseFailure(error: DatabaseError | null): CheckoutV2RescheduleError {
     if (error?.code === '42501') {
         return new CheckoutV2RescheduleError('RESCHEDULE_FORBIDDEN', 403);
     }
@@ -314,7 +314,7 @@ async function prepareOperation(
         p_actor_id: input.actorId,
         p_new_scheduled_at: input.newScheduledAt,
     });
-    if (error) throw databaseFailure(error);
+    if (error) throw checkoutV2DatabaseFailure(error);
     if (!operationIsValid(data, input)) {
         throw new CheckoutV2RescheduleError('RESCHEDULE_RETRYABLE', 503);
     }
@@ -331,7 +331,7 @@ async function applyOperation(
         p_operation_id: operation.id,
         p_observed_stripe_anchor_at: observedStripeAnchor,
     });
-    if (error) throw databaseFailure(error);
+    if (error) throw checkoutV2DatabaseFailure(error);
     if (
         !operationIsValid(data, {
             requestId: operation.request_id,
@@ -374,7 +374,7 @@ async function beginStripeMutation(
     }
     const { data, error } = result;
     if (error) {
-        throw new StripeMutationBeginError(false, databaseFailure(error));
+        throw new StripeMutationBeginError(false, checkoutV2DatabaseFailure(error));
     }
     if (
         !operationIsValid(data, {

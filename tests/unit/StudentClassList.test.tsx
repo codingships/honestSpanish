@@ -25,6 +25,26 @@ vi.mock('../../src/components/calendar/StudentCancelModal', () => ({
         ) : null,
 }));
 
+vi.mock('../../src/components/calendar/StudentRescheduleModal', () => ({
+    default: ({
+        isOpen,
+        onClose,
+        onSuccess,
+        session,
+    }: {
+        isOpen: boolean;
+        onClose: () => void;
+        onSuccess: () => void;
+        session: { id: string };
+    }) => isOpen ? (
+        <div data-testid="reschedule-modal" role="dialog" aria-label="Reprogramar clase">
+            <span>{session.id}</span>
+            <button type="button" onClick={onClose}>Cerrar reprogramacion</button>
+            <button type="button" onClick={onSuccess}>Confirmar reprogramacion</button>
+        </div>
+    ) : null,
+}));
+
 const mockTranslations = {
     upcoming: 'Proximas',
     past: 'Pasadas',
@@ -32,6 +52,7 @@ const mockTranslations = {
     noPast: 'No tienes clases pasadas',
     joinClass: 'Unirse a la clase',
     cancelClass: 'Cancelar clase',
+    rescheduleClass: 'Reprogramar clase',
     cancelUnavailable: 'Menos de 24h: cancelar consume la sesion',
     cancelLateNotice: 'Menos de 24h: cancelar consume la sesion.',
     linkAvailableSoon: 'Link disponible pronto',
@@ -62,6 +83,7 @@ const makeSession = (overrides: Partial<TestSession> = {}): TestSession => ({
     meet_link: 'https://meet.google.com/abc-def',
     drive_doc_url: null,
     teacher_notes: null,
+    checkout_v2_cycle_id: 'cycle-1',
     teacher: {
         id: 'teacher-1',
         full_name: 'Maria Garcia',
@@ -331,6 +353,84 @@ describe('StudentClassList - canCancel logic', () => {
     });
 });
 
+describe('StudentClassList - canReschedule logic', () => {
+    it('shows reschedule only for a future checkout v2 class with teacher and at least 24 hours notice', () => {
+        const eligible = makeSession({
+            id: 'eligible-session',
+            scheduled_at: new Date(Date.now() + 25 * 60 * 60 * 1000).toISOString(),
+        });
+
+        render(
+            <StudentClassList
+                upcomingSessions={[eligible]}
+                pastSessions={[]}
+                lang="es"
+                translations={mockTranslations}
+            />
+        );
+
+        expect(screen.getByRole('button', { name: /Reprogramar clase/ })).toBeInTheDocument();
+    });
+
+    it.each([
+        {
+            caseName: 'less than 24 hours remain',
+            makeOverrides: () => ({ scheduled_at: new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString() }),
+        },
+        {
+            caseName: 'the session is not in checkout v2',
+            makeOverrides: () => ({ checkout_v2_cycle_id: null }),
+        },
+        {
+            caseName: 'the teacher is not assigned',
+            makeOverrides: () => ({ teacher: null }),
+        },
+        {
+            caseName: 'the session is not scheduled',
+            makeOverrides: () => ({ status: 'cancelled' }),
+        },
+        {
+            caseName: 'the session is already in the past',
+            makeOverrides: () => ({ scheduled_at: new Date(Date.now() - 60 * 1000).toISOString() }),
+        },
+    ])('hides reschedule when $caseName', ({ makeOverrides }) => {
+        render(
+            <StudentClassList
+                upcomingSessions={[makeSession(makeOverrides())]}
+                pastSessions={[]}
+                lang="es"
+                translations={mockTranslations}
+            />
+        );
+
+        expect(screen.queryByRole('button', { name: /Reprogramar clase/ })).toBeNull();
+    });
+
+    it('opens, closes and completes the reschedule modal through the full-page refresh seam', () => {
+        const onRescheduleApplied = vi.fn();
+        render(
+            <StudentClassList
+                upcomingSessions={[makeSession({ id: 'session-reschedule' })]}
+                pastSessions={[]}
+                lang="es"
+                translations={mockTranslations}
+                onRescheduleApplied={onRescheduleApplied}
+            />
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: /Reprogramar clase/ }));
+        expect(screen.getByTestId('reschedule-modal')).toHaveTextContent('session-reschedule');
+
+        fireEvent.click(screen.getByRole('button', { name: 'Cerrar reprogramacion' }));
+        expect(screen.queryByTestId('reschedule-modal')).toBeNull();
+
+        fireEvent.click(screen.getByRole('button', { name: /Reprogramar clase/ }));
+        fireEvent.click(screen.getByRole('button', { name: 'Confirmar reprogramacion' }));
+        expect(onRescheduleApplied).toHaveBeenCalledTimes(1);
+        expect(screen.queryByTestId('reschedule-modal')).toBeNull();
+    });
+});
+
 describe('StudentClassList - canJoin logic', () => {
     it('shows join button when session starts in 14 min and has meet link', () => {
         const session = makeSession({
@@ -482,12 +582,15 @@ describe('StudentClassList - isStartingSoon logic', () => {
 });
 
 describe('StudentClassList - page integration contract', () => {
-    it('passes the localized document label from the classes page', () => {
+    it('maps checkout v2 eligibility and the localized reschedule copy from the classes page', () => {
         const pageSource = readFileSync(
             path.join(process.cwd(), 'src/pages/[lang]/campus/classes.astro'),
             'utf8'
         );
 
         expect(pageSource).toContain("viewDocument: t('campus.student.classes.viewDocument')");
+        expect(pageSource).toContain('checkout_v2_cycle_id: session.checkout_v2_cycle_id ?? null');
+        expect(pageSource).toContain("rescheduleClass: t('campus.student.classes.rescheduleClass')");
+        expect(pageSource).toContain("rescheduleProvisionalWarning: t('campus.student.classes.rescheduleProvisionalWarning')");
     });
 });

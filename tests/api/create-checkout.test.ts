@@ -101,7 +101,7 @@ const checkoutIntent: Database['public']['Tables']['checkout_intents']['Row'] = 
     student_id: 'student-1',
     package_price_id: packagePriceId,
     lang: 'es',
-    legal_policy_version: '2026-07-31',
+    legal_policy_version: '2026-08-01',
     policy_accepted_at: '2099-07-10T20:00:00.000Z',
     site_url: 'https://example.test',
     status: 'creating',
@@ -494,7 +494,7 @@ describe('POST /api/create-checkout', () => {
             p_student_id: 'student-1',
             p_package_price_id: packagePriceId,
             p_lang: 'es',
-            p_legal_policy_version: '2026-07-31',
+            p_legal_policy_version: '2026-08-01',
             p_site_url: 'https://example.test',
         });
         expect(stripeMock.checkout.sessions.create).toHaveBeenCalledWith(
@@ -516,7 +516,7 @@ describe('POST /api/create-checkout', () => {
                     durationMonths: '3',
                     sessionsPerPeriod: '12',
                     lang: 'es',
-                    legalPolicyVersion: '2026-07-31',
+                    legalPolicyVersion: '2026-08-01',
                 }),
                 expires_at: Math.floor(Date.parse(checkoutIntent.stripe_session_expires_at) / 1000),
                 expand: ['line_items.data.price'],

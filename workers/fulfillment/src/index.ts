@@ -8,6 +8,7 @@ import {
 } from '../../../src/lib/fulfillment/jobs';
 import { sendClassReminder } from '../../../src/lib/email';
 import { recordClassEmailOutInCrmSafe } from '../../../src/lib/crm/class-email';
+import { madridDateKey, madridDateTimeToUtcIso } from '../../../src/lib/calendar/madrid-time';
 import { checkTeacherAvailability, getCalendarClient } from '../../../src/lib/google/calendar';
 import { appendToDocument, ensureUserPermission, getFolderLink } from '../../../src/lib/google/drive';
 import { createStudentFolderStructure } from '../../../src/lib/google/student-folder';
@@ -35,6 +36,11 @@ type Env = Record<string, unknown> & {
     [key: string]: unknown;
 };
 type AvailableSlot = { slot_start: string; slot_end: string };
+type GoogleEventBoundary = {
+    date?: string | null;
+    dateTime?: string | null;
+    timeZone?: string | null;
+};
 type Handler = (body: JsonObject, env: Env) => Promise<unknown>;
 
 const SCHEDULED_FULFILLMENT_JOB_LIMIT = 5;
@@ -229,17 +235,156 @@ async function handleAvailability(body: JsonObject): Promise<JsonObject> {
     return { available };
 }
 
+function googleEventBoundaryMillis(boundary: GoogleEventBoundary | null | undefined): number {
+    if (boundary?.dateTime) {
+        // RFC3339 permits omitting an offset when timeZone is supplied. Do not
+        // let JavaScript reinterpret that valid wall time as UTC: an uncertain
+        // busy interval must fail closed instead.
+        const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,3})?(Z|([+-])(\d{2}):(\d{2}))$/i.exec(boundary.dateTime);
+        if (!match) {
+            throw new Error('Cannot verify Google Calendar availability');
+        }
+        const [, yearText, monthText, dayText, hourText, minuteText, secondText, fractionText, , offsetSign, offsetHourText, offsetMinuteText] = match;
+        const year = Number(yearText);
+        const month = Number(monthText);
+        const day = Number(dayText);
+        const hour = Number(hourText);
+        const minute = Number(minuteText);
+        const second = Number(secondText);
+        const milliseconds = fractionText
+            ? Number(fractionText.slice(1).padEnd(3, '0').slice(0, 3))
+            : 0;
+        const offsetHour = offsetHourText ? Number(offsetHourText) : 0;
+        const offsetMinute = offsetMinuteText ? Number(offsetMinuteText) : 0;
+        if (
+            year < 1
+            || month < 1 || month > 12
+            || day < 1 || day > 31
+            || hour > 23
+            || minute > 59
+            || second > 59
+            || offsetHour > 14
+            || offsetMinute > 59
+            || (offsetHour === 14 && offsetMinute !== 0)
+        ) {
+            throw new Error('Cannot verify Google Calendar availability');
+        }
+        const civil = new Date(0);
+        civil.setUTCFullYear(year, month - 1, day);
+        civil.setUTCHours(hour, minute, second, milliseconds);
+        if (
+            civil.getUTCFullYear() !== year
+            || civil.getUTCMonth() !== month - 1
+            || civil.getUTCDate() !== day
+            || civil.getUTCHours() !== hour
+            || civil.getUTCMinutes() !== minute
+            || civil.getUTCSeconds() !== second
+        ) throw new Error('Cannot verify Google Calendar availability');
+        const offsetDirection = offsetSign === '+' ? 1 : offsetSign === '-' ? -1 : 0;
+        return civil.getTime()
+            - offsetDirection * (offsetHour * 60 + offsetMinute) * 60_000;
+    }
+
+    if (boundary?.date) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(boundary.date)) {
+            throw new Error('Cannot verify Google Calendar availability');
+        }
+        const instant = madridDateTimeToUtcIso(boundary.date, '00:00');
+        if (!instant || madridDateKey(new Date(instant)) !== boundary.date) {
+            throw new Error('Cannot verify Google Calendar availability');
+        }
+        return Date.parse(instant);
+    }
+
+    throw new Error('Cannot verify Google Calendar availability');
+}
+
 async function handleFilterSlots(body: JsonObject): Promise<JsonObject> {
     const teacherEmail = String(body.teacherEmail || '');
-    const slots = Array.isArray(body.slots) ? body.slots as AvailableSlot[] : [];
+    const slots = Array.isArray(body.slots)
+        ? (body.slots as AvailableSlot[]).slice().sort((left, right) => (
+            new Date(left.slot_start).getTime() - new Date(right.slot_start).getTime()
+        ))
+        : [];
+    const ignoredEventIds = new Set(
+        Array.isArray(body.ignoredEventIds)
+            ? body.ignoredEventIds
+                .filter((value): value is string => typeof value === 'string' && value.length > 0 && value.length <= 1024)
+            : [],
+    );
 
-    if (!teacherEmail || slots.length === 0) {
+    if (slots.length === 0) {
         return { slots };
+    }
+
+    if (!teacherEmail || slots.some((slot) => {
+        const start = Date.parse(slot.slot_start);
+        const end = Date.parse(slot.slot_end);
+        return !Number.isFinite(start) || !Number.isFinite(end) || start >= end;
+    })) {
+        throw new Error('Cannot verify Google Calendar availability');
     }
 
     const startTime = new Date(slots[0].slot_start);
     const endTime = new Date(slots[slots.length - 1].slot_end);
+    if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime()) || startTime >= endTime) {
+        throw new Error('Cannot verify Google Calendar availability');
+    }
     const calendar = getCalendarClient();
+
+    if (ignoredEventIds.size > 0) {
+        const busySlots: Array<{ start: number; end: number }> = [];
+        let pageToken: string | undefined;
+        const seenPageTokens = new Set<string>();
+        let pageCount = 0;
+        do {
+            pageCount += 1;
+            if (pageCount > 20 || (pageToken && seenPageTokens.has(pageToken))) {
+                throw new Error('Cannot verify Google Calendar availability');
+            }
+            if (pageToken) seenPageTokens.add(pageToken);
+            const response = await calendar.events.list({
+                calendarId: teacherEmail,
+                timeMin: startTime.toISOString(),
+                timeMax: endTime.toISOString(),
+                singleEvents: true,
+                showDeleted: false,
+                maxResults: 2500,
+                pageToken,
+                timeZone: 'Europe/Madrid',
+            });
+            for (const event of response.data.items ?? []) {
+                if (typeof event.id !== 'string' || !event.id) {
+                    throw new Error('Cannot verify Google Calendar availability');
+                }
+                const declinedByTeacher = event.attendees?.some((attendee) => (
+                    attendee.self === true && attendee.responseStatus === 'declined'
+                ));
+                if (
+                    ignoredEventIds.has(event.id)
+                    || event.status === 'cancelled'
+                    || event.transparency === 'transparent'
+                    || declinedByTeacher
+                ) continue;
+                const startsAt = googleEventBoundaryMillis(event.start);
+                const endsAt = googleEventBoundaryMillis(event.end);
+                if (startsAt >= endsAt) {
+                    throw new Error('Cannot verify Google Calendar availability');
+                }
+                busySlots.push({ start: startsAt, end: endsAt });
+            }
+            pageToken = response.data.nextPageToken || undefined;
+        } while (pageToken);
+
+        return {
+            slots: slots.filter((slot) => {
+                const slotStart = new Date(slot.slot_start).getTime();
+                const slotEnd = new Date(slot.slot_end).getTime();
+                return !busySlots.some((busy) => slotStart < busy.end && slotEnd > busy.start);
+            }),
+        };
+    }
+
     const response = await calendar.freebusy.query({
         requestBody: {
             timeMin: startTime.toISOString(),
@@ -264,9 +409,14 @@ async function handleFilterSlots(body: JsonObject): Promise<JsonObject> {
         const slotEnd = new Date(slot.slot_end).getTime();
 
         return !busySlots.some((busy) => {
-            if (!busy.start || !busy.end) return false;
+            if (!busy.start || !busy.end) {
+                throw new Error('Cannot verify Google Calendar availability');
+            }
             const busyStart = new Date(busy.start).getTime();
             const busyEnd = new Date(busy.end).getTime();
+            if (Number.isNaN(busyStart) || Number.isNaN(busyEnd) || busyStart >= busyEnd) {
+                throw new Error('Cannot verify Google Calendar availability');
+            }
             return slotStart < busyEnd && slotEnd > busyStart;
         });
     });

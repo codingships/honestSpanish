@@ -25,6 +25,7 @@ const checkoutV2MaterializationMigration = readFileSync('supabase/migrations/202
 const checkoutHoldProtectionMigration = readFileSync('supabase/migrations/20260801130000_protect_checkout_v2_slot_holds.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2CycleFulfillmentMigration = readFileSync('supabase/migrations/20260801140000_enqueue_checkout_v2_cycle_fulfillment.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2RescheduleMigration = readFileSync('supabase/migrations/20260801150000_add_checkout_v2_reschedule_operations.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutV2RescheduleTargetsMigration = readFileSync('supabase/migrations/20260801160000_checkout_v2_reschedule_targets.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -773,6 +774,101 @@ describe('database schema security invariants', () => {
         expect(checkoutV2RescheduleMigration).not.toContain(
             'GRANT EXECUTE ON FUNCTION public.reconcile_checkout_v2_provisional_anchor',
         );
+    });
+
+    it('lists Checkout V2 reschedule targets read-only from the durable policy boundary', () => {
+        for (const snippet of [
+            'CREATE OR REPLACE FUNCTION private.checkout_v2_reschedule_is_within_self_service_horizon(',
+            'JOIN public.bookable_slots AS sold_slot',
+            'sold_slot.id = allocation.slot_id',
+            'sold_slot.sold_subscription_id = p_subscription_id',
+            '(p_target_at AT TIME ZONE allocation.timezone_name)',
+            '<= (sold_slot.first_occurrence_at AT TIME ZONE allocation.timezone_name)',
+            "IF NEW.operation_kind = 'provisional_anchor'",
+            "OR NEW.status IN ('requested', 'manual_review')",
+            "NEW.status = 'applied'",
+            "OLD.status IS DISTINCT FROM 'applied'",
+            'CREATE OR REPLACE FUNCTION private.guard_checkout_v2_reschedule_self_service_horizon()',
+            "RAISE EXCEPTION 'checkout_v2_reschedule_exceeds_self_service_horizon'",
+            'CREATE TRIGGER guard_checkout_v2_reschedule_self_service_horizon_trigger',
+            'BEFORE INSERT OR UPDATE ON public.checkout_v2_reschedule_operations',
+            'CREATE OR REPLACE FUNCTION private.assert_checkout_v2_reschedule_self_service_horizon_upgrade_safe()',
+            "operation.status IN ('requested', 'manual_review')",
+            "operation.operation_kind = 'provisional_anchor'",
+            "'checkout_v2_reschedule_upgrade_exceeds_self_service_horizon'",
+            'SELECT private.assert_checkout_v2_reschedule_self_service_horizon_upgrade_safe()',
+            'FROM PUBLIC, anon, authenticated, service_role',
+            'CREATE OR REPLACE FUNCTION public.list_checkout_v2_reschedule_targets(',
+            'p_ignored_pending_request_id UUID DEFAULT NULL',
+            'RETURNS TABLE (\n    target_scheduled_at TIMESTAMPTZ,\n    operation_kind TEXT,\n    affected_scheduled_ats TIMESTAMPTZ[]',
+            'LANGUAGE plpgsql\nSTABLE\nSECURITY DEFINER\nSET search_path = \'\'',
+            "p_to - p_from > INTERVAL '48 hours'",
+            "RAISE EXCEPTION 'checkout_v2_reschedule_forbidden'",
+            "pending_operation.status = 'manual_review'",
+            "pending_operation.status = 'requested'",
+            'pending_operation.stripe_mutation_started_at IS NOT NULL',
+            "> requested_at - INTERVAL '15 minutes'",
+            'operation.request_id = p_ignored_pending_request_id',
+            'ignored_operation.session_id IS DISTINCT FROM p_session_id',
+            'ignored_operation.actor_id IS DISTINCT FROM p_actor_id',
+            'ignored_operation.new_scheduled_at IS DISTINCT FROM p_from',
+            "p_to IS DISTINCT FROM p_from + INTERVAL '1 second'",
+            "ignored_operation.status IS DISTINCT FROM 'requested'",
+            'ignored_operation.stripe_mutation_started_at IS NOT NULL',
+            "RAISE EXCEPTION 'checkout_v2_reschedule_ignored_pending_request_is_invalid'",
+            'pending_operation.request_id IS DISTINCT FROM',
+            "billing_row.anchor_state = 'provisional'",
+            'private.checkout_v2_reschedule_has_sufficient_notice(',
+            'private.checkout_v2_reschedule_target_is_available(',
+            'pg_catalog.generate_series(',
+            'local_day.day_at + allocation_row.local_start_time AS local_at',
+            'WHERE provisional_anchor',
+            'WHERE NOT provisional_anchor',
+            "operation_kind := 'provisional_anchor'",
+            "operation_kind := 'single_session'",
+            'candidate_at <= previous_scheduled_at',
+            'candidate_at >= next_scheduled_at',
+            'candidate_affected_ats := pg_catalog.array_append(',
+            'CONTINUE WHEN provisional_anchor\n          AND NOT private.checkout_v2_reschedule_is_within_self_service_horizon(',
+            'REVOKE ALL ON FUNCTION public.list_checkout_v2_reschedule_targets(',
+            ') FROM PUBLIC, anon, authenticated;',
+            ') TO service_role;',
+        ]) {
+            expect(checkoutV2RescheduleTargetsMigration).toContain(snippet);
+            expect(schema).toContain(snippet);
+        }
+
+        expect(canonicalLatestSqlFunction(
+            schema,
+            'public.list_checkout_v2_reschedule_targets(',
+        )).toBe(canonicalLatestSqlFunction(
+            checkoutV2RescheduleTargetsMigration,
+            'public.list_checkout_v2_reschedule_targets(',
+        ));
+
+        for (const functionName of [
+            'private.checkout_v2_reschedule_is_within_self_service_horizon(',
+            'private.guard_checkout_v2_reschedule_self_service_horizon()',
+            'private.assert_checkout_v2_reschedule_self_service_horizon_upgrade_safe()',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutV2RescheduleTargetsMigration, functionName),
+            );
+        }
+
+        for (const typeSnippet of [
+            'list_checkout_v2_reschedule_targets: {',
+            'p_actor_id: string;',
+            'p_from: string;',
+            'p_ignored_pending_request_id?: string | null;',
+            'p_session_id: string;',
+            'p_to: string;',
+            'affected_scheduled_ats: string[];',
+            'operation_kind: string;',
+            'target_scheduled_at: string;',
+        ]) {
+            expect(databaseTypes).toContain(typeSnippet);
+        }
     });
 
     it('serializes checkout claims and preserves unambiguous billing lifecycle state', () => {
