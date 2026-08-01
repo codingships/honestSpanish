@@ -124,6 +124,7 @@ export function assertExpectedStagingRuntimeInput(input: {
 
     for (const key of [
         'ADMIN_EMAIL',
+        'CHECKOUT_HOLD_FINGERPRINT_SECRET',
         'CRON_SECRET',
         'PUBLIC_SUPABASE_ANON_KEY',
         'SUPABASE_SERVICE_ROLE_KEY',
@@ -146,6 +147,10 @@ export function assertExpectedStagingRuntimeInput(input: {
         'RESEND_FROM_EMAIL',
         'SUPPORT_ALERT_EMAIL',
     ]) requireValue(env, key);
+
+    if (Buffer.byteLength(requireValue(env, 'CHECKOUT_HOLD_FINGERPRINT_SECRET'), 'utf8') < 32) {
+        throw new Error('CHECKOUT_HOLD_FINGERPRINT_SECRET must contain at least 32 UTF-8 bytes');
+    }
 
     if (!requireValue(env, 'PUBLIC_STRIPE_PUBLISHABLE_KEY').startsWith('pk_test_')
         || !requireValue(env, 'STRIPE_SECRET_KEY').startsWith('sk_test_')
@@ -537,8 +542,8 @@ async function discoverAndVerifyOneBaseline(input: {
         }
         // Schema 5 can contain immutable legacy secrets that no longer exist in the
         // canonical source. Only the two exact pre-transition versions may use their
-        // authenticated identity; fail-closed probes still run and schema 6 is never
-        // allowed to use this transition.
+        // authenticated identity; fail-closed probes still run and schema 6 or later
+        // is never allowed to use this transition.
         verificationMode = 'legacy-authenticated-identity';
     }
     return {

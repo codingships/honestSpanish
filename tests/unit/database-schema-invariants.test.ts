@@ -22,6 +22,7 @@ const versionedOfferMigration = readFileSync('supabase/migrations/20260731151309
 const bookableSlotsMigration = readFileSync('supabase/migrations/20260731185233_add_bookable_slots_and_holds.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2BillingMigration = readFileSync('supabase/migrations/20260731225000_add_checkout_v2_billing_foundation.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2MaterializationMigration = readFileSync('supabase/migrations/20260801120000_materialize_checkout_v2_cycle_sessions.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutHoldProtectionMigration = readFileSync('supabase/migrations/20260801130000_protect_checkout_v2_slot_holds.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -527,11 +528,75 @@ describe('database schema security invariants', () => {
         for (const functionName of [
             'private.guard_checkout_v2_cycle_binding()',
             'public.materialize_checkout_v2_cycle_sessions(',
-            'public.claim_direct_checkout_intent_for_slot(',
         ]) {
             expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
                 canonicalLatestSqlFunction(checkoutV2MaterializationMigration, functionName),
             );
+        }
+    });
+
+    it('limits live Checkout V2 holds by an opaque network fingerprint without legacy RPC bypasses', () => {
+        for (const snippet of [
+            'ADD COLUMN hold_fingerprint TEXT',
+            'bookable_slot_holds_fingerprint_lifecycle_check',
+            "hold_fingerprint ~ '^v1:[0-9a-f]{64}$'",
+            'bookable_slot_holds_one_live_fingerprint_idx',
+            "WHERE status = 'held'",
+            'NEW.hold_fingerprint := NULL',
+            'pg_catalog.hashtextextended(p_hold_fingerprint, 72941)',
+            "RAISE EXCEPTION 'checkout_hold_fingerprint_already_active'",
+            "stale_intent.status = 'creating'",
+            'stale_intent.expires_at <= clock_timestamp()',
+            'stale_intent.stripe_customer_id IS NULL',
+            'stale_intent.stripe_checkout_session_id IS NULL',
+            'DROP FUNCTION public.hold_bookable_slot(UUID, UUID)',
+            'UUID, UUID, UUID, UUID, TEXT, TEXT, TEXT, UUID, TEXT',
+            'UUID, TEXT, TEXT, UUID, TEXT, TEXT, TEXT, UUID, TEXT',
+            'p_hold_fingerprint',
+        ]) {
+            expect(checkoutHoldProtectionMigration).toContain(snippet);
+            expect(schema).toContain(snippet);
+        }
+
+        expect(checkoutHoldProtectionMigration).toContain(
+            'DROP FUNCTION public.claim_checkout_intent_for_slot(\n    UUID, UUID, UUID, UUID, TEXT, TEXT, TEXT, UUID\n)',
+        );
+        expect(checkoutHoldProtectionMigration).toContain(
+            'DROP FUNCTION public.claim_direct_checkout_intent_for_slot(\n    UUID, TEXT, TEXT, UUID, TEXT, TEXT, TEXT, UUID\n)',
+        );
+        expect(checkoutHoldProtectionMigration).toContain(
+            'stale_hold.hold_fingerprint = p_hold_fingerprint',
+        );
+        expect(checkoutHoldProtectionMigration).not.toMatch(/\b(remote_?ip|client_?ip|ip_address)\b/i);
+
+        const protectedHoldFunction = canonicalLatestSqlFunction(
+            checkoutHoldProtectionMigration,
+            'public.hold_bookable_slot(',
+        );
+        expect(protectedHoldFunction.indexOf('WHERE checkout_intent_id = p_checkout_intent_id')).toBeLessThan(
+            protectedHoldFunction.indexOf("intent_row.status NOT IN ('creating', 'open')"),
+        );
+        expect(protectedHoldFunction).not.toContain(
+            'hold_row.hold_fingerprint IS DISTINCT FROM p_hold_fingerprint',
+        );
+
+        for (const functionName of [
+            'private.guard_checkout_intent_snapshots()',
+            'private.guard_bookable_slot_hold()',
+            'public.hold_bookable_slot(',
+            'public.claim_checkout_intent_for_slot(',
+            'public.claim_direct_checkout_intent_for_slot(',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutHoldProtectionMigration, functionName),
+            );
+        }
+
+        for (const typeSnippet of [
+            'hold_fingerprint: string | null;',
+            'p_hold_fingerprint: string;',
+        ]) {
+            expect(databaseTypes).toContain(typeSnippet);
         }
     });
 

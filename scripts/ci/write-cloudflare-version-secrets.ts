@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 // provider cleanup removes that binding from the Worker itself.
 export const WEB_VERSION_SECRET_NAMES = [
     'ADMIN_EMAIL',
+    'CHECKOUT_HOLD_FINGERPRINT_SECRET',
     'CRON_SECRET',
     'EMAIL_RECIPIENT_ALLOWLIST',
     'INTERNAL_JOB_SECRET',
@@ -76,6 +77,12 @@ function readSecrets(
     const missing = names.filter((name) => !(env[name]?.trim()));
     if (missing.length > 0) {
         throw new Error(`Missing version-scoped Worker secrets: ${missing.join(', ')}`);
+    }
+    if (
+        names.includes('CHECKOUT_HOLD_FINGERPRINT_SECRET')
+        && Buffer.byteLength(env.CHECKOUT_HOLD_FINGERPRINT_SECRET!.trim(), 'utf8') < 32
+    ) {
+        throw new Error('CHECKOUT_HOLD_FINGERPRINT_SECRET must contain at least 32 UTF-8 bytes');
     }
     return Object.fromEntries(names.map((name) => [name, env[name]!.trim()]));
 }

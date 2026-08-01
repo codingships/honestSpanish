@@ -69,6 +69,7 @@ export type Database = {
           created_at: string;
           expires_at: string;
           held_at: string;
+          hold_fingerprint: string | null;
           id: string;
           slot_id: string;
           status: string;
@@ -82,6 +83,7 @@ export type Database = {
           created_at?: string;
           expires_at: string;
           held_at?: string;
+          hold_fingerprint?: string | null;
           id?: string;
           slot_id: string;
           status?: string;
@@ -95,6 +97,7 @@ export type Database = {
           created_at?: string;
           expires_at?: string;
           held_at?: string;
+          hold_fingerprint?: string | null;
           id?: string;
           slot_id?: string;
           status?: string;
@@ -2330,6 +2333,7 @@ export type Database = {
       claim_checkout_intent_for_slot: {
         Args: {
           p_contact_id: string;
+          p_hold_fingerprint: string;
           p_lang: string;
           p_legal_policy_version: string;
           p_opportunity_id: string;
@@ -2349,6 +2353,7 @@ export type Database = {
       claim_direct_checkout_intent_for_slot: {
         Args: {
           p_full_name: string | null;
+          p_hold_fingerprint: string;
           p_lang: string;
           p_legal_policy_version: string;
           p_package_price_id: string;
@@ -2551,6 +2556,7 @@ export type Database = {
       hold_bookable_slot: {
         Args: {
           p_checkout_intent_id: string;
+          p_hold_fingerprint: string;
           p_slot_id: string;
         };
         Returns: Database["public"]["Tables"]["bookable_slot_holds"]["Row"];

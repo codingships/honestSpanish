@@ -138,6 +138,7 @@ jobs:
           STRIPE_WEBHOOK_SECRET: "whsec_placeholder"
           PUBLIC_TURNSTILE_SITE_KEY: "placeholder-turnstile-site-key"
           TURNSTILE_SECRET_KEY: "placeholder-turnstile-secret-key"
+          CHECKOUT_HOLD_FINGERPRINT_SECRET: "placeholder-checkout-hold-fingerprint-secret"
           PUBLIC_SITE_URL: "https://example.com"
           PUBLIC_APP_ENV: "staging"
           CHECKOUT_ENABLED: "false"

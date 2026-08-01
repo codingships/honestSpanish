@@ -97,6 +97,7 @@ describe('web runtime attestation API', () => {
             SUPPORT_ALERT_EMAIL: 'support@example.com',
             CHECKOUT_ENABLED: 'false',
             CHECKOUT_ENABLED_OVERRIDE: 'false',
+            CHECKOUT_HOLD_FINGERPRINT_SECRET: 'checkout-hold-fingerprint-secret-32-bytes',
         });
         const workerVersionId = '11111111-1111-4111-8111-111111111111';
         versionMetadata.CF_VERSION_METADATA = { id: workerVersionId };
@@ -124,6 +125,7 @@ describe('web runtime attestation API', () => {
             ['ADMIN_EMAIL', 'changed-admin@example.com'],
             ['SUPPORT_ALERT_EMAIL', 'changed-support@example.com'],
             ['RESEND_FROM_EMAIL', 'Changed fallback <changed-fallback@example.com>'],
+            ['CHECKOUT_HOLD_FINGERPRINT_SECRET', 'changed-checkout-hold-secret-32-bytes'],
         ] as const) {
             const changedConfig = await buildRuntimeAttestationConfig('web', {
                 ...mocks.env,

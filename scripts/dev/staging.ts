@@ -17,6 +17,7 @@ const requiredKeys = [
     'SUPABASE_SERVICE_ROLE_KEY',
 ] as const;
 const optionalWebKeys = [
+    'CHECKOUT_HOLD_FINGERPRINT_SECRET',
     'PUBLIC_TURNSTILE_SITE_KEY',
     'TURNSTILE_SECRET_KEY',
     'PUBLIC_STRIPE_PUBLISHABLE_KEY',
@@ -27,6 +28,7 @@ const optionalWebKeys = [
 ] as const;
 const inheritedProviderKeys = [
     'ADMIN_EMAIL',
+    'CHECKOUT_HOLD_FINGERPRINT_SECRET',
     'CRON_SECRET',
     'EMAIL_DAILY_RECIPIENT_LIMIT',
     'EMAIL_DELIVERY_MODE',

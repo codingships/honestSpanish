@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     createRuntimeAttestationForSchema,
+    RUNTIME_ATTESTATION_SCHEMA,
     type SupportedRollbackAttestationSchema,
 } from '../../src/lib/runtime-attestation';
 import {
@@ -23,6 +24,7 @@ import {
 const roleEmails = ['student@test.invalid', 'teacher@test.invalid', 'admin@test.invalid'];
 const baseEnv: Record<string, string> = {
     ADMIN_EMAIL: roleEmails[2],
+    CHECKOUT_HOLD_FINGERPRINT_SECRET: 'staging-checkout-hold-fingerprint-secret-32-bytes',
     CHECKOUT_ENABLED: 'false',
     CHECKOUT_ENABLED_OVERRIDE: 'false',
     CRON_SECRET: 'staging-cron-secret',
@@ -139,11 +141,11 @@ function deployedFetch(options?: {
                 STRIPE_SECRET_KEY: options?.webSecretKey ?? baseEnv.STRIPE_SECRET_KEY,
                 WORKER_IDENTITY: STAGING_WEB_IDENTITY,
                 WORKER_VERSION_ID: options?.webVersionId ?? webVersionId,
-            }, body.nonce, options?.webSchema ?? 6, new Set(webBindingNames));
+            }, body.nonce, options?.webSchema ?? RUNTIME_ATTESTATION_SCHEMA, new Set(webBindingNames));
             return Response.json(envelope);
         }
         if (url.href === `${STAGING_FULFILLMENT_ORIGIN}/internal/runtime-attestation`) {
-            const schema = options?.fulfillmentSchema ?? 6;
+            const schema = options?.fulfillmentSchema ?? RUNTIME_ATTESTATION_SCHEMA;
             const envelope = await createRuntimeAttestationForSchema('fulfillment', {
                 ...baseEnv,
                 CHECKOUT_ENABLED_OVERRIDE: 'false',
@@ -453,7 +455,7 @@ describe('deployed staging runtime safety', () => {
             env: baseEnv,
             expectedFulfillmentVersionId: fulfillmentVersionId,
             expectedWebVersionId: webVersionId,
-            fetchImpl: deployedFetch({ overrideFulfillmentSchema: 7 }),
+            fetchImpl: deployedFetch({ overrideFulfillmentSchema: 8 }),
             fulfillmentBindingNames: legacyFulfillmentBindingNames,
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
@@ -467,7 +469,7 @@ describe('deployed staging runtime safety', () => {
             web: {
                 bindingNames: webBindingNames,
                 role: 'web',
-                schema: 7,
+                schema: 8,
                 verificationMode: 'configuration-hmac',
                 workerIdentity: STAGING_WEB_IDENTITY,
                 workerVersionId: webVersionId,
@@ -568,6 +570,24 @@ describe('deployed staging runtime safety', () => {
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
         })).toThrow(STAGING_STRIPE_ACCOUNT_ID);
+    });
+
+    it('rejects a staging runtime without the checkout hold fingerprint secret', () => {
+        expect(() => assertExpectedStagingRuntimeInput({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: { ...baseEnv, CHECKOUT_HOLD_FINGERPRINT_SECRET: '' },
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).toThrow('CHECKOUT_HOLD_FINGERPRINT_SECRET');
+    });
+
+    it('rejects a staging runtime with a checkout hold fingerprint secret below 32 bytes', () => {
+        expect(() => assertExpectedStagingRuntimeInput({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: { ...baseEnv, CHECKOUT_HOLD_FINGERPRINT_SECRET: 'too-short' },
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).toThrow('CHECKOUT_HOLD_FINGERPRINT_SECRET must contain at least 32 UTF-8 bytes');
     });
 
     it('rejects a non-staging environment and any broader recipient allowlist', () => {

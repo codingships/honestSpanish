@@ -1,5 +1,5 @@
-export const RUNTIME_ATTESTATION_SCHEMA = 6;
-export const SUPPORTED_ROLLBACK_ATTESTATION_SCHEMAS = [5, RUNTIME_ATTESTATION_SCHEMA] as const;
+export const RUNTIME_ATTESTATION_SCHEMA = 7;
+export const SUPPORTED_ROLLBACK_ATTESTATION_SCHEMAS = [5, 6, RUNTIME_ATTESTATION_SCHEMA] as const;
 
 export type SupportedRollbackAttestationSchema =
     (typeof SUPPORTED_ROLLBACK_ATTESTATION_SCHEMAS)[number];
@@ -9,6 +9,7 @@ export type RuntimeAttestationRole = 'web' | 'fulfillment';
 export type RuntimeAttestationConfig = {
     adminEmailFingerprint: string;
     appEnvironment: string;
+    checkoutHoldSecretFingerprint?: string;
     checkoutEnabled: string;
     checkoutOverride: string;
     cronSecretFingerprint: string;
@@ -109,7 +110,7 @@ export async function buildRuntimeAttestationConfig(
 export function isSupportedRollbackAttestationSchema(
     schema: unknown,
 ): schema is SupportedRollbackAttestationSchema {
-    return schema === 5 || schema === RUNTIME_ATTESTATION_SCHEMA;
+    return schema === 5 || schema === 6 || schema === RUNTIME_ATTESTATION_SCHEMA;
 }
 
 /**
@@ -161,6 +162,11 @@ export async function buildRuntimeAttestationConfigForSchema(
             roleIsolatedOperationalBindings && !webRole ? '' : schemaValue('ADMIN_EMAIL'),
         ),
         appEnvironment: value(env, 'PUBLIC_APP_ENV'),
+        ...(schema >= 7 ? {
+            checkoutHoldSecretFingerprint: await runtimeFingerprint(
+                webRole ? value(env, 'CHECKOUT_HOLD_FINGERPRINT_SECRET') : '',
+            ),
+        } : {}),
         checkoutEnabled: value(env, 'CHECKOUT_ENABLED'),
         checkoutOverride: value(env, 'CHECKOUT_ENABLED_OVERRIDE'),
         cronSecretFingerprint: await runtimeFingerprint(

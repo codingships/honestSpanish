@@ -56,11 +56,17 @@ if (
 
 const sentryDsn = validateSentryDsn(staging.PUBLIC_SENTRY_DSN || await resolveSentryDsn());
 const cronSecret = requireStagingSecret('CRON_SECRET');
+const checkoutHoldFingerprintSecret = requireStagingSecret('CHECKOUT_HOLD_FINGERPRINT_SECRET');
 const internalJobSecret = requireStagingSecret('INTERNAL_JOB_SECRET');
 const levelCheckTokenSecret = requireStagingSecret('LEVEL_CHECK_TOKEN_SECRET');
-if (new Set([cronSecret, internalJobSecret, levelCheckTokenSecret]).size !== 3) {
+if (new Set([
+    checkoutHoldFingerprintSecret,
+    cronSecret,
+    internalJobSecret,
+    levelCheckTokenSecret,
+]).size !== 4) {
     throw new Error(
-        '[env:staging:prepare] CRON_SECRET, INTERNAL_JOB_SECRET and LEVEL_CHECK_TOKEN_SECRET must be distinct.',
+        '[env:staging:prepare] Checkout hold, cron, internal job and level-check secrets must be distinct.',
     );
 }
 const googlePrivateKey = normalizeGooglePrivateKey(staging.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || '');
@@ -74,6 +80,7 @@ Object.assign(staging, {
     ADMIN_EMAIL: test.TEST_ADMIN_EMAIL,
     CHECKOUT_ENABLED: 'false',
     CHECKOUT_ENABLED_OVERRIDE: 'false',
+    CHECKOUT_HOLD_FINGERPRINT_SECRET: checkoutHoldFingerprintSecret,
     CRON_SECRET: cronSecret,
     EMAIL_DAILY_RECIPIENT_LIMIT: '10',
     EMAIL_DELIVERY_MODE: 'allowlist',

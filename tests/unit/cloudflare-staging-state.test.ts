@@ -267,6 +267,10 @@ describe('Cloudflare staging deployment state', () => {
         expect(fulfillmentDeploy).toContain('EMAIL_FROM: ${{ secrets.RESEND_FROM_EMAIL }}');
         expect(fulfillmentDeploy).toContain('SUPPORT_ALERT_EMAIL: ${{ secrets.SUPPORT_ALERT_EMAIL }}');
         expect(webDeploy).toContain('STRIPE_EXPECTED_ACCOUNT_ID: "acct_1TruqOC22M3erP0j"');
+        expect(webDeploy).toContain(
+            'CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}',
+        );
+        expect(fulfillmentDeploy).not.toContain('CHECKOUT_HOLD_FINGERPRINT_SECRET');
 
         for (const worker of ['fulfillment', 'web']) {
             const uploadedMarker = `$RUNNER_TEMP/${worker}-uploaded-version.json`;

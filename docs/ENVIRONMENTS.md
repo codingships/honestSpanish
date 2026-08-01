@@ -22,7 +22,7 @@ Los identificadores confidenciales viven una sola vez en el GitHub Environment o
 - DLQ: `espanol-honesto-fulfillment-staging-dlq`.
 - Supabase: proyecto `espanol-staging`, ref `mzjyvmlxfpzdfdjzxxyj`, región `eu-central-1`.
 - Stripe: Sandbox España/EUR, cuenta `acct_1TruqOC22M3erP0j`; las claves deben ser de test.
-- Turnstile: site key pública de test `1x00000000000000000000AA`; el secret nunca se documenta.
+- Turnstile: site key pública de test `1x00000000000000000000AA`; el secret nunca se documenta. El backend admite los campos de respuesta dummy documentados solo fuera de producción y rechaza esa site key en producción.
 - Google Workspace: tenant `espanolhonesto.com`; los bindings `GOOGLE_*` deben resolver la carpeta `STAGING - Espanol Honesto` y la plantilla `STAGING - Plantilla de clase`.
 - Resend: remitente bajo `espanolhonesto.com`, binding `RESEND_FROM_EMAIL`, modo allowlist.
 - Sentry: proyecto `honestspanish/espanol-honesto-astro`, host DSN `o4510912289701888.ingest.de.sentry.io`, project ID `4510917714444368`; el build de staging no consulta credenciales ni sube sourcemaps.
@@ -65,7 +65,7 @@ Secrets requeridos por el contrato:
 
 - Acceso: `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
 - Supabase y seguridad interna: `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`, `INTERNAL_JOB_SECRET`, `LEVEL_CHECK_TOKEN_SECRET`.
-- Stripe y Turnstile: `PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PORTAL_CONFIGURATION_ID`, `PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`.
+- Stripe y protección del checkout: `PUBLIC_STRIPE_PUBLISHABLE_KEY`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PORTAL_CONFIGURATION_ID`, `PUBLIC_TURNSTILE_SITE_KEY`, `TURNSTILE_SECRET_KEY`, `CHECKOUT_HOLD_FINGERPRINT_SECRET`. Este último debe ser aleatorio, de al menos 32 bytes, distinto de los demás secretos y exclusivo del Worker web; permite limitar reservas simultáneas por dirección IPv4 o red IPv6 `/64` sin almacenar la IP.
 - Google y email: `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY`, `GOOGLE_ADMIN_EMAIL`, `GOOGLE_DRIVE_ROOT_FOLDER_ID`, `GOOGLE_TEMPLATE_DOC_ID`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `EMAIL_RECIPIENT_ALLOWLIST`. El workflow deriva `EMAIL_FROM` de `RESEND_FROM_EMAIL`; no existe un segundo secret de remitente.
 - Identidad operativa: `ADMIN_EMAIL`, `SUPPORT_ALERT_EMAIL`, `TEST_STUDENT_EMAIL`, `TEST_TEACHER_EMAIL`, `TEST_ADMIN_EMAIL`, `PUBLIC_SENTRY_DSN`.
 

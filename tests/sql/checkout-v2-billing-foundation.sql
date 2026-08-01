@@ -11,7 +11,11 @@ CREATE TEMP TABLE checkout_v2_test_ids (
 INSERT INTO auth.users (id, email) VALUES
     ('10000000-0000-4000-8000-000000000001', 'student@test.invalid'),
     ('10000000-0000-4000-8000-000000000002', 'teacher@test.invalid'),
-    ('10000000-0000-4000-8000-000000000003', 'admin@test.invalid');
+    ('10000000-0000-4000-8000-000000000003', 'admin@test.invalid'),
+    ('10000000-0000-4000-8000-000000000004', 'student-two@test.invalid'),
+    ('10000000-0000-4000-8000-000000000005', 'student-three@test.invalid'),
+    ('10000000-0000-4000-8000-000000000006', 'orphan-owner@test.invalid'),
+    ('10000000-0000-4000-8000-000000000007', 'orphan-successor@test.invalid');
 
 UPDATE public.profiles
 SET role = 'teacher'
@@ -130,7 +134,8 @@ FROM public.claim_direct_checkout_intent_for_slot(
         'en',
         'test-policy-v1',
         'https://example.test',
-        :'slot_public_id'::UUID
+        :'slot_public_id'::UUID,
+        ('v1:' || repeat('a', 64))::TEXT
     ) AS intent
 \gset
 
@@ -148,7 +153,8 @@ FROM public.claim_direct_checkout_intent_for_slot(
     'en',
     'test-policy-v1',
     'https://example.test',
-    :'slot_public_id'::UUID
+    :'slot_public_id'::UUID,
+    ('v1:' || repeat('c', 64))::TEXT
 ) AS intent
 \gset
 
@@ -197,6 +203,7 @@ BEGIN
                 SELECT id FROM checkout_v2_test_ids WHERE name = 'direct_intent'
             )
               AND status = 'held'
+              AND hold_fingerprint = ('v1:' || repeat('a', 64))
        ) <> 1 THEN
         RAISE EXCEPTION 'direct_checkout_claim_is_not_idempotent';
     END IF;
@@ -263,7 +270,8 @@ BEGIN
         'en',
         'test-policy-v1',
         'https://example.test',
-        target_slot_public_id
+        target_slot_public_id,
+        ('v1:' || repeat('a', 64))::TEXT
     );
     RAISE EXCEPTION 'competing_direct_checkout_claim_was_accepted';
 EXCEPTION WHEN check_violation THEN
@@ -289,6 +297,333 @@ BEGIN
           )
     ) <> 1 THEN
         RAISE EXCEPTION 'competing_direct_checkout_claim_was_not_atomic';
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    target_package_price_id UUID;
+    target_slot_public_id UUID;
+BEGIN
+    SELECT id INTO target_package_price_id
+    FROM public.package_prices
+    WHERE stripe_price_id = 'price_test_recurring_28d';
+
+    SELECT id INTO target_slot_public_id
+    FROM checkout_v2_test_ids
+    WHERE name = 'competing_slot_public';
+
+    PERFORM public.claim_direct_checkout_intent_for_slot(
+        '10000000-0000-4000-8000-000000000004',
+        'student-two@test.invalid',
+        'Second Student',
+        target_package_price_id,
+        'en',
+        'test-policy-v1',
+        'https://example.test',
+        target_slot_public_id,
+        ('v1:' || repeat('a', 64))::TEXT
+    );
+    RAISE EXCEPTION 'same_network_second_hold_was_accepted';
+EXCEPTION WHEN unique_violation THEN
+    IF SQLERRM <> 'checkout_hold_fingerprint_already_active' THEN
+        RAISE;
+    END IF;
+END
+$$;
+
+SELECT intent.id AS second_student_intent_id
+FROM public.claim_direct_checkout_intent_for_slot(
+    '10000000-0000-4000-8000-000000000004',
+    'student-two@test.invalid',
+    'Second Student',
+    :'package_price_id'::UUID,
+    'en',
+    'test-policy-v1',
+    'https://example.test',
+    :'competing_slot_public_id'::UUID,
+    ('v1:' || repeat('b', 64))::TEXT
+) AS intent
+\gset
+
+INSERT INTO checkout_v2_test_ids (name, id)
+VALUES ('second_student_intent', :'second_student_intent_id'::UUID);
+
+DO $$
+BEGIN
+    IF (
+        SELECT COUNT(*)
+        FROM public.bookable_slot_holds
+        WHERE status = 'held'
+          AND hold_fingerprint IN (
+              ('v1:' || repeat('a', 64)),
+              ('v1:' || repeat('b', 64))
+          )
+    ) <> 2 THEN
+        RAISE EXCEPTION 'distinct_network_fingerprints_did_not_hold_independent_slots';
+    END IF;
+END
+$$;
+
+INSERT INTO public.teacher_availability (
+    teacher_id,
+    day_of_week,
+    start_time,
+    end_time,
+    is_active
+) VALUES (
+    '10000000-0000-4000-8000-000000000002',
+    EXTRACT(DOW FROM (:'first_local'::TIMESTAMP + INTERVAL '2 days'))::INTEGER,
+    :'first_local'::TIMESTAMP::TIME,
+    (:'first_local'::TIMESTAMP + INTERVAL '1 hour')::TIME,
+    TRUE
+);
+
+SELECT reusable_slot.public_id AS reusable_slot_public_id
+FROM public.create_bookable_slot(
+    :'v2_package_id'::UUID,
+    '10000000-0000-4000-8000-000000000002',
+    'Europe/Madrid',
+    ARRAY[
+        (:'first_local'::TIMESTAMP + INTERVAL '2 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '9 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '16 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '23 days') AT TIME ZONE 'Europe/Madrid'
+    ],
+    '10000000-0000-4000-8000-000000000003'
+) AS reusable_slot
+\gset
+
+SELECT public.publish_bookable_slot(
+    slot.id,
+    '10000000-0000-4000-8000-000000000003'
+)
+FROM public.bookable_slots AS slot
+WHERE slot.public_id = :'reusable_slot_public_id'::UUID;
+
+SELECT public.snapshot_checkout_intent_customer(
+    :'second_student_intent_id'::UUID,
+    'cus_test_second_student'
+);
+
+SELECT public.release_expired_checkout_intent(
+    :'second_student_intent_id'::UUID,
+    'cs_test_second_student_expired'
+);
+
+DO $$
+DECLARE
+    target_intent_id UUID;
+    target_slot_id UUID;
+    replayed_hold public.bookable_slot_holds%ROWTYPE;
+BEGIN
+    SELECT id INTO target_intent_id
+    FROM checkout_v2_test_ids
+    WHERE name = 'second_student_intent';
+
+    SELECT slot_id INTO target_slot_id
+    FROM public.bookable_slot_holds
+    WHERE checkout_intent_id = target_intent_id;
+
+    replayed_hold := public.hold_bookable_slot(
+        target_slot_id,
+        target_intent_id,
+        ('v1:' || repeat('c', 64))::TEXT
+    );
+
+    IF replayed_hold.checkout_intent_id IS DISTINCT FROM target_intent_id
+       OR replayed_hold.slot_id IS DISTINCT FROM target_slot_id
+       OR replayed_hold.status <> 'held'
+       OR replayed_hold.hold_fingerprint IS DISTINCT FROM (
+           'v1:' || repeat('b', 64)
+       ) THEN
+        RAISE EXCEPTION 'expired_checkout_hold_replay_changed_the_original_hold';
+    END IF;
+END
+$$;
+
+SELECT intent.id AS third_student_intent_id
+FROM public.claim_direct_checkout_intent_for_slot(
+    '10000000-0000-4000-8000-000000000005',
+    'student-three@test.invalid',
+    'Third Student',
+    :'package_price_id'::UUID,
+    'en',
+    'test-policy-v1',
+    'https://example.test',
+    :'reusable_slot_public_id'::UUID,
+    ('v1:' || repeat('b', 64))::TEXT
+) AS intent
+\gset
+
+INSERT INTO checkout_v2_test_ids (name, id)
+VALUES ('third_student_intent', :'third_student_intent_id'::UUID);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.bookable_slot_holds
+        WHERE checkout_intent_id = (
+            SELECT id
+            FROM checkout_v2_test_ids
+            WHERE name = 'second_student_intent'
+        )
+          AND status = 'expired'
+          AND hold_fingerprint IS NULL
+    ) OR NOT EXISTS (
+        SELECT 1
+        FROM public.bookable_slot_holds
+        WHERE checkout_intent_id = (
+            SELECT id
+            FROM checkout_v2_test_ids
+            WHERE name = 'third_student_intent'
+        )
+          AND status = 'held'
+          AND hold_fingerprint = ('v1:' || repeat('b', 64))
+    ) THEN
+        RAISE EXCEPTION 'expired_network_hold_was_not_cleaned_and_reused';
+    END IF;
+END
+$$;
+
+INSERT INTO public.teacher_availability (
+    teacher_id,
+    day_of_week,
+    start_time,
+    end_time,
+    is_active
+) VALUES (
+    '10000000-0000-4000-8000-000000000002',
+    EXTRACT(DOW FROM (:'first_local'::TIMESTAMP + INTERVAL '3 days'))::INTEGER,
+    :'first_local'::TIMESTAMP::TIME,
+    (:'first_local'::TIMESTAMP + INTERVAL '1 hour')::TIME,
+    TRUE
+);
+
+SELECT orphan_slot.public_id AS orphan_slot_public_id
+FROM public.create_bookable_slot(
+    :'v2_package_id'::UUID,
+    '10000000-0000-4000-8000-000000000002',
+    'Europe/Madrid',
+    ARRAY[
+        (:'first_local'::TIMESTAMP + INTERVAL '3 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '10 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '17 days') AT TIME ZONE 'Europe/Madrid',
+        (:'first_local'::TIMESTAMP + INTERVAL '24 days') AT TIME ZONE 'Europe/Madrid'
+    ],
+    '10000000-0000-4000-8000-000000000003'
+) AS orphan_slot
+\gset
+
+SELECT public.publish_bookable_slot(
+    slot.id,
+    '10000000-0000-4000-8000-000000000003'
+)
+FROM public.bookable_slots AS slot
+WHERE slot.public_id = :'orphan_slot_public_id'::UUID;
+
+SELECT intent.id AS orphan_intent_id
+FROM public.claim_direct_checkout_intent_for_slot(
+    '10000000-0000-4000-8000-000000000006',
+    'orphan-owner@test.invalid',
+    'Orphan Owner',
+    :'package_price_id'::UUID,
+    'en',
+    'test-policy-v1',
+    'https://example.test',
+    :'orphan_slot_public_id'::UUID,
+    ('v1:' || repeat('d', 64))::TEXT
+) AS intent
+\gset
+
+INSERT INTO checkout_v2_test_ids (name, id)
+VALUES ('orphan_intent', :'orphan_intent_id'::UUID);
+
+-- Model a process crash before Customer creation. The trigger is disabled only
+-- to age this fixture by two hours without making the SQL test wait in real time.
+SET CONSTRAINTS ALL IMMEDIATE;
+
+ALTER TABLE public.checkout_intents
+    DISABLE TRIGGER guard_checkout_intent_snapshots_trigger;
+
+UPDATE public.checkout_intents
+SET
+    created_at = clock_timestamp() - INTERVAL '4 hours',
+    stripe_session_expires_at = clock_timestamp() - INTERVAL '3 hours',
+    expires_at = clock_timestamp() - INTERVAL '2 hours',
+    updated_at = clock_timestamp()
+WHERE id = :'orphan_intent_id'::UUID;
+
+ALTER TABLE public.checkout_intents
+    ENABLE TRIGGER guard_checkout_intent_snapshots_trigger;
+
+ALTER TABLE public.bookable_slot_holds
+    DISABLE TRIGGER guard_bookable_slot_hold_trigger;
+
+UPDATE public.bookable_slot_holds AS orphan_hold
+SET
+    held_at = orphan_intent.expires_at - INTERVAL '2 hours',
+    expires_at = orphan_intent.expires_at,
+    updated_at = clock_timestamp()
+FROM public.checkout_intents AS orphan_intent
+WHERE orphan_hold.checkout_intent_id = orphan_intent.id
+  AND orphan_intent.id = :'orphan_intent_id'::UUID;
+
+ALTER TABLE public.bookable_slot_holds
+    ENABLE TRIGGER guard_bookable_slot_hold_trigger;
+
+SET CONSTRAINTS ALL DEFERRED;
+
+SELECT intent.id AS orphan_successor_intent_id
+FROM public.claim_direct_checkout_intent_for_slot(
+    '10000000-0000-4000-8000-000000000007',
+    'orphan-successor@test.invalid',
+    'Orphan Successor',
+    :'package_price_id'::UUID,
+    'en',
+    'test-policy-v1',
+    'https://example.test',
+    :'orphan_slot_public_id'::UUID,
+    ('v1:' || repeat('d', 64))::TEXT
+) AS intent
+\gset
+
+INSERT INTO checkout_v2_test_ids (name, id)
+VALUES ('orphan_successor_intent', :'orphan_successor_intent_id'::UUID);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.checkout_intents
+        WHERE id = (
+            SELECT id FROM checkout_v2_test_ids WHERE name = 'orphan_intent'
+        )
+          AND status = 'expired'
+          AND stripe_customer_id IS NULL
+          AND stripe_checkout_session_id IS NULL
+    ) OR NOT EXISTS (
+        SELECT 1
+        FROM public.bookable_slot_holds
+        WHERE checkout_intent_id = (
+            SELECT id FROM checkout_v2_test_ids WHERE name = 'orphan_intent'
+        )
+          AND status = 'expired'
+          AND hold_fingerprint IS NULL
+    ) OR NOT EXISTS (
+        SELECT 1
+        FROM public.bookable_slot_holds
+        WHERE checkout_intent_id = (
+            SELECT id
+            FROM checkout_v2_test_ids
+            WHERE name = 'orphan_successor_intent'
+        )
+          AND status = 'held'
+          AND hold_fingerprint = ('v1:' || repeat('d', 64))
+    ) THEN
+        RAISE EXCEPTION 'unowned_expired_checkout_hold_was_not_safely_reclaimed';
     END IF;
 END
 $$;
@@ -1378,12 +1713,29 @@ BEGIN
        )
        OR has_function_privilege(
             'authenticated',
-            'public.claim_direct_checkout_intent_for_slot(uuid,text,text,uuid,text,text,text,uuid)',
+            'public.claim_direct_checkout_intent_for_slot(uuid,text,text,uuid,text,text,text,uuid,text)',
             'EXECUTE'
        )
        OR NOT has_function_privilege(
             'service_role',
-            'public.claim_direct_checkout_intent_for_slot(uuid,text,text,uuid,text,text,text,uuid)',
+            'public.claim_direct_checkout_intent_for_slot(uuid,text,text,uuid,text,text,text,uuid,text)',
+            'EXECUTE'
+       )
+       OR to_regprocedure(
+            'public.claim_direct_checkout_intent_for_slot(uuid,text,text,uuid,text,text,text,uuid)'
+       ) IS NOT NULL
+       OR to_regprocedure(
+            'public.claim_checkout_intent_for_slot(uuid,uuid,uuid,uuid,text,text,text,uuid)'
+       ) IS NOT NULL
+       OR to_regprocedure('public.hold_bookable_slot(uuid,uuid)') IS NOT NULL
+       OR has_function_privilege(
+            'authenticated',
+            'public.hold_bookable_slot(uuid,uuid,text)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'public.hold_bookable_slot(uuid,uuid,text)',
             'EXECUTE'
        ) THEN
         RAISE EXCEPTION 'checkout_v2_financial_table_privileges_are_invalid';

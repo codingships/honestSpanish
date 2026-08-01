@@ -41,11 +41,13 @@ pnpm run verify:staging-runtime -- --preflight
 
 El smoke remoto completo requiere además `STAGING_EXPECTED_WEB_VERSION_ID` y `STAGING_EXPECTED_FULFILLMENT_VERSION_ID`; el workflow los toma de las versiones que acaba de activar. La ausencia de cualquier secret del contrato, incluido `CLOUDFLARE_API_TOKEN`, detiene la ejecución antes de escribir. No se despliega desde una sesión local como atajo.
 
+El checkout directo exige `CHECKOUT_HOLD_FINGERPRINT_SECRET` únicamente en el Worker web. Debe ser un valor aleatorio de al menos 32 bytes, distinto de los demás secretos. Se usa solo como clave HMAC para derivar un identificador temporal: dirección exacta en IPv4 y prefijo de red `/64` en IPv6. La IP no se persiste y el identificador se elimina al cerrar el hold. No se rota mientras exista ningún hold con estado `held`; primero se cierra o reconcilia el inventario vivo para evitar que una misma conexión obtenga dos huellas simultáneas.
+
 ## Recuperación de staging
 
 Antes de la primera escritura se capturan las versiones activas de ambos Workers y se autentica un contrato inmutable de rollback. Ante un fallo o cancelación desde el primer intento de mutación, se procesa primero web si su intento comenzó y después fulfillment; cada Worker se fuerza a su baseline incluso si ya parece activo, para restaurar también los secretos asociados a la versión.
 
-La reversión solo continúa si la versión activa es el baseline capturado o pertenece a la ejecución actual; cualquier otra versión se trata como escritura concurrente y detiene la recuperación. Después exige una ventana acotada de estabilidad, los dos IDs baseline exactos y el smoke autenticado con el schema capturado. Un baseline legado schema 5 no relaja el smoke normal, que sigue exigiendo schema 6.
+La reversión solo continúa si la versión activa es el baseline capturado o pertenece a la ejecución actual; cualquier otra versión se trata como escritura concurrente y detiene la recuperación. Después exige una ventana acotada de estabilidad, los dos IDs baseline exactos y el smoke autenticado con el schema capturado. Un baseline legado schema 5 o 6 se reconstruye con su contrato histórico y no relaja el smoke normal, que exige el schema actual 7.
 
 Los dos Workers de staging tienen una única vía soportada de escritura: este workflow. Una escritura por Dashboard, Wrangler local u otro workflow rompe la garantía de ownership y obliga a reconciliar manualmente antes de continuar.
 

@@ -25,6 +25,7 @@ interface ImportMetaEnv {
     readonly CRON_SECRET?: string;
     readonly PUBLIC_TURNSTILE_SITE_KEY: string;
     readonly TURNSTILE_SECRET_KEY: string;
+    readonly CHECKOUT_HOLD_FINGERPRINT_SECRET: string;
 }
 
 interface ImportMeta {

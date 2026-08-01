@@ -3,6 +3,7 @@ import {
     buildRuntimeAttestationConfig,
     buildRuntimeAttestationConfigForSchema,
     createRuntimeAttestation,
+    createRuntimeAttestationForSchema,
     isValidAttestationNonce,
     RUNTIME_ATTESTATION_SCHEMA,
     verifyRuntimeAttestation,
@@ -11,6 +12,7 @@ import {
 function runtimeEnv() {
     return {
         ADMIN_EMAIL: 'admin@example.com',
+        CHECKOUT_HOLD_FINGERPRINT_SECRET: 'checkout-hold-fingerprint-secret-32-bytes',
         CHECKOUT_ENABLED: 'false',
         CHECKOUT_ENABLED_OVERRIDE: 'false',
         EMAIL_DAILY_RECIPIENT_LIMIT: '10',
@@ -90,6 +92,25 @@ describe('runtime attestation', () => {
         expect(fulfillment.stripeBoundary).toBe('absent');
         expect(fulfillment.stripeExpectedAccountId).toBe('');
         expect(fulfillment.stripeSecretKeyFingerprint).toBe('absent');
+    });
+
+    it('attests the checkout hold secret only on schema 7 web runtimes', async () => {
+        const env = runtimeEnv();
+        const web = await buildRuntimeAttestationConfig('web', env);
+        const fulfillment = await buildRuntimeAttestationConfig('fulfillment', env);
+        expect(web.checkoutHoldSecretFingerprint).toMatch(/^sha256:[a-f0-9]{64}$/u);
+        expect(fulfillment.checkoutHoldSecretFingerprint).toBe('absent');
+
+        const legacyConfig = await buildRuntimeAttestationConfigForSchema('web', env, 6);
+        expect(legacyConfig).not.toHaveProperty('checkoutHoldSecretFingerprint');
+        const nonce = 'schema_6_checkout_hold_compatibility';
+        const envelope = await createRuntimeAttestationForSchema('web', env, nonce, 6);
+        await expect(verifyRuntimeAttestation(envelope, {
+            config: legacyConfig,
+            nonce,
+            role: 'web',
+            schema: 6,
+        }, env.INTERNAL_JOB_SECRET)).resolves.toBe(true);
     });
 
     it('keeps web-only operational secrets absent from the fulfillment boundary', async () => {
@@ -260,6 +281,7 @@ describe('runtime attestation', () => {
             RESEND_API_KEY: '',
             PUBLIC_TURNSTILE_SITE_KEY: '',
             TURNSTILE_SECRET_KEY: '',
+            CHECKOUT_HOLD_FINGERPRINT_SECRET: '',
             CRON_SECRET: '',
             LEVEL_CHECK_TOKEN_SECRET: '',
         };
@@ -271,6 +293,7 @@ describe('runtime attestation', () => {
             RESEND_API_KEY: 'resend-leak',
             PUBLIC_TURNSTILE_SITE_KEY: 'turnstile-site-leak',
             TURNSTILE_SECRET_KEY: 'turnstile-secret-leak',
+            CHECKOUT_HOLD_FINGERPRINT_SECRET: 'checkout-hold-secret-leak-32-bytes',
             CRON_SECRET: 'cron-leak',
             LEVEL_CHECK_TOKEN_SECRET: 'level-leak',
         };
@@ -281,12 +304,14 @@ describe('runtime attestation', () => {
         expect(expected.resendApiKeyFingerprint).toBe('absent');
         expect(expected.turnstileSiteKeyFingerprint).toBe('absent');
         expect(expected.turnstileSecretFingerprint).toBe('absent');
+        expect(expected.checkoutHoldSecretFingerprint).toBe('absent');
         expect(expected.cronSecretFingerprint).toBe('absent');
         expect(expected.levelCheckSecretFingerprint).toBe('absent');
 
         const leaked = await buildRuntimeAttestationConfig('web', leakedBootstrap);
         expect(leaked.supabaseUrlFingerprint).toMatch(/^sha256:/u);
         expect(leaked.turnstileSecretFingerprint).toMatch(/^sha256:/u);
+        expect(leaked.checkoutHoldSecretFingerprint).toMatch(/^sha256:/u);
         expect(leaked.cronSecretFingerprint).toMatch(/^sha256:/u);
 
         const nonce = 'bootstrap_provider_leak_123456';
