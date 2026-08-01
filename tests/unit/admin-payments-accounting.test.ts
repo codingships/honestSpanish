@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const paymentsPage = readFileSync('src/pages/[lang]/campus/admin/payments.astro', 'utf8');
+const adminDashboard = readFileSync('src/pages/[lang]/campus/admin/index.astro', 'utf8');
 const translations = readFileSync('src/i18n/translations.ts', 'utf8');
 
 describe('admin payment accounting', () => {
@@ -22,5 +23,11 @@ describe('admin payment accounting', () => {
         expect(paymentsPage).toContain('stripe_livemode');
         expect(paymentsPage).toContain("const modePath = livemode ? '' : 'test/'");
         expect(paymentsPage).not.toContain('https://dashboard.stripe.com/test/payments/${paymentIntentId}');
+    });
+
+    it('uses net collected revenue on the admin dashboard', () => {
+        expect(adminDashboard).toContain(".select('amount, amount_refunded')");
+        expect(adminDashboard).toContain(".in('status', ['succeeded', 'refunded'])");
+        expect(adminDashboard).toContain('(payment.amount || 0) - (payment.amount_refunded || 0)');
     });
 });

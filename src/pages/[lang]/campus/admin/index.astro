@@ -50,11 +50,14 @@ startOfMonth.setHours(0, 0, 0, 0);
 
 const { data: revenueData } = await supabase
     .from('payments')
-    .select('amount')
-    .eq('status', 'succeeded')
+    .select('amount, amount_refunded')
+    .in('status', ['succeeded', 'refunded'])
     .gte('created_at', startOfMonth.toISOString());
 
-const totalRevenue = revenueData?.reduce((sum, p) => sum + (p.amount || 0), 0) || 0;
+const totalRevenue = revenueData?.reduce(
+    (sum, payment) => sum + Math.max(0, (payment.amount || 0) - (payment.amount_refunded || 0)),
+    0,
+) || 0;
 const totalPayments = revenueData?.length || 0;
 
 // 2. User counts

@@ -69,6 +69,8 @@ La resolución de una incidencia de la segunda sesión modifica exclusivamente l
 
 El trabajo docente, el trabajo no docente real y el beneficio distribuible se registran por separado. La plataforma debe permitir conocer ingresos, devoluciones, coste docente, captación, costes directos, reserva y margen por alumno; no convierte un reparto informal en una categoría contable.
 
+Hasta que se decidan la reserva, los costes compartidos, la fiscalidad y el reparto, la cifra operativa se denomina **contribución provisional**, no beneficio neto ni distribuible. Los cobros y devoluciones proceden del ledger de pagos, el coste docente de las obligaciones ya devengadas y los costes directos de movimientos expresamente registrados. El gasto de captación se asigna a un alumno una sola vez y mediante una decisión administrativa trazable; nunca se reparte automáticamente entre conversiones. La vista de cartera descuenta también el gasto de campaña todavía no asignado, mientras que la vista individual solo descuenta la parte asignada a ese alumno.
+
 ## Entrada comercial y CRM
 
 El recorrido principal es oferta → profesor y franja → cuenta/datos imprescindibles → condiciones → Stripe Checkout. El diagnóstico, los objetivos y las preferencias no constituyen una aprobación manual ni bloquean una plaza por criterio comercial; su ubicación exacta en el recorrido se resolverá al diseñar la experiencia sin alterar la compra directa.
