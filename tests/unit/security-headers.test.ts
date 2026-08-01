@@ -5,6 +5,7 @@ import {
     ADMIN_EMAIL_PREVIEW_CACHE_CONTROL,
     ADMIN_EMAIL_PREVIEW_CSP,
     API_CACHE_CONTROL,
+    PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL,
     CSP_HEADER_BASELINE,
     HOSTED_SECURITY_HEADERS,
     HSTS_HEADER,
@@ -54,8 +55,9 @@ describe('hosted response security headers', () => {
         expect(merged).toContain("frame-ancestors 'none'");
     });
 
-    it('marks APIs, account pages and session-aware landings as non-cacheable', () => {
+    it('keeps only successful public availability cacheable among APIs and session-aware pages', () => {
         expect(cacheControlForPath('/api/account/update-profile')).toBe(API_CACHE_CONTROL);
+        expect(cacheControlForPath('/api/bookable-slots')).toBe(PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL);
         expect(cacheControlForPath('/es/campus/account')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
         expect(cacheControlForPath('/en/reset-password')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
         expect(cacheControlForPath('/ru/diagnostico')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
@@ -68,6 +70,25 @@ describe('hosted response security headers', () => {
         expect(cacheControlForPath('/es/login/extra')).toBeNull();
         expect(cacheControlForPath('/es/%63ampus')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
         expect(cacheControlForPath('/es/%2563ampus')).toBeNull();
+    });
+
+    it('allows a micro-cache only for successful public availability responses', () => {
+        const success = new Response('{"slots":[]}', { status: 200 });
+        applyHostedSecurityHeaders(success, {
+            pathname: '/api/bookable-slots',
+            secureTransport: true,
+        });
+        expect(success.headers.get('Cache-Control')).toBe(PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL);
+
+        const failure = new Response('{"error":"temporary"}', {
+            status: 503,
+            headers: { 'Cache-Control': PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL },
+        });
+        applyHostedSecurityHeaders(failure, {
+            pathname: '/api/bookable-slots',
+            secureTransport: true,
+        });
+        expect(failure.headers.get('Cache-Control')).toBe(API_CACHE_CONTROL);
     });
 
     it('normalizes encoded route segments exactly once like Astro', () => {

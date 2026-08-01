@@ -42,7 +42,7 @@ Checkout stays unavailable while the new contract, real slot inventory, Stripe t
 ## Audience boundary
 
 - The service is for adults who want to use Spanish in real situations through individual classes.
-- The priority acquisition market, geography and language have not been selected yet. Do not infer them from the available page languages or segment landing pages.
+- Initial acquisition is in English for adults who live, work or plan to move to Spain. Spanish is a support language, and Russian is limited to a measured pilot rather than a separate offer.
 - Do not impose an unpublished minimum level or claim that one profession or nationality is the exclusive target.
 
 ## Teaching team

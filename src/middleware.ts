@@ -1,6 +1,7 @@
 import { defineMiddleware } from "astro:middleware";
 import { createSupabaseServerClient } from "./lib/supabase-server";
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from "./lib/adult-account";
+import { appendAuthReturnTo, sanitizeAuthReturnTo } from "./lib/auth-return-to";
 import { readRuntimeEnv } from "./lib/runtime-env";
 import { applyHostedSecurityHeaders, normalizeRoutePathname } from "./lib/security-headers";
 
@@ -39,6 +40,7 @@ function inertProductionResponse(errorCode: string): Response {
 const handleApplicationRequest = defineMiddleware(async (context, next) => {
     const url = new URL(context.request.url);
     const path = normalizeRoutePathname(url.pathname);
+    const returnTo = sanitizeAuthReturnTo(url.searchParams.get('returnTo'));
 
     const appEnvironment = normalizedAppEnvironment(context);
     const localEnvironmentIsAllowed = isAllowedLocalEnvironment(appEnvironment, url);
@@ -153,8 +155,9 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
                 return next();
             }
             if (!adultAccountVerified) {
-                return context.redirect(`/${lang}/adult-confirmation`);
+                return context.redirect(appendAuthReturnTo(`/${lang}/adult-confirmation`, returnTo));
             }
+            if (userRole === 'student' && returnTo) return context.redirect(returnTo);
             return context.redirect(getRoleBasedRedirect(userRole, lang));
         }
     }

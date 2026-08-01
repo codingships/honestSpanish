@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useId } from 'react';
 import { supabase } from '../lib/supabase';
+import { appendAuthReturnTo, sanitizeAuthReturnTo } from '../lib/auth-return-to';
 
-export default function ResetPasswordForm({ lang, translations }) {
+/**
+ * @param {{
+ *   lang: 'es' | 'en' | 'ru';
+ *   translations: any;
+ *   returnTo?: string | null;
+ * }} props
+ */
+export default function ResetPasswordForm({ lang, translations, returnTo: requestedReturnTo = null }) {
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [loading, setLoading] = useState(false);
@@ -11,6 +19,8 @@ export default function ResetPasswordForm({ lang, translations }) {
     const [sessionChecked, setSessionChecked] = useState(false);
 
     const t = translations;
+    const returnTo = sanitizeAuthReturnTo(requestedReturnTo);
+    const loginUrl = appendAuthReturnTo(`/${lang}/login`, returnTo);
     const formId = useId();
     const titleId = `${formId}-title`;
     const newPasswordId = `${formId}-new-password`;
@@ -111,7 +121,7 @@ export default function ResetPasswordForm({ lang, translations }) {
                     {t.auth.success.passwordChanged}
                 </h1>
                 <a
-                    href={`/${lang}/login`}
+                    href={loginUrl}
                     className="inline-block bg-[#006064] text-white px-6 py-3 font-bold text-sm uppercase border-2 border-[#006064] hover:bg-[#004d40] transition-colors"
                 >
                     {t.auth.login}
@@ -145,7 +155,7 @@ export default function ResetPasswordForm({ lang, translations }) {
                     {sessionChecked && (
                         <>
                             {' '}
-                            <a href={`/${lang}/login`} className="underline hover:opacity-70">
+                            <a href={loginUrl} className="underline hover:opacity-70">
                                 {t.auth.login}
                             </a>
                         </>

@@ -24,6 +24,10 @@ function contextFor(search = '') {
 }
 
 describe('/api/auth/confirm', () => {
+    const slotPublicId = '10000000-0000-4000-8000-000000000001';
+    const englishReturnTo = `/en?checkoutSlot=${slotPublicId}#planes`;
+    const russianReturnTo = `/ru?checkoutSlot=${slotPublicId}#planes`;
+
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.exchangeCodeForSession.mockResolvedValue({ data: {}, error: null });
@@ -39,9 +43,33 @@ describe('/api/auth/confirm', () => {
         expect(response.headers.get('cache-control')).toBe('private, no-store');
     });
 
+    it('preserves an allowlisted destination through a successful code exchange', async () => {
+        const { GET } = await import('../../src/pages/api/auth/confirm');
+        const response = await GET(contextFor(
+            `?code=valid-code&lang=en&returnTo=${encodeURIComponent(englishReturnTo)}`,
+        ) as any);
+
+        expect(response.headers.get('location')).toBe(
+            `/api/auth/post-login?lang=en&returnTo=${encodeURIComponent(englishReturnTo)}`,
+        );
+    });
+
     it('allowlists the locale and ignores redirect-like input', async () => {
         const { GET } = await import('../../src/pages/api/auth/confirm');
         const response = await GET(contextFor('?code=valid-code&lang=https%3A%2F%2Fevil.example') as any);
+
+        expect(response.headers.get('location')).toBe('/api/auth/post-login?lang=es');
+    });
+
+    it.each([
+        'https%3A%2F%2Fevil.example%2Fes',
+        '%2F%2Fevil.example%2Fes',
+        '%2Fes%2Fcampus%2Fadmin',
+        '%2Fes%2F%2563ampus%2Fadmin',
+        '%2Fes%3FcheckoutSlot%3Dnot-a-uuid%23planes',
+    ])('drops unsafe return input %s', async (returnTo) => {
+        const { GET } = await import('../../src/pages/api/auth/confirm');
+        const response = await GET(contextFor(`?code=valid-code&lang=es&returnTo=${returnTo}`) as any);
 
         expect(response.headers.get('location')).toBe('/api/auth/post-login?lang=es');
     });
@@ -53,6 +81,17 @@ describe('/api/auth/confirm', () => {
         expect(mocks.exchangeCodeForSession).not.toHaveBeenCalled();
         expect(response.headers.get('location')).toBe('/ru/login?error=confirmation-failed');
         expect(await response.text()).toBe('');
+    });
+
+    it('keeps an allowlisted destination when confirmation must be retried', async () => {
+        const { GET } = await import('../../src/pages/api/auth/confirm');
+        const response = await GET(contextFor(
+            `?lang=ru&returnTo=${encodeURIComponent(russianReturnTo)}`,
+        ) as any);
+
+        expect(response.headers.get('location')).toBe(
+            `/ru/login?error=confirmation-failed&returnTo=${encodeURIComponent(russianReturnTo)}`,
+        );
     });
 
     it('does not expose provider error details when the exchange fails', async () => {

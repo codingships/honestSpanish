@@ -18,8 +18,9 @@ export interface LandingPackage {
 
 export const PUBLIC_OFFER_KEY = INITIAL_INDIVIDUAL_OFFER.packageKey;
 
-// Transitional public projection for R1. Billing remains disabled until the
-// catalog and capacity reservation slices implement this exact contract.
+// Public projection for the single launch offer. Stripe identifiers never
+// cross this boundary: capacity and the immutable v2 price snapshot remain
+// authoritative on the server when checkout starts.
 const PUBLIC_TARGET_PACKAGE: LandingPackage = {
     id: '00000000-0000-4000-8000-000000000028',
     name: PUBLIC_OFFER_KEY,
@@ -59,7 +60,7 @@ export function normalizeDisplayName(value: unknown, fallback: string): LandingP
     return { es: fallback, en: fallback, ru: fallback };
 }
 
-function isExactClosedPublicOffer(row: {
+type PublicOfferRow = {
     name: string;
     price_monthly: number;
     sessions_per_month: number;
@@ -76,7 +77,9 @@ function isExactClosedPublicOffer(row: {
     billing_interval_count: number | null;
     sessions_per_period: number | null;
     class_duration_minutes: number | null;
-}): boolean {
+};
+
+function hasExactV2PublicOfferContract(row: PublicOfferRow): boolean {
     return row.name === INITIAL_INDIVIDUAL_OFFER.packageKey
         && row.price_monthly === INITIAL_INDIVIDUAL_OFFER.amountCents
         && row.sessions_per_month === INITIAL_INDIVIDUAL_OFFER.sessionsPerPeriod
@@ -85,7 +88,6 @@ function isExactClosedPublicOffer(row: {
         && row.stripe_price_1m === null
         && row.stripe_price_3m === null
         && row.stripe_price_6m === null
-        && row.is_active === false
         && row.is_publicly_listed === true
         && row.contract_schema_version === INITIAL_INDIVIDUAL_OFFER.contractSchemaVersion
         && row.amount_cents === INITIAL_INDIVIDUAL_OFFER.amountCents
@@ -93,6 +95,13 @@ function isExactClosedPublicOffer(row: {
         && row.billing_interval_count === INITIAL_INDIVIDUAL_OFFER.billingIntervalCount
         && row.sessions_per_period === INITIAL_INDIVIDUAL_OFFER.sessionsPerPeriod
         && row.class_duration_minutes === INITIAL_INDIVIDUAL_OFFER.classDurationMinutes;
+}
+
+function isExactPublicOffer(row: PublicOfferRow): boolean {
+    const isPrelaunch = row.is_active === false;
+    const isSellable = row.is_active === true;
+
+    return (isPrelaunch || isSellable) && hasExactV2PublicOfferContract(row);
 }
 
 export async function getLandingPageData(context: APIContext): Promise<{
@@ -127,10 +136,11 @@ export async function getLandingPageData(context: APIContext): Promise<{
     const { data: { user } } = await supabase.auth.getUser();
 
     return {
-        // Never blend an error or a merely name-matching legacy row into the
-        // public offer. The executable contract owns price and session terms;
-        // the closed catalogue row only proves that the v2 snapshot exists.
-        packages: !packagesError && packages?.length === 1 && isExactClosedPublicOffer(packages[0])
+        // Never blend an error, duplicate, legacy-priced or merely
+        // name-matching row into the public offer. The same projection covers
+        // the exact published v2 contract before and after activation, while
+        // checkout independently proves price and capacity server-side.
+        packages: !packagesError && packages?.length === 1 && isExactPublicOffer(packages[0])
             ? [{
                 ...PUBLIC_TARGET_PACKAGE,
                 id: packages[0].id,

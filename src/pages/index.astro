@@ -1,7 +1,6 @@
 ---
 export const prerender = false;
-import { getLocalizedPath } from '../i18n/utils';
-
-// Redirección 301 Permanente (Vital para no perder Link Juice de espanolhonesto.com -> /es)
-return Astro.redirect('/es', 301);
+// English is the initial acquisition language. Keep the root as a permanent,
+// canonical entry point rather than serving a second copy of the home page.
+return Astro.redirect('/en', 301);
 ---

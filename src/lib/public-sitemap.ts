@@ -56,11 +56,11 @@ function renderUrl(group: SitemapGroup, lang: PublicLang): string {
                 + '" href="' + xmlEscape(publicUrl(alternateLang, alternatePath)) + '" />']
             : [];
     });
-    const spanishPath = group.paths.es;
-    if (spanishPath) {
+    const defaultPath = group.paths.en;
+    if (defaultPath) {
         alternateLinks.push(
             '        <xhtml:link rel="alternate" hreflang="x-default" href="'
-            + xmlEscape(publicUrl('es', spanishPath)) + '" />',
+            + xmlEscape(publicUrl('en', defaultPath)) + '" />',
         );
     }
 

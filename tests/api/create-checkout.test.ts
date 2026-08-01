@@ -316,6 +316,10 @@ describe('POST /api/create-checkout', () => {
         const { POST } = await import('../../src/pages/api/create-checkout');
         const response = await POST(context({ priceId: 'price_valid_3m' }) as any);
         expect(response.status).toBe(403);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Checkout is disabled',
+            errorCode: 'CHECKOUT_DISABLED',
+        });
         expect(createSupabaseServerClient).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });
@@ -378,6 +382,10 @@ describe('POST /api/create-checkout', () => {
         const { POST } = await import('../../src/pages/api/create-checkout');
         const response = await POST(context({ ...acceptedPolicies, priceId: 'price_valid_3m' }) as any);
         expect(response.status).toBe(403);
+        await expect(response.json()).resolves.toEqual({
+            error: 'A confirmed email is required before payment',
+            errorCode: 'ACCOUNT_NOT_ELIGIBLE',
+        });
         expect(admin.from).not.toHaveBeenCalled();
     });
 
@@ -394,6 +402,10 @@ describe('POST /api/create-checkout', () => {
         const { POST } = await import('../../src/pages/api/create-checkout');
         const response = await POST(context({ ...acceptedPolicies, priceId: 'price_valid_3m' }) as any);
         expect(response.status).toBe(403);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Only student accounts can purchase a plan',
+            errorCode: 'ACCOUNT_NOT_ELIGIBLE',
+        });
         expect(admin.from).not.toHaveBeenCalled();
     });
 

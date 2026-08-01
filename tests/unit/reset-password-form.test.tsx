@@ -18,6 +18,8 @@ vi.mock('../../src/lib/supabase', () => ({
 }));
 
 const translations = ui.es;
+const slotPublicId = '10000000-0000-4000-8000-000000000001';
+const returnTo = `/es?checkoutSlot=${slotPublicId}#planes`;
 let authListener: ((event: string, session: unknown) => void) | undefined;
 
 const deferred = <T,>() => {
@@ -45,8 +47,14 @@ function mockAuthState(session: unknown) {
     });
 }
 
-function renderResetPasswordForm() {
-    return render(<ResetPasswordForm lang="es" translations={translations} />);
+function renderResetPasswordForm(requestedReturnTo: string | null = null) {
+    return render(
+        <ResetPasswordForm
+            lang="es"
+            translations={translations}
+            returnTo={requestedReturnTo}
+        />,
+    );
 }
 
 describe('ResetPasswordForm', () => {
@@ -135,6 +143,42 @@ describe('ResetPasswordForm', () => {
         });
 
         expect(await screen.findByRole('status')).toHaveTextContent(translations.auth.success.passwordChanged);
+        expect(screen.getByRole('link', { name: translations.auth.login })).toHaveAttribute('href', '/es/login');
+    });
+
+    it('preserves the exact checkout return in both recovery login links', async () => {
+        mockAuthState(null);
+        renderResetPasswordForm(returnTo);
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(/Este enlace no es/);
+        expect(screen.getByRole('link', { name: translations.auth.login })).toHaveAttribute(
+            'href',
+            `/es/login?returnTo=${encodeURIComponent(returnTo)}`,
+        );
+
+        act(() => {
+            authListener?.('PASSWORD_RECOVERY', { user: { id: 'user-1' } });
+        });
+        fireEvent.change(screen.getByLabelText(translations.auth.newPassword), {
+            target: { value: 'secret123' },
+        });
+        fireEvent.change(screen.getByLabelText(translations.auth.confirmNewPassword), {
+            target: { value: 'secret123' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: translations.auth.resetPassword }));
+
+        expect(await screen.findByRole('status')).toHaveTextContent(translations.auth.success.passwordChanged);
+        expect(screen.getByRole('link', { name: translations.auth.login })).toHaveAttribute(
+            'href',
+            `/es/login?returnTo=${encodeURIComponent(returnTo)}`,
+        );
+    });
+
+    it('drops a return outside the exact checkout contract from recovery login links', async () => {
+        mockAuthState(null);
+        renderResetPasswordForm('/es?checkoutSlot=not-a-uuid#planes');
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(/Este enlace no es/);
         expect(screen.getByRole('link', { name: translations.auth.login })).toHaveAttribute('href', '/es/login');
     });
 });

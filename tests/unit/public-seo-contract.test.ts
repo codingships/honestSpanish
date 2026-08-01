@@ -102,7 +102,7 @@ describe('public SEO contract', () => {
             'hreflang="en" href="https://espanolhonesto.com/en/blog/how-long-to-speak-spanish-fluently"',
         );
         expect(xml).toContain(
-            'hreflang="x-default" href="https://espanolhonesto.com/es/blog/cuanto-tiempo-hablar-espanol-fluido"',
+            'hreflang="x-default" href="https://espanolhonesto.com/en/blog/how-long-to-speak-spanish-fluently"',
         );
         expect(xml).not.toContain('not-public-yet');
         expect(xml).not.toMatch(/\/(?:api|campus|login|legal|success|cancel|demo)(?:\/|<)/u);

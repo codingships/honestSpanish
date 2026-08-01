@@ -18,9 +18,17 @@ vi.mock('../../src/lib/supabase', () => ({
 }));
 
 const translations = ui.es;
+const slotPublicId = '10000000-0000-4000-8000-000000000001';
+const englishReturnTo = `/en?checkoutSlot=${slotPublicId}#planes`;
 
-function renderAuthForm(initialError: string | null = null, lang: 'es' | 'en' | 'ru' = 'es') {
-    return render(<AuthForm lang={lang} translations={ui[lang]} initialError={initialError} />);
+function renderAuthForm(
+    initialError: string | null = null,
+    lang: 'es' | 'en' | 'ru' = 'es',
+    returnTo: string | null = null,
+) {
+    return render(
+        <AuthForm lang={lang} translations={ui[lang]} initialError={initialError} returnTo={returnTo} />,
+    );
 }
 
 function deferredAuthResult() {
@@ -144,6 +152,42 @@ describe('AuthForm', () => {
         },
     );
 
+    it('preserves an allowlisted public return in the registration confirmation URL', async () => {
+        authMock.signUp.mockResolvedValueOnce({
+            data: { user: { id: 'user-1' }, session: null },
+            error: null,
+        });
+        renderAuthForm(null, 'en', englishReturnTo);
+        fireEvent.click(screen.getByRole('button', { name: ui.en.auth.register }));
+        fireEvent.change(screen.getByLabelText(ui.en.auth.email), { target: { value: 'new@example.com' } });
+        fireEvent.change(screen.getByLabelText(ui.en.auth.password), { target: { value: 'secret123' } });
+        fireEvent.click(screen.getByLabelText(ui.en.auth.adultConfirmation));
+        fireEvent.click(screen.getByRole('button', { name: ui.en.auth.submitRegister }));
+
+        await waitFor(() => expect(authMock.signUp).toHaveBeenCalledTimes(1));
+        expect(authMock.signUp.mock.calls[0][0].options.emailRedirectTo).toBe(
+            `${window.location.origin}/api/auth/confirm?lang=en&returnTo=${encodeURIComponent(englishReturnTo)}`,
+        );
+    });
+
+    it('drops an unsafe return from the registration confirmation URL', async () => {
+        authMock.signUp.mockResolvedValueOnce({
+            data: { user: { id: 'user-1' }, session: null },
+            error: null,
+        });
+        renderAuthForm(null, 'es', '//evil.example/es');
+        fireEvent.click(screen.getByRole('button', { name: translations.auth.register }));
+        fireEvent.change(screen.getByLabelText(translations.auth.email), { target: { value: 'new@example.com' } });
+        fireEvent.change(screen.getByLabelText(translations.auth.password), { target: { value: 'secret123' } });
+        fireEvent.click(screen.getByLabelText(translations.auth.adultConfirmation));
+        fireEvent.click(screen.getByRole('button', { name: translations.auth.submitRegister }));
+
+        await waitFor(() => expect(authMock.signUp).toHaveBeenCalledTimes(1));
+        expect(authMock.signUp.mock.calls[0][0].options.emailRedirectTo).toBe(
+            `${window.location.origin}/api/auth/confirm?lang=es`,
+        );
+    });
+
     it.each(['es', 'en', 'ru'] as const)(
         'uses the exact %s reset-password redirect while suppressing provider errors',
         async (lang) => {
@@ -166,4 +210,34 @@ describe('AuthForm', () => {
             expect(consoleError).not.toHaveBeenCalled();
         },
     );
+
+    it('preserves the exact checkout return in the password-recovery redirect', async () => {
+        authMock.resetPasswordForEmail.mockResolvedValueOnce({ data: {}, error: null });
+        renderAuthForm(null, 'en', englishReturnTo);
+        fireEvent.click(screen.getByRole('button', { name: ui.en.auth.forgotPassword }));
+        fireEvent.change(screen.getByLabelText(ui.en.auth.email), {
+            target: { value: 'student@example.com' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: ui.en.auth.sendResetLink }));
+
+        await waitFor(() => expect(authMock.resetPasswordForEmail).toHaveBeenCalledTimes(1));
+        expect(authMock.resetPasswordForEmail).toHaveBeenCalledWith('student@example.com', {
+            redirectTo: `${window.location.origin}/en/reset-password?returnTo=${encodeURIComponent(englishReturnTo)}`,
+        });
+    });
+
+    it('drops a same-origin return that is outside the exact checkout contract during recovery', async () => {
+        authMock.resetPasswordForEmail.mockResolvedValueOnce({ data: {}, error: null });
+        renderAuthForm(null, 'en', '/en?checkoutSlot=not-a-uuid#planes');
+        fireEvent.click(screen.getByRole('button', { name: ui.en.auth.forgotPassword }));
+        fireEvent.change(screen.getByLabelText(ui.en.auth.email), {
+            target: { value: 'student@example.com' },
+        });
+        fireEvent.click(screen.getByRole('button', { name: ui.en.auth.sendResetLink }));
+
+        await waitFor(() => expect(authMock.resetPasswordForEmail).toHaveBeenCalledTimes(1));
+        expect(authMock.resetPasswordForEmail).toHaveBeenCalledWith('student@example.com', {
+            redirectTo: `${window.location.origin}/en/reset-password`,
+        });
+    });
 });

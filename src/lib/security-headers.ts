@@ -18,6 +18,8 @@ export const HOSTED_SECURITY_HEADERS = {
 
 export const HSTS_HEADER = 'max-age=31536000';
 export const API_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
+export const PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS = 5;
+export const PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL = `public, max-age=${PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS}, must-revalidate`;
 export const PRIVATE_PAGE_CACHE_CONTROL = 'private, no-store';
 export const ADMIN_EMAIL_PREVIEW_FRAME_PATH = '/api/email/preview-frame';
 export const ADMIN_EMAIL_PREVIEW_CACHE_CONTROL = 'private, no-store, no-cache, must-revalidate';
@@ -81,8 +83,13 @@ export function mergeCspHeader(
     return [...existingDirectives, ...requiredDirectives].join('; ');
 }
 
-function cacheControlForNormalizedPath(normalizedPathname: string): string | null {
+function cacheControlForNormalizedPath(normalizedPathname: string, status?: number): string | null {
     if (normalizedPathname === ADMIN_EMAIL_PREVIEW_FRAME_PATH) return ADMIN_EMAIL_PREVIEW_CACHE_CONTROL;
+    if (normalizedPathname === '/api/bookable-slots') {
+        return status === undefined || (status >= 200 && status < 300)
+            ? PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL
+            : API_CACHE_CONTROL;
+    }
     if (/^\/api(?:\/|$)/u.test(normalizedPathname)) return API_CACHE_CONTROL;
     if (normalizedPathname === '/demo' || normalizedPathname === '/demo/') return PRIVATE_PAGE_CACHE_CONTROL;
     if (SESSION_AWARE_LANDING_ROUTE.test(normalizedPathname)) return PRIVATE_PAGE_CACHE_CONTROL;
@@ -123,6 +130,6 @@ export function applyHostedSecurityHeaders(
         response.headers.set('Strict-Transport-Security', HSTS_HEADER);
     }
 
-    const cacheControl = cacheControlForNormalizedPath(normalizedPathname);
+    const cacheControl = cacheControlForNormalizedPath(normalizedPathname, response.status);
     if (cacheControl) response.headers.set('Cache-Control', cacheControl);
 }
