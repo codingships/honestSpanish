@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ADULT_POLICY_VERSION, CHECKOUT_TERMS_VERSION } from '../../src/lib/legal-policy';
 
 const stripeMock = vi.hoisted(() => ({
     accounts: { retrieve: vi.fn() },
@@ -158,6 +159,7 @@ function expiredConflictHold(input: {
 }
 
 const policies = {
+    policyVersion: CHECKOUT_TERMS_VERSION,
     adultConfirmed: true,
     termsAccepted: true,
     serviceStartRequested: true,
@@ -209,8 +211,19 @@ function createdSession(params: Record<string, any>, overrides: Record<string, u
     };
 }
 
-function makeClients() {
-    const profileQuery = query({ data: { id: 'student-1', role: 'student', full_name: 'Test Student' }, error: null });
+function makeClients(profileOverrides: Record<string, unknown> = {}) {
+    const profileQuery = query({
+        data: {
+            id: 'student-1',
+            role: 'student',
+            full_name: 'Test Student',
+            adult_confirmed: true,
+            adult_confirmed_at: '2026-08-01T10:00:00Z',
+            age_policy_version: ADULT_POLICY_VERSION,
+            ...profileOverrides,
+        },
+        error: null,
+    });
     const subscriptionQuery = query({ data: null, error: null });
     const server = {
         auth: { getUser: vi.fn().mockResolvedValue({
@@ -318,6 +331,93 @@ describe('Checkout contract v2', () => {
 
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it('requires authentication before policies or Turnstile are evaluated', async () => {
+        const { server, admin } = makeClients();
+        server.auth.getUser.mockResolvedValue({ data: { user: null }, error: null });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ slotPublicId }) as any);
+
+        expect(response.status).toBe(401);
+        await expect(response.json()).resolves.toEqual({ error: 'Unauthorized' });
+        expect(turnstileFetchMock).not.toHaveBeenCalled();
+        expect(admin.from).not.toHaveBeenCalled();
+        expect(admin.rpc).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects stale displayed terms before Turnstile, holds or Stripe', async () => {
+        const { server, admin } = makeClients();
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({
+            ...policies,
+            policyVersion: '2026-07-31',
+            slotPublicId,
+        }) as any);
+
+        await expectCheckoutError(
+            response,
+            409,
+            'The displayed checkout terms are no longer current',
+            'POLICY_VERSION_CHANGED',
+        );
+        expect(turnstileFetchMock).not.toHaveBeenCalled();
+        expect(admin.from).not.toHaveBeenCalled();
+        expect(admin.rpc).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('requires the persisted adult account attestation before Turnstile, holds or Stripe', async () => {
+        const { server, admin } = makeClients({ adult_confirmed: false });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(
+            response,
+            403,
+            'Only eligible student accounts can purchase a plan',
+            'ACCOUNT_NOT_ELIGIBLE',
+        );
+        expect(turnstileFetchMock).not.toHaveBeenCalled();
+        expect(admin.from).not.toHaveBeenCalled();
+        expect(admin.rpc).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('never releases or reuses an older-policy intent that already has a Stripe snapshot', async () => {
+        const { server, admin } = makeClients();
+        const providerBackedIntent = {
+            ...checkoutIntent,
+            legal_policy_version: '2026-07-31',
+            stripe_customer_id: 'cus_policy_rotation_requires_reconciliation',
+        };
+        admin.rpc.mockImplementation(async (name: string) => {
+            if (name === 'claim_direct_checkout_intent_for_slot') {
+                return { data: providerBackedIntent, error: null };
+            }
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId }) as any);
+
+        await expectCheckoutError(
+            response,
+            409,
+            'The existing checkout uses an older terms version and requires reconciliation',
+            'CHECKOUT_RECONCILING',
+        );
+        expect(attributionMock.recordAcquisitionAttributionSafe).not.toHaveBeenCalled();
+        expect(stripeMock.customers.create).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });
 
     it('resolves the offer server-side and creates exactly one initial charge plus the future 28-day subscription', async () => {

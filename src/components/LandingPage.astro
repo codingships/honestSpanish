@@ -3,7 +3,6 @@ import { Image } from 'astro:assets';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { ui } from '../i18n/translations';
 import type { LandingPackage } from '../lib/landing-data';
-import { isCheckoutEnabled } from '../lib/checkout-enabled';
 import PricingSection from './PricingSection';
 import madridAtmosphere from '../assets/madrid_atmosphere.png';
 import avatarAlejandro from '../assets/avatar_alejandro_team.png';
@@ -18,15 +17,11 @@ import LeadCaptureForm from './LeadCaptureForm.tsx';
 interface Props {
   lang: 'es' | 'en' | 'ru';
   packages: LandingPackage[];
-  isLoggedIn: boolean;
 }
 
-const { lang, packages, isLoggedIn } = Astro.props;
+const { lang, packages } = Astro.props;
 const t = useTranslations(lang);
 const localizedUi = ui[lang];
-// The server-side gate remains authoritative. Closed environments can inspect
-// real availability, but only an explicitly enabled runtime can create a hold.
-const checkoutMode = isCheckoutEnabled(Astro) ? 'checkout' : 'unavailable';
 
 // Data structure helper for complex arrays 
 const problemsStatements = localizedUi.problems.statements;
@@ -214,10 +209,8 @@ const communityDetails = {
 const purchaseNextSteps = {
     es: {
         eyebrow: 'Compra directa',
-        title: checkoutMode === 'checkout' ? 'Así funciona la contratación' : 'Así funcionará la contratación',
-        intro: checkoutMode === 'checkout'
-            ? 'Elige una plaza real con profesor y horario, revisa las condiciones y completa el pago de forma directa.'
-            : 'Las plazas reales con profesor y horario aparecen aquí a medida que se publican. El pago todavía no está habilitado mientras completamos la preparación final del lanzamiento.',
+        title: 'Así funciona la contratación',
+        intro: 'Elige una plaza real con profesor y horario, revisa las condiciones y continúa cuando el checkout esté habilitado.',
         steps: [
             {
                 title: 'Elige una plaza',
@@ -235,10 +228,8 @@ const purchaseNextSteps = {
     },
     en: {
         eyebrow: 'Direct purchase',
-        title: checkoutMode === 'checkout' ? 'How purchasing works' : 'How purchasing will work',
-        intro: checkoutMode === 'checkout'
-            ? 'Choose a real place with its teacher and weekly time, review the terms and complete payment directly.'
-            : 'Real places with a teacher and weekly time appear here as they are published. Payment is not yet enabled while final launch checks are completed.',
+        title: 'How purchasing works',
+        intro: 'Choose a real place with its teacher and weekly time, review the terms and continue when checkout is enabled.',
         steps: [
             {
                 title: 'Choose a place',
@@ -256,10 +247,8 @@ const purchaseNextSteps = {
     },
     ru: {
         eyebrow: 'Прямая покупка',
-        title: checkoutMode === 'checkout' ? 'Как работает покупка' : 'Как будет работать покупка',
-        intro: checkoutMode === 'checkout'
-            ? 'Выберите реальное место с преподавателем и еженедельным временем, проверьте условия и завершите оплату напрямую.'
-            : 'Реальные места с преподавателем и расписанием появляются здесь по мере публикации. Оплата пока не включена: мы завершаем финальную подготовку к запуску.',
+        title: 'Как работает покупка',
+        intro: 'Выберите реальное место с преподавателем и еженедельным временем, проверьте условия и продолжите, когда checkout будет включён.',
         steps: [
             {
                 title: 'Выберите место',
@@ -536,8 +525,6 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
         client:load
         packages={packages}
         lang={lang}
-        isLoggedIn={isLoggedIn}
-        checkoutMode={checkoutMode}
         translations={pricingTranslations}
     />
 

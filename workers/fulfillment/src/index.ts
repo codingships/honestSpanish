@@ -777,11 +777,17 @@ export default {
         const url = new URL(request.url);
 
         if (request.method === 'GET' && url.pathname === '/health') {
-            return json(200, {
-                ok: true,
+            const appEnvironment = envString(env, 'PUBLIC_APP_ENV');
+            const operationMode = envString(env, 'FULFILLMENT_RUNTIME_MODE');
+            const workerIdentity = envString(env, 'WORKER_IDENTITY');
+            const healthy = operationMode === 'active' && fulfillmentEnvironment(env) !== null;
+            return json(healthy ? 200 : 503, {
+                appEnvironment: appEnvironment ?? 'unconfigured',
+                ok: healthy,
+                operationMode: operationMode ?? 'unconfigured',
                 service: 'fulfillment-worker',
-                operationMode: fulfillmentRuntimeMode(env),
-                workerIdentity: envString(env, 'WORKER_IDENTITY') ?? 'unconfigured',
+                status: healthy ? 'ok' : 'invalid',
+                workerIdentity: workerIdentity ?? 'unconfigured',
                 runtime: 'cloudflare-workers',
                 timestamp: new Date().toISOString(),
             });

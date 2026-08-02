@@ -1,2 +1,2 @@
-# Redirect root to default language
-/ /es 301
+# English is the initial acquisition language and canonical root destination.
+/ /en 301

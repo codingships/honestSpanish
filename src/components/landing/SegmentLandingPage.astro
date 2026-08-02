@@ -1,6 +1,5 @@
 ---
 import type { LandingPackage } from '../../lib/landing-data';
-import { isCheckoutEnabled } from '../../lib/checkout-enabled';
 import HeroSection from './HeroSection.astro';
 import ProblemsSection from './ProblemsSection.astro';
 import MethodSection from './MethodSection.astro';
@@ -74,7 +73,6 @@ interface Props {
         interest: string;
     };
     packages: LandingPackage[];
-    isLoggedIn: boolean;
     pricingTranslations: any;
 }
 
@@ -90,10 +88,8 @@ const {
     answers,
     lead,
     packages,
-    isLoggedIn,
     pricingTranslations,
 } = Astro.props;
-const checkoutMode = isCheckoutEnabled(Astro) ? 'checkout' : 'unavailable';
 
 const leadTranslations = {
     title: lead.title,
@@ -152,9 +148,7 @@ const purchaseSteps = [
     },
     {
         title: 'Compra directa',
-        body: checkoutMode === 'checkout'
-            ? 'La plaza se retiene durante Stripe Checkout y se confirma cuando se completa el pago.'
-            : 'Las plazas reales con profesor y horario aparecen aquí a medida que se publican; el pago todavía no está habilitado mientras completamos la preparación final del lanzamiento.',
+        body: 'La disponibilidad y la apertura del pago se comprueban al consultar las plazas. Durante Stripe Checkout, la plaza se retiene y se confirma cuando se completa el pago.',
     },
 ];
 ---
@@ -271,8 +265,6 @@ const purchaseSteps = [
         client:load
         packages={packages}
         lang={lang}
-        isLoggedIn={isLoggedIn}
-        checkoutMode={checkoutMode}
         translations={pricingTranslations}
     />
     </main>

@@ -239,6 +239,86 @@ BEGIN
 END
 $$;
 
+SELECT intent.id AS policy_rotated_intent_id
+FROM public.claim_direct_checkout_intent_for_slot(
+    '10000000-0000-4000-8000-000000000001',
+    'student@test.invalid',
+    'Direct Student',
+    :'package_price_id'::UUID,
+    'en',
+    'test-policy-v2',
+    'https://example.test',
+    :'slot_public_id'::UUID,
+    ('v1:' || repeat('e', 64))::TEXT
+) AS intent
+\gset
+
+INSERT INTO checkout_v2_test_ids (name, id) VALUES
+    ('policy_v1_intent', :'checkout_intent_id'::UUID),
+    ('policy_v2_intent', :'policy_rotated_intent_id'::UUID);
+
+UPDATE checkout_v2_test_ids
+SET id = :'policy_rotated_intent_id'::UUID
+WHERE name = 'direct_intent';
+
+SELECT :'policy_rotated_intent_id'::UUID AS checkout_intent_id
+\gset
+
+DO $$
+BEGIN
+    IF (SELECT id FROM checkout_v2_test_ids WHERE name = 'policy_v1_intent')
+       IS NOT DISTINCT FROM
+       (SELECT id FROM checkout_v2_test_ids WHERE name = 'policy_v2_intent')
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.checkout_intents
+            WHERE id = (
+                SELECT id FROM checkout_v2_test_ids WHERE name = 'policy_v1_intent'
+            )
+              AND status = 'expired'
+              AND legal_policy_version = 'test-policy-v1'
+              AND policy_accepted_at IS NOT NULL
+              AND stripe_customer_id IS NULL
+              AND stripe_checkout_session_id IS NULL
+              AND completed_at IS NULL
+       )
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.bookable_slot_holds
+            WHERE checkout_intent_id = (
+                SELECT id FROM checkout_v2_test_ids WHERE name = 'policy_v1_intent'
+            )
+              AND status = 'expired'
+              AND hold_fingerprint IS NULL
+              AND closed_at IS NOT NULL
+              AND close_reason = 'legal_policy_version_rotated'
+       )
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.checkout_intents
+            WHERE id = (
+                SELECT id FROM checkout_v2_test_ids WHERE name = 'policy_v2_intent'
+            )
+              AND status = 'creating'
+              AND legal_policy_version = 'test-policy-v2'
+              AND stripe_customer_id IS NULL
+              AND stripe_checkout_session_id IS NULL
+              AND completed_at IS NULL
+       )
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.bookable_slot_holds
+            WHERE checkout_intent_id = (
+                SELECT id FROM checkout_v2_test_ids WHERE name = 'policy_v2_intent'
+            )
+              AND status = 'held'
+              AND hold_fingerprint = ('v1:' || repeat('e', 64))
+       ) THEN
+        RAISE EXCEPTION 'pre_stripe_legal_policy_rotation_was_not_atomic';
+    END IF;
+END
+$$;
+
 INSERT INTO public.teacher_availability (
     teacher_id,
     day_of_week,
@@ -297,7 +377,7 @@ BEGIN
         'Direct Student',
         target_package_price_id,
         'en',
-        'test-policy-v1',
+        'test-policy-v2',
         'https://example.test',
         target_slot_public_id,
         ('v1:' || repeat('a', 64))::TEXT
@@ -352,7 +432,7 @@ BEGIN
         'test-policy-v1',
         'https://example.test',
         target_slot_public_id,
-        ('v1:' || repeat('a', 64))::TEXT
+        ('v1:' || repeat('e', 64))::TEXT
     );
     RAISE EXCEPTION 'same_network_second_hold_was_accepted';
 EXCEPTION WHEN unique_violation THEN
@@ -386,7 +466,7 @@ BEGIN
         FROM public.bookable_slot_holds
         WHERE status = 'held'
           AND hold_fingerprint IN (
-              ('v1:' || repeat('a', 64)),
+              ('v1:' || repeat('e', 64)),
               ('v1:' || repeat('b', 64))
           )
     ) <> 2 THEN
@@ -662,6 +742,114 @@ SELECT public.snapshot_checkout_intent_customer(
     'cus_test_isolated'
 );
 
+DO $$
+DECLARE
+    target_intent_id UUID;
+    target_package_price_id UUID;
+    target_slot_public_id UUID;
+    replayed_intent public.checkout_intents%ROWTYPE;
+BEGIN
+    SELECT id INTO target_intent_id
+    FROM checkout_v2_test_ids
+    WHERE name = 'direct_intent';
+
+    SELECT intent.package_price_id, slot.public_id
+    INTO target_package_price_id, target_slot_public_id
+    FROM public.checkout_intents AS intent
+    JOIN public.bookable_slot_holds AS hold
+      ON hold.checkout_intent_id = intent.id
+    JOIN public.bookable_slots AS slot
+      ON slot.id = hold.slot_id
+    WHERE intent.id = target_intent_id;
+
+    replayed_intent := public.claim_direct_checkout_intent_for_slot(
+        '10000000-0000-4000-8000-000000000001',
+        'student@test.invalid',
+        'Direct Student',
+        target_package_price_id,
+        'en',
+        'test-policy-v3',
+        'https://example.test',
+        target_slot_public_id,
+        ('v1:' || repeat('f', 64))::TEXT
+    );
+
+    IF replayed_intent.id IS DISTINCT FROM target_intent_id
+       OR replayed_intent.status <> 'creating'
+       OR replayed_intent.legal_policy_version <> 'test-policy-v2'
+       OR replayed_intent.stripe_customer_id <> 'cus_test_isolated'
+       OR EXISTS (
+            SELECT 1
+            FROM public.checkout_intents
+            WHERE student_id = '10000000-0000-4000-8000-000000000001'
+              AND legal_policy_version = 'test-policy-v3'
+       )
+       OR NOT EXISTS (
+            SELECT 1
+            FROM public.bookable_slot_holds
+            WHERE checkout_intent_id = target_intent_id
+              AND status = 'held'
+              AND hold_fingerprint = ('v1:' || repeat('e', 64))
+       ) THEN
+        RAISE EXCEPTION 'customer_snapshot_policy_rotation_replaced_evidence';
+    END IF;
+END
+$$;
+
+UPDATE public.checkout_intents
+SET
+    status = 'open',
+    stripe_checkout_session_id = 'cs_test_isolated',
+    updated_at = clock_timestamp()
+WHERE id = :'checkout_intent_id'::UUID;
+
+DO $$
+DECLARE
+    target_intent_id UUID;
+    target_package_price_id UUID;
+    target_slot_public_id UUID;
+    replayed_intent public.checkout_intents%ROWTYPE;
+BEGIN
+    SELECT id INTO target_intent_id
+    FROM checkout_v2_test_ids
+    WHERE name = 'direct_intent';
+
+    SELECT intent.package_price_id, slot.public_id
+    INTO target_package_price_id, target_slot_public_id
+    FROM public.checkout_intents AS intent
+    JOIN public.bookable_slot_holds AS hold
+      ON hold.checkout_intent_id = intent.id
+    JOIN public.bookable_slots AS slot
+      ON slot.id = hold.slot_id
+    WHERE intent.id = target_intent_id;
+
+    replayed_intent := public.claim_direct_checkout_intent_for_slot(
+        '10000000-0000-4000-8000-000000000001',
+        'student@test.invalid',
+        'Direct Student',
+        target_package_price_id,
+        'en',
+        'test-policy-v4',
+        'https://example.test',
+        target_slot_public_id,
+        ('v1:' || repeat('f', 64))::TEXT
+    );
+
+    IF replayed_intent.id IS DISTINCT FROM target_intent_id
+       OR replayed_intent.status <> 'open'
+       OR replayed_intent.legal_policy_version <> 'test-policy-v2'
+       OR replayed_intent.stripe_checkout_session_id <> 'cs_test_isolated'
+       OR EXISTS (
+            SELECT 1
+            FROM public.checkout_intents
+            WHERE student_id = '10000000-0000-4000-8000-000000000001'
+              AND legal_policy_version = 'test-policy-v4'
+       ) THEN
+        RAISE EXCEPTION 'open_intent_policy_rotation_replaced_evidence';
+    END IF;
+END
+$$;
+
 SELECT public.complete_checkout_intent(
     :'checkout_intent_id'::UUID,
     :'checkout_opportunity_id'::UUID,
@@ -670,6 +858,53 @@ SELECT public.complete_checkout_intent(
     'cs_test_isolated',
     'cus_test_isolated'
 );
+
+DO $$
+DECLARE
+    target_intent_id UUID;
+    target_package_price_id UUID;
+    target_slot_public_id UUID;
+    replayed_intent public.checkout_intents%ROWTYPE;
+BEGIN
+    SELECT id INTO target_intent_id
+    FROM checkout_v2_test_ids
+    WHERE name = 'direct_intent';
+
+    SELECT intent.package_price_id, slot.public_id
+    INTO target_package_price_id, target_slot_public_id
+    FROM public.checkout_intents AS intent
+    JOIN public.bookable_slot_holds AS hold
+      ON hold.checkout_intent_id = intent.id
+    JOIN public.bookable_slots AS slot
+      ON slot.id = hold.slot_id
+    WHERE intent.id = target_intent_id;
+
+    replayed_intent := public.claim_direct_checkout_intent_for_slot(
+        '10000000-0000-4000-8000-000000000001',
+        'student@test.invalid',
+        'Direct Student',
+        target_package_price_id,
+        'en',
+        'test-policy-v5',
+        'https://example.test',
+        target_slot_public_id,
+        ('v1:' || repeat('f', 64))::TEXT
+    );
+
+    IF replayed_intent.id IS DISTINCT FROM target_intent_id
+       OR replayed_intent.status <> 'completed'
+       OR replayed_intent.legal_policy_version <> 'test-policy-v2'
+       OR replayed_intent.completed_at IS NULL
+       OR EXISTS (
+            SELECT 1
+            FROM public.checkout_intents
+            WHERE student_id = '10000000-0000-4000-8000-000000000001'
+              AND legal_policy_version = 'test-policy-v5'
+       ) THEN
+        RAISE EXCEPTION 'completed_intent_policy_rotation_replaced_evidence';
+    END IF;
+END
+$$;
 
 INSERT INTO public.subscriptions (
     id,

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 
 const slotPublicId = '11111111-1111-4111-8111-111111111111';
 const availability = {
+    checkoutEnabled: false,
     slots: [{
         publicId: slotPublicId,
         teacherName: 'Álex',

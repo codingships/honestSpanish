@@ -1,7 +1,7 @@
 import { defineMiddleware } from "astro:middleware";
-import { isAuthApiError, isAuthSessionMissingError } from '@supabase/supabase-js';
 import { createSupabaseServerClient } from "./lib/supabase-server";
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from "./lib/adult-account";
+import { isUnauthenticatedAuthError } from './lib/auth-session';
 import { appendAuthReturnTo, sanitizeAuthReturnTo } from "./lib/auth-return-to";
 import { ui } from './i18n/translations';
 import { getLangFromParam } from './i18n/utils';
@@ -16,17 +16,6 @@ const BOOTSTRAP_DIAGNOSTIC_PATHS = new Set([
 const LOCAL_APP_ENVIRONMENTS = new Set(['dev', 'development', 'local', 'test']);
 const HOSTED_APP_ENVIRONMENTS = new Set(['staging', 'production']);
 const CAMPUS_ROLES = new Set(['student', 'teacher', 'admin']);
-const UNAUTHENTICATED_AUTH_CODES = new Set([
-    'bad_jwt',
-    'no_authorization',
-    'refresh_token_already_used',
-    'refresh_token_not_found',
-    'session_expired',
-    'session_not_found',
-    'unexpected_audience',
-    'user_banned',
-    'user_not_found',
-]);
 
 function normalizedAppEnvironment(context: Parameters<typeof readRuntimeEnv>[1]): string | undefined {
     return readRuntimeEnv('PUBLIC_APP_ENV', context)?.trim().toLowerCase() || undefined;
@@ -97,16 +86,6 @@ function campusUnavailableResponse(langParam: string, requestUrl: URL): Response
             'X-Robots-Tag': 'noindex, nofollow, noarchive',
         },
     });
-}
-
-function isUnauthenticatedAuthError(error: unknown): boolean {
-    return isAuthSessionMissingError(error)
-        || (
-            isAuthApiError(error)
-            && (error.status === 401 || error.status === 403)
-            && typeof error.code === 'string'
-            && UNAUTHENTICATED_AUTH_CODES.has(error.code)
-        );
 }
 
 const handleApplicationRequest = defineMiddleware(async (context, next) => {
