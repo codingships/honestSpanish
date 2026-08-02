@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 
-interface AvailabilitySlot {
+export interface AvailabilitySlot {
     id: string;
     day_of_week: number;
     start_time: string;
@@ -12,6 +12,7 @@ interface AvailabilityManagerProps {
     initialAvailability: AvailabilitySlot[];
     teacherId: string;
     lang: string;
+    onAvailabilityChange?: (availability: AvailabilitySlot[]) => void;
     translations: {
         dayNames: string[];
         addSlot: string;
@@ -39,6 +40,7 @@ type AvailabilityResponse = {
 export default function AvailabilityManager({
     initialAvailability,
     teacherId,
+    onAvailabilityChange,
 
     translations: t
 }: AvailabilityManagerProps) {
@@ -107,22 +109,23 @@ export default function AvailabilityManager({
                 })
             });
 
+            const data = await response.json().catch(() => null) as AvailabilityResponse | null;
             if (!response.ok) {
-                throw new Error('Failed to add slot');
+                throw new Error(typeof data?.error === 'string' ? data.error : t.errorAdding);
             }
 
-            const data = await response.json() as AvailabilityResponse;
-
-            const availabilitySlot = data.availability;
+            const availabilitySlot = data?.availability;
             if (availabilitySlot) {
-                setAvailability((currentAvailability) => [...currentAvailability, availabilitySlot]);
+                const nextAvailability = [...availability, availabilitySlot];
+                setAvailability(nextAvailability);
+                onAvailabilityChange?.(nextAvailability);
             }
 
             setIsAddingSlot(false);
             setNewSlot({ dayOfWeek: 1, startTime: '09:00', endTime: '10:00' });
             showMessage({ type: 'success', text: t.slotAdded }, true);
-        } catch {
-            showMessage({ type: 'error', text: t.errorAdding });
+        } catch (error) {
+            showMessage({ type: 'error', text: error instanceof Error ? error.message : t.errorAdding });
         } finally {
             setIsLoading(false);
         }
@@ -140,14 +143,17 @@ export default function AvailabilityManager({
                 body: JSON.stringify({ id: slotId })
             });
 
+            const data = await response.json().catch(() => null) as AvailabilityResponse | null;
             if (!response.ok) {
-                throw new Error('Failed to remove slot');
+                throw new Error(typeof data?.error === 'string' ? data.error : t.errorRemoving);
             }
 
-            setAvailability((currentAvailability) => currentAvailability.filter(s => s.id !== slotId));
+            const nextAvailability = availability.filter((slot) => slot.id !== slotId);
+            setAvailability(nextAvailability);
+            onAvailabilityChange?.(nextAvailability);
             showMessage({ type: 'success', text: t.slotRemoved }, true);
-        } catch {
-            showMessage({ type: 'error', text: t.errorRemoving });
+        } catch (error) {
+            showMessage({ type: 'error', text: error instanceof Error ? error.message : t.errorRemoving });
         } finally {
             setRemovingSlotId(null);
             setIsLoading(false);

@@ -1,9 +1,11 @@
 ---
 import type { CollectionEntry } from 'astro:content';
+import BlogAttributionContinuity from '../components/blog/BlogAttributionContinuity.astro';
 import TableOfContents from '../components/blog/TableOfContents.astro';
 import { getLocalizedPath, useTranslations } from '../i18n/utils';
 import { getBlogAuthor, getBlogAuthorSchema } from '../lib/blog-authors';
-import { getBlogEntrySlug, getBlogOgKey } from '../lib/blog-routes';
+import { getBlogImagePresentation } from '../lib/blog-images';
+import { getBlogCategoryLabel, getBlogEntrySlug } from '../lib/blog-routes';
 import { serializeJsonForHtml, sha256CspHash } from '../lib/csp';
 import { absolutePublicUrl, publicUrl, type LocalizedPublicPaths, type PublicLang } from '../lib/public-seo';
 import BaseLayout from './BaseLayout.astro';
@@ -18,20 +20,22 @@ interface Props {
   post: CollectionEntry<'blog'>;
   lang: PublicLang;
   alternatePaths: LocalizedPublicPaths;
+  relatedPosts: CollectionEntry<'blog'>[];
   headings?: Heading[];
 }
 
-const { post, lang, alternatePaths, headings } = Astro.props;
+const { post, lang, alternatePaths, relatedPosts, headings } = Astro.props;
 const t = useTranslations(lang);
-const { title, description, publishedAt, image, category, author } = post.data;
+const { title, description, publishedAt, category, author } = post.data;
 const authorDetails = getBlogAuthor(author);
 const postSlug = getBlogEntrySlug(post);
 const canonicalPath = '/blog/' + postSlug;
 const canonicalUrl = publicUrl(lang, canonicalPath);
-const ogImage = image?.src ?? '/og/' + getBlogOgKey(post) + '.png';
+const articleImage = getBlogImagePresentation(post);
+const ogImage = articleImage.src;
 const imageUrl = absolutePublicUrl(ogImage);
-const imageWidth = image?.width ?? 1200;
-const imageHeight = image?.height ?? 630;
+const imageWidth = articleImage.width;
+const imageHeight = articleImage.height;
 
 const formattedDate = publishedAt.toLocaleDateString(lang, {
   year: 'numeric',
@@ -105,6 +109,7 @@ const accessibilityCopy = {
   en: { skip: 'Skip to main content', breadcrumb: 'Breadcrumb' },
   ru: { skip: 'Перейти к основному содержанию', breadcrumb: 'Навигационная цепочка' },
 }[lang];
+
 ---
 
 <BaseLayout
@@ -112,6 +117,7 @@ const accessibilityCopy = {
   description={description}
   lang={lang}
   ogImage={ogImage}
+  ogImageAlt={articleImage.alt || title}
   ogImageWidth={imageWidth}
   ogImageHeight={imageHeight}
   contentType="article"
@@ -133,9 +139,9 @@ const accessibilityCopy = {
     <div class="bg-white min-h-screen text-[#006064] font-sans">
         <nav aria-label={accessibilityCopy.breadcrumb} class="bg-[#E0F7FA] py-4 px-6 border-b-2 border-[#006064]">
             <div class="max-w-4xl mx-auto flex items-center text-sm font-mono uppercase tracking-wide text-[#006064]">
-                <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
+                <a href={getLocalizedPath('/', lang)} data-preserve-acquisition-attribution class="hover:underline">{t('common.home')}</a>
                 <span aria-hidden="true" class="mx-2">/</span>
-                <a href={getLocalizedPath('/blog', lang)} class="hover:underline">{t('common.blog')}</a>
+                <a href={getLocalizedPath('/blog', lang)} data-preserve-acquisition-attribution class="hover:underline">{t('common.blog')}</a>
                 <span aria-hidden="true" class="mx-2">/</span>
                 <span aria-current="page" class="truncate">{title}</span>
             </div>
@@ -145,7 +151,7 @@ const accessibilityCopy = {
           <article class="max-w-4xl mx-auto px-6 py-12">
             <header class="mb-12 text-center">
                 <div class="inline-block bg-[#006064]/10 px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-6">
-                    {category}
+                    {getBlogCategoryLabel(lang, category)}
                 </div>
                 <h1 class="font-display text-4xl md:text-5xl lg:text-6xl mb-6 leading-tight">
                     {title}
@@ -157,19 +163,20 @@ const accessibilityCopy = {
                 </div>
             </header>
 
-            {image && (
-                <div class="mb-12 border-2 border-[#006064] overflow-hidden rounded-lg aspect-video">
-                    <img
-                        src={image.src}
-                        alt={post.data.imageAlt || title}
-                        class="w-full h-full object-cover"
-                        width={image.width}
-                        height={image.height}
-                        loading="eager"
-                        decoding="async"
-                    />
-                </div>
-            )}
+            <div class="mb-12 aspect-[1200/630] overflow-hidden rounded-lg border-2 border-[#006064]">
+                <img
+                    src={articleImage.src}
+                    srcset={articleImage.srcSet}
+                    sizes="(min-width: 896px) 848px, calc(100vw - 3rem)"
+                    alt={articleImage.alt}
+                    class="h-full w-full object-cover"
+                    width={articleImage.width}
+                    height={articleImage.height}
+                    loading="eager"
+                    decoding="async"
+                    fetchpriority="high"
+                />
+            </div>
 
             <div class="prose prose-lg mx-auto prose-headings:font-display prose-headings:text-[#006064] prose-p:text-[#006064]/80 prose-a:text-[#006064] prose-strong:text-[#006064] prose-blockquote:border-l-[#006064]">
                 {headings && headings.length > 0 && <TableOfContents headings={headings} lang={lang} />}
@@ -183,16 +190,57 @@ const accessibilityCopy = {
             </div>
           </article>
 
+          {relatedPosts.length > 0 && (
+            <section
+              aria-labelledby="related-posts-heading"
+              class="border-t-2 border-[#006064] bg-[#E0F7FA] px-6 py-16"
+            >
+              <div class="mx-auto max-w-4xl">
+                <h2 id="related-posts-heading" class="mb-8 font-display text-3xl md:text-4xl">
+                  {t('common.related')}
+                </h2>
+                <div class="grid gap-6 md:grid-cols-2">
+                  {relatedPosts.map((relatedPost) => (
+                    <article class="flex h-full flex-col border-2 border-[#006064] bg-white p-6">
+                      <p class="mb-3 font-mono text-xs font-bold uppercase tracking-wider">
+                        {getBlogCategoryLabel(lang, relatedPost.data.category)}
+                      </p>
+                      <h3 class="mb-3 font-display text-2xl leading-tight">
+                        <a
+                          href={getLocalizedPath('/blog/' + getBlogEntrySlug(relatedPost), lang)}
+                          data-preserve-acquisition-attribution
+                          class="underline decoration-2 underline-offset-4 hover:no-underline"
+                        >
+                          {relatedPost.data.title}
+                        </a>
+                      </h3>
+                      <p class="mb-5 flex-1 text-[#006064]/80">{relatedPost.data.description}</p>
+                      <a
+                        href={getLocalizedPath('/blog/' + getBlogEntrySlug(relatedPost), lang)}
+                        data-preserve-acquisition-attribution
+                        class="font-mono text-sm font-bold uppercase tracking-wide underline underline-offset-4"
+                      >
+                        {t('common.readMore')}
+                      </a>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </section>
+          )}
+
           <section class="bg-[#006064] text-white py-24 text-center px-6">
             <h2 class="font-display text-4xl mb-6">{blogCta.heading}</h2>
             <a
                 href={blogCta.href}
+                data-preserve-acquisition-attribution
                 class="inline-block bg-white text-[#006064] px-8 py-4 text-lg font-bold border-2 border-transparent hover:bg-[#E0F7FA] transition-all uppercase tracking-wider"
             >
                 {blogCta.button}
             </a>
             <a
                 href={`/${lang}/#contacto`}
+                data-preserve-acquisition-attribution
                 class="ml-0 mt-4 inline-block px-6 py-3 text-sm font-bold uppercase tracking-widest underline underline-offset-4 hover:text-[#E0F7FA] sm:ml-4 sm:mt-0"
             >
                 {blogCta.contact}
@@ -200,4 +248,5 @@ const accessibilityCopy = {
           </section>
         </main>
     </div>
+    <BlogAttributionContinuity />
 </BaseLayout>

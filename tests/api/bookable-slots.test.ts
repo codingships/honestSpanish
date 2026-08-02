@@ -6,10 +6,15 @@ import {
 
 const mocks = vi.hoisted(() => ({
     listPublicBookableSlots: vi.fn(),
+    checkoutEnabled: false,
 }));
 
 vi.mock('../../src/lib/public-bookable-slots', () => ({
     listPublicBookableSlots: mocks.listPublicBookableSlots,
+}));
+
+vi.mock('../../src/lib/checkout-enabled', () => ({
+    isCheckoutEnabled: vi.fn(() => mocks.checkoutEnabled),
 }));
 
 function deferred<T>() {
@@ -26,6 +31,7 @@ describe('GET /api/bookable-slots', () => {
     beforeEach(() => {
         vi.resetModules();
         vi.clearAllMocks();
+        mocks.checkoutEnabled = false;
         now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
     });
 
@@ -45,8 +51,8 @@ describe('GET /api/bookable-slots', () => {
         pending.resolve([{ publicId: 'slot-one' }]);
 
         const [firstResponse, secondResponse] = await Promise.all([first, second]);
-        await expect(firstResponse.json()).resolves.toEqual({ slots: [{ publicId: 'slot-one' }] });
-        await expect(secondResponse.json()).resolves.toEqual({ slots: [{ publicId: 'slot-one' }] });
+        await expect(firstResponse.json()).resolves.toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: false });
+        await expect(secondResponse.json()).resolves.toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: false });
         expect(firstResponse.headers.get('Cache-Control')).toBe(PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL);
     });
 
@@ -58,15 +64,31 @@ describe('GET /api/bookable-slots', () => {
 
         const first = await GET({} as never) as Response;
         const cached = await GET({} as never) as Response;
-        expect(await first.json()).toEqual({ slots: [{ publicId: 'slot-one' }] });
-        expect(await cached.json()).toEqual({ slots: [{ publicId: 'slot-one' }] });
+        expect(await first.json()).toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: false });
+        expect(await cached.json()).toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: false });
         expect(mocks.listPublicBookableSlots).toHaveBeenCalledTimes(1);
 
         now.mockReturnValue(1_000 + PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS * 1_000 + 1);
         const refreshed = await GET({} as never) as Response;
 
-        expect(await refreshed.json()).toEqual({ slots: [{ publicId: 'slot-two' }] });
+        expect(await refreshed.json()).toEqual({ slots: [{ publicId: 'slot-two' }], checkoutEnabled: false });
         expect(mocks.listPublicBookableSlots).toHaveBeenCalledTimes(2);
+    });
+
+    it('reads the runtime checkout gate dynamically without putting auth in the cacheable payload', async () => {
+        mocks.listPublicBookableSlots.mockResolvedValueOnce([{ publicId: 'slot-one' }]);
+        const { GET } = await import('../../src/pages/api/bookable-slots');
+
+        mocks.checkoutEnabled = true;
+        const open = await GET({} as never) as Response;
+        expect(await open.json()).toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: true });
+
+        mocks.checkoutEnabled = false;
+        const closed = await GET({} as never) as Response;
+        const closedPayload = await closed.json() as Record<string, unknown>;
+        expect(closedPayload).toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: false });
+        expect(closedPayload).not.toHaveProperty('isLoggedIn');
+        expect(mocks.listPublicBookableSlots).toHaveBeenCalledTimes(1);
     });
 
     it('never caches failures and retries the next request', async () => {
@@ -85,7 +107,7 @@ describe('GET /api/bookable-slots', () => {
         const recovered = await GET({} as never) as Response;
         expect(recovered.status).toBe(200);
         expect(recovered.headers.get('Cache-Control')).toBe(PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL);
-        await expect(recovered.json()).resolves.toEqual({ slots: [{ publicId: 'slot-one' }] });
+        await expect(recovered.json()).resolves.toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: false });
         expect(mocks.listPublicBookableSlots).toHaveBeenCalledTimes(2);
         expect(consoleError).toHaveBeenCalledWith('Could not list public bookable slots:', error);
     });

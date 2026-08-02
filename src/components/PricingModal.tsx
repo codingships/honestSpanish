@@ -7,6 +7,7 @@ import {
     type AcquisitionAttribution,
 } from '../lib/acquisition-attribution';
 import type { PublicBookableSlot } from '../lib/public-bookable-slots';
+import { CHECKOUT_TERMS_VERSION } from '../lib/legal-policy';
 
 export interface PricingModalTranslations {
     title: string;
@@ -47,6 +48,7 @@ export interface PricingModalTranslations {
     renewalDisclosure: string;
     sessionBankDisclosure: string;
     policyError: string;
+    policyChanged: string;
 }
 
 interface PricingModalProps {
@@ -59,13 +61,14 @@ interface PricingModalProps {
         sessionsPerCycle: number;
     } | null;
     lang: 'es' | 'en' | 'ru';
-    isLoggedIn: boolean;
-    checkoutEnabled: boolean;
+    onCheckoutStatus?: (status: 'unknown' | 'open' | 'closed') => void;
+    onLoginRequired?: (url: string) => void;
     initialSlotPublicId?: string | null;
     translations: PricingModalTranslations;
 }
 
 type AvailabilityState = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
+type AccountState = 'idle' | 'checking' | 'ready' | 'login' | 'ineligible' | 'error';
 
 type CheckoutErrorCode =
     | 'ACTIVE_SUBSCRIPTION'
@@ -73,6 +76,7 @@ type CheckoutErrorCode =
     | 'HOLD_CONFLICT'
     | 'CHECKOUT_RECONCILING'
     | 'CHECKOUT_IN_PROGRESS'
+    | 'POLICY_VERSION_CHANGED'
     | 'CHECKOUT_DISABLED'
     | 'ACCOUNT_NOT_ELIGIBLE'
     | 'OFFER_CONFIGURATION_ERROR'
@@ -88,6 +92,7 @@ const checkoutErrorCodes = new Set<CheckoutErrorCode>([
     'HOLD_CONFLICT',
     'CHECKOUT_RECONCILING',
     'CHECKOUT_IN_PROGRESS',
+    'POLICY_VERSION_CHANGED',
     'CHECKOUT_DISABLED',
     'ACCOUNT_NOT_ELIGIBLE',
     'OFFER_CONFIGURATION_ERROR',
@@ -132,12 +137,15 @@ export default function PricingModal({
     onClose,
     plan,
     lang,
-    isLoggedIn,
-    checkoutEnabled,
+    onCheckoutStatus,
+    onLoginRequired,
     initialSlotPublicId = null,
     translations: t,
 }: PricingModalProps) {
     const [availabilityState, setAvailabilityState] = useState<AvailabilityState>('idle');
+    const [checkoutEnabled, setCheckoutEnabled] = useState(false);
+    const [accountState, setAccountState] = useState<AccountState>('idle');
+    const [accountCheckRequest, setAccountCheckRequest] = useState(0);
     const [slots, setSlots] = useState<PublicBookableSlot[]>([]);
     const [selectedSlotPublicId, setSelectedSlotPublicId] = useState<string | null>(null);
     const [availabilityRequest, setAvailabilityRequest] = useState(0);
@@ -174,9 +182,11 @@ export default function PricingModal({
     useEffect(() => {
         checkoutAttemptRef.current += 1;
         isLoadingRef.current = false;
-        if (!isOpen || !plan) return undefined;
-
         setAvailabilityState('idle');
+        setCheckoutEnabled(false);
+        setAccountState('idle');
+        setAccountCheckRequest(0);
+        onCheckoutStatus?.('unknown');
         setSlots([]);
         setSelectedSlotPublicId(null);
         setAvailabilityRequest(0);
@@ -190,11 +200,13 @@ export default function PricingModal({
         unavailableSlotIdsRef.current.clear();
         resetTurnstile();
 
+        if (!isOpen || !plan) return undefined;
+
         return () => {
             checkoutAttemptRef.current += 1;
             isLoadingRef.current = false;
         };
-    }, [isOpen, plan, resetTurnstile]);
+    }, [isOpen, onCheckoutStatus, plan, resetTurnstile]);
 
     useEffect(() => {
         if (!isOpen || !plan) return;
@@ -213,9 +225,11 @@ export default function PricingModal({
                 const payload: unknown = await response.json().catch(() => null);
                 if (!response.ok) throw new Error(t.availabilityError);
 
-                const parsedSlots = parseBookableSlotsResponse(payload);
-                if (!parsedSlots) throw new Error(t.availabilityError);
-                const nextSlots = parsedSlots.filter(
+                const parsed = parseBookableSlotsResponse(payload);
+                if (!parsed) throw new Error(t.availabilityError);
+                setCheckoutEnabled(parsed.checkoutEnabled);
+                onCheckoutStatus?.(parsed.checkoutEnabled ? 'open' : 'closed');
+                const nextSlots = parsed.slots.filter(
                     (slot) => !unavailableSlotIdsRef.current.has(slot.publicId),
                 );
 
@@ -243,13 +257,76 @@ export default function PricingModal({
                 if (controller.signal.aborted) return;
                 setSlots([]);
                 setSelectedSlotPublicId(null);
+                setCheckoutEnabled(false);
+                onCheckoutStatus?.('unknown');
                 setAvailabilityState('error');
                 setError(null);
             }
         })();
 
         return () => controller.abort();
-    }, [availabilityRequest, initialSlotPublicId, isOpen, plan, t.availabilityError, t.slotConflict]);
+    }, [availabilityRequest, initialSlotPublicId, isOpen, onCheckoutStatus, plan, t.availabilityError, t.slotConflict]);
+
+    useEffect(() => {
+        setAdultConfirmed(false);
+        setTermsAccepted(false);
+        setServiceStartRequested(false);
+        setWithdrawalLossAcknowledged(false);
+        resetTurnstile();
+    }, [resetTurnstile, selectedSlotPublicId]);
+
+    useEffect(() => {
+        if (!isOpen || !plan || !checkoutEnabled || !selectedSlotPublicId) {
+            setAccountState('idle');
+            return undefined;
+        }
+
+        const controller = new AbortController();
+        setAccountState('checking');
+        setError(null);
+
+        void (async () => {
+            try {
+                const response = await fetch('/api/auth/checkout-readiness', {
+                    method: 'GET',
+                    cache: 'no-store',
+                    credentials: 'same-origin',
+                    headers: { Accept: 'application/json' },
+                    signal: controller.signal,
+                });
+                if (controller.signal.aborted) return;
+
+                if (response.status === 204) {
+                    setAccountState('ready');
+                    return;
+                }
+                if (response.status === 401 || response.status === 409) {
+                    setAccountState('login');
+                    return;
+                }
+                if (response.status === 403) {
+                    setAccountState('ineligible');
+                    setError(t.accountNotEligible);
+                    return;
+                }
+                throw new Error('checkout readiness unavailable');
+            } catch {
+                if (controller.signal.aborted) return;
+                setAccountState('error');
+                setError(t.error);
+            }
+        })();
+
+        return () => controller.abort();
+    }, [
+        accountCheckRequest,
+        checkoutEnabled,
+        isOpen,
+        plan,
+        selectedSlotPublicId,
+        t.accountNotEligible,
+        t.error,
+    ]);
 
     useEffect(() => {
         if (!isOpen || !plan || typeof document === 'undefined') return;
@@ -316,11 +393,13 @@ export default function PricingModal({
 
     const loginWithSelection = (attribution?: AcquisitionAttribution | null) => {
         if (!selectedSlot) return;
-        window.location.assign(buildCheckoutLoginUrl(
+        const url = buildCheckoutLoginUrl(
             lang,
             selectedSlot.publicId,
             attribution ?? captureAcquisitionAttribution(lang),
-        ));
+        );
+        if (onLoginRequired) onLoginRequired(url);
+        else window.location.assign(url);
     };
 
     const handleContinue = async () => {
@@ -329,11 +408,7 @@ export default function PricingModal({
             return;
         }
         const attribution = captureAcquisitionAttribution(lang);
-        if (!isLoggedIn) {
-            loginWithSelection(attribution);
-            return;
-        }
-        if (!checkoutEnabled) return;
+        if (!checkoutEnabled || accountState !== 'ready') return;
         if (!adultConfirmed || !termsAccepted || !serviceStartRequested || !withdrawalLossAcknowledged) {
             setError(t.policyError);
             return;
@@ -357,6 +432,7 @@ export default function PricingModal({
                 body: JSON.stringify({
                     slotPublicId: selectedSlot.publicId,
                     lang,
+                    policyVersion: CHECKOUT_TERMS_VERSION,
                     adultConfirmed,
                     termsAccepted,
                     serviceStartRequested,
@@ -401,6 +477,15 @@ export default function PricingModal({
                 setError(t.checkoutInProgress);
                 return;
             }
+            if (response.status === 409 && errorCode === 'POLICY_VERSION_CHANGED') {
+                setAdultConfirmed(false);
+                setTermsAccepted(false);
+                setServiceStartRequested(false);
+                setWithdrawalLossAcknowledged(false);
+                resetTurnstile();
+                setError(t.policyChanged);
+                return;
+            }
             if (
                 response.status === 409
                 && (
@@ -413,11 +498,15 @@ export default function PricingModal({
                 return;
             }
             if (response.status === 403) {
-                setError(errorCode === 'CHECKOUT_DISABLED'
-                    ? t.checkoutClosed
-                    : errorCode === 'ACCOUNT_NOT_ELIGIBLE'
-                        ? t.accountNotEligible
-                        : t.error);
+                if (errorCode === 'CHECKOUT_DISABLED') {
+                    setCheckoutEnabled(false);
+                    onCheckoutStatus?.('closed');
+                    setError(null);
+                    return;
+                }
+                setError(errorCode === 'ACCOUNT_NOT_ELIGIBLE'
+                    ? t.accountNotEligible
+                    : t.error);
                 return;
             }
             if (!response.ok) {
@@ -588,7 +677,33 @@ export default function PricingModal({
                     </div>
                 )}
 
-                {selectedSlot && checkoutEnabled && isLoggedIn && (
+                {selectedSlot && checkoutEnabled && accountState === 'checking' && (
+                    <div role="status" aria-live="polite" className="mt-6 border-2 border-[#006064]/30 p-4 text-center text-sm font-bold text-[#006064]">
+                        {t.loading}
+                    </div>
+                )}
+
+                {selectedSlot && checkoutEnabled && accountState === 'login' && (
+                    <button
+                        type="button"
+                        onClick={() => loginWithSelection()}
+                        className="mt-6 w-full border-2 border-[#006064] bg-[#006064] py-4 text-sm font-bold uppercase tracking-widest text-white shadow-[4px_4px_0px_0px_#006064] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:bg-[#004d40] hover:shadow-none"
+                    >
+                        {t.login}
+                    </button>
+                )}
+
+                {selectedSlot && checkoutEnabled && accountState === 'error' && (
+                    <button
+                        type="button"
+                        onClick={() => setAccountCheckRequest((request) => request + 1)}
+                        className="mt-6 w-full border-2 border-[#006064] py-3 text-xs font-bold uppercase text-[#006064]"
+                    >
+                        {t.retryAvailability}
+                    </button>
+                )}
+
+                {selectedSlot && checkoutEnabled && accountState === 'ready' && (
                     <>
                         <div className="mt-6 space-y-3 text-xs leading-5 text-[#006064]/80">
                             <label className="flex items-start gap-3">
@@ -683,7 +798,7 @@ export default function PricingModal({
                     </div>
                 )}
 
-                {selectedSlot && checkoutEnabled && (
+                {selectedSlot && checkoutEnabled && accountState === 'ready' && (
                     <button
                         type="button"
                         onClick={handleContinue}
@@ -691,7 +806,7 @@ export default function PricingModal({
                         aria-busy={isLoading}
                         className={`mt-6 w-full border-2 border-[#006064] py-4 text-sm font-bold uppercase tracking-widest shadow-[4px_4px_0px_0px_#006064] transition-all hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-none ${isLoading ? 'cursor-not-allowed bg-gray-400 text-white' : 'bg-[#006064] text-white hover:bg-[#004d40]'}`}
                     >
-                        {isLoading ? t.loading : (isLoggedIn ? t.continue : t.login)}
+                        {isLoading ? t.loading : t.continue}
                     </button>
                 )}
             </div>

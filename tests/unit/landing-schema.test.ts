@@ -1,26 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeDisplayName, type LandingPackage } from '../../src/lib/landing-data';
+import type { LandingPackage } from '../../src/lib/landing-data';
 import { buildLandingSchema } from '../../src/lib/landing-schema';
 
 const targetPackage: LandingPackage = {
-    id: 'pkg-individual-4x50-28d',
     name: 'individual_4x50_28d',
-    display_name: {
-        es: '4 clases individuales',
-        en: '4 individual classes',
-        ru: '4 индивидуальных занятия',
-    },
     price_monthly: 25900,
     sessions_per_month: 4,
-    has_group_session: false,
-    has_dual_teacher: false,
-    stripe_price_1m: null,
-    stripe_price_3m: null,
-    stripe_price_6m: null,
 };
 
-const translate = (key: string): unknown => {
+const makeTranslate = (planName: string) => (key: string): unknown => {
     if (key === 'meta.description') return 'Spanish classes for real life.';
+    if (key === 'pricing.plans') return { individual_4x50_28d: { name: planName } };
     if (key === 'faq.items') {
         return [
             { question: 'How do classes work?', answer: 'Online, with live practice and follow-up.' },
@@ -28,6 +18,7 @@ const translate = (key: string): unknown => {
     }
     return '';
 };
+const translate = makeTranslate('4 clases individuales');
 
 function courseNodes(schema: ReturnType<typeof buildLandingSchema>) {
     return schema['@graph'].filter((node) => node['@type'] === 'Course');
@@ -36,24 +27,6 @@ function courseNodes(schema: ReturnType<typeof buildLandingSchema>) {
 function faqNode(schema: ReturnType<typeof buildLandingSchema>) {
     return schema['@graph'].find((node) => node['@type'] === 'FAQPage');
 }
-
-describe('normalizeDisplayName', () => {
-    it('normalizes localized JSON display names with fallbacks', () => {
-        expect(normalizeDisplayName({ es: 'Individual', en: 'Individual' }, 'individual_4x50_28d')).toEqual({
-            es: 'Individual',
-            en: 'Individual',
-            ru: 'individual_4x50_28d',
-        });
-    });
-
-    it('falls back when display_name is not an object', () => {
-        expect(normalizeDisplayName(null, 'individual_4x50_28d')).toEqual({
-            es: 'individual_4x50_28d',
-            en: 'individual_4x50_28d',
-            ru: 'individual_4x50_28d',
-        });
-    });
-});
 
 describe('buildLandingSchema', () => {
     it('publishes the exact target offer as unavailable until checkout is ready', () => {
@@ -79,8 +52,8 @@ describe('buildLandingSchema', () => {
     });
 
     it('localizes the offer without changing its commercial contract', () => {
-        const enCourse = courseNodes(buildLandingSchema('en', translate, [targetPackage]))[0];
-        const ruCourse = courseNodes(buildLandingSchema('ru', translate, [targetPackage]))[0];
+        const enCourse = courseNodes(buildLandingSchema('en', makeTranslate('4 individual classes'), [targetPackage]))[0];
+        const ruCourse = courseNodes(buildLandingSchema('ru', makeTranslate('4 индивидуальных занятия'), [targetPackage]))[0];
 
         expect(enCourse).toMatchObject({
             name: '4 individual classes',

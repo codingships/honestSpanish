@@ -2,13 +2,16 @@
 title: "How long does it take to speak Spanish fluently?"
 description: "An honest answer: timing depends on your starting point, practice and real contact with Spanish. Learn to measure observable progress."
 publishedAt: 2025-01-15
+updatedAt: 2026-08-02
+draft: false
 author: alejandro
 category: aprendizaje
 tags: ["fluency", "time", "levels", "conversation"]
-image: "../../../assets/blog/tiempo-fluidez.png"
-imageAlt: "Watch next to Spanish books"
 lang: en
 translationKey: "time-to-fluency"
+relatedTranslationKeys: ["stuck-at-b1", "expats-truth"]
+ctaText: "Want to work on one concrete goal in four individual classes?"
+ctaLink: "/"
 ---
 
 The honest answer is that **there is no universal timetable for speaking Spanish fluently**. Two people can study with the same frequency and progress differently because they do not share the same starting point, practice or reasons for using the language.
@@ -69,7 +72,7 @@ A useful estimate changes when the evidence changes. If you converse more indepe
 
 ## The Español Honesto offer
 
-Español Honesto has one direct offer for adults: **four individual 50-minute online classes for EUR 259 in each 28-day cycle**. Before payment, you see the teacher, weekly time, time zone and all four planned dates.
+Español Honesto has one direct offer for adults: **four individual 50-minute online classes**. You pay €259 when booking and the cycle renews automatically; the next charge is set for 28 days after the first class. Before payment, you see the teacher, weekly time slot, time zone, all four planned dates and the exact next-charge date. If you change the first date through self-service within the permitted window before classes begin, the anchor and all four dates move with it. An exceptional support change outside that window does not move the anchor automatically; it becomes fixed when the first class begins.
 
 We do not sell a fluency date. We use the classes to work on conversation, correction and real situations from your starting point, and to identify the next observable milestone with you.
 
