@@ -21,6 +21,7 @@ interface RecordCrmActivityInput {
     occurredAt?: string | null;
     relatedEntityType?: string | null;
     relatedEntityId?: string | null;
+    idempotencyKey?: string | null;
     metadata?: Json;
 }
 
@@ -219,14 +220,16 @@ export async function recordCrmActivityForProfile(
     const contactResult = await ensureCrmContactForProfile(supabaseAdmin, input);
     if (contactResult.status !== 'ready') return contactResult;
 
-    const duplicate = await activityAlreadyExists(supabaseAdmin, {
-        contactId: contactResult.contactId,
-        activityType: input.activityType,
-        relatedEntityType: input.relatedEntityType,
-        relatedEntityId: input.relatedEntityId,
-    });
+    if (!input.idempotencyKey) {
+        const duplicate = await activityAlreadyExists(supabaseAdmin, {
+            contactId: contactResult.contactId,
+            activityType: input.activityType,
+            relatedEntityType: input.relatedEntityType,
+            relatedEntityId: input.relatedEntityId,
+        });
 
-    if (duplicate) return { status: 'duplicate', reason: 'activity_already_recorded' };
+        if (duplicate) return { status: 'duplicate', reason: 'activity_already_recorded' };
+    }
 
     const activity: CrmActivityInsert = {
         contact_id: contactResult.contactId,
@@ -238,7 +241,38 @@ export async function recordCrmActivityForProfile(
         metadata: input.metadata ?? {},
         related_entity_type: input.relatedEntityType ?? null,
         related_entity_id: input.relatedEntityId ?? null,
+        idempotency_key: input.idempotencyKey ?? null,
     };
+
+    if (input.idempotencyKey) {
+        const { error } = await supabaseAdmin
+            .from('crm_activities')
+            .upsert(activity, {
+                onConflict: 'idempotency_key',
+                ignoreDuplicates: true,
+            });
+
+        if (error) {
+            if (isMissingCrmTable(error)) return { status: 'skipped', reason: 'crm_not_migrated' };
+            throw error;
+        }
+
+        const { data: persistedActivity, error: lookupError } = await supabaseAdmin
+            .from('crm_activities')
+            .select('id')
+            .eq('idempotency_key', input.idempotencyKey)
+            .maybeSingle();
+
+        if (lookupError) {
+            if (isMissingCrmTable(lookupError)) return { status: 'skipped', reason: 'crm_not_migrated' };
+            throw lookupError;
+        }
+        if (!persistedActivity?.id) {
+            return { status: 'skipped', reason: 'idempotent_activity_not_found' };
+        }
+
+        return { status: 'created', activityId: persistedActivity.id };
+    }
 
     const { data, error } = await supabaseAdmin
         .from('crm_activities')

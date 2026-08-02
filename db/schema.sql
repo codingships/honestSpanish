@@ -600,6 +600,7 @@ CREATE TABLE crm_tasks (
     completed_at TIMESTAMPTZ,
     related_entity_type TEXT,
     related_entity_id TEXT,
+    idempotency_key TEXT,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -617,6 +618,7 @@ CREATE TABLE crm_activities (
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
     related_entity_type TEXT,
     related_entity_id TEXT,
+    idempotency_key TEXT,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -735,11 +737,69 @@ CREATE INDEX crm_tasks_opportunity_idx ON crm_tasks(opportunity_id) WHERE opport
 CREATE INDEX crm_tasks_assigned_status_due_idx ON crm_tasks(assigned_to, status, due_at);
 CREATE INDEX crm_tasks_open_due_idx ON crm_tasks(due_at) WHERE status = 'open';
 CREATE INDEX crm_tasks_related_entity_idx ON crm_tasks(related_entity_type, related_entity_id) WHERE related_entity_type IS NOT NULL AND related_entity_id IS NOT NULL;
+CREATE UNIQUE INDEX crm_tasks_idempotency_key_unique_idx ON crm_tasks(idempotency_key);
 CREATE INDEX crm_activities_contact_occurred_idx ON crm_activities(contact_id, occurred_at DESC);
 CREATE INDEX crm_activities_opportunity_idx ON crm_activities(opportunity_id) WHERE opportunity_id IS NOT NULL;
 CREATE INDEX crm_activities_actor_idx ON crm_activities(actor_id) WHERE actor_id IS NOT NULL;
 CREATE INDEX crm_activities_type_occurred_idx ON crm_activities(activity_type, occurred_at DESC);
 CREATE INDEX crm_activities_related_entity_idx ON crm_activities(related_entity_type, related_entity_id) WHERE related_entity_type IS NOT NULL AND related_entity_id IS NOT NULL;
+CREATE UNIQUE INDEX crm_activities_idempotency_key_unique_idx ON crm_activities(idempotency_key);
+
+CREATE OR REPLACE FUNCTION public.refresh_crm_no_show_contact_alarm(
+    p_task_id UUID,
+    p_contact_id UUID,
+    p_due_at TIMESTAMPTZ,
+    p_occurred_at TIMESTAMPTZ
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    task_status TEXT;
+BEGIN
+    IF p_task_id IS NULL
+       OR p_contact_id IS NULL
+       OR p_due_at IS NULL
+       OR p_occurred_at IS NULL THEN
+        RAISE EXCEPTION 'crm_no_show_contact_alarm_arguments_required'
+            USING ERRCODE = '22004';
+    END IF;
+
+    SELECT task.status
+    INTO task_status
+    FROM public.crm_tasks AS task
+    WHERE task.id = p_task_id
+      AND task.contact_id = p_contact_id
+    FOR UPDATE;
+
+    IF NOT FOUND OR task_status <> 'open' THEN
+        RETURN FALSE;
+    END IF;
+
+    UPDATE public.crm_contacts
+    SET lifecycle_stage = 'customer',
+        next_follow_up_at = p_due_at,
+        updated_at = p_occurred_at
+    WHERE id = p_contact_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'crm_no_show_contact_missing'
+            USING ERRCODE = 'P0002';
+    END IF;
+
+    RETURN TRUE;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.refresh_crm_no_show_contact_alarm(UUID, UUID, TIMESTAMPTZ, TIMESTAMPTZ)
+FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.refresh_crm_no_show_contact_alarm(UUID, UUID, TIMESTAMPTZ, TIMESTAMPTZ)
+TO service_role;
+
+COMMENT ON FUNCTION public.refresh_crm_no_show_contact_alarm(UUID, UUID, TIMESTAMPTZ, TIMESTAMPTZ) IS
+    'Refreshes the CRM contact alarm only while the locked no-show task still belongs to that contact and remains open.';
 CREATE INDEX crm_consents_contact_idx ON crm_consents(contact_id);
 CREATE INDEX crm_consents_channel_purpose_idx ON crm_consents(channel, purpose, opted_out_at);
 CREATE UNIQUE INDEX crm_consents_one_active_per_contact_channel_purpose ON crm_consents(contact_id, channel, purpose) WHERE opted_out_at IS NULL;
