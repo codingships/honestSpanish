@@ -1054,7 +1054,6 @@ export async function handleCheckoutV2(
                 automatic_tax: { enabled: false },
                 subscription_data: {
                     trial_end: anchor.unix,
-                    proration_behavior: 'none',
                     trial_settings: { end_behavior: { missing_payment_method: 'cancel' } },
                     metadata,
                 },
