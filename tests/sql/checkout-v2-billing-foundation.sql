@@ -17,6 +17,9 @@ INSERT INTO auth.users (id, email) VALUES
     ('10000000-0000-4000-8000-000000000006', 'orphan-owner@test.invalid'),
     ('10000000-0000-4000-8000-000000000007', 'orphan-successor@test.invalid');
 
+ALTER TABLE public.profiles
+    DISABLE TRIGGER guard_managed_profile_role_transition_trigger;
+
 UPDATE public.profiles
 SET role = 'teacher'
 WHERE id = '10000000-0000-4000-8000-000000000002';
@@ -24,6 +27,23 @@ WHERE id = '10000000-0000-4000-8000-000000000002';
 UPDATE public.profiles
 SET role = 'admin'
 WHERE id = '10000000-0000-4000-8000-000000000003';
+
+ALTER TABLE public.profiles
+    ENABLE TRIGGER guard_managed_profile_role_transition_trigger;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_trigger
+        WHERE tgrelid = 'public.profiles'::regclass
+          AND tgname = 'guard_managed_profile_role_transition_trigger'
+          AND tgenabled = 'O'
+    ) THEN
+        RAISE EXCEPTION 'managed profile role trigger was not re-enabled';
+    END IF;
+END;
+$$;
 
 SELECT public.configure_teacher_compensation_engagement(
     '11000000-0000-4000-8000-000000000001',
@@ -1125,9 +1145,29 @@ BEGIN
 END
 $$;
 
+ALTER TABLE public.profiles
+    DISABLE TRIGGER guard_managed_profile_role_transition_trigger;
+
 UPDATE public.profiles
 SET role = 'teacher'
 WHERE id = '10000000-0000-4000-8000-000000000005';
+
+ALTER TABLE public.profiles
+    ENABLE TRIGGER guard_managed_profile_role_transition_trigger;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_trigger
+        WHERE tgrelid = 'public.profiles'::regclass
+          AND tgname = 'guard_managed_profile_role_transition_trigger'
+          AND tgenabled = 'O'
+    ) THEN
+        RAISE EXCEPTION 'managed profile role trigger was not re-enabled';
+    END IF;
+END;
+$$;
 
 INSERT INTO public.teacher_availability (
     teacher_id,

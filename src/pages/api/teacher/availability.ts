@@ -11,6 +11,26 @@ type AvailabilityRequestBody = {
 
 const timePattern = /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/;
 
+const jsonHeaders = {
+    'Cache-Control': 'private, no-store',
+    'Content-Type': 'application/json; charset=utf-8',
+};
+
+function json(payload: unknown, status = 200): Response {
+    return new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
+}
+
+function sameOriginRequest(request: Request): boolean {
+    const origin = request.headers.get('Origin');
+    if (!origin) return false;
+
+    try {
+        return new URL(origin).origin === new URL(request.url).origin;
+    } catch {
+        return false;
+    }
+}
+
 async function readAvailabilityBody(request: Request): Promise<AvailabilityRequestBody | null> {
     try {
         const body = await request.json();
@@ -45,7 +65,7 @@ export const GET: APIRoute = async (context) => {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+        return json({ error: 'Unauthorized' }, 401);
     }
 
     // Verificar rol
@@ -56,20 +76,20 @@ export const GET: APIRoute = async (context) => {
         .single();
 
     if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
-        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+        return json({ error: 'Forbidden' }, 403);
     }
 
     // Obtener teacherId del query param (admin puede ver de cualquier profesor)
     const url = new URL(context.request.url);
     const requestedTeacherId = url.searchParams.get('teacherId')?.trim();
     if (profile.role === 'admin' && !requestedTeacherId) {
-        return new Response(JSON.stringify({ error: 'teacherId is required for admin availability queries' }), { status: 400 });
+        return json({ error: 'teacherId is required for admin availability queries' }, 400);
     }
 
     const teacherId = profile.role === 'admin' ? requestedTeacherId as string : user.id;
 
     if (profile.role === 'admin' && await getProfileRole(supabase, teacherId) !== 'teacher') {
-        return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+        return json({ error: 'teacherId must belong to a teacher profile' }, 400);
     }
 
     const { data, error } = await supabase
@@ -81,22 +101,21 @@ export const GET: APIRoute = async (context) => {
         .order('start_time');
 
     if (error) {
-        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+        return json({ error: 'Internal server error' }, 500);
     }
 
-    return new Response(JSON.stringify({ availability: data }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-    });
+    return json({ availability: data });
 };
 
 // POST: Crear/actualizar disponibilidad
 export const POST: APIRoute = async (context) => {
+    if (!sameOriginRequest(context.request)) return json({ error: 'Forbidden' }, 403);
+
     const supabase = createSupabaseServerClient(context);
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+        return json({ error: 'Unauthorized' }, 401);
     }
 
     const { data: profile } = await supabase
@@ -106,12 +125,12 @@ export const POST: APIRoute = async (context) => {
         .single();
 
     if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
-        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+        return json({ error: 'Forbidden' }, 403);
     }
 
     const body = await readAvailabilityBody(context.request);
     if (!body) {
-        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+        return json({ error: 'Invalid JSON body' }, 400);
     }
 
     const { teacherId, dayOfWeek, startTime, endTime } = body;
@@ -120,15 +139,15 @@ export const POST: APIRoute = async (context) => {
 
     // Validar datos
     if (dayOfWeek === undefined || !startTime || !endTime) {
-        return new Response(JSON.stringify({ error: 'Missing required fields' }), { status: 400 });
+        return json({ error: 'Missing required fields' }, 400);
     }
 
     if (!isValidDayOfWeek(dayOfWeek) || !normalizedStartTime || !normalizedEndTime) {
-        return new Response(JSON.stringify({ error: 'Invalid availability slot' }), { status: 400 });
+        return json({ error: 'Invalid availability slot' }, 400);
     }
 
     if (normalizedStartTime >= normalizedEndTime) {
-        return new Response(JSON.stringify({ error: 'Invalid availability time range' }), { status: 400 });
+        return json({ error: 'Invalid availability time range' }, 400);
     }
     const normalizedDayOfWeek = Number(dayOfWeek);
 
@@ -138,11 +157,11 @@ export const POST: APIRoute = async (context) => {
 
     if (profile.role === 'admin') {
         if (!requestedTeacherId) {
-            return new Response(JSON.stringify({ error: 'teacherId is required for admin availability changes' }), { status: 400 });
+            return json({ error: 'teacherId is required for admin availability changes' }, 400);
         }
 
         if (await getProfileRole(supabase, targetTeacherId) !== 'teacher') {
-            return new Response(JSON.stringify({ error: 'teacherId must belong to a teacher profile' }), { status: 400 });
+            return json({ error: 'teacherId must belong to a teacher profile' }, 400);
         }
     }
 
@@ -162,29 +181,25 @@ export const POST: APIRoute = async (context) => {
         // A database constraint is the concurrency-safe source of truth for
         // both exact duplicates (23505) and overlapping active ranges (23P01).
         if (error.code === '23505' || error.code === '23P01') {
-            return new Response(JSON.stringify({
+            return json({
                 error: 'Availability overlaps an existing active slot',
-            }), {
-                status: 409,
-                headers: { 'Content-Type': 'application/json' },
-            });
+            }, 409);
         }
-        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+        return json({ error: 'Internal server error' }, 500);
     }
 
-    return new Response(JSON.stringify({ availability: data }), {
-        status: 201,
-        headers: { 'Content-Type': 'application/json' }
-    });
+    return json({ availability: data }, 201);
 };
 
 // DELETE: Eliminar slot de disponibilidad
 export const DELETE: APIRoute = async (context) => {
+    if (!sameOriginRequest(context.request)) return json({ error: 'Forbidden' }, 403);
+
     const supabase = createSupabaseServerClient(context);
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+        return json({ error: 'Unauthorized' }, 401);
     }
 
     const { data: profile } = await supabase
@@ -194,31 +209,43 @@ export const DELETE: APIRoute = async (context) => {
         .single();
 
     if (!profile || (profile.role !== 'teacher' && profile.role !== 'admin')) {
-        return new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
+        return json({ error: 'Forbidden' }, 403);
     }
 
     const body = await readAvailabilityBody(context.request);
     if (!body) {
-        return new Response(JSON.stringify({ error: 'Invalid JSON body' }), { status: 400 });
+        return json({ error: 'Invalid JSON body' }, 400);
     }
 
     const { id } = body;
     const slotId = typeof id === 'string' ? id.trim() : '';
 
     if (!slotId) {
-        return new Response(JSON.stringify({ error: 'Missing availability id' }), { status: 400 });
+        return json({ error: 'Missing availability id' }, 400);
     }
 
     // Soft delete (marcar como inactivo)
-    const { error } = await supabase
+    let updateQuery = supabase
         .from('teacher_availability')
         .update({ is_active: false })
-        .eq('id', slotId)
-        .eq(profile.role !== 'admin' ? 'teacher_id' : 'id', profile.role !== 'admin' ? user.id : slotId);
+        .eq('id', slotId);
 
-    if (error) {
-        return new Response(JSON.stringify({ error: 'Internal server error' }), { status: 500 });
+    if (profile.role !== 'admin') {
+        updateQuery = updateQuery.eq('teacher_id', user.id);
     }
 
-    return new Response(JSON.stringify({ success: true }), { status: 200 });
+    const { data, error } = await updateQuery
+        .select('id')
+        .maybeSingle();
+
+    if (error) {
+        if (error.code === '23514' || error.message?.includes('bookable_slot')) {
+            return json({ error: 'Pause or retire the published places before removing this availability' }, 409);
+        }
+        return json({ error: 'Internal server error' }, 500);
+    }
+
+    if (!data) return json({ error: 'Availability not found' }, 404);
+
+    return json({ success: true });
 };
