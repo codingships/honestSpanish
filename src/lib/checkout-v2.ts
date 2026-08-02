@@ -25,6 +25,15 @@ import type { Database } from '../types/database.types';
 import { recordAcquisitionAttributionSafe } from './crm/acquisition-attribution';
 
 type CheckoutContext = Parameters<APIRoute>[0];
+type CheckoutAccess =
+    | { kind: 'global' }
+    | {
+        email: string;
+        kind: 'staging-e2e';
+        runId: string;
+        slotPublicId: string;
+        studentId: string;
+    };
 type CheckoutIntent = Database['public']['Tables']['checkout_intents']['Row'];
 type BookableSlotHold = Database['public']['Tables']['bookable_slot_holds']['Row'];
 type BookableSlot = Pick<
@@ -177,6 +186,7 @@ function checkoutSessionMatchesV2(input: {
     firstClassAt: string;
     renewalAnchorAt: string;
     legalPolicyVersion: string;
+    stagingE2ERunId?: string;
 }): boolean {
     const { session } = input;
     const lineItems = session.line_items?.data ?? [];
@@ -217,7 +227,11 @@ function checkoutSessionMatchesV2(input: {
         && session.metadata.recurringPriceId === input.recurringPriceId
         && session.metadata.firstClassAt === input.firstClassAt
         && session.metadata.renewalAnchorAt === input.renewalAnchorAt
-        && session.metadata.legalPolicyVersion === input.legalPolicyVersion;
+        && session.metadata.legalPolicyVersion === input.legalPolicyVersion
+        && (
+            input.stagingE2ERunId === undefined
+            || session.metadata.stagingE2ERunId === input.stagingE2ERunId
+        );
 }
 
 async function listCheckoutSessionsForIntent(input: {
@@ -574,7 +588,10 @@ async function loadCheckoutV2Offer(
     return { slot, packageRow, packagePrice, priceSnapshot };
 }
 
-export async function handleCheckoutV2(context: CheckoutContext): Promise<Response> {
+export async function handleCheckoutV2(
+    context: CheckoutContext,
+    access: CheckoutAccess = { kind: 'global' },
+): Promise<Response> {
     try {
         const supabase = createSupabaseServerClient(context);
         const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -586,6 +603,13 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             );
         }
         if (!user || authError) return jsonResponse({ error: 'Unauthorized' }, 401);
+        if (access.kind === 'staging-e2e' && user.id !== access.studentId) {
+            return checkoutErrorResponse(
+                'This staging checkout grant belongs to another account',
+                'ACCOUNT_NOT_ELIGIBLE',
+                403,
+            );
+        }
 
         const body = await context.request.json() as CheckoutV2Request;
         const lang = normalizeCheckoutLang(body.lang);
@@ -602,10 +626,26 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             return jsonResponse({ error: 'A valid slotPublicId is required' }, 400);
         }
         const slotPublicId = body.slotPublicId;
+        if (access.kind === 'staging-e2e' && slotPublicId !== access.slotPublicId) {
+            return checkoutErrorResponse(
+                'This staging checkout grant belongs to another slot',
+                'SLOT_UNAVAILABLE',
+            );
+        }
 
         if (!user.email || !user.email_confirmed_at) {
             return checkoutErrorResponse(
                 'A confirmed email is required before payment',
+                'ACCOUNT_NOT_ELIGIBLE',
+                403,
+            );
+        }
+        if (
+            access.kind === 'staging-e2e'
+            && user.email.trim().toLowerCase() !== access.email
+        ) {
+            return checkoutErrorResponse(
+                'This staging checkout grant belongs to another account',
                 'ACCOUNT_NOT_ELIGIBLE',
                 403,
             );
@@ -629,15 +669,17 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
         if (!clientAddress) {
             return jsonResponse({ error: 'Checkout verification is temporarily unavailable' }, 503);
         }
-        const turnstile = await verifyCheckoutTurnstile({
-            token: body['cf-turnstile-response'],
-            clientAddress,
-            context,
-        });
-        if (!turnstile.ok) {
-            return turnstile.reason === 'invalid'
-                ? jsonResponse({ error: 'Checkout verification failed' }, 400)
-                : jsonResponse({ error: 'Checkout verification is temporarily unavailable' }, 503);
+        if (access.kind === 'global') {
+            const turnstile = await verifyCheckoutTurnstile({
+                token: body['cf-turnstile-response'],
+                clientAddress,
+                context,
+            });
+            if (!turnstile.ok) {
+                return turnstile.reason === 'invalid'
+                    ? jsonResponse({ error: 'Checkout verification failed' }, 400)
+                    : jsonResponse({ error: 'Checkout verification is temporarily unavailable' }, 503);
+            }
         }
         const holdFingerprint = await createCheckoutHoldFingerprint({
             clientAddress,
@@ -863,6 +905,9 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                 withdrawalLossAcknowledged: 'true',
                 withdrawalLossAcknowledgedAt: policyAcceptedAt,
                 legalPolicyVersion: checkoutIntent.legal_policy_version,
+                ...(access.kind === 'staging-e2e'
+                    ? { stagingE2ERunId: access.runId }
+                    : {}),
             };
             const matchInput = {
                 runtimeLivemode: runtime.livemode,
@@ -878,6 +923,9 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                 firstClassAt: slot.first_occurrence_at,
                 renewalAnchorAt: anchor.iso,
                 legalPolicyVersion: CHECKOUT_TERMS_VERSION,
+                ...(access.kind === 'staging-e2e'
+                    ? { stagingE2ERunId: access.runId }
+                    : {}),
             };
 
             let existingSession: Stripe.Checkout.Session | null = null;

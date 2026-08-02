@@ -31,6 +31,7 @@ const runtimeEnvMock = vi.hoisted(() => ({
 }));
 const turnstileFetchMock = vi.hoisted(() => vi.fn());
 const attributionMock = vi.hoisted(() => ({ recordAcquisitionAttributionSafe: vi.fn() }));
+const stagingGrantMock = vi.hoisted(() => ({ readStagingE2ECheckoutGrant: vi.fn() }));
 
 vi.mock('../../src/lib/stripe', () => ({ stripe: stripeMock }));
 vi.mock('../../src/lib/profiles-private', () => privateProfileMock);
@@ -40,6 +41,7 @@ vi.mock('../../src/lib/site-url', () => ({ getSiteUrl: vi.fn(() => 'https://stag
 vi.mock('../../src/lib/supabase-server', () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock('../../src/lib/supabase-admin', () => ({ createSupabaseAdminClient: vi.fn() }));
 vi.mock('../../src/lib/crm/acquisition-attribution', () => attributionMock);
+vi.mock('../../src/lib/staging-e2e-checkout', () => stagingGrantMock);
 
 const slotPublicId = '10000000-0000-4000-8000-000000000001';
 const slotId = '20000000-0000-4000-8000-000000000001';
@@ -49,6 +51,8 @@ const checkoutIntentId = '50000000-0000-4000-8000-000000000001';
 const opportunityId = '60000000-0000-4000-8000-000000000001';
 const firstClassAt = '2099-08-01T16:00:00.000Z';
 const renewalAnchorAt = '2099-08-29T16:00:00.000Z';
+const stagingE2ERunId = 'journey-v2-20990701';
+const stagingE2EStudentEmail = 'delivered+hs-stg-student-1@resend.dev';
 
 const slot = {
     id: slotId,
@@ -273,6 +277,27 @@ function context(body: Record<string, unknown>) {
     };
 }
 
+function enablePrivateStagingCheckoutGrant() {
+    runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string): string | undefined => {
+        if (key === 'CHECKOUT_ENABLED') return 'false';
+        if (key === 'PUBLIC_APP_ENV') return 'staging';
+        if (key === 'PUBLIC_SITE_URL') return 'https://staging.example.test';
+        if (key === 'PUBLIC_TURNSTILE_SITE_KEY') return 'real-staging-site-key';
+        if (key === 'TURNSTILE_SECRET_KEY') return 'turnstile-test-secret';
+        if (key === 'CHECKOUT_HOLD_FINGERPRINT_SECRET') return '0123456789abcdef0123456789abcdef';
+        if (key === 'STRIPE_EXPECTED_ACCOUNT_ID') return 'acct_test';
+        if (key === 'STRIPE_SECRET_KEY') return 'sk_test_example';
+        return undefined;
+    });
+    stagingGrantMock.readStagingE2ECheckoutGrant.mockResolvedValue({
+        email: stagingE2EStudentEmail,
+        exp: Math.floor(Date.parse('2099-07-01T12:30:00.000Z') / 1_000),
+        runId: stagingE2ERunId,
+        slotPublicId,
+        studentId: 'student-1',
+    });
+}
+
 async function installClients(server: unknown, admin: unknown) {
     const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
     const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
@@ -327,6 +352,7 @@ describe('Checkout contract v2', () => {
         });
         stripeMock.checkout.sessions.list.mockResolvedValue({ data: [], has_more: false });
         stripeMock.checkout.sessions.create.mockImplementation(async (params) => createdSession(params));
+        stagingGrantMock.readStagingE2ECheckoutGrant.mockResolvedValue(null);
     });
 
     afterEach(() => {
@@ -490,6 +516,116 @@ describe('Checkout contract v2', () => {
                 }),
             }),
         }), { idempotencyKey: `checkout-intent:${checkoutIntentId}` });
+    });
+
+    it('binds an authorized staging E2E run to both Checkout and subscription metadata', async () => {
+        enablePrivateStagingCheckoutGrant();
+        const { server, admin } = makeClients();
+        server.auth.getUser.mockResolvedValue({
+            data: {
+                user: {
+                    id: 'student-1',
+                    email: stagingE2EStudentEmail,
+                    email_confirmed_at: '2026-08-01T10:00:00Z',
+                },
+            },
+            error: null,
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId, lang: 'en' }) as any);
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({ url: 'https://checkout.stripe.test/v2' });
+        expect(turnstileFetchMock).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).toHaveBeenCalledWith(
+            expect.objectContaining({
+                metadata: expect.objectContaining({
+                    stagingE2ERunId,
+                    slotPublicId,
+                    userId: 'student-1',
+                }),
+                subscription_data: expect.objectContaining({
+                    metadata: expect.objectContaining({
+                        stagingE2ERunId,
+                        slotPublicId,
+                        userId: 'student-1',
+                    }),
+                }),
+            }),
+            { idempotencyKey: `checkout-intent:${checkoutIntentId}` },
+        );
+    });
+
+    it('rejects a recovered Checkout Session issued for another staging E2E run', async () => {
+        enablePrivateStagingCheckoutGrant();
+        const recoveredIntent = {
+            ...checkoutIntent,
+            stripe_checkout_session_id: 'cs_staging_e2e_existing',
+            stripe_customer_id: 'cus_v2',
+        };
+        const recoveredSession = createdSession({
+            customer: 'cus_v2',
+            client_reference_id: 'student-1',
+            line_items: [
+                { price: 'price_initial_259', quantity: 1 },
+                { price: 'price_recurring_28d', quantity: 1 },
+            ],
+            metadata: {
+                contractSchemaVersion: '2',
+                userId: 'student-1',
+                packageId,
+                packagePriceId,
+                crmOpportunityId: opportunityId,
+                checkoutIntentId,
+                slotPublicId,
+                initialPriceId: 'price_initial_259',
+                recurringPriceId: 'price_recurring_28d',
+                firstClassAt,
+                renewalAnchorAt,
+                legalPolicyVersion: CHECKOUT_TERMS_VERSION,
+                stagingE2ERunId: 'another-journey-20990701',
+            },
+        }, { id: recoveredIntent.stripe_checkout_session_id });
+        stripeMock.checkout.sessions.retrieve.mockResolvedValue(recoveredSession);
+
+        const { server, admin } = makeClients();
+        server.auth.getUser.mockResolvedValue({
+            data: {
+                user: {
+                    id: 'student-1',
+                    email: stagingE2EStudentEmail,
+                    email_confirmed_at: '2026-08-01T10:00:00Z',
+                },
+            },
+            error: null,
+        });
+        admin.rpc.mockImplementation(async (name: string) => {
+            if (name === 'claim_direct_checkout_intent_for_slot') {
+                return { data: recoveredIntent, error: null };
+            }
+            if (name === 'snapshot_checkout_intent_customer') {
+                return { data: recoveredIntent, error: null };
+            }
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId, lang: 'en' }) as any);
+
+        await expectCheckoutError(
+            response,
+            409,
+            'Stored Checkout Session does not match this place',
+            'CHECKOUT_CONFIGURATION_ERROR',
+        );
+        expect(stripeMock.checkout.sessions.retrieve).toHaveBeenCalledWith(
+            recoveredIntent.stripe_checkout_session_id,
+            { expand: ['line_items.data.price'] },
+        );
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });
 
     it('returns a stable code when the authenticated account is not eligible', async () => {
