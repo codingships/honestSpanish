@@ -55,6 +55,9 @@ describe('version-scoped Cloudflare Worker secrets', () => {
         expect(fulfillment.CRON_SECRET).toBe('value-for-CRON_SECRET');
         expect(fulfillment.SUPPORT_ALERT_EMAIL).toBe('value-for-SUPPORT_ALERT_EMAIL');
         expect(web.STRIPE_SECRET_KEY).toBe('value-for-STRIPE_SECRET_KEY');
+        expect(web.TEST_ADMIN_EMAIL).toBe('value-for-TEST_ADMIN_EMAIL');
+        expect(web.TEST_STUDENT_EMAIL).toBe('value-for-TEST_STUDENT_EMAIL');
+        expect(web.TEST_TEACHER_EMAIL).toBe('value-for-TEST_TEACHER_EMAIL');
         expect(web.CHECKOUT_HOLD_FINGERPRINT_SECRET)
             .toBe('value-for-CHECKOUT_HOLD_FINGERPRINT_SECRET');
         expect(fulfillment.CHECKOUT_HOLD_FINGERPRINT_SECRET).toBeUndefined();
