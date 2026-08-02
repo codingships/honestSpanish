@@ -2452,6 +2452,12 @@ export type Database = {
           cancelled_by: string | null;
           checkout_v2_cycle_id: string | null;
           checkout_v2_cycle_session_index: number | null;
+          checkout_v2_replacement_actor_id: string | null;
+          checkout_v2_replacement_credit_adjustment_id: string | null;
+          checkout_v2_replacement_reason: string | null;
+          checkout_v2_replacement_request_id: string | null;
+          checkout_v2_replacement_source_kind: string | null;
+          checkout_v2_replaces_session_id: string | null;
           completed_at: string | null;
           created_at: string | null;
           drive_doc_id: string | null;
@@ -2477,6 +2483,12 @@ export type Database = {
           cancelled_by?: string | null;
           checkout_v2_cycle_id?: string | null;
           checkout_v2_cycle_session_index?: number | null;
+          checkout_v2_replacement_actor_id?: string | null;
+          checkout_v2_replacement_credit_adjustment_id?: string | null;
+          checkout_v2_replacement_reason?: string | null;
+          checkout_v2_replacement_request_id?: string | null;
+          checkout_v2_replacement_source_kind?: string | null;
+          checkout_v2_replaces_session_id?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
           drive_doc_id?: string | null;
@@ -2502,6 +2514,12 @@ export type Database = {
           cancelled_by?: string | null;
           checkout_v2_cycle_id?: string | null;
           checkout_v2_cycle_session_index?: number | null;
+          checkout_v2_replacement_actor_id?: string | null;
+          checkout_v2_replacement_credit_adjustment_id?: string | null;
+          checkout_v2_replacement_reason?: string | null;
+          checkout_v2_replacement_request_id?: string | null;
+          checkout_v2_replacement_source_kind?: string | null;
+          checkout_v2_replaces_session_id?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
           drive_doc_id?: string | null;
@@ -2533,6 +2551,27 @@ export type Database = {
             columns: ["checkout_v2_cycle_id"];
             isOneToOne: false;
             referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_checkout_v2_replacement_actor_id_fkey";
+            columns: ["checkout_v2_replacement_actor_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_checkout_v2_replacement_credit_adjustment_id_fkey";
+            columns: ["checkout_v2_replacement_credit_adjustment_id"];
+            isOneToOne: true;
+            referencedRelation: "checkout_v2_session_credit_adjustments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_checkout_v2_replaces_session_id_fkey";
+            columns: ["checkout_v2_replaces_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
             referencedColumns: ["id"];
           },
           {

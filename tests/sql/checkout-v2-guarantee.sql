@@ -206,6 +206,73 @@ INSERT INTO public.sessions (
         '77800000-0000-4000-8000-000000000001', 4
     );
 
+UPDATE public.sessions
+SET
+    status = 'cancelled',
+    cancelled_at = CASE checkout_v2_cycle_session_index
+        WHEN 4 THEN scheduled_at - INTERVAL '25 hours'
+        ELSE scheduled_at - INTERVAL '2 hours'
+    END,
+    cancelled_by = CASE checkout_v2_cycle_session_index
+        WHEN 2 THEN teacher_id
+        WHEN 3 THEN '77000000-0000-4000-8000-000000000003'::UUID
+        ELSE student_id
+    END,
+    cancellation_reason = 'replacement lineage fixture'
+WHERE id IN (
+    '77900000-0000-4000-8000-000000000002',
+    '77900000-0000-4000-8000-000000000003',
+    '77900000-0000-4000-8000-000000000004'
+);
+
+INSERT INTO public.sessions (
+    id, subscription_id, student_id, teacher_id, scheduled_at,
+    duration_minutes, status, created_at, checkout_v2_cycle_id,
+    checkout_v2_cycle_session_index, checkout_v2_replaces_session_id,
+    checkout_v2_replacement_request_id, checkout_v2_replacement_actor_id,
+    checkout_v2_replacement_source_kind, checkout_v2_replacement_reason
+) VALUES
+    (
+        '77910000-0000-4000-8000-000000000002',
+        '77600000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000002',
+        :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '7 days',
+        50, 'scheduled', clock_timestamp() + INTERVAL '1 second',
+        '77800000-0000-4000-8000-000000000001', 2,
+        '77900000-0000-4000-8000-000000000002',
+        '77920000-0000-4000-8000-000000000002',
+        '77000000-0000-4000-8000-000000000002',
+        'teacher_cancellation', 'replacement_after_teacher_cancellation'
+    ),
+    (
+        '77910000-0000-4000-8000-000000000003',
+        '77600000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000002',
+        :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '14 days',
+        50, 'scheduled', clock_timestamp() + INTERVAL '1 second',
+        '77800000-0000-4000-8000-000000000001', 3,
+        '77900000-0000-4000-8000-000000000003',
+        '77920000-0000-4000-8000-000000000003',
+        '77000000-0000-4000-8000-000000000003',
+        'admin_cancellation', 'replacement_after_admin_cancellation'
+    ),
+    (
+        '77910000-0000-4000-8000-000000000004',
+        '77600000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000002',
+        :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '21 days',
+        50, 'scheduled', clock_timestamp() + INTERVAL '1 second',
+        '77800000-0000-4000-8000-000000000001', 4,
+        '77900000-0000-4000-8000-000000000004',
+        '77920000-0000-4000-8000-000000000004',
+        '77000000-0000-4000-8000-000000000001',
+        'timely_student_cancellation',
+        'replacement_after_timely_student_cancellation'
+    );
+
 INSERT INTO public.checkout_v2_billing_state (
     subscription_id, first_session_id, first_class_at, renewal_anchor_at,
     stripe_renewal_anchor_at, anchor_state, anchor_revision, anchor_fixed_at
@@ -359,6 +426,25 @@ SELECT (public.prepare_checkout_v2_guarantee(
 SELECT pg_catalog.set_config(
     'app.checkout_v2_guarantee_test_operation_id', :'operation_id', FALSE
 );
+
+DO $$
+DECLARE operation_row public.checkout_v2_guarantee_operations%ROWTYPE;
+BEGIN
+    SELECT * INTO operation_row
+    FROM public.checkout_v2_guarantee_operations
+    WHERE id = current_setting(
+        'app.checkout_v2_guarantee_test_operation_id'
+    )::UUID;
+
+    IF operation_row.second_session_id IS DISTINCT FROM
+            '77910000-0000-4000-8000-000000000002'::UUID
+       OR operation_row.third_session_id IS DISTINCT FROM
+            '77910000-0000-4000-8000-000000000003'::UUID
+       OR operation_row.fourth_session_id IS DISTINCT FROM
+            '77910000-0000-4000-8000-000000000004'::UUID THEN
+        RAISE EXCEPTION 'guarantee_did_not_snapshot_effective_leaves';
+    END IF;
+END $$;
 
 SELECT status
 FROM dblink_get_result('checkout_v2_guarantee_race') AS result(status TEXT);
@@ -548,9 +634,9 @@ BEGIN
             SELECT 1
             FROM public.checkout_v2_session_consumption
             WHERE session_id IN (
-                '77900000-0000-4000-8000-000000000002',
-                '77900000-0000-4000-8000-000000000003',
-                '77900000-0000-4000-8000-000000000004'
+                '77910000-0000-4000-8000-000000000002',
+                '77910000-0000-4000-8000-000000000003',
+                '77910000-0000-4000-8000-000000000004'
             )
               AND (
                   consumption_kind IS DISTINCT FROM 'guarantee_refund_cancellation'
@@ -562,19 +648,32 @@ BEGIN
             SELECT 1
             FROM public.teacher_compensation_ledger
             WHERE session_id IN (
-                '77900000-0000-4000-8000-000000000002',
-                '77900000-0000-4000-8000-000000000003',
-                '77900000-0000-4000-8000-000000000004'
+                '77910000-0000-4000-8000-000000000002',
+                '77910000-0000-4000-8000-000000000003',
+                '77910000-0000-4000-8000-000000000004'
             )
        )
        OR EXISTS (
             SELECT 1
             FROM public.teacher_compensation_session_reconciliation_candidates
             WHERE session_id IN (
+                '77910000-0000-4000-8000-000000000002',
+                '77910000-0000-4000-8000-000000000003',
+                '77910000-0000-4000-8000-000000000004'
+            )
+       )
+       OR EXISTS (
+            SELECT 1 FROM public.sessions
+            WHERE id IN (
                 '77900000-0000-4000-8000-000000000002',
                 '77900000-0000-4000-8000-000000000003',
                 '77900000-0000-4000-8000-000000000004'
             )
+              AND (
+                  status IS DISTINCT FROM 'cancelled'
+                  OR cancellation_reason IS DISTINCT FROM
+                        'replacement lineage fixture'
+              )
        ) THEN
         RAISE EXCEPTION 'durable_guarantee_refund_progress_is_wrong:%',
             pg_catalog.row_to_json(progress);
@@ -663,7 +762,7 @@ DO $$
 BEGIN
     UPDATE public.sessions
     SET cancellation_reason = 'reactivated_elsewhere'
-    WHERE id = '77900000-0000-4000-8000-000000000002';
+    WHERE id = '77910000-0000-4000-8000-000000000002';
     RAISE EXCEPTION 'refunded_session_cancellation_was_rewritten';
 EXCEPTION WHEN serialization_failure THEN
     IF SQLERRM <> 'checkout_v2_guarantee_terminal_state_is_locked' THEN RAISE; END IF;
