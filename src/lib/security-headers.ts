@@ -139,7 +139,13 @@ export function applyHostedSecurityHeaders(
         && /(?:^|,)\s*private(?:\s|,|$)/iu.test(routeCacheControl);
     const routeRequiresNoStore = routeCacheControl !== null
         && /(?:^|,)\s*no-store(?:\s|,|$)/iu.test(routeCacheControl);
-    if (cacheControl && !routeRequiresNoStore) {
-        response.headers.set('Cache-Control', routeIsPrivate ? API_CACHE_CONTROL : cacheControl);
+    if (cacheControl) {
+        const routeForbidsPublicCaching = routeIsPrivate || routeRequiresNoStore;
+        response.headers.set(
+            'Cache-Control',
+            routeForbidsPublicCaching && cacheControl.startsWith('public,')
+                ? API_CACHE_CONTROL
+                : cacheControl,
+        );
     }
 }
