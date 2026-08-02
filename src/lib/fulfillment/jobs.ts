@@ -798,7 +798,7 @@ export async function processDueFulfillmentJobs(options: {
                     processingError.code === 'FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS'
                     || processingError.code === 'FULFILLMENT_EFFECT_IN_PROGRESS'
                 ));
-            const observationDelaySeconds = dependencyPending
+            const observationDelaySeconds = processingError instanceof FulfillmentDependencyPendingError
                 ? processingError.delaySeconds
                 : 30;
             const exhausted = !observationRetry && attempts >= job.max_attempts;
