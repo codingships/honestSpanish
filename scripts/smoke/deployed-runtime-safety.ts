@@ -416,7 +416,7 @@ async function verifyHealth(
     fulfillmentHealthContract: FulfillmentHealthContract = 'current',
 ): Promise<void> {
     const [web, fulfillment] = await Promise.all([
-        fetchImpl(`${STAGING_WEB_ORIGIN}/es`, {
+        fetchImpl(`${STAGING_WEB_ORIGIN}/es/`, {
             headers: { 'Cache-Control': 'no-cache' },
             redirect: 'manual',
             signal: AbortSignal.timeout(15_000),
