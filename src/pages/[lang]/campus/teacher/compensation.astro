@@ -41,7 +41,7 @@ const copy = {
         state: 'Estado',
         paid: 'Pagado',
         closed: 'Pendiente de pago',
-        export: 'Descargar CSV',
+        download: 'Descargar CSV',
         unavailable: 'No se pudieron cargar las liquidaciones.',
     },
     en: {
@@ -54,7 +54,7 @@ const copy = {
         state: 'Status',
         paid: 'Paid',
         closed: 'Awaiting payment',
-        export: 'Download CSV',
+        download: 'Download CSV',
         unavailable: 'Settlements could not be loaded.',
     },
     ru: {
@@ -67,7 +67,7 @@ const copy = {
         state: 'Статус',
         paid: 'Выплачено',
         closed: 'Ожидает выплаты',
-        export: 'Скачать CSV',
+        download: 'Скачать CSV',
         unavailable: 'Не удалось загрузить расчёты.',
     },
 }[lang];
@@ -123,7 +123,7 @@ function money(cents: number | null, currency: string | null): string {
                                         href={`/api/teacher/compensation-export?settlementId=${settlement.id}`}
                                         class="inline-block border-2 border-[#006064] px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA]"
                                     >
-                                        {copy.export}
+                                        {copy.download}
                                     </a>
                                 </td>
                             </tr>
