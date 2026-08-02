@@ -2754,6 +2754,28 @@ describe('POST /api/stripe-webhook', () => {
         );
     });
 
+    it('converges renewal after the first-session no-show already fixed the local V2 anchor', async () => {
+        const v2 = makeCheckoutV2RenewalSupabase(true, false);
+        const invoice = checkoutV2RenewalInvoice();
+        supabaseMocks.createSupabaseAdminClient.mockReturnValue(v2.client);
+        stripeMocks.constructEventAsync.mockResolvedValue(invoiceEvent('invoice.paid', invoice));
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(checkoutV2RenewalStripeSubscription());
+        stripeMocks.invoiceRetrieve.mockResolvedValue(invoice);
+        stripeMocks.invoicePaymentList.mockResolvedValue({
+            data: [{ status: 'paid', payment: { type: 'payment_intent', payment_intent: 'pi_v2_renewal' } }],
+        });
+        const { POST } = await import('../../src/pages/api/stripe-webhook');
+
+        const response = await POST(webhookContext() as any);
+
+        expect(response.status).toBe(200);
+        expect(v2.rpc.mock.calls.map(([name]) => name)).toEqual([
+            'apply_checkout_v2_renewal',
+            'materialize_checkout_v2_cycle_sessions',
+        ]);
+        expect(v2.rpc).not.toHaveBeenCalledWith('fix_checkout_v2_billing_anchor', expect.any(Object));
+    });
+
     it('always materializes a replayed V2 renewal after apply returns false', async () => {
         const v2 = makeCheckoutV2RenewalSupabase(false);
         const invoice = checkoutV2RenewalInvoice();

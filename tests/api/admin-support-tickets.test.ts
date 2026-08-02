@@ -36,8 +36,15 @@ function getContext(query = 'status=open&priority=all&assignee=all&page=1&pageSi
     return { request: { url: `http://localhost:4321/api/admin/support-tickets?${query}` }, cookies: {} };
 }
 
-function postContext(body: Record<string, unknown>) {
-    return { request: { url: 'http://localhost:4321/api/admin/support-tickets', json: vi.fn().mockResolvedValue(body) }, cookies: {} };
+function postContext(body: Record<string, unknown>, origin: string | null = 'http://localhost:4321') {
+    return {
+        request: {
+            url: 'http://localhost:4321/api/admin/support-tickets',
+            headers: { get: vi.fn((name: string) => name === 'Origin' ? origin : null) },
+            json: vi.fn().mockResolvedValue(body),
+        },
+        cookies: {},
+    };
 }
 
 describe('/api/admin/support-tickets', () => {
@@ -45,6 +52,18 @@ describe('/api/admin/support-tickets', () => {
         vi.clearAllMocks();
         crmMocks.record.mockResolvedValue({ status: 'created' });
         emailMocks.send.mockResolvedValue(true);
+    });
+
+    it('rejects cross-origin and originless mutations before auth or privileged access', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        const { POST } = await import('../../src/pages/api/admin/support-tickets');
+        const mutation = { requestId, ticketId, expectedStatus: 'open', expectedUpdatedAt, status: 'triaged' };
+
+        expect((await POST(postContext(mutation, 'https://example.test') as never)).status).toBe(403);
+        expect((await POST(postContext(mutation, null) as never)).status).toBe(403);
+        expect(createSupabaseServerClient).not.toHaveBeenCalled();
+        expect(createSupabaseAdminClient).not.toHaveBeenCalled();
     });
 
     it('rejects a non-admin before constructing the service client', async () => {

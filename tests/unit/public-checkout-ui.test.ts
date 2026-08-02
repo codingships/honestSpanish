@@ -30,7 +30,10 @@ const validSlot = {
 
 describe('public checkout UI contract', () => {
     it('accepts exactly four future weekly occurrences in the declared local schedule', () => {
-        expect(parseBookableSlotsResponse({ slots: [validSlot] }, nowMs)).toEqual([validSlot]);
+        expect(parseBookableSlotsResponse({ slots: [validSlot], checkoutEnabled: false }, nowMs)).toEqual({
+            slots: [validSlot],
+            checkoutEnabled: false,
+        });
     });
 
     it('keeps the weekly local time valid across a daylight-saving transition', () => {
@@ -46,7 +49,10 @@ describe('public checkout UI contract', () => {
             ],
         };
 
-        expect(parseBookableSlotsResponse({ slots: [dstSlot] }, nowMs)).toEqual([dstSlot]);
+        expect(parseBookableSlotsResponse({ slots: [dstSlot], checkoutEnabled: true }, nowMs)).toEqual({
+            slots: [dstSlot],
+            checkoutEnabled: true,
+        });
     });
 
     it.each([
@@ -80,14 +86,19 @@ describe('public checkout UI contract', () => {
             weekday: 2,
         }],
     ])('rejects a %s', (_label, malformedSlot) => {
-        expect(parseBookableSlotsResponse({ slots: [malformedSlot] }, nowMs)).toBeNull();
+        expect(parseBookableSlotsResponse({ slots: [malformedSlot], checkoutEnabled: false }, nowMs)).toBeNull();
     });
 
     it('rejects the complete payload when any occurrence is no longer in the future', () => {
         expect(parseBookableSlotsResponse(
-            { slots: [validSlot] },
+            { slots: [validSlot], checkoutEnabled: false },
             Date.parse(validSlot.occurrences[1]!.startsAt),
         )).toBeNull();
+    });
+
+    it('fails closed when the dynamic checkout gate is absent or malformed', () => {
+        expect(parseBookableSlotsResponse({ slots: [validSlot] }, nowMs)).toBeNull();
+        expect(parseBookableSlotsResponse({ slots: [validSlot], checkoutEnabled: 'true' }, nowMs)).toBeNull();
     });
 
     it('builds only the localized selector return contract', () => {

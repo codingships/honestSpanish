@@ -5,6 +5,7 @@ function createQuery(result: { data: unknown; error: unknown }) {
     const chain: any = {
         select: vi.fn().mockReturnThis(),
         insert: vi.fn().mockReturnThis(),
+        upsert: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         maybeSingle: vi.fn().mockResolvedValue(result),
         single: vi.fn().mockResolvedValue(result),
@@ -72,6 +73,43 @@ describe('recordCrmActivityForProfile', () => {
 
         expect(result.status).toBe('duplicate');
         expect(duplicateQuery.insert).not.toHaveBeenCalled();
+    });
+
+    it('converges an activity by a durable idempotency key', async () => {
+        const contactQuery = createQuery({ data: { id: 'contact-1' }, error: null });
+        const upsertQuery = createQuery({ data: null, error: null });
+        const lookupQuery = createQuery({ data: { id: 'activity-1' }, error: null });
+        const activityQueries = [upsertQuery, lookupQuery];
+        const client = {
+            from: vi.fn((table: string) => {
+                if (table === 'crm_contacts') return contactQuery;
+                if (table === 'crm_activities') return activityQueries.shift();
+                throw new Error(`Unexpected table ${table}`);
+            }),
+        };
+
+        const result = await recordCrmActivityForProfile(client as any, {
+            profileId: 'profile-1',
+            email: 'student@example.com',
+            fullName: 'Student One',
+            activityType: 'class',
+            subject: 'Clase completada',
+            relatedEntityType: 'session_completed',
+            relatedEntityId: 'session-1',
+            idempotencyKey: 'crm:session-outcome:activity:complete:session-1',
+        });
+
+        expect(result).toEqual({ status: 'created', activityId: 'activity-1' });
+        expect(upsertQuery.upsert).toHaveBeenCalledWith(expect.objectContaining({
+            idempotency_key: 'crm:session-outcome:activity:complete:session-1',
+        }), {
+            onConflict: 'idempotency_key',
+            ignoreDuplicates: true,
+        });
+        expect(lookupQuery.eq).toHaveBeenCalledWith(
+            'idempotency_key',
+            'crm:session-outcome:activity:complete:session-1',
+        );
     });
 
     it('skips cleanly when CRM tables are not migrated', async () => {

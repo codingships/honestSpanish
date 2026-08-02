@@ -23,10 +23,14 @@ function packageDescription(lang: 'es' | 'en' | 'ru', pkg: LandingPackage): stri
     }[lang];
 }
 
-function courseNodes(lang: 'es' | 'en' | 'ru', packages: LandingPackage[]) {
+function courseNodes(
+    lang: 'es' | 'en' | 'ru',
+    packages: LandingPackage[],
+    planNames: Record<string, { name?: string }>,
+) {
     return packages.map((pkg) => ({
         '@type': 'Course',
-        name: pkg.display_name[lang] || pkg.display_name.es || pkg.name,
+        name: planNames[pkg.name]?.name || pkg.name,
         description: packageDescription(lang, pkg),
         inLanguage: languageByLang[lang],
         provider: {
@@ -100,7 +104,11 @@ export function buildLandingSchema(
                     },
                 })),
             },
-            ...courseNodes(lang, packages),
+            ...courseNodes(
+                lang,
+                packages,
+                translate('pricing.plans') as Record<string, { name?: string }>,
+            ),
         ],
     };
 }

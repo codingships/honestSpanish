@@ -885,11 +885,28 @@ async function verifyProviderResources(
 
 async function verifyWorkerHealth(env: Record<string, string>, gate: StagingGate): Promise<void> {
     const [site, fulfillment] = await Promise.all([
-        fetchWithTimeout(`${gate.baseOrigin}/es`),
+        fetchWithTimeout(`${gate.baseOrigin}/health`),
         fetchWithTimeout(`${env.FULFILLMENT_WORKER_URL}/health`),
     ]);
     if (!site.ok) throw new Error(`Staging web health returned ${site.status}`);
     if (!fulfillment.ok) throw new Error(`Staging fulfillment health returned ${fulfillment.status}`);
+    const [siteBody, fulfillmentBody] = await Promise.all([site.json(), fulfillment.json()]);
+    if (!siteBody || typeof siteBody !== 'object' || Array.isArray(siteBody)
+        || siteBody.appEnvironment !== 'staging'
+        || siteBody.checkoutEnabled !== false
+        || siteBody.runtimeMode !== 'active'
+        || siteBody.status !== 'ok'
+        || siteBody.workerIdentity !== STAGING_WEB_IDENTITY) {
+        throw new Error('Staging web health returned an invalid readiness contract');
+    }
+    if (!fulfillmentBody || typeof fulfillmentBody !== 'object' || Array.isArray(fulfillmentBody)
+        || fulfillmentBody.appEnvironment !== 'staging'
+        || fulfillmentBody.ok !== true
+        || fulfillmentBody.operationMode !== 'active'
+        || fulfillmentBody.status !== 'ok'
+        || fulfillmentBody.workerIdentity !== STAGING_FULFILLMENT_IDENTITY) {
+        throw new Error('Staging fulfillment health returned an invalid readiness contract');
+    }
 }
 
 function parseAttestationEnvelope(value: unknown): RuntimeAttestationEnvelope {

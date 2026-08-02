@@ -438,6 +438,60 @@ export type Database = {
           },
         ];
       };
+      bookable_slot_admin_operations: {
+        Row: {
+          action: string;
+          admin_id: string;
+          after_snapshot: Json;
+          before_snapshot: Json | null;
+          created_at: string;
+          id: string;
+          normalized_payload: Json;
+          reason: string;
+          request_id: string;
+          slot_id: string;
+        };
+        Insert: {
+          action: string;
+          admin_id: string;
+          after_snapshot: Json;
+          before_snapshot?: Json | null;
+          created_at?: string;
+          id?: string;
+          normalized_payload: Json;
+          reason: string;
+          request_id: string;
+          slot_id: string;
+        };
+        Update: {
+          action?: string;
+          admin_id?: string;
+          after_snapshot?: Json;
+          before_snapshot?: Json | null;
+          created_at?: string;
+          id?: string;
+          normalized_payload?: Json;
+          reason?: string;
+          request_id?: string;
+          slot_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bookable_slot_admin_operations_admin_id_fkey";
+            columns: ["admin_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slot_admin_operations_slot_id_fkey";
+            columns: ["slot_id"];
+            isOneToOne: false;
+            referencedRelation: "bookable_slots";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       bookable_slots: {
         Row: {
           capacity: number;
@@ -1285,6 +1339,7 @@ export type Database = {
           contact_id: string;
           created_at: string | null;
           id: string;
+          idempotency_key: string | null;
           metadata: Json;
           occurred_at: string;
           opportunity_id: string | null;
@@ -1299,6 +1354,7 @@ export type Database = {
           contact_id: string;
           created_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           occurred_at?: string;
           opportunity_id?: string | null;
@@ -1313,6 +1369,7 @@ export type Database = {
           contact_id?: string;
           created_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           occurred_at?: string;
           opportunity_id?: string | null;
@@ -1579,6 +1636,7 @@ export type Database = {
           created_at: string | null;
           due_at: string | null;
           id: string;
+          idempotency_key: string | null;
           metadata: Json;
           opportunity_id: string | null;
           priority: string;
@@ -1596,6 +1654,7 @@ export type Database = {
           created_at?: string | null;
           due_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           opportunity_id?: string | null;
           priority?: string;
@@ -1613,6 +1672,7 @@ export type Database = {
           created_at?: string | null;
           due_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           opportunity_id?: string | null;
           priority?: string;
@@ -2398,6 +2458,12 @@ export type Database = {
           cancelled_by: string | null;
           checkout_v2_cycle_id: string | null;
           checkout_v2_cycle_session_index: number | null;
+          checkout_v2_replacement_actor_id: string | null;
+          checkout_v2_replacement_credit_adjustment_id: string | null;
+          checkout_v2_replacement_reason: string | null;
+          checkout_v2_replacement_request_id: string | null;
+          checkout_v2_replacement_source_kind: string | null;
+          checkout_v2_replaces_session_id: string | null;
           completed_at: string | null;
           created_at: string | null;
           drive_doc_id: string | null;
@@ -2423,6 +2489,12 @@ export type Database = {
           cancelled_by?: string | null;
           checkout_v2_cycle_id?: string | null;
           checkout_v2_cycle_session_index?: number | null;
+          checkout_v2_replacement_actor_id?: string | null;
+          checkout_v2_replacement_credit_adjustment_id?: string | null;
+          checkout_v2_replacement_reason?: string | null;
+          checkout_v2_replacement_request_id?: string | null;
+          checkout_v2_replacement_source_kind?: string | null;
+          checkout_v2_replaces_session_id?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
           drive_doc_id?: string | null;
@@ -2448,6 +2520,12 @@ export type Database = {
           cancelled_by?: string | null;
           checkout_v2_cycle_id?: string | null;
           checkout_v2_cycle_session_index?: number | null;
+          checkout_v2_replacement_actor_id?: string | null;
+          checkout_v2_replacement_credit_adjustment_id?: string | null;
+          checkout_v2_replacement_reason?: string | null;
+          checkout_v2_replacement_request_id?: string | null;
+          checkout_v2_replacement_source_kind?: string | null;
+          checkout_v2_replaces_session_id?: string | null;
           completed_at?: string | null;
           created_at?: string | null;
           drive_doc_id?: string | null;
@@ -2479,6 +2557,27 @@ export type Database = {
             columns: ["checkout_v2_cycle_id"];
             isOneToOne: false;
             referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_checkout_v2_replacement_actor_id_fkey";
+            columns: ["checkout_v2_replacement_actor_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_checkout_v2_replacement_credit_adjustment_id_fkey";
+            columns: ["checkout_v2_replacement_credit_adjustment_id"];
+            isOneToOne: true;
+            referencedRelation: "checkout_v2_session_credit_adjustments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "sessions_checkout_v2_replaces_session_id_fkey";
+            columns: ["checkout_v2_replaces_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
             referencedColumns: ["id"];
           },
           {
@@ -3892,6 +3991,17 @@ export type Database = {
           updated_at: string;
         }[];
       };
+      activate_teacher_profile: {
+        Args: {
+          p_admin_id: string;
+          p_effective_from: string;
+          p_engagement_kind: string;
+          p_profile_id: string;
+          p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       adjust_acquisition_cost_allocation: {
         Args: {
           p_admin_id: string;
@@ -3920,6 +4030,54 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "operational_cost_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      admin_create_bookable_slot: {
+        Args: {
+          p_admin_id: string;
+          p_occurrences: string[];
+          p_package_id: string;
+          p_reason: string;
+          p_request_id: string;
+          p_teacher_id: string;
+          p_timezone_name: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      admin_recover_fulfillment_job: {
+        Args: {
+          p_action: string;
+          p_admin_id: string;
+          p_job_id: string;
+        };
+        Returns: Database["public"]["Tables"]["fulfillment_jobs"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "fulfillment_jobs";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      admin_transition_bookable_slot: {
+        Args: {
+          p_admin_id: string;
+          p_reason: string;
+          p_request_id: string;
+          p_slot_id: string;
+          p_transition: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slots";
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -4841,6 +4999,15 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      refresh_crm_no_show_contact_alarm: {
+        Args: {
+          p_contact_id: string;
+          p_due_at: string;
+          p_occurred_at: string;
+          p_task_id: string;
+        };
+        Returns: boolean;
       };
       release_abandoned_checkout_intent: {
         Args: { p_intent_id: string; p_stripe_customer_id: string };

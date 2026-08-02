@@ -349,7 +349,7 @@ describe('campus adult-account middleware gate', () => {
         expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
         expect(next).toHaveBeenCalledOnce();
         expect(mocks.getUser).not.toHaveBeenCalled();
-        expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+        expect(response.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
     });
 
     it('adds the global robots header to a staging redirect created by the auth gate', async () => {

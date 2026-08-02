@@ -4,6 +4,30 @@ test.use({ bypassCSP: false });
 
 // Component coverage for src/components/LandingPage.astro.
 test.describe('LandingPage', () => {
+    test('serves the public shell when dynamic availability fails', async ({ page }) => {
+        await page.route('**/api/bookable-slots', async (route) => {
+            await route.fulfill({
+                status: 503,
+                contentType: 'application/json',
+                headers: { 'Cache-Control': 'no-store' },
+                body: JSON.stringify({ error: 'Availability is temporarily unavailable' }),
+            });
+        });
+
+        const response = await page.goto('/en');
+        expect(response?.status()).toBe(200);
+        expect(response?.headers()['set-cookie']).toBeUndefined();
+        const planHeading = page
+            .getByRole('region', { name: /plans/i })
+            .getByRole('heading', { name: /4 individual classes/i });
+        await expect(planHeading).toBeVisible();
+
+        await page.getByTestId('select-plan-individual_4x50_28d').click();
+        await expect(page.getByRole('button', { name: /try again/i })).toBeVisible();
+        await expect(page.getByText(/payment remains closed/i)).toHaveCount(0);
+        await expect(planHeading).toBeVisible();
+    });
+
     test('FAQ behaves as an accessible single-open accordion', async ({ page }) => {
         await page.goto('/es');
         await page.locator('#faq').scrollIntoViewIfNeeded();

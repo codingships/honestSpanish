@@ -50,6 +50,16 @@ function jsonResponse(payload: unknown, status = 200): Response {
     return new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
 }
 
+function sameOriginRequest(request: Request): boolean {
+    const origin = request.headers.get('Origin');
+    if (!origin) return false;
+    try {
+        return new URL(origin).origin === new URL(request.url).origin;
+    } catch {
+        return false;
+    }
+}
+
 function normalizeLocale(value: string | null | undefined): 'es' | 'en' | 'ru' {
     return value === 'es' || value === 'ru' ? value : 'en';
 }
@@ -193,6 +203,8 @@ export const GET: APIRoute = async (context) => {
 };
 
 export const POST: APIRoute = async (context) => {
+    if (!sameOriginRequest(context.request)) return jsonResponse({ error: 'Forbidden' }, 403);
+
     const auth = await requireAdmin(context);
     if (auth.error || !auth.user) return auth.error;
 

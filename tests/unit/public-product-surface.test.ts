@@ -45,19 +45,18 @@ describe('public product surface', () => {
 
     it('publishes one target offer while the runtime gate remains authoritative', () => {
         for (const source of [landing, segmentLanding]) {
-            expect(source).toContain("isCheckoutEnabled(Astro) ? 'checkout' : 'unavailable'");
-            expect(source).toContain('checkoutMode={checkoutMode}');
+            expect(source).not.toContain('isCheckoutEnabled(Astro)');
+            expect(source).not.toContain('isLoggedIn');
         }
-        expect(landing).toContain("title: checkoutMode === 'checkout'");
-        expect(landing).toContain('Payment is not yet enabled while final launch checks are completed');
-        expect(segmentLanding).toContain("body: checkoutMode === 'checkout'");
-        expect(segmentLanding).toContain('el pago todavía no está habilitado');
+        expect(landing).toContain("title: 'How purchasing works'");
+        expect(landing).toContain('continue when checkout is enabled');
+        expect(segmentLanding).toContain('La disponibilidad y la apertura del pago se comprueban al consultar las plazas');
         expect(landing).not.toContain('launch gates');
         expect(segmentLanding).not.toContain('gates de lanzamiento');
         expect(landing).not.toContain('while we connect real teacher and schedule inventory');
         expect(segmentLanding).not.toContain('hasta conectar el inventario real');
 
-        expect(pricing).toContain("checkoutMode = 'unavailable'");
+        expect(pricing).toContain("'unknown' | 'open' | 'closed'");
         expect(pricing).not.toContain('stripe_price_1m');
         expect(pricing).not.toContain('stripe_price_3m');
         expect(pricing).not.toContain('stripe_price_6m');
