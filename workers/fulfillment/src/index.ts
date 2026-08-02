@@ -44,6 +44,7 @@ type GoogleEventBoundary = {
 type Handler = (body: JsonObject, env: Env) => Promise<unknown>;
 
 const SCHEDULED_FULFILLMENT_JOB_LIMIT = 5;
+const QUEUED_FULFILLMENT_JOB_LIMIT = 1;
 const FULFILLMENT_WORKER_ID = 'cloudflare-fulfillment-worker';
 const FULFILLMENT_QUEUE_NAMES: Record<FulfillmentEnvironment, string> = {
     staging: 'espanol-honesto-fulfillment-staging-queue',
@@ -739,12 +740,24 @@ async function handleQueue(
         try {
             await quarantineStaleFulfillmentJobs();
             const result = await processDueFulfillmentJobs({
-                limit: message.body.limit,
+                // A welcome job or one class artifact can consume most of the
+                // Free-plan subrequest budget. Never combine durable jobs in
+                // the same Queue invocation.
+                limit: QUEUED_FULFILLMENT_JOB_LIMIT,
                 workerId: `${FULFILLMENT_WORKER_ID}:queue:${message.id}:${message.attempts}`,
             });
             if (result.failed > 0) {
                 message.retry({ delaySeconds: queueRetryDelay(message.attempts) });
                 continue;
+            }
+            if (result.processed === QUEUED_FULFILLMENT_JOB_LIMIT) {
+                if (!env.FULFILLMENT_QUEUE) {
+                    throw new Error('FULFILLMENT_QUEUE_NOT_CONFIGURED');
+                }
+                await env.FULFILLMENT_QUEUE.send({
+                    ...message.body,
+                    requestedAt: new Date().toISOString(),
+                }, { contentType: 'json' });
             }
             message.ack();
         } catch (error) {

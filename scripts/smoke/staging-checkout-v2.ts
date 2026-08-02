@@ -24,6 +24,7 @@ import { completeStripeCheckoutSandbox } from './staging-checkout-v2-browser';
 import {
     parseStagingCheckoutV2Args,
     safeStagingCheckoutV2Summary,
+    stagingBrowserCookies,
     STAGING_CHECKOUT_V2_IDENTITY,
     type StagingCheckoutV2Gate,
     validateStagingCheckoutV2Gate,
@@ -409,7 +410,11 @@ async function createCheckout(state: StagingCheckoutV2RunState): Promise<string>
 async function completeCheckout(checkoutUrl: string, state: StagingCheckoutV2RunState): Promise<void> {
     const browser = await chromium.launch({ headless: true });
     try {
-        const page = await browser.newPage();
+        const context = await browser.newContext();
+        await context.addCookies(stagingBrowserCookies(
+            stringValue(state.studentCookie, 'Student authentication'),
+        ));
+        const page = await context.newPage();
         await completeStripeCheckoutSandbox({
             checkoutUrl,
             page,

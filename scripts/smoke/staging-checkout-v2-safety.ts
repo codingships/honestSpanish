@@ -36,6 +36,36 @@ export type StagingCheckoutV2Gate = {
     mode: StagingCheckoutV2RunnerArgs['mode'];
 };
 
+export type StagingBrowserCookie = {
+    name: string;
+    value: string;
+    url: string;
+};
+
+export function stagingBrowserCookies(cookieHeader: string): StagingBrowserCookie[] {
+    const cookies: StagingBrowserCookie[] = [];
+    const names = new Set<string>();
+
+    for (const segment of cookieHeader.split(';')) {
+        const separator = segment.indexOf('=');
+        const name = separator >= 0 ? segment.slice(0, separator).trim() : '';
+        const value = separator >= 0 ? segment.slice(separator + 1).trim() : '';
+        if (!name || !value || !/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/u.test(name)) {
+            throw new Error('Synthetic staging authentication returned a malformed browser cookie');
+        }
+        if (names.has(name)) {
+            throw new Error('Synthetic staging authentication returned duplicate browser cookies');
+        }
+        names.add(name);
+        cookies.push({ name, value, url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin });
+    }
+
+    if (cookies.length === 0) {
+        throw new Error('Synthetic staging authentication returned no browser cookies');
+    }
+    return cookies;
+}
+
 function optionValue(argv: string[], index: number, option: string): string {
     const value = argv[index + 1];
     if (!value || value.startsWith('--')) throw new Error(`${option} requires a value`);

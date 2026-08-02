@@ -472,7 +472,11 @@ describe('fulfillment jobs', () => {
         const profilesPrivate = await import('../../src/lib/profiles-private');
         const email = await import('../../src/lib/email');
         const crmOnboarding = await import('../../src/lib/crm/onboarding');
-        vi.mocked(profilesPrivate.getPrivateProfile).mockResolvedValue(null as any);
+        vi.mocked(profilesPrivate.getPrivateProfile).mockResolvedValue({
+            current_level: 'b1',
+            drive_folder_id: null,
+            drive_folder_url: null,
+        } as any);
         vi.mocked(google.createStudentFolderStructure).mockResolvedValue({
             rootFolderId: 'drive-folder-1',
             rootFolderLink: 'https://drive.google.com/folder-1',
@@ -495,6 +499,7 @@ describe('fulfillment jobs', () => {
         })).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0 });
 
         expect(google.createStudentFolderStructure).toHaveBeenCalledWith({
+            levels: ['B1'],
             studentName: 'Student One',
             studentEmail: 'student@example.com',
             teacherName: 'Teacher One',

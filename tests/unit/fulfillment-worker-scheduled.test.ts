@@ -73,6 +73,7 @@ function createSupabaseAdmin(sessions: unknown[] = []) {
 const stagingQueueName = 'espanol-honesto-fulfillment-staging-queue';
 const productionQueueName = 'espanol-honesto-fulfillment-production-queue';
 const stagingQueueEnv = {
+    FULFILLMENT_QUEUE: { send: vi.fn().mockResolvedValue(undefined) },
     FULFILLMENT_RUNTIME_MODE: 'active',
     PUBLIC_APP_ENV: 'staging',
     WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
@@ -135,10 +136,19 @@ describe('fulfillment worker scheduled handler', () => {
         await worker.default.queue(batch as never, stagingQueueEnv);
 
         expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
-            limit: 5,
+            limit: 1,
             workerId: 'cloudflare-fulfillment-worker:queue:queue-message-1:1',
         });
         expect(mocks.quarantineStaleFulfillmentJobs).toHaveBeenCalledTimes(1);
+        expect(stagingQueueEnv.FULFILLMENT_QUEUE.send).toHaveBeenCalledWith(
+            expect.objectContaining({
+                environment: 'staging',
+                kind: 'process_due',
+                limit: 5,
+                version: 1,
+            }),
+            { contentType: 'json' },
+        );
         expect(message.ack).toHaveBeenCalledTimes(1);
         expect(message.retry).not.toHaveBeenCalled();
     });
@@ -157,13 +167,14 @@ describe('fulfillment worker scheduled handler', () => {
         const worker = await import('../../workers/fulfillment/src/index');
 
         await worker.default.queue(batch as never, {
+            FULFILLMENT_QUEUE: { send: vi.fn().mockResolvedValue(undefined) },
             FULFILLMENT_RUNTIME_MODE: 'active',
             PUBLIC_APP_ENV: 'production',
             WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
         });
 
         expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
-            limit: 5,
+            limit: 1,
             workerId: 'cloudflare-fulfillment-worker:queue:queue-message-1:1',
         });
         expect(message.ack).toHaveBeenCalledTimes(1);

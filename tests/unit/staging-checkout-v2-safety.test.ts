@@ -5,6 +5,7 @@ import {
     STAGING_CHECKOUT_V2_IDENTITY,
     parseStagingCheckoutV2Args,
     safeStagingCheckoutV2Summary,
+    stagingBrowserCookies,
     validateStagingCheckoutV2Gate,
 } from '../../scripts/smoke/staging-checkout-v2-safety';
 import {
@@ -200,5 +201,22 @@ describe('staging Checkout V2 runner safety', () => {
         expect(safeStagingCheckoutV2Summary(gate)).toContain(
             'external_writes=staging-supabase,stripe-sandbox,staging-web',
         );
+    });
+
+    it('restores the synthetic student session only on the exact staging origin', () => {
+        expect(stagingBrowserCookies('sb-auth-token.0=first==; sb-auth-token.1=second=')).toEqual([
+            {
+                name: 'sb-auth-token.0',
+                value: 'first==',
+                url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
+            },
+            {
+                name: 'sb-auth-token.1',
+                value: 'second=',
+                url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
+            },
+        ]);
+        expect(() => stagingBrowserCookies('malformed')).toThrow('malformed browser cookie');
+        expect(() => stagingBrowserCookies('same=one; same=two')).toThrow('duplicate browser cookies');
     });
 });

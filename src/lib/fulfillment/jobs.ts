@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { createSupabaseAdminClient } from '../supabase-admin';
 import { recordPostPaymentOnboardingSafe } from '../crm/onboarding';
-import { createStudentFolderStructure } from '../google/student-folder';
+import { createStudentFolderStructure, type StudentLevel } from '../google/student-folder';
 import { getPrivateProfile, upsertPrivateProfile } from '../profiles-private';
 import { sendGuaranteeRefundEmail, sendRenewalNoticeEmail, sendWelcomeEmail } from '../email';
 import { getSiteUrl } from '../site-url';
@@ -77,6 +77,19 @@ function isSubscriptionProcessingContention(error: {
     return [error.message, error.details, error.hint]
         .filter((value): value is string => typeof value === 'string')
         .some((value) => value.includes('fulfillment_jobs_one_processing_subscription_idx'));
+}
+
+function normalizedStudentLevel(value: string | null | undefined): StudentLevel {
+    switch (value?.trim().toLowerCase()) {
+        case 'b1': return 'B1';
+        case 'b2': return 'B2';
+        case 'c1':
+        case 'c1+':
+        case 'c1_plus': return 'C1';
+        case 'a1':
+        case 'a2':
+        default: return 'A2';
+    }
 }
 
 function nextRunAt(attempts: number): string {
@@ -336,6 +349,7 @@ async function processWelcomeFulfillment(
         const teacherName = primaryTeacher?.teacher?.full_name || null;
 
         const result = await createStudentFolderStructure({
+            levels: [normalizedStudentLevel(studentPrivate?.current_level)],
             studentName: student.full_name || student.email?.split('@')[0] || 'Estudiante',
             studentEmail: student.email,
             teacherName,

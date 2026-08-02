@@ -13,6 +13,7 @@ export interface CreateStudentFolderOptions {
     studentName: string;
     studentEmail: string;
     teacherName?: string | null;
+    levels?: readonly [StudentLevel, ...StudentLevel[]];
 }
 
 export interface LevelFolderInfo {
@@ -22,21 +23,18 @@ export interface LevelFolderInfo {
     indexDocId: string;
 }
 
+const LEVELS = ['A2', 'B1', 'B2', 'C1'] as const;
+
+export type StudentLevel = typeof LEVELS[number];
+
 export interface StudentFolderResult {
     rootFolderId: string;
     rootFolderLink: string;
-    levels: {
-        A2: LevelFolderInfo;
-        B1: LevelFolderInfo;
-        B2: LevelFolderInfo;
-        C1: LevelFolderInfo;
-    };
+    levels: Partial<Record<StudentLevel, LevelFolderInfo>>;
 }
 
-const LEVELS = ['A2', 'B1', 'B2', 'C1'] as const;
-
 /**
- * Create the complete folder structure for a student with ALL levels
+ * Create the folder structure for a student (all levels by default)
  * 
  * Structure:
  * 📁 [Nombre Estudiante] - [Email]
@@ -61,6 +59,9 @@ export async function createStudentFolderStructure(
     options: CreateStudentFolderOptions
 ): Promise<StudentFolderResult> {
     const { studentName, studentEmail, teacherName } = options;
+    const requestedLevels: readonly StudentLevel[] = options.levels
+        ? [...new Set(options.levels)]
+        : LEVELS;
     const teacherDisplay = teacherName || 'Por asignar';
 
     console.log('[StudentFolder] Creating complete student structure');
@@ -73,10 +74,10 @@ export async function createStudentFolderStructure(
         throw new Error('Failed to create root folder');
     }
 
-    // 2. Create all level folders
-    const levels: Record<string, LevelFolderInfo> = {};
+    // 2. Create the requested level folders (all levels by default)
+    const levels: StudentFolderResult['levels'] = {};
 
-    for (const level of LEVELS) {
+    for (const level of requestedLevels) {
         try {
             console.log(`[StudentFolder] Creating level ${level}`);
 
@@ -113,6 +114,7 @@ export async function createStudentFolderStructure(
             console.log(`[StudentFolder] Level ${level} created successfully`);
         } catch (error) {
             console.error(`[StudentFolder] Error creating level ${level}:`, describeGoogleError(error));
+            if (options.levels) throw error;
             // Continue with other levels even if one fails
         }
     }
@@ -133,7 +135,7 @@ export async function createStudentFolderStructure(
     return {
         rootFolderId: rootFolder.id,
         rootFolderLink,
-        levels: levels as StudentFolderResult['levels'],
+        levels,
     };
 }
 
@@ -155,47 +157,81 @@ async function createIndexDocument(options: CreateIndexDocOptions): Promise<{ id
     // Document title
     const docTitle = `${studentName} / ${teacherName} - Español (${level})`;
 
-    // Create empty document
-    const createResponse = await docsClient.documents.create({
-        requestBody: {
-            title: docTitle,
-        },
-    });
-
-    const docId = createResponse.data.documentId;
-    if (!docId) {
-        throw new Error('Failed to create index document');
-    }
-
-    // Move document to the correct folder
-    await driveClient.files.update({
-        fileId: docId,
-        addParents: parentFolderId,
-        removeParents: 'root',
-        fields: 'id, parents',
-    });
-
-    // Add initial content
     const initialContent = `${studentName} - Español (${level})
 
 Índice de clases
 
 [Las entradas se añadirán automáticamente]
 `;
-
-    await docsClient.documents.batchUpdate({
-        documentId: docId,
-        requestBody: {
-            requests: [
-                {
+    const initializeDocument = async (documentId: string): Promise<void> => {
+        await docsClient.documents.batchUpdate({
+            documentId,
+            requestBody: {
+                requests: [{
                     insertText: {
                         location: { index: 1 },
                         text: initialContent,
                     },
-                },
-            ],
-        },
+                }],
+            },
+        });
+    };
+
+    const escapedTitle = docTitle.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const escapedParentId = parentFolderId.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const existingResponse = await driveClient.files.list({
+        q: `name = '${escapedTitle}' and '${escapedParentId}' in parents and mimeType = 'application/vnd.google-apps.document' and trashed = false`,
+        fields: 'files(id, name)',
+        spaces: 'drive',
+        pageSize: 2,
     });
+    const existingDocuments = existingResponse.data.files ?? [];
+    if (existingDocuments.length > 1 || (existingDocuments.length === 1 && !existingDocuments[0]?.id)) {
+        throw new Error('Ambiguous existing index document');
+    }
+    if (existingDocuments[0]?.id) {
+        const documentId = existingDocuments[0].id;
+        const existingDocument = await docsClient.documents.get({ documentId });
+        const structuralContent = existingDocument.data.body?.content ?? [];
+        const hasUnexpectedStructure = structuralContent.some((element) => (
+            Boolean(element.table)
+            || Boolean(element.tableOfContents)
+            || (element.paragraph?.elements ?? []).some((paragraphElement) => !paragraphElement.textRun)
+        ));
+        const existingText = structuralContent
+            .flatMap((element) => element.paragraph?.elements ?? [])
+            .map((element) => element.textRun?.content ?? '')
+            .join('');
+        const isEmptyDocument = existingText.trim() === '';
+        const hasCanonicalContent = existingText.trimEnd() === initialContent.trimEnd();
+        if (hasUnexpectedStructure || (!isEmptyDocument && !hasCanonicalContent)) {
+            throw new Error('Ambiguous existing index document content');
+        }
+        if (isEmptyDocument) {
+            await initializeDocument(documentId);
+            console.log('[StudentFolder] Initialized existing empty index document');
+        } else {
+            console.log('[StudentFolder] Reusing existing index document');
+        }
+        return { id: documentId };
+    }
+
+    // Create the Google Doc directly in its destination folder.
+    const createResponse = await driveClient.files.create({
+        requestBody: {
+            name: docTitle,
+            mimeType: 'application/vnd.google-apps.document',
+            parents: [parentFolderId],
+        },
+        fields: 'id',
+    });
+
+    const docId = createResponse.data.id;
+    if (!docId) {
+        throw new Error('Failed to create index document');
+    }
+
+    await initializeDocument(docId);
 
     console.log('[StudentFolder] Created index document');
 
