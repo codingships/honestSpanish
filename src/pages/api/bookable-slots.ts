@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { listPublicBookableSlots } from '../../lib/public-bookable-slots';
+import { isCheckoutEnabled } from '../../lib/checkout-enabled';
 import {
     PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL,
     PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS,
@@ -37,9 +38,14 @@ async function publicSlotsBody(): Promise<string> {
     }
 }
 
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async (context) => {
     try {
-        const body = await publicSlotsBody();
+        const slotsBody = await publicSlotsBody();
+        const slots = JSON.parse(slotsBody) as { slots: unknown[] };
+        const body = JSON.stringify({
+            slots: slots.slots,
+            checkoutEnabled: isCheckoutEnabled(context),
+        });
         return new Response(body, { status: 200, headers: successHeaders });
     } catch (error) {
         console.error('Could not list public bookable slots:', error);

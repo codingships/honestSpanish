@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
     appendAcquisitionAttribution,
+    buildAcquisitionContinuityUrl,
     captureAcquisitionAttribution,
+    hasExternalAcquisitionEvidence,
     readAcquisitionAttributionFromSearchParams,
     sanitizeAcquisitionAttribution,
 } from '../../src/lib/acquisition-attribution';
 
 const requestId = '10000000-0000-4000-8000-000000000001';
 const nextRequestId = '20000000-0000-4000-8000-000000000002';
+const finalRequestId = '30000000-0000-4000-8000-000000000003';
 const createRequestId = () => requestId;
 
 describe('acquisition attribution', () => {
@@ -93,6 +96,145 @@ describe('acquisition attribution', () => {
             referrerKind: 'external',
             referrerHost: 'www.google.com',
             entryLanguage: 'en',
+            utmCampaign: 'move_to_spain',
+        });
+    });
+
+    it.each([
+        [{
+            requestId,
+            landingPath: '/en/blog/moving',
+            referrerKind: 'external',
+            referrerHost: 'www.google.com',
+            entryLanguage: 'en',
+        }, true],
+        [{
+            requestId,
+            landingPath: '/en/blog/moving',
+            referrerKind: 'direct',
+            entryLanguage: 'en',
+            utmCampaign: 'move_to_spain',
+        }, true],
+        [{
+            requestId,
+            landingPath: '/en/blog/moving',
+            referrerKind: 'internal',
+            referrerPath: '/en/blog',
+            entryLanguage: 'en',
+        }, false],
+        [{
+            requestId,
+            landingPath: '/en/blog/moving',
+            referrerKind: 'direct',
+            entryLanguage: 'en',
+        }, false],
+        [{
+            requestId: 'invalid',
+            landingPath: '/en/blog/moving',
+            referrerKind: 'external',
+            referrerHost: 'www.google.com',
+            entryLanguage: 'en',
+        }, false],
+    ])('propagates only sanitized external evidence: %o', (attribution, expected) => {
+        expect(hasExternalAcquisitionEvidence(attribution)).toBe(expected);
+    });
+
+    it('builds same-origin CTA continuity without changing the hash or inventing campaign data', () => {
+        const attribution = {
+            requestId,
+            landingPath: '/en/blog/moving',
+            referrerKind: 'external' as const,
+            referrerHost: 'www.google.com',
+            entryLanguage: 'en' as const,
+            utmCampaign: 'move_to_spain',
+        };
+        const result = buildAcquisitionContinuityUrl(
+            '/en/?preferred=one#planes',
+            'https://espanolhonesto.com/en/blog/moving?utm_campaign=move_to_spain',
+            attribution,
+        );
+
+        expect(result).not.toBeNull();
+        const target = new URL(result!);
+        expect(target.origin + target.pathname).toBe('https://espanolhonesto.com/en/');
+        expect(target.hash).toBe('#planes');
+        expect(target.searchParams.get('preferred')).toBe('one');
+        expect(target.searchParams.has('utm_source')).toBe(false);
+        expect(readAcquisitionAttributionFromSearchParams(target.searchParams)).toEqual(attribution);
+    });
+
+    it('does not propagate internal/direct traffic or modify an external destination', () => {
+        const internal = {
+            requestId,
+            landingPath: '/en/blog/moving',
+            referrerKind: 'internal' as const,
+            referrerPath: '/en/blog',
+            entryLanguage: 'en' as const,
+        };
+        const external = {
+            ...internal,
+            referrerKind: 'external' as const,
+            referrerPath: undefined,
+            referrerHost: 'www.google.com',
+        };
+
+        expect(buildAcquisitionContinuityUrl(
+            '/en/#planes',
+            'https://espanolhonesto.com/en/blog/moving',
+            internal,
+        )).toBeNull();
+        expect(buildAcquisitionContinuityUrl(
+            'https://booking.example/path',
+            'https://espanolhonesto.com/en/blog/moving',
+            external,
+        )).toBeNull();
+    });
+
+    it('preserves first-touch evidence through index, article and final CTA hops', () => {
+        const firstTouch = captureAcquisitionAttribution('en', {
+            href: 'https://espanolhonesto.com/en/blog?utm_source=google&utm_campaign=move_to_spain',
+            referrer: 'https://www.google.com/search?q=spanish',
+            requestId: () => requestId,
+        });
+        expect(firstTouch).not.toBeNull();
+
+        const articleHref = buildAcquisitionContinuityUrl(
+            '/en/blog/spanish-for-expats-truth',
+            'https://espanolhonesto.com/en/blog?utm_source=google&utm_campaign=move_to_spain',
+            firstTouch,
+        );
+        expect(articleHref).not.toBeNull();
+
+        const articleTouch = captureAcquisitionAttribution('en', {
+            href: articleHref!,
+            referrer: 'https://espanolhonesto.com/en/blog',
+            requestId: () => nextRequestId,
+        });
+        expect(articleTouch).toMatchObject({
+            requestId: nextRequestId,
+            landingPath: '/en/blog',
+            referrerKind: 'external',
+            referrerHost: 'www.google.com',
+            utmSource: 'google',
+            utmCampaign: 'move_to_spain',
+        });
+
+        const checkoutHref = buildAcquisitionContinuityUrl(
+            '/en/#planes',
+            articleHref!,
+            articleTouch,
+        );
+        expect(checkoutHref).not.toBeNull();
+        expect(captureAcquisitionAttribution('en', {
+            href: checkoutHref!,
+            referrer: 'https://espanolhonesto.com/en/blog/spanish-for-expats-truth',
+            requestId: () => finalRequestId,
+        })).toMatchObject({
+            requestId: finalRequestId,
+            landingPath: '/en/blog',
+            referrerKind: 'external',
+            referrerHost: 'www.google.com',
+            utmSource: 'google',
             utmCampaign: 'move_to_spain',
         });
     });

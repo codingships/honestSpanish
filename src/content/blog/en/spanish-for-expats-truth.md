@@ -1,60 +1,79 @@
 ---
-title: "Spanish for expats: what academies don't tell you"
-description: "After years of teaching expats in Spain, we tell you the truth about learning Spanish while living here."
+title: "Spanish for expats in Spain: a practical guide"
+description: "Turn life in Spain into useful practice with real goals, a sustainable routine and clear criteria for choosing Spanish classes."
 publishedAt: 2025-01-25
+updatedAt: 2026-08-02
+draft: false
 author: alejandro
 category: expatriados
 tags: ["expats", "living in Spain", "immersion"]
-image: "../../../assets/blog/expatriados-espana.png"
-imageAlt: "Expats chatting on a Madrid terrace"
 lang: en
 translationKey: "expats-truth"
+relatedTranslationKeys: ["time-to-fluency", "stuck-at-b1"]
+ctaText: "Turn real-life situations into concrete practice"
+ctaLink: "/"
 ---
 
-"I'll move to Spain and learn the language just by listening to it."
+Moving to Spain creates many opportunities to hear and use Spanish, but living here does not turn every day into a lesson. You may work in English, handle paperwork with help and spend most of your social time in another language. That is not a failure: it simply means that exposure to Spanish and deliberate practice are not the same thing.
 
-If we had a euro for every time we heard this, we could retire to a beach in Cádiz. There is a persistent and dangerous myth: passive immersion. The idea that merely breathing the air of Madrid or Barcelona will infuse you with knowledge of the subjunctive.
+The useful question is not “why haven’t I learned through immersion?”, but **“which situations do I want to handle more independently?”**.
 
-Spoiler: **It doesn't work like that.**
+## Start with the situations you actually face
 
-## The Expat Bubble
+For an adult who lives, works or plans to move to Spain, Spanish may serve very different goals:
 
-We have had students who have lived in Madrid for 10 years and have an A2 level. How is it possible?
-Because it is extremely easy to live in a bubble.
+- Explaining a housing problem and understanding the response.
+- Taking part in an informal conversation with colleagues.
+- Asking for clarification during a medical or administrative appointment.
+- Making a phone call without relying on a complete script.
+- Meeting people and sustaining a conversation when vocabulary is missing.
 
-*   You work in English (tech, multinationals).
-*   Your friends are other expats (meetups, Facebook groups).
-*   You consume Netflix and YouTube in your language.
-*   In downtown restaurants, waiters speak to you in English as soon as they notice your accent.
+Choosing two or three priority situations helps you study the Spanish you need now. It also makes progress easier to observe: you can compare what once required help with what you can now handle independently.
 
-You can go entire weeks without saying more than "the bill, please" and "thank you". That is not immersion, it is long-term tourism.
+This is consistent with the [Council of Europe’s action-oriented approach](https://www.coe.int/en/web/common-european-framework-reference-languages/action-orientation-in-the-classroom), which connects language learning with meaningful tasks and communicative practices beyond the classroom.
 
-## The "Survival" Problem
+## Turn daily life into active practice
 
-When you arrive, you learn the basics to survive: NIE, apartment, internet, supermarket. Once you cover those basic needs, the urgency disappears. You get comfortable.
+You do not need to make every interaction feel like a test. A small, repeatable routine is usually more useful than trying to “speak Spanish all day” without a clear purpose.
 
-And the day comes when:
-*   You get sick and don't know how to explain to the doctor what hurts.
-*   You get a letter from the Tax Agency that you don't understand.
-*   You want to go on a date with a local and the language barrier turns it into an awkward job interview.
+### Before a situation
 
-That's when you realize that **surviving is not living**.
+Prepare three things: what you need to achieve, the sentence you will use to begin and how you will ask someone to repeat or rephrase. For example: “¿Podrías explicármelo de otra manera?”.
 
-## The truth about bureaucracy and real life
+### During the conversation
 
-Traditional academies teach you to talk about your vacations or your family. But the life of an expat in Spain requires different vocabulary.
+Try to complete the task rather than build perfect sentences. If you do not understand, ask a specific follow-up question. If the other person switches languages, you can say that you would prefer to continue in Spanish when the situation allows it.
 
-At **Español Honesto**, we understand that your reality includes:
-*   Arguing an abusive clause in the rental contract.
-*   Understanding why you have been charged twice for electricity.
-*   Knowing what to answer when a taxi driver starts talking to you about politics.
+### Afterwards
 
-We don't teach "academic" Spanish. We teach pragmatic Spanish. Trench Spanish.
+Write down one expression you needed, one that worked and one question. That short note gives you real material to review alone or work on with a teacher.
 
-## How to break the bubble
+## A simple weekly routine
 
-1.  **Provoke uncomfortable situations**: Speak in Spanish even if they answer you in English. Insist. "Please, speak to me in Spanish, I am learning." People will respect it.
-2.  **Get out of the expat circle**: Sign up for activities where there are no "guiris". Pottery classes, hiking, volunteering. There you will force your ear.
-3.  **Study actively**: Living here gives you the laboratory, but you need to study the theory at home. Immersion without study is noise. Study without immersion is dead theory. You need both.
+You can organise practice around one real situation:
 
-Learning Spanish living here is an incredible opportunity, but it is not automatic. It requires intention. It requires effort. And it requires honesty with yourself about how much longer you want to remain a tourist in your own city.
+1. **Choose a task:** a call, a workplace conversation or an everyday errand.
+2. **Prepare the essential language:** opening phrases, specific vocabulary and ways to ask for help.
+3. **Use it outside class:** the conversation can be brief.
+4. **Review what happened:** identify one obstacle and one concrete improvement.
+5. **Repeat with a variation:** change the person, channel or level of difficulty.
+
+Life in Spain then provides the context, while structured practice helps you use it. Neither guarantees a particular result or timetable on its own.
+
+## What to look for in Spanish classes for expats
+
+Before paying, check:
+
+- Whether the format is individual or group-based.
+- How long each class lasts and how many classes the payment includes.
+- Who the teacher will be and when the classes will take place.
+- Whether you can work on situations related to your life and work.
+- Which rules apply to renewals, rescheduling and cancellation.
+
+A clear offer does not need to promise fluency or discredit other options. It should tell you what you are buying and let you decide whether it fits your goal.
+
+## The Español Honesto offer
+
+Español Honesto has one direct offer for adults who live, work or plan to move to Spain: **four individual 50-minute online classes**. You pay €259 when booking and the cycle renews automatically; the next charge is set for 28 days after the first class. Before payment, you see the teacher, weekly time slot, time zone, all four planned dates and the exact next-charge date. If you change the first date through self-service within the permitted window before classes begin, the anchor and all four dates move with it. An exceptional support change outside that window does not move the anchor automatically; it becomes fixed when the first class begins.
+
+The classes let you practise from your current starting point and work on situations relevant to you. We do not promise a particular level within a fixed period.

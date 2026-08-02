@@ -1,8 +1,10 @@
 ---
 import BaseLayout from '../../../layouts/BaseLayout.astro';
+import BlogAttributionContinuity from '../../../components/blog/BlogAttributionContinuity.astro';
 import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
 import { getCollection } from 'astro:content';
-import { getBlogEntrySlug, isPublishedBlogPost } from '../../../lib/blog-routes';
+import { getBlogImagePresentation } from '../../../lib/blog-images';
+import { getBlogCategoryLabel, getBlogEntrySlug, isPublishedBlogPost } from '../../../lib/blog-routes';
 import { isPublicLang } from '../../../lib/public-seo';
 
 export const prerender = true;
@@ -24,6 +26,10 @@ const posts = await getCollection('blog', ({ data }) => {
 }).then((entries) => entries.filter(isPublishedBlogPost));
 
 const sortedPosts = posts.sort((a, b) => b.data.publishedAt.valueOf() - a.data.publishedAt.valueOf());
+const postCards = sortedPosts.map((post) => ({
+    post,
+    image: getBlogImagePresentation(post),
+}));
 
 const blogIndexCta = {
     es: {
@@ -59,6 +65,7 @@ const accessibilityCopy = {
     description={t('meta.description')} 
     lang={lang}
     canonicalPath="/blog"
+    ogImage={`/og/${lang}-blog.png`}
     rssPath={'/' + lang + '/blog/rss.xml'}
 >
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
@@ -71,7 +78,7 @@ const accessibilityCopy = {
         <header class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
             <div class="max-w-6xl mx-auto text-center">
                 <nav aria-label={accessibilityCopy.breadcrumb} class="flex justify-center text-sm font-mono uppercase tracking-wide text-[#006064] mb-8">
-                     <a href={getLocalizedPath('/', lang)} class="hover:underline">{t('common.home')}</a>
+                     <a href={getLocalizedPath('/', lang)} data-preserve-acquisition-attribution class="hover:underline">{t('common.home')}</a>
                      <span aria-hidden="true" class="mx-2">/</span>
                      <span aria-current="page">{t('common.blog')}</span>
                 </nav>
@@ -88,33 +95,32 @@ const accessibilityCopy = {
         <div class="max-w-7xl mx-auto px-6 py-24">
             {sortedPosts.length > 0 ? (
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12">
-                    {sortedPosts.map((post) => (
+                    {postCards.map(({ post, image }, index) => (
                         <article class="flex flex-col group">
-                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} class="block mb-6 overflow-hidden border-2 border-[#006064] rounded-lg aspect-[4/3]">
-                                {post.data.image ? (
-                                    <img
-                                        src={post.data.image.src}
-                                        alt={post.data.imageAlt || post.data.title}
-                                        class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
-                                        width={post.data.image.width}
-                                        height={post.data.image.height}
-                                        loading="lazy"
-                                        decoding="async"
-                                    />
-                                ) : (
-                                    <div class="w-full h-full bg-[#E0F7FA] flex items-center justify-center font-display text-4xl text-[#006064]/20">
-                                        EH
-                                    </div>
-                                )}
+                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} data-preserve-acquisition-attribution aria-label={post.data.title} class="mb-6 block aspect-[1200/630] overflow-hidden rounded-lg border-2 border-[#006064]">
+                                <img
+                                    src={image.src}
+                                    srcset={image.srcSet}
+                                    sizes="(min-width: 1024px) 30vw, (min-width: 768px) 45vw, calc(100vw - 3rem)"
+                                    alt={image.alt}
+                                    class="h-full w-full object-cover transition-transform duration-700 group-hover:scale-105"
+                                    width={image.width}
+                                    height={image.height}
+                                    loading={index === 0 ? 'eager' : 'lazy'}
+                                    decoding="async"
+                                    fetchpriority={index === 0 ? 'high' : undefined}
+                                />
                             </a>
                             
                             <div class="mb-2 flex items-center gap-2 text-xs font-mono uppercase tracking-wide text-[#006064]">
-                                <span class="bg-[#006064]/10 px-2 py-1 rounded">{post.data.category}</span>
+                                <span class="bg-[#006064]/10 px-2 py-1 rounded">
+                                    {getBlogCategoryLabel(lang, post.data.category)}
+                                </span>
                                 <span>•</span>
                                 <span>{new Date(post.data.publishedAt).toLocaleDateString(lang, { year: 'numeric', month: 'long', day: 'numeric' })}</span>
                             </div>
 
-                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} class="group-hover:opacity-70 transition-opacity">
+                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} data-preserve-acquisition-attribution class="group-hover:opacity-70 transition-opacity">
                                 <h2 class="font-display text-2xl mb-3 leading-snug text-[#006064]">
                                     {post.data.title}
                                 </h2>
@@ -124,7 +130,7 @@ const accessibilityCopy = {
                                 {post.data.description}
                             </p>
 
-                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} class="mt-auto inline-flex items-center text-sm font-bold uppercase tracking-wider hover:underline">
+                            <a href={getLocalizedPath(`/blog/${getBlogEntrySlug(post)}`, lang)} data-preserve-acquisition-attribution class="mt-auto inline-flex items-center text-sm font-bold uppercase tracking-wider hover:underline">
                                 {t('common.readMore')} →
                             </a>
                         </article>
@@ -147,12 +153,14 @@ const accessibilityCopy = {
                 <p class="mt-4 text-lg font-bold text-white/85">{blogIndexCta.body}</p>
                 <a
                     href={`/${lang}/#planes`}
+                    data-preserve-acquisition-attribution
                     class="mt-8 inline-block bg-white text-[#006064] px-8 py-4 text-sm font-bold uppercase tracking-widest border-2 border-white hover:bg-[#E0F7FA] transition-all"
                 >
                     {blogIndexCta.button}
                 </a>
                 <a
                     href={`/${lang}/#contacto`}
+                    data-preserve-acquisition-attribution
                     class="ml-0 mt-4 inline-block px-6 py-3 text-sm font-bold uppercase tracking-widest underline underline-offset-4 hover:text-[#E0F7FA] sm:ml-4 sm:mt-8"
                 >
                     {blogIndexCta.contact}
@@ -163,4 +171,5 @@ const accessibilityCopy = {
         </main>
 
     </div>
+    <BlogAttributionContinuity />
 </BaseLayout>

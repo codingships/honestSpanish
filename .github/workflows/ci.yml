@@ -114,6 +114,9 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/provisional-unit-economics.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/checkout-v2-cycle-progress.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/crm-no-show-idempotency.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/fulfillment-recovery-operations.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/admin-teacher-bookable-slot-operations.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/admin-teacher-activation-concurrency.sql
 
       - name: Verify clean canonical schema
         run: |
@@ -127,6 +130,9 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/provisional-unit-economics.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/checkout-v2-cycle-progress.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/crm-no-show-idempotency.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/fulfillment-recovery-operations.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/admin-teacher-bookable-slot-operations.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/admin-teacher-activation-concurrency.sql
 
   build-and-test:
     runs-on: ubuntu-latest

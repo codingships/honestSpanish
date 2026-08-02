@@ -83,6 +83,7 @@ function createLockQuery(result: { data: unknown; error: unknown } = { data: { i
     const query: any = {
         update: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(),
         in: vi.fn().mockReturnThis(),
         select: vi.fn().mockReturnThis(),
         maybeSingle: vi.fn().mockResolvedValue(result),
@@ -1102,6 +1103,43 @@ describe('fulfillment jobs', () => {
         })).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0 });
         expect(sessionFulfillment.fulfillSingleSession).not.toHaveBeenCalled();
         expect(supabaseAdmin.from).toHaveBeenCalledTimes(2);
+        expect(lockChain.eq).toHaveBeenCalledWith('status', 'pending');
+        expect(lockChain.eq).toHaveBeenCalledWith('attempts', 0);
+        expect(lockChain.eq).toHaveBeenCalledWith('updated_at', '2026-01-01T09:00:00.000Z');
+    });
+
+    it('does not overwrite an administrative retry observed after the due-job snapshot', async () => {
+        const staleJob = createJob({
+            status: 'failed',
+            attempts: 4,
+            max_attempts: 5,
+            last_error: 'Provider timeout',
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [staleJob], error: null }),
+        };
+        const lockChain = createLockQuery({ data: null, error: null });
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(lockChain),
+        };
+        const sessionFulfillment = await import('../../src/lib/fulfillment/session-fulfillment');
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'stale-worker',
+        })).resolves.toEqual({ processed: 0, succeeded: 0, failed: 0 });
+
+        expect(lockChain.eq).toHaveBeenCalledWith('status', 'failed');
+        expect(lockChain.eq).toHaveBeenCalledWith('attempts', 4);
+        expect(lockChain.eq).toHaveBeenCalledWith('updated_at', staleJob.updated_at);
+        expect(sessionFulfillment.fulfillSingleSession).not.toHaveBeenCalled();
     });
 
     it('treats the per-subscription processing unique conflict as expected contention', async () => {

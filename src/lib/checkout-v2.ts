@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import type Stripe from 'stripe';
+import { hasVerifiedAdultAccount } from './adult-account';
 import {
     createCheckoutHoldFingerprint,
     normalizeCheckoutClientAddress,
@@ -18,6 +19,7 @@ import { validatedStripeCustomerId } from './stripe-customer';
 import { assertStripePaymentReadiness, assertStripeRuntimeAccount } from './stripe-runtime-guard';
 import { createSupabaseAdminClient } from './supabase-admin';
 import { createSupabaseServerClient } from './supabase-server';
+import { isUnauthenticatedAuthError } from './auth-session';
 import { verifyCheckoutTurnstile } from './turnstile';
 import type { Database } from '../types/database.types';
 import { recordAcquisitionAttributionSafe } from './crm/acquisition-attribution';
@@ -39,6 +41,7 @@ type CheckoutV2Request = {
     slotPublicId?: unknown;
     'cf-turnstile-response'?: unknown;
     lang?: unknown;
+    policyVersion?: unknown;
     adultConfirmed?: unknown;
     termsAccepted?: unknown;
     serviceStartRequested?: unknown;
@@ -55,6 +58,7 @@ export type CheckoutV2ErrorCode =
     | 'HOLD_CONFLICT'
     | 'CHECKOUT_RECONCILING'
     | 'CHECKOUT_IN_PROGRESS'
+    | 'POLICY_VERSION_CHANGED'
     | 'CUSTOMER_CONFIGURATION_ERROR'
     | 'CUSTOMER_BALANCE_CONFLICT'
     | 'CUSTOMER_DISCOUNT_CONFLICT'
@@ -172,6 +176,7 @@ function checkoutSessionMatchesV2(input: {
     recurringPriceId: string;
     firstClassAt: string;
     renewalAnchorAt: string;
+    legalPolicyVersion: string;
 }): boolean {
     const { session } = input;
     const lineItems = session.line_items?.data ?? [];
@@ -211,7 +216,8 @@ function checkoutSessionMatchesV2(input: {
         && session.metadata.initialPriceId === input.initialPriceId
         && session.metadata.recurringPriceId === input.recurringPriceId
         && session.metadata.firstClassAt === input.firstClassAt
-        && session.metadata.renewalAnchorAt === input.renewalAnchorAt;
+        && session.metadata.renewalAnchorAt === input.renewalAnchorAt
+        && session.metadata.legalPolicyVersion === input.legalPolicyVersion;
 }
 
 async function listCheckoutSessionsForIntent(input: {
@@ -570,8 +576,25 @@ async function loadCheckoutV2Offer(
 
 export async function handleCheckoutV2(context: CheckoutContext): Promise<Response> {
     try {
+        const supabase = createSupabaseServerClient(context);
+        const { data: { user }, error: authError } = await supabase.auth.getUser();
+        if (authError && !isUnauthenticatedAuthError(authError)) {
+            return checkoutErrorResponse(
+                'Could not verify the current account',
+                'CHECKOUT_PROVIDER_UNAVAILABLE',
+                503,
+            );
+        }
+        if (!user || authError) return jsonResponse({ error: 'Unauthorized' }, 401);
+
         const body = await context.request.json() as CheckoutV2Request;
         const lang = normalizeCheckoutLang(body.lang);
+        if (body.policyVersion !== CHECKOUT_TERMS_VERSION) {
+            return checkoutErrorResponse(
+                'The displayed checkout terms are no longer current',
+                'POLICY_VERSION_CHANGED',
+            );
+        }
         if (!hasAcceptedCheckoutPolicies(body)) {
             return jsonResponse({ error: 'Adult confirmation and policy acceptance are required' }, 400);
         }
@@ -579,6 +602,28 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
             return jsonResponse({ error: 'A valid slotPublicId is required' }, 400);
         }
         const slotPublicId = body.slotPublicId;
+
+        if (!user.email || !user.email_confirmed_at) {
+            return checkoutErrorResponse(
+                'A confirmed email is required before payment',
+                'ACCOUNT_NOT_ELIGIBLE',
+                403,
+            );
+        }
+
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('id, role, full_name, adult_confirmed, adult_confirmed_at, age_policy_version')
+            .eq('id', user.id)
+            .single();
+        if (profileError || !profile) return jsonResponse({ error: 'Profile not found' }, 404);
+        if (profile.role !== 'student' || !hasVerifiedAdultAccount(profile)) {
+            return checkoutErrorResponse(
+                'Only eligible student accounts can purchase a plan',
+                'ACCOUNT_NOT_ELIGIBLE',
+                403,
+            );
+        }
 
         const clientAddress = readCheckoutClientAddress(context);
         if (!clientAddress) {
@@ -600,31 +645,6 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
         });
         if (!holdFingerprint) {
             return jsonResponse({ error: 'Checkout verification is temporarily unavailable' }, 503);
-        }
-
-        const supabase = createSupabaseServerClient(context);
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return jsonResponse({ error: 'Unauthorized' }, 401);
-        if (!user.email || !user.email_confirmed_at) {
-            return checkoutErrorResponse(
-                'A confirmed email is required before payment',
-                'ACCOUNT_NOT_ELIGIBLE',
-                403,
-            );
-        }
-
-        const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('id, role, full_name')
-            .eq('id', user.id)
-            .single();
-        if (profileError || !profile) return jsonResponse({ error: 'Profile not found' }, 404);
-        if (profile.role !== 'student') {
-            return checkoutErrorResponse(
-                'Only student accounts can purchase a plan',
-                'ACCOUNT_NOT_ELIGIBLE',
-                403,
-            );
         }
 
         const { data: activeSub, error: activeSubError } = await supabase
@@ -733,6 +753,12 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                 return checkoutErrorResponse(
                     'You already have another checkout in progress',
                     'CHECKOUT_IN_PROGRESS',
+                );
+            }
+            if (checkoutIntent.legal_policy_version !== CHECKOUT_TERMS_VERSION) {
+                return checkoutErrorResponse(
+                    'The existing checkout uses an older terms version and requires reconciliation',
+                    'CHECKOUT_RECONCILING',
                 );
             }
             if (!attributionRecorded) {
@@ -851,6 +877,7 @@ export async function handleCheckoutV2(context: CheckoutContext): Promise<Respon
                 recurringPriceId: priceSnapshot.recurring_stripe_price_id,
                 firstClassAt: slot.first_occurrence_at,
                 renewalAnchorAt: anchor.iso,
+                legalPolicyVersion: CHECKOUT_TERMS_VERSION,
             };
 
             let existingSession: Stripe.Checkout.Session | null = null;
