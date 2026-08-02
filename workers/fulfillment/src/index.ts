@@ -757,7 +757,12 @@ async function handleQueue(
                 await env.FULFILLMENT_QUEUE.send({
                     ...message.body,
                     requestedAt: new Date().toISOString(),
-                }, { contentType: 'json' });
+                }, {
+                    contentType: 'json',
+                    ...(result.continuationDelaySeconds === undefined
+                        ? {}
+                        : { delaySeconds: result.continuationDelaySeconds }),
+                });
             }
             message.ack();
         } catch (error) {

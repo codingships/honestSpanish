@@ -681,11 +681,18 @@ function fulfillmentEmailJob(job: FulfillmentJobRow) {
     return { jobId: job.id, leaseOwner: job.locked_by };
 }
 
+export type FulfillmentProcessingResult = {
+    processed: number;
+    succeeded: number;
+    failed: number;
+    continuationDelaySeconds?: number;
+};
+
 export async function processDueFulfillmentJobs(options: {
     limit?: number;
     workerId?: string;
     supabaseAdmin?: SupabaseClient<Database>;
-} = {}) {
+} = {}): Promise<FulfillmentProcessingResult> {
     const supabaseAdmin = options.supabaseAdmin ?? createSupabaseAdminClient();
     const workerId = options.workerId ?? `worker-${crypto.randomUUID()}`;
     const limit = options.limit ?? 10;
@@ -706,6 +713,7 @@ export async function processDueFulfillmentJobs(options: {
     let succeeded = 0;
     let failed = 0;
     let continuations = 0;
+    let queuedContinuationDelaySeconds: number | undefined;
 
     for (const job of jobs ?? []) {
         if (job.attempts >= job.max_attempts) {
@@ -790,6 +798,9 @@ export async function processDueFulfillmentJobs(options: {
                     processingError.code === 'FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS'
                     || processingError.code === 'FULFILLMENT_EFFECT_IN_PROGRESS'
                 ));
+            const observationDelaySeconds = processingError instanceof FulfillmentDependencyPendingError
+                ? processingError.delaySeconds
+                : 30;
             const exhausted = !observationRetry && attempts >= job.max_attempts;
             const { data: failedJob, error: failError } = await supabaseAdmin
                 .from('fulfillment_jobs')
@@ -798,7 +809,11 @@ export async function processDueFulfillmentJobs(options: {
                     status: manualReview || exhausted ? 'failed' : 'pending',
                     run_at: manualReview
                         ? MANUAL_RECONCILIATION_RUN_AT
-                        : exhausted ? MANUAL_RECONCILIATION_RUN_AT : nextRunAt(attempts),
+                        : exhausted
+                            ? MANUAL_RECONCILIATION_RUN_AT
+                            : observationRetry
+                                ? new Date(Date.now() + observationDelaySeconds * 1_000).toISOString()
+                                : nextRunAt(attempts),
                     locked_at: null,
                     locked_by: null,
                     last_error: message,
@@ -824,6 +839,12 @@ export async function processDueFulfillmentJobs(options: {
                 // message must advance the next phase without consuming the
                 // delivery retry budget of the current message.
                 continuations += 1;
+                if (observationRetry) {
+                    queuedContinuationDelaySeconds = Math.max(
+                        queuedContinuationDelaySeconds ?? 0,
+                        observationDelaySeconds,
+                    );
+                }
             } else {
                 failed += 1;
             }
@@ -880,6 +901,9 @@ export async function processDueFulfillmentJobs(options: {
         processed: succeeded + failed + continuations,
         succeeded,
         failed,
+        ...(queuedContinuationDelaySeconds === undefined
+            ? {}
+            : { continuationDelaySeconds: queuedContinuationDelaySeconds }),
     };
 }
 

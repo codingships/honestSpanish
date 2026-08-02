@@ -162,13 +162,20 @@ describe('fulfillment worker scheduled handler', () => {
             processed: 1,
             succeeded: 0,
             failed: 0,
+            continuationDelaySeconds: 0,
         });
         const { batch, message } = createQueueBatch({ attempts: 10 });
         const worker = await import('../../workers/fulfillment/src/index');
 
         await worker.default.queue(batch as never, stagingQueueEnv);
 
-        expect(stagingQueueEnv.FULFILLMENT_QUEUE.send).toHaveBeenCalledTimes(1);
+        expect(stagingQueueEnv.FULFILLMENT_QUEUE.send).toHaveBeenCalledWith(
+            expect.objectContaining({
+                environment: 'staging',
+                kind: 'process_due',
+            }),
+            { contentType: 'json', delaySeconds: 0 },
+        );
         expect(message.ack).toHaveBeenCalledTimes(1);
         expect(message.retry).not.toHaveBeenCalled();
     });
