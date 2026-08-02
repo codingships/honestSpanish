@@ -438,6 +438,60 @@ export type Database = {
           },
         ];
       };
+      bookable_slot_admin_operations: {
+        Row: {
+          action: string;
+          admin_id: string;
+          after_snapshot: Json;
+          before_snapshot: Json | null;
+          created_at: string;
+          id: string;
+          normalized_payload: Json;
+          reason: string;
+          request_id: string;
+          slot_id: string;
+        };
+        Insert: {
+          action: string;
+          admin_id: string;
+          after_snapshot: Json;
+          before_snapshot?: Json | null;
+          created_at?: string;
+          id?: string;
+          normalized_payload: Json;
+          reason: string;
+          request_id: string;
+          slot_id: string;
+        };
+        Update: {
+          action?: string;
+          admin_id?: string;
+          after_snapshot?: Json;
+          before_snapshot?: Json | null;
+          created_at?: string;
+          id?: string;
+          normalized_payload?: Json;
+          reason?: string;
+          request_id?: string;
+          slot_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "bookable_slot_admin_operations_admin_id_fkey";
+            columns: ["admin_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "bookable_slot_admin_operations_slot_id_fkey";
+            columns: ["slot_id"];
+            isOneToOne: false;
+            referencedRelation: "bookable_slots";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       bookable_slots: {
         Row: {
           capacity: number;
@@ -3714,6 +3768,17 @@ export type Database = {
       };
     };
     Functions: {
+      activate_teacher_profile: {
+        Args: {
+          p_admin_id: string;
+          p_effective_from: string;
+          p_engagement_kind: string;
+          p_profile_id: string;
+          p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       adjust_acquisition_cost_allocation: {
         Args: {
           p_admin_id: string;
@@ -3742,6 +3807,40 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "operational_cost_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      admin_create_bookable_slot: {
+        Args: {
+          p_admin_id: string;
+          p_occurrences: string[];
+          p_package_id: string;
+          p_reason: string;
+          p_request_id: string;
+          p_teacher_id: string;
+          p_timezone_name: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      admin_transition_bookable_slot: {
+        Args: {
+          p_admin_id: string;
+          p_reason: string;
+          p_request_id: string;
+          p_slot_id: string;
+          p_transition: string;
+        };
+        Returns: Database["public"]["Tables"]["bookable_slots"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "bookable_slots";
           isOneToOne: true;
           isSetofReturn: false;
         };
