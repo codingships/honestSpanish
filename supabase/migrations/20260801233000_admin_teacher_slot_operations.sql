@@ -82,6 +82,90 @@ CREATE TRIGGER guard_managed_profile_role_transition_trigger
     BEFORE UPDATE OF role ON public.profiles
     FOR EACH ROW EXECUTE FUNCTION private.guard_managed_profile_role_transition();
 
+-- Student-dependent rows and profile activation share one transaction lock.
+-- Lock order is always request (when present), student profile, then relation
+-- rows. A writer that wins commits visible student state before activation
+-- checks it; activation that wins makes the later writer fail its role guard.
+CREATE OR REPLACE FUNCTION private.enforce_profile_role_links()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    student_role public.user_role;
+    teacher_role public.user_role;
+BEGIN
+    IF TG_TABLE_NAME = 'student_teachers' THEN
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended(NEW.student_id::TEXT, 58174)
+        );
+        SELECT role INTO student_role
+        FROM public.profiles WHERE id = NEW.student_id;
+        IF student_role IS DISTINCT FROM 'student'::public.user_role THEN
+            RAISE EXCEPTION 'studentId must belong to a student profile'
+                USING ERRCODE = '23514';
+        END IF;
+
+        SELECT role INTO teacher_role
+        FROM public.profiles WHERE id = NEW.teacher_id;
+        IF teacher_role IS DISTINCT FROM 'teacher'::public.user_role THEN
+            RAISE EXCEPTION 'teacherId must belong to a teacher profile'
+                USING ERRCODE = '23514';
+        END IF;
+    ELSIF TG_TABLE_NAME = 'sessions' THEN
+        PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtextextended(NEW.student_id::TEXT, 58174)
+        );
+        SELECT role INTO student_role
+        FROM public.profiles WHERE id = NEW.student_id;
+        IF student_role IS DISTINCT FROM 'student'::public.user_role THEN
+            RAISE EXCEPTION 'studentId must belong to a student profile'
+                USING ERRCODE = '23514';
+        END IF;
+
+        IF NEW.teacher_id IS NOT NULL THEN
+            SELECT role INTO teacher_role
+            FROM public.profiles WHERE id = NEW.teacher_id;
+            IF teacher_role IS DISTINCT FROM 'teacher'::public.user_role THEN
+                RAISE EXCEPTION 'teacherId must belong to a teacher profile'
+                    USING ERRCODE = '23514';
+            END IF;
+        END IF;
+    ELSIF TG_TABLE_NAME IN (
+        'subscriptions', 'payments', 'fulfillment_jobs', 'checkout_intents'
+    ) THEN
+        IF NEW.student_id IS NOT NULL THEN
+            PERFORM pg_catalog.pg_advisory_xact_lock(
+                pg_catalog.hashtextextended(NEW.student_id::TEXT, 58174)
+            );
+            SELECT role INTO student_role
+            FROM public.profiles WHERE id = NEW.student_id;
+            IF student_role IS DISTINCT FROM 'student'::public.user_role THEN
+                RAISE EXCEPTION 'studentId must belong to a student profile'
+                    USING ERRCODE = '23514';
+            END IF;
+        END IF;
+    ELSIF TG_TABLE_NAME = 'teacher_availability' THEN
+        SELECT role INTO teacher_role
+        FROM public.profiles WHERE id = NEW.teacher_id;
+        IF teacher_role IS DISTINCT FROM 'teacher'::public.user_role THEN
+            RAISE EXCEPTION 'teacherId must belong to a teacher profile'
+                USING ERRCODE = '23514';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION private.enforce_profile_role_links()
+    FROM PUBLIC, anon, authenticated, service_role;
+
+CREATE TRIGGER enforce_checkout_intent_student_role
+    BEFORE INSERT OR UPDATE OF student_id ON public.checkout_intents
+    FOR EACH ROW EXECUTE FUNCTION private.enforce_profile_role_links();
+
 CREATE OR REPLACE FUNCTION public.activate_teacher_profile(
     p_request_id UUID,
     p_profile_id UUID,
@@ -127,6 +211,9 @@ BEGIN
 
     PERFORM pg_catalog.pg_advisory_xact_lock(
         pg_catalog.hashtextextended(p_request_id::TEXT, 58171)
+    );
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended(p_profile_id::TEXT, 58174)
     );
 
     IF NOT EXISTS (

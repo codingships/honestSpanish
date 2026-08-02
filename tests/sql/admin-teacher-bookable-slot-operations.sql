@@ -53,9 +53,12 @@ DO $$
 DECLARE
     slot_guard_definition TEXT;
     availability_guard_definition TEXT;
+    profile_link_guard_definition TEXT;
+    activation_definition TEXT;
     early_lock_trigger_name TEXT;
     contract_trigger_name TEXT;
     slot_guard_trigger_count INTEGER;
+    student_dependency_trigger_count INTEGER;
 BEGIN
     IF has_function_privilege(
         'anon',
@@ -103,6 +106,27 @@ BEGIN
     SELECT pg_catalog.pg_get_functiondef(
         'private.guard_availability_covering_bookable_slots()'::regprocedure
     ) INTO availability_guard_definition;
+    SELECT pg_catalog.pg_get_functiondef(
+        'private.enforce_profile_role_links()'::regprocedure
+    ) INTO profile_link_guard_definition;
+    SELECT pg_catalog.pg_get_functiondef(
+        'public.activate_teacher_profile(uuid,uuid,text,timestamptz,uuid,text)'::regprocedure
+    ) INTO activation_definition;
+
+    SELECT COUNT(DISTINCT class_row.relname)
+    INTO student_dependency_trigger_count
+    FROM pg_catalog.pg_trigger AS trigger_row
+    JOIN pg_catalog.pg_class AS class_row ON class_row.oid = trigger_row.tgrelid
+    JOIN pg_catalog.pg_namespace AS namespace_row ON namespace_row.oid = class_row.relnamespace
+    WHERE trigger_row.tgfoid = (
+        'private.enforce_profile_role_links()'::regprocedure
+    )::OID
+      AND NOT trigger_row.tgisinternal
+      AND namespace_row.nspname = 'public'
+      AND class_row.relname IN (
+          'student_teachers', 'sessions', 'subscriptions', 'payments',
+          'fulfillment_jobs', 'checkout_intents'
+      );
 
     SELECT COUNT(*), MIN(trigger_row.tgname)
     INTO slot_guard_trigger_count, early_lock_trigger_name
@@ -145,6 +169,18 @@ BEGIN
            IN availability_guard_definition
        ) = 0 THEN
         RAISE EXCEPTION 'slot publication and availability do not share the teacher lock';
+    END IF;
+
+    IF student_dependency_trigger_count <> 6
+       OR position(
+           'hashtextextended(NEW.student_id::TEXT, 58174)'
+           IN profile_link_guard_definition
+       ) = 0
+       OR position(
+           'hashtextextended(p_profile_id::TEXT, 58174)'
+           IN activation_definition
+       ) = 0 THEN
+        RAISE EXCEPTION 'teacher activation and student dependencies do not share the profile lock';
     END IF;
 END;
 $$;

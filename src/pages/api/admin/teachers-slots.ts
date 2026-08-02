@@ -53,6 +53,10 @@ const actionSchema = z.discriminatedUnion('action', [
 ]);
 
 type DatabaseError = { code?: string; message?: string } | null;
+type PageResult<T> = { data: T[] | null; error: DatabaseError };
+
+const READ_PAGE_SIZE = 200;
+const SLOT_RELATION_BATCH_SIZE = 100;
 
 function json(payload: unknown, status = 200): Response {
     return new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
@@ -124,6 +128,29 @@ function operationalLoadError(scope: string, error: DatabaseError): Response {
     return json({ error: 'No se pudo cargar la administraci\u00f3n de profesores y horarios' }, 500);
 }
 
+async function collectAllPages<T>(
+    fetchPage: (from: number, to: number) => PromiseLike<PageResult<T>>,
+): Promise<PageResult<T>> {
+    const rows: T[] = [];
+
+    for (let from = 0; ; from += READ_PAGE_SIZE) {
+        const page = await fetchPage(from, from + READ_PAGE_SIZE - 1);
+        if (page.error) return { data: null, error: page.error };
+
+        const pageRows = page.data || [];
+        rows.push(...pageRows);
+        if (pageRows.length < READ_PAGE_SIZE) return { data: rows, error: null };
+    }
+}
+
+function batches<T>(values: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let offset = 0; offset < values.length; offset += size) {
+        result.push(values.slice(offset, offset + size));
+    }
+    return result;
+}
+
 async function loadCanonicalPackage(admin: ReturnType<typeof createSupabaseAdminClient>) {
     const packagesResult = await admin
         .from('packages')
@@ -183,59 +210,73 @@ export const GET: APIRoute = async (context) => {
     if (canonical.invalid || !canonical.package || !canonical.price) return canonicalPackageUnavailable();
 
     const [teachersResult, engagementsResult, availabilityResult, slotsResult] = await Promise.all([
-        admin
+        collectAllPages((from, to) => admin
             .from('profiles')
             .select('id, full_name, email')
             .eq('role', 'teacher')
             .order('full_name', { ascending: true })
             .order('id', { ascending: true })
-            .limit(1000),
-        admin
+            .range(from, to)),
+        collectAllPages((from, to) => admin
             .from('teacher_compensation_engagements')
             .select('id, teacher_id, engagement_kind, effective_from')
+            .order('teacher_id', { ascending: true })
             .order('effective_from', { ascending: false })
             .order('id', { ascending: false })
-            .limit(1000),
-        admin
+            .range(from, to)),
+        collectAllPages((from, to) => admin
             .from('teacher_availability')
             .select('id, teacher_id, day_of_week, start_time, end_time')
             .eq('is_active', true)
+            .order('teacher_id', { ascending: true })
             .order('day_of_week', { ascending: true })
             .order('start_time', { ascending: true })
-            .limit(5000),
-        admin
+            .order('id', { ascending: true })
+            .range(from, to)),
+        collectAllPages((from, to) => admin
             .from('bookable_slots')
             .select('id, public_id, teacher_id, status, weekday, local_start_time, timezone_name, first_occurrence_at, published_at, created_at')
             .eq('package_id', canonical.package.id)
             .order('first_occurrence_at', { ascending: true })
             .order('id', { ascending: true })
-            .limit(5000),
+            .range(from, to)),
     ]);
     const failed = [teachersResult, engagementsResult, availabilityResult, slotsResult]
         .find((result) => result.error);
     if (failed?.error) return operationalLoadError('teachers-slots', failed.error);
 
     const slotIds = (slotsResult.data || []).map((slot) => slot.id);
-    const [occurrencesResult, holdsResult] = slotIds.length > 0
-        ? await Promise.all([
+    const occurrenceRows: Array<{
+        slot_id: string;
+        occurrence_index: number;
+        starts_at: string;
+        duration_minutes: number;
+    }> = [];
+    const holdRows: Array<{ slot_id: string }> = [];
+
+    for (const slotIdBatch of batches(slotIds, SLOT_RELATION_BATCH_SIZE)) {
+        const [occurrencesResult, holdsResult] = await Promise.all([
             admin
                 .from('bookable_slot_occurrences')
                 .select('slot_id, occurrence_index, starts_at, duration_minutes')
-                .in('slot_id', slotIds)
+                .in('slot_id', slotIdBatch)
+                .order('slot_id', { ascending: true })
                 .order('occurrence_index', { ascending: true }),
             admin
                 .from('bookable_slot_holds')
                 .select('slot_id')
-                .in('slot_id', slotIds)
+                .in('slot_id', slotIdBatch)
                 .eq('status', 'held'),
-        ])
-        : [{ data: [], error: null }, { data: [], error: null }];
-    if (occurrencesResult.error) return operationalLoadError('slot-occurrences', occurrencesResult.error);
-    if (holdsResult.error) return operationalLoadError('slot-holds', holdsResult.error);
+        ]);
+        if (occurrencesResult.error) return operationalLoadError('slot-occurrences', occurrencesResult.error);
+        if (holdsResult.error) return operationalLoadError('slot-holds', holdsResult.error);
+        occurrenceRows.push(...(occurrencesResult.data || []));
+        holdRows.push(...(holdsResult.data || []));
+    }
 
     type EngagementRow = NonNullable<typeof engagementsResult.data>[number];
     type AvailabilityRow = NonNullable<typeof availabilityResult.data>[number];
-    type OccurrenceRow = NonNullable<typeof occurrencesResult.data>[number];
+    type OccurrenceRow = typeof occurrenceRows[number];
     const currentEngagements = new Map<string, EngagementRow>();
     for (const engagement of engagementsResult.data || []) {
         if (!currentEngagements.has(engagement.teacher_id)) {
@@ -249,12 +290,12 @@ export const GET: APIRoute = async (context) => {
         availabilityByTeacher.set(window.teacher_id, windows);
     }
     const occurrencesBySlot = new Map<string, OccurrenceRow[]>();
-    for (const occurrence of occurrencesResult.data || []) {
+    for (const occurrence of occurrenceRows) {
         const occurrences = occurrencesBySlot.get(occurrence.slot_id) || [];
         occurrences.push(occurrence);
         occurrencesBySlot.set(occurrence.slot_id, occurrences);
     }
-    const liveHoldSlotIds = new Set((holdsResult.data || []).map((hold) => hold.slot_id));
+    const liveHoldSlotIds = new Set(holdRows.map((hold) => hold.slot_id));
 
     const slots = (slotsResult.data || []).map((slot) => ({
         id: slot.id,

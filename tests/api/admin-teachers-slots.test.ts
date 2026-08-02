@@ -42,7 +42,7 @@ function context(body: unknown, origin = 'http://localhost:4321') {
 
 function thenableQuery<T>(data: T) {
     const query: Record<string, unknown> = {};
-    for (const method of ['select', 'eq', 'ilike', 'lte', 'gt', 'in', 'order', 'limit']) {
+    for (const method of ['select', 'eq', 'ilike', 'lte', 'gt', 'in', 'order', 'limit', 'range']) {
         query[method] = vi.fn().mockReturnValue(query);
     }
     query.then = (
@@ -292,6 +292,94 @@ describe('/api/admin/teachers-slots', () => {
         expect(body.slots[0].occurrences).toHaveLength(4);
         expect(queries.get('bookable_slot_holds')?.eq).toHaveBeenCalledWith('status', 'held');
         expect(queries.get('bookable_slot_holds')?.gt).not.toHaveBeenCalled();
+    });
+
+    it('reads every slot across pages and bounds each relation lookup batch', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        const slotRows = Array.from({ length: 205 }, (_, index) => {
+            const id = `71000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`;
+            return {
+                id,
+                public_id: `72000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+                teacher_id: teacherId,
+                status: 'retired',
+                weekday: 1,
+                local_start_time: '10:00:00',
+                timezone_name: 'Europe/Madrid',
+                first_occurrence_at: new Date(Date.parse('2026-08-03T08:00:00.000Z') + index * 86_400_000).toISOString(),
+                published_at: null,
+                created_at: '2026-08-01T09:00:00.000Z',
+            };
+        });
+        const rows: Record<string, Array<Record<string, unknown>>> = {
+            packages: [canonicalPackage],
+            package_prices: [canonicalPrice],
+            profiles: [{ id: teacherId, full_name: 'Irene', email: 'irene@example.com' }],
+            teacher_compensation_engagements: [],
+            teacher_availability: [],
+            bookable_slots: slotRows,
+            bookable_slot_occurrences: slotRows.flatMap((slot) => [1, 2, 3, 4].map((occurrenceIndex) => ({
+                slot_id: slot.id,
+                occurrence_index: occurrenceIndex,
+                starts_at: new Date(Date.parse(slot.first_occurrence_at) + (occurrenceIndex - 1) * 7 * 86_400_000).toISOString(),
+                duration_minutes: 50,
+            }))),
+            bookable_slot_holds: [],
+        };
+        const rangeCalls: Record<string, Array<[number, number]>> = {};
+        const relationBatchSizes: Record<string, number[]> = {};
+        const admin = {
+            from: vi.fn((table: string) => {
+                let from = 0;
+                let to = Number.POSITIVE_INFINITY;
+                let allowedIds: Set<string> | null = null;
+                let limit: number | null = null;
+                const query: Record<string, unknown> = {};
+                for (const method of ['select', 'eq', 'ilike', 'lte', 'gt', 'order']) {
+                    query[method] = vi.fn().mockReturnValue(query);
+                }
+                query.limit = vi.fn((value: number) => {
+                    limit = value;
+                    return query;
+                });
+                query.range = vi.fn((nextFrom: number, nextTo: number) => {
+                    from = nextFrom;
+                    to = nextTo;
+                    (rangeCalls[table] ||= []).push([nextFrom, nextTo]);
+                    return query;
+                });
+                query.in = vi.fn((_column: string, values: string[]) => {
+                    allowedIds = new Set(values);
+                    (relationBatchSizes[table] ||= []).push(values.length);
+                    return query;
+                });
+                query.then = (
+                    resolve: (value: { data: Array<Record<string, unknown>>; error: null }) => unknown,
+                    reject?: (reason: unknown) => unknown,
+                ) => {
+                    let result = rows[table] || [];
+                    if (allowedIds) result = result.filter((row) => allowedIds?.has(String(row.slot_id)));
+                    if (Number.isFinite(to)) result = result.slice(from, to + 1);
+                    if (limit !== null) result = result.slice(0, limit);
+                    return Promise.resolve({ data: result, error: null }).then(resolve, reject);
+                };
+                return query;
+            }),
+        };
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as never);
+        const { GET } = await import('../../src/pages/api/admin/teachers-slots');
+
+        const response = await GET(context({}) as never);
+        const body = await response.json() as { slots: Array<{ occurrences: unknown[] }> };
+
+        expect(response.status).toBe(200);
+        expect(body.slots).toHaveLength(205);
+        expect(body.slots.every((slot) => slot.occurrences.length === 4)).toBe(true);
+        expect(rangeCalls.bookable_slots).toEqual([[0, 199], [200, 399]]);
+        expect(relationBatchSizes.bookable_slot_occurrences).toEqual([100, 100, 5]);
+        expect(relationBatchSizes.bookable_slot_holds).toEqual([100, 100, 5]);
     });
 
     it('maps transition conflicts without exposing the database message', async () => {
