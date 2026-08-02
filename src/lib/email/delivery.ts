@@ -1,3 +1,5 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../../types/database.types';
 import { createSupabaseAdminClient } from '../supabase-admin';
 import { readRuntimeEnv } from '../runtime-env';
 import { getEmailFrom, getResend } from './client';
@@ -46,6 +48,10 @@ export type BudgetedEmail = {
 export type IdempotentBudgetedEmail = Omit<BudgetedEmail, 'to'> & {
     idempotencyKey: string;
     to: string;
+};
+
+export type EmailDeliveryOptions = {
+    supabaseAdmin?: SupabaseClient<Database>;
 };
 
 export type EmailDeliveryPolicy = {
@@ -176,7 +182,10 @@ function classifyProviderErrorAcceptance(error: unknown): 'not_accepted' | 'ambi
     return 'ambiguous';
 }
 
-export async function deliverEmail(input: BudgetedEmail): Promise<EmailDeliveryResult> {
+export async function deliverEmail(
+    input: BudgetedEmail,
+    options: EmailDeliveryOptions = {},
+): Promise<EmailDeliveryResult> {
     const rawRecipients = Array.isArray(input.to) ? input.to : [input.to];
     const recipients = rawRecipients.map(normalizeEmailAddressForDelivery);
     if (recipients.length === 0 || recipients.some((recipient) => !recipient)) {
@@ -197,7 +206,7 @@ export async function deliverEmail(input: BudgetedEmail): Promise<EmailDeliveryR
 
     const source = safeToken(input.source, 'unknown', 80);
     try {
-        const supabaseAdmin = createSupabaseAdminClient();
+        const supabaseAdmin = options.supabaseAdmin ?? createSupabaseAdminClient();
         const { error: budgetError } = await supabaseAdmin.rpc('reserve_email_recipient_budget', {
             p_budget_scope: policy.budgetScope,
             p_recipient_count: normalizedRecipients.length,
@@ -238,6 +247,7 @@ export async function deliverEmail(input: BudgetedEmail): Promise<EmailDeliveryR
  */
 export async function deliverIdempotentEmail(
     input: IdempotentBudgetedEmail,
+    options: EmailDeliveryOptions = {},
 ): Promise<IdempotentEmailDeliveryResult> {
     const recipient = normalizeEmailAddressForDelivery(input.to);
     if (!recipient) {
@@ -263,7 +273,7 @@ export async function deliverIdempotentEmail(
 
     const source = safeToken(input.source, 'unknown', 80);
     try {
-        const supabaseAdmin = createSupabaseAdminClient();
+        const supabaseAdmin = options.supabaseAdmin ?? createSupabaseAdminClient();
         const { error: budgetError } = await supabaseAdmin.rpc('reserve_email_recipient_budget', {
             p_budget_scope: policy.budgetScope,
             p_recipient_count: 1,
