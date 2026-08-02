@@ -70,6 +70,27 @@ function listAdminClient() {
             created_at: '2026-08-01T11:00:00.000Z',
         }]],
         teacher_compensation_work_adjustments: [[]],
+        teacher_compensation_settlement_balances: [[{
+            id: 'settlement-1',
+            teacher_id: 'teacher-1',
+            period_month: '2026-07-01',
+            period_start_at: '2026-06-30T22:00:00.000Z',
+            period_end_at: '2026-07-31T22:00:00.000Z',
+            currency: 'eur',
+            class_amount_cents: 8000,
+            mandatory_work_amount_cents: 1500,
+            adjustment_amount_cents: -250,
+            total_amount_cents: 9250,
+            line_count: 6,
+            close_note: 'Cierre mensual revisado',
+            closed_at: '2026-08-01T09:00:00.000Z',
+            status: 'paid',
+            payment_id: 'payment-1',
+            paid_at: '2026-08-01T10:00:00.000Z',
+            payment_reference: 'transfer-2026-07',
+            invoice_reference: 'invoice-2026-07',
+            payment_note: 'Pago comprobado',
+        }]],
     };
     const relationFilters: Array<{ table: string; column: string; value: unknown }> = [];
     const client = {
@@ -204,6 +225,71 @@ describe('/api/admin/teacher-compensation', () => {
         });
     });
 
+    it('closes settlements and records manual payments with the authenticated admin identity', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        const admin = rpcClient();
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as never);
+        const { POST } = await import('../../src/pages/api/admin/teacher-compensation');
+
+        const close = await POST(context({
+            action: 'close_settlement',
+            requestId: '70000000-0000-4000-8000-000000000011',
+            teacherId: '70000000-0000-4000-8000-000000000002',
+            periodMonth: '2026-07-01',
+            note: 'Cierre mensual revisado',
+            adminId: 'attacker-controlled',
+        }) as never);
+
+        expect(close.status).toBe(200);
+        expect(admin.rpc).toHaveBeenLastCalledWith('close_teacher_compensation_settlement', {
+            p_request_id: '70000000-0000-4000-8000-000000000011',
+            p_teacher_id: '70000000-0000-4000-8000-000000000002',
+            p_period_month: '2026-07-01',
+            p_admin_id: 'admin-1',
+            p_close_note: 'Cierre mensual revisado',
+        });
+
+        const payment = await POST(context({
+            action: 'record_settlement_payment',
+            requestId: '70000000-0000-4000-8000-000000000012',
+            settlementId: '70000000-0000-4000-8000-000000000013',
+            paidAt: '2026-08-01T10:00:00.000Z',
+            paymentReference: 'transfer-2026-07',
+            invoiceReference: '',
+            note: 'Pago manual comprobado',
+            adminId: 'attacker-controlled',
+        }) as never);
+
+        expect(payment.status).toBe(200);
+        expect(admin.rpc).toHaveBeenLastCalledWith('record_teacher_compensation_settlement_payment', {
+            p_request_id: '70000000-0000-4000-8000-000000000012',
+            p_settlement_id: '70000000-0000-4000-8000-000000000013',
+            p_paid_at: '2026-08-01T10:00:00.000Z',
+            p_payment_reference: 'transfer-2026-07',
+            p_invoice_reference: '',
+            p_admin_id: 'admin-1',
+            p_note: 'Pago manual comprobado',
+        });
+
+        const paymentVoid = await POST(context({
+            action: 'void_settlement_payment',
+            requestId: '70000000-0000-4000-8000-000000000014',
+            paymentId: '70000000-0000-4000-8000-000000000015',
+            reason: 'La referencia bancaria era incorrecta',
+            adminId: 'attacker-controlled',
+        }) as never);
+
+        expect(paymentVoid.status).toBe(200);
+        expect(admin.rpc).toHaveBeenLastCalledWith('void_teacher_compensation_settlement_payment', {
+            p_request_id: '70000000-0000-4000-8000-000000000014',
+            p_payment_id: '70000000-0000-4000-8000-000000000015',
+            p_admin_id: 'admin-1',
+            p_reason: 'La referencia bancaria era incorrecta',
+        });
+    });
+
     it('rejects invalid work intervals before creating a privileged client', async () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
@@ -266,6 +352,13 @@ describe('/api/admin/teacher-compensation', () => {
                 adjustedMinutes: number;
                 adjustedAmountCents: number;
             }>;
+            settlements: Array<{
+                id: string;
+                teacherLabel: string;
+                status: string;
+                totalAmountCents: number;
+                paymentReference: string;
+            }>;
         };
 
         expect(response.status).toBe(200);
@@ -278,6 +371,13 @@ describe('/api/admin/teacher-compensation', () => {
             originalAmountCents: 1500,
             adjustedMinutes: 45,
             adjustedAmountCents: 1125,
+        });
+        expect(body.settlements[0]).toMatchObject({
+            id: 'settlement-1',
+            teacherLabel: 'Irene',
+            status: 'paid',
+            totalAmountCents: 9250,
+            paymentReference: 'transfer-2026-07',
         });
         expect(client.from).toHaveBeenCalledWith('teacher_compensation_session_reconciliation_candidates');
         expect(relationFilters).toEqual(expect.arrayContaining([

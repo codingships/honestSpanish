@@ -1,0 +1,136 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+if (!user) return Astro.redirect(`/${lang}/login`);
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('id, email, full_name, role')
+    .eq('id', user.id)
+    .single();
+if (!profile || profile.role !== 'teacher') return Astro.redirect(`/${lang}/campus`);
+
+const admin = createSupabaseAdminClient();
+const { data: settlements, error } = await admin
+    .from('teacher_compensation_settlement_balances')
+    .select(`
+        id, period_month, currency, class_amount_cents,
+        mandatory_work_amount_cents, adjustment_amount_cents,
+        total_amount_cents, line_count, status, closed_at, paid_at,
+        payment_reference, invoice_reference
+    `)
+    .eq('teacher_id', user.id)
+    .order('period_month', { ascending: false })
+    .limit(24);
+
+const copy = {
+    es: {
+        title: 'Mis liquidaciones',
+        intro: 'Períodos cerrados y pagos manuales registrados. Esta vista no sustituye una factura ni inicia transferencias.',
+        empty: 'Todavía no hay liquidaciones cerradas.',
+        period: 'Período',
+        detail: 'Detalle',
+        total: 'Total',
+        state: 'Estado',
+        paid: 'Pagado',
+        closed: 'Pendiente de pago',
+        export: 'Descargar CSV',
+        unavailable: 'No se pudieron cargar las liquidaciones.',
+    },
+    en: {
+        title: 'My settlements',
+        intro: 'Closed periods and recorded manual payments. This view is not an invoice and does not initiate transfers.',
+        empty: 'There are no closed settlements yet.',
+        period: 'Period',
+        detail: 'Breakdown',
+        total: 'Total',
+        state: 'Status',
+        paid: 'Paid',
+        closed: 'Awaiting payment',
+        export: 'Download CSV',
+        unavailable: 'Settlements could not be loaded.',
+    },
+    ru: {
+        title: 'Мои расчёты',
+        intro: 'Закрытые периоды и зарегистрированные ручные выплаты. Эта страница не заменяет счёт и не выполняет переводы.',
+        empty: 'Закрытых расчётных периодов пока нет.',
+        period: 'Период',
+        detail: 'Состав',
+        total: 'Итого',
+        state: 'Статус',
+        paid: 'Выплачено',
+        closed: 'Ожидает выплаты',
+        export: 'Скачать CSV',
+        unavailable: 'Не удалось загрузить расчёты.',
+    },
+}[lang];
+
+function money(cents: number | null, currency: string | null): string {
+    return new Intl.NumberFormat(lang, {
+        style: 'currency',
+        currency: (currency || 'eur').toUpperCase(),
+    }).format((cents || 0) / 100);
+}
+---
+
+<CampusLayout title={copy.title} user={{ ...user, ...profile }} lang={lang}>
+    <div class="space-y-6">
+        <header>
+            <h1 class="font-display text-3xl uppercase text-[#006064]">{copy.title}</h1>
+            <p class="mt-2 max-w-3xl text-sm text-[#006064]/70">{copy.intro}</p>
+        </header>
+
+        {error ? (
+            <p role="alert" class="border-2 border-red-600 bg-red-50 p-4 text-red-800">{copy.unavailable}</p>
+        ) : !settlements?.length ? (
+            <p class="border-2 border-[#006064] bg-white p-5 text-[#006064]">{copy.empty}</p>
+        ) : (
+            <div class="overflow-x-auto border-2 border-[#006064] bg-white">
+                <table class="w-full min-w-[820px] text-sm">
+                    <thead class="bg-[#006064] text-white">
+                        <tr>
+                            <th class="p-3 text-left uppercase">{copy.period}</th>
+                            <th class="p-3 text-left uppercase">{copy.detail}</th>
+                            <th class="p-3 text-right uppercase">{copy.total}</th>
+                            <th class="p-3 text-left uppercase">{copy.state}</th>
+                            <th class="p-3 text-right"><span class="sr-only">CSV</span></th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-[#006064]/20">
+                        {settlements.map((settlement) => (
+                            <tr>
+                                <td class="p-3 font-bold text-[#006064]">{settlement.period_month}</td>
+                                <td class="p-3 text-[#006064]/80">
+                                    {settlement.line_count} · {money(settlement.class_amount_cents, settlement.currency)} + {money(settlement.mandatory_work_amount_cents, settlement.currency)} + {money(settlement.adjustment_amount_cents, settlement.currency)}
+                                </td>
+                                <td class="p-3 text-right font-bold text-[#006064]">{money(settlement.total_amount_cents, settlement.currency)}</td>
+                                <td class="p-3 text-[#006064]">
+                                    <span class={`inline-block px-2 py-1 text-xs font-bold uppercase ${settlement.status === 'paid' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                        {settlement.status === 'paid' ? copy.paid : copy.closed}
+                                    </span>
+                                    {settlement.paid_at && <div class="mt-1 text-xs">{new Date(settlement.paid_at).toLocaleDateString(lang)}</div>}
+                                    {settlement.invoice_reference && <div class="mt-1 font-mono text-xs">{settlement.invoice_reference}</div>}
+                                </td>
+                                <td class="p-3 text-right">
+                                    <a
+                                        href={`/api/teacher/compensation-export?settlementId=${settlement.id}`}
+                                        class="inline-block border-2 border-[#006064] px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA]"
+                                    >
+                                        {copy.export}
+                                    </a>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        )}
+    </div>
+</CampusLayout>

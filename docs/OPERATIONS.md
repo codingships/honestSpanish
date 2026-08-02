@@ -82,7 +82,15 @@ La operación normal es:
 
 Las entradas de remuneración no se editan ni se borran. La formación y las reuniones obligatorias se registran a 25 céntimos por minuto real mediante una petición idempotente. Si hay que corregir sus minutos, se añade una compensación enlazada y el saldo acumulado nunca puede quedar por debajo de cero. No se reconstruye trabajo histórico desde Calendar ni se incluyen preparación ordinaria, marketing, mantenimiento o administración fundadora. Resolver una incidencia de garantía no crea una compensación: la cancelación tardía o el no-show continúan siendo liquidables al profesor aunque cambie el crédito o la elegibilidad del alumno.
 
-El total pendiente es un registro interno de obligaciones, no una orden de pago. Esta operativa no transfiere dinero, no marca obligaciones como pagadas y no sustituye facturas, retenciones ni decisiones fiscales. Cualquier liquidación futura se añadirá como un flujo separado que referencie el ledger sin reescribirlo.
+El total pendiente es un registro interno de obligaciones, no una orden de pago. El flujo de liquidación mensual referencia el ledger sin reescribirlo:
+
+1. Antes de cerrar un mes, reconciliar ciclos, sesiones liquidables y trabajo obligatorio. Los meses se cierran cronológicamente por profesor y según `Europe/Madrid`.
+2. El cierre crea una instantánea inmutable de cada fuente y sus totales. No admite un mes abierto, fuentes anteriores sin liquidar ni obligaciones cuyo resultado todavía no se haya reconciliado.
+3. El profesor o administración puede descargar el CSV del periodo. La factura y la transferencia se realizan fuera de la plataforma.
+4. Después de la transferencia, administración registra fecha real, referencia, factura opcional y nota. Esto documenta el pago completo; no mueve dinero ni admite pagos parciales.
+5. Una marca de pago equivocada se anula mediante otro evento inmutable y auditado; nunca se edita ni borra. La liquidación vuelve a pendiente y puede registrarse de nuevo con la evidencia correcta.
+
+Un ajuste de trabajo pertenece al mes del trabajo original y se rechaza después de cerrar ese mes. Una corrección descubierta tras el cierre requiere una compensación operativa posterior; no se altera la instantánea. Ni el ledger ni la liquidación sustituyen facturas, retenciones, tratamiento fiscal o la comprobación bancaria del pago.
 
 ## Contribución operativa provisional
 
