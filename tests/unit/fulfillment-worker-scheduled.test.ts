@@ -399,6 +399,7 @@ describe('fulfillment worker scheduled handler', () => {
             expect.objectContaining({
                 time: expect.stringMatching(/\b(?:CET|CEST|GMT[+-]\d+)\b/u),
             }),
+            { supabaseAdmin: queueSupabaseAdmin },
         );
     });
 
