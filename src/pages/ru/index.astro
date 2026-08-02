@@ -2,13 +2,14 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import LandingPage from '../../components/LandingPage.astro';
 import { useTranslations } from '../../i18n/utils';
-import { getLandingPageData } from '../../lib/landing-data';
+import { getStaticLandingPackages } from '../../lib/landing-data';
 import { buildLandingSchema } from '../../lib/landing-schema';
 import { serializeJsonForHtml, sha256CspHash } from '../../lib/csp';
 
 const lang = 'ru';
+export const prerender = true;
 const t = useTranslations(lang);
-const { packages, isLoggedIn } = await getLandingPageData(Astro);
+const packages = getStaticLandingPackages();
 const schema = buildLandingSchema(lang, t, packages);
 const schemaJson = serializeJsonForHtml(schema);
 Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
@@ -21,5 +22,5 @@ Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
   canonicalPath="/"
 >
     <script is:inline type="application/ld+json" set:html={schemaJson} />
-    <LandingPage lang={lang} packages={packages} isLoggedIn={isLoggedIn} />
+    <LandingPage lang={lang} packages={packages} />
 </BaseLayout>

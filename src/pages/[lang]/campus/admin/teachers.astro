@@ -1,0 +1,41 @@
+---
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import TeacherSlotManager from '../../../../components/admin/TeacherSlotManager';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const pageTitle = {
+    es: 'Profesores y plazas',
+    en: 'Teachers & bookable places',
+    ru: 'Преподаватели и места',
+}[lang];
+
+const supabase = createSupabaseServerClient(Astro);
+const { data: { user } } = await supabase.auth.getUser();
+
+if (!user) {
+    return Astro.redirect(`/${lang}/login`);
+}
+
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') {
+    return Astro.redirect(`/${lang}/campus`);
+}
+---
+
+<CampusLayout
+    title={pageTitle}
+    user={{ email: user.email, full_name: profile.full_name, role: profile.role }}
+    lang={lang}
+>
+    <div class="mx-auto max-w-7xl">
+        <TeacherSlotManager client:load lang={lang} />
+    </div>
+</CampusLayout>

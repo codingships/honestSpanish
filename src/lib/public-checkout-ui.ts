@@ -121,15 +121,20 @@ function parsePublicBookableSlot(value: unknown, nowMs: number): PublicBookableS
     };
 }
 
-export function parseBookableSlotsResponse(value: unknown, nowMs = Date.now()): PublicBookableSlot[] | null {
-    if (!isRecord(value) || !Array.isArray(value.slots)) return null;
+export interface PublicAvailabilityResponse {
+    slots: PublicBookableSlot[];
+    checkoutEnabled: boolean;
+}
+
+export function parseBookableSlotsResponse(value: unknown, nowMs = Date.now()): PublicAvailabilityResponse | null {
+    if (!isRecord(value) || !Array.isArray(value.slots) || typeof value.checkoutEnabled !== 'boolean') return null;
 
     const parsed = value.slots.map((slot) => parsePublicBookableSlot(slot, nowMs));
     if (parsed.some((slot) => slot === null)) return null;
 
     const slots = parsed as PublicBookableSlot[];
     if (new Set(slots.map((slot) => slot.publicId)).size !== slots.length) return null;
-    return slots;
+    return { slots, checkoutEnabled: value.checkoutEnabled };
 }
 
 export function buildCheckoutLoginUrl(

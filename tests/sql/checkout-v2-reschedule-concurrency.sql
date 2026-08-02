@@ -102,6 +102,34 @@ SELECT
     occurrence
 FROM pg_catalog.generate_series(1, 4) AS occurrence;
 
+UPDATE public.sessions
+SET
+    status = 'cancelled',
+    cancelled_at = scheduled_at - INTERVAL '2 hours',
+    cancelled_by = teacher_id,
+    cancellation_reason = 'replacement lineage fixture'
+WHERE id = '74500000-0000-4000-8000-000000000002';
+
+INSERT INTO public.sessions (
+    id, subscription_id, student_id, teacher_id, scheduled_at,
+    duration_minutes, status, created_at, checkout_v2_cycle_id,
+    checkout_v2_cycle_session_index, checkout_v2_replaces_session_id,
+    checkout_v2_replacement_request_id, checkout_v2_replacement_actor_id,
+    checkout_v2_replacement_source_kind, checkout_v2_replacement_reason
+) VALUES (
+    '74510000-0000-4000-8000-000000000002',
+    '74200000-0000-4000-8000-000000000001',
+    '74000000-0000-4000-8000-000000000001',
+    '74000000-0000-4000-8000-000000000002',
+    TIMESTAMPTZ '2035-01-08 10:00:00+00',
+    50, 'scheduled', clock_timestamp() + INTERVAL '1 second',
+    '74400000-0000-4000-8000-000000000001', 2,
+    '74500000-0000-4000-8000-000000000002',
+    '74520000-0000-4000-8000-000000000002',
+    '74000000-0000-4000-8000-000000000002',
+    'teacher_cancellation', 'replacement_after_teacher_cancellation'
+);
+
 INSERT INTO public.checkout_v2_billing_state (
     subscription_id, first_session_id, first_class_at, renewal_anchor_at,
     stripe_renewal_anchor_at, anchor_state, anchor_revision
@@ -161,9 +189,71 @@ INSERT INTO public.teacher_availability (
     (TIMESTAMPTZ '2035-01-29 10:00:00+00'
         AT TIME ZONE 'Europe/Madrid')::TIME,
     ((TIMESTAMPTZ '2035-01-29 10:00:00+00'
-        AT TIME ZONE 'Europe/Madrid') + INTERVAL '1 hour')::TIME,
+        AT TIME ZONE 'Europe/Madrid') + INTERVAL '2 hours')::TIME,
     TRUE
 );
+
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+    operation_row public.checkout_v2_reschedule_operations%ROWTYPE;
+    target_count INTEGER;
+BEGIN
+    BEGIN
+        PERFORM public.prepare_checkout_v2_reschedule(
+            '74530000-0000-4000-8000-000000000001',
+            '74500000-0000-4000-8000-000000000002',
+            '74000000-0000-4000-8000-000000000001',
+            TIMESTAMPTZ '2035-01-08 10:50:00+00'
+        );
+        RAISE EXCEPTION 'reschedule_accepted_replaced_root';
+    EXCEPTION WHEN no_data_found THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_session_not_found' THEN RAISE; END IF;
+    END;
+
+    BEGIN
+        PERFORM 1 FROM public.list_checkout_v2_reschedule_targets(
+            '74500000-0000-4000-8000-000000000002',
+            '74000000-0000-4000-8000-000000000001',
+            TIMESTAMPTZ '2035-01-08 10:40:00+00',
+            TIMESTAMPTZ '2035-01-08 11:10:00+00',
+            NULL
+        );
+        RAISE EXCEPTION 'target_listing_accepted_replaced_root';
+    EXCEPTION WHEN no_data_found THEN
+        IF SQLERRM <> 'checkout_v2_reschedule_session_not_found' THEN RAISE; END IF;
+    END;
+
+    SELECT count(*) INTO target_count
+    FROM public.list_checkout_v2_reschedule_targets(
+        '74510000-0000-4000-8000-000000000002',
+        '74000000-0000-4000-8000-000000000001',
+        TIMESTAMPTZ '2035-01-08 10:40:00+00',
+        TIMESTAMPTZ '2035-01-08 11:10:00+00',
+        NULL
+    );
+    IF target_count < 1 THEN
+        RAISE EXCEPTION 'effective_leaf_has_no_reschedule_targets';
+    END IF;
+
+    SELECT * INTO operation_row
+    FROM public.prepare_checkout_v2_reschedule(
+        '74530000-0000-4000-8000-000000000002',
+        '74510000-0000-4000-8000-000000000002',
+        '74000000-0000-4000-8000-000000000001',
+        TIMESTAMPTZ '2035-01-08 10:50:00+00'
+    );
+    IF operation_row.session_id IS DISTINCT FROM
+            '74510000-0000-4000-8000-000000000002'::UUID
+       OR operation_row.operation_kind IS DISTINCT FROM 'single_session' THEN
+        RAISE EXCEPTION 'reschedule_did_not_bind_effective_leaf';
+    END IF;
+END $$;
+
+SET LOCAL session_replication_role = replica;
+DELETE FROM public.checkout_v2_reschedule_operations
+WHERE request_id = '74530000-0000-4000-8000-000000000002';
 
 INSERT INTO public.checkout_v2_reschedule_operations (
     id, request_id, session_id, subscription_id, cycle_id, actor_id,

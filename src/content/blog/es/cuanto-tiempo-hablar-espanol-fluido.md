@@ -2,13 +2,16 @@
 title: "¿Cuánto tiempo se tarda en hablar español con fluidez?"
 description: "Una respuesta honesta: el tiempo depende de tu punto de partida, la práctica y el contacto real con el español. Aprende a medir avances observables."
 publishedAt: 2025-01-15
+updatedAt: 2026-08-02
+draft: false
 author: alejandro
 category: aprendizaje
 tags: ["fluidez", "tiempo", "niveles", "conversación"]
-image: "../../../assets/blog/tiempo-fluidez.png"
-imageAlt: "Reloj junto a libros de español"
 lang: es
 translationKey: "time-to-fluency"
+relatedTranslationKeys: ["stuck-at-b1", "expats-truth"]
+ctaText: "¿Quieres trabajar un objetivo concreto en cuatro clases individuales?"
+ctaLink: "/"
 ---
 
 La respuesta honesta es que **no existe un plazo universal para hablar español con fluidez**. Dos personas pueden estudiar con la misma frecuencia y avanzar de forma distinta porque no parten del mismo lugar, no practican de la misma manera y no necesitan usar el idioma en las mismas situaciones.
@@ -69,7 +72,7 @@ Una estimación útil se actualiza con evidencia. Si conversas con más autonom�
 
 ## La oferta de Español Honesto
 
-Español Honesto ofrece una única modalidad directa para adultos: **cuatro clases individuales online de 50 minutos por 259 EUR en cada ciclo de 28 días**. Antes de pagar ves el profesor, la franja semanal, la zona horaria y las cuatro fechas previstas.
+Español Honesto ofrece una única modalidad directa para adultos: **cuatro clases individuales online de 50 minutos**. Se cobran 259 € al reservar y el ciclo se renueva automáticamente; el siguiente cobro queda fijado 28 días después de la primera clase. Antes de pagar ves el profesor, la franja semanal, la zona horaria, las cuatro fechas previstas y la fecha exacta del siguiente cobro. Si cambias la primera fecha mediante autoservicio dentro del plazo permitido antes de empezar, también se desplazan el ancla y las cuatro fechas. Un cambio excepcional de soporte fuera de ese plazo no mueve automáticamente el ancla; cuando comienza la primera clase, queda fija.
 
 No vendemos una fecha de fluidez. Usamos las clases para trabajar conversación, corrección y situaciones reales desde tu punto de partida, y para decidir contigo cuál es el siguiente hito observable.
 

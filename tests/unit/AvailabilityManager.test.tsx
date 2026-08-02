@@ -105,6 +105,7 @@ describe('AvailabilityManager — add slot form', () => {
     });
 
     it('submitting form calls POST /api/teacher/availability and shows success message', async () => {
+        const onAvailabilityChange = vi.fn();
         server.use(
             http.post('http://localhost:3000/api/teacher/availability', () => {
                 return HttpResponse.json({
@@ -119,13 +120,16 @@ describe('AvailabilityManager — add slot form', () => {
             })
         );
 
-        render(<AvailabilityManager {...defaultProps} />);
+        render(<AvailabilityManager {...defaultProps} onAvailabilityChange={onAvailabilityChange} />);
         fireEvent.click(screen.getByText(/Añadir horario/));
         fireEvent.click(screen.getByText('Guardar'));
 
         await waitFor(() => {
             expect(screen.getByRole('status')).toHaveTextContent(mockTranslations.slotAdded);
         });
+        expect(onAvailabilityChange).toHaveBeenCalledWith([
+            expect.objectContaining({ id: 'new-slot-1' }),
+        ]);
     });
 
     it('shows error message when POST /api/teacher/availability fails', async () => {
@@ -154,6 +158,7 @@ describe('AvailabilityManager — remove slot', () => {
     });
 
     it('clicking × calls DELETE /api/teacher/availability and removes the slot', async () => {
+        const onAvailabilityChange = vi.fn();
         server.use(
             http.delete('http://localhost:3000/api/teacher/availability', () => {
                 return HttpResponse.json({ success: true });
@@ -161,7 +166,7 @@ describe('AvailabilityManager — remove slot', () => {
         );
 
         const slot = makeSlot({ id: 'slot-to-delete', day_of_week: 1, start_time: '09:00:00', end_time: '10:00:00' });
-        render(<AvailabilityManager {...defaultProps} initialAvailability={[slot]} />);
+        render(<AvailabilityManager {...defaultProps} initialAvailability={[slot]} onAvailabilityChange={onAvailabilityChange} />);
 
         // The slot should be visible
         expect(screen.getByText('09:00 - 10:00')).toBeDefined();
@@ -173,6 +178,7 @@ describe('AvailabilityManager — remove slot', () => {
         await waitFor(() => {
             expect(screen.getByRole('status')).toHaveTextContent(mockTranslations.slotRemoved);
         });
+        expect(onAvailabilityChange).toHaveBeenCalledWith([]);
     });
 
     it('shows error message when DELETE fails', async () => {
@@ -190,5 +196,22 @@ describe('AvailabilityManager — remove slot', () => {
         await waitFor(() => {
             expect(screen.getByRole('alert')).toHaveTextContent(mockTranslations.errorRemoving);
         });
+    });
+
+    it('shows the safe API conflict when sellable places still depend on the availability', async () => {
+        server.use(
+            http.delete('http://localhost:3000/api/teacher/availability', () => HttpResponse.json({
+                error: 'Pause or retire the published places before removing this availability',
+            }, { status: 409 }))
+        );
+
+        const slot = makeSlot({ id: 'slot-conflict', day_of_week: 2, start_time: '11:00:00', end_time: '12:00:00' });
+        render(<AvailabilityManager {...defaultProps} initialAvailability={[slot]} />);
+        fireEvent.click(screen.getByRole('button', { name: `${mockTranslations.removeSlot}: 11:00 - 12:00` }));
+
+        await waitFor(() => {
+            expect(screen.getByRole('alert')).toHaveTextContent('Pause or retire the published places');
+        });
+        expect(screen.getByText('11:00 - 12:00')).toBeInTheDocument();
     });
 });

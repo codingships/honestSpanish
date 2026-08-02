@@ -4,6 +4,7 @@ import BlogLayout from '../../../layouts/BlogLayout.astro';
 import {
   getBlogAlternatePaths,
   getBlogEntryParts,
+  getRelatedBlogEntries,
   isPublishedBlogPost,
 } from '../../../lib/blog-routes';
 import type { LocalizedPublicPaths, PublicLang } from '../../../lib/public-seo';
@@ -14,6 +15,7 @@ type Props = {
   post: CollectionEntry<'blog'>;
   lang: PublicLang;
   alternatePaths: LocalizedPublicPaths;
+  relatedPosts: CollectionEntry<'blog'>[];
 };
 
 export async function getStaticPaths() {
@@ -27,15 +29,22 @@ export async function getStaticPaths() {
         post,
         lang,
         alternatePaths: getBlogAlternatePaths(post, posts),
+        relatedPosts: getRelatedBlogEntries(post, posts),
       },
     };
   });
 }
 
-const { post, lang, alternatePaths } = Astro.props as Props;
+const { post, lang, alternatePaths, relatedPosts } = Astro.props as Props;
 const { Content, headings } = await render(post);
 ---
 
-<BlogLayout post={post} lang={lang} alternatePaths={alternatePaths} headings={headings}>
+<BlogLayout
+  post={post}
+  lang={lang}
+  alternatePaths={alternatePaths}
+  relatedPosts={relatedPosts}
+  headings={headings}
+>
   <Content />
 </BlogLayout>

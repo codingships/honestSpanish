@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Database } from '../../src/types/database.types';
+import { CHECKOUT_TERMS_VERSION } from '../../src/lib/legal-policy';
 
 const stripeMock = vi.hoisted(() => ({
     accounts: { retrieve: vi.fn() },
@@ -115,6 +116,7 @@ const checkoutIntent: Database['public']['Tables']['checkout_intents']['Row'] = 
 };
 
 const acceptedPolicies = {
+    policyVersion: CHECKOUT_TERMS_VERSION,
     adultConfirmed: true,
     termsAccepted: true,
     serviceStartRequested: true,
@@ -330,6 +332,8 @@ describe('POST /api/create-checkout', () => {
             if (key === 'PUBLIC_APP_ENV') return appEnvironment;
             return undefined;
         });
+        const { server, admin } = makeClients();
+        await installClients(server, admin);
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { POST } = await import('../../src/pages/api/create-checkout');
 
@@ -337,7 +341,8 @@ describe('POST /api/create-checkout', () => {
 
         await expect(response.json()).resolves.toEqual({ error: 'A valid slotPublicId is required' });
         expect(response.status).toBe(400);
-        expect(createSupabaseServerClient).not.toHaveBeenCalled();
+        expect(createSupabaseServerClient).toHaveBeenCalledOnce();
+        expect(server.from).not.toHaveBeenCalled();
         expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });
@@ -351,6 +356,8 @@ describe('POST /api/create-checkout', () => {
             if (key === 'E2E_TARGET_SUPABASE_REF') return targetRef;
             return undefined;
         });
+        const { server, admin } = makeClients();
+        await installClients(server, admin);
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { POST } = await import('../../src/pages/api/create-checkout');
 
@@ -358,7 +365,8 @@ describe('POST /api/create-checkout', () => {
 
         await expect(response.json()).resolves.toEqual({ error: 'A valid slotPublicId is required' });
         expect(response.status).toBe(400);
-        expect(createSupabaseServerClient).not.toHaveBeenCalled();
+        expect(createSupabaseServerClient).toHaveBeenCalledOnce();
+        expect(server.from).not.toHaveBeenCalled();
         expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     });

@@ -21,7 +21,11 @@ const makeContext = ({
             method,
             url: url.toString(),
             json: vi.fn().mockResolvedValue(body),
-            headers: { get: vi.fn().mockReturnValue('') },
+            headers: {
+                get: vi.fn((name: string) => (
+                    name.toLowerCase() === 'origin' ? url.origin : null
+                )),
+            },
         },
         cookies: { set: vi.fn(), get: vi.fn() },
     };
@@ -56,8 +60,8 @@ const makeSupabase = ({
     user?: { id: string; email: string } | null;
     currentRole?: string;
     targetRole?: string | null;
-    availability?: Array<Record<string, unknown>>;
-    availabilityError?: { code: string } | null;
+    availability?: Array<Record<string, unknown>> | Record<string, unknown> | null;
+    availabilityError?: { code: string; message?: string } | null;
 } = {}) => {
     const availabilityQuery = makeThenableChain({ data: availability, error: availabilityError });
     const profileRoleQueue = [currentRole, targetRole];
@@ -154,6 +158,24 @@ describe('/api/teacher/availability', () => {
         expect(availabilityQuery.chain.insert).not.toHaveBeenCalled();
     });
 
+    it('rejects cross-origin availability writes before authentication', async () => {
+        const { supabase, availabilityQuery } = makeSupabase();
+        await setSupabase(supabase);
+
+        const context = makeContext({
+            method: 'POST',
+            body: { teacherId: 'teacher-1', dayOfWeek: 1, startTime: '09:00', endTime: '10:00' },
+        });
+        context.request.headers.get = vi.fn().mockReturnValue('https://attacker.invalid');
+
+        const { POST } = await import('../../src/pages/api/teacher/availability');
+        const response = await POST(context as any);
+
+        expect(response.status).toBe(403);
+        expect(supabase.auth.getUser).not.toHaveBeenCalled();
+        expect(availabilityQuery.chain.insert).not.toHaveBeenCalled();
+    });
+
     it('rejects invalid day values before inserting availability', async () => {
         const { supabase, availabilityQuery } = makeSupabase();
         await setSupabase(supabase);
@@ -217,6 +239,41 @@ describe('/api/teacher/availability', () => {
         expect(response.status).toBe(409);
         await expect(response.json()).resolves.toEqual({
             error: 'Availability overlaps an existing active slot',
+        });
+    });
+
+    it('returns 404 when deleting an availability row outside the caller scope', async () => {
+        const { supabase } = makeSupabase({ availability: null });
+        await setSupabase(supabase);
+
+        const { DELETE } = await import('../../src/pages/api/teacher/availability');
+        const response = await DELETE(makeContext({
+            method: 'DELETE',
+            body: { id: 'missing-slot' },
+        }) as any);
+
+        expect(response.status).toBe(404);
+        await expect(response.json()).resolves.toEqual({ error: 'Availability not found' });
+    });
+
+    it('does not remove availability that still covers a sellable place', async () => {
+        const { supabase } = makeSupabase({
+            availabilityError: {
+                code: '23514',
+                message: 'teacher_availability_covers_sellable_slot',
+            },
+        });
+        await setSupabase(supabase);
+
+        const { DELETE } = await import('../../src/pages/api/teacher/availability');
+        const response = await DELETE(makeContext({
+            method: 'DELETE',
+            body: { id: 'slot-1' },
+        }) as any);
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toEqual({
+            error: 'Pause or retire the published places before removing this availability',
         });
     });
 });

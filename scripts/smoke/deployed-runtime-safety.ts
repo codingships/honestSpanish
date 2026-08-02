@@ -338,10 +338,12 @@ export async function verifyInnocuousStagingRuntimeProbes(fetchImpl: FetchLike =
         requestJson(fetchImpl, `${STAGING_FULFILLMENT_ORIGIN}/health`).then(({ body, response }) => {
             if (
                 response.status !== 200
+                || body.appEnvironment !== 'staging'
                 || body.ok !== true
                 || body.operationMode !== 'active'
                 || body.runtime !== 'cloudflare-workers'
                 || body.service !== 'fulfillment-worker'
+                || body.status !== 'ok'
                 || body.workerIdentity !== STAGING_FULFILLMENT_IDENTITY
             ) throw new Error('Fulfillment health did not return the exact staging contract');
         }),
@@ -406,9 +408,13 @@ async function verifyHealth(fetchImpl: FetchLike): Promise<void> {
         || !fulfillmentBody
         || typeof fulfillmentBody !== 'object'
         || Array.isArray(fulfillmentBody)
+        || (fulfillmentBody as Record<string, unknown>).appEnvironment !== 'staging'
         || (fulfillmentBody as Record<string, unknown>).ok !== true
+        || (fulfillmentBody as Record<string, unknown>).operationMode !== 'active'
         || (fulfillmentBody as Record<string, unknown>).service !== 'fulfillment-worker'
+        || (fulfillmentBody as Record<string, unknown>).status !== 'ok'
         || (fulfillmentBody as Record<string, unknown>).runtime !== 'cloudflare-workers'
+        || (fulfillmentBody as Record<string, unknown>).workerIdentity !== STAGING_FULFILLMENT_IDENTITY
     ) {
         throw new Error(`Staging fulfillment health returned an invalid ${fulfillment.status} response`);
     }

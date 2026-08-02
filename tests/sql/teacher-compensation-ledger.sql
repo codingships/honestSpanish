@@ -221,6 +221,89 @@ BEGIN
 END
 $$;
 
+BEGIN;
+SET LOCAL session_replication_role = replica;
+UPDATE public.sessions
+SET
+    status = 'cancelled',
+    cancelled_at = scheduled_at - INTERVAL '2 hours',
+    cancelled_by = teacher_id,
+    cancellation_reason = 'replacement lineage fixture'
+WHERE id = '88070000-0000-4000-8000-000000000111';
+INSERT INTO public.sessions (
+    id, subscription_id, student_id, teacher_id, scheduled_at,
+    duration_minutes, status, created_at, checkout_v2_cycle_id,
+    checkout_v2_cycle_session_index, checkout_v2_replaces_session_id,
+    checkout_v2_replacement_request_id, checkout_v2_replacement_actor_id,
+    checkout_v2_replacement_source_kind, checkout_v2_replacement_reason
+) SELECT
+    '88071000-0000-4000-8000-000000000111',
+    source.subscription_id, source.student_id, source.teacher_id,
+    source.scheduled_at, source.duration_minutes, 'scheduled',
+    source.created_at + INTERVAL '1 second', source.checkout_v2_cycle_id,
+    source.checkout_v2_cycle_session_index, source.id,
+    '88072000-0000-4000-8000-000000000111', source.teacher_id,
+    'teacher_cancellation', 'replacement_after_teacher_cancellation'
+FROM public.sessions AS source
+WHERE source.id = '88070000-0000-4000-8000-000000000111';
+UPDATE public.checkout_v2_cycles
+SET cycle_number = 2, cycle_kind = 'renewal'
+WHERE id = '88060000-0000-4000-8000-000000000011';
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+    terms public.teacher_compensation_cycle_terms%ROWTYPE;
+    materialized public.checkout_v2_cycles%ROWTYPE;
+BEGIN
+    terms := private.ensure_teacher_compensation_cycle_terms(
+        '88060000-0000-4000-8000-000000000011'
+    );
+    materialized := public.materialize_checkout_v2_cycle_sessions(
+        '88040000-0000-4000-8000-000000000011',
+        'in_comp_11'
+    );
+    IF terms.cycle_id IS DISTINCT FROM
+            '88060000-0000-4000-8000-000000000011'::UUID
+       OR materialized.id IS DISTINCT FROM
+            '88060000-0000-4000-8000-000000000011'::UUID
+       OR (SELECT count(*) FROM private.checkout_v2_effective_cycle_sessions(
+            '88060000-0000-4000-8000-000000000011'
+          )) IS DISTINCT FROM 4 THEN
+        RAISE EXCEPTION 'descendant_changed_root_materialization_or_compensation_count';
+    END IF;
+
+    UPDATE public.sessions
+    SET status = 'completed',
+        completed_at = scheduled_at + INTERVAL '50 minutes'
+    WHERE id = '88071000-0000-4000-8000-000000000111';
+
+    IF NOT EXISTS (
+            SELECT 1 FROM public.teacher_compensation_ledger
+            WHERE session_id = '88071000-0000-4000-8000-000000000111'
+              AND event_kind = 'class_completed'
+       ) OR EXISTS (
+            SELECT 1 FROM public.teacher_compensation_ledger
+            WHERE session_id = '88070000-0000-4000-8000-000000000111'
+       ) THEN
+        RAISE EXCEPTION 'replacement_leaf_compensation_was_not_exclusive';
+    END IF;
+END $$;
+
+SET LOCAL session_replication_role = replica;
+DELETE FROM public.teacher_compensation_ledger
+WHERE session_id = '88071000-0000-4000-8000-000000000111';
+DELETE FROM public.sessions
+WHERE id = '88071000-0000-4000-8000-000000000111';
+UPDATE public.sessions
+SET status = 'scheduled', cancelled_at = NULL,
+    cancelled_by = NULL, cancellation_reason = NULL
+WHERE id = '88070000-0000-4000-8000-000000000111';
+UPDATE public.checkout_v2_cycles
+SET cycle_number = 1, cycle_kind = 'initial'
+WHERE id = '88060000-0000-4000-8000-000000000011';
+COMMIT;
+
 -- Outcome matrix: external/founder completed, no-show on both rate tiers and
 -- a strict late student cancellation accrue. Exactly 24h, teacher cancellation
 -- and admin cancellation do not accrue. Guarantee invalidation is exercised by

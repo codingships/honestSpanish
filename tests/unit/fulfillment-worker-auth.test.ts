@@ -166,3 +166,68 @@ describe('fulfillment worker internal auth', () => {
         expect(mocks.quarantineStaleFulfillmentJobs).not.toHaveBeenCalled();
     });
 });
+
+describe('fulfillment worker health', () => {
+    it.each([
+        ['staging', 'espanol-honesto-fulfillment-staging'],
+        ['production', 'espanol-honesto-fulfillment-production'],
+    ])('reports an active %s runtime with the exact identity as ready', async (appEnvironment, workerIdentity) => {
+        const worker = await import('../../workers/fulfillment/src/index');
+        const response = await worker.default.fetch(
+            new Request('https://worker.example.com/health'),
+            {
+                FULFILLMENT_RUNTIME_MODE: 'active',
+                PUBLIC_APP_ENV: appEnvironment,
+                WORKER_IDENTITY: workerIdentity,
+            },
+        );
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            appEnvironment,
+            ok: true,
+            operationMode: 'active',
+            service: 'fulfillment-worker',
+            status: 'ok',
+            workerIdentity,
+        });
+    });
+
+    it.each([
+        ['bootstrap mode', {
+            FULFILLMENT_RUNTIME_MODE: 'bootstrap',
+            PUBLIC_APP_ENV: 'production',
+            WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
+        }],
+        ['an invalid mode', {
+            FULFILLMENT_RUNTIME_MODE: 'unexpected',
+            PUBLIC_APP_ENV: 'staging',
+            WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
+        }],
+        ['an invalid environment', {
+            FULFILLMENT_RUNTIME_MODE: 'active',
+            PUBLIC_APP_ENV: 'preview',
+            WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
+        }],
+        ['an identity mismatch', {
+            FULFILLMENT_RUNTIME_MODE: 'active',
+            PUBLIC_APP_ENV: 'staging',
+            WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
+        }],
+    ])('reports 503 for %s and preserves runtime diagnostics', async (_scenario, env) => {
+        const worker = await import('../../workers/fulfillment/src/index');
+        const response = await worker.default.fetch(
+            new Request('https://worker.example.com/health'),
+            env,
+        );
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toMatchObject({
+            appEnvironment: env.PUBLIC_APP_ENV,
+            ok: false,
+            operationMode: env.FULFILLMENT_RUNTIME_MODE,
+            status: 'invalid',
+            workerIdentity: env.WORKER_IDENTITY,
+        });
+    });
+});
