@@ -526,6 +526,7 @@ export async function getCrmAdminDashboardSummary(
         issue_type,
         status,
         created_at,
+        updated_at,
         user_id,
         user:profiles!support_tickets_user_id_fkey (
           id,
