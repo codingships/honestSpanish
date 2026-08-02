@@ -77,12 +77,15 @@ async function sendTransactionalEmail(
     }
 
     try {
-        const result = await deliverEmail({
+        const deliveryInput = {
             to: input.email,
             subject: input.subject,
             html: input.html,
             source: input.source,
-        }, { supabaseAdmin: options.supabaseAdmin });
+        };
+        const result = options.supabaseAdmin
+            ? await deliverEmail(deliveryInput, { supabaseAdmin: options.supabaseAdmin })
+            : await deliverEmail(deliveryInput);
 
         if (!result.ok) {
             console.error(
