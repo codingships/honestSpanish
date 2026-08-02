@@ -3410,6 +3410,267 @@ export type Database = {
           },
         ];
       };
+      teacher_compensation_settlement_lines: {
+        Row: {
+          amount_cents: number;
+          created_at: string;
+          currency: string;
+          description: string;
+          id: string;
+          quantity_minutes: number | null;
+          settlement_id: string;
+          source_id: string;
+          source_kind: string;
+          source_occurred_at: string;
+          student_id: string | null;
+          teacher_id: string;
+        };
+        Insert: {
+          amount_cents: number;
+          created_at?: string;
+          currency: string;
+          description: string;
+          id?: string;
+          quantity_minutes?: number | null;
+          settlement_id: string;
+          source_id: string;
+          source_kind: string;
+          source_occurred_at: string;
+          student_id?: string | null;
+          teacher_id: string;
+        };
+        Update: {
+          amount_cents?: number;
+          created_at?: string;
+          currency?: string;
+          description?: string;
+          id?: string;
+          quantity_minutes?: number | null;
+          settlement_id?: string;
+          source_id?: string;
+          source_kind?: string;
+          source_occurred_at?: string;
+          student_id?: string | null;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_settlement_line_identity_fkey";
+            columns: ["settlement_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_settlements";
+            referencedColumns: ["id", "teacher_id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_settlement_lines_student_id_fkey";
+            columns: ["student_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_settlement_lines_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_compensation_settlement_payment_voids: {
+        Row: {
+          created_at: string;
+          id: string;
+          payment_id: string;
+          reason: string;
+          request_id: string;
+          settlement_id: string;
+          teacher_id: string;
+          voided_by: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          payment_id: string;
+          reason: string;
+          request_id: string;
+          settlement_id: string;
+          teacher_id: string;
+          voided_by: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          payment_id?: string;
+          reason?: string;
+          request_id?: string;
+          settlement_id?: string;
+          teacher_id?: string;
+          voided_by?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_settlement_payment_void_identity_fkey";
+            columns: ["payment_id", "settlement_id", "teacher_id"];
+            isOneToOne: true;
+            referencedRelation: "teacher_compensation_settlement_payments";
+            referencedColumns: ["id", "settlement_id", "teacher_id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_settlement_payment_voids_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_settlement_payment_voids_voided_by_fkey";
+            columns: ["voided_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_compensation_settlement_payments: {
+        Row: {
+          amount_cents: number;
+          created_at: string;
+          currency: string;
+          id: string;
+          invoice_reference: string | null;
+          note: string;
+          paid_at: string;
+          payment_reference: string;
+          recorded_by: string;
+          request_id: string;
+          settlement_id: string;
+          teacher_id: string;
+        };
+        Insert: {
+          amount_cents: number;
+          created_at?: string;
+          currency: string;
+          id?: string;
+          invoice_reference?: string | null;
+          note: string;
+          paid_at: string;
+          payment_reference: string;
+          recorded_by: string;
+          request_id: string;
+          settlement_id: string;
+          teacher_id: string;
+        };
+        Update: {
+          amount_cents?: number;
+          created_at?: string;
+          currency?: string;
+          id?: string;
+          invoice_reference?: string | null;
+          note?: string;
+          paid_at?: string;
+          payment_reference?: string;
+          recorded_by?: string;
+          request_id?: string;
+          settlement_id?: string;
+          teacher_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_settlement_payment_identity_fkey";
+            columns: ["settlement_id", "teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "teacher_compensation_settlements";
+            referencedColumns: ["id", "teacher_id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_settlement_payments_recorded_by_fkey";
+            columns: ["recorded_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_settlement_payments_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      teacher_compensation_settlements: {
+        Row: {
+          adjustment_amount_cents: number;
+          class_amount_cents: number;
+          close_note: string;
+          closed_at: string;
+          closed_by: string;
+          currency: string;
+          id: string;
+          line_count: number;
+          mandatory_work_amount_cents: number;
+          period_end_at: string;
+          period_month: string;
+          period_start_at: string;
+          request_id: string;
+          teacher_id: string;
+          timezone: string;
+          total_amount_cents: number;
+        };
+        Insert: {
+          adjustment_amount_cents: number;
+          class_amount_cents: number;
+          close_note: string;
+          closed_at?: string;
+          closed_by: string;
+          currency: string;
+          id?: string;
+          line_count: number;
+          mandatory_work_amount_cents: number;
+          period_end_at: string;
+          period_month: string;
+          period_start_at: string;
+          request_id: string;
+          teacher_id: string;
+          timezone?: string;
+          total_amount_cents: number;
+        };
+        Update: {
+          adjustment_amount_cents?: number;
+          class_amount_cents?: number;
+          close_note?: string;
+          closed_at?: string;
+          closed_by?: string;
+          currency?: string;
+          id?: string;
+          line_count?: number;
+          mandatory_work_amount_cents?: number;
+          period_end_at?: string;
+          period_month?: string;
+          period_start_at?: string;
+          request_id?: string;
+          teacher_id?: string;
+          timezone?: string;
+          total_amount_cents?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "teacher_compensation_settlements_closed_by_fkey";
+            columns: ["closed_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "teacher_compensation_settlements_teacher_id_fkey";
+            columns: ["teacher_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       teacher_compensation_milestones: {
         Row: {
           created_at: string;
@@ -3890,6 +4151,34 @@ export type Database = {
             referencedColumns: ["id"];
           },
         ];
+      };
+      teacher_compensation_settlement_balances: {
+        Row: {
+          adjustment_amount_cents: number | null;
+          class_amount_cents: number | null;
+          close_note: string | null;
+          closed_at: string | null;
+          closed_by: string | null;
+          currency: string | null;
+          id: string | null;
+          invoice_reference: string | null;
+          line_count: number | null;
+          mandatory_work_amount_cents: number | null;
+          paid_at: string | null;
+          payment_id: string | null;
+          payment_note: string | null;
+          payment_recorded_by: string | null;
+          payment_reference: string | null;
+          period_end_at: string | null;
+          period_month: string | null;
+          period_start_at: string | null;
+          request_id: string | null;
+          status: string | null;
+          teacher_id: string | null;
+          timezone: string | null;
+          total_amount_cents: number | null;
+        };
+        Relationships: [];
       };
       teacher_compensation_work_balances: {
         Row: {
@@ -4634,6 +4923,22 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      close_teacher_compensation_settlement: {
+        Args: {
+          p_admin_id: string;
+          p_close_note: string;
+          p_period_month: string;
+          p_request_id: string;
+          p_teacher_id: string;
+        };
+        Returns: Database["public"]["Tables"]["teacher_compensation_settlements"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_settlements";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       consume_bookable_slot_hold: {
         Args: {
           p_checkout_intent_id: string;
@@ -4933,6 +5238,39 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "operational_cost_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      record_teacher_compensation_settlement_payment: {
+        Args: {
+          p_admin_id: string;
+          p_invoice_reference: string | null;
+          p_note: string;
+          p_paid_at: string;
+          p_payment_reference: string;
+          p_request_id: string;
+          p_settlement_id: string;
+        };
+        Returns: Database["public"]["Tables"]["teacher_compensation_settlement_payments"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_settlement_payments";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      void_teacher_compensation_settlement_payment: {
+        Args: {
+          p_admin_id: string;
+          p_payment_id: string;
+          p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Database["public"]["Tables"]["teacher_compensation_settlement_payment_voids"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "teacher_compensation_settlement_payment_voids";
           isOneToOne: true;
           isSetofReturn: false;
         };

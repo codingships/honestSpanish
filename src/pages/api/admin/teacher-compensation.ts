@@ -9,6 +9,7 @@ const jsonHeaders = {
 };
 const uuid = z.string().uuid();
 const timestamp = z.string().datetime({ offset: true });
+const monthDate = z.string().regex(/^\d{4}-\d{2}-01$/u);
 
 const listSchema = z.object({
     teacherId: z.union([uuid, z.literal('')]).optional(),
@@ -60,6 +61,28 @@ const actionSchema = z.discriminatedUnion('action', [
         requestId: uuid,
         workEntryId: uuid,
         minutesDelta: z.number().int().min(-720).max(720).refine((value) => value !== 0),
+        reason: z.string().trim().min(5).max(1000),
+    }),
+    z.object({
+        action: z.literal('close_settlement'),
+        requestId: uuid,
+        teacherId: uuid,
+        periodMonth: monthDate,
+        note: z.string().trim().min(5).max(1000),
+    }),
+    z.object({
+        action: z.literal('record_settlement_payment'),
+        requestId: uuid,
+        settlementId: uuid,
+        paidAt: timestamp,
+        paymentReference: z.string().trim().min(3).max(200),
+        invoiceReference: z.string().trim().max(200).nullable(),
+        note: z.string().trim().min(5).max(1000),
+    }),
+    z.object({
+        action: z.literal('void_settlement_payment'),
+        requestId: uuid,
+        paymentId: uuid,
         reason: z.string().trim().min(5).max(1000),
     }),
 ]);
@@ -234,6 +257,20 @@ export const GET: APIRoute = async (context) => {
         .limit(25);
     if (teacherId) adjustmentsQuery = adjustmentsQuery.eq('teacher_id', teacherId);
 
+    let settlementsQuery = admin
+        .from('teacher_compensation_settlement_balances')
+        .select(`
+            id, teacher_id, period_month, period_start_at, period_end_at,
+            currency, class_amount_cents, mandatory_work_amount_cents,
+            adjustment_amount_cents, total_amount_cents, line_count,
+            close_note, closed_at, status, payment_id, paid_at,
+            payment_reference, invoice_reference, payment_note
+        `)
+        .order('period_month', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(100);
+    if (teacherId) settlementsQuery = settlementsQuery.eq('teacher_id', teacherId);
+
     const [
         teachersResult,
         engagementsResult,
@@ -244,6 +281,7 @@ export const GET: APIRoute = async (context) => {
         classResult,
         workResult,
         adjustmentsResult,
+        settlementsResult,
     ] = await Promise.all([
         teachersQuery,
         engagementsQuery,
@@ -254,6 +292,7 @@ export const GET: APIRoute = async (context) => {
         classQuery,
         workQuery,
         adjustmentsQuery,
+        settlementsQuery,
     ]);
 
     const failed = [
@@ -266,6 +305,7 @@ export const GET: APIRoute = async (context) => {
         classResult,
         workResult,
         adjustmentsResult,
+        settlementsResult,
     ].find((result) => result.error);
     if (failed?.error) {
         console.error('[TeacherCompensation] Could not load operations', { code: failed.error.code });
@@ -291,6 +331,7 @@ export const GET: APIRoute = async (context) => {
     const classRows = classResult.data || [];
     const workRows = workResult.data || [];
     const adjustmentRows = adjustmentsResult.data || [];
+    const settlementRows = settlementsResult.data || [];
 
     return json({
         teachers: (teachersResult.data || []).map((teacher) => ({
@@ -380,6 +421,31 @@ export const GET: APIRoute = async (context) => {
             reason: entry.reason,
             createdAt: entry.created_at,
         })),
+        settlements: settlementRows.map((entry) => ({
+            id: entry.id,
+            teacherId: entry.teacher_id,
+            teacherLabel: profileLabel(
+                (teachersResult.data || []).find((teacher) => teacher.id === entry.teacher_id) || null,
+                entry.teacher_id || 'Profesor no disponible',
+            ),
+            periodMonth: entry.period_month,
+            periodStartAt: entry.period_start_at,
+            periodEndAt: entry.period_end_at,
+            classAmountCents: entry.class_amount_cents,
+            workAmountCents: entry.mandatory_work_amount_cents,
+            adjustmentAmountCents: entry.adjustment_amount_cents,
+            totalAmountCents: entry.total_amount_cents,
+            currency: entry.currency,
+            lineCount: entry.line_count,
+            closeNote: entry.close_note,
+            closedAt: entry.closed_at,
+            status: entry.status,
+            paymentId: entry.payment_id,
+            paidAt: entry.paid_at,
+            paymentReference: entry.payment_reference,
+            invoiceReference: entry.invoice_reference,
+            paymentNote: entry.payment_note,
+        })),
         pagination: {
             page,
             limit,
@@ -458,6 +524,34 @@ export const POST: APIRoute = async (context) => {
                 p_work_entry_id: action.workEntryId,
                 p_minutes_delta: action.minutesDelta,
                 p_recorded_by: auth.user.id,
+                p_reason: action.reason,
+            });
+            break;
+        case 'close_settlement':
+            result = await admin.rpc('close_teacher_compensation_settlement', {
+                p_request_id: action.requestId,
+                p_teacher_id: action.teacherId,
+                p_period_month: action.periodMonth,
+                p_admin_id: auth.user.id,
+                p_close_note: action.note,
+            });
+            break;
+        case 'record_settlement_payment':
+            result = await admin.rpc('record_teacher_compensation_settlement_payment', {
+                p_request_id: action.requestId,
+                p_settlement_id: action.settlementId,
+                p_paid_at: action.paidAt,
+                p_payment_reference: action.paymentReference,
+                p_invoice_reference: action.invoiceReference,
+                p_admin_id: auth.user.id,
+                p_note: action.note,
+            });
+            break;
+        case 'void_settlement_payment':
+            result = await admin.rpc('void_teacher_compensation_settlement_payment', {
+                p_request_id: action.requestId,
+                p_payment_id: action.paymentId,
+                p_admin_id: auth.user.id,
                 p_reason: action.reason,
             });
             break;

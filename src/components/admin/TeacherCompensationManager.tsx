@@ -88,6 +88,29 @@ type WorkAdjustment = {
     createdAt: string;
 };
 
+type Settlement = {
+    id: string;
+    teacherId: string;
+    teacherLabel: string;
+    periodMonth: string;
+    periodStartAt: string;
+    periodEndAt: string;
+    classAmountCents: number;
+    workAmountCents: number;
+    adjustmentAmountCents: number;
+    totalAmountCents: number;
+    currency: string;
+    lineCount: number;
+    closeNote: string;
+    closedAt: string;
+    status: 'closed' | 'paid';
+    paymentId: string | null;
+    paidAt: string | null;
+    paymentReference: string | null;
+    invoiceReference: string | null;
+    paymentNote: string | null;
+};
+
 type CompensationResponse = {
     error?: string;
     teachers?: Teacher[];
@@ -99,6 +122,7 @@ type CompensationResponse = {
     classObligations?: ClassObligation[];
     workObligations?: WorkEntry[];
     workAdjustments?: WorkAdjustment[];
+    settlements?: Settlement[];
     pagination?: {
         page: number;
         limit: number;
@@ -109,7 +133,7 @@ type CompensationResponse = {
 
 const emptyData: Required<Pick<CompensationResponse,
     'teachers' | 'engagements' | 'historyCycles' | 'cycleGaps' | 'sessionGaps'
-    | 'classObligations' | 'workObligations' | 'workAdjustments'>> = {
+    | 'classObligations' | 'workObligations' | 'workAdjustments' | 'settlements'>> = {
     teachers: [],
     engagements: [],
     historyCycles: [],
@@ -118,6 +142,7 @@ const emptyData: Required<Pick<CompensationResponse,
     classObligations: [],
     workObligations: [],
     workAdjustments: [],
+    settlements: [],
 };
 
 function formatDate(value: string | null): string {
@@ -174,6 +199,15 @@ export default function TeacherCompensationManager() {
     const [adjustmentMinutes, setAdjustmentMinutes] = useState<Record<string, string>>({});
     const [adjustmentReasons, setAdjustmentReasons] = useState<Record<string, string>>({});
 
+    const [settlementTeacherId, setSettlementTeacherId] = useState('');
+    const [settlementMonth, setSettlementMonth] = useState('');
+    const [settlementNote, setSettlementNote] = useState('');
+    const [paymentPaidAt, setPaymentPaidAt] = useState<Record<string, string>>({});
+    const [paymentReferences, setPaymentReferences] = useState<Record<string, string>>({});
+    const [invoiceReferences, setInvoiceReferences] = useState<Record<string, string>>({});
+    const [paymentNotes, setPaymentNotes] = useState<Record<string, string>>({});
+    const [paymentVoidReasons, setPaymentVoidReasons] = useState<Record<string, string>>({});
+
     const loadData = useCallback(async (signal?: AbortSignal) => {
         setIsLoading(true);
         setError(null);
@@ -205,8 +239,9 @@ export default function TeacherCompensationManager() {
         const firstTeacher = data.teachers?.[0]?.id || '';
         if (!engagementTeacherId && firstTeacher) setEngagementTeacherId(firstTeacher);
         if (!workTeacherId && firstTeacher) setWorkTeacherId(firstTeacher);
+        if (!settlementTeacherId && firstTeacher) setSettlementTeacherId(firstTeacher);
         if (!historyCycleId && data.historyCycles?.[0]?.id) setHistoryCycleId(data.historyCycles[0].id);
-    }, [data.teachers, data.historyCycles, engagementTeacherId, historyCycleId, workTeacherId]);
+    }, [data.teachers, data.historyCycles, engagementTeacherId, historyCycleId, settlementTeacherId, workTeacherId]);
 
     const stableRequestId = (action: string, payload: Record<string, unknown>) => {
         const key = JSON.stringify({ action, ...payload });
@@ -238,6 +273,9 @@ export default function TeacherCompensationManager() {
             });
             const responseBody = await response.json() as CompensationResponse;
             if (!response.ok) throw new Error(responseBody.error || 'No se pudo completar la operación');
+            if (requestIdRequired) {
+                requestIds.current.delete(JSON.stringify({ action, ...payload }));
+            }
             setMessage(successMessage);
             await loadData();
             return true;
@@ -290,6 +328,41 @@ export default function TeacherCompensationManager() {
             description: workDescription.trim(),
         }, 'Trabajo obligatorio registrado', true);
         if (succeeded) setWorkDescription('');
+    };
+
+    const submitSettlement = async (event: React.FormEvent) => {
+        event.preventDefault();
+        if (!settlementTeacherId || !/^\d{4}-\d{2}$/u.test(settlementMonth) || settlementNote.trim().length < 5) return;
+        const succeeded = await postAction('close_settlement', {
+            teacherId: settlementTeacherId,
+            periodMonth: `${settlementMonth}-01`,
+            note: settlementNote.trim(),
+        }, 'Liquidación mensual cerrada', true);
+        if (succeeded) setSettlementNote('');
+    };
+
+    const submitPayment = async (settlement: Settlement) => {
+        const paidAt = paymentPaidAt[settlement.id] || '';
+        const paymentReference = (paymentReferences[settlement.id] || '').trim();
+        const invoiceReference = (invoiceReferences[settlement.id] || '').trim();
+        const note = (paymentNotes[settlement.id] || '').trim();
+        if (!paidAt || paymentReference.length < 3 || note.length < 5) return;
+        await postAction('record_settlement_payment', {
+            settlementId: settlement.id,
+            paidAt: toIso(paidAt),
+            paymentReference,
+            invoiceReference: invoiceReference || null,
+            note,
+        }, 'Pago manual documentado', true, `payment:${settlement.id}`);
+    };
+
+    const submitPaymentVoid = async (settlement: Settlement) => {
+        const reason = (paymentVoidReasons[settlement.id] || '').trim();
+        if (!settlement.paymentId || reason.length < 5) return;
+        await postAction('void_settlement_payment', {
+            paymentId: settlement.paymentId,
+            reason,
+        }, 'Marca de pago anulada; la liquidación vuelve a estar pendiente', true, `void-payment:${settlement.id}`);
     };
 
     const classTotal = useMemo(() => (data.classObligations || [])
@@ -479,6 +552,72 @@ export default function TeacherCompensationManager() {
                     <span className="font-mono text-xs text-[#006064]">Página {(data.pagination?.page ?? page) + 1}</span>
                     <button type="button" onClick={() => setPage((current) => current + 1)} disabled={isMutating || !data.pagination?.hasMore} className="border border-[#006064] px-3 py-2 text-xs font-bold uppercase text-[#006064] disabled:opacity-50">Siguiente</button>
                 </nav>
+            </section>
+
+            <section aria-labelledby="settlements-heading" className="space-y-4">
+                <header>
+                    <h2 id="settlements-heading" className="font-display text-2xl uppercase text-[#006064]">Liquidaciones mensuales</h2>
+                    <p className="mt-1 text-sm text-[#006064]/70">Cierra un periodo inmutable y documenta el pago manual. Esta pantalla no ejecuta transferencias.</p>
+                </header>
+
+                <form onSubmit={submitSettlement} className="grid gap-4 border-2 border-[#006064] bg-white p-5 lg:grid-cols-2">
+                    <label className="text-sm font-bold text-[#006064]">Profesor
+                        <select value={settlementTeacherId} onChange={(event) => setSettlementTeacherId(event.target.value)} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-2">
+                            {(data.teachers || []).map((teacher) => <option key={teacher.id} value={teacher.id}>{teacherName(teacher)}</option>)}
+                        </select>
+                    </label>
+                    <label className="text-sm font-bold text-[#006064]">Mes cerrado
+                        <input type="month" required value={settlementMonth} onChange={(event) => setSettlementMonth(event.target.value)} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-2" />
+                    </label>
+                    <label className="text-sm font-bold text-[#006064] lg:col-span-2">Nota de cierre
+                        <textarea required minLength={5} maxLength={1000} rows={3} value={settlementNote} onChange={(event) => setSettlementNote(event.target.value)} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-2" />
+                    </label>
+                    <button type="submit" disabled={isMutating || !settlementTeacherId || !settlementMonth || settlementNote.trim().length < 5} aria-busy={workingKey === 'close_settlement'} className="w-fit border-2 border-[#006064] bg-[#006064] px-4 py-2 text-xs font-bold uppercase text-white disabled:opacity-50">Cerrar liquidación</button>
+                </form>
+
+                <div className="space-y-4">
+                    {(data.settlements || []).map((settlement) => (
+                        <article key={settlement.id} className="border-2 border-[#006064] bg-white p-5 text-sm text-[#006064]">
+                            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                                <div>
+                                    <h3 className="font-display text-lg uppercase">{settlement.teacherLabel} · {settlement.periodMonth.slice(0, 7)}</h3>
+                                    <p className="font-mono font-bold">{formatMoney(settlement.totalAmountCents, settlement.currency)} · {settlement.lineCount} movimientos · {settlement.status === 'paid' ? 'pagada' : 'cerrada'}</p>
+                                    <p className="mt-1">Clases {formatMoney(settlement.classAmountCents, settlement.currency)} · trabajo {formatMoney(settlement.workAmountCents, settlement.currency)} · ajustes {formatMoney(settlement.adjustmentAmountCents, settlement.currency)}</p>
+                                    <p className="mt-1 text-xs">Cierre: {formatDate(settlement.closedAt)} · {settlement.closeNote}</p>
+                                    {settlement.status === 'paid' && <p className="mt-1 text-xs">Pago: {formatDate(settlement.paidAt)} · {settlement.paymentReference}{settlement.invoiceReference ? ` · factura ${settlement.invoiceReference}` : ''}</p>}
+                                    <a href={`/api/teacher/compensation-export?settlementId=${encodeURIComponent(settlement.id)}`} className="mt-3 inline-block border-2 border-[#006064] px-3 py-2 text-xs font-bold uppercase">Descargar CSV</a>
+                                </div>
+                                {settlement.status === 'closed' && (
+                                    <div className="grid min-w-[320px] gap-2 border-t-2 border-[#006064]/20 pt-4 xl:border-l-2 xl:border-t-0 xl:pl-4 xl:pt-0">
+                                        <label className="text-xs font-bold uppercase">Fecha real de pago
+                                            <input type="datetime-local" required value={paymentPaidAt[settlement.id] || ''} onChange={(event) => setPaymentPaidAt((current) => ({ ...current, [settlement.id]: event.target.value }))} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-2" />
+                                        </label>
+                                        <label className="text-xs font-bold uppercase">Referencia del pago
+                                            <input minLength={3} maxLength={200} value={paymentReferences[settlement.id] || ''} onChange={(event) => setPaymentReferences((current) => ({ ...current, [settlement.id]: event.target.value }))} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-2" />
+                                        </label>
+                                        <label className="text-xs font-bold uppercase">Referencia de factura (opcional)
+                                            <input maxLength={200} value={invoiceReferences[settlement.id] || ''} onChange={(event) => setInvoiceReferences((current) => ({ ...current, [settlement.id]: event.target.value }))} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-2" />
+                                        </label>
+                                        <label className="text-xs font-bold uppercase">Nota
+                                            <textarea minLength={5} maxLength={1000} rows={2} value={paymentNotes[settlement.id] || ''} onChange={(event) => setPaymentNotes((current) => ({ ...current, [settlement.id]: event.target.value }))} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-2" />
+                                        </label>
+                                        <button type="button" onClick={() => void submitPayment(settlement)} disabled={isMutating || !paymentPaidAt[settlement.id] || (paymentReferences[settlement.id] || '').trim().length < 3 || (paymentNotes[settlement.id] || '').trim().length < 5} aria-busy={workingKey === `payment:${settlement.id}`} className="border-2 border-[#006064] bg-[#006064] px-3 py-2 text-xs font-bold uppercase text-white disabled:opacity-50">Marcar pago manual</button>
+                                    </div>
+                                )}
+                                {settlement.status === 'paid' && (
+                                    <div className="grid min-w-[320px] gap-2 border-t-2 border-red-700/20 pt-4 xl:border-l-2 xl:border-t-0 xl:pl-4 xl:pt-0">
+                                        <p className="text-xs text-red-800">Solo para corregir una marca errónea. No revierte una transferencia; conserva el pago y añade una anulación auditable.</p>
+                                        <label className="text-xs font-bold uppercase text-red-800">Motivo de la anulación
+                                            <textarea minLength={5} maxLength={1000} rows={2} value={paymentVoidReasons[settlement.id] || ''} onChange={(event) => setPaymentVoidReasons((current) => ({ ...current, [settlement.id]: event.target.value }))} disabled={isMutating} className="mt-1 block w-full border-2 border-red-700 p-2" />
+                                        </label>
+                                        <button type="button" onClick={() => void submitPaymentVoid(settlement)} disabled={isMutating || !settlement.paymentId || (paymentVoidReasons[settlement.id] || '').trim().length < 5} aria-busy={workingKey === `void-payment:${settlement.id}`} className="border-2 border-red-700 px-3 py-2 text-xs font-bold uppercase text-red-800 disabled:opacity-50">Anular marca de pago</button>
+                                    </div>
+                                )}
+                            </div>
+                        </article>
+                    ))}
+                    {!(data.settlements || []).length && <p role="status" className="border-2 border-[#006064] bg-white p-5 text-sm text-[#006064]">No hay liquidaciones cerradas para este filtro.</p>}
+                </div>
             </section>
         </div>
     );
