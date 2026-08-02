@@ -98,7 +98,7 @@ function deployedFetch(options?: {
 }) {
     return async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
         const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
-        if (url.href === `${STAGING_WEB_ORIGIN}/es`) {
+        if (url.href === `${STAGING_WEB_ORIGIN}/es/`) {
             return new Response('<html></html>', { status: 200 });
         }
         if (url.href === `${STAGING_WEB_ORIGIN}/health`) {
