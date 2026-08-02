@@ -70,6 +70,7 @@ export const STAGING_EMAIL_MONTHLY_RECIPIENT_LIMIT = 100;
 
 const DELIVERY_MODES = new Set<EmailDeliveryMode>(['disabled', 'allowlist', 'live']);
 const SAFE_TOKEN_PATTERN = /^[a-z0-9_.:-]+$/;
+const SAFE_RESEND_STAGING_RECIPIENT_PATTERN = /^delivered(?:\+[a-z0-9._-]{1,64})?@resend\.dev$/;
 
 function parsePositiveLimit(raw: string | undefined, fallback: number, maximum: number): number {
     if (!raw) return fallback;
@@ -147,8 +148,12 @@ function policyFailure(
         return 'invalid_delivery_mode';
     }
     if (policy.mode === 'allowlist') {
-        if (policy.recipientAllowlist.size === 0) return 'recipient_not_allowlisted';
-        if (recipients.some((recipient) => !policy.recipientAllowlist.has(recipient))) {
+        const recipientAllowed = (recipient: string) => policy.recipientAllowlist.has(recipient)
+            || (
+                policy.appEnvironment === 'staging'
+                && SAFE_RESEND_STAGING_RECIPIENT_PATTERN.test(recipient)
+            );
+        if (recipients.some((recipient) => !recipientAllowed(recipient))) {
             return 'recipient_not_allowlisted';
         }
     }
