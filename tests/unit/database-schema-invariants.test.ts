@@ -23,6 +23,7 @@ const bookableSlotsMigration = readFileSync('supabase/migrations/20260731185233_
 const checkoutV2BillingMigration = readFileSync('supabase/migrations/20260731225000_add_checkout_v2_billing_foundation.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2MaterializationMigration = readFileSync('supabase/migrations/20260801120000_materialize_checkout_v2_cycle_sessions.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutHoldProtectionMigration = readFileSync('supabase/migrations/20260801130000_protect_checkout_v2_slot_holds.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutPolicyRotationMigration = readFileSync('supabase/migrations/20260802014725_rotate_checkout_intent_legal_policy_version.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2CycleFulfillmentMigration = readFileSync('supabase/migrations/20260801140000_enqueue_checkout_v2_cycle_fulfillment.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2RescheduleMigration = readFileSync('supabase/migrations/20260801150000_add_checkout_v2_reschedule_operations.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2RescheduleTargetsMigration = readFileSync('supabase/migrations/20260801160000_checkout_v2_reschedule_targets.sql', 'utf8').replace(/\r\n/g, '\n');
@@ -588,15 +589,35 @@ describe('database schema security invariants', () => {
         );
 
         for (const functionName of [
-            'private.guard_checkout_intent_snapshots()',
             'private.guard_bookable_slot_hold()',
             'public.hold_bookable_slot(',
-            'public.claim_checkout_intent_for_slot(',
             'public.claim_direct_checkout_intent_for_slot(',
         ]) {
             expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
                 canonicalLatestSqlFunction(checkoutHoldProtectionMigration, functionName),
             );
+        }
+
+        for (const functionName of [
+            'private.guard_checkout_intent_snapshots()',
+            'public.claim_checkout_intent_for_slot(',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutPolicyRotationMigration, functionName),
+            );
+        }
+
+        for (const snippet of [
+            "current_setting(\n                   'app.checkout_policy_rotation_intent_id',",
+            "close_reason = 'legal_policy_version_rotated'",
+            "intent_row.status <> 'creating'",
+            'intent_row.stripe_customer_id IS NOT NULL',
+            "RAISE EXCEPTION 'checkout_policy_rotation_did_not_create_successor'",
+            'REVOKE ALL ON FUNCTION public.claim_checkout_intent_for_slot(',
+            ') TO service_role;',
+        ]) {
+            expect(checkoutPolicyRotationMigration).toContain(snippet);
+            expect(schema).toContain(snippet);
         }
 
         for (const typeSnippet of [

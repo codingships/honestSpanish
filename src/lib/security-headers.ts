@@ -20,6 +20,7 @@ export const HSTS_HEADER = 'max-age=31536000';
 export const API_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
 export const PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS = 5;
 export const PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL = `public, max-age=${PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS}, must-revalidate`;
+export const PUBLIC_SHELL_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
 export const PRIVATE_PAGE_CACHE_CONTROL = 'private, no-store';
 export const ADMIN_EMAIL_PREVIEW_FRAME_PATH = '/api/email/preview-frame';
 export const ADMIN_EMAIL_PREVIEW_CACHE_CONTROL = 'private, no-store, no-cache, must-revalidate';
@@ -45,8 +46,7 @@ export const ADMIN_EMAIL_PREVIEW_CSP_DIRECTIVES = [
 export const ADMIN_EMAIL_PREVIEW_CSP = ADMIN_EMAIL_PREVIEW_CSP_DIRECTIVES.join('; ');
 
 const SENSITIVE_LOCALIZED_ROUTE = /^\/(?:es|en|ru)\/(?:campus(?:\/|$)|login\/?$|logout\/?$|reset-password\/?$|adult-confirmation\/?$|success\/?$|cancel\/?$|diagnostico\/?$|demo\/?$)/u;
-const SESSION_AWARE_LANDING_ROUTE = /^\/(?:es|en|ru)\/?$/u;
-const SESSION_AWARE_SEGMENT_ROUTE = /^\/es\/(?:clases-de-conversacion-en-espanol|espanol-para-vivir-en-espana|espanol-para-profesionales)\/?$/u;
+const PUBLIC_SHELL_ROUTE = /^\/(?:en|ru|es(?:\/(?:clases-de-conversacion-en-espanol|espanol-para-vivir-en-espana|espanol-para-profesionales))?)\/?$/u;
 
 export function normalizeRoutePathname(pathname: string): string {
     let decodedPathname = pathname;
@@ -92,8 +92,11 @@ function cacheControlForNormalizedPath(normalizedPathname: string, status?: numb
     }
     if (/^\/api(?:\/|$)/u.test(normalizedPathname)) return API_CACHE_CONTROL;
     if (normalizedPathname === '/demo' || normalizedPathname === '/demo/') return PRIVATE_PAGE_CACHE_CONTROL;
-    if (SESSION_AWARE_LANDING_ROUTE.test(normalizedPathname)) return PRIVATE_PAGE_CACHE_CONTROL;
-    if (SESSION_AWARE_SEGMENT_ROUTE.test(normalizedPathname)) return PRIVATE_PAGE_CACHE_CONTROL;
+    if (PUBLIC_SHELL_ROUTE.test(normalizedPathname)) {
+        return status === undefined || (status >= 200 && status < 300)
+            ? PUBLIC_SHELL_CACHE_CONTROL
+            : API_CACHE_CONTROL;
+    }
     if (SENSITIVE_LOCALIZED_ROUTE.test(normalizedPathname)) return PRIVATE_PAGE_CACHE_CONTROL;
     return null;
 }

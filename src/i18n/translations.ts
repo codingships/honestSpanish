@@ -509,6 +509,7 @@ export const ui = {
                 renewalDisclosure: "Se cobran 259 EUR al reservar. La siguiente cuota se cobra 28 días después de la primera clase. Solo una reprogramación por autoservicio, con al menos 24 horas de antelación y hasta un máximo inclusivo de 28 días desde la fecha original, mueve las cuatro clases y el ancla; un cambio excepcional por soporte fuera de ese límite no la mueve automáticamente. Después de comenzar la primera clase, el ancla queda fija. Desde entonces se renueva cada 28 días hasta que canceles antes del siguiente cobro.",
                 sessionBankDisclosure: "Cada ciclo de 28 días incluye cuatro clases individuales de 50 minutos.",
                 policyError: "Debes confirmar la mayoría de edad y aceptar las cuatro condiciones antes de continuar.",
+                policyChanged: "Las condiciones han cambiado. Recarga la página y vuelve a confirmarlas.",
             },
         },
         footer: {
@@ -1235,6 +1236,7 @@ export const ui = {
                 renewalDisclosure: "EUR 259 is charged when the place is reserved. The next charge is collected 28 days after the first class. Only a self-service reschedule requested at least 24 hours ahead and up to an inclusive maximum of 28 days from the original date moves all four classes and the renewal anchor; an exceptional support change outside that limit does not move it automatically. Once the first class begins, the renewal anchor is fixed. It then renews every 28 days until you cancel before the next charge.",
                 sessionBankDisclosure: "Each 28-day cycle includes four individual 50-minute classes.",
                 policyError: "Confirm that you are an adult and accept all four conditions before continuing.",
+                policyChanged: "The terms have changed. Reload the page and confirm them again.",
             },
         },
         footer: {
@@ -1856,6 +1858,7 @@ export const ui = {
                 renewalDisclosure: "259 EUR списываются при бронировании места. Следующее списание происходит через 28 дней после первого занятия. Только самостоятельный перенос не менее чем за 24 часа и не позднее чем через 28 дней включительно от исходной даты сдвигает все четыре занятия и дату продления; исключительный перенос через службу поддержки вне этого предела не сдвигает её автоматически. После начала первого занятия дата продления фиксируется. Затем подписка продлевается каждые 28 дней, пока вы не отмените её до следующего списания.",
                 sessionBankDisclosure: "Каждый 28-дневный цикл включает четыре индивидуальных занятия по 50 минут.",
                 policyError: "Подтвердите совершеннолетие и примите все четыре условия перед продолжением.",
+                policyChanged: "Условия изменились. Перезагрузите страницу и подтвердите их снова.",
             },
         },
         footer: {

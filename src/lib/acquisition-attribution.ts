@@ -230,6 +230,42 @@ export function appendAcquisitionAttribution(
     return true;
 }
 
+export function hasExternalAcquisitionEvidence(value: unknown): boolean {
+    const attribution = sanitizeAcquisitionAttribution(value);
+    if (!attribution) return false;
+
+    return attribution.referrerKind === 'external'
+        || UTM_FIELDS.some(([, field]) => Boolean(attribution[field]));
+}
+
+export function buildAcquisitionContinuityUrl(
+    targetHref: string,
+    currentHref: string,
+    value: unknown,
+): string | null {
+    const attribution = sanitizeAcquisitionAttribution(value);
+    if (!attribution || !hasExternalAcquisitionEvidence(attribution)) return null;
+
+    let current: URL;
+    let target: URL;
+    try {
+        current = new URL(currentHref);
+        target = new URL(targetHref, current);
+    } catch {
+        return null;
+    }
+
+    if (
+        !['http:', 'https:'].includes(current.protocol)
+        || !['http:', 'https:'].includes(target.protocol)
+        || target.origin !== current.origin
+    ) return null;
+
+    return appendAcquisitionAttribution(target.searchParams, attribution)
+        ? target.toString()
+        : null;
+}
+
 function createBrowserRequestId(): string {
     if (typeof globalThis.crypto?.randomUUID !== 'function') throw new Error('crypto.randomUUID unavailable');
     return globalThis.crypto.randomUUID();

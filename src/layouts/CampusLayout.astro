@@ -55,6 +55,11 @@ const documentBrandName = `Espa${lowerEnye}ol Honesto`;
 const brandName = `ESPA${upperEnye}OL HONESTO`;
 const brandNameHtml = 'ESPA&#x00D1;OL HONESTO';
 const catalogLabel = `Cat${String.fromCodePoint(0x00E1)}logo`;
+const teachersAndSlotsLabel = {
+    es: 'Profesores y plazas',
+    en: 'Teachers & bookable places',
+    ru: 'Преподаватели и места',
+}[lang];
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stripBrandSuffix = (value: string) => {
     const normalized = value.trim();
@@ -117,6 +122,7 @@ const adminNav: NavItem[] = [
     { href: `/${lang}/campus/admin/support`, icon: 'support', label: 'Tickets soporte' },
     { href: `/${lang}/campus/admin/emails`, icon: 'email', label: t('campus.nav.emails') },
     { href: `/${lang}/campus/admin/students`, icon: 'users', label: t('campus.nav.students') },
+    { href: `/${lang}/campus/admin/teachers`, icon: 'users', label: teachersAndSlotsLabel },
     { href: `/${lang}/campus/admin/users`, icon: 'users', label: 'Matching' },
     { href: `/${lang}/campus/admin/calendar`, icon: 'calendar', label: t('campus.admin.calendar.title') },
     { href: `/${lang}/campus/admin/payments`, icon: 'card', label: t('campus.nav.payments') },

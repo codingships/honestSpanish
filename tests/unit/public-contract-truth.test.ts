@@ -100,9 +100,9 @@ describe('public contract truth', () => {
             expect(article).not.toMatch(/8\s*(?:[-–]|to|a|до)\s*10\s*(?:months?|meses|месяц(?:а|ев)?)/iu);
             expect(article).not.toMatch(/(?:150|200|350|400|600|800)\s*(?:[-–]|to|a|до)?\s*(?:hours?|horas|час(?:а|ов)?)/iu);
             expect(article).not.toMatch(/(?:it will take you|tardarás|вам потребуется)\s+\d+\s+(?:years?|años|лет)/iu);
-            expect(article).toMatch(/259\s*EUR|EUR\s*259/iu);
+            expect(article).toMatch(/259\s*(?:EUR|€)|(?:EUR|€)\s*259/iu);
             expect(article).toMatch(/50[-\s]*(?:minutes?|minutos|минут)/iu);
-            expect(article).toMatch(/28[-\s](?:day|día|днев)/iu);
+            expect(article).toMatch(/28[-\s](?:day|día|д(?:ень|ня|ней|нев))/iu);
         }
     });
 

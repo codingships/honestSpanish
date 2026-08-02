@@ -23,7 +23,6 @@ const slot = {
     ],
 };
 const targetPackage = {
-    id: 'pkg-target',
     name: 'individual_4x50_28d',
     display_name: { es: '4 clases individuales', en: '4 individual classes', ru: '4 classes' },
     price_monthly: 25900,
@@ -39,8 +38,6 @@ function renderPricingSection(packages = [targetPackage], props: Partial<Pricing
         <PricingSection
             packages={packages}
             lang="es"
-            isLoggedIn={false}
-            checkoutMode="unavailable"
             translations={translations}
             {...props}
         />,
@@ -50,7 +47,7 @@ function renderPricingSection(packages = [targetPackage], props: Partial<Pricing
 describe('PricingSection', () => {
     beforeEach(() => {
         window.history.pushState(null, '', '/es');
-        fetchMock = vi.fn().mockResolvedValue(Response.json({ slots: [slot] }));
+        fetchMock = vi.fn().mockResolvedValue(Response.json({ slots: [slot], checkoutEnabled: false }));
         vi.stubGlobal('fetch', fetchMock);
     });
 
@@ -94,15 +91,23 @@ describe('PricingSection', () => {
 
     it('reopens a returned selection only after revalidating it against current availability', async () => {
         window.history.replaceState(null, '', `/es?checkoutSlot=${slotPublicId}#planes`);
-        renderPricingSection([targetPackage], { checkoutMode: 'checkout' });
+        fetchMock
+            .mockResolvedValueOnce(Response.json({ slots: [slot], checkoutEnabled: true }))
+            .mockResolvedValueOnce(new Response(null, { status: 204 }));
+        renderPricingSection([targetPackage]);
 
         const selected = await screen.findByRole('radio', { name: /Álex/i });
         await waitFor(() => expect(selected).toBeChecked());
-        expect(screen.getByRole('button', { name: translations.modal.login! })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: translations.modal.continue! })).toBeInTheDocument();
         expect(window.location.pathname).toBe('/es');
         expect(window.location.search).toBe('');
         expect(window.location.hash).toBe('#planes');
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(fetchMock).toHaveBeenNthCalledWith(
+            2,
+            '/api/auth/checkout-readiness',
+            expect.objectContaining({ method: 'GET', cache: 'no-store', credentials: 'same-origin' }),
+        );
     });
 
     it('discards an invalid returned slot without opening the modal', () => {

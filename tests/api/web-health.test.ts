@@ -15,7 +15,58 @@ describe('web health', () => {
         for (const key of Object.keys(mocks.env)) delete mocks.env[key];
     });
 
-    it('reports a strict production bootstrap as healthy and inert', async () => {
+    it('reports an active staging runtime with closed checkout as ready', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
+            WORKER_IDENTITY: 'espanolhonesto-staging',
+            CHECKOUT_ENABLED: 'false',
+            CHECKOUT_ENABLED_OVERRIDE: 'false',
+        });
+
+        const response = await GET({} as Parameters<typeof GET>[0]) as Response;
+
+        expect(response.status).toBe(200);
+        expect(response.headers.get('X-Robots-Tag')).toContain('noindex');
+        await expect(response.json()).resolves.toMatchObject({
+            appEnvironment: 'staging',
+            checkoutEnabled: false,
+            runtimeMode: 'active',
+            status: 'ok',
+            workerIdentity: 'espanolhonesto-staging',
+        });
+    });
+
+    it.each([
+        ['enabled', 'false', 'true', true],
+        ['closed', 'true', 'false', false],
+    ])('reports an active production runtime with checkout %s as ready', async (
+        _scenario,
+        configured,
+        override,
+        expectedEnabled,
+    ) => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+            WORKER_IDENTITY: 'espanolhonesto',
+            CHECKOUT_ENABLED: configured,
+            CHECKOUT_ENABLED_OVERRIDE: override,
+        });
+
+        const response = await GET({} as Parameters<typeof GET>[0]) as Response;
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            appEnvironment: 'production',
+            checkoutEnabled: expectedEnabled,
+            runtimeMode: 'active',
+            status: 'ok',
+            workerIdentity: 'espanolhonesto',
+        });
+    });
+
+    it('reports production bootstrap as unavailable while preserving diagnostics', async () => {
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'production',
             WEB_RUNTIME_MODE: 'bootstrap',
@@ -26,21 +77,63 @@ describe('web health', () => {
 
         const response = await GET({} as Parameters<typeof GET>[0]) as Response;
 
-        expect(response.status).toBe(200);
-        expect(response.headers.get('X-Robots-Tag')).toContain('noindex');
+        expect(response.status).toBe(503);
         await expect(response.json()).resolves.toMatchObject({
-            checkoutEnabled: false,
+            appEnvironment: 'production',
             runtimeMode: 'bootstrap',
-            status: 'ok',
+            status: 'invalid',
             workerIdentity: 'espanolhonesto',
         });
     });
 
-    it('fails closed if checkout or identity is inconsistent', async () => {
+    it('fails closed if identity is inconsistent', async () => {
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'production',
-            WEB_RUNTIME_MODE: 'bootstrap',
+            WEB_RUNTIME_MODE: 'active',
             WORKER_IDENTITY: 'wrong-worker',
+            CHECKOUT_ENABLED: 'false',
+            CHECKOUT_ENABLED_OVERRIDE: 'false',
+        });
+
+        const response = await GET({} as Parameters<typeof GET>[0]) as Response;
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toMatchObject({ status: 'invalid' });
+    });
+
+    it.each([
+        ['missing base flag', undefined, 'false', false],
+        ['missing override flag', 'true', undefined, true],
+        ['invalid base flag', 'enabled', 'true', true],
+        ['invalid override flag', 'false', 'disabled', false],
+    ])('fails closed for %s while reporting effective checkout state', async (
+        _scenario,
+        configured,
+        override,
+        expectedEnabled,
+    ) => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+            WORKER_IDENTITY: 'espanolhonesto',
+            CHECKOUT_ENABLED: configured,
+            CHECKOUT_ENABLED_OVERRIDE: override,
+        });
+
+        const response = await GET({} as Parameters<typeof GET>[0]) as Response;
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toMatchObject({
+            checkoutEnabled: expectedEnabled,
+            status: 'invalid',
+        });
+    });
+
+    it('does not report staging ready when checkout is enabled', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
+            WORKER_IDENTITY: 'espanolhonesto-staging',
             CHECKOUT_ENABLED: 'false',
             CHECKOUT_ENABLED_OVERRIDE: 'true',
         });
@@ -48,6 +141,9 @@ describe('web health', () => {
         const response = await GET({} as Parameters<typeof GET>[0]) as Response;
 
         expect(response.status).toBe(503);
-        await expect(response.json()).resolves.toMatchObject({ status: 'invalid' });
+        await expect(response.json()).resolves.toMatchObject({
+            checkoutEnabled: true,
+            status: 'invalid',
+        });
     });
 });
