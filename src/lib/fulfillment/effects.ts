@@ -510,14 +510,17 @@ export async function sendFulfillmentEmailEffect(
         throw new FulfillmentEffectError('FULFILLMENT_EFFECT_CLAIM_FAILED', false);
     }
 
-    const delivery = await deliverIdempotentEmail({
-        from,
-        html: message.html,
-        idempotencyKey,
-        source: message.source,
-        subject: message.subject,
-        to: normalizedRecipient,
-    });
+    const delivery = await deliverIdempotentEmail(
+        {
+            from,
+            html: message.html,
+            idempotencyKey,
+            source: message.source,
+            subject: message.subject,
+            to: normalizedRecipient,
+        },
+        { supabaseAdmin: context.supabaseAdmin },
+    );
     const result: Json = { idempotency_key: idempotencyKey };
 
     if (!delivery.ok) {

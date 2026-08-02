@@ -2,6 +2,8 @@
  * Transactional email send functions. Every provider call passes through the
  * persistent recipient-budget gate in delivery.ts.
  */
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../../types/database.types';
 import { deliverEmail } from './delivery';
 import { describeEmailSendError, redactEmailForLog } from './errors';
 import {
@@ -56,6 +58,7 @@ type TransactionalEmailInput = {
 
 export type TransactionalEmailSendOptions = {
     fulfillmentEffect?: FulfillmentEmailEffectContext;
+    supabaseAdmin?: SupabaseClient<Database>;
 };
 
 async function sendTransactionalEmail(
@@ -74,12 +77,15 @@ async function sendTransactionalEmail(
     }
 
     try {
-        const result = await deliverEmail({
+        const deliveryInput = {
             to: input.email,
             subject: input.subject,
             html: input.html,
             source: input.source,
-        });
+        };
+        const result = options.supabaseAdmin
+            ? await deliverEmail(deliveryInput, { supabaseAdmin: options.supabaseAdmin })
+            : await deliverEmail(deliveryInput);
 
         if (!result.ok) {
             console.error(
@@ -195,7 +201,11 @@ export async function sendCheckoutV2CycleRescheduled(
     }, options);
 }
 
-export async function sendClassReminder(email: string, data: ClassReminderData): Promise<boolean> {
+export async function sendClassReminder(
+    email: string,
+    data: ClassReminderData,
+    options: TransactionalEmailSendOptions = {},
+): Promise<boolean> {
     return sendTransactionalEmail({
         email,
         subject: `Reminder: your class is tomorrow - ${data.date}`,
@@ -204,7 +214,7 @@ export async function sendClassReminder(email: string, data: ClassReminderData):
         failureLabel: '[Email] Failed to send class reminder:',
         thrownLabel: '[Email] Error sending class reminder:',
         successLabel: '[Email] Class reminder sent to',
-    });
+    }, options);
 }
 
 export async function sendClassCancelled(

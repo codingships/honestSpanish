@@ -72,6 +72,7 @@ function createSupabaseAdmin(sessions: unknown[] = []) {
 
 const stagingQueueName = 'espanol-honesto-fulfillment-staging-queue';
 const productionQueueName = 'espanol-honesto-fulfillment-production-queue';
+const queueSupabaseAdmin = { from: vi.fn() };
 const stagingQueueEnv = {
     FULFILLMENT_QUEUE: {
         metrics: vi.fn(),
@@ -120,6 +121,7 @@ describe('fulfillment worker scheduled handler', () => {
             failed: 0,
         });
         mocks.quarantineStaleFulfillmentJobs.mockResolvedValue(0);
+        mocks.createSupabaseAdminClient.mockReturnValue(queueSupabaseAdmin);
         mocks.sendClassReminder.mockResolvedValue(true);
         mocks.recordClassEmailOutInCrmSafe.mockResolvedValue(undefined);
     });
@@ -141,9 +143,13 @@ describe('fulfillment worker scheduled handler', () => {
 
         expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
             limit: 1,
+            supabaseAdmin: queueSupabaseAdmin,
             workerId: 'cloudflare-fulfillment-worker:queue:queue-message-1:1',
         });
-        expect(mocks.quarantineStaleFulfillmentJobs).toHaveBeenCalledTimes(1);
+        expect(mocks.createSupabaseAdminClient).toHaveBeenCalledWith(stagingQueueEnv);
+        expect(mocks.quarantineStaleFulfillmentJobs).toHaveBeenCalledWith({
+            supabaseAdmin: queueSupabaseAdmin,
+        });
         expect(stagingQueueEnv.FULFILLMENT_QUEUE.send).toHaveBeenCalledWith(
             expect.objectContaining({
                 environment: 'staging',
@@ -206,6 +212,7 @@ describe('fulfillment worker scheduled handler', () => {
 
         expect(mocks.processDueFulfillmentJobs).toHaveBeenCalledWith({
             limit: 1,
+            supabaseAdmin: queueSupabaseAdmin,
             workerId: 'cloudflare-fulfillment-worker:queue:queue-message-1:1',
         });
         expect(message.ack).toHaveBeenCalledTimes(1);
@@ -392,6 +399,7 @@ describe('fulfillment worker scheduled handler', () => {
             expect.objectContaining({
                 time: expect.stringMatching(/\b(?:CET|CEST|GMT[+-]\d+)\b/u),
             }),
+            { supabaseAdmin: admin },
         );
     });
 

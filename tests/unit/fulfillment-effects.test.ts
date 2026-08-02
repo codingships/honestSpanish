@@ -86,17 +86,21 @@ describe('durable fulfillment email effects', () => {
             .mockResolvedValueOnce(claimed())
             .mockResolvedValueOnce({ data: true, error: null });
         const { sendFulfillmentEmailEffect } = await import('../../src/lib/fulfillment/effects');
+        const effectContext = context(rpc);
 
-        await expect(sendFulfillmentEmailEffect(context(rpc), message())).resolves.toEqual({
+        await expect(sendFulfillmentEmailEffect(effectContext, message())).resolves.toEqual({
             idempotencyKey: `fulfillment/${JOB_ID}/email.welcome.student`,
             providerId: 'resend-email-1',
             replayed: false,
         });
 
-        expect(mocks.deliverIdempotentEmail).toHaveBeenCalledWith(expect.objectContaining({
-            idempotencyKey: `fulfillment/${JOB_ID}/email.welcome.student`,
-            to: 'student@example.com',
-        }));
+        expect(mocks.deliverIdempotentEmail).toHaveBeenCalledWith(
+            expect.objectContaining({
+                idempotencyKey: `fulfillment/${JOB_ID}/email.welcome.student`,
+                to: 'student@example.com',
+            }),
+            { supabaseAdmin: effectContext.supabaseAdmin },
+        );
         expect(rpc).toHaveBeenNthCalledWith(2, 'finalize_fulfillment_effect', expect.objectContaining({
             p_outcome: 'succeeded',
             p_provider_id: 'resend-email-1',
