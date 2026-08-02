@@ -3,20 +3,14 @@ import PricingModal, { type PricingModalTranslations } from './PricingModal';
 import { formatPackagePrice } from '../lib/package-pricing';
 
 interface Package {
-    id: string;
     name: string;
-    display_name: { es: string; en: string; ru: string };
     price_monthly: number;
     sessions_per_month: number;
-    has_group_session?: boolean | null;
-    has_dual_teacher?: boolean | null;
 }
 
 interface PricingSectionProps {
     packages: Package[];
     lang: 'es' | 'en' | 'ru';
-    isLoggedIn: boolean;
-    checkoutMode?: 'unavailable' | 'checkout';
     translations: {
         title: string;
         subtitle: string;
@@ -46,7 +40,7 @@ const s = {
     secondaryBg: 'bg-white',
 };
 
-export default function PricingSection({ packages, lang, isLoggedIn, checkoutMode = 'unavailable', translations: t }: PricingSectionProps) {
+export default function PricingSection({ packages, lang, translations: t }: PricingSectionProps) {
     const [selectedPlan, setSelectedPlan] = useState<{
         name: string;
         displayName: string;
@@ -55,6 +49,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
     } | null>(null);
     const [initialSlotPublicId, setInitialSlotPublicId] = useState<string | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const [checkoutState, setCheckoutState] = useState<'unknown' | 'open' | 'closed'>('unknown');
     const copy = {
         title: t.title || 'Planes',
         subtitle: t.subtitle || '',
@@ -112,19 +107,20 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
             renewalDisclosure: t.modal?.renewalDisclosure || 'La siguiente cuota se cobra 28 días después de la primera clase.',
             sessionBankDisclosure: t.modal?.sessionBankDisclosure || 'Cada ciclo incluye cuatro clases individuales de 50 minutos.',
             policyError: t.modal?.policyError || 'Debes confirmar y aceptar las cuatro condiciones antes de continuar.',
+            policyChanged: t.modal?.policyChanged || 'Las condiciones han cambiado. Recarga la página y vuelve a confirmarlas.',
         } satisfies PricingModalTranslations,
     };
 
     const handleSelectPlan = useCallback((pkg: Package, slotPublicId: string | null = null) => {
         setSelectedPlan({
             name: pkg.name,
-            displayName: pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name,
+            displayName: t.plans?.[pkg.name]?.name || pkg.name,
             priceCents: pkg.price_monthly,
             sessionsPerCycle: pkg.sessions_per_month,
         });
         setInitialSlotPublicId(slotPublicId);
         setIsModalOpen(true);
-    }, [lang]);
+    }, [t.plans]);
 
     const closeModal = useCallback(() => {
         setIsModalOpen(false);
@@ -242,11 +238,11 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                             const key = pkg.name || `plan-${index}`;
                             const highlight = pkg.name === recommendedPlanName;
                             const planTranslations = copy.plans[key as PlanKey] ?? {
-                                name: pkg.display_name?.[lang] || pkg.display_name?.es || key,
+                                name: key,
                                 description: '',
                                 features: [],
                             };
-                            const canonicalPlanName = pkg.display_name?.[lang] || pkg.display_name?.es || pkg.name;
+                            const canonicalPlanName = planTranslations.name || pkg.name;
                             const planFeatures = getPlanFeatures(pkg, planTranslations.features);
                             const priceDisplay = getPriceDisplay(pkg);
                             const actionClass = `w-auto border px-6 ${highlight ? 'py-4' : 'py-2'} ${highlight
@@ -287,7 +283,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                                             disabled={!priceDisplay.hasPrice}
                                             data-plan={key}
                                             data-testid={`select-plan-${key}`}
-                                            aria-describedby={checkoutMode === 'unavailable' ? 'pricing-availability-note' : undefined}
+                                            aria-describedby={checkoutState === 'closed' ? 'pricing-availability-note' : undefined}
                                             className={actionClass}
                                         >
                                             {copy.modal.viewAvailability}
@@ -298,7 +294,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                         })}
                     </div>
                 </div>
-                {checkoutMode === 'unavailable' && (
+                {checkoutState === 'closed' && (
                     <p id="pricing-availability-note" className="mx-auto mt-6 max-w-3xl text-center text-sm font-bold text-[#006064]">
                         {copy.applicationNote}
                     </p>
@@ -310,8 +306,7 @@ export default function PricingSection({ packages, lang, isLoggedIn, checkoutMod
                 onClose={closeModal}
                 plan={selectedPlan}
                 lang={lang}
-                isLoggedIn={isLoggedIn}
-                checkoutEnabled={checkoutMode === 'checkout'}
+                onCheckoutStatus={setCheckoutState}
                 initialSlotPublicId={initialSlotPublicId}
                 translations={copy.modal}
             />

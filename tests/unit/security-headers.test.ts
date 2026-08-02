@@ -6,6 +6,7 @@ import {
     ADMIN_EMAIL_PREVIEW_CSP,
     API_CACHE_CONTROL,
     PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL,
+    PUBLIC_SHELL_CACHE_CONTROL,
     CSP_HEADER_BASELINE,
     HOSTED_SECURITY_HEADERS,
     HSTS_HEADER,
@@ -24,7 +25,7 @@ describe('hosted response security headers', () => {
             .map((section) => section.trim())
             .filter(Boolean);
 
-        expect(sections).toHaveLength(3);
+        expect(sections).toHaveLength(15);
         expect(sections[0]).toMatch(/^\/\*\r?\n/u);
         expect(sections[1]).toMatch(/^\/api\/\*\r?\n/u);
         expect(sections[2]).toMatch(/^\/og\/\*\r?\n/u);
@@ -41,6 +42,9 @@ describe('hosted response security headers', () => {
         expect(sections[1].match(/Cache-Control:/gu)).toHaveLength(1);
         expect(sections[2]).toContain('Cache-Control: public, max-age=86400, stale-while-revalidate=604800');
         expect(sections[2].match(/Cache-Control:/gu)).toHaveLength(1);
+        for (const section of sections.slice(3)) {
+            expect(section).toContain(`Cache-Control: ${PUBLIC_SHELL_CACHE_CONTROL}`);
+        }
     });
 
     it('merges the non-meta baseline without discarding Astro script and style hashes', () => {
@@ -61,9 +65,11 @@ describe('hosted response security headers', () => {
         expect(cacheControlForPath('/es/campus/account')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
         expect(cacheControlForPath('/en/reset-password')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
         expect(cacheControlForPath('/ru/diagnostico')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
-        expect(cacheControlForPath('/es')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
-        expect(cacheControlForPath('/en/')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
-        expect(cacheControlForPath('/es/espanol-para-profesionales')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
+        expect(cacheControlForPath('/es')).toBe(PUBLIC_SHELL_CACHE_CONTROL);
+        expect(cacheControlForPath('/es/')).toBe(PUBLIC_SHELL_CACHE_CONTROL);
+        expect(cacheControlForPath('/en/')).toBe(PUBLIC_SHELL_CACHE_CONTROL);
+        expect(cacheControlForPath('/es/espanol-para-profesionales')).toBe(PUBLIC_SHELL_CACHE_CONTROL);
+        expect(cacheControlForPath('/es/espanol-para-profesionales/')).toBe(PUBLIC_SHELL_CACHE_CONTROL);
         expect(cacheControlForPath('/es/blog/example')).toBeNull();
         expect(cacheControlForPath('/es//login')).toBe(PRIVATE_PAGE_CACHE_CONTROL);
         expect(cacheControlForPath('//es/login')).toBe(PRIVATE_PAGE_CACHE_CONTROL);

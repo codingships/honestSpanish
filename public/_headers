@@ -12,3 +12,39 @@
 
 /og/*
   Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/es
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/en
+  Cache-Control: public, max-age=0, must-revalidate
+
+/en/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/ru
+  Cache-Control: public, max-age=0, must-revalidate
+
+/ru/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/espanol-para-vivir-en-espana
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/espanol-para-vivir-en-espana/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/espanol-para-profesionales
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/espanol-para-profesionales/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/clases-de-conversacion-en-espanol
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/clases-de-conversacion-en-espanol/
+  Cache-Control: public, max-age=0, must-revalidate

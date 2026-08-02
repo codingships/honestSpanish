@@ -110,10 +110,12 @@ function deployedFetch(options?: {
         }
         if (url.href === `${STAGING_FULFILLMENT_ORIGIN}/health`) {
             return Response.json({
+                appEnvironment: 'staging',
                 ok: true,
                 operationMode: 'active',
                 service: 'fulfillment-worker',
                 runtime: 'cloudflare-workers',
+                status: 'ok',
                 workerIdentity: STAGING_FULFILLMENT_IDENTITY,
             });
         }
