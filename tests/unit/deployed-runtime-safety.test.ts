@@ -7,6 +7,7 @@ import {
 import {
     STAGING_FULFILLMENT_IDENTITY,
     STAGING_FULFILLMENT_ORIGIN,
+    STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID,
     STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID,
     STAGING_LEGACY_IDENTITY_WEB_VERSION_ID,
     STAGING_SUPABASE_REF,
@@ -86,6 +87,7 @@ function deployedFetch(options?: {
     allowMissingBearer?: boolean;
     checkoutEnabled?: boolean;
     fulfillmentGoogleKey?: string;
+    legacyFulfillmentHealth?: boolean;
     fulfillmentSchema?: SupportedRollbackAttestationSchema;
     fulfillmentVersionId?: string;
     overrideFulfillmentNonce?: string;
@@ -110,12 +112,11 @@ function deployedFetch(options?: {
         }
         if (url.href === `${STAGING_FULFILLMENT_ORIGIN}/health`) {
             return Response.json({
-                appEnvironment: 'staging',
+                ...(options?.legacyFulfillmentHealth ? {} : { appEnvironment: 'staging', status: 'ok' }),
                 ok: true,
                 operationMode: 'active',
                 service: 'fulfillment-worker',
                 runtime: 'cloudflare-workers',
-                status: 'ok',
                 workerIdentity: STAGING_FULFILLMENT_IDENTITY,
             });
         }
@@ -254,6 +255,59 @@ describe('deployed staging runtime safety', () => {
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
         })).resolves.toEqual({ fulfillmentVersionId, webVersionId });
+    });
+
+    it('accepts the exact legacy fulfillment health contract only for rollback compatibility', async () => {
+        const fetchImpl = deployedFetch({
+            fulfillmentVersionId: STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID,
+            legacyFulfillmentHealth: true,
+        });
+        const contract = await captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID,
+            expectedWebVersionId: webVersionId,
+            fetchImpl,
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        });
+
+        await expect(verifyStagingRollbackRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            contract,
+            env: baseEnv,
+            fetchImpl,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).resolves.toEqual({
+            fulfillmentVersionId: STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID,
+            webVersionId,
+        });
+        await expect(verifyDeployedStagingRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID,
+            expectedWebVersionId: webVersionId,
+            fetchImpl,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).rejects.toThrow('invalid 200 response');
+    });
+
+    it('rejects the legacy fulfillment health contract for any other immutable version', async () => {
+        await expect(captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl: deployedFetch({ legacyFulfillmentHealth: true }),
+            fulfillmentBindingNames: legacyFulfillmentBindingNames,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        })).rejects.toThrow('invalid 200 response');
     });
 
     it('does not allow schema 5 through the normal deployment verification path', async () => {

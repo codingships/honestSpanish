@@ -17,12 +17,14 @@ export const STAGING_FULFILLMENT_IDENTITY = 'espanol-honesto-fulfillment-staging
 export const STAGING_FULFILLMENT_ORIGIN = 'https://espanol-honesto-fulfillment-staging.alindev95.workers.dev';
 export const STAGING_LEGACY_IDENTITY_WEB_VERSION_ID = '8f90a491-99f9-4347-a793-b762a782a8d3';
 export const STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID = '4dd8e219-0389-4186-91eb-e1cfec2e7728';
+export const STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID = 'af8a64fd-0cdc-47f2-a926-15df53266e43';
 
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 const PROOF_PATTERN = /^[a-f0-9]{64}$/;
 
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type FulfillmentHealthContract = 'current' | 'rollback-compatible';
 
 export type DeployedRuntimeVerification = {
     fulfillmentVersionId: string;
@@ -323,7 +325,32 @@ async function requestJson(
     return { body: body as Record<string, unknown>, response };
 }
 
-export async function verifyInnocuousStagingRuntimeProbes(fetchImpl: FetchLike = fetch): Promise<void> {
+function isExpectedFulfillmentHealth(
+    body: Record<string, unknown>,
+    contract: FulfillmentHealthContract,
+): boolean {
+    const sharedContractMatches = body.ok === true
+        && body.operationMode === 'active'
+        && body.runtime === 'cloudflare-workers'
+        && body.service === 'fulfillment-worker'
+        && body.workerIdentity === STAGING_FULFILLMENT_IDENTITY;
+    const currentContractMatches = body.appEnvironment === 'staging' && body.status === 'ok';
+    const legacyContractMatches = contract === 'rollback-compatible'
+        && body.appEnvironment === undefined
+        && body.status === undefined;
+    return sharedContractMatches && (currentContractMatches || legacyContractMatches);
+}
+
+function rollbackFulfillmentHealthContract(versionId: string): FulfillmentHealthContract {
+    return versionId === STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID
+        ? 'rollback-compatible'
+        : 'current';
+}
+
+async function verifyInnocuousStagingRuntimeProbesForHealthContract(
+    fetchImpl: FetchLike,
+    fulfillmentHealthContract: FulfillmentHealthContract,
+): Promise<void> {
     await Promise.all([
         requestJson(fetchImpl, `${STAGING_WEB_ORIGIN}/health`).then(({ body, response }) => {
             if (
@@ -338,13 +365,7 @@ export async function verifyInnocuousStagingRuntimeProbes(fetchImpl: FetchLike =
         requestJson(fetchImpl, `${STAGING_FULFILLMENT_ORIGIN}/health`).then(({ body, response }) => {
             if (
                 response.status !== 200
-                || body.appEnvironment !== 'staging'
-                || body.ok !== true
-                || body.operationMode !== 'active'
-                || body.runtime !== 'cloudflare-workers'
-                || body.service !== 'fulfillment-worker'
-                || body.status !== 'ok'
-                || body.workerIdentity !== STAGING_FULFILLMENT_IDENTITY
+                || !isExpectedFulfillmentHealth(body, fulfillmentHealthContract)
             ) throw new Error('Fulfillment health did not return the exact staging contract');
         }),
         requestJson(fetchImpl, `${STAGING_FULFILLMENT_ORIGIN}/internal/jobs/process`, {
@@ -386,7 +407,14 @@ export async function verifyInnocuousStagingRuntimeProbes(fetchImpl: FetchLike =
     ]);
 }
 
-async function verifyHealth(fetchImpl: FetchLike): Promise<void> {
+export async function verifyInnocuousStagingRuntimeProbes(fetchImpl: FetchLike = fetch): Promise<void> {
+    await verifyInnocuousStagingRuntimeProbesForHealthContract(fetchImpl, 'current');
+}
+
+async function verifyHealth(
+    fetchImpl: FetchLike,
+    fulfillmentHealthContract: FulfillmentHealthContract = 'current',
+): Promise<void> {
     const [web, fulfillment] = await Promise.all([
         fetchImpl(`${STAGING_WEB_ORIGIN}/es`, {
             headers: { 'Cache-Control': 'no-cache' },
@@ -408,13 +436,10 @@ async function verifyHealth(fetchImpl: FetchLike): Promise<void> {
         || !fulfillmentBody
         || typeof fulfillmentBody !== 'object'
         || Array.isArray(fulfillmentBody)
-        || (fulfillmentBody as Record<string, unknown>).appEnvironment !== 'staging'
-        || (fulfillmentBody as Record<string, unknown>).ok !== true
-        || (fulfillmentBody as Record<string, unknown>).operationMode !== 'active'
-        || (fulfillmentBody as Record<string, unknown>).service !== 'fulfillment-worker'
-        || (fulfillmentBody as Record<string, unknown>).status !== 'ok'
-        || (fulfillmentBody as Record<string, unknown>).runtime !== 'cloudflare-workers'
-        || (fulfillmentBody as Record<string, unknown>).workerIdentity !== STAGING_FULFILLMENT_IDENTITY
+        || !isExpectedFulfillmentHealth(
+            fulfillmentBody as Record<string, unknown>,
+            fulfillmentHealthContract,
+        )
     ) {
         throw new Error(`Staging fulfillment health returned an invalid ${fulfillment.status} response`);
     }
@@ -619,8 +644,9 @@ export async function captureStagingRollbackBaseline(input: {
         throw new Error('Expected staging baseline Worker version IDs are invalid');
     }
     const fetchImpl = input.fetchImpl ?? fetch;
-    await verifyHealth(fetchImpl);
-    await verifyInnocuousStagingRuntimeProbes(fetchImpl);
+    const fulfillmentHealthContract = rollbackFulfillmentHealthContract(input.expectedFulfillmentVersionId);
+    await verifyHealth(fetchImpl, fulfillmentHealthContract);
+    await verifyInnocuousStagingRuntimeProbesForHealthContract(fetchImpl, fulfillmentHealthContract);
     const [web, fulfillment] = await Promise.all([
         discoverAndVerifyOneBaseline({
             bindingNames: input.webBindingNames,
@@ -655,8 +681,9 @@ export async function verifyStagingRollbackRuntime(input: {
     assertExpectedStagingRuntimeInput(input);
     const contract = assertStagingRollbackContract(input.contract);
     const fetchImpl = input.fetchImpl ?? fetch;
-    await verifyHealth(fetchImpl);
-    await verifyInnocuousStagingRuntimeProbes(fetchImpl);
+    const fulfillmentHealthContract = rollbackFulfillmentHealthContract(contract.fulfillment.workerVersionId);
+    await verifyHealth(fetchImpl, fulfillmentHealthContract);
+    await verifyInnocuousStagingRuntimeProbesForHealthContract(fetchImpl, fulfillmentHealthContract);
     const [web, fulfillment] = await Promise.all([
         verifyOneAttestation({
             bindingNames: contract.web.bindingNames,
