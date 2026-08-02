@@ -6,6 +6,14 @@ import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import type { Json } from '../../../types/database.types';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
+const retryConflict = {
+    error: 'Fulfillment job changed or is not retryable',
+    code: 'FULFILLMENT_JOB_RETRY_CONFLICT',
+};
+const cancelConflict = {
+    error: 'Fulfillment job changed or cannot be cancelled',
+    code: 'FULFILLMENT_JOB_CANCEL_CONFLICT',
+};
 
 const jobActionSchema = z.discriminatedUnion('action', [
     z.object({ action: z.literal('retry'), jobId: z.string().uuid() }),
@@ -53,6 +61,27 @@ async function logAudit(
     if (error && error.code !== '42P01') {
         console.error('[AdminFulfillmentJobs] Failed to write audit log:', error);
     }
+}
+
+async function logRequiredAudit(
+    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
+    input: { adminId: string; action: string; entityId?: string | null; before?: Json | null; after?: Json | null }
+): Promise<boolean> {
+    const { error } = await supabaseAdmin
+        .from('admin_audit_log')
+        .insert({
+            admin_id: input.adminId,
+            action: input.action,
+            entity_type: 'fulfillment_job',
+            entity_id: input.entityId ?? null,
+            before: input.before ?? null,
+            after: input.after ?? null,
+        });
+
+    if (!error) return true;
+
+    console.error('[AdminFulfillmentJobs] Required audit write failed:', error);
+    return false;
 }
 
 export const GET: APIRoute = async (context) => {
@@ -108,12 +137,27 @@ export const POST: APIRoute = async (context) => {
     const supabaseAdmin = createSupabaseAdminClient();
 
     if (payload.action === 'process_due') {
+        const requestAudited = await logRequiredAudit(supabaseAdmin, {
+            adminId: auth.user.id,
+            action: 'fulfillment_jobs.process_due.requested',
+            after: {
+                status: 'requested',
+                limit: payload.limit,
+            },
+        });
+        if (!requestAudited) {
+            return jsonResponse({ error: 'Could not record processing request' }, 503);
+        }
+
         try {
             const result = await processFulfillmentJobs(context, payload.limit);
             await logAudit(supabaseAdmin, {
                 adminId: auth.user.id,
-                action: 'fulfillment_jobs.process_due',
-                after: result as Json,
+                action: 'fulfillment_jobs.process_due.completed',
+                after: {
+                    status: 'completed',
+                    result,
+                } as Json,
             });
             return jsonResponse({ result });
         } catch (error) {
@@ -122,49 +166,25 @@ export const POST: APIRoute = async (context) => {
         }
     }
 
-    const { data: before, error: beforeError } = await supabaseAdmin
-        .from('fulfillment_jobs')
-        .select('*')
-        .eq('id', payload.jobId)
-        .single();
+    const { data: updated, error } = await supabaseAdmin.rpc(
+        'admin_recover_fulfillment_job',
+        {
+            p_action: payload.action,
+            p_admin_id: auth.user.id,
+            p_job_id: payload.jobId,
+        },
+    );
 
-    if (beforeError || !before) {
-        return jsonResponse({ error: 'Job not found' }, 404);
-    }
-
-    const updateData = payload.action === 'retry'
-        ? {
-            status: 'pending',
-            attempts: 0,
-            locked_at: null,
-            locked_by: null,
-            last_error: null,
-            run_at: new Date().toISOString(),
+    if (error) {
+        if (error.code === 'P0002' || error.message.includes('fulfillment_job_not_found')) {
+            return jsonResponse({ error: 'Job not found' }, 404);
         }
-        : {
-            status: 'cancelled',
-            locked_at: null,
-            locked_by: null,
-        };
-
-    const { data: updated, error } = await supabaseAdmin
-        .from('fulfillment_jobs')
-        .update(updateData)
-        .eq('id', payload.jobId)
-        .select('*')
-        .single();
-
-    if (error || !updated) {
+        if (error.code === '40001' || error.message.includes('fulfillment_job_recovery_conflict')) {
+            return jsonResponse(payload.action === 'retry' ? retryConflict : cancelConflict, 409);
+        }
+        console.error('[AdminFulfillmentJobs] Could not recover job:', error);
         return jsonResponse({ error: 'Could not update job' }, 500);
     }
-
-    await logAudit(supabaseAdmin, {
-        adminId: auth.user.id,
-        action: payload.action === 'retry' ? 'fulfillment_job.retry' : 'fulfillment_job.cancel',
-        entityId: payload.jobId,
-        before: before as Json,
-        after: updated as Json,
-    });
 
     return jsonResponse({ job: updated });
 };

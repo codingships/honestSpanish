@@ -695,7 +695,7 @@ export async function processDueFulfillmentJobs(options: {
         if (job.attempts >= job.max_attempts) continue;
 
         const attempts = job.attempts + 1;
-        const { data: lockedJob, error: lockError } = await supabaseAdmin
+        let lockQuery = supabaseAdmin
             .from('fulfillment_jobs')
             .update({
                 status: 'processing',
@@ -705,7 +705,13 @@ export async function processDueFulfillmentJobs(options: {
                 last_error: null,
             })
             .eq('id', job.id)
-            .in('status', ['pending', 'failed'])
+            .eq('status', job.status)
+            .eq('attempts', job.attempts);
+        lockQuery = job.updated_at === null
+            ? lockQuery.is('updated_at', null)
+            : lockQuery.eq('updated_at', job.updated_at);
+
+        const { data: lockedJob, error: lockError } = await lockQuery
             .select('id')
             .maybeSingle();
 

@@ -3746,6 +3746,20 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      admin_recover_fulfillment_job: {
+        Args: {
+          p_action: string;
+          p_admin_id: string;
+          p_job_id: string;
+        };
+        Returns: Database["public"]["Tables"]["fulfillment_jobs"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "fulfillment_jobs";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       get_checkout_v2_subscription_progress: {
         Args: { p_subscription_id: string };
         Returns: {
