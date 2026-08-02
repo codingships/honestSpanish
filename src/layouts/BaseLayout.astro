@@ -22,6 +22,7 @@ interface Props {
   alternatePaths?: LocalizedPublicPaths;
   noindex?: boolean;
   ogImage?: string;
+  ogImageAlt?: string;
   ogImageWidth?: number;
   ogImageHeight?: number;
   contentType?: 'website' | 'article';
@@ -37,6 +38,7 @@ const {
   alternatePaths,
   noindex = false,
   ogImage = '/og/home.png',
+  ogImageAlt,
   ogImageWidth = 1200,
   ogImageHeight = 630,
   contentType = 'website',
@@ -48,6 +50,7 @@ const pageLang: PublicLang = lang;
 const appEnvironment = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase();
 const shouldNoindex = noindex || appEnvironment === 'staging';
 const brandName = 'Espa' + String.fromCodePoint(0x00F1) + 'ol Honesto';
+const resolvedOgImageAlt = ogImageAlt || brandName + ' | ' + title;
 const demoGuideEnabled = import.meta.env.DEMO_GUIDE_ENABLED === 'true';
 const canonicalRoute = canonicalPath ?? unlocalizePublicPath(Astro.url.pathname);
 const canonicalUrl = publicUrl(pageLang, canonicalRoute);
@@ -90,7 +93,7 @@ const getAlternateUrl = (targetLang: PublicLang): string => {
     <meta property="og:image" content={ogImageUrl} />
     <meta property="og:image:width" content={String(ogImageWidth)} />
     <meta property="og:image:height" content={String(ogImageHeight)} />
-    <meta property="og:image:alt" content={brandName + ' | ' + title} />
+    <meta property="og:image:alt" content={resolvedOgImageAlt} />
     <meta property="og:locale" content={pageLang === 'es' ? 'es_ES' : pageLang === 'en' ? 'en_US' : 'ru_RU'} />
     {resolvedAlternateLangs.filter((alternateLang) => alternateLang !== pageLang).map((alternateLang) => (
       <meta property="og:locale:alternate" content={alternateLang === 'es' ? 'es_ES' : alternateLang === 'en' ? 'en_US' : 'ru_RU'} />
@@ -100,6 +103,7 @@ const getAlternateUrl = (targetLang: PublicLang): string => {
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content={resolvedOgImageAlt} />
 
     {isIndexableSurface && <link rel="canonical" href={canonicalUrl} />}
     {isIndexableSurface && enabledAlternateLangs.has('es') && <link rel="alternate" hreflang="es" href={getAlternateUrl('es')} />}
