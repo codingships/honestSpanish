@@ -90,6 +90,24 @@ describe('persistent email recipient budget gate', () => {
         expect(mocks.send).toHaveBeenCalledTimes(1);
     });
 
+    it('allows only Resend delivered sinks as implicit non-human staging recipients', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'staging',
+            EMAIL_DELIVERY_MODE: 'allowlist',
+            RESEND_API_KEY: 're_test',
+        });
+
+        await expect(deliverEmail(email('delivered+checkout-v2-student@resend.dev')))
+            .resolves.toEqual({ ok: true });
+        await expect(deliverEmail(email('bounced+checkout-v2-student@resend.dev')))
+            .resolves.toEqual({ ok: false, reason: 'recipient_not_allowlisted' });
+
+        mocks.env.PUBLIC_APP_ENV = 'production';
+        await expect(deliverEmail(email('delivered+checkout-v2-student@resend.dev')))
+            .resolves.toEqual({ ok: false, reason: 'recipient_not_allowlisted' });
+        expect(mocks.send).toHaveBeenCalledTimes(1);
+    });
+
     it('atomically reserves one unit per recipient entry before sending', async () => {
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'staging',
