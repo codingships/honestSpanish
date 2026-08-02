@@ -60,8 +60,8 @@ function testContext(): Pick<APIContext, 'locals'> {
                 waitUntil: vi.fn(),
                 passThroughOnException: vi.fn(),
                 props: {},
-            } as unknown as APIContext['locals']['cfContext'],
-        },
+            },
+        } as unknown as APIContext['locals'],
     };
 }
 
