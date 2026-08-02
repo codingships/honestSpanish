@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Keep an explicitly requested deployment alive if an ordinary main push arrives.
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy-staging]') && github.sha || 'normal' }}
   cancel-in-progress: true
 
 jobs:
