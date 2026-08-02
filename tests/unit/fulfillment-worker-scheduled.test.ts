@@ -157,6 +157,22 @@ describe('fulfillment worker scheduled handler', () => {
         expect(message.retry).not.toHaveBeenCalled();
     });
 
+    it('publishes a fresh Queue signal for a durably pending phase instead of consuming a retry', async () => {
+        mocks.processDueFulfillmentJobs.mockResolvedValueOnce({
+            processed: 1,
+            succeeded: 0,
+            failed: 0,
+        });
+        const { batch, message } = createQueueBatch({ attempts: 10 });
+        const worker = await import('../../workers/fulfillment/src/index');
+
+        await worker.default.queue(batch as never, stagingQueueEnv);
+
+        expect(stagingQueueEnv.FULFILLMENT_QUEUE.send).toHaveBeenCalledTimes(1);
+        expect(message.ack).toHaveBeenCalledTimes(1);
+        expect(message.retry).not.toHaveBeenCalled();
+    });
+
     it('accepts only the exact production Queue/message identity in production', async () => {
         const { batch, message } = createQueueBatch({
             queue: productionQueueName,

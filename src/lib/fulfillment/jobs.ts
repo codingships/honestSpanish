@@ -66,6 +66,7 @@ const STALE_PROCESSING_AFTER_MS = 20 * 60 * 1000;
 const MANUAL_RECONCILIATION_RUN_AT = '9999-12-31T23:59:59.999Z';
 export const STALE_PROCESSING_ERROR = 'STALE_PROCESSING_REQUIRES_RECONCILIATION';
 export const POST_EFFECT_FINALIZATION_ERROR = 'POST_EFFECT_FINALIZATION_REQUIRES_RECONCILIATION';
+export const MAX_ATTEMPTS_ERROR = 'MAX_ATTEMPTS_REQUIRES_RECONCILIATION';
 
 function isSubscriptionProcessingContention(error: {
     code?: string;
@@ -704,9 +705,37 @@ export async function processDueFulfillmentJobs(options: {
 
     let succeeded = 0;
     let failed = 0;
+    let continuations = 0;
 
     for (const job of jobs ?? []) {
-        if (job.attempts >= job.max_attempts) continue;
+        if (job.attempts >= job.max_attempts) {
+            let quarantineQuery = supabaseAdmin
+                .from('fulfillment_jobs')
+                .update({
+                    status: 'failed',
+                    run_at: MANUAL_RECONCILIATION_RUN_AT,
+                    locked_at: null,
+                    locked_by: null,
+                    last_error: MAX_ATTEMPTS_ERROR,
+                })
+                .eq('id', job.id)
+                .eq('status', job.status)
+                .eq('attempts', job.attempts);
+            quarantineQuery = job.updated_at === null
+                ? quarantineQuery.is('updated_at', null)
+                : quarantineQuery.eq('updated_at', job.updated_at);
+
+            const { data: quarantinedJob, error: quarantineError } = await quarantineQuery
+                .select('id')
+                .maybeSingle();
+            if (quarantineError) {
+                console.error('[Fulfillment] Could not quarantine exhausted job:', quarantineError);
+                failed += 1;
+            } else if (quarantinedJob) {
+                continuations += 1;
+            }
+            continue;
+        }
 
         const attempts = job.attempts + 1;
         let lockQuery = supabaseAdmin
@@ -769,7 +798,7 @@ export async function processDueFulfillmentJobs(options: {
                     status: manualReview || exhausted ? 'failed' : 'pending',
                     run_at: manualReview
                         ? MANUAL_RECONCILIATION_RUN_AT
-                        : exhausted ? job.run_at : nextRunAt(attempts),
+                        : exhausted ? MANUAL_RECONCILIATION_RUN_AT : nextRunAt(attempts),
                     locked_at: null,
                     locked_by: null,
                     last_error: message,
@@ -783,13 +812,21 @@ export async function processDueFulfillmentJobs(options: {
 
             if (failError) {
                 console.error('[Fulfillment] Could not mark failed job:', failError);
+                failed += 1;
             } else if (!failedJob) {
                 console.error(JSON.stringify({
                     event: 'fulfillment_job_finalization_conflict',
                     jobId: job.id,
                 }));
+                failed += 1;
+            } else if (observationRetry || exhausted) {
+                // These states have been persisted durably. A fresh Queue
+                // message must advance the next phase without consuming the
+                // delivery retry budget of the current message.
+                continuations += 1;
+            } else {
+                failed += 1;
             }
-            failed += 1;
             continue;
         }
 
@@ -840,7 +877,7 @@ export async function processDueFulfillmentJobs(options: {
     }
 
     return {
-        processed: succeeded + failed,
+        processed: succeeded + failed + continuations,
         succeeded,
         failed,
     };
