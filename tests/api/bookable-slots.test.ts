@@ -7,6 +7,7 @@ import {
 const mocks = vi.hoisted(() => ({
     listPublicBookableSlots: vi.fn(),
     checkoutEnabled: false,
+    stagingGrant: null as { slotPublicId: string; studentId: string } | null,
 }));
 
 vi.mock('../../src/lib/public-bookable-slots', () => ({
@@ -15,6 +16,10 @@ vi.mock('../../src/lib/public-bookable-slots', () => ({
 
 vi.mock('../../src/lib/checkout-enabled', () => ({
     isCheckoutEnabled: vi.fn(() => mocks.checkoutEnabled),
+}));
+
+vi.mock('../../src/lib/staging-e2e-checkout', () => ({
+    readStagingE2ECheckoutGrant: vi.fn(() => Promise.resolve(mocks.stagingGrant)),
 }));
 
 function deferred<T>() {
@@ -32,6 +37,7 @@ describe('GET /api/bookable-slots', () => {
         vi.resetModules();
         vi.clearAllMocks();
         mocks.checkoutEnabled = false;
+        mocks.stagingGrant = null;
         now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
     });
 
@@ -89,6 +95,27 @@ describe('GET /api/bookable-slots', () => {
         expect(closedPayload).toEqual({ slots: [{ publicId: 'slot-one' }], checkoutEnabled: false });
         expect(closedPayload).not.toHaveProperty('isLoggedIn');
         expect(mocks.listPublicBookableSlots).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a private staging grant out of shared caches', async () => {
+        mocks.listPublicBookableSlots.mockResolvedValueOnce([
+            { publicId: 'slot-one' },
+            { publicId: 'slot-two' },
+        ]);
+        const { GET } = await import('../../src/pages/api/bookable-slots');
+
+        mocks.stagingGrant = {
+            slotPublicId: 'slot-one',
+            studentId: '10000000-0000-4000-8000-000000000001',
+        };
+        const response = await GET({} as never) as Response;
+
+        await expect(response.json()).resolves.toEqual({
+            slots: [{ publicId: 'slot-one' }],
+            checkoutEnabled: true,
+        });
+        expect(response.headers.get('Cache-Control')).toBe('no-store, no-cache, must-revalidate');
+        expect(response.headers.get('Vary')).toBe('Cookie');
     });
 
     it('never caches failures and retries the next request', async () => {

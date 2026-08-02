@@ -20,6 +20,7 @@ import { assertStripePaymentReadiness, assertStripeRuntimeAccount } from '../../
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
 import { handleCheckoutV2 } from '../../lib/checkout-v2';
+import { readStagingE2ECheckoutGrant } from '../../lib/staging-e2e-checkout';
 
 const supportedCheckoutLangs = new Set(['es', 'en', 'ru']);
 const jsonHeaders = { 'Content-Type': 'application/json' };
@@ -167,10 +168,22 @@ type CheckoutRequest = {
 
 export const POST: APIRoute = async (context) => {
     try {
-        if (!isCheckoutEnabled(context)) {
+        const globallyEnabled = isCheckoutEnabled(context);
+        const stagingGrant = globallyEnabled ? null : await readStagingE2ECheckoutGrant(context);
+        if (!globallyEnabled && !stagingGrant) {
             return jsonResponse({ error: 'Checkout is disabled', errorCode: 'CHECKOUT_DISABLED' }, 403);
         }
-        if (!isIsolatedLegacyCheckoutTest(context)) return handleCheckoutV2(context);
+        if (!isIsolatedLegacyCheckoutTest(context)) {
+            return handleCheckoutV2(context, stagingGrant
+                ? {
+                    email: stagingGrant.email,
+                    kind: 'staging-e2e',
+                    runId: stagingGrant.runId,
+                    slotPublicId: stagingGrant.slotPublicId,
+                    studentId: stagingGrant.studentId,
+                }
+                : { kind: 'global' });
+        }
 
         const body = await context.request.json() as CheckoutRequest;
         const { priceId } = body;

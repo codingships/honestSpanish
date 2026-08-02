@@ -134,5 +134,12 @@ export function applyHostedSecurityHeaders(
     }
 
     const cacheControl = cacheControlForNormalizedPath(normalizedPathname, response.status);
-    if (cacheControl) response.headers.set('Cache-Control', cacheControl);
+    const routeCacheControl = response.headers.get('Cache-Control');
+    const routeIsPrivate = routeCacheControl !== null
+        && /(?:^|,)\s*private(?:\s|,|$)/iu.test(routeCacheControl);
+    const routeRequiresNoStore = routeCacheControl !== null
+        && /(?:^|,)\s*no-store(?:\s|,|$)/iu.test(routeCacheControl);
+    if (cacheControl && !routeRequiresNoStore) {
+        response.headers.set('Cache-Control', routeIsPrivate ? API_CACHE_CONTROL : cacheControl);
+    }
 }

@@ -29,6 +29,9 @@ const runtimeEnvMock = vi.hoisted(() => ({
         return undefined;
     }),
 }));
+const stagingGrantMock = vi.hoisted(() => ({
+    readStagingE2ECheckoutGrant: vi.fn().mockResolvedValue(null),
+}));
 
 vi.mock('../../src/lib/stripe', () => ({ stripe: stripeMock }));
 vi.mock('../../src/lib/profiles-private', () => privateProfileMock);
@@ -37,6 +40,7 @@ vi.mock('../../src/lib/site-url', () => ({ getSiteUrl: vi.fn(() => 'https://exam
 vi.mock('../../src/lib/runtime-env', () => runtimeEnvMock);
 vi.mock('../../src/lib/supabase-server', () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock('../../src/lib/supabase-admin', () => ({ createSupabaseAdminClient: vi.fn() }));
+vi.mock('../../src/lib/staging-e2e-checkout', () => stagingGrantMock);
 
 const packageId = '10000000-0000-4000-8000-000000000001';
 const packagePriceId = '20000000-0000-4000-8000-000000000001';
@@ -324,6 +328,92 @@ describe('POST /api/create-checkout', () => {
         });
         expect(createSupabaseServerClient).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts only the student bound to an authenticated staging E2E grant', async () => {
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
+            if (key === 'PUBLIC_APP_ENV') return 'staging';
+            return undefined;
+        });
+        stagingGrantMock.readStagingE2ECheckoutGrant.mockResolvedValueOnce({
+            email: 'delivered+hs-stg-test-user@resend.dev',
+            runId: 'journey-student-mismatch',
+            slotPublicId: packageId,
+            studentId: '90000000-0000-4000-8000-000000000009',
+        });
+        const { server, admin } = makeClients();
+        server.auth.getUser.mockResolvedValue({
+            data: {
+                user: {
+                    id: '90000000-0000-4000-8000-000000000001',
+                    email: 'delivered+hs-stg-test-user@resend.dev',
+                    email_confirmed_at: '2026-08-02T00:00:00.000Z',
+                },
+            },
+            error: null,
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...acceptedPolicies, slotPublicId: packageId }) as any);
+
+        expect(response.status).toBe(403);
+        await expect(response.json()).resolves.toMatchObject({ errorCode: 'ACCOUNT_NOT_ELIGIBLE' });
+        expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('rejects a staging E2E grant after the bound student email changes', async () => {
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
+            if (key === 'PUBLIC_APP_ENV') return 'staging';
+            return undefined;
+        });
+        stagingGrantMock.readStagingE2ECheckoutGrant.mockResolvedValueOnce({
+            email: 'delivered+hs-stg-original@resend.dev',
+            runId: 'journey-email-mismatch',
+            slotPublicId: packageId,
+            studentId: '90000000-0000-4000-8000-000000000001',
+        });
+        const { server, admin } = makeClients();
+        server.auth.getUser.mockResolvedValue({
+            data: {
+                user: {
+                    id: '90000000-0000-4000-8000-000000000001',
+                    email: 'delivered+hs-stg-changed@resend.dev',
+                    email_confirmed_at: '2026-08-02T00:00:00.000Z',
+                },
+            },
+            error: null,
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...acceptedPolicies, slotPublicId: packageId }) as any);
+
+        expect(response.status).toBe(403);
+        await expect(response.json()).resolves.toMatchObject({ errorCode: 'ACCOUNT_NOT_ELIGIBLE' });
+        expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('rejects a staging E2E grant for a different slot', async () => {
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
+            if (key === 'PUBLIC_APP_ENV') return 'staging';
+            return undefined;
+        });
+        stagingGrantMock.readStagingE2ECheckoutGrant.mockResolvedValueOnce({
+            email: 'delivered+hs-stg-test-user@resend.dev',
+            runId: 'journey-slot-mismatch',
+            slotPublicId: '90000000-0000-4000-8000-000000000009',
+            studentId: 'student-1',
+        });
+        const { server, admin } = makeClients();
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...acceptedPolicies, slotPublicId: packageId }) as any);
+
+        expect(response.status).toBe(409);
+        await expect(response.json()).resolves.toMatchObject({ errorCode: 'SLOT_UNAVAILABLE' });
+        expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
     });
 
     it.each(['staging', 'production'])('dispatches the v2 contract instead of reopening legacy checkout in %s', async (appEnvironment) => {

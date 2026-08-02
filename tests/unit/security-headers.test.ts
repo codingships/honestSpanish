@@ -95,6 +95,27 @@ describe('hosted response security headers', () => {
             secureTransport: true,
         });
         expect(failure.headers.get('Cache-Control')).toBe(API_CACHE_CONTROL);
+
+        const privateGrant = new Response('{"slots":[]}', {
+            status: 200,
+            headers: { 'Cache-Control': API_CACHE_CONTROL, Vary: 'Cookie' },
+        });
+        applyHostedSecurityHeaders(privateGrant, {
+            pathname: '/api/bookable-slots',
+            secureTransport: true,
+        });
+        expect(privateGrant.headers.get('Cache-Control')).toBe(API_CACHE_CONTROL);
+        expect(privateGrant.headers.get('Vary')).toBe('Cookie');
+
+        const unsafePrivateCache = new Response('{"slots":[]}', {
+            status: 200,
+            headers: { 'Cache-Control': 'private, max-age=60' },
+        });
+        applyHostedSecurityHeaders(unsafePrivateCache, {
+            pathname: '/api/bookable-slots',
+            secureTransport: true,
+        });
+        expect(unsafePrivateCache.headers.get('Cache-Control')).toBe(API_CACHE_CONTROL);
     });
 
     it('normalizes encoded route segments exactly once like Astro', () => {
