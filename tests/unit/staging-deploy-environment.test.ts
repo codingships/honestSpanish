@@ -77,6 +77,7 @@ describe('manual staging deploy environment boundary', () => {
         const deployWorkflow = readFileSync('.github/workflows/deploy-staging.yml', 'utf8');
         const deployJob = ciWorkflow.slice(ciWorkflow.indexOf('  deploy-staging:'));
 
+        expect(ciWorkflow).toContain("github.sha || 'normal'");
         expect(deployWorkflow).toContain('  workflow_call:');
         expect(deployWorkflow).toContain('  workflow_dispatch:');
         expect(deployJob).toContain('needs: [database-contract, build-and-test]');
