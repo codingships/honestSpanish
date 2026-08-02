@@ -789,6 +789,7 @@ describe('POST /api/calendar/session-action', () => {
             subject: 'Clase completada',
             relatedEntityType: 'session_completed',
             relatedEntityId: 'session-1',
+            idempotencyKey: 'crm:session-outcome:activity:complete:session-1',
         }));
         expect(onboardingMocks.recordFirstClassCompletedSafe).toHaveBeenCalledWith(supabaseAdmin, expect.objectContaining({
             profileId: 'student-id',
@@ -802,8 +803,54 @@ describe('POST /api/calendar/session-action', () => {
         }));
     });
 
+    it('returns 409 when a legacy session schedule changes after the outcome snapshot', async () => {
+        const scheduledAt = new Date(Date.now() - 60 * 60_000).toISOString();
+        const updatedAt = new Date(Date.now() - 30 * 60_000).toISOString();
+        const mockSession = {
+            id: 'session-1', subscription_id: 'sub-1', student_id: 'student-id',
+            teacher_id: 'teacher-id', status: 'scheduled', scheduled_at: scheduledAt,
+            updated_at: updatedAt, duration_minutes: 50,
+            subscription: { id: 'sub-1', sessions_used: 1, contract_schema_version: 1 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: { getUser: vi.fn().mockResolvedValue({
+                data: { user: { id: 'teacher-id', email: 'teacher@test.com' } }, error: null,
+            }) },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), single: vi.fn() };
+            chain.single.mockResolvedValue(table === 'profiles'
+                ? { data: { role: 'teacher' }, error: null }
+                : { data: mockSession, error: null });
+            return chain;
+        });
+        const updateChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            is: vi.fn().mockReturnThis(),
+            select: vi.fn().mockResolvedValue({ data: [], error: null }),
+        };
+        const admin = { from: vi.fn().mockReturnValue(updateChain), rpc: vi.fn() };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as any);
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'complete' }) as any);
+
+        expect(response.status).toBe(409);
+        expect(updateChain.eq).toHaveBeenCalledWith('updated_at', updatedAt);
+        expect(updateChain.eq).toHaveBeenCalledWith('scheduled_at', scheduledAt);
+        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordFirstClassCompletedSafe).not.toHaveBeenCalled();
+    });
+
     it('idempotently fixes the first Checkout V2 billing anchor after completion', async () => {
         const scheduledAt = new Date(Date.now() - 60 * 60_000).toISOString();
+        const completedAt = new Date(Date.now() - 5 * 60_000).toISOString();
         const mockSupabase = createMockSupabaseClient({
             auth: {
                 getUser: vi.fn().mockResolvedValue({
@@ -821,6 +868,7 @@ describe('POST /api/calendar/session-action', () => {
                     data: {
                         id: 'session-1', subscription_id: 'sub-1', student_id: 'student-id',
                         teacher_id: 'teacher-id', status: 'completed', scheduled_at: scheduledAt,
+                        completed_at: completedAt,
                         duration_minutes: 50,
                         subscription: { id: 'sub-1', sessions_used: 1, contract_schema_version: 2 },
                         student: { full_name: 'Student', email: 'student@test.com' },
@@ -833,13 +881,21 @@ describe('POST /api/calendar/session-action', () => {
         const billingQuery: any = {
             select: vi.fn().mockReturnThis(),
             eq: vi.fn().mockReturnThis(),
-            maybeSingle: vi.fn().mockResolvedValue({
-                data: {
-                    subscription_id: 'sub-1', first_session_id: 'session-1', first_class_at: scheduledAt,
-                    anchor_state: 'provisional', anchor_fixed_at: null,
-                },
-                error: null,
-            }),
+            maybeSingle: vi.fn()
+                .mockResolvedValueOnce({
+                    data: {
+                        subscription_id: 'sub-1', first_session_id: 'session-1', first_class_at: scheduledAt,
+                        anchor_state: 'provisional', anchor_fixed_at: null,
+                    },
+                    error: null,
+                })
+                .mockResolvedValue({
+                    data: {
+                        subscription_id: 'sub-1', first_session_id: 'session-1', first_class_at: scheduledAt,
+                        anchor_state: 'fixed', anchor_fixed_at: scheduledAt,
+                    },
+                    error: null,
+                }),
         };
         const admin = {
             from: vi.fn((table: string) => {
@@ -854,16 +910,31 @@ describe('POST /api/calendar/session-action', () => {
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
         vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as any);
+        onboardingMocks.recordFirstClassCompletedSafe
+            .mockResolvedValueOnce({ status: 'skipped', reason: 'record_failed' })
+            .mockResolvedValueOnce({ status: 'recorded' });
         const { POST } = await import('../../src/pages/api/calendar/session-action');
 
+        const interrupted = await POST(makeContext({ sessionId: 'session-1', action: 'complete' }) as any);
         const response = await POST(makeContext({ sessionId: 'session-1', action: 'complete' }) as any);
 
+        expect(interrupted.status).toBe(503);
+        await expect(interrupted.json()).resolves.toEqual({ error: 'First-class completion could not be recorded.' });
         expect(response.status).toBe(200);
         expect(admin.rpc).toHaveBeenCalledWith('fix_checkout_v2_billing_anchor', {
             p_subscription_id: 'sub-1',
             p_fixed_at: scheduledAt,
         });
-        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalled();
+        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledTimes(2);
+        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(admin, expect.objectContaining({
+            occurredAt: completedAt,
+            idempotencyKey: 'crm:session-outcome:activity:complete:session-1',
+        }));
+        expect(onboardingMocks.recordFirstClassCompletedSafe).toHaveBeenCalledTimes(2);
+        expect(onboardingMocks.recordFirstClassCompletedSafe).toHaveBeenCalledWith(admin, expect.objectContaining({
+            completedAt,
+            sessionId: 'session-1',
+        }));
     });
 
     it.each([
@@ -1094,7 +1165,7 @@ describe('POST /api/calendar/session-action', () => {
         }));
     });
 
-    it('marks a past session as no_show and creates a shared CRM follow-up task', async () => {
+    it('marks the first Checkout V2 session as no_show, fixes its real anchor and creates the follow-up', async () => {
         const mockUser = { id: 'teacher-id', email: 'teacher@test.com' };
         const scheduledAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
         const mockSession = {
@@ -1104,7 +1175,7 @@ describe('POST /api/calendar/session-action', () => {
             teacher_id: 'teacher-id',
             status: 'scheduled',
             scheduled_at: scheduledAt,
-            subscription: { id: 'sub-1', sessions_used: 1 },
+            subscription: { id: 'sub-1', sessions_used: 1, contract_schema_version: 2 },
             student: { full_name: 'Student', email: 'student@test.com' },
             teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
             calendar_event_id: 'event-1',
@@ -1147,7 +1218,31 @@ describe('POST /api/calendar/session-action', () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
         vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
-        const supabaseAdmin = makeSessionActionAdminClient(sessionUpdate);
+        const billingQuery: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                    subscription_id: 'sub-1',
+                    first_session_id: 'session-1',
+                    first_class_at: scheduledAt,
+                    anchor_state: 'provisional',
+                    anchor_fixed_at: null,
+                },
+                error: null,
+            }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn((table: string) => {
+                if (table === 'sessions') return sessionUpdateChain;
+                if (table === 'checkout_v2_billing_state') return billingQuery;
+                throw new Error(`Unexpected admin table ${table}`);
+            }),
+            rpc: vi.fn().mockResolvedValue({
+                data: { anchor_state: 'fixed', anchor_fixed_at: scheduledAt },
+                error: null,
+            }),
+        };
         vi.mocked(createSupabaseAdminClient).mockReturnValue(supabaseAdmin as any);
 
         const { POST } = await import('../../src/pages/api/calendar/session-action');
@@ -1167,6 +1262,11 @@ describe('POST /api/calendar/session-action', () => {
         }));
         const noShowUpdate = sessionUpdate.mock.calls[0]?.[0] as Record<string, unknown>;
         expect(noShowUpdate.no_show_at).toBe(noShowUpdate.updated_at);
+        expect(supabaseAdmin.rpc).toHaveBeenCalledOnce();
+        expect(supabaseAdmin.rpc).toHaveBeenCalledWith('fix_checkout_v2_billing_anchor', {
+            p_subscription_id: 'sub-1',
+            p_fixed_at: scheduledAt,
+        });
         expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(supabaseAdmin, expect.objectContaining({
             profileId: 'student-id',
             email: 'student@test.com',
@@ -1174,6 +1274,7 @@ describe('POST /api/calendar/session-action', () => {
             subject: 'Alumno no asistio',
             relatedEntityType: 'session_no_show',
             relatedEntityId: 'session-1',
+            idempotencyKey: 'crm:session-outcome:activity:no_show:session-1',
         }));
         expect(onboardingMocks.recordNoShowFollowUpSafe).toHaveBeenCalledWith(supabaseAdmin, expect.objectContaining({
             profileId: 'student-id',
@@ -1184,6 +1285,246 @@ describe('POST /api/calendar/session-action', () => {
             teacherId: 'teacher-id',
             scheduledAt,
             noShowAt: noShowUpdate.no_show_at,
+        }));
+    });
+
+    it('does not move the Checkout V2 anchor when a later session becomes a no-show', async () => {
+        const scheduledAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const mockSession = {
+            id: 'session-2',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            scheduled_at: scheduledAt,
+            subscription: { id: 'sub-1', sessions_used: 2, contract_schema_version: 2 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({
+                    data: { user: { id: 'teacher-id', email: 'teacher@test.com' } },
+                    error: null,
+                }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            chain.single.mockResolvedValue(table === 'profiles'
+                ? { data: { role: 'teacher' }, error: null }
+                : { data: mockSession, error: null });
+            return chain;
+        });
+
+        const sessionUpdateChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockResolvedValue({ data: [{ id: 'session-2' }], error: null }),
+        };
+        const billingQuery: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({
+                data: {
+                    subscription_id: 'sub-1',
+                    first_session_id: 'session-1',
+                    first_class_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+                    anchor_state: 'fixed',
+                    anchor_fixed_at: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+                },
+                error: null,
+            }),
+        };
+        const admin = {
+            from: vi.fn((table: string) => {
+                if (table === 'sessions') return sessionUpdateChain;
+                if (table === 'checkout_v2_billing_state') return billingQuery;
+                throw new Error(`Unexpected admin table ${table}`);
+            }),
+            rpc: vi.fn(),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as any);
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+
+        const response = await POST(makeContext({ sessionId: 'session-2', action: 'no_show' }) as any);
+
+        expect(response.status).toBe(200);
+        expect(billingQuery.maybeSingle).toHaveBeenCalledOnce();
+        expect(admin.rpc).not.toHaveBeenCalled();
+        expect(onboardingMocks.recordNoShowFollowUpSafe).toHaveBeenCalledOnce();
+    });
+
+    it('fails closed when a Checkout V2 session has no billing state', async () => {
+        const scheduledAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const mockSession = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'no_show',
+            scheduled_at: scheduledAt,
+            no_show_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+            subscription: { id: 'sub-1', sessions_used: 1, contract_schema_version: 2 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({
+                    data: { user: { id: 'teacher-id', email: 'teacher@test.com' } },
+                    error: null,
+                }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            chain.single.mockResolvedValue(table === 'profiles'
+                ? { data: { role: 'teacher' }, error: null }
+                : { data: mockSession, error: null });
+            return chain;
+        });
+        const billingQuery: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+        };
+        const admin = {
+            from: vi.fn((table: string) => {
+                if (table === 'checkout_v2_billing_state') return billingQuery;
+                throw new Error(`Unexpected admin table ${table}`);
+            }),
+            rpc: vi.fn(),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as any);
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+
+        const response = await POST(makeContext({ sessionId: 'session-1', action: 'no_show' }) as any);
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toEqual({ error: 'Billing anchor could not be fixed.' });
+        expect(admin.rpc).not.toHaveBeenCalled();
+        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledOnce();
+        expect(onboardingMocks.recordNoShowFollowUpSafe).not.toHaveBeenCalled();
+    });
+
+    it('converges every no-show effect after cuts following state, activity and anchor persistence', async () => {
+        const scheduledAt = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+        const noShowAt = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+        const mockSession: any = {
+            id: 'session-1',
+            subscription_id: 'sub-1',
+            student_id: 'student-id',
+            teacher_id: 'teacher-id',
+            status: 'scheduled',
+            scheduled_at: scheduledAt,
+            no_show_at: null,
+            subscription: { id: 'sub-1', sessions_used: 1, contract_schema_version: 2 },
+            student: { full_name: 'Student', email: 'student@test.com' },
+            teacher: { full_name: 'Teacher', email: 'teacher@test.com' },
+        };
+        const mockSupabase = createMockSupabaseClient({
+            auth: {
+                getUser: vi.fn().mockResolvedValue({
+                    data: { user: { id: 'teacher-id', email: 'teacher@test.com' } },
+                    error: null,
+                }),
+            },
+        });
+        mockSupabase.from = vi.fn((table: string) => {
+            const chain: any = {
+                select: vi.fn().mockReturnThis(),
+                eq: vi.fn().mockReturnThis(),
+                single: vi.fn(),
+            };
+            chain.single.mockImplementation(() => Promise.resolve(table === 'profiles'
+                ? { data: { role: 'teacher' }, error: null }
+                : { data: { ...mockSession }, error: null }));
+            return chain;
+        });
+
+        const provisionalState = {
+            subscription_id: 'sub-1', first_session_id: 'session-1', first_class_at: scheduledAt,
+            anchor_state: 'provisional', anchor_fixed_at: null,
+        };
+        const fixedState = { ...provisionalState, anchor_state: 'fixed', anchor_fixed_at: scheduledAt };
+        const billingQuery: any = {
+            select: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn()
+                .mockResolvedValueOnce({ data: provisionalState, error: null })
+                .mockResolvedValueOnce({ data: provisionalState, error: null })
+                .mockResolvedValueOnce({ data: fixedState, error: null }),
+        };
+        const sessionUpdateChain: any = {
+            update: vi.fn((data: Record<string, unknown>) => {
+                mockSession.status = data.status;
+                mockSession.no_show_at = data.no_show_at ?? noShowAt;
+                return sessionUpdateChain;
+            }),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockResolvedValue({ data: [{ id: 'session-1' }], error: null }),
+        };
+        const admin = {
+            from: vi.fn((table: string) => {
+                if (table === 'sessions') return sessionUpdateChain;
+                if (table === 'checkout_v2_billing_state') return billingQuery;
+                throw new Error(`Unexpected admin table ${table}`);
+            }),
+            rpc: vi.fn()
+                .mockResolvedValueOnce({ data: null, error: { message: 'temporary anchor failure' } })
+                .mockResolvedValueOnce({ data: fixedState, error: null }),
+        };
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(mockSupabase as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as any);
+        crmMocks.recordCrmActivityForProfileSafe
+            .mockResolvedValueOnce({ status: 'skipped', reason: 'record_failed' })
+            .mockResolvedValue({ status: 'created' });
+        onboardingMocks.recordNoShowFollowUpSafe
+            .mockResolvedValueOnce({ status: 'skipped', reason: 'record_failed' })
+            .mockResolvedValueOnce({ status: 'recorded' });
+        const { POST } = await import('../../src/pages/api/calendar/session-action');
+
+        const firstAttempt = await POST(makeContext({ sessionId: 'session-1', action: 'no_show' }) as any);
+        const activityRetry = await POST(makeContext({ sessionId: 'session-1', action: 'no_show' }) as any);
+        const anchorRetry = await POST(makeContext({ sessionId: 'session-1', action: 'no_show' }) as any);
+        const convergedReplay = await POST(makeContext({ sessionId: 'session-1', action: 'no_show' }) as any);
+
+        expect(firstAttempt.status).toBe(503);
+        await expect(firstAttempt.json()).resolves.toEqual({ error: 'Session activity could not be recorded.' });
+        expect(activityRetry.status).toBe(503);
+        await expect(activityRetry.json()).resolves.toEqual({ error: 'Billing anchor could not be fixed.' });
+        expect(anchorRetry.status).toBe(503);
+        await expect(anchorRetry.json()).resolves.toEqual({ error: 'No-show follow-up could not be recorded.' });
+        expect(convergedReplay.status).toBe(200);
+        expect(sessionUpdateChain.update).toHaveBeenCalledOnce();
+        expect(admin.rpc).toHaveBeenCalledTimes(2);
+        expect(admin.rpc).toHaveBeenCalledWith('fix_checkout_v2_billing_anchor', {
+            p_subscription_id: 'sub-1',
+            p_fixed_at: scheduledAt,
+        });
+        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledTimes(4);
+        expect(onboardingMocks.recordNoShowFollowUpSafe).toHaveBeenCalledTimes(2);
+        expect(onboardingMocks.recordNoShowFollowUpSafe).toHaveBeenCalledWith(admin, expect.objectContaining({
+            sessionId: 'session-1',
+            scheduledAt,
+            noShowAt: mockSession.no_show_at,
         }));
     });
 

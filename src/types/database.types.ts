@@ -1285,6 +1285,7 @@ export type Database = {
           contact_id: string;
           created_at: string | null;
           id: string;
+          idempotency_key: string | null;
           metadata: Json;
           occurred_at: string;
           opportunity_id: string | null;
@@ -1299,6 +1300,7 @@ export type Database = {
           contact_id: string;
           created_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           occurred_at?: string;
           opportunity_id?: string | null;
@@ -1313,6 +1315,7 @@ export type Database = {
           contact_id?: string;
           created_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           occurred_at?: string;
           opportunity_id?: string | null;
@@ -1579,6 +1582,7 @@ export type Database = {
           created_at: string | null;
           due_at: string | null;
           id: string;
+          idempotency_key: string | null;
           metadata: Json;
           opportunity_id: string | null;
           priority: string;
@@ -1596,6 +1600,7 @@ export type Database = {
           created_at?: string | null;
           due_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           opportunity_id?: string | null;
           priority?: string;
@@ -1613,6 +1618,7 @@ export type Database = {
           created_at?: string | null;
           due_at?: string | null;
           id?: string;
+          idempotency_key?: string | null;
           metadata?: Json;
           opportunity_id?: string | null;
           priority?: string;
@@ -4663,6 +4669,15 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      refresh_crm_no_show_contact_alarm: {
+        Args: {
+          p_contact_id: string;
+          p_due_at: string;
+          p_occurred_at: string;
+          p_task_id: string;
+        };
+        Returns: boolean;
       };
       release_abandoned_checkout_intent: {
         Args: { p_intent_id: string; p_stripe_customer_id: string };

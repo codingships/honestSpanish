@@ -16,6 +16,8 @@ type QueryResult = { data: unknown; error: unknown };
 
 function createQuery(result: QueryResult, recorder?: {
     inserts?: unknown[];
+    upserts?: unknown[];
+    upsertOptions?: unknown[];
     updates?: unknown[];
 }) {
     const query: any = {
@@ -24,6 +26,11 @@ function createQuery(result: QueryResult, recorder?: {
         in: vi.fn(() => query),
         insert: vi.fn((value: unknown) => {
             recorder?.inserts?.push(value);
+            return query;
+        }),
+        upsert: vi.fn((value: unknown, options: unknown) => {
+            recorder?.upserts?.push(value);
+            recorder?.upsertOptions?.push(options);
             return query;
         }),
         update: vi.fn((value: unknown) => {
@@ -38,13 +45,17 @@ function createQuery(result: QueryResult, recorder?: {
     return query;
 }
 
-function createClient(queues: Record<string, any[]>) {
+function createClient(
+    queues: Record<string, any[]>,
+    rpc = vi.fn().mockResolvedValue({ data: true, error: null }),
+) {
     return {
         from: vi.fn((table: string) => {
             const query = queues[table]?.shift();
             if (!query) throw new Error(`Unexpected table query: ${table}`);
             return query;
         }),
+        rpc,
     };
 }
 
@@ -563,7 +574,8 @@ describe('recordPostPaymentOnboarding', () => {
 
     it('records first class completion and closes open onboarding tasks', async () => {
         const taskUpdates: unknown[] = [];
-        const activityInserts: unknown[] = [];
+        const activityUpserts: unknown[] = [];
+        const activityUpsertOptions: unknown[] = [];
         const contactUpdates: unknown[] = [];
         vi.mocked(ensureCrmContactForProfile).mockResolvedValue({
             status: 'ready',
@@ -579,8 +591,10 @@ describe('recordPostPaymentOnboarding', () => {
                 createQuery({ data: null, error: null }, { updates: taskUpdates }),
             ],
             crm_activities: [
-                createQuery({ data: null, error: null }),
-                createQuery({ data: null, error: null }, { inserts: activityInserts }),
+                createQuery({ data: null, error: null }, {
+                    upserts: activityUpserts,
+                    upsertOptions: activityUpsertOptions,
+                }),
             ],
             crm_contacts: [
                 createQuery({ data: null, error: null }, { updates: contactUpdates }),
@@ -618,7 +632,7 @@ describe('recordPostPaymentOnboarding', () => {
             completed_at: '2026-06-26T10:55:00.000Z',
             updated_at: '2026-06-26T10:55:00.000Z',
         })]);
-        expect(activityInserts).toEqual([expect.objectContaining({
+        expect(activityUpserts).toEqual([expect.objectContaining({
             contact_id: 'contact-1',
             activity_type: 'system',
             subject: 'First class completed',
@@ -626,6 +640,7 @@ describe('recordPostPaymentOnboarding', () => {
             occurred_at: '2026-06-26T10:55:00.000Z',
             related_entity_type: 'subscription_activation',
             related_entity_id: 'subscription-1',
+            idempotency_key: 'crm:first-class-completed:activity:subscription_activation:subscription-1',
             metadata: expect.objectContaining({
                 activation_goal: 'first_class_completed',
                 session_id: 'session-1',
@@ -636,6 +651,7 @@ describe('recordPostPaymentOnboarding', () => {
                 closed_onboarding_task_ids: ['task-1', 'task-2'],
             }),
         })]);
+        expect(activityUpsertOptions).toEqual([{ onConflict: 'idempotency_key', ignoreDuplicates: true }]);
         expect(contactUpdates).toEqual([expect.objectContaining({
             lifecycle_stage: 'customer',
             last_contacted_at: '2026-06-26T10:55:00.000Z',
@@ -644,26 +660,68 @@ describe('recordPostPaymentOnboarding', () => {
         })]);
     });
 
+    it('keeps first-class activation unique when a later session is completed', async () => {
+        const activityUpserts: unknown[] = [];
+        vi.mocked(ensureCrmContactForProfile).mockResolvedValue({ status: 'ready', contactId: 'contact-1' });
+        const client = createClient({
+            crm_tasks: [
+                createQuery({ data: [], error: null }),
+                createQuery({ data: [], error: null }),
+            ],
+            crm_activities: [
+                createQuery({ data: null, error: null }, { upserts: activityUpserts }),
+                createQuery({ data: null, error: null }, { upserts: activityUpserts }),
+            ],
+            crm_contacts: [
+                createQuery({ data: null, error: null }),
+                createQuery({ data: null, error: null }),
+            ],
+        });
+
+        for (const sessionId of ['session-1', 'session-2']) {
+            const result = await recordFirstClassCompleted(client as any, {
+                profileId: 'student-1',
+                email: 'student@example.com',
+                fullName: 'Student One',
+                subscriptionId: 'subscription-1',
+                sessionId,
+                completedAt: sessionId === 'session-1'
+                    ? '2026-06-26T10:55:00.000Z'
+                    : '2026-07-03T10:55:00.000Z',
+            });
+            expect(result.status).toBe('recorded');
+        }
+
+        expect(activityUpserts).toHaveLength(2);
+        expect(activityUpserts).toEqual([
+            expect.objectContaining({
+                idempotency_key: 'crm:first-class-completed:activity:subscription_activation:subscription-1',
+            }),
+            expect.objectContaining({
+                idempotency_key: 'crm:first-class-completed:activity:subscription_activation:subscription-1',
+            }),
+        ]);
+    });
+
     it('creates a shared follow-up task when a student misses class', async () => {
-        const taskInserts: unknown[] = [];
-        const activityInserts: unknown[] = [];
-        const contactUpdates: unknown[] = [];
+        const taskUpserts: unknown[] = [];
+        const taskUpsertOptions: unknown[] = [];
+        const activityUpserts: unknown[] = [];
+        const activityUpsertOptions: unknown[] = [];
+        const refreshAlarm = vi.fn().mockResolvedValue({ data: true, error: null });
         vi.mocked(ensureCrmContactForProfile).mockResolvedValue({
             status: 'ready',
             contactId: 'contact-1',
         });
         const client = createClient({
             crm_tasks: [
-                createQuery({ data: null, error: null }),
-                createQuery({ data: { id: 'task-no-show' }, error: null }, { inserts: taskInserts }),
+                createQuery({ data: null, error: null }, { upserts: taskUpserts, upsertOptions: taskUpsertOptions }),
+                createQuery({ data: { id: 'task-no-show' }, error: null }),
             ],
             crm_activities: [
-                createQuery({ data: null, error: null }, { inserts: activityInserts }),
+                createQuery({ data: null, error: null }, { upserts: activityUpserts, upsertOptions: activityUpsertOptions }),
             ],
-            crm_contacts: [
-                createQuery({ data: null, error: null }, { updates: contactUpdates }),
-            ],
-        });
+        }, refreshAlarm);
 
         const result = await recordNoShowFollowUp(client as any, {
             profileId: 'student-1',
@@ -689,7 +747,7 @@ describe('recordPostPaymentOnboarding', () => {
             source: 'class_no_show',
             sourcePath: '/campus',
         });
-        expect(taskInserts).toEqual([expect.objectContaining({
+        expect(taskUpserts).toEqual([expect.objectContaining({
             contact_id: 'contact-1',
             title: 'Follow up after missed class',
             task_type: 'email',
@@ -697,6 +755,7 @@ describe('recordPostPaymentOnboarding', () => {
             due_at: '2026-06-27T10:15:00.000Z',
             related_entity_type: 'session_no_show',
             related_entity_id: 'session-1',
+            idempotency_key: 'crm:no-show-follow-up:task:session-1',
             metadata: expect.objectContaining({
                 action: 'no_show_follow_up',
                 session_id: 'session-1',
@@ -708,7 +767,8 @@ describe('recordPostPaymentOnboarding', () => {
                 shared_owner_queue: true,
             }),
         })]);
-        expect(activityInserts).toEqual([expect.objectContaining({
+        expect(taskUpsertOptions).toEqual([{ onConflict: 'idempotency_key', ignoreDuplicates: true }]);
+        expect(activityUpserts).toEqual([expect.objectContaining({
             contact_id: 'contact-1',
             activity_type: 'system',
             subject: 'No-show follow-up task created',
@@ -716,38 +776,37 @@ describe('recordPostPaymentOnboarding', () => {
             occurred_at: '2026-06-26T10:15:00.000Z',
             related_entity_type: 'session_no_show',
             related_entity_id: 'session-1',
+            idempotency_key: 'crm:no-show-follow-up:activity:session-1',
             metadata: expect.objectContaining({
                 task_id: 'task-no-show',
                 action: 'no_show_follow_up',
             }),
         })]);
-        expect(contactUpdates).toEqual([expect.objectContaining({
-            lifecycle_stage: 'customer',
-            next_follow_up_at: '2026-06-27T10:15:00.000Z',
-            updated_at: '2026-06-26T10:15:00.000Z',
-        })]);
+        expect(activityUpsertOptions).toEqual([{ onConflict: 'idempotency_key', ignoreDuplicates: true }]);
+        expect(refreshAlarm).toHaveBeenCalledWith('refresh_crm_no_show_contact_alarm', {
+            p_task_id: 'task-no-show',
+            p_contact_id: 'contact-1',
+            p_due_at: '2026-06-27T10:15:00.000Z',
+            p_occurred_at: '2026-06-26T10:15:00.000Z',
+        });
     });
 
-    it('refreshes an existing no-show task with current metadata', async () => {
-        const taskUpdates: unknown[] = [];
-        const activityInserts: unknown[] = [];
-        const contactUpdates: unknown[] = [];
+    it('repairs the contact alarm without overwriting an existing open no-show task', async () => {
+        const activityUpserts: unknown[] = [];
+        const refreshAlarm = vi.fn().mockResolvedValue({ data: true, error: null });
         vi.mocked(ensureCrmContactForProfile).mockResolvedValue({
             status: 'ready',
             contactId: 'contact-1',
         });
         const client = createClient({
             crm_tasks: [
+                createQuery({ data: null, error: null }),
                 createQuery({ data: { id: 'task-existing' }, error: null }),
-                createQuery({ data: null, error: null }, { updates: taskUpdates }),
             ],
             crm_activities: [
-                createQuery({ data: null, error: null }, { inserts: activityInserts }),
+                createQuery({ data: null, error: null }, { upserts: activityUpserts }),
             ],
-            crm_contacts: [
-                createQuery({ data: null, error: null }, { updates: contactUpdates }),
-            ],
-        });
+        }, refreshAlarm);
 
         const result = await recordNoShowFollowUp(client as any, {
             profileId: 'student-1',
@@ -765,22 +824,8 @@ describe('recordPostPaymentOnboarding', () => {
             contactId: 'contact-1',
             taskId: 'task-existing',
         });
-        expect(taskUpdates).toEqual([expect.objectContaining({
-            status: 'open',
-            due_at: '2026-06-27T10:20:00.000Z',
-            updated_at: '2026-06-26T10:20:00.000Z',
-            metadata: expect.objectContaining({
-                action: 'no_show_follow_up',
-                session_id: 'session-1',
-                subscription_id: 'subscription-1',
-                teacher_id: 'teacher-1',
-                scheduled_at: '2026-06-26T10:00:00.000Z',
-                no_show_at: '2026-06-26T10:20:00.000Z',
-                follow_up_hours: 24,
-                shared_owner_queue: true,
-            }),
-        })]);
-        expect(activityInserts).toEqual([expect.objectContaining({
+        expect(client.from).toHaveBeenCalledWith('crm_tasks');
+        expect(activityUpserts).toEqual([expect.objectContaining({
             related_entity_type: 'session_no_show',
             related_entity_id: 'session-1',
             metadata: expect.objectContaining({
@@ -788,8 +833,107 @@ describe('recordPostPaymentOnboarding', () => {
                 no_show_at: '2026-06-26T10:20:00.000Z',
             }),
         })]);
-        expect(contactUpdates).toEqual([expect.objectContaining({
-            next_follow_up_at: '2026-06-27T10:20:00.000Z',
-        })]);
+        expect(refreshAlarm).toHaveBeenCalledWith('refresh_crm_no_show_contact_alarm', {
+            p_task_id: 'task-existing',
+            p_contact_id: 'contact-1',
+            p_due_at: '2026-06-27T10:20:00.000Z',
+            p_occurred_at: '2026-06-26T10:20:00.000Z',
+        });
+    });
+
+    it('does not reopen a task completed before the atomic contact-alarm refresh', async () => {
+        const taskUpserts: unknown[] = [];
+        const activityUpserts: unknown[] = [];
+        const refreshAlarm = vi.fn().mockResolvedValue({ data: false, error: null });
+        vi.mocked(ensureCrmContactForProfile).mockResolvedValue({
+            status: 'ready',
+            contactId: 'contact-1',
+        });
+        const client = createClient({
+            crm_tasks: [
+                createQuery({ data: null, error: null }, { upserts: taskUpserts }),
+                createQuery({ data: { id: 'task-done' }, error: null }),
+            ],
+            crm_activities: [
+                createQuery({ data: null, error: null }, { upserts: activityUpserts }),
+            ],
+        }, refreshAlarm);
+
+        const result = await recordNoShowFollowUp(client as any, {
+            profileId: 'student-1',
+            email: 'student@example.com',
+            fullName: 'Student One',
+            subscriptionId: 'subscription-1',
+            sessionId: 'session-1',
+            teacherId: 'teacher-1',
+            scheduledAt: '2026-06-26T10:00:00.000Z',
+            noShowAt: '2026-06-26T10:20:00.000Z',
+        });
+
+        expect(result).toEqual({
+            status: 'recorded',
+            contactId: 'contact-1',
+            taskId: 'task-done',
+        });
+        expect(taskUpserts).toHaveLength(1);
+        expect(activityUpserts).toHaveLength(1);
+        expect(refreshAlarm).toHaveBeenCalledOnce();
+        expect(client.from).not.toHaveBeenCalledWith('crm_contacts');
+    });
+
+    it('preserves a manually snoozed task and does not reset the contact alarm', async () => {
+        const activityUpserts: unknown[] = [];
+        const refreshAlarm = vi.fn().mockResolvedValue({ data: false, error: null });
+        vi.mocked(ensureCrmContactForProfile).mockResolvedValue({ status: 'ready', contactId: 'contact-1' });
+        const client = createClient({
+            crm_tasks: [
+                createQuery({ data: null, error: null }),
+                createQuery({ data: { id: 'task-snoozed' }, error: null }),
+            ],
+            crm_activities: [
+                createQuery({ data: null, error: null }, { upserts: activityUpserts }),
+            ],
+        }, refreshAlarm);
+
+        const result = await recordNoShowFollowUp(client as any, {
+            profileId: 'student-1',
+            email: 'student@example.com',
+            fullName: 'Student One',
+            subscriptionId: 'subscription-1',
+            sessionId: 'session-1',
+            noShowAt: '2026-06-26T10:20:00.000Z',
+        });
+
+        expect(result).toEqual({ status: 'recorded', contactId: 'contact-1', taskId: 'task-snoozed' });
+        expect(activityUpserts).toHaveLength(1);
+        expect(refreshAlarm).toHaveBeenCalledOnce();
+        expect(client.from).not.toHaveBeenCalledWith('crm_contacts');
+    });
+
+    it('fails the no-show convergence when the atomic contact-alarm refresh fails', async () => {
+        vi.mocked(ensureCrmContactForProfile).mockResolvedValue({ status: 'ready', contactId: 'contact-1' });
+        const refreshAlarm = vi.fn().mockResolvedValue({
+            data: null,
+            error: { code: 'XX000', message: 'temporary contact alarm failure' },
+        });
+        const client = createClient({
+            crm_tasks: [
+                createQuery({ data: null, error: null }),
+                createQuery({ data: { id: 'task-existing' }, error: null }),
+            ],
+            crm_activities: [createQuery({ data: null, error: null })],
+        }, refreshAlarm);
+
+        await expect(recordNoShowFollowUp(client as any, {
+            profileId: 'student-1',
+            email: 'student@example.com',
+            fullName: 'Student One',
+            subscriptionId: 'subscription-1',
+            sessionId: 'session-1',
+            noShowAt: '2026-06-26T10:20:00.000Z',
+        })).rejects.toEqual(expect.objectContaining({
+            code: 'XX000',
+            message: 'temporary contact alarm failure',
+        }));
     });
 });

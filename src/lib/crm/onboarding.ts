@@ -520,6 +520,7 @@ export async function recordFirstClassCompleted(
     const completedAt = completedAtDate.toISOString();
     const onboardingRelated = onboardingRelatedEntity(input);
     const activationRelated = activationRelatedEntity(input);
+    const activityIdempotencyKey = `crm:first-class-completed:activity:${activationRelated.type}:${activationRelated.id}`;
 
     const taskQuery = await supabaseAdmin
         .from('crm_tasks')
@@ -553,48 +554,36 @@ export async function recordFirstClassCompleted(
         }
     }
 
-    const activityAlreadyExists = await supabaseAdmin
+    const activity: CrmActivityInsert = {
+        contact_id: contact.contactId,
+        activity_type: 'system',
+        subject: 'First class completed',
+        body: 'Student completed the first class; onboarding activation achieved.',
+        occurred_at: completedAt,
+        metadata: {
+            activation_goal: 'first_class_completed',
+            session_id: input.sessionId,
+            subscription_id: input.subscriptionId ?? null,
+            teacher_id: input.teacherId ?? null,
+            scheduled_at: input.scheduledAt ?? null,
+            completed_at: completedAt,
+            closed_onboarding_task_ids: closedTaskIds,
+        },
+        related_entity_type: activationRelated.type,
+        related_entity_id: activationRelated.id,
+        idempotency_key: activityIdempotencyKey,
+    };
+
+    const { error: activityError } = await supabaseAdmin
         .from('crm_activities')
-        .select('id')
-        .eq('contact_id', contact.contactId)
-        .eq('activity_type', 'system')
-        .eq('related_entity_type', activationRelated.type)
-        .eq('related_entity_id', activationRelated.id)
-        .maybeSingle();
+        .upsert(activity, {
+            onConflict: 'idempotency_key',
+            ignoreDuplicates: true,
+        });
 
-    if (activityAlreadyExists.error) {
-        if (isMissingCrmTable(activityAlreadyExists.error)) return { status: 'skipped' as const, reason: 'crm_not_migrated' };
-        throw activityAlreadyExists.error;
-    }
-
-    if (!activityAlreadyExists.data?.id) {
-        const activity: CrmActivityInsert = {
-            contact_id: contact.contactId,
-            activity_type: 'system',
-            subject: 'First class completed',
-            body: 'Student completed the first class; onboarding activation achieved.',
-            occurred_at: completedAt,
-            metadata: {
-                activation_goal: 'first_class_completed',
-                session_id: input.sessionId,
-                subscription_id: input.subscriptionId ?? null,
-                teacher_id: input.teacherId ?? null,
-                scheduled_at: input.scheduledAt ?? null,
-                completed_at: completedAt,
-                closed_onboarding_task_ids: closedTaskIds,
-            },
-            related_entity_type: activationRelated.type,
-            related_entity_id: activationRelated.id,
-        };
-
-        const { error } = await supabaseAdmin
-            .from('crm_activities')
-            .insert(activity);
-
-        if (error) {
-            if (isMissingCrmTable(error)) return { status: 'skipped' as const, reason: 'crm_not_migrated' };
-            throw error;
-        }
+    if (activityError) {
+        if (isMissingCrmTable(activityError)) return { status: 'skipped' as const, reason: 'crm_not_migrated' };
+        throw activityError;
     }
 
     const { error: contactUpdateError } = await supabaseAdmin
@@ -643,6 +632,8 @@ export async function recordNoShowFollowUp(
     const noShowAt = noShowAtDate.toISOString();
     const dueAt = addHours(noShowAtDate, 24);
     const relatedEntityType = 'session_no_show';
+    const taskIdempotencyKey = `crm:no-show-follow-up:task:${input.sessionId}`;
+    const activityIdempotencyKey = `crm:no-show-follow-up:activity:${input.sessionId}`;
     const metadata: Json = {
         action: 'no_show_follow_up',
         session_id: input.sessionId,
@@ -654,13 +645,34 @@ export async function recordNoShowFollowUp(
         shared_owner_queue: true,
     };
 
+    const task: CrmTaskInsert = {
+        contact_id: contact.contactId,
+        title: 'Follow up after missed class',
+        task_type: 'email',
+        priority: 'high',
+        due_at: dueAt,
+        related_entity_type: relatedEntityType,
+        related_entity_id: input.sessionId,
+        idempotency_key: taskIdempotencyKey,
+        metadata,
+    };
+
+    const taskInsert = await supabaseAdmin
+        .from('crm_tasks')
+        .upsert(task, {
+            onConflict: 'idempotency_key',
+            ignoreDuplicates: true,
+        });
+
+    if (taskInsert.error) {
+        if (isMissingCrmTable(taskInsert.error)) return { status: 'skipped' as const, reason: 'crm_not_migrated' };
+        throw taskInsert.error;
+    }
+
     const existingTaskQuery = await supabaseAdmin
         .from('crm_tasks')
         .select('id')
-        .eq('contact_id', contact.contactId)
-        .eq('related_entity_type', relatedEntityType)
-        .eq('related_entity_id', input.sessionId)
-        .in('status', ['open', 'snoozed'])
+        .eq('idempotency_key', taskIdempotencyKey)
         .maybeSingle();
 
     if (existingTaskQuery.error) {
@@ -668,47 +680,11 @@ export async function recordNoShowFollowUp(
         throw existingTaskQuery.error;
     }
 
-    let taskId = existingTaskQuery.data?.id ?? null;
+    const existingTask = existingTaskQuery.data as { id: string } | null;
+    const taskId = existingTask?.id ?? null;
 
-    if (taskId) {
-        const { error } = await supabaseAdmin
-            .from('crm_tasks')
-            .update({
-                status: 'open',
-                due_at: dueAt,
-                metadata,
-                updated_at: noShowAt,
-            })
-            .eq('id', taskId);
-
-        if (error) {
-            if (isMissingCrmTable(error)) return { status: 'skipped' as const, reason: 'crm_not_migrated' };
-            throw error;
-        }
-    } else {
-        const task: CrmTaskInsert = {
-            contact_id: contact.contactId,
-            title: 'Follow up after missed class',
-            task_type: 'email',
-            priority: 'high',
-            due_at: dueAt,
-            related_entity_type: relatedEntityType,
-            related_entity_id: input.sessionId,
-            metadata,
-        };
-
-        const { data, error } = await supabaseAdmin
-            .from('crm_tasks')
-            .insert(task)
-            .select('id')
-            .single();
-
-        if (error) {
-            if (isMissingCrmTable(error)) return { status: 'skipped' as const, reason: 'crm_not_migrated' };
-            throw error;
-        }
-
-        taskId = data?.id ?? null;
+    if (!taskId) {
+        throw new Error('No-show follow-up task could not be loaded after idempotent creation');
     }
 
     const activity: CrmActivityInsert = {
@@ -723,27 +699,29 @@ export async function recordNoShowFollowUp(
         },
         related_entity_type: relatedEntityType,
         related_entity_id: input.sessionId,
+        idempotency_key: activityIdempotencyKey,
     };
 
     const { error: activityError } = await supabaseAdmin
         .from('crm_activities')
-        .insert(activity);
+        .upsert(activity, {
+            onConflict: 'idempotency_key',
+            ignoreDuplicates: true,
+        });
 
     if (activityError) {
         if (isMissingCrmTable(activityError)) return { status: 'skipped' as const, reason: 'crm_not_migrated' };
         throw activityError;
     }
 
-    const { error: contactUpdateError } = await supabaseAdmin
-        .from('crm_contacts')
-        .update({
-            lifecycle_stage: 'customer',
-            next_follow_up_at: dueAt,
-            updated_at: noShowAt,
-        })
-        .eq('id', contact.contactId);
+    const { error: contactAlarmError } = await supabaseAdmin.rpc('refresh_crm_no_show_contact_alarm', {
+        p_task_id: taskId,
+        p_contact_id: contact.contactId,
+        p_due_at: dueAt,
+        p_occurred_at: noShowAt,
+    });
 
-    if (contactUpdateError && !isMissingCrmTable(contactUpdateError)) throw contactUpdateError;
+    if (contactAlarmError) throw contactAlarmError;
 
     return { status: 'recorded' as const, contactId: contact.contactId, taskId };
 }

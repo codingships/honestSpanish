@@ -26,6 +26,7 @@ const checkoutHoldProtectionMigration = readFileSync('supabase/migrations/202608
 const checkoutV2CycleFulfillmentMigration = readFileSync('supabase/migrations/20260801140000_enqueue_checkout_v2_cycle_fulfillment.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2RescheduleMigration = readFileSync('supabase/migrations/20260801150000_add_checkout_v2_reschedule_operations.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2RescheduleTargetsMigration = readFileSync('supabase/migrations/20260801160000_checkout_v2_reschedule_targets.sql', 'utf8').replace(/\r\n/g, '\n');
+const crmNoShowIdempotencyMigration = readFileSync('supabase/migrations/20260802034445_add_crm_no_show_idempotency.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -53,6 +54,35 @@ function canonicalLatestSqlFunction(source: string, qualifiedName: string): stri
 }
 
 describe('database schema security invariants', () => {
+    it('uses separate durable idempotency keys for no-show tasks and activities', () => {
+        for (const snippet of [
+            'ADD COLUMN IF NOT EXISTS idempotency_key TEXT',
+            "'crm:no-show-follow-up:task:' || task.related_entity_id",
+            "'crm:no-show-follow-up:activity:' || activity.related_entity_id",
+            "'crm:session-outcome:activity:'",
+            "'crm:first-class-completed:activity:'",
+            "WHEN status = 'open' THEN 0",
+            "WHEN status = 'snoozed' THEN 1",
+            'CREATE UNIQUE INDEX IF NOT EXISTS crm_tasks_idempotency_key_unique_idx',
+            'CREATE UNIQUE INDEX IF NOT EXISTS crm_activities_idempotency_key_unique_idx',
+            'CREATE OR REPLACE FUNCTION public.refresh_crm_no_show_contact_alarm(',
+            "SET search_path = ''",
+            'FOR UPDATE;',
+            "task_status <> 'open'",
+            'FROM PUBLIC, anon, authenticated;',
+            'TO service_role;',
+        ]) {
+            expect(crmNoShowIdempotencyMigration).toContain(snippet);
+        }
+
+        expect(schema).toContain('CREATE UNIQUE INDEX crm_tasks_idempotency_key_unique_idx ON crm_tasks(idempotency_key);');
+        expect(schema).toContain('CREATE UNIQUE INDEX crm_activities_idempotency_key_unique_idx ON crm_activities(idempotency_key);');
+        expect(databaseTypes.match(/^\s+idempotency_key: string \| null;/gm)).toHaveLength(2);
+        expect(databaseTypes.match(/^\s+idempotency_key\?: string \| null;/gm)).toHaveLength(4);
+        expect(databaseTypes).toContain('refresh_crm_no_show_contact_alarm: {');
+        expect(schema).toContain('CREATE OR REPLACE FUNCTION public.refresh_crm_no_show_contact_alarm(');
+    });
+
     it('bootstraps is_admin before later migrations create dependent policies', () => {
         expect(profileHardeningMigration).toContain('CREATE OR REPLACE FUNCTION public.is_admin()');
         expect(profileHardeningMigration).toContain('SECURITY DEFINER');

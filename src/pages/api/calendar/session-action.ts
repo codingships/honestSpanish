@@ -8,6 +8,8 @@ import type { Database, Json } from '../../../types/database.types';
 
 const NO_SHOW_GRACE_PERIOD_MS = 15 * 60 * 1000;
 
+type FirstV2AnchorFixResult = 'not_applicable' | 'already_fixed' | 'fixed' | 'failed';
+
 const isRescheduleStateConflict = (error: { code?: string; message?: string } | null): boolean => (
     error?.code === '40001'
     || (
@@ -113,19 +115,21 @@ export const POST: APIRoute = async (context) => {
 
     const supabaseAdmin = createSupabaseAdminClient();
 
-    const fixFirstV2AnchorIfApplicable = async (): Promise<boolean> => {
+    const fixFirstV2AnchorIfApplicable = async (): Promise<FirstV2AnchorFixResult> => {
         const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
-        if (!subscription?.id || subscription.contract_schema_version !== 2) return true;
+        if (!subscription?.id || subscription.contract_schema_version !== 2) return 'not_applicable';
 
         const { data: billingState, error: billingError } = await supabaseAdmin
             .from('checkout_v2_billing_state')
             .select('subscription_id, first_session_id, first_class_at, anchor_state, anchor_fixed_at')
             .eq('subscription_id', subscription.id)
             .maybeSingle();
-        if (billingError) return false;
-        if (!billingState || billingState.first_session_id !== sessionId) return true;
+        if (billingError || !billingState) return 'failed';
+        if (billingState.first_session_id !== sessionId) return 'not_applicable';
         if (billingState.anchor_state === 'fixed') {
-            return billingState.anchor_fixed_at === billingState.first_class_at;
+            return billingState.anchor_fixed_at === billingState.first_class_at
+                ? 'already_fixed'
+                : 'failed';
         }
 
         const { data: fixedState, error: fixError } = await supabaseAdmin.rpc('fix_checkout_v2_billing_anchor', {
@@ -134,7 +138,79 @@ export const POST: APIRoute = async (context) => {
         });
         return !fixError
             && fixedState?.anchor_state === 'fixed'
-            && fixedState.anchor_fixed_at === billingState.first_class_at;
+            && fixedState.anchor_fixed_at === billingState.first_class_at
+            ? 'fixed'
+            : 'failed';
+    };
+
+    const convergeSessionOutcomeEffects = async (
+        outcome: 'complete' | 'no_show',
+        occurredAt: string,
+        activityBody: string | null,
+    ): Promise<Response | null> => {
+        const relatedEntityType = outcome === 'complete' ? 'session_completed' : 'session_no_show';
+        const activityResult = await recordCrmActivityForProfileSafe(supabaseAdmin, {
+            profileId: session.student_id,
+            email: session.student?.email ?? null,
+            fullName: session.student?.full_name ?? null,
+            actorId: user.id,
+            lifecycleStage: 'customer',
+            source: 'calendar',
+            activityType: 'class',
+            subject: outcome === 'complete' ? 'Clase completada' : 'Alumno no asistio',
+            body: activityBody,
+            occurredAt,
+            relatedEntityType,
+            relatedEntityId: sessionId,
+            idempotencyKey: `crm:session-outcome:activity:${outcome}:${sessionId}`,
+            metadata: {
+                session_id: sessionId,
+                teacher_id: session.teacher_id,
+                scheduled_at: session.scheduled_at,
+                action: outcome,
+                status: outcome === 'complete' ? 'completed' : 'no_show',
+            },
+        });
+        if (activityResult.status === 'skipped') {
+            return new Response(JSON.stringify({ error: 'Session activity could not be recorded.' }), { status: 503 });
+        }
+
+        if (await fixFirstV2AnchorIfApplicable() === 'failed') {
+            return new Response(JSON.stringify({ error: 'Billing anchor could not be fixed.' }), { status: 503 });
+        }
+
+        const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
+        if (outcome === 'complete') {
+            const completionResult = await recordFirstClassCompletedSafe(supabaseAdmin, {
+                profileId: session.student_id,
+                email: session.student?.email ?? null,
+                fullName: session.student?.full_name ?? null,
+                subscriptionId: session.subscription_id ?? subscription?.id ?? null,
+                sessionId,
+                teacherId: session.teacher_id,
+                scheduledAt: session.scheduled_at,
+                completedAt: occurredAt,
+            });
+            if (completionResult.status !== 'recorded') {
+                return new Response(JSON.stringify({ error: 'First-class completion could not be recorded.' }), { status: 503 });
+            }
+        } else {
+            const followUpResult = await recordNoShowFollowUpSafe(supabaseAdmin, {
+                profileId: session.student_id,
+                email: session.student?.email ?? null,
+                fullName: session.student?.full_name ?? null,
+                subscriptionId: session.subscription_id ?? subscription?.id ?? null,
+                sessionId,
+                teacherId: session.teacher_id,
+                scheduledAt: session.scheduled_at,
+                noShowAt: occurredAt,
+            });
+            if (followUpResult.status !== 'recorded') {
+                return new Response(JSON.stringify({ error: 'No-show follow-up could not be recorded.' }), { status: 503 });
+            }
+        }
+
+        return null;
     };
 
     if (action === 'cancel') {
@@ -234,10 +310,17 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Forbidden. Only teachers and admins can modify session states.' }), { status: 403 });
         }
 
-        if (action === 'complete' && session.status === 'completed') {
-            if (!await fixFirstV2AnchorIfApplicable()) {
-                return new Response(JSON.stringify({ error: 'Billing anchor could not be fixed.' }), { status: 503 });
+        if (
+            (action === 'complete' && session.status === 'completed')
+            || (action === 'no_show' && session.status === 'no_show')
+        ) {
+            const persistedOutcomeAt = action === 'complete' ? session.completed_at : session.no_show_at;
+            if (!persistedOutcomeAt) {
+                return new Response(JSON.stringify({ error: 'Session outcome state is incomplete.' }), { status: 500 });
             }
+            const replayBody = formatReportForActivityBody(session.post_class_report) ?? session.teacher_notes ?? null;
+            const effectError = await convergeSessionOutcomeEffects(action, persistedOutcomeAt, replayBody);
+            if (effectError) return effectError;
             return new Response(JSON.stringify({ success: true }), { status: 200 });
         }
 
@@ -302,6 +385,12 @@ export const POST: APIRoute = async (context) => {
 
         if (action === 'complete' || action === 'no_show') {
             updateQuery = updateQuery.eq('status', 'scheduled');
+            updateQuery = session.updated_at === null
+                ? updateQuery.is('updated_at', null)
+                : updateQuery.eq('updated_at', session.updated_at);
+            updateQuery = session.scheduled_at === null
+                ? updateQuery.is('scheduled_at', null)
+                : updateQuery.eq('scheduled_at', session.scheduled_at);
         }
 
         const { data: updatedRows, error: updateError } = await updateQuery.select('id');
@@ -326,13 +415,14 @@ export const POST: APIRoute = async (context) => {
             return new Response(JSON.stringify({ error: 'Session state changed before this action could be applied.' }), { status: 409 });
         }
 
-        if (action === 'complete' || action === 'no_show' || body.notes !== undefined || body.report !== undefined) {
+        if (action === 'complete' || action === 'no_show') {
+            const outcomeActivityBody = reportActivityBody
+                ?? (typeof body.notes === 'string' ? body.notes : null);
+            const effectError = await convergeSessionOutcomeEffects(action, stateChangedAt, outcomeActivityBody);
+            if (effectError) return effectError;
+        } else if (body.notes !== undefined || body.report !== undefined) {
             const occurredAt = stateChangedAt;
-            const subject = action === 'complete'
-                ? 'Clase completada'
-                : action === 'no_show'
-                    ? 'Alumno no asistio'
-                    : 'Notas de clase actualizadas';
+            const subject = 'Notas de clase actualizadas';
 
             await recordCrmActivityForProfileSafe(supabaseAdmin, {
                 profileId: session.student_id,
@@ -348,12 +438,8 @@ export const POST: APIRoute = async (context) => {
                         ? body.notes
                         : null),
                 occurredAt,
-                relatedEntityType: action === 'complete'
-                    ? 'session_completed'
-                    : action === 'no_show'
-                        ? 'session_no_show'
-                        : 'session_notes_update',
-                relatedEntityId: action === 'update_notes' ? `${sessionId}:${occurredAt}` : sessionId,
+                relatedEntityType: 'session_notes_update',
+                relatedEntityId: `${sessionId}:${occurredAt}`,
                 metadata: {
                     session_id: sessionId,
                     teacher_id: session.teacher_id,
@@ -363,34 +449,6 @@ export const POST: APIRoute = async (context) => {
                 },
             });
 
-            if (action === 'complete') {
-                const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
-                if (!await fixFirstV2AnchorIfApplicable()) {
-                    return new Response(JSON.stringify({ error: 'Billing anchor could not be fixed.' }), { status: 503 });
-                }
-                await recordFirstClassCompletedSafe(supabaseAdmin, {
-                    profileId: session.student_id,
-                    email: session.student?.email ?? null,
-                    fullName: session.student?.full_name ?? null,
-                    subscriptionId: session.subscription_id ?? subscription?.id ?? null,
-                    sessionId,
-                    teacherId: session.teacher_id,
-                    scheduledAt: session.scheduled_at,
-                    completedAt: occurredAt,
-                });
-            } else if (action === 'no_show') {
-                const subscription = Array.isArray(session.subscription) ? session.subscription[0] : session.subscription;
-                await recordNoShowFollowUpSafe(supabaseAdmin, {
-                    profileId: session.student_id,
-                    email: session.student?.email ?? null,
-                    fullName: session.student?.full_name ?? null,
-                    subscriptionId: session.subscription_id ?? subscription?.id ?? null,
-                    sessionId,
-                    teacherId: session.teacher_id,
-                    scheduledAt: session.scheduled_at,
-                    noShowAt: occurredAt,
-                });
-            }
         }
 
         return new Response(JSON.stringify({ success: true }), { status: 200 });
