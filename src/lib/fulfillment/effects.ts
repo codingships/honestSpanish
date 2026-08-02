@@ -534,97 +534,54 @@ export async function sendFulfillmentEmailEffect(
                 error: safeDeliveryError(delivery),
                 outcome,
                 result,
-     …18542 tokens truncated…s: message.attempts,
-                error: error instanceof Error ? error.message : 'unknown_error',
-            }));
-            message.retry({ delaySeconds: queueRetryDelay(message.attempts) });
-        }
-    }
-}
-
-const routes: Record<string, Handler> = {
-    '/internal/jobs/process': handleProcessJobs,
-    '/internal/jobs/process-exact': handleProcessExactJob,
-    '/internal/runtime-attestation': handleRuntimeAttestation,
-    '/internal/google/availability': handleAvailability,
-    '/internal/google/filter-available-slots': handleFilterSlots,
-    '/internal/drive/append-homework': handleAppendHomework,
-    '/internal/account/link-google-drive': handleLinkGoogleDrive,
-    '/internal/google/create-student-folder': handleCreateStudentFolder,
-    '/internal/reminders/send': handleSendReminders,
-    '/internal/reminders/send-exact': handleSendExactReminder,
-};
-
-export default {
-    async fetch(request: Request, env: Env): Promise<Response> {
-        const url = new URL(request.url);
-
-        if (request.method === 'GET' && url.pathname === '/health') {
-            const appEnvironment = envString(env, 'PUBLIC_APP_ENV');
-            const operationMode = envString(env, 'FULFILLMENT_RUNTIME_MODE');
-            const workerIdentity = envString(env, 'WORKER_IDENTITY');
-            const healthy = operationMode === 'active' && fulfillmentEnvironment(env) !== null;
-            return json(healthy ? 200 : 503, {
-                appEnvironment: appEnvironment ?? 'unconfigured',
-                ok: healthy,
-                operationMode: operationMode ?? 'unconfigured',
-                service: 'fulfillment-worker',
-                status: healthy ? 'ok' : 'invalid',
-                workerIdentity: workerIdentity ?? 'unconfigured',
-                runtime: 'cloudflare-workers',
-                timestamp: new Date().toISOString(),
             });
+        } catch {
+            finalized = false;
         }
+        if (!finalized) {
+            await bestEffortMarkAmbiguous({
+                attemptGeneration: claim.attempt_generation,
+                context,
+                effectId: claim.effect_id,
+                reason: 'effect_finalization_lost_after_delivery_failure',
+                result,
+            });
+            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS', false);
+        }
+        if (delivery.acceptance === 'ambiguous') {
+            throw new FulfillmentEffectError('FULFILLMENT_EFFECT_ACCEPTANCE_AMBIGUOUS', true);
+        }
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_DELIVERY_FAILED', false);
+    }
 
-        if (url.pathname !== '/internal/runtime-attestation' && fulfillmentRuntimeMode(env) !== 'active') {
-            return json(503, { errorCode: 'FULFILLMENT_DISABLED' });
-        }
+    let finalized = false;
+    try {
+        finalized = await finalizeEffect({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            outcome: 'succeeded',
+            providerId: delivery.providerId,
+            result,
+        });
+    } catch {
+        finalized = false;
+    }
+    if (!finalized) {
+        await bestEffortMarkAmbiguous({
+            attemptGeneration: claim.attempt_generation,
+            context,
+            effectId: claim.effect_id,
+            providerId: delivery.providerId,
+            reason: 'effect_finalization_lost_after_provider_acceptance',
+            result,
+        });
+        throw new FulfillmentEffectError('FULFILLMENT_EFFECT_FINALIZATION_AMBIGUOUS', false);
+    }
 
-        if (!isAuthorized(request, env)) {
-            return json(401, { error: 'Unauthorized' });
-        }
-
-        const route = routes[url.pathname];
-        if (!route) {
-            return json(404, { error: 'Not found' });
-        }
-        if (request.method !== 'POST') {
-            return json(405, { errorCode: 'METHOD_NOT_ALLOWED' });
-        }
-
-        try {
-            const result = await route(await readJson(request), env);
-            const errorCode = result && typeof result === 'object' && 'errorCode' in result
-                ? (result as { errorCode?: unknown }).errorCode
-                : null;
-            return json(typeof errorCode === 'string' ? 400 : 200, result);
-        } catch (error) {
-            const errorCode = error instanceof ExactFulfillmentJobError
-                ? error.code
-                : error instanceof Error && error.message === 'REQUEST_TOO_LARGE'
-                    ? 'REQUEST_TOO_LARGE'
-                    : 'INTERNAL_OPERATION_FAILED';
-            console.error(JSON.stringify({ event: 'fulfillment_request_failed', errorCode, path: url.pathname }));
-            return json(errorCode === 'REQUEST_TOO_LARGE' ? 413 : 500, { errorCode });
-        }
-    },
-
-    async queue(
-        batch: MessageBatch<FulfillmentQueueMessage>,
-        env: Env,
-    ): Promise<void> {
-        await handleQueue(batch, env);
-    },
-
-    async scheduled(
-        _controller: ScheduledController,
-        env: Env,
-        ctx: ExecutionContext
-    ): Promise<void> {
-        if (fulfillmentRuntimeMode(env) !== 'active') {
-            console.log(JSON.stringify({ event: 'fulfillment_scheduled_skipped', reason: 'runtime_disabled' }));
-            return;
-        }
-        ctx.waitUntil(handleScheduled(env));
-    },
-} satisfies ExportedHandler<Env, FulfillmentQueueMessage>;
+    return {
+        idempotencyKey,
+        providerId: delivery.providerId,
+        replayed: false,
+    };
+}
