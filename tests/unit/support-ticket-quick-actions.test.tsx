@@ -16,7 +16,7 @@ describe('SupportTicketQuickActions', () => {
     });
 
     it('marks an open support ticket as triaged from the dashboard', async () => {
-        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000001" status="open" />);
+        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000001" status="open" updatedAt="2026-08-02T05:00:00.000Z" />);
 
         expect(screen.getByLabelText('Estado del ticket: Abierto')).toHaveTextContent('Abierto');
         fireEvent.click(screen.getByText('Revisar'));
@@ -28,7 +28,10 @@ describe('SupportTicketQuickActions', () => {
             headers: { 'Content-Type': 'application/json' },
         });
         expect(JSON.parse(request?.body as string)).toEqual({
+            requestId: expect.any(String),
             ticketId: '70000000-0000-4000-8000-000000000001',
+            expectedStatus: 'open',
+            expectedUpdatedAt: '2026-08-02T05:00:00.000Z',
             status: 'triaged',
         });
         expect(await screen.findByRole('status')).toHaveTextContent('Ticket revisado');
@@ -36,7 +39,7 @@ describe('SupportTicketQuickActions', () => {
     });
 
     it('can reopen a closed support ticket', async () => {
-        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000002" status="closed" />);
+        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000002" status="closed" updatedAt="2026-08-02T05:00:00.000Z" />);
 
         expect(screen.getByLabelText('Estado del ticket: Cerrado')).toHaveTextContent('Cerrado');
         fireEvent.click(screen.getByText('Reabrir'));
@@ -44,7 +47,10 @@ describe('SupportTicketQuickActions', () => {
         await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
         const [, request] = vi.mocked(fetch).mock.calls[0];
         expect(JSON.parse(request?.body as string)).toEqual({
+            requestId: expect.any(String),
             ticketId: '70000000-0000-4000-8000-000000000002',
+            expectedStatus: 'closed',
+            expectedUpdatedAt: '2026-08-02T05:00:00.000Z',
             status: 'open',
         });
         expect(await screen.findByRole('status')).toHaveTextContent('Ticket abierto');
@@ -52,7 +58,7 @@ describe('SupportTicketQuickActions', () => {
     });
 
     it('normalizes unknown or missing statuses to open actions', () => {
-        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000003" status={null} />);
+        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000003" status={null} updatedAt="2026-08-02T05:00:00.000Z" />);
 
         expect(screen.getByLabelText('Estado del ticket: Abierto')).toHaveTextContent('Abierto');
         expect(screen.getByRole('button', { name: 'Revisar' })).toBeEnabled();
@@ -65,7 +71,7 @@ describe('SupportTicketQuickActions', () => {
         vi.mocked(fetch).mockReturnValueOnce(new Promise((resolve) => {
             resolveFetch = resolve;
         }) as Promise<Response>);
-        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000004" status="open" />);
+        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000004" status="open" updatedAt="2026-08-02T05:00:00.000Z" />);
 
         fireEvent.click(screen.getByText('Cerrar'));
 
@@ -89,7 +95,7 @@ describe('SupportTicketQuickActions', () => {
             ok: false,
             json: vi.fn().mockResolvedValue({ error: 'Ticket bloqueado' }),
         } as unknown as Response);
-        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000005" status="open" />);
+        render(<SupportTicketQuickActions ticketId="70000000-0000-4000-8000-000000000005" status="open" updatedAt="2026-08-02T05:00:00.000Z" />);
 
         fireEvent.click(screen.getByText('Cerrar'));
 

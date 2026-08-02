@@ -430,7 +430,7 @@ const commercialPulseItems = [
                                         <p class="text-xs text-[#006064]/70">{campusProfileLabel(ticket.user)} - {ticket.issue_type}</p>
                                         <p class="mt-1 font-mono text-xs text-[#006064]/70">{ticket.created_at ? formatDateTime(ticket.created_at) : '-'}</p>
                                     </a>
-                                    <SupportTicketQuickActions client:load ticketId={ticket.id} status={ticket.status} />
+                                    <SupportTicketQuickActions client:load ticketId={ticket.id} status={ticket.status} updatedAt={ticket.updated_at} />
                                 </div>
                             ))}
                         </div>

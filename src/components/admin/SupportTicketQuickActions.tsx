@@ -1,14 +1,16 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 type TicketStatus = 'open' | 'triaged' | 'closed';
 
 interface SupportTicketQuickActionsProps {
     ticketId: string;
     status: string | null;
+    updatedAt: string;
 }
 
 type SupportTicketResponse = {
     error?: string;
+    ticket?: { updated_at?: string };
 };
 
 const statusLabels: Record<TicketStatus, string> = {
@@ -24,11 +26,14 @@ function normalizeStatus(status: string | null): TicketStatus {
 export default function SupportTicketQuickActions({
     ticketId,
     status,
+    updatedAt,
 }: SupportTicketQuickActionsProps) {
     const [currentStatus, setCurrentStatus] = useState<TicketStatus>(normalizeStatus(status));
+    const [currentUpdatedAt, setCurrentUpdatedAt] = useState(updatedAt);
     const [isWorking, setIsWorking] = useState<TicketStatus | null>(null);
     const [message, setMessage] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const retryRequest = useRef<{ status: TicketStatus; id: string } | null>(null);
 
     const updateTicket = async (nextStatus: TicketStatus) => {
         setIsWorking(nextStatus);
@@ -36,17 +41,26 @@ export default function SupportTicketQuickActions({
         setError(null);
 
         try {
+            const requestId = retryRequest.current?.status === nextStatus
+                ? retryRequest.current.id
+                : crypto.randomUUID();
+            retryRequest.current = { status: nextStatus, id: requestId };
             const response = await fetch('/api/admin/support-tickets', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    requestId,
                     ticketId,
+                    expectedStatus: currentStatus,
+                    expectedUpdatedAt: currentUpdatedAt,
                     status: nextStatus,
                 }),
             });
             const data = await response.json() as SupportTicketResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo actualizar el ticket');
+            retryRequest.current = null;
             setCurrentStatus(nextStatus);
+            if (data.ticket?.updated_at) setCurrentUpdatedAt(data.ticket.updated_at);
             setMessage(`Ticket ${statusLabels[nextStatus].toLowerCase()}`);
         } catch (err) {
             setError(err instanceof Error ? err.message : 'No se pudo actualizar el ticket');

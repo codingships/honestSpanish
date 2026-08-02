@@ -22,6 +22,18 @@ if (!profile) {
     return Astro.redirect(`/${lang}/login`);
 }
 
+const parsedSupportPage = Number(Astro.url.searchParams.get('supportPage') ?? 1);
+const supportPage = Number.isSafeInteger(parsedSupportPage) && parsedSupportPage > 0
+    ? parsedSupportPage
+    : 1;
+const ticketPageSize = 20;
+const { data: ticketPage } = await supabase.rpc('get_my_support_tickets', {
+    p_limit: ticketPageSize + 1,
+    p_offset: (supportPage - 1) * ticketPageSize,
+});
+const myTickets = (ticketPage ?? []).slice(0, ticketPageSize);
+const hasNextTicketPage = (ticketPage ?? []).length > ticketPageSize;
+
 const copy = {
     es: {
         title: 'Soporte',
@@ -29,6 +41,17 @@ const copy = {
         contactTitle: 'Contacto',
         contactText: 'Si algo bloquea una clase o un pago, escribe al equipo con el email de tu cuenta, fecha de la clase y una captura si es posible.',
         contactEmail: 'alejandro@espanolhonesto.com',
+        myTicketsTitle: 'Mis solicitudes',
+        noTickets: 'Todavia no has enviado ninguna solicitud.',
+        replyLabel: 'Respuesta del equipo',
+        createdLabel: 'Solicitud enviada',
+        historyShow: 'Ver historial',
+        historyMore: 'Cargar historial anterior',
+        historyLoading: 'Cargando historial...',
+        historyError: 'No se pudo cargar el historial. Prueba de nuevo.',
+        ticketsPrevious: 'Solicitudes anteriores',
+        ticketsNext: 'Solicitudes siguientes',
+        ticketsPage: 'Pagina',
         form: {
             reportButton: 'Avisar de este error',
             detailsLabel: 'Explica que ha pasado',
@@ -69,6 +92,17 @@ const copy = {
         contactTitle: 'Contact',
         contactText: 'If something blocks a class or payment, write to the team with your account email, class date and a screenshot if possible.',
         contactEmail: 'alejandro@espanolhonesto.com',
+        myTicketsTitle: 'My requests',
+        noTickets: 'You have not sent any support requests yet.',
+        replyLabel: 'Team response',
+        createdLabel: 'Request submitted',
+        historyShow: 'View history',
+        historyMore: 'Load earlier history',
+        historyLoading: 'Loading history...',
+        historyError: 'The history could not be loaded. Try again.',
+        ticketsPrevious: 'Previous requests',
+        ticketsNext: 'Next requests',
+        ticketsPage: 'Page',
         form: {
             reportButton: 'Report this issue',
             detailsLabel: 'Explain what happened',
@@ -109,6 +143,17 @@ const copy = {
         contactTitle: 'Контакт',
         contactText: 'Если что-то блокирует занятие или оплату, напишите команде email аккаунта, дату занятия и приложите скриншот, если возможно.',
         contactEmail: 'alejandro@espanolhonesto.com',
+        myTicketsTitle: 'Мои обращения',
+        noTickets: 'Вы еще не отправляли обращения в поддержку.',
+        replyLabel: 'Ответ команды',
+        createdLabel: 'Обращение отправлено',
+        historyShow: 'Показать историю',
+        historyMore: 'Загрузить предыдущие события',
+        historyLoading: 'Загрузка истории...',
+        historyError: 'Не удалось загрузить историю. Попробуйте еще раз.',
+        ticketsPrevious: 'Предыдущие обращения',
+        ticketsNext: 'Следующие обращения',
+        ticketsPage: 'Страница',
         form: {
             reportButton: 'Сообщить об ошибке',
             detailsLabel: 'Опишите, что произошло',
@@ -149,12 +194,85 @@ const copy = {
 <CampusLayout title={copy.title} user={{ ...user, ...profile }} lang={lang}>
     <div
         class="mx-auto max-w-4xl space-y-6"
-        data-support-copy={JSON.stringify({ lang, ...copy.form })}
+        data-support-copy={JSON.stringify({
+            lang,
+            ...copy.form,
+            replyLabel: copy.replyLabel,
+            createdLabel: copy.createdLabel,
+            historyMore: copy.historyMore,
+            historyLoading: copy.historyLoading,
+            historyError: copy.historyError,
+        })}
     >
         <header>
             <h1 class="font-display text-4xl uppercase text-[#006064]">{copy.title}</h1>
             <p class="mt-2 font-mono text-sm text-[#006064]/70">{copy.intro}</p>
         </header>
+
+        <section id="support-requests" class="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064]">
+            <h2 class="font-display text-2xl uppercase text-[#006064]">{copy.myTicketsTitle}</h2>
+            {(myTickets ?? []).length === 0 ? (
+                <p class="mt-3 font-mono text-sm text-[#006064]/70">{copy.noTickets}</p>
+            ) : (
+                <div class="mt-4 space-y-4">
+                    {(myTickets ?? []).map((ticket) => (
+                        <article class="border border-[#006064]/30 bg-[#E0F7FA]/30 p-4">
+                            <div class="flex flex-wrap items-start justify-between gap-2">
+                                <div>
+                                    <h3 class="font-display text-lg uppercase text-[#006064]">{ticket.issue_title}</h3>
+                                    <p class="font-mono text-xs text-[#006064]/70">
+                                        {ticket.status} · {ticket.priority} · {new Date(ticket.created_at).toLocaleString(lang)}
+                                    </p>
+                                </div>
+                                <span class="border border-[#006064] px-2 py-1 text-xs font-bold uppercase text-[#006064]">
+                                    {ticket.status}
+                                </span>
+                            </div>
+                            <ol
+                                class="mt-4 space-y-3 border-l-2 border-[#006064]/30 pl-4"
+                                data-support-history-list={ticket.id}
+                            ></ol>
+                            <p
+                                class="mt-2 min-h-5 font-mono text-xs text-[#006064]"
+                                data-support-history-status={ticket.id}
+                                aria-live="polite"
+                                role="status"
+                            ></p>
+                            <button
+                                type="button"
+                                class="mt-2 border border-[#006064] bg-white px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA] disabled:opacity-50"
+                                data-support-history-button={ticket.id}
+                            >
+                                {copy.historyShow}
+                            </button>
+                        </article>
+                    ))}
+                </div>
+            )}
+            {(supportPage > 1 || hasNextTicketPage) && (
+                <nav class="mt-5 flex flex-wrap items-center gap-4" aria-label={copy.myTicketsTitle}>
+                    {supportPage > 1 && (
+                        <a
+                            href={`/${lang}/campus/support?supportPage=${supportPage - 1}#support-requests`}
+                            class="border border-[#006064] bg-white px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA]"
+                        >
+                            {copy.ticketsPrevious}
+                        </a>
+                    )}
+                    <span class="font-mono text-xs text-[#006064]/70">
+                        {copy.ticketsPage} {supportPage}
+                    </span>
+                    {hasNextTicketPage && (
+                        <a
+                            href={`/${lang}/campus/support?supportPage=${supportPage + 1}#support-requests`}
+                            class="border border-[#006064] bg-white px-3 py-2 text-xs font-bold uppercase text-[#006064] hover:bg-[#E0F7FA]"
+                        >
+                            {copy.ticketsNext}
+                        </a>
+                    )}
+                </nav>
+            )}
+        </section>
 
         <section class="grid grid-cols-1 gap-4 md:grid-cols-2">
             {copy.sections.map((section) => {
@@ -230,6 +348,66 @@ const copy = {
     <script>
         const supportRoot = document.querySelector('[data-support-copy]');
         const supportCopy = JSON.parse(supportRoot?.getAttribute('data-support-copy') || '{}');
+
+        document.querySelectorAll<HTMLButtonElement>('[data-support-history-button]').forEach((button) => {
+            button.addEventListener('click', async () => {
+                const ticketId = button.dataset.supportHistoryButton;
+                const list = ticketId
+                    ? document.querySelector<HTMLOListElement>(`[data-support-history-list="${ticketId}"]`)
+                    : null;
+                const status = ticketId
+                    ? document.querySelector<HTMLElement>(`[data-support-history-status="${ticketId}"]`)
+                    : null;
+                if (!ticketId || !list || !status) return;
+
+                const params = new URLSearchParams({ ticketId, eventLimit: '20' });
+                if (button.dataset.beforeSequence) {
+                    params.set('beforeSequence', button.dataset.beforeSequence);
+                }
+
+                button.disabled = true;
+                button.setAttribute('aria-busy', 'true');
+                status.textContent = supportCopy.historyLoading || '';
+                try {
+                    const response = await fetch(`/api/support/tickets?${params}`, {
+                        credentials: 'same-origin',
+                    });
+                    const data = await response.json();
+                    if (!response.ok) throw new Error(data.error || 'Support history failed');
+
+                    for (const event of data.events ?? []) {
+                        const item = document.createElement('li');
+                        const heading = document.createElement('p');
+                        heading.className = 'font-mono text-[11px] uppercase text-[#006064]/60';
+                        const label = event.event_type === 'public_reply'
+                            ? supportCopy.replyLabel
+                            : supportCopy.createdLabel;
+                        heading.textContent = `${label} · ${new Date(event.created_at).toLocaleString(supportCopy.lang)}`;
+                        item.append(heading);
+                        if (typeof event.body === 'string' && event.body.length > 0) {
+                            const body = document.createElement('p');
+                            body.className = 'mt-1 whitespace-pre-wrap text-sm leading-6 text-[#006064]';
+                            body.textContent = event.body;
+                            item.append(body);
+                        }
+                        list.append(item);
+                    }
+
+                    status.textContent = '';
+                    if (data.hasMore && data.nextBeforeSequence) {
+                        button.dataset.beforeSequence = String(data.nextBeforeSequence);
+                        button.textContent = supportCopy.historyMore || 'Load more';
+                    } else {
+                        button.hidden = true;
+                    }
+                } catch {
+                    status.textContent = supportCopy.historyError || 'The history could not be loaded.';
+                } finally {
+                    button.disabled = false;
+                    button.removeAttribute('aria-busy');
+                }
+            });
+        });
 
         function setSupportFormOpen(issueId, isOpen) {
             const form = document.querySelector(`[data-support-form="${issueId}"]`);

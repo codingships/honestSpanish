@@ -1,308 +1,175 @@
-import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../src/lib/supabase-server', () => ({
-    createSupabaseServerClient: vi.fn(),
-}));
+vi.mock('../../src/lib/supabase-server', () => ({ createSupabaseServerClient: vi.fn() }));
+vi.mock('../../src/lib/supabase-admin', () => ({ createSupabaseAdminClient: vi.fn() }));
 
-vi.mock('../../src/lib/supabase-admin', () => ({
-    createSupabaseAdminClient: vi.fn(),
-}));
+const crmMocks = vi.hoisted(() => ({ record: vi.fn().mockResolvedValue({ status: 'created' }) }));
+const emailMocks = vi.hoisted(() => ({ send: vi.fn().mockResolvedValue(true) }));
+vi.mock('../../src/lib/crm/activity-sync', () => ({ recordCrmActivityForProfileSafe: crmMocks.record }));
+vi.mock('../../src/lib/email', () => ({ sendSupportTicketUpdatedEmail: emailMocks.send }));
 
-const crmMocks = vi.hoisted(() => ({
-    recordCrmActivityForProfileSafe: vi.fn().mockResolvedValue({ status: 'created' }),
-}));
+const adminId = '10000000-0000-4000-8000-000000000001';
+const studentId = '10000000-0000-4000-8000-000000000002';
+const ticketId = '10000000-0000-4000-8000-000000000003';
+const requestId = '10000000-0000-4000-8000-000000000004';
+const expectedUpdatedAt = '2026-08-02T05:00:00.000Z';
 
-const emailMocks = vi.hoisted(() => ({
-    sendSupportTicketUpdatedEmail: vi.fn().mockResolvedValue(true),
-}));
-
-vi.mock('../../src/lib/crm/activity-sync', () => ({
-    recordCrmActivityForProfileSafe: crmMocks.recordCrmActivityForProfileSafe,
-}));
-
-vi.mock('../../src/lib/email', () => ({
-    sendSupportTicketUpdatedEmail: emailMocks.sendSupportTicketUpdatedEmail,
-}));
-
-function createRoleClient(role: string | null, user: { id: string; email: string } | null = { id: 'admin-1', email: 'admin@example.com' }) {
-    const profileChain: any = {
-        select: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue({ data: role ? { role } : null, error: role ? null : { message: 'missing' } }),
+function roleClient(role: string | null, user: { id: string } | null = { id: adminId }) {
+    const chain: any = {
+        select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+        single: vi.fn().mockResolvedValue({ data: role ? { role } : null, error: null }),
     };
-
-    return {
-        auth: {
-            getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
-        },
-        from: vi.fn(() => profileChain),
-    };
+    return { auth: { getUser: vi.fn().mockResolvedValue({ data: { user } }) }, from: vi.fn(() => chain) };
 }
 
-function createAwaitableQuery(result: { data: unknown; error: unknown }) {
+function awaitableQuery(result: Record<string, unknown>) {
     const chain: any = {
-        select: vi.fn().mockReturnThis(),
-        order: vi.fn().mockReturnThis(),
-        limit: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        then: (resolve: (value: typeof result) => unknown, reject: (reason: unknown) => unknown) =>
-            Promise.resolve(result).then(resolve, reject),
+        select: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(), lt: vi.fn().mockReturnThis(),
+        range: vi.fn().mockResolvedValue(result), limit: vi.fn().mockResolvedValue(result),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve(result).then(resolve),
     };
     return chain;
 }
 
-function createSingleQuery(result: { data: unknown; error: unknown }) {
-    const chain: any = {
-        select: vi.fn().mockReturnThis(),
-        update: vi.fn().mockReturnThis(),
-        eq: vi.fn().mockReturnThis(),
-        single: vi.fn().mockResolvedValue(result),
-    };
-    return chain;
-}
-
-function createAdminClientForList(tickets: unknown[] = []) {
-    const supportQuery = createAwaitableQuery({ data: tickets, error: null });
-    const client = {
-        from: vi.fn((table: string) => {
-            if (table !== 'support_tickets') throw new Error(`Unexpected table ${table}`);
-            return supportQuery;
-        }),
-    };
-    return { client, supportQuery };
-}
-
-function createAdminClientForUpdate(
-    before: Record<string, unknown>,
-    after: Record<string, unknown>,
-    profile: Record<string, unknown> | null = {
-        email: 'student@example.com',
-        full_name: 'Student One',
-        preferred_language: 'en',
-    }
-) {
-    const beforeQuery = createSingleQuery({ data: before, error: null });
-    const updateQuery = createSingleQuery({ data: after, error: null });
-    const profileQuery = createSingleQuery({ data: profile, error: profile ? null : { message: 'missing' } });
-    const auditInsert = vi.fn().mockResolvedValue({ error: null });
-    const supportQueries = [beforeQuery, updateQuery];
-    const client = {
-        from: vi.fn((table: string) => {
-            if (table === 'support_tickets') return supportQueries.shift();
-            if (table === 'admin_audit_log') return { insert: auditInsert };
-            if (table === 'profiles') return profileQuery;
-            throw new Error(`Unexpected table ${table}`);
-        }),
-    };
-    return { client, beforeQuery, updateQuery, profileQuery, auditInsert };
-}
-
-function getContext(path = '/api/admin/support-tickets?status=open&limit=25') {
-    return {
-        request: {
-            url: `http://localhost:4321${path}`,
-        },
-        cookies: { get: vi.fn(), set: vi.fn() },
-    };
+function getContext(query = 'status=open&priority=all&assignee=all&page=1&pageSize=25') {
+    return { request: { url: `http://localhost:4321/api/admin/support-tickets?${query}` }, cookies: {} };
 }
 
 function postContext(body: Record<string, unknown>) {
-    return {
-        request: {
-            url: 'http://localhost:4321/api/admin/support-tickets',
-            json: vi.fn().mockResolvedValue(body),
-        },
-        cookies: { get: vi.fn(), set: vi.fn() },
-    };
-}
-
-async function readJson(response: Response) {
-    return response.json() as Promise<Record<string, unknown>>;
+    return { request: { url: 'http://localhost:4321/api/admin/support-tickets', json: vi.fn().mockResolvedValue(body) }, cookies: {} };
 }
 
 describe('/api/admin/support-tickets', () => {
     beforeEach(() => {
         vi.clearAllMocks();
-        crmMocks.recordCrmActivityForProfileSafe.mockResolvedValue({ status: 'created' });
-        emailMocks.sendSupportTicketUpdatedEmail.mockResolvedValue(true);
+        crmMocks.record.mockResolvedValue({ status: 'created' });
+        emailMocks.send.mockResolvedValue(true);
     });
 
-    it('keeps email delivery code out of the read-only ticket listing path', () => {
-        const source = readFileSync('src/pages/api/admin/support-tickets.ts', 'utf8');
-        const getOnlySource = source.slice(0, source.indexOf('export const POST'));
-
-        expect(getOnlySource).not.toContain("../../../lib/email");
-        expect(source).toContain("await import('../../../lib/email')");
-    });
-
-    it('rejects non-admin users before creating an admin client', async () => {
+    it('rejects a non-admin before constructing the service client', async () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('student') as any);
-
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('student') as never);
         const { GET } = await import('../../src/pages/api/admin/support-tickets');
-        const response = await GET(getContext() as any);
-
-        expect(response.status).toBe(403);
+        expect((await GET(getContext() as never)).status).toBe(403);
         expect(createSupabaseAdminClient).not.toHaveBeenCalled();
     });
 
-    it('lets admins list support tickets with a status filter and limit cap', async () => {
-        const ticket = { id: 'ticket-1', status: 'open', issue_title: 'No Meet link' };
-        const { client, supportQuery } = createAdminClientForList([ticket]);
+    it('applies server-side filters, count and page bounds and returns admins', async () => {
+        const supportQuery = awaitableQuery({ data: [{ id: ticketId }], error: null, count: 26 });
+        const adminsQuery = awaitableQuery({ data: [{ id: adminId, full_name: 'Admin', email: 'admin@test.invalid' }], error: null });
+        const client = { from: vi.fn((table: string) => table === 'support_tickets' ? supportQuery : adminsQuery) };
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
-        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
 
         const { GET } = await import('../../src/pages/api/admin/support-tickets');
-        const response = await GET(getContext('/api/admin/support-tickets?status=open&limit=999') as any);
-        const body = await readJson(response);
+        const response = await GET(getContext(`status=triaged&priority=high&assignee=${adminId}&page=2&pageSize=25`) as never);
+        const body = await response.json() as {
+            pagination: { page: number; pageSize: number; total: number; totalPages: number };
+            admins: unknown[];
+        };
 
         expect(response.status).toBe(200);
-        expect(body.tickets).toEqual([ticket]);
-        expect(supportQuery.eq).toHaveBeenCalledWith('status', 'open');
-        expect(supportQuery.limit).toHaveBeenCalledWith(100);
+        expect(supportQuery.eq).toHaveBeenCalledWith('status', 'triaged');
+        expect(supportQuery.eq).toHaveBeenCalledWith('priority', 'high');
+        expect(supportQuery.eq).toHaveBeenCalledWith('assigned_admin_id', adminId);
+        expect(supportQuery.range).toHaveBeenCalledWith(25, 49);
+        expect(supportQuery.select.mock.calls[0][0]).not.toContain('support_ticket_events');
+        expect(body.pagination).toEqual({ page: 2, pageSize: 25, total: 26, totalPages: 2 });
+        expect(body.admins).toHaveLength(1);
     });
 
-    it('uses the default page size when the support ticket limit is invalid', async () => {
-        const { client, supportQuery } = createAdminClientForList([]);
+    it('loads one ticket history page on demand with a stable sequence cursor', async () => {
+        const historyQuery = awaitableQuery({ data: [
+            { id: 'event-3', ticket_id: ticketId, sequence: 3, event_type: 'public_reply' },
+            { id: 'event-2', ticket_id: ticketId, sequence: 2, event_type: 'internal_note' },
+        ], error: null });
+        const client = { from: vi.fn(() => historyQuery) };
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
-        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
 
         const { GET } = await import('../../src/pages/api/admin/support-tickets');
-        const response = await GET(getContext('/api/admin/support-tickets?limit=-5') as any);
+        const response = await GET(getContext(`ticketId=${ticketId}&eventLimit=1&beforeSequence=4`) as never);
+        const body = await response.json() as {
+            events: Array<{ sequence: number }>;
+            hasMore: boolean;
+            nextBeforeSequence: number | null;
+        };
 
         expect(response.status).toBe(200);
-        expect(supportQuery.limit).toHaveBeenCalledWith(50);
-    });
-
-    it('updates tickets and writes an admin audit log', async () => {
-        const before = {
-            id: '00000000-0000-4000-8000-000000000001',
-            user_id: 'student-1',
-            status: 'open',
-            issue_title: 'No veo el enlace',
-            issue_type: 'missing-meet-link',
-            message: 'No encuentro el enlace de clase.',
-            admin_notes: null,
-        };
-        const after = {
-            ...before,
-            status: 'closed',
-            admin_notes: 'Resolved after contacting the student.',
-        };
-        const { client, updateQuery, auditInsert } = createAdminClientForUpdate(before, after);
-        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
-        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
-        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
-
-        const { POST } = await import('../../src/pages/api/admin/support-tickets');
-        const response = await POST(postContext({
-            ticketId: before.id,
-            status: 'closed',
-            adminNotes: 'Resolved after contacting the student.',
-        }) as any);
-        const body = await readJson(response);
-
-        expect(response.status).toBe(200);
-        expect(body.ticket).toEqual(after);
-        expect(body.userEmailSent).toBe(true);
-        expect(updateQuery.update).toHaveBeenCalledWith({
-            status: 'closed',
-            admin_notes: 'Resolved after contacting the student.',
+        expect(client.from).toHaveBeenCalledWith('support_ticket_events');
+        expect(historyQuery.eq).toHaveBeenCalledWith('ticket_id', ticketId);
+        expect(historyQuery.lt).toHaveBeenCalledWith('sequence', 4);
+        expect(historyQuery.order).toHaveBeenCalledWith('sequence', { ascending: false });
+        expect(historyQuery.limit).toHaveBeenCalledWith(2);
+        expect(body).toEqual({
+            events: [expect.objectContaining({ sequence: 3 })],
+            hasMore: true,
+            nextBeforeSequence: 3,
         });
-        expect(auditInsert).toHaveBeenCalledWith(expect.objectContaining({
-            admin_id: 'admin-1',
-            action: 'support_ticket.update',
-            entity_type: 'support_ticket',
-            entity_id: before.id,
-            before,
-            after,
-        }));
-        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(client, expect.objectContaining({
-            profileId: 'student-1',
-            actorId: 'admin-1',
-            activityType: 'support',
-            relatedEntityType: 'support_ticket_update',
-            relatedEntityId: `${before.id}:closed`,
-        }));
-        expect(emailMocks.sendSupportTicketUpdatedEmail).toHaveBeenCalledWith('student@example.com', expect.objectContaining({
-            recipientName: 'Student One',
-            issueTitle: 'No veo el enlace',
-            ticketId: before.id,
-            status: 'closed',
-            adminNote: 'Resolved after contacting the student.',
-            supportUrl: 'http://localhost:4321/en/campus/support',
-        }));
-        expect(crmMocks.recordCrmActivityForProfileSafe).toHaveBeenCalledWith(client, expect.objectContaining({
-            profileId: 'student-1',
-            email: 'student@example.com',
-            fullName: 'Student One',
-            actorId: 'admin-1',
-            activityType: 'email_out',
-            subject: 'Support request updated - Espanol Honesto',
-            relatedEntityType: 'support_ticket_update_email',
-            relatedEntityId: `${before.id}:closed`,
-        }));
     });
 
-    it('keeps admin ticket updates when the student support email is not accepted', async () => {
-        emailMocks.sendSupportTicketUpdatedEmail.mockResolvedValue(false);
-        const before = {
-            id: '00000000-0000-4000-8000-000000000002',
-            user_id: 'student-2',
-            status: 'triaged',
-            issue_title: 'Document access',
-            issue_type: 'materials',
-            message: 'I cannot open the folder.',
-            admin_notes: null,
+    it('uses the atomic RPC and sends only the public response to the student', async () => {
+        const result = {
+            ticket: { id: ticketId, user_id: studentId, issue_type: 'payment', issue_title: 'Payment', status: 'closed', priority: 'high', assigned_admin_id: adminId, updated_at: '2026-08-02T05:01:00.000Z' },
+            event: { id: '10000000-0000-4000-8000-000000000005', event_type: 'public_reply', body: 'Public answer' },
+            replayed: false, notifyStudent: true, publicMessage: 'Public answer',
         };
-        const after = {
-            ...before,
-            status: 'closed',
-            admin_notes: 'Folder access was restored.',
-        };
-        const { client } = createAdminClientForUpdate(before, after);
+        const rpc = vi.fn().mockResolvedValue({ data: result, error: null });
+        const profileQuery: any = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), single: vi.fn().mockResolvedValue({ data: { email: 'student@test.invalid', full_name: 'Student', preferred_language: 'en' }, error: null }) };
+        const client = { rpc, from: vi.fn(() => profileQuery) };
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
-        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
 
         const { POST } = await import('../../src/pages/api/admin/support-tickets');
         const response = await POST(postContext({
-            ticketId: before.id,
-            status: 'closed',
-            adminNotes: 'Folder access was restored.',
-        }) as any);
-        const body = await readJson(response);
+            requestId, ticketId, expectedStatus: 'triaged', expectedUpdatedAt, status: 'closed', priority: 'high',
+            assignmentIsSet: true, assignedAdminId: adminId, messageKind: 'public_reply', message: 'Public answer',
+        }) as never);
 
         expect(response.status).toBe(200);
-        expect(body.ticket).toEqual(after);
-        expect(body.userEmailSent).toBe(false);
-        expect(emailMocks.sendSupportTicketUpdatedEmail).toHaveBeenCalled();
-        expect(crmMocks.recordCrmActivityForProfileSafe).not.toHaveBeenCalledWith(client, expect.objectContaining({
-            activityType: 'email_out',
-            relatedEntityType: 'support_ticket_update_email',
-        }));
+        expect(rpc).toHaveBeenCalledWith('admin_mutate_support_ticket', {
+            p_request_id: requestId, p_ticket_id: ticketId, p_admin_id: adminId,
+            p_expected_status: 'triaged', p_expected_updated_at: expectedUpdatedAt,
+            p_new_status: 'closed', p_new_priority: 'high',
+            p_assignment_is_set: true, p_assigned_admin_id: adminId,
+            p_message_kind: 'public_reply', p_message_body: 'Public answer',
+        });
+        expect(emailMocks.send).toHaveBeenCalledWith('student@test.invalid', expect.objectContaining({ adminNote: 'Public answer' }));
+        expect(crmMocks.record).toHaveBeenCalledWith(client, expect.objectContaining({ relatedEntityId: result.event.id, body: 'Public answer' }));
     });
 
-    it('rejects invalid admin ticket updates', async () => {
+    it('does not resend email or CRM activity for an exact replay', async () => {
+        const client = { rpc: vi.fn().mockResolvedValue({ data: {
+            ticket: { id: ticketId, user_id: studentId, issue_type: 'payment', issue_title: 'Payment', status: 'closed', priority: 'normal', assigned_admin_id: null, updated_at: '2026-08-02T05:01:00.000Z' },
+            event: { id: '10000000-0000-4000-8000-000000000005', event_type: 'admin_update', body: null },
+            replayed: true, notifyStudent: true, publicMessage: null,
+        }, error: null }), from: vi.fn() };
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
-        vi.mocked(createSupabaseServerClient).mockReturnValue(createRoleClient('admin') as any);
-
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
         const { POST } = await import('../../src/pages/api/admin/support-tickets');
-        const response = await POST(postContext({
-            ticketId: 'not-a-uuid',
-            status: 'deleted',
-        }) as any);
+        const response = await POST(postContext({ requestId, ticketId, expectedStatus: 'triaged', expectedUpdatedAt, status: 'closed' }) as never);
+        expect(response.status).toBe(200);
+        expect(emailMocks.send).not.toHaveBeenCalled();
+        expect(crmMocks.record).not.toHaveBeenCalled();
+    });
 
-        expect(response.status).toBe(400);
+    it('rejects invalid filters and mutations before any write', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        const { GET, POST } = await import('../../src/pages/api/admin/support-tickets');
+        expect((await GET(getContext('priority=impossible') as never)).status).toBe(400);
+        expect((await POST(postContext({ ticketId, status: 'closed' }) as never)).status).toBe(400);
         expect(createSupabaseAdminClient).not.toHaveBeenCalled();
     });
 });
