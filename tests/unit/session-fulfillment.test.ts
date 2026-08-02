@@ -407,6 +407,7 @@ describe('session fulfillment', () => {
             )).rejects.toMatchObject({
                 name: 'FulfillmentDependencyPendingError',
                 message: 'bulk_session_fulfillment_remaining_sessions',
+                delaySeconds: 0,
             });
             expect(createClassDocument).toHaveBeenCalledTimes(invocation + 1);
             expect(createClassEvent).toHaveBeenCalledTimes(invocation + 1);
@@ -421,6 +422,7 @@ describe('session fulfillment', () => {
         )).rejects.toMatchObject({
             name: 'FulfillmentDependencyPendingError',
             message: 'bulk_session_fulfillment_crm_pending',
+            delaySeconds: 0,
         });
 
         expect(createClassDocument).toHaveBeenCalledTimes(4);

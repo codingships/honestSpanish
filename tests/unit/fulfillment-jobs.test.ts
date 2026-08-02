@@ -1072,7 +1072,12 @@ describe('fulfillment jobs', () => {
         await expect(processDueFulfillmentJobs({
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
-        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 0 });
+        })).resolves.toEqual({
+            processed: 1,
+            succeeded: 0,
+            failed: 0,
+            continuationDelaySeconds: 30,
+        });
 
         expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
             attempts: 2,
@@ -1225,7 +1230,12 @@ describe('fulfillment jobs', () => {
         await expect(processDueFulfillmentJobs({
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
-        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 0 });
+        })).resolves.toEqual({
+            processed: 1,
+            succeeded: 0,
+            failed: 0,
+            continuationDelaySeconds: 30,
+        });
 
         expect(rescheduleMocks.processSessionReschedule).toHaveBeenCalledTimes(1);
         expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -1279,7 +1289,12 @@ describe('fulfillment jobs', () => {
         await expect(processDueFulfillmentJobs({
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
-        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 0 });
+        })).resolves.toEqual({
+            processed: 1,
+            succeeded: 0,
+            failed: 0,
+            continuationDelaySeconds: 30,
+        });
 
         expect(sessionFulfillment.fulfillSessionBatch).toHaveBeenCalledWith(
             supabaseAdmin,
@@ -1297,6 +1312,66 @@ describe('fulfillment jobs', () => {
         const retryUpdate = failChain.update.mock.calls[0]?.[0] as { run_at?: string };
         expect(Date.parse(retryUpdate.run_at ?? '')).toBeGreaterThan(Date.now());
         expect(retryUpdate.run_at).not.toBe('9999-12-31T23:59:59.999Z');
+    });
+
+    it('requests an immediate Queue continuation after a bounded bulk phase advances', async () => {
+        const job = createJob({
+            attempts: 2,
+            job_type: 'bulk_session_fulfillment',
+            max_attempts: 3,
+            payload: {
+                sessionIds: ['session-1', 'session-2', 'session-3', 'session-4'],
+                autoCreateMeeting: true,
+                sendEmail: true,
+            },
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [job], error: null }),
+        };
+        const failChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: job.id }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(createLockQuery())
+                .mockReturnValueOnce(failChain),
+        };
+        const sessionFulfillment = await import('../../src/lib/fulfillment/session-fulfillment');
+        vi.mocked(sessionFulfillment.fulfillSessionBatch).mockRejectedValueOnce(
+            new FulfillmentDependencyPendingError(
+                'bulk_session_fulfillment_remaining_sessions',
+                0,
+            ),
+        );
+        const { processDueFulfillmentJobs } = await import('../../src/lib/fulfillment/jobs');
+        const startedAt = Date.now();
+
+        await expect(processDueFulfillmentJobs({
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({
+            processed: 1,
+            succeeded: 0,
+            failed: 0,
+            continuationDelaySeconds: 0,
+        });
+
+        expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
+            attempts: 2,
+            status: 'pending',
+            last_error: 'bulk_session_fulfillment_remaining_sessions',
+        }));
+        const retryUpdate = failChain.update.mock.calls[0]?.[0] as { run_at?: string };
+        expect(Date.parse(retryUpdate.run_at ?? '')).toBeGreaterThanOrEqual(startedAt);
+        expect(Date.parse(retryUpdate.run_at ?? '')).toBeLessThanOrEqual(Date.now());
     });
 
     it('quarantines an exhausted due job so a fresh Queue signal can reach later work', async () => {

@@ -463,6 +463,7 @@ export async function fulfillSessionBatch(
     if (sessionsForThisInvocation.length > 0) {
         throw new FulfillmentDependencyPendingError(
             'bulk_session_fulfillment_remaining_sessions',
+            0,
         );
     }
 
@@ -474,6 +475,7 @@ export async function fulfillSessionBatch(
     )) {
         throw new FulfillmentDependencyPendingError(
             'bulk_session_fulfillment_remaining_sessions',
+            0,
         );
     }
     const processedClasses = completedProcessableSessions.map(completedClass);
@@ -548,6 +550,7 @@ export async function fulfillSessionBatch(
         );
         throw new FulfillmentDependencyPendingError(
             'bulk_session_fulfillment_crm_pending',
+            0,
         );
     }
 
