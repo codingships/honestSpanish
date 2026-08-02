@@ -504,7 +504,6 @@ describe('Checkout contract v2', () => {
             adaptive_pricing: { enabled: false },
             automatic_tax: { enabled: false },
             subscription_data: expect.objectContaining({
-                proration_behavior: 'none',
                 trial_end: Math.floor(Date.parse(renewalAnchorAt) / 1000),
                 metadata: expect.objectContaining({
                     contractSchemaVersion: '2',
@@ -516,6 +515,8 @@ describe('Checkout contract v2', () => {
                 }),
             }),
         }), { idempotencyKey: `checkout-intent:${checkoutIntentId}` });
+        const checkoutParams = stripeMock.checkout.sessions.create.mock.calls[0]?.[0];
+        expect(checkoutParams?.subscription_data).not.toHaveProperty('proration_behavior');
     });
 
     it('binds an authorized staging E2E run to both Checkout and subscription metadata', async () => {
