@@ -72,6 +72,23 @@ describe('manual staging deploy environment boundary', () => {
         );
     });
 
+    it('gates an autonomous staging deploy behind exact main CI and an explicit commit marker', () => {
+        const ciWorkflow = readFileSync('.github/workflows/ci.yml', 'utf8');
+        const deployWorkflow = readFileSync('.github/workflows/deploy-staging.yml', 'utf8');
+        const deployJob = ciWorkflow.slice(ciWorkflow.indexOf('  deploy-staging:'));
+
+        expect(deployWorkflow).toContain('  workflow_call:');
+        expect(deployWorkflow).toContain('  workflow_dispatch:');
+        expect(deployJob).toContain('needs: [database-contract, build-and-test]');
+        expect(deployJob).toContain("github.event_name == 'push'");
+        expect(deployJob).toContain("github.ref == 'refs/heads/main'");
+        expect(deployJob).toContain("contains(github.event.head_commit.message, '[deploy-staging]')");
+        expect(deployJob).toContain('uses: ./.github/workflows/deploy-staging.yml');
+        expect(deployJob).toContain('checks: read');
+        expect(deployJob).toContain('contents: read');
+        expect(deployJob).toContain('secrets: inherit');
+    });
+
     it('keeps private runtime credentials out of the build process', () => {
         const workflow = readFileSync('.github/workflows/deploy-staging.yml', 'utf8');
         const verifyStep = workflow.slice(
