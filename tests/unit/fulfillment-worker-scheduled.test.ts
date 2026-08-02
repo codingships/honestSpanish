@@ -73,7 +73,11 @@ function createSupabaseAdmin(sessions: unknown[] = []) {
 const stagingQueueName = 'espanol-honesto-fulfillment-staging-queue';
 const productionQueueName = 'espanol-honesto-fulfillment-production-queue';
 const stagingQueueEnv = {
-    FULFILLMENT_QUEUE: { send: vi.fn().mockResolvedValue(undefined) },
+    FULFILLMENT_QUEUE: {
+        metrics: vi.fn(),
+        send: vi.fn().mockResolvedValue(undefined),
+        sendBatch: vi.fn().mockResolvedValue(undefined),
+    },
     FULFILLMENT_RUNTIME_MODE: 'active',
     PUBLIC_APP_ENV: 'staging',
     WORKER_IDENTITY: 'espanol-honesto-fulfillment-staging',
@@ -167,7 +171,11 @@ describe('fulfillment worker scheduled handler', () => {
         const worker = await import('../../workers/fulfillment/src/index');
 
         await worker.default.queue(batch as never, {
-            FULFILLMENT_QUEUE: { send: vi.fn().mockResolvedValue(undefined) },
+            FULFILLMENT_QUEUE: {
+                metrics: vi.fn(),
+                send: vi.fn().mockResolvedValue(undefined),
+                sendBatch: vi.fn().mockResolvedValue(undefined),
+            },
             FULFILLMENT_RUNTIME_MODE: 'active',
             PUBLIC_APP_ENV: 'production',
             WORKER_IDENTITY: 'espanol-honesto-fulfillment-production',
