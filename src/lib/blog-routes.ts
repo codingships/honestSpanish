@@ -7,6 +7,7 @@ import {
 
 export type BlogEntry = Pick<CollectionEntry<'blog'>, 'id' | 'data'>;
 export type BlogLang = PublicLang;
+export type BlogCategory = 'aprendizaje' | 'niveles' | 'expatriados' | 'cultura' | 'metodo';
 export type BlogTranslationGroup = {
     translationKey: string;
     entries: Partial<Record<BlogLang, BlogEntry>>;
@@ -14,6 +15,33 @@ export type BlogTranslationGroup = {
 };
 
 const BLOG_LANGS = new Set<BlogLang>(['es', 'en', 'ru']);
+const BLOG_CATEGORY_LABELS: Record<BlogLang, Record<BlogCategory, string>> = {
+    es: {
+        aprendizaje: 'Aprendizaje',
+        niveles: 'Niveles',
+        expatriados: 'Expatriados',
+        cultura: 'Cultura',
+        metodo: 'Método',
+    },
+    en: {
+        aprendizaje: 'Learning',
+        niveles: 'Levels',
+        expatriados: 'Life in Spain',
+        cultura: 'Culture',
+        metodo: 'Method',
+    },
+    ru: {
+        aprendizaje: 'Обучение',
+        niveles: 'Уровни',
+        expatriados: 'Жизнь в Испании',
+        cultura: 'Культура',
+        metodo: 'Методика',
+    },
+};
+
+export function getBlogCategoryLabel(lang: BlogLang, category: BlogCategory): string {
+    return BLOG_CATEGORY_LABELS[lang][category];
+}
 
 function stripIndex(parts: string[]) {
     return parts.at(-1) === 'index' ? parts.slice(0, -1) : parts;
@@ -116,6 +144,56 @@ export function getBlogAlternatePaths(
     entries: readonly BlogEntry[],
 ): LocalizedPublicPaths {
     return getBlogTranslationGroup(entry, entries).paths;
+}
+
+export function getRelatedBlogEntries(
+    entry: BlogEntry,
+    entries: readonly BlogEntry[],
+): BlogEntry[] {
+    const requestedKeys: readonly string[] = entry.data.relatedTranslationKeys ?? [];
+    if (requestedKeys.length === 0) return [];
+
+    const currentKey = getBlogTranslationKey(entry);
+    const { lang } = getBlogEntryParts(entry);
+    const groups = new Map(
+        getPublishedBlogGroups(entries).map((group) => [group.translationKey, group]),
+    );
+    const seen = new Set<string>();
+
+    return requestedKeys.map((requestedKey) => {
+        const translationKey = requestedKey.trim();
+        if (translationKey === currentKey) {
+            throw new Error(
+                'Blog post "' + entry.id + '" cannot relate to its own translationKey "'
+                + translationKey + '".',
+            );
+        }
+        if (seen.has(translationKey)) {
+            throw new Error(
+                'Blog post "' + entry.id + '" repeats related translationKey "'
+                + translationKey + '".',
+            );
+        }
+        seen.add(translationKey);
+
+        const relatedGroup = groups.get(translationKey);
+        if (!relatedGroup) {
+            throw new Error(
+                'Blog post "' + entry.id + '" references missing related translationKey "'
+                + translationKey + '".',
+            );
+        }
+
+        const relatedEntry = relatedGroup.entries[lang];
+        if (!relatedEntry) {
+            throw new Error(
+                'Blog post "' + entry.id + '" references related translationKey "'
+                + translationKey + '" without a published "' + lang + '" translation.',
+            );
+        }
+
+        return relatedEntry;
+    });
 }
 
 export function getBlogOgKey(entry: BlogEntry): string {

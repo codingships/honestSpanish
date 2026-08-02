@@ -1,0 +1,29 @@
+<script>
+    import {
+        buildAcquisitionContinuityUrl,
+        captureAcquisitionAttribution,
+        type AcquisitionLanguage,
+    } from '../../lib/acquisition-attribution';
+
+    const pageLanguage = document.documentElement.lang;
+    const isAcquisitionLanguage = (value: string): value is AcquisitionLanguage => (
+        value === 'es' || value === 'en' || value === 'ru'
+    );
+
+    if (isAcquisitionLanguage(pageLanguage)) {
+        const attribution = captureAcquisitionAttribution(pageLanguage);
+
+        if (attribution) {
+            for (const link of document.querySelectorAll<HTMLAnchorElement>(
+                'a[data-preserve-acquisition-attribution], .prose a[href^="/"]',
+            )) {
+                const continuationHref = buildAcquisitionContinuityUrl(
+                    link.href,
+                    window.location.href,
+                    attribution,
+                );
+                if (continuationHref) link.href = continuationHref;
+            }
+        }
+    }
+</script>
