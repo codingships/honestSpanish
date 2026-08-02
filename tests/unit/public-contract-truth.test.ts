@@ -102,7 +102,7 @@ describe('public contract truth', () => {
             expect(article).not.toMatch(/(?:it will take you|tardarás|вам потребуется)\s+\d+\s+(?:years?|años|лет)/iu);
             expect(article).toMatch(/259\s*(?:EUR|€)|(?:EUR|€)\s*259/iu);
             expect(article).toMatch(/50[-\s]*(?:minutes?|minutos|минут)/iu);
-            expect(article).toMatch(/28[-\s](?:day|día|днев)/iu);
+            expect(article).toMatch(/28[-\s](?:day|día|д(?:ень|ня|ней|нев))/iu);
         }
     });
 
