@@ -195,6 +195,7 @@ async function handleProcessExactJob(body: JsonObject, env: Env): Promise<JsonOb
         runId,
         smokeMarker: requiredSmokeString(body, 'smokeMarker', /^SMOKE-INTEGRATION-[A-Za-z0-9-]{20,160}$/),
         studentId: requiredSmokeString(body, 'studentId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
+        supabaseAdmin: createSupabaseAdminClient(env),
         workerId: `${workerIdentity}:${runId}:${requiredPositiveInteger(body, 'leaseGeneration')}`,
     });
 }
@@ -437,7 +438,7 @@ async function handleAppendHomework(body: JsonObject): Promise<JsonObject> {
     return { success: true };
 }
 
-async function handleLinkGoogleDrive(body: JsonObject): Promise<JsonObject> {
+async function handleLinkGoogleDrive(body: JsonObject, env: Env): Promise<JsonObject> {
     const userId = String(body.userId || '');
     const googleAccountEmail = String(body.googleAccountEmail || '').trim().toLowerCase();
 
@@ -445,7 +446,7 @@ async function handleLinkGoogleDrive(body: JsonObject): Promise<JsonObject> {
         return { error: 'userId and googleAccountEmail are required' };
     }
 
-    const supabaseAdmin = createSupabaseAdminClient();
+    const supabaseAdmin = createSupabaseAdminClient(env);
     const profilePrivate = await getPrivateProfile(userId, supabaseAdmin);
 
     if (!profilePrivate?.drive_folder_id) {
@@ -465,13 +466,13 @@ async function handleLinkGoogleDrive(body: JsonObject): Promise<JsonObject> {
     };
 }
 
-async function handleCreateStudentFolder(body: JsonObject): Promise<JsonObject> {
+async function handleCreateStudentFolder(body: JsonObject, env: Env): Promise<JsonObject> {
     const studentId = String(body.studentId || '');
     if (!studentId) {
         return { error: 'studentId is required' };
     }
 
-    const supabaseAdmin = createSupabaseAdminClient();
+    const supabaseAdmin = createSupabaseAdminClient(env);
     const { data: student, error: studentError } = await supabaseAdmin
         .from('profiles')
         .select(`
@@ -667,8 +668,8 @@ async function sendDueReminders(
     return result;
 }
 
-async function handleSendReminders(): Promise<JsonObject> {
-    const supabaseAdmin = createSupabaseAdminClient();
+async function handleSendReminders(_body: JsonObject, env: Env): Promise<JsonObject> {
+    const supabaseAdmin = createSupabaseAdminClient(env);
     await quarantineStaleFulfillmentJobs({ supabaseAdmin });
     const fulfillment = await processDueFulfillmentJobs({ limit: 20, supabaseAdmin });
     const reminders = await sendDueReminders(supabaseAdmin);
@@ -682,7 +683,7 @@ async function handleSendExactReminder(body: JsonObject, env: Env): Promise<Json
         throw new ExactFulfillmentJobError('EXACT_JOB_IDENTITY_MISMATCH');
     }
 
-    const supabaseAdmin = createSupabaseAdminClient();
+    const supabaseAdmin = createSupabaseAdminClient(env);
     const result = await sendDueReminders(supabaseAdmin, {
         sessionId: requiredSmokeString(body, 'sessionId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
         studentId: requiredSmokeString(body, 'studentId', /^[0-9a-f]{8}-[0-9a-f-]{27}$/i),
@@ -697,8 +698,8 @@ async function handleSendExactReminder(body: JsonObject, env: Env): Promise<Json
     return result;
 }
 
-async function handleScheduled(): Promise<void> {
-    const supabaseAdmin = createSupabaseAdminClient();
+async function handleScheduled(env: Env): Promise<void> {
+    const supabaseAdmin = createSupabaseAdminClient(env);
 
     await quarantineStaleFulfillmentJobs({ supabaseAdmin });
     await processDueFulfillmentJobs({
@@ -738,12 +739,14 @@ async function handleQueue(
         }
 
         try {
-            await quarantineStaleFulfillmentJobs();
+            const supabaseAdmin = createSupabaseAdminClient(env);
+            await quarantineStaleFulfillmentJobs({ supabaseAdmin });
             const result = await processDueFulfillmentJobs({
                 // A welcome job or one class artifact can consume most of the
                 // Free-plan subrequest budget. Never combine durable jobs in
                 // the same Queue invocation.
                 limit: QUEUED_FULFILLMENT_JOB_LIMIT,
+                supabaseAdmin,
                 workerId: `${FULFILLMENT_WORKER_ID}:queue:${message.id}:${message.attempts}`,
             });
             if (result.failed > 0) {
@@ -860,6 +863,6 @@ export default {
             console.log(JSON.stringify({ event: 'fulfillment_scheduled_skipped', reason: 'runtime_disabled' }));
             return;
         }
-        ctx.waitUntil(handleScheduled());
+        ctx.waitUntil(handleScheduled(env));
     },
 } satisfies ExportedHandler<Env, FulfillmentQueueMessage>;
