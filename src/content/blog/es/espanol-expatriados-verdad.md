@@ -1,60 +1,79 @@
 ---
-title: "Español para expatriados: lo que las academias no te cuentan"
-description: "Después de años enseñando a expatriados en España, te contamos la verdad sobre aprender español viviendo aquí."
+title: "Español para expatriados en España: una guía práctica"
+description: "Cómo convertir la vida en España en práctica útil: objetivos reales, una rutina sostenible y criterios claros para elegir clases de español."
 publishedAt: 2025-01-25
+updatedAt: 2026-08-02
+draft: false
 author: alejandro
 category: expatriados
 tags: ["expatriados", "vivir en España", "inmersión"]
-image: "../../../assets/blog/expatriados-espana.png"
-imageAlt: "Expatriados conversando en una terraza de Madrid"
 lang: es
 translationKey: "expats-truth"
+relatedTranslationKeys: ["time-to-fluency", "stuck-at-b1"]
+ctaText: "Convierte tus situaciones reales en práctica concreta"
+ctaLink: "/"
 ---
 
-"Me mudaré a España y aprenderé el idioma simplemente escuchándolo".
+Mudarte a España crea muchas oportunidades para escuchar y usar español, pero vivir aquí no convierte cada día en una clase. Es posible trabajar en inglés, resolver gestiones con ayuda y relacionarte principalmente en otro idioma. No es un fracaso: solo significa que el contacto con el español y la práctica deliberada no son lo mismo.
 
-Si nos dieran un euro cada vez que escuchamos esto, podríamos retirarnos a una playa de Cádiz. Existe un mito persistente y peligroso: la inmersión pasiva. La idea de que el mero hecho de respirar el aire de Madrid o Barcelona te infundirá el conocimiento del subjuntivo.
+La pregunta útil no es «¿por qué no he aprendido por inmersión?», sino **«¿en qué situaciones quiero desenvolverme con más autonomía?»**.
 
-Spoiler: **No funciona así.**
+## Empieza por las situaciones que realmente tienes
 
-## La burbuja del expatriado
+Para una persona adulta que vive, trabaja o va a trasladarse a España, el español puede tener objetivos muy distintos:
 
-Hemos tenido alumnos que llevan 10 años viviendo en Madrid y tienen un nivel A2. ¿Cómo es posible?
-Porque es facilísimo vivir en una burbuja.
+- Explicar un problema en una vivienda y entender la respuesta.
+- Participar en una conversación informal con compañeros de trabajo.
+- Pedir aclaraciones en una cita médica o administrativa.
+- Hablar por teléfono sin depender de un guion completo.
+- Conocer gente y mantener una conversación aunque falte vocabulario.
 
-*   Trabajas en inglés (tech, multinacionales).
-*   Tus amigos son otros expatriados (meetups, grupos de Facebook).
-*   Consumes Netflix y YouTube en tu idioma.
-*   En los restaurantes del centro, los camareros te hablan en inglés en cuanto notan tu acento.
+Elegir dos o tres situaciones prioritarias permite estudiar el idioma que necesitas ahora. También hace que el progreso sea más fácil de observar: puedes comparar lo que hacías con ayuda y lo que ya resuelves por tu cuenta.
 
-Puedes pasar semanas enteras sin decir más que "una cuenta, por favor" y "gracias". Eso no es inmersión, es turismo de larga duración.
+Este criterio no es una ocurrencia comercial. El [Marco común europeo de referencia publicado por el Instituto Cervantes](https://cvc.cervantes.es/ensenanza/biblioteca_ele/marco/cap_04.htm) describe el uso de la lengua dentro de situaciones concretas y relaciona el aprendizaje con tareas y propósitos comunicativos.
 
-## El problema de la "Supervivencia"
+## Convierte la vida diaria en práctica activa
 
-Cuando llegas, aprendes lo básico para sobrevivir: NIE, piso, internet, supermercado. Una vez cubres esas necesidades básicas, la urgencia desaparece. Te acomodas.
+No necesitas transformar cada interacción en un examen. Una rutina pequeña y repetible suele ser más útil que intentar «hablar español todo el día» sin un objetivo claro.
 
-Y llega el día en que:
-*   Te pones enfermo y no sabes explicarle al médico qué te duele.
-*   Te llega una carta de Hacienda que no entiendes.
-*   Quieres tener una cita con alguien local y la barrera lingüística la convierte en una entrevista de trabajo incómoda.
+### Antes de una situación
 
-Ahí es cuando te das cuenta de que **sobrevivir no es vivir**.
+Prepara tres elementos: qué necesitas conseguir, qué frase usarás para empezar y cómo pedirás que repitan o reformulen. Por ejemplo: «¿Podrías explicármelo de otra manera?».
 
-## La verdad sobre la burocracia y la vida real
+### Durante la conversación
 
-Las academias tradicionales te enseñan a hablar de tus vacaciones o de tu familia. Pero la vida de un expatriado en España requiere otro vocabulario.
+Intenta completar la tarea, no construir frases perfectas. Si no entiendes, pide una aclaración concreta. Si la otra persona cambia de idioma, puedes decir que prefieres continuar en español, siempre que la situación lo permita.
 
-En **Español Honesto**, entendemos que tu realidad incluye:
-*   Discutir una cláusula abusiva en el contrato de alquiler.
-*   Entender por qué te han cobrado dos veces la luz.
-*   Saber qué contestar cuando un taxista te empieza a hablar de política.
+### Después
 
-No enseñamos español "académico". Enseñamos español pragmático. Español de trinchera.
+Anota una expresión que te faltó, una que funcionó y una duda. Esa nota breve proporciona material real para revisar por tu cuenta o trabajar con un profesor.
 
-## Cómo romper la burbuja
+## Una rutina semanal sencilla
 
-1.  **Provoca situaciones incómodas**: Habla en español aunque te contesten en inglés. Insiste. "Por favor, háblame en español, estoy aprendiendo". La gente lo respetará.
-2.  **Sal del círculo de expatriados**: Apúntate a actividades donde no haya guiris. Clases de alfarería, senderismo, voluntariado. Allí forzarás tu oído.
-3.  **Estudia activamente**: Vivir aquí te da el laboratorio, pero necesitas estudiar la teoría en casa. La inmersión sin estudio es ruido. El estudio sin inmersión es teoría muerta. Necesitas las dos.
+Puedes organizar la práctica alrededor de una situación real:
 
-Aprender español viviendo aquí es una oportunidad increíble, pero no es automática. Requiere intención. Requiere esfuerzo. Y requiere honestidad contigo mismo sobre cuánto tiempo más quieres seguir siendo un turista en tu propia ciudad.
+1. **Elige una tarea:** una llamada, una conversación en el trabajo o una gestión cotidiana.
+2. **Prepara el lenguaje esencial:** frases de inicio, vocabulario específico y formas de pedir ayuda.
+3. **Úsalo fuera de la clase:** no importa si la conversación es breve.
+4. **Revisa lo ocurrido:** identifica un bloqueo y una mejora concreta.
+5. **Repite con una variación:** cambia de interlocutor, canal o nivel de dificultad.
+
+Así, la vida en España aporta contexto y la práctica estructurada te ayuda a aprovecharlo. Ninguna de las dos garantiza por sí sola un resultado ni un plazo determinado.
+
+## Qué buscar en unas clases de español para expatriados
+
+Antes de pagar, conviene comprobar:
+
+- Si el formato es individual o grupal.
+- Cuánto dura cada clase y cuántas incluye el pago.
+- Quién será el profesor y en qué franja se impartirán.
+- Si podrás trabajar situaciones relacionadas con tu vida y tu trabajo.
+- Qué reglas existen para renovar, reprogramar o cancelar.
+
+Una oferta clara no necesita prometer fluidez ni desacreditar otras opciones. Debe permitirte saber qué compras y decidir si encaja con tu objetivo.
+
+## La oferta de Español Honesto
+
+Español Honesto ofrece una única modalidad directa para adultos que viven, trabajan o van a trasladarse a España: **cuatro clases individuales online de 50 minutos**. Se cobran 259 € al reservar y el ciclo se renueva automáticamente; el siguiente cobro queda fijado 28 días después de la primera clase. Antes de pagar ves el profesor, la franja semanal, la zona horaria, las cuatro fechas previstas y la fecha exacta del siguiente cobro. Si cambias la primera fecha mediante autoservicio dentro del plazo permitido antes de empezar, también se desplazan el ancla y las cuatro fechas. Un cambio excepcional de soporte fuera de ese plazo no mueve automáticamente el ancla; cuando comienza la primera clase, queda fija.
+
+Las clases sirven para practicar desde tu punto de partida y trabajar situaciones relevantes para ti. No prometemos un nivel concreto en un plazo fijo.
