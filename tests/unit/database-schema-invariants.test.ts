@@ -26,6 +26,7 @@ const checkoutHoldProtectionMigration = readFileSync('supabase/migrations/202608
 const checkoutV2CycleFulfillmentMigration = readFileSync('supabase/migrations/20260801140000_enqueue_checkout_v2_cycle_fulfillment.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2RescheduleMigration = readFileSync('supabase/migrations/20260801150000_add_checkout_v2_reschedule_operations.sql', 'utf8').replace(/\r\n/g, '\n');
 const checkoutV2RescheduleTargetsMigration = readFileSync('supabase/migrations/20260801160000_checkout_v2_reschedule_targets.sql', 'utf8').replace(/\r\n/g, '\n');
+const checkoutV2ReplacementLineageMigration = readFileSync('supabase/migrations/20260802034119_add_checkout_v2_replacement_lineage.sql', 'utf8').replace(/\r\n/g, '\n');
 const stripeWebhookRoute = readFileSync('src/pages/api/stripe-webhook.ts', 'utf8').replace(/\r\n/g, '\n');
 const profileRoleTriggerMigration = readFileSync('supabase/migrations/20260702124757_harden_profile_role_trigger.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
@@ -513,7 +514,6 @@ describe('database schema security invariants', () => {
             'private.guard_subscription_checkout_binding()',
             'private.guard_checkout_v2_price_snapshot()',
             'private.guard_checkout_v2_billing_state()',
-            'private.guard_checkout_v2_cycle()',
             'private.guard_checkout_v2_weekly_allocation()',
             'private.sync_checkout_v2_weekly_allocation()',
             'private.release_checkout_v2_allocation_on_subscription_end()',
@@ -532,17 +532,14 @@ describe('database schema security invariants', () => {
         }
 
         for (const functionName of [
+            'private.guard_checkout_v2_cycle()',
             'private.guard_checkout_v2_cycle_binding()',
+            'public.materialize_checkout_v2_cycle_sessions(',
         ]) {
             expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
-                canonicalLatestSqlFunction(checkoutV2MaterializationMigration, functionName),
+                canonicalLatestSqlFunction(checkoutV2ReplacementLineageMigration, functionName),
             );
         }
-
-
-        expect(canonicalLatestSqlFunction(schema, 'public.materialize_checkout_v2_cycle_sessions(')).toBe(
-            canonicalLatestSqlFunction(checkoutV2RescheduleMigration, 'public.materialize_checkout_v2_cycle_sessions('),
-        );
     });
 
     it('limits live Checkout V2 holds by an opaque network fingerprint without legacy RPC bypasses', () => {
@@ -756,15 +753,22 @@ describe('database schema security invariants', () => {
             'private.checkout_v2_reschedule_has_sufficient_notice(',
             'private.checkout_v2_reschedule_target_is_available(',
             'private.guard_checkout_v2_reschedule_locked_state()',
-            'public.prepare_checkout_v2_reschedule(',
             'public.begin_checkout_v2_reschedule_stripe_mutation(',
             'public.mark_checkout_v2_reschedule_outcome(',
+        ]) {
+            expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
+                canonicalLatestSqlFunction(checkoutV2RescheduleMigration, functionName),
+            );
+        }
+
+        for (const functionName of [
+            'public.prepare_checkout_v2_reschedule(',
             'public.apply_checkout_v2_reschedule(',
             'private.validate_checkout_v2_first_session_coherence()',
             'private.assert_checkout_v2_first_session_coherence_upgrade_safe()',
         ]) {
             expect(canonicalLatestSqlFunction(schema, functionName)).toBe(
-                canonicalLatestSqlFunction(checkoutV2RescheduleMigration, functionName),
+                canonicalLatestSqlFunction(checkoutV2ReplacementLineageMigration, functionName),
             );
         }
 
@@ -842,7 +846,7 @@ describe('database schema security invariants', () => {
             schema,
             'public.list_checkout_v2_reschedule_targets(',
         )).toBe(canonicalLatestSqlFunction(
-            checkoutV2RescheduleTargetsMigration,
+            checkoutV2ReplacementLineageMigration,
             'public.list_checkout_v2_reschedule_targets(',
         ));
 

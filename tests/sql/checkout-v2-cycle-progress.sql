@@ -13,7 +13,8 @@ INSERT INTO public.profiles (id, email, full_name, role) VALUES
  ('cc000000-0000-4000-8000-000000000004','progress-student-c@test.invalid','Student C','student'),
  ('cc000000-0000-4000-8000-000000000005','progress-student-d@test.invalid','Student D','student'),
  ('cc000000-0000-4000-8000-000000000006','progress-student-e@test.invalid','Student E','student'),
- ('cc000000-0000-4000-8000-000000000007','progress-teacher@test.invalid','Teacher','teacher');
+ ('cc000000-0000-4000-8000-000000000007','progress-teacher@test.invalid','Teacher','teacher'),
+ ('cc000000-0000-4000-8000-000000000008','progress-teacher-b@test.invalid','Teacher B','teacher');
 
 INSERT INTO public.packages (
  id,name,display_name,price_monthly,sessions_per_month,contract_schema_version,
@@ -138,7 +139,353 @@ INSERT INTO public.sessions (
  '2035-01-01 18:00+00',50,'scheduled','cc400000-0000-4000-8000-000000000005',1
 );
 
+UPDATE public.checkout_v2_cycles
+SET starts_at = TIMESTAMPTZ '2035-01-01 14:00+00',
+    ends_at = TIMESTAMPTZ '2035-01-29 14:00+00'
+WHERE id = 'cc400000-0000-4000-8000-000000000003';
+
+INSERT INTO public.checkout_v2_billing_state (
+    subscription_id, first_session_id, first_class_at,
+    renewal_anchor_at, stripe_renewal_anchor_at,
+    anchor_state, anchor_revision, anchor_fixed_at
+) VALUES (
+    'cc200000-0000-4000-8000-000000000003',
+    'cc530000-0000-4000-8000-000000000001',
+    TIMESTAMPTZ '2035-01-01 14:00+00',
+    TIMESTAMPTZ '2035-01-29 14:00+00',
+    TIMESTAMPTZ '2035-01-29 14:00+00',
+    'fixed', 1, TIMESTAMPTZ '2035-01-01 15:00+00'
+);
+
 SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+    effective_count INTEGER;
+    effective_ids UUID[];
+    root_ids UUID[];
+    root_index_predicate TEXT;
+BEGIN
+    SELECT count(*), array_agg(id ORDER BY checkout_v2_cycle_session_index)
+    INTO effective_count, effective_ids
+    FROM private.checkout_v2_effective_cycle_sessions(
+        'cc400000-0000-4000-8000-000000000001'
+    );
+
+    SELECT array_agg(id ORDER BY checkout_v2_cycle_session_index)
+    INTO root_ids
+    FROM public.sessions
+    WHERE checkout_v2_cycle_id = 'cc400000-0000-4000-8000-000000000001'
+      AND checkout_v2_replaces_session_id IS NULL;
+
+    IF effective_count IS DISTINCT FROM 4 OR effective_ids IS DISTINCT FROM root_ids THEN
+        RAISE EXCEPTION 'root_only_effective_projection_changed:%:%',
+            effective_ids, root_ids;
+    END IF;
+
+    SELECT pg_catalog.pg_get_expr(index_row.indpred, index_row.indrelid)
+    INTO root_index_predicate
+    FROM pg_catalog.pg_index AS index_row
+    WHERE index_row.indexrelid =
+        'public.sessions_checkout_v2_cycle_position_unique_idx'::REGCLASS;
+
+    IF root_index_predicate NOT LIKE '%checkout_v2_replaces_session_id IS NULL%' THEN
+        RAISE EXCEPTION 'cycle_position_uniqueness_is_not_root_scoped:%',
+            root_index_predicate;
+    END IF;
+
+    PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+    DELETE FROM public.checkout_v2_billing_state
+    WHERE subscription_id = 'cc200000-0000-4000-8000-000000000003';
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+
+    BEGIN
+        INSERT INTO public.sessions (
+            id, subscription_id, student_id, teacher_id, scheduled_at,
+            duration_minutes, status, created_at, checkout_v2_cycle_id,
+            checkout_v2_cycle_session_index,
+            checkout_v2_replaces_session_id,
+            checkout_v2_replacement_request_id,
+            checkout_v2_replacement_actor_id,
+            checkout_v2_replacement_source_kind,
+            checkout_v2_replacement_reason
+        ) VALUES (
+            'cc560000-0000-4000-8000-000000000003',
+            'cc200000-0000-4000-8000-000000000003',
+            'cc000000-0000-4000-8000-000000000004',
+            'cc000000-0000-4000-8000-000000000007',
+            '2035-02-01 14:00+00', 50, 'scheduled',
+            (SELECT created_at + INTERVAL '1 second' FROM public.sessions
+             WHERE id = 'cc530000-0000-4000-8000-000000000001'),
+            'cc400000-0000-4000-8000-000000000003', 1,
+            'cc530000-0000-4000-8000-000000000001',
+            'cc570000-0000-4000-8000-000000000003',
+            'cc000000-0000-4000-8000-000000000007',
+            'teacher_cancellation',
+            'replacement_after_teacher_cancellation'
+        );
+        RAISE EXCEPTION 'replacement_without_billing_state_was_allowed';
+    EXCEPTION WHEN check_violation THEN
+        IF SQLERRM <> 'checkout_v2_session_replacement_billing_state_is_missing' THEN
+            RAISE;
+        END IF;
+    END;
+
+    PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+    INSERT INTO public.checkout_v2_billing_state (
+        subscription_id, first_session_id, first_class_at,
+        renewal_anchor_at, stripe_renewal_anchor_at,
+        anchor_state, anchor_revision, anchor_fixed_at
+    ) VALUES (
+        'cc200000-0000-4000-8000-000000000003',
+        'cc530000-0000-4000-8000-000000000001',
+        TIMESTAMPTZ '2035-01-01 14:00+00',
+        TIMESTAMPTZ '2035-01-29 14:00+00',
+        TIMESTAMPTZ '2035-01-29 14:00+00',
+        'fixed', 1, TIMESTAMPTZ '2035-01-01 15:00+00'
+    );
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+
+    BEGIN
+        INSERT INTO public.sessions (
+            id, subscription_id, student_id, teacher_id, scheduled_at,
+            duration_minutes, status, created_at, checkout_v2_cycle_id,
+            checkout_v2_cycle_session_index,
+            checkout_v2_replacement_request_id
+        ) VALUES (
+            'cc560000-0000-4000-8000-000000000001',
+            'cc200000-0000-4000-8000-000000000001',
+            'cc000000-0000-4000-8000-000000000002',
+            'cc000000-0000-4000-8000-000000000007',
+            '2035-02-01 10:00+00', 50, 'scheduled', clock_timestamp(),
+            'cc400000-0000-4000-8000-000000000001', 1,
+            'cc570000-0000-4000-8000-000000000001'
+        );
+        RAISE EXCEPTION 'incoherent_replacement_shape_was_allowed';
+    EXCEPTION WHEN check_violation THEN NULL;
+    END;
+
+    BEGIN
+        INSERT INTO public.sessions (
+            id, subscription_id, student_id, teacher_id, scheduled_at,
+            duration_minutes, status, created_at, checkout_v2_cycle_id,
+            checkout_v2_cycle_session_index,
+            checkout_v2_replaces_session_id,
+            checkout_v2_replacement_request_id,
+            checkout_v2_replacement_actor_id,
+            checkout_v2_replacement_source_kind,
+            checkout_v2_replacement_reason
+        ) VALUES (
+            'cc560000-0000-4000-8000-000000000002',
+            'cc200000-0000-4000-8000-000000000003',
+            'cc000000-0000-4000-8000-000000000004',
+            'cc000000-0000-4000-8000-000000000007',
+            '2035-02-01 14:00+00', 50, 'scheduled',
+            (SELECT created_at + INTERVAL '1 second' FROM public.sessions
+             WHERE id = 'cc530000-0000-4000-8000-000000000001'),
+            'cc400000-0000-4000-8000-000000000003', 1,
+            'cc530000-0000-4000-8000-000000000001',
+            'cc570000-0000-4000-8000-000000000002',
+            'cc000000-0000-4000-8000-000000000007',
+            'teacher_cancellation',
+            'replacement_after_teacher_cancellation'
+        );
+        RAISE EXCEPTION 'direct_replacement_insert_was_allowed';
+    EXCEPTION WHEN feature_not_supported THEN
+        IF SQLERRM <> 'checkout_v2_session_replacement_insert_is_not_enabled' THEN
+            RAISE;
+        END IF;
+    END;
+END $$;
+
+DO $$
+DECLARE
+    identity_mutation TEXT;
+BEGIN
+    PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+    INSERT INTO public.sessions (
+        id, subscription_id, student_id, teacher_id, scheduled_at,
+        duration_minutes, status, created_at, checkout_v2_cycle_id,
+        checkout_v2_cycle_session_index, checkout_v2_replaces_session_id,
+        checkout_v2_replacement_request_id, checkout_v2_replacement_actor_id,
+        checkout_v2_replacement_source_kind, checkout_v2_replacement_reason
+    ) VALUES
+    (
+        'cc560000-0000-4000-8000-000000000011',
+        'cc200000-0000-4000-8000-000000000003',
+        'cc000000-0000-4000-8000-000000000004',
+        'cc000000-0000-4000-8000-000000000007',
+        '2035-02-01 02:00+00', 50, 'scheduled',
+        (SELECT created_at + INTERVAL '1 second' FROM public.sessions
+         WHERE id='cc530000-0000-4000-8000-000000000001'),
+        'cc400000-0000-4000-8000-000000000003', 1,
+        'cc530000-0000-4000-8000-000000000001',
+        'cc570000-0000-4000-8000-000000000011',
+        'cc000000-0000-4000-8000-000000000007',
+        'teacher_cancellation', 'replacement_after_teacher_cancellation'
+    ),
+    (
+        'cc560000-0000-4000-8000-000000000012',
+        'cc200000-0000-4000-8000-000000000003',
+        'cc000000-0000-4000-8000-000000000004',
+        'cc000000-0000-4000-8000-000000000007',
+        '2035-02-02 02:00+00', 50, 'scheduled',
+        (SELECT created_at + INTERVAL '1 second' FROM public.sessions
+         WHERE id='cc530000-0000-4000-8000-000000000002'),
+        'cc400000-0000-4000-8000-000000000003', 2,
+        'cc530000-0000-4000-8000-000000000002',
+        'cc570000-0000-4000-8000-000000000012',
+        'cc000000-0000-4000-8000-000000000001',
+        'admin_cancellation', 'replacement_after_admin_cancellation'
+    ),
+    (
+        'cc560000-0000-4000-8000-000000000013',
+        'cc200000-0000-4000-8000-000000000003',
+        'cc000000-0000-4000-8000-000000000004',
+        'cc000000-0000-4000-8000-000000000007',
+        '2035-02-03 02:00+00', 50, 'scheduled',
+        (SELECT created_at + INTERVAL '1 second' FROM public.sessions
+         WHERE id='cc530000-0000-4000-8000-000000000003'),
+        'cc400000-0000-4000-8000-000000000003', 3,
+        'cc530000-0000-4000-8000-000000000003',
+        'cc570000-0000-4000-8000-000000000013',
+        'cc000000-0000-4000-8000-000000000004',
+        'timely_student_cancellation',
+        'replacement_after_timely_student_cancellation'
+    );
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+
+    IF (SELECT original_consumption_kind
+        FROM public.checkout_v2_session_consumption
+        WHERE session_id='cc560000-0000-4000-8000-000000000011')
+            <> 'non_student_cancellation'
+       OR (SELECT original_consumption_kind
+           FROM public.checkout_v2_session_consumption
+           WHERE session_id='cc560000-0000-4000-8000-000000000012')
+            <> 'non_student_cancellation'
+       OR (SELECT original_consumption_kind
+           FROM public.checkout_v2_session_consumption
+           WHERE session_id='cc560000-0000-4000-8000-000000000013')
+            <> 'timely_student_cancellation' THEN
+        RAISE EXCEPTION 'replacement_without_adjustment_lost_source_incident';
+    END IF;
+
+    FOREACH identity_mutation IN ARRAY ARRAY[
+        'subscription_id = ''cc200000-0000-4000-8000-000000000002''::UUID',
+        'student_id = ''cc000000-0000-4000-8000-000000000003''::UUID',
+        'teacher_id = ''cc000000-0000-4000-8000-000000000008''::UUID',
+        'checkout_v2_cycle_id = ''cc400000-0000-4000-8000-000000000002''::UUID',
+        'checkout_v2_cycle_session_index = 2',
+        'duration_minutes = 40',
+        'created_at = created_at + INTERVAL ''1 second'''
+    ] LOOP
+        BEGIN
+            EXECUTE 'UPDATE public.sessions SET ' || identity_mutation
+                || ' WHERE id = ''cc560000-0000-4000-8000-000000000011''';
+            RAISE EXCEPTION 'replacement_identity_mutation_was_allowed:%',
+                identity_mutation;
+        EXCEPTION WHEN check_violation THEN
+            IF SQLERRM <> 'checkout_v2_session_replacement_identity_is_immutable' THEN
+                RAISE;
+            END IF;
+        END;
+    END LOOP;
+
+    PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+    DELETE FROM public.sessions
+    WHERE id IN (
+        'cc560000-0000-4000-8000-000000000011',
+        'cc560000-0000-4000-8000-000000000012',
+        'cc560000-0000-4000-8000-000000000013'
+    );
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+END $$;
+
+DO $$
+BEGIN
+    PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+    UPDATE public.sessions
+    SET
+        status = 'cancelled',
+        cancelled_at = scheduled_at - INTERVAL '2 hours',
+        cancelled_by = teacher_id,
+        cancellation_reason = 'replacement lineage fixture'
+    WHERE id = 'cc510000-0000-4000-8000-000000000001';
+
+    INSERT INTO public.sessions (
+        id, subscription_id, student_id, teacher_id, scheduled_at,
+        duration_minutes, status, created_at, checkout_v2_cycle_id,
+        checkout_v2_cycle_session_index, checkout_v2_replaces_session_id,
+        checkout_v2_replacement_request_id, checkout_v2_replacement_actor_id,
+        checkout_v2_replacement_source_kind, checkout_v2_replacement_reason
+    ) SELECT
+        'cc560000-0000-4000-8000-000000000021',
+        source.subscription_id, source.student_id, source.teacher_id,
+        source.scheduled_at, source.duration_minutes, 'scheduled',
+        source.created_at + INTERVAL '1 second', source.checkout_v2_cycle_id,
+        source.checkout_v2_cycle_session_index, source.id,
+        'cc570000-0000-4000-8000-000000000021', source.teacher_id,
+        'teacher_cancellation', 'replacement_after_teacher_cancellation'
+    FROM public.sessions AS source
+    WHERE source.id = 'cc510000-0000-4000-8000-000000000001';
+
+    INSERT INTO public.checkout_v2_billing_state (
+        subscription_id, first_session_id, first_class_at,
+        renewal_anchor_at, stripe_renewal_anchor_at,
+        anchor_state, anchor_revision
+    ) VALUES (
+        'cc200000-0000-4000-8000-000000000001',
+        'cc510000-0000-4000-8000-000000000001',
+        TIMESTAMPTZ '2035-01-01 10:00+00',
+        TIMESTAMPTZ '2035-01-29 10:00+00',
+        TIMESTAMPTZ '2035-01-29 10:00+00',
+        'provisional', 1
+    );
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+
+    PERFORM private.assert_checkout_v2_first_session_coherence_upgrade_safe();
+    IF (SELECT first_session_id FROM public.checkout_v2_billing_state
+        WHERE subscription_id='cc200000-0000-4000-8000-000000000001')
+            IS DISTINCT FROM 'cc510000-0000-4000-8000-000000000001'::UUID
+       OR (SELECT id FROM private.checkout_v2_effective_cycle_sessions(
+            'cc400000-0000-4000-8000-000000000001'
+          ) WHERE checkout_v2_cycle_session_index=1)
+            IS DISTINCT FROM 'cc560000-0000-4000-8000-000000000021'::UUID THEN
+        RAISE EXCEPTION 'first_session_coherence_did_not_preserve_root_identity';
+    END IF;
+
+    PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+    DELETE FROM public.checkout_v2_billing_state
+    WHERE subscription_id='cc200000-0000-4000-8000-000000000001';
+    DELETE FROM public.sessions
+    WHERE id='cc560000-0000-4000-8000-000000000021';
+    UPDATE public.sessions
+    SET status='scheduled', cancelled_at=NULL,
+        cancelled_by=NULL, cancellation_reason=NULL
+    WHERE id='cc510000-0000-4000-8000-000000000001';
+    PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+END $$;
+
+DO $$
+BEGIN
+    IF has_function_privilege(
+            'anon',
+            'private.checkout_v2_effective_cycle_sessions(uuid)',
+            'EXECUTE'
+       )
+       OR has_function_privilege(
+            'authenticated',
+            'private.checkout_v2_effective_cycle_sessions(uuid)',
+            'EXECUTE'
+       )
+       OR NOT has_function_privilege(
+            'service_role',
+            'private.checkout_v2_effective_cycle_sessions(uuid)',
+            'EXECUTE'
+       ) THEN
+        RAISE EXCEPTION 'effective_session_helper_grants_are_wrong';
+    END IF;
+END $$;
 
 DO $$
 BEGIN
@@ -275,6 +622,61 @@ BEGIN
     OR (SELECT sessions_used FROM public.subscriptions WHERE id='cc200000-0000-4000-8000-000000000002') <> used_before THEN
    RAISE EXCEPTION 'restoration_changed_unrelated_ledgers_or_wrong_progress';
  END IF;
+
+ PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+ INSERT INTO public.sessions (
+   id,subscription_id,student_id,teacher_id,scheduled_at,duration_minutes,status,created_at,
+   checkout_v2_cycle_id,checkout_v2_cycle_session_index,
+   checkout_v2_replaces_session_id,checkout_v2_replacement_request_id,
+   checkout_v2_replacement_actor_id,checkout_v2_replacement_source_kind,
+   checkout_v2_replacement_reason,checkout_v2_replacement_credit_adjustment_id
+ ) VALUES (
+   'cc560000-0000-4000-8000-000000000003','cc200000-0000-4000-8000-000000000002',
+   'cc000000-0000-4000-8000-000000000003','cc000000-0000-4000-8000-000000000007',
+   '2035-01-10 02:00+00',50,'scheduled',
+   (SELECT created_at + INTERVAL '1 second' FROM public.sessions
+    WHERE id='cc520000-0000-4000-8000-000000000002'),
+   'cc400000-0000-4000-8000-000000000002',2,
+   'cc520000-0000-4000-8000-000000000002','cc570000-0000-4000-8000-000000000003',
+   'cc000000-0000-4000-8000-000000000001','restored_no_show',
+   'replacement_after_restored_no_show','cc600000-0000-4000-8000-000000000001'
+ );
+ PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+
+ IF (SELECT session_id FROM public.checkout_v2_session_consumption
+     WHERE cycle_id='cc400000-0000-4000-8000-000000000002' AND session_index=2)
+       <> 'cc560000-0000-4000-8000-000000000003'::UUID
+    OR (SELECT original_consumption_kind FROM public.checkout_v2_session_consumption
+        WHERE session_id='cc560000-0000-4000-8000-000000000003') <> 'no_show'
+    OR (SELECT consumption_kind FROM public.checkout_v2_session_consumption
+        WHERE session_id='cc560000-0000-4000-8000-000000000003') <> 'scheduled'
+    OR NOT (SELECT credit_restored FROM public.checkout_v2_session_consumption
+            WHERE session_id='cc560000-0000-4000-8000-000000000003')
+    OR (SELECT student_credit_consumed FROM public.checkout_v2_session_consumption
+        WHERE session_id='cc560000-0000-4000-8000-000000000003')
+    OR (SELECT sessions_consumed FROM public.checkout_v2_cycle_progress
+        WHERE cycle_id='cc400000-0000-4000-8000-000000000002') <> 2 THEN
+   RAISE EXCEPTION 'scheduled_replacement_lost_restored_incident_semantics';
+ END IF;
+
+ PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+ UPDATE public.sessions
+ SET status='completed', completed_at=scheduled_at + INTERVAL '50 minutes'
+ WHERE id='cc560000-0000-4000-8000-000000000003';
+ PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
+
+ IF NOT (SELECT student_credit_consumed FROM public.checkout_v2_session_consumption
+         WHERE session_id='cc560000-0000-4000-8000-000000000003')
+    OR (SELECT sessions_consumed FROM public.checkout_v2_cycle_progress
+        WHERE cycle_id='cc400000-0000-4000-8000-000000000002') <> 3
+    OR (SELECT sessions_restored FROM public.checkout_v2_cycle_progress
+        WHERE cycle_id='cc400000-0000-4000-8000-000000000002') <> 1 THEN
+   RAISE EXCEPTION 'completed_replacement_did_not_consume_restored_position';
+ END IF;
+
+ PERFORM pg_catalog.set_config('session_replication_role', 'replica', TRUE);
+ DELETE FROM public.sessions WHERE id='cc560000-0000-4000-8000-000000000003';
+ PERFORM pg_catalog.set_config('session_replication_role', 'origin', TRUE);
 
  BEGIN
    UPDATE public.checkout_v2_session_credit_adjustments SET reason='Changed reason' WHERE request_id='cc600000-0000-4000-8000-000000000001';
