@@ -7,15 +7,57 @@ import type { Json } from '../../../types/database.types';
 
 const jsonHeaders = { 'Content-Type': 'application/json' };
 const ticketStatuses = ['open', 'triaged', 'closed'] as const;
+const ticketPriorities = ['low', 'normal', 'high', 'urgent'] as const;
 
 const updateTicketSchema = z.object({
+    requestId: z.string().uuid(),
     ticketId: z.string().uuid(),
-    status: z.enum(ticketStatuses),
-    adminNotes: z.string().trim().max(2000).optional(),
+    expectedStatus: z.enum(ticketStatuses),
+    expectedUpdatedAt: z.string().datetime({ offset: true }),
+    status: z.enum(ticketStatuses).optional(),
+    priority: z.enum(ticketPriorities).optional(),
+    assignmentIsSet: z.boolean().default(false),
+    assignedAdminId: z.string().uuid().nullable().optional(),
+    messageKind: z.enum(['internal_note', 'public_reply']).optional(),
+    message: z.string().trim().min(1).max(4000).optional(),
+}).superRefine((value, context) => {
+    if (Boolean(value.messageKind) !== Boolean(value.message)) {
+        context.addIssue({ code: 'custom', message: 'Message kind and body must be provided together' });
+    }
+    if (!value.status && !value.priority && !value.assignmentIsSet && !value.message) {
+        context.addIssue({ code: 'custom', message: 'Mutation has no effect' });
+    }
 });
+
+type TicketStatus = typeof ticketStatuses[number];
+type TicketPriority = typeof ticketPriorities[number];
+type MutationResult = {
+    ticket: {
+        id: string;
+        user_id: string;
+        issue_type: string;
+        issue_title: string;
+        status: TicketStatus;
+        priority: TicketPriority;
+    };
+    event: { id: string; event_type: string; body: string | null };
+    replayed: boolean;
+    notifyStudent: boolean;
+    publicMessage: string | null;
+};
 
 function jsonResponse(payload: unknown, status = 200): Response {
     return new Response(JSON.stringify(payload), { status, headers: jsonHeaders });
+}
+
+function sameOriginRequest(request: Request): boolean {
+    const origin = request.headers.get('Origin');
+    if (!origin) return false;
+    try {
+        return new URL(origin).origin === new URL(request.url).origin;
+    } catch {
+        return false;
+    }
 }
 
 function normalizeLocale(value: string | null | undefined): 'es' | 'en' | 'ru' {
@@ -23,12 +65,7 @@ function normalizeLocale(value: string | null | undefined): 'es' | 'en' | 'ru' {
 }
 
 function supportUrlForLocale(locale: 'es' | 'en' | 'ru', requestUrl: string) {
-    const base = new URL(requestUrl).origin;
-    return `${base}/${locale}/campus/support`;
-}
-
-function shouldNotifyStudent(before: { status?: string | null; admin_notes?: string | null }, after: { status?: string | null; admin_notes?: string | null }) {
-    return before.status !== after.status || (Boolean(after.admin_notes?.trim()) && before.admin_notes !== after.admin_notes);
+    return `${new URL(requestUrl).origin}/${locale}/campus/support`;
 }
 
 async function requireAdmin(context: APIContext) {
@@ -49,24 +86,12 @@ async function requireAdmin(context: APIContext) {
     return { error: null, user };
 }
 
-async function logAudit(
-    supabaseAdmin: ReturnType<typeof createSupabaseAdminClient>,
-    input: { adminId: string; entityId: string; before?: Json | null; after?: Json | null }
-) {
-    const { error } = await supabaseAdmin
-        .from('admin_audit_log')
-        .insert({
-            admin_id: input.adminId,
-            action: 'support_ticket.update',
-            entity_type: 'support_ticket',
-            entity_id: input.entityId,
-            before: input.before ?? null,
-            after: input.after ?? null,
-        });
-
-    if (error && error.code !== '42P01') {
-        console.error('[AdminSupportTickets] Failed to write audit log:', error);
-    }
+function mutationErrorStatus(message: string | undefined): number {
+    if (message?.includes('not_found')) return 404;
+    if (message?.includes('state_conflict') || message?.includes('request_id_conflicts')) return 409;
+    if (message?.includes('not_admin')) return 403;
+    if (message?.includes('invalid') || message?.includes('no_effect')) return 400;
+    return 500;
 }
 
 export const GET: APIRoute = async (context) => {
@@ -74,37 +99,112 @@ export const GET: APIRoute = async (context) => {
     if (auth.error) return auth.error;
 
     const url = new URL(context.request.url);
-    const status = url.searchParams.get('status');
-    const parsedLimit = Number(url.searchParams.get('limit') || 50);
-    const limit = Math.min(Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 50, 100);
-    const supabaseAdmin = createSupabaseAdminClient();
+    const ticketId = url.searchParams.get('ticketId');
 
+    if (ticketId !== null) {
+        if (!z.string().uuid().safeParse(ticketId).success) {
+            return jsonResponse({ error: 'Invalid ticket id' }, 400);
+        }
+
+        const rawEventLimit = url.searchParams.get('eventLimit');
+        const eventLimit = rawEventLimit === null ? 20 : Number(rawEventLimit);
+        const rawBeforeSequence = url.searchParams.get('beforeSequence');
+        const beforeSequence = rawBeforeSequence === null ? null : Number(rawBeforeSequence);
+        if (!Number.isSafeInteger(eventLimit) || eventLimit < 1 || eventLimit > 50
+            || (beforeSequence !== null
+                && (!Number.isSafeInteger(beforeSequence) || beforeSequence < 1))) {
+            return jsonResponse({ error: 'Invalid history pagination' }, 400);
+        }
+
+        const supabaseAdmin = createSupabaseAdminClient();
+        let historyQuery = supabaseAdmin
+            .from('support_ticket_events')
+            .select('id, ticket_id, sequence, event_type, visibility, body, metadata, actor_id, created_at')
+            .eq('ticket_id', ticketId)
+            .order('sequence', { ascending: false });
+        if (beforeSequence !== null) historyQuery = historyQuery.lt('sequence', beforeSequence);
+
+        const { data, error } = await historyQuery.limit(eventLimit + 1);
+        if (error) {
+            console.error('[AdminSupportTickets] Could not load ticket history:', error);
+            return jsonResponse({ error: 'Could not load support ticket history' }, 500);
+        }
+
+        const rows = data ?? [];
+        const events = rows.slice(0, eventLimit);
+        const hasMore = rows.length > eventLimit;
+        return jsonResponse({
+            events,
+            hasMore,
+            nextBeforeSequence: hasMore && events.length > 0
+                ? events[events.length - 1].sequence
+                : null,
+        });
+    }
+
+    const status = url.searchParams.get('status') ?? 'open';
+    const priority = url.searchParams.get('priority') ?? 'all';
+    const assignee = url.searchParams.get('assignee') ?? 'all';
+    const parsedPage = Number(url.searchParams.get('page') ?? 1);
+    const parsedPageSize = Number(url.searchParams.get('pageSize') ?? 25);
+    const page = Number.isInteger(parsedPage) && parsedPage > 0 ? parsedPage : 1;
+    const pageSize = Math.min(Number.isInteger(parsedPageSize) && parsedPageSize > 0 ? parsedPageSize : 25, 100);
+
+    if (status !== 'all' && !ticketStatuses.includes(status as TicketStatus)) {
+        return jsonResponse({ error: 'Invalid status filter' }, 400);
+    }
+    if (priority !== 'all' && !ticketPriorities.includes(priority as TicketPriority)) {
+        return jsonResponse({ error: 'Invalid priority filter' }, 400);
+    }
+    if (assignee !== 'all' && assignee !== 'unassigned' && !z.string().uuid().safeParse(assignee).success) {
+        return jsonResponse({ error: 'Invalid assignee filter' }, 400);
+    }
+
+    const supabaseAdmin = createSupabaseAdminClient();
     let query = supabaseAdmin
         .from('support_tickets')
         .select(`
-            *,
-            user:profiles!support_tickets_user_id_fkey(id, full_name, email, role)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(limit);
+            id, user_id, issue_type, issue_title, message, page_url, user_agent,
+            status, priority, assigned_admin_id, created_at, updated_at,
+            user:profiles!support_tickets_user_id_fkey(id, full_name, email, role),
+            assigned_admin:profiles!support_tickets_assigned_admin_id_fkey(id, full_name, email)
+        `, { count: 'exact' })
+        .order('updated_at', { ascending: false })
+        .order('id', { ascending: false });
 
-    if (status && status !== 'all') {
-        if (!ticketStatuses.includes(status as typeof ticketStatuses[number])) {
-            return jsonResponse({ error: 'Invalid status filter' }, 400);
-        }
-        query = query.eq('status', status);
-    }
+    if (status !== 'all') query = query.eq('status', status);
+    if (priority !== 'all') query = query.eq('priority', priority);
+    if (assignee === 'unassigned') query = query.is('assigned_admin_id', null);
+    else if (assignee !== 'all') query = query.eq('assigned_admin_id', assignee);
 
-    const { data, error } = await query;
+    const start = (page - 1) * pageSize;
+    const { data, error, count } = await query.range(start, start + pageSize - 1);
     if (error) {
         console.error('[AdminSupportTickets] Could not load tickets:', error);
         return jsonResponse({ error: 'Could not load support tickets' }, 500);
     }
 
-    return jsonResponse({ tickets: data ?? [] });
+    const { data: admins, error: adminsError } = await supabaseAdmin
+        .from('profiles')
+        .select('id, full_name, email')
+        .eq('role', 'admin')
+        .order('full_name', { ascending: true });
+
+    if (adminsError) {
+        console.error('[AdminSupportTickets] Could not load admins:', adminsError);
+        return jsonResponse({ error: 'Could not load support administrators' }, 500);
+    }
+
+    return jsonResponse({
+        tickets: data ?? [],
+        admins: admins ?? [],
+        pagination: { page, pageSize, total: count ?? 0, totalPages: Math.ceil((count ?? 0) / pageSize) },
+    });
 };
 
 export const POST: APIRoute = async (context) => {
+    if (!sameOriginRequest(context.request)) return jsonResponse({ error: 'Forbidden' }, 403);
+
     const auth = await requireAdmin(context);
     if (auth.error || !auth.user) return auth.error;
 
@@ -116,114 +216,88 @@ export const POST: APIRoute = async (context) => {
     }
 
     const parsed = updateTicketSchema.safeParse(rawBody);
-    if (!parsed.success) {
-        return jsonResponse({ error: 'Invalid support ticket update' }, 400);
-    }
+    if (!parsed.success) return jsonResponse({ error: 'Invalid support ticket update' }, 400);
 
     const supabaseAdmin = createSupabaseAdminClient();
-    const { data: before, error: beforeError } = await supabaseAdmin
-        .from('support_tickets')
-        .select('*')
-        .eq('id', parsed.data.ticketId)
-        .single();
-
-    if (beforeError || !before) {
-        return jsonResponse({ error: 'Ticket not found' }, 404);
-    }
-
-    const { data: ticket, error } = await supabaseAdmin
-        .from('support_tickets')
-        .update({
-            status: parsed.data.status,
-            admin_notes: parsed.data.adminNotes ?? before.admin_notes,
-        })
-        .eq('id', parsed.data.ticketId)
-        .select('*')
-        .single();
-
-    if (error || !ticket) {
-        console.error('[AdminSupportTickets] Could not update ticket:', error);
-        return jsonResponse({ error: 'Could not update support ticket' }, 500);
-    }
-
-    await logAudit(supabaseAdmin, {
-        adminId: auth.user.id,
-        entityId: parsed.data.ticketId,
-        before: before as Json,
-        after: ticket as Json,
+    const { data, error } = await supabaseAdmin.rpc('admin_mutate_support_ticket', {
+        p_request_id: parsed.data.requestId,
+        p_ticket_id: parsed.data.ticketId,
+        p_admin_id: auth.user.id,
+        p_expected_status: parsed.data.expectedStatus,
+        p_expected_updated_at: parsed.data.expectedUpdatedAt,
+        p_new_status: parsed.data.status ?? null,
+        p_new_priority: parsed.data.priority ?? null,
+        p_assignment_is_set: parsed.data.assignmentIsSet,
+        p_assigned_admin_id: parsed.data.assignmentIsSet ? (parsed.data.assignedAdminId ?? null) : null,
+        p_message_kind: parsed.data.messageKind ?? null,
+        p_message_body: parsed.data.message ?? null,
     });
 
-    await recordCrmActivityForProfileSafe(supabaseAdmin, {
-        profileId: ticket.user_id,
-        actorId: auth.user.id,
-        source: 'support_admin',
-        activityType: 'support',
-        subject: `Ticket de soporte ${ticket.status}: ${ticket.issue_title}`,
-        body: ticket.admin_notes || ticket.message || null,
-        relatedEntityType: 'support_ticket_update',
-        relatedEntityId: `${ticket.id}:${ticket.status}`,
-        metadata: {
-            ticket_id: ticket.id,
-            issue_type: ticket.issue_type,
-            status: ticket.status,
-            previous_status: before.status,
-        },
-    });
+    if (error || !data || typeof data !== 'object' || Array.isArray(data)) {
+        const message = error?.message;
+        console.error('[AdminSupportTickets] Atomic mutation failed:', error);
+        return jsonResponse({ error: 'Could not update support ticket' }, mutationErrorStatus(message));
+    }
 
+    const result = data as unknown as MutationResult;
     let userEmailSent = false;
-    if (shouldNotifyStudent(before, ticket)) {
+    let notificationRisk: string | null = null;
+
+    // A replay never resends. Delivery is deliberately best-effort: a crash after the
+    // database commit can lose this email, but retrying cannot duplicate it.
+    if (!result.replayed && result.notifyStudent) {
         const { data: profile, error: profileError } = await supabaseAdmin
             .from('profiles')
             .select('email, full_name, preferred_language')
-            .eq('id', ticket.user_id)
+            .eq('id', result.ticket.user_id)
             .single();
 
         if (profileError || !profile?.email) {
-            console.error('[AdminSupportTickets] Could not load ticket owner for support update email:', profileError);
+            notificationRisk = 'student_profile_unavailable';
         } else {
-            const supportUrl = supportUrlForLocale(normalizeLocale(profile.preferred_language), context.request.url);
             try {
                 const { sendSupportTicketUpdatedEmail } = await import('../../../lib/email');
                 userEmailSent = await sendSupportTicketUpdatedEmail(profile.email, {
                     recipientName: profile.full_name ?? undefined,
-                    issueTitle: ticket.issue_title,
-                    ticketId: ticket.id,
-                    status: ticket.status,
-                    adminNote: ticket.admin_notes,
-                    supportUrl,
+                    issueTitle: result.ticket.issue_title,
+                    ticketId: result.ticket.id,
+                    status: result.ticket.status,
+                    adminNote: result.publicMessage,
+                    supportUrl: supportUrlForLocale(normalizeLocale(profile.preferred_language), context.request.url),
                 });
-
-                if (userEmailSent) {
-                    await recordCrmActivityForProfileSafe(supabaseAdmin, {
-                        profileId: ticket.user_id,
-                        email: profile.email,
-                        fullName: profile.full_name,
-                        actorId: auth.user.id,
-                        source: 'support_admin',
-                        sourcePath: supportUrl,
-                        activityType: 'email_out',
-                        subject: 'Support request updated - Espanol Honesto',
-                        body: 'support_ticket_updated',
-                        relatedEntityType: 'support_ticket_update_email',
-                        relatedEntityId: `${ticket.id}:${ticket.status}`,
-                        metadata: {
-                            automated: false,
-                            purpose: 'transactional',
-                            template: 'support_ticket_updated',
-                            ticket_id: ticket.id,
-                            issue_type: ticket.issue_type,
-                            status: ticket.status,
-                            previous_status: before.status,
-                            admin_note_included: Boolean(ticket.admin_notes?.trim()),
-                        },
-                    });
-                }
+                if (!userEmailSent) notificationRisk = 'provider_did_not_accept';
             } catch (emailError) {
-                userEmailSent = false;
-                console.error('[AdminSupportTickets] Ticket updated but support update email failed:', emailError);
+                notificationRisk = 'delivery_failed_after_commit';
+                console.error('[AdminSupportTickets] Mutation committed but email failed:', emailError);
             }
         }
     }
 
-    return jsonResponse({ ticket, userEmailSent });
+    if (!result.replayed) {
+        await recordCrmActivityForProfileSafe(supabaseAdmin, {
+            profileId: result.ticket.user_id,
+            actorId: auth.user.id,
+            source: 'support_admin',
+            activityType: 'support',
+            subject: `Ticket de soporte ${result.ticket.status}: ${result.ticket.issue_title}`,
+            body: result.publicMessage,
+            relatedEntityType: 'support_ticket_event',
+            relatedEntityId: result.event.id,
+            metadata: {
+                ticket_id: result.ticket.id,
+                issue_type: result.ticket.issue_type,
+                status: result.ticket.status,
+                priority: result.ticket.priority,
+                event_type: result.event.event_type,
+            } as Json,
+        });
+    }
+
+    return jsonResponse({
+        ticket: result.ticket,
+        event: result.event,
+        replayed: result.replayed,
+        userEmailSent,
+        notificationRisk,
+    });
 };

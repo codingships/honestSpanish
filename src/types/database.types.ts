@@ -2915,50 +2915,184 @@ export type Database = {
           },
         ];
       };
+      support_ticket_events: {
+        Row: {
+          actor_id: string | null;
+          body: string | null;
+          created_at: string;
+          event_type: string;
+          id: string;
+          metadata: Json;
+          sequence: number;
+          ticket_id: string;
+          visibility: string;
+        };
+        Insert: {
+          actor_id?: string | null;
+          body?: string | null;
+          created_at?: string;
+          event_type: string;
+          id?: string;
+          metadata?: Json;
+          sequence: number;
+          ticket_id: string;
+          visibility: string;
+        };
+        Update: {
+          actor_id?: string | null;
+          body?: string | null;
+          created_at?: string;
+          event_type?: string;
+          id?: string;
+          metadata?: Json;
+          sequence?: number;
+          ticket_id?: string;
+          visibility?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_events_actor_id_fkey";
+            columns: ["actor_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "support_ticket_events_ticket_id_fkey";
+            columns: ["ticket_id"];
+            isOneToOne: false;
+            referencedRelation: "support_tickets";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      support_ticket_operations: {
+        Row: {
+          admin_id: string | null;
+          assignment_is_set: boolean;
+          created_at: string;
+          expected_status: string;
+          expected_updated_at: string;
+          message_body: string | null;
+          message_kind: string | null;
+          request_id: string;
+          requested_assigned_admin_id: string | null;
+          requested_priority: string | null;
+          requested_status: string | null;
+          result: Json;
+          ticket_id: string;
+        };
+        Insert: {
+          admin_id?: string | null;
+          assignment_is_set: boolean;
+          created_at?: string;
+          expected_status: string;
+          expected_updated_at: string;
+          message_body?: string | null;
+          message_kind?: string | null;
+          request_id: string;
+          requested_assigned_admin_id?: string | null;
+          requested_priority?: string | null;
+          requested_status?: string | null;
+          result: Json;
+          ticket_id: string;
+        };
+        Update: {
+          admin_id?: string | null;
+          assignment_is_set?: boolean;
+          created_at?: string;
+          expected_status?: string;
+          expected_updated_at?: string;
+          message_body?: string | null;
+          message_kind?: string | null;
+          request_id?: string;
+          requested_assigned_admin_id?: string | null;
+          requested_priority?: string | null;
+          requested_status?: string | null;
+          result?: Json;
+          ticket_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "support_ticket_operations_admin_id_fkey";
+            columns: ["admin_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "support_ticket_operations_requested_assigned_admin_id_fkey";
+            columns: ["requested_assigned_admin_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "support_ticket_operations_ticket_id_fkey";
+            columns: ["ticket_id"];
+            isOneToOne: false;
+            referencedRelation: "support_tickets";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       support_tickets: {
         Row: {
           admin_notes: string | null;
+          assigned_admin_id: string | null;
           context: Json;
-          created_at: string | null;
+          created_at: string;
           id: string;
           issue_title: string;
           issue_type: string;
           message: string;
           page_url: string | null;
+          priority: string;
           status: string;
-          updated_at: string | null;
+          updated_at: string;
           user_agent: string | null;
           user_id: string;
         };
         Insert: {
           admin_notes?: string | null;
+          assigned_admin_id?: string | null;
           context?: Json;
-          created_at?: string | null;
+          created_at?: string;
           id?: string;
           issue_title: string;
           issue_type: string;
           message: string;
           page_url?: string | null;
+          priority?: string;
           status?: string;
-          updated_at?: string | null;
+          updated_at?: string;
           user_agent?: string | null;
           user_id: string;
         };
         Update: {
           admin_notes?: string | null;
+          assigned_admin_id?: string | null;
           context?: Json;
-          created_at?: string | null;
+          created_at?: string;
           id?: string;
           issue_title?: string;
           issue_type?: string;
           message?: string;
           page_url?: string | null;
+          priority?: string;
           status?: string;
-          updated_at?: string | null;
+          updated_at?: string;
           user_agent?: string | null;
           user_id?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "support_tickets_assigned_admin_id_fkey";
+            columns: ["assigned_admin_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "support_tickets_user_id_fkey";
             columns: ["user_id"];
@@ -4102,6 +4236,50 @@ export type Database = {
       };
     };
     Functions: {
+      admin_mutate_support_ticket: {
+        Args: {
+          p_admin_id: string;
+          p_assigned_admin_id?: string | null;
+          p_assignment_is_set?: boolean;
+          p_expected_status: string;
+          p_expected_updated_at: string;
+          p_message_body?: string | null;
+          p_message_kind?: string | null;
+          p_new_priority?: string | null;
+          p_new_status?: string | null;
+          p_request_id: string;
+          p_ticket_id: string;
+        };
+        Returns: Json;
+      };
+      get_my_support_ticket_events: {
+        Args: {
+          p_before_sequence?: number | null;
+          p_limit?: number;
+          p_ticket_id: string;
+        };
+        Returns: {
+          body: string | null;
+          created_at: string;
+          event_type: string;
+          id: string;
+          sequence: number;
+          ticket_id: string;
+        }[];
+      };
+      get_my_support_tickets: {
+        Args: { p_limit?: number; p_offset?: number };
+        Returns: {
+          created_at: string;
+          id: string;
+          issue_title: string;
+          issue_type: string;
+          message: string;
+          priority: string;
+          status: string;
+          updated_at: string;
+        }[];
+      };
       activate_teacher_profile: {
         Args: {
           p_admin_id: string;
