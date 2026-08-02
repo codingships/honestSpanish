@@ -222,3 +222,16 @@ jobs:
           PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
           SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
         run: pnpm exec playwright test --project=public
+
+  deploy-staging:
+    name: Deploy Cloudflare staging
+    needs: [database-contract, build-and-test]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, '[deploy-staging]')
+    permissions:
+      checks: read
+      contents: read
+    uses: ./.github/workflows/deploy-staging.yml
+    secrets: inherit
