@@ -35,8 +35,33 @@ type FulfillmentOptions = {
     sendEmail?: boolean;
 };
 
+const BATCH_CONFIRMATION_EFFECT_KEYS = [
+    'email.class_confirmation.student',
+    'email.class_confirmation.teacher',
+] as const;
+const BATCH_CONFIRMATION_CRM_ENTITY_TYPE = 'session_class_confirmation_email';
+
 function one<T>(value: T | T[] | null | undefined): T | null {
     return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function hasRequiredArtifacts(
+    session: SessionWithJoins,
+    autoCreateMeeting: boolean,
+): boolean {
+    const documentReady = Boolean(session.drive_doc_id && session.drive_doc_url);
+    const meetingReady = !autoCreateMeeting || Boolean(session.calendar_event_id && session.meet_link);
+    return documentReady && meetingReady;
+}
+
+function completedClass(session: SessionWithJoins): ProcessedClass {
+    if (!session.scheduled_at) throw new Error(`Session ${session.id} is missing its schedule`);
+    return {
+        session,
+        date: new Date(session.scheduled_at),
+        meetLink: session.meet_link,
+        documentLink: session.drive_doc_url,
+    };
 }
 
 function formatClassDate(date: Date): string {
@@ -138,6 +163,43 @@ async function loadSessions(
     const order = new Map(uniqueIds.map((id, index) => [id, index]));
     return ((data ?? []) as SessionWithJoins[]).sort(
         (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)
+    );
+}
+
+async function batchConfirmationEmailsSucceeded(
+    supabaseAdmin: SupabaseClient<Database>,
+    jobId: string,
+): Promise<boolean> {
+    const { data, error } = await supabaseAdmin
+        .from('fulfillment_effects')
+        .select('effect_key, status')
+        .eq('job_id', jobId)
+        .in('effect_key', [...BATCH_CONFIRMATION_EFFECT_KEYS]);
+    if (error) throw error;
+
+    const succeeded = new Set(
+        (data ?? [])
+            .filter((effect) => effect.status === 'succeeded')
+            .map((effect) => effect.effect_key),
+    );
+    return BATCH_CONFIRMATION_EFFECT_KEYS.every((effectKey) => succeeded.has(effectKey));
+}
+
+async function recordedBatchConfirmationSessionIds(
+    supabaseAdmin: SupabaseClient<Database>,
+    sessionIds: string[],
+): Promise<Set<string>> {
+    const { data, error } = await supabaseAdmin
+        .from('crm_activities')
+        .select('related_entity_id')
+        .eq('activity_type', 'email_out')
+        .eq('related_entity_type', BATCH_CONFIRMATION_CRM_ENTITY_TYPE)
+        .in('related_entity_id', sessionIds);
+    if (error) throw error;
+    return new Set(
+        (data ?? [])
+            .map((activity) => activity.related_entity_id)
+            .filter((sessionId): sessionId is string => Boolean(sessionId)),
     );
 }
 
@@ -385,16 +447,36 @@ export async function fulfillSessionBatch(
         }
     }
 
-    const processedClasses: ProcessedClass[] = [];
-    for (const session of sessions) {
-        const processedClass = await createArtifactsForSession(
+    const incompleteSessions = processableSessions.filter(
+        (session) => !hasRequiredArtifacts(session, effectiveOptions.autoCreateMeeting),
+    );
+    const sessionsForThisInvocation = incompleteSessions.slice(0, 1);
+    for (const session of sessionsForThisInvocation) {
+        await createArtifactsForSession(
             supabaseAdmin,
             session,
             effectiveOptions,
             privateProfiles
         );
-        if (processedClass) processedClasses.push(processedClass);
     }
+
+    if (sessionsForThisInvocation.length > 0) {
+        throw new FulfillmentDependencyPendingError(
+            'bulk_session_fulfillment_remaining_sessions',
+        );
+    }
+
+    const completedProcessableSessions = sessions.filter(
+        (session) => session.status === 'scheduled' && Boolean(session.scheduled_at),
+    );
+    if (completedProcessableSessions.some(
+        (session) => !hasRequiredArtifacts(session, effectiveOptions.autoCreateMeeting),
+    )) {
+        throw new FulfillmentDependencyPendingError(
+            'bulk_session_fulfillment_remaining_sessions',
+        );
+    }
+    const processedClasses = completedProcessableSessions.map(completedClass);
 
     if (!effectiveOptions.sendEmail || processedClasses.length === 0) return;
 
@@ -411,19 +493,9 @@ export async function fulfillSessionBatch(
         documentLink: firstClass.documentLink,
     };
 
-    await sendConfirmationOrThrow(
-        supabaseAdmin,
-        student.email,
-        student.full_name || student.email.split('@')[0] || 'Student',
-        teacher.email,
-        teacher.full_name || 'Teacher',
-        classDetails,
-        options.emailEffectJob,
-    );
-
     const batchSessionIds = processedClasses.map((processedClass) => processedClass.session.id);
-    await Promise.all(processedClasses.map((processedClass) => recordClassEmailOutInCrmSafe(supabaseAdmin, {
-        template: 'class_confirmation',
+    const crmInputFor = (processedClass: ProcessedClass) => ({
+        template: 'class_confirmation' as const,
         sessionId: processedClass.session.id,
         studentId: student.id || processedClass.session.student_id,
         studentEmail: student.email,
@@ -443,5 +515,54 @@ export async function fulfillSessionBatch(
             batch_size: processedClasses.length,
             batch_session_ids: batchSessionIds,
         },
-    })));
+    });
+
+    if (!options.emailEffectJob) {
+        await sendConfirmationOrThrow(
+            supabaseAdmin,
+            student.email,
+            student.full_name || student.email.split('@')[0] || 'Student',
+            teacher.email,
+            teacher.full_name || 'Teacher',
+            classDetails,
+        );
+        await Promise.all(processedClasses.map((processedClass) => (
+            recordClassEmailOutInCrmSafe(supabaseAdmin, crmInputFor(processedClass))
+        )));
+        return;
+    }
+
+    const durableEmailPhaseComplete = await batchConfirmationEmailsSucceeded(
+        supabaseAdmin,
+        options.emailEffectJob.jobId,
+    );
+    if (!durableEmailPhaseComplete) {
+        await sendConfirmationOrThrow(
+            supabaseAdmin,
+            student.email,
+            student.full_name || student.email.split('@')[0] || 'Student',
+            teacher.email,
+            teacher.full_name || 'Teacher',
+            classDetails,
+            options.emailEffectJob,
+        );
+        throw new FulfillmentDependencyPendingError(
+            'bulk_session_fulfillment_crm_pending',
+        );
+    }
+
+    const recordedSessionIds = await recordedBatchConfirmationSessionIds(
+        supabaseAdmin,
+        batchSessionIds,
+    );
+    for (const processedClass of processedClasses) {
+        if (recordedSessionIds.has(processedClass.session.id)) continue;
+        const result = await recordClassEmailOutInCrmSafe(
+            supabaseAdmin,
+            crmInputFor(processedClass),
+        );
+        if (result.status !== 'created' && result.status !== 'duplicate') {
+            throw new Error(`bulk_session_fulfillment_crm_record_failed:${result.reason ?? 'unknown'}`);
+        }
+    }
 }

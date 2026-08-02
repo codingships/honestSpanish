@@ -263,7 +263,7 @@ describe('session fulfillment', () => {
         expect(emailMocks.sendClassConfirmation.mock.calls[0]?.[1]?.date).not.toContain('+ 0');
     });
 
-    it('waits for the welcome folder, creates four batch artifacts on retry, and replays without provider duplicates', async () => {
+    it('separates four Google writes, confirmation email, and CRM into bounded replay-safe phases', async () => {
         const sessions = Array.from({ length: 4 }, (_, index) => ({
             id: `session-${index + 1}`,
             subscription_id: 'subscription-1',
@@ -300,9 +300,33 @@ describe('session fulfillment', () => {
                 }),
             })),
         };
+        const succeededEffectKeys = new Set<string>();
+        const recordedCrmSessionIds = new Set<string>();
+        const effectsQuery: any = {
+            select: vi.fn(() => effectsQuery),
+            eq: vi.fn(() => effectsQuery),
+            in: vi.fn((_field: string, keys: string[]) => Promise.resolve({
+                data: keys
+                    .filter((effectKey) => succeededEffectKeys.has(effectKey))
+                    .map((effectKey) => ({ effect_key: effectKey, status: 'succeeded' })),
+                error: null,
+            })),
+        };
+        const crmActivitiesQuery: any = {
+            select: vi.fn(() => crmActivitiesQuery),
+            eq: vi.fn(() => crmActivitiesQuery),
+            in: vi.fn((_field: string, sessionIds: string[]) => Promise.resolve({
+                data: sessionIds
+                    .filter((sessionId) => recordedCrmSessionIds.has(sessionId))
+                    .map((relatedEntityId) => ({ related_entity_id: relatedEntityId })),
+                error: null,
+            })),
+        };
         const supabaseAdmin = {
             from: vi.fn((table: string) => {
                 if (table === 'sessions') return sessionsQuery;
+                if (table === 'fulfillment_effects') return effectsQuery;
+                if (table === 'crm_activities') return crmActivitiesQuery;
                 throw new Error(`Unexpected table ${table}`);
             }),
         };
@@ -335,6 +359,9 @@ describe('session fulfillment', () => {
             options?: { fulfillmentEffect?: { effectKey?: string } },
         ) => {
             const deliveryKey = `${options?.fulfillmentEffect?.effectKey}:${recipient}`;
+            if (options?.fulfillmentEffect?.effectKey) {
+                succeededEffectKeys.add(options.fulfillmentEffect.effectKey);
+            }
             if (!deliveredConfirmations.has(deliveryKey)) {
                 deliveredConfirmations.add(deliveryKey);
                 confirmationProviderWrites.push(deliveryKey);
@@ -349,6 +376,15 @@ describe('session fulfillment', () => {
             },
             sendEmail: true,
         };
+        let rejectSecondCrmRecordOnce = true;
+        crmClassEmailMocks.recordClassEmailOutInCrmSafe.mockImplementation(async (_client, input) => {
+            if (input.sessionId === 'session-2' && rejectSecondCrmRecordOnce) {
+                rejectSecondCrmRecordOnce = false;
+                return { status: 'skipped', reason: 'record_failed' };
+            }
+            recordedCrmSessionIds.add(input.sessionId);
+            return { status: 'created' };
+        });
 
         await expect(fulfillSessionBatch(supabaseAdmin as any, sessions.map(({ id }) => id), options))
             .rejects.toMatchObject({
@@ -363,7 +399,29 @@ describe('session fulfillment', () => {
         expect(crmClassEmailMocks.recordClassEmailOutInCrmSafe).not.toHaveBeenCalled();
 
         driveFolderReady = true;
-        await fulfillSessionBatch(supabaseAdmin as any, sessions.map(({ id }) => id), options);
+        for (let invocation = 0; invocation < 4; invocation += 1) {
+            await expect(fulfillSessionBatch(
+                supabaseAdmin as any,
+                sessions.map(({ id }) => id),
+                options,
+            )).rejects.toMatchObject({
+                name: 'FulfillmentDependencyPendingError',
+                message: 'bulk_session_fulfillment_remaining_sessions',
+            });
+            expect(createClassDocument).toHaveBeenCalledTimes(invocation + 1);
+            expect(createClassEvent).toHaveBeenCalledTimes(invocation + 1);
+            expect(emailMocks.sendClassConfirmation).not.toHaveBeenCalled();
+            expect(crmClassEmailMocks.recordClassEmailOutInCrmSafe).not.toHaveBeenCalled();
+        }
+
+        await expect(fulfillSessionBatch(
+            supabaseAdmin as any,
+            sessions.map(({ id }) => id),
+            options,
+        )).rejects.toMatchObject({
+            name: 'FulfillmentDependencyPendingError',
+            message: 'bulk_session_fulfillment_crm_pending',
+        });
 
         expect(createClassDocument).toHaveBeenCalledTimes(4);
         expect(createClassEvent).toHaveBeenCalledTimes(4);
@@ -378,6 +436,20 @@ describe('session fulfillment', () => {
             'email.class_confirmation.student:student@example.com',
             'email.class_confirmation.teacher:teacher@example.com',
         ]));
+        expect(crmClassEmailMocks.recordClassEmailOutInCrmSafe).not.toHaveBeenCalled();
+
+        await expect(fulfillSessionBatch(
+            supabaseAdmin as any,
+            sessions.map(({ id }) => id),
+            options,
+        )).rejects.toThrow('bulk_session_fulfillment_crm_record_failed:record_failed');
+
+        expect(recordedCrmSessionIds).toEqual(new Set(['session-1']));
+
+        await fulfillSessionBatch(supabaseAdmin as any, sessions.map(({ id }) => id), options);
+
+        expect(crmClassEmailMocks.recordClassEmailOutInCrmSafe).toHaveBeenCalledTimes(5);
+        expect(recordedCrmSessionIds).toEqual(new Set(sessions.map(({ id }) => id)));
 
         await fulfillSessionBatch(supabaseAdmin as any, sessions.map(({ id }) => id), options);
 
@@ -385,7 +457,8 @@ describe('session fulfillment', () => {
         expect(createClassEvent).toHaveBeenCalledTimes(4);
         expect(deliveredConfirmations.size).toBe(2);
         expect(confirmationProviderWrites).toHaveLength(2);
-        expect(emailMocks.sendClassConfirmation).toHaveBeenCalledTimes(4);
+        expect(emailMocks.sendClassConfirmation).toHaveBeenCalledTimes(2);
+        expect(crmClassEmailMocks.recordClassEmailOutInCrmSafe).toHaveBeenCalledTimes(5);
     });
 
     it('skips cancelled sessions in a batch without creating provider artifacts or notifications', async () => {

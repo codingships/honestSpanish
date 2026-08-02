@@ -472,7 +472,11 @@ describe('fulfillment jobs', () => {
         const profilesPrivate = await import('../../src/lib/profiles-private');
         const email = await import('../../src/lib/email');
         const crmOnboarding = await import('../../src/lib/crm/onboarding');
-        vi.mocked(profilesPrivate.getPrivateProfile).mockResolvedValue(null as any);
+        vi.mocked(profilesPrivate.getPrivateProfile).mockResolvedValue({
+            current_level: 'b1',
+            drive_folder_id: null,
+            drive_folder_url: null,
+        } as any);
         vi.mocked(google.createStudentFolderStructure).mockResolvedValue({
             rootFolderId: 'drive-folder-1',
             rootFolderLink: 'https://drive.google.com/folder-1',
@@ -495,6 +499,7 @@ describe('fulfillment jobs', () => {
         })).resolves.toEqual({ processed: 1, succeeded: 1, failed: 0 });
 
         expect(google.createStudentFolderStructure).toHaveBeenCalledWith({
+            levels: ['B1'],
             studentName: 'Student One',
             studentEmail: 'student@example.com',
             teacherName: 'Teacher One',
@@ -1067,7 +1072,7 @@ describe('fulfillment jobs', () => {
         await expect(processDueFulfillmentJobs({
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
-        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 0 });
 
         expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
             attempts: 2,
@@ -1220,7 +1225,7 @@ describe('fulfillment jobs', () => {
         await expect(processDueFulfillmentJobs({
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
-        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 0 });
 
         expect(rescheduleMocks.processSessionReschedule).toHaveBeenCalledTimes(1);
         expect(failChain.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -1274,7 +1279,7 @@ describe('fulfillment jobs', () => {
         await expect(processDueFulfillmentJobs({
             supabaseAdmin: supabaseAdmin as any,
             workerId: 'test-worker',
-        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 1 });
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 0 });
 
         expect(sessionFulfillment.fulfillSessionBatch).toHaveBeenCalledWith(
             supabaseAdmin,
@@ -1292,6 +1297,55 @@ describe('fulfillment jobs', () => {
         const retryUpdate = failChain.update.mock.calls[0]?.[0] as { run_at?: string };
         expect(Date.parse(retryUpdate.run_at ?? '')).toBeGreaterThan(Date.now());
         expect(retryUpdate.run_at).not.toBe('9999-12-31T23:59:59.999Z');
+    });
+
+    it('quarantines an exhausted due job so a fresh Queue signal can reach later work', async () => {
+        const job = createJob({
+            status: 'failed',
+            attempts: 3,
+            max_attempts: 3,
+            last_error: 'provider timeout',
+        });
+        const selectChain: any = {
+            select: vi.fn().mockReturnThis(),
+            in: vi.fn().mockReturnThis(),
+            lte: vi.fn().mockReturnThis(),
+            order: vi.fn().mockReturnThis(),
+            limit: vi.fn().mockResolvedValue({ data: [job], error: null }),
+        };
+        const quarantineChain: any = {
+            update: vi.fn().mockReturnThis(),
+            eq: vi.fn().mockReturnThis(),
+            is: vi.fn().mockReturnThis(),
+            select: vi.fn().mockReturnThis(),
+            maybeSingle: vi.fn().mockResolvedValue({ data: { id: job.id }, error: null }),
+        };
+        const supabaseAdmin = {
+            from: vi.fn()
+                .mockReturnValueOnce(selectChain)
+                .mockReturnValueOnce(quarantineChain),
+        };
+        const {
+            MAX_ATTEMPTS_ERROR,
+            processDueFulfillmentJobs,
+        } = await import('../../src/lib/fulfillment/jobs');
+
+        await expect(processDueFulfillmentJobs({
+            limit: 1,
+            supabaseAdmin: supabaseAdmin as any,
+            workerId: 'test-worker',
+        })).resolves.toEqual({ processed: 1, succeeded: 0, failed: 0 });
+
+        expect(quarantineChain.update).toHaveBeenCalledWith({
+            status: 'failed',
+            run_at: '9999-12-31T23:59:59.999Z',
+            locked_at: null,
+            locked_by: null,
+            last_error: MAX_ATTEMPTS_ERROR,
+        });
+        expect(quarantineChain.eq).toHaveBeenCalledWith('status', 'failed');
+        expect(quarantineChain.eq).toHaveBeenCalledWith('attempts', 3);
+        expect(quarantineChain.eq).toHaveBeenCalledWith('updated_at', job.updated_at);
     });
 
     it('reschedules failed jobs that still have retry attempts', async () => {
