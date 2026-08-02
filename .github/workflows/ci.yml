@@ -1,6 +1,7 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
   pull_request:
@@ -11,7 +12,7 @@ permissions:
 
 concurrency:
   # Keep an explicitly requested deployment alive if an ordinary main push arrives.
-  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy-staging]') && github.sha || 'normal' }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}-${{ ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy-staging]'))) && github.sha || 'normal' }}
   cancel-in-progress: true
 
 jobs:
@@ -228,9 +229,10 @@ jobs:
     name: Deploy Cloudflare staging
     needs: [database-contract, build-and-test]
     if: >-
-      github.event_name == 'push' &&
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      contains(github.event.head_commit.message, '[deploy-staging]')
+      contains(github.event.head_commit.message, '[deploy-staging]'))
     permissions:
       checks: read
       contents: read
