@@ -9,6 +9,8 @@ describe('administrator route capability map', () => {
     it.each([
         ['/api/admin/packages', 'GET', 'catalog.read'],
         ['/api/admin/packages', 'POST', 'catalog.write'],
+        ['/api/admin/catalog-v2', 'GET', 'catalog.read'],
+        ['/api/admin/catalog-v2', 'POST', 'catalog.write'],
         ['/api/admin/access', 'GET', 'access.read'],
         ['/api/admin/access', 'POST', 'access.write'],
         ['/api/admin/audit', 'GET', 'access.read'],

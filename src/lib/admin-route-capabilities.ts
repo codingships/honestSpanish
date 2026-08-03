@@ -15,7 +15,9 @@ export function requiredAdminCapabilityForRequest(
         const domain = pathname.split('/').filter(Boolean)[2];
         if (domain === 'access') return read ? 'access.read' : 'access.write';
         if (domain === 'audit') return 'access.read';
-        if (domain === 'packages') return read ? 'catalog.read' : 'catalog.write';
+        if (['packages', 'catalog-v2'].includes(domain)) {
+            return read ? 'catalog.read' : 'catalog.write';
+        }
         if (['profitability', 'teacher-compensation', 'guarantees'].includes(domain)) {
             return read ? 'finance.read' : 'finance.write';
         }
