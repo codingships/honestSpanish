@@ -1,4 +1,6 @@
 ---
+import '../styles/fonts.css';
+
 interface Props {
     title: string;
     description: string;
@@ -50,13 +52,11 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
     <title>{title} | Español Honesto</title>
     <meta name="description" content={description}>
     <meta name="robots" content={stagingNoindex ? 'noindex, nofollow' : 'noindex, follow'}>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            font-family: Arial, sans-serif;
+            font-family: var(--font-eh-body);
             background-color: #E0F7FA;
             min-height: 100vh;
             color: #333;
@@ -64,7 +64,7 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         }
         
         .font-display {
-            font-family: 'Boldonse', sans-serif;
+            font-family: var(--font-eh-display);
         }
 
         .skip-link {
@@ -97,7 +97,7 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         }
         
         .logo {
-            font-family: 'Boldonse', sans-serif;
+            font-family: var(--font-eh-display);
             color: white;
             font-size: 1.25rem;
             text-decoration: none;
@@ -155,7 +155,7 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         }
         
         .article-header h1 {
-            font-family: 'Boldonse', sans-serif;
+            font-family: var(--font-eh-display);
             font-size: 1.875rem;
             color: #006064;
             margin-bottom: 0.5rem;
@@ -171,7 +171,7 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         }
         
         .content h2 {
-            font-family: 'Boldonse', sans-serif;
+            font-family: var(--font-eh-display);
             font-size: 1.25rem;
             color: #006064;
             margin-top: 2rem;
@@ -179,7 +179,7 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         }
         
         .content h3 {
-            font-family: 'Boldonse', sans-serif;
+            font-family: var(--font-eh-display);
             font-size: 1.125rem;
             color: #006064;
             margin-top: 1.5rem;

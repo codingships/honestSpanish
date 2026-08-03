@@ -20,8 +20,8 @@ export default {
     theme: {
         extend: {
             fontFamily: {
-                display: ['Boldonse', 'Unbounded', 'cursive'],
-                sans: ['Pretendard', 'sans-serif'],
+                display: ['var(--font-eh-display)'],
+                sans: ['var(--font-eh-body)'],
             },
             colors: {
                 brand: {

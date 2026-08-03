@@ -1,0 +1,14 @@
+@import '@fontsource/boldonse/400.css';
+@import '@fontsource/unbounded/400.css';
+@import '@fontsource/unbounded/700.css';
+@import '@fontsource/unbounded/900.css';
+@import '@fontsource-variable/inter/wght.css';
+
+:root {
+    --font-eh-display: 'Boldonse', 'Unbounded', sans-serif;
+    --font-eh-body: 'Inter Variable', Arial, sans-serif;
+}
+
+:root:lang(ru) {
+    --font-eh-display: 'Unbounded', 'Boldonse', sans-serif;
+}

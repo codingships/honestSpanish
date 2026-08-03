@@ -194,7 +194,7 @@ export default defineConfig({
                 "form-action 'self'",
                 "img-src 'self' data:",
                 `connect-src ${cspConnectResources.join(' ')}`,
-                "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
+                "font-src 'self'",
                 "frame-src 'self' https://challenges.cloudflare.com",
                 "manifest-src 'self'",
                 "media-src 'none'",
@@ -205,11 +205,7 @@ export default defineConfig({
                 resources: ["'self'", 'https://challenges.cloudflare.com'],
             },
             styleDirective: {
-                resources: [
-                    "'self'",
-                    'https://fonts.googleapis.com',
-                    'https://cdnjs.cloudflare.com',
-                ],
+                resources: ["'self'"],
             },
         },
     },
