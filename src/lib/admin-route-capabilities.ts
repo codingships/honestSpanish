@@ -15,6 +15,7 @@ export function requiredAdminCapabilityForRequest(
         const domain = pathname.split('/').filter(Boolean)[2];
         if (domain === 'access') return read ? 'access.read' : 'access.write';
         if (domain === 'audit') return 'access.read';
+        if (domain === 'content') return read ? 'content.read' : 'content.write';
         if (['packages', 'catalog-v2'].includes(domain)) {
             return read ? 'catalog.read' : 'catalog.write';
         }
@@ -43,6 +44,7 @@ export function requiredAdminCapabilityForCampusPath(
     const domain = segments[3];
     if (!domain) return 'dashboard.read';
     if (domain === 'packages') return 'catalog.read';
+    if (domain === 'content') return 'content.read';
     if (domain === 'emails') return 'content.read';
     if (domain === 'access') return 'access.read';
     if (domain === 'audit') return 'access.read';

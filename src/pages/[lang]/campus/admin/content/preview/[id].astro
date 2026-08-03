@@ -1,0 +1,56 @@
+---
+import PublicHomePage from '../../../../../../components/PublicHomePage.astro';
+import { requireAdminCapability } from '../../../../../../lib/admin-access';
+import { CMS_HOME_CONTENT_KEY, parseCmsHomeContent } from '../../../../../../lib/cms-home-content';
+import { createSupabaseAdminClient } from '../../../../../../lib/supabase-admin';
+
+export const prerender = false;
+
+const { lang, id } = Astro.params as { lang: 'es' | 'en' | 'ru'; id: string };
+const auth = await requireAdminCapability(Astro, 'content.read');
+if (auth.error) return auth.error;
+
+type CmsPreviewQuery = PromiseLike<{
+    data: unknown;
+    error: { code?: string } | null;
+}> & {
+    select(columns: string): CmsPreviewQuery;
+    eq(column: string, value: unknown): CmsPreviewQuery;
+    maybeSingle(): Promise<{
+        data: unknown;
+        error: { code?: string } | null;
+    }>;
+};
+type CmsPreviewReader = { from(table: string): CmsPreviewQuery };
+
+const admin = createSupabaseAdminClient() as unknown as CmsPreviewReader;
+const { data: draft, error: draftError } = await admin
+    .from('cms_content_drafts')
+    .select('document_id, status, payload')
+    .eq('id', id)
+    .maybeSingle();
+
+if (draftError || !draft || (draft as { status?: string }).status !== 'draft') {
+    return new Response('Content draft not found', { status: 404 });
+}
+
+const { data: document, error: documentError } = await admin
+    .from('cms_documents')
+    .select('content_key, locale')
+    .eq('id', (draft as { document_id: string }).document_id)
+    .maybeSingle();
+
+if (
+    documentError
+    || !document
+    || (document as { content_key?: string }).content_key !== CMS_HOME_CONTENT_KEY
+    || (document as { locale?: string }).locale !== lang
+) {
+    return new Response('Content draft not found', { status: 404 });
+}
+
+const content = parseCmsHomeContent((draft as { payload: unknown }).payload);
+if (!content) return new Response('Content draft is invalid', { status: 422 });
+---
+
+<PublicHomePage lang={lang} contentOverride={content} preview={true} />

@@ -16,9 +16,9 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 ## Línea base acreditada
 
 - Repositorio: `codingships/honestSpanish`.
-- Último `main` y staging acreditados: `71d7eb7dc6e5cbefb02e339406a8786e4bd2a6b6`.
-- Evidencia: [CI de `main`](https://github.com/codingships/honestSpanish/actions/runs/30833619474) y [despliegue + smoke del mismo SHA](https://github.com/codingships/honestSpanish/actions/runs/30834746304).
-- Producción no forma parte de esta acreditación.
+- Base canónica de este incremento: `e653f211c26630a7e0425d13e4d86d7ff34b2d89`, con [CI verde](https://github.com/codingships/honestSpanish/actions/runs/30839919843).
+- Último staging acreditado: `71d7eb7dc6e5cbefb02e339406a8786e4bd2a6b6`, con [despliegue + smoke del mismo SHA](https://github.com/codingships/honestSpanish/actions/runs/30834746304).
+- El catálogo V2 y este CMS no se consideran verificados en staging hasta acreditar sus respectivos SHA. Producción no forma parte de esta acreditación.
 
 ## Capacidades
 
@@ -29,9 +29,9 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 | R03 | Historial pequeño y recuperable de capacidades | VERIFICADO | Este archivo, [plantilla de PR](../.github/pull_request_template.md) y [PR #61](https://github.com/codingships/honestSpanish/pull/61) | Registrar solo cambios reales, sin crear informes paralelos. |
 | P01 | Oferta inicial 1:1 de 4 × 50 min, 259 EUR, ciclo de 28 días | IMPLEMENTADO | [`PRODUCT.md`](PRODUCT.md), [`package-pricing.ts`](../src/lib/package-pricing.ts), [contrato SQL](../tests/sql/checkout-v2-billing-foundation.sql) | Verificar compra pública normal de extremo a extremo en Sandbox. |
 | P02 | Catálogo versionado y snapshots históricos | IMPLEMENTADO | [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`package_prices`](../db/schema.sql), [contrato SQL V2](../tests/sql/catalog-v2-admin.sql) | Acreditar la publicación y retirada sobre staging. |
-| P03 | Catálogo V2 manejable sin programar | IMPLEMENTADO | [gestor V2](../src/components/admin/VersionedCatalogManager.tsx), [API administrada](../src/pages/api/admin/catalog-v2.ts), [migración](../supabase/migrations/20260803171044_catalog_v2_admin_drafts.sql) y [pruebas focales](../tests/api/admin-catalog-v2.test.ts) | Integrar la PR, migrar staging y verificar el recorrido humano antes de marcarlo `VERIFICADO`. |
+| P03 | Catálogo V2 manejable sin programar | IMPLEMENTADO | [PR #63](https://github.com/codingships/honestSpanish/pull/63), [gestor V2](../src/components/admin/VersionedCatalogManager.tsx), [API administrada](../src/pages/api/admin/catalog-v2.ts), [migración](../supabase/migrations/20260803171044_catalog_v2_admin_drafts.sql) y [pruebas focales](../tests/api/admin-catalog-v2.test.ts) | Migrar staging y verificar el recorrido humano antes de marcarlo `VERIFICADO`. |
 | P04 | Garantía proporcional para cualquier paquete/ciclo | PARCIAL | Regla objetivo en [`PRODUCT.md`](PRODUCT.md); implementación actual en [`checkout-v2-guarantee.ts`](../src/lib/checkout-v2-guarantee.ts) | Sustituir la ventana e importe fijos por unidades no consumidas del snapshot y verificar todas las posiciones. |
-| C01 | CMS estructurado para páginas, SEO, navegación y FAQ | PENDIENTE | El contenido público permanece principalmente en [`translations.ts`](../src/i18n/translations.ts) y componentes | Añadir borrador, preview, publicación, rollback y medios seguros. |
+| C01 | CMS estructurado inicial para la home, SEO, navegación y FAQ | PARCIAL | [gestor](../src/components/admin/CmsContentManager.tsx), [API](../src/pages/api/admin/content.ts), [migración versionada](../supabase/migrations/20260803182652_cms_home_content_workflow.sql), [contrato SQL](../tests/sql/cms-content-workflow.sql) y [home con fallback](../src/components/PublicHomePage.astro) | Integrar y verificar en staging; extender el mismo contrato al resto de páginas y a medios seguros. Blog y emails conservan sus filas separadas. |
 | C02 | Blog editable y conectado al producto | PARCIAL | [Configuración Keystatic](../keystatic.config.ts), [páginas de blog](../src/pages/[lang]/blog) | Sustituir almacenamiento local para editores, integrar navegación y medir conversión. |
 | C03 | Emails editables de forma segura | PARCIAL | [Plantillas](../src/lib/email/templates.ts), [gestor administrativo](../src/components/admin/EmailTemplateManager.tsx) | Versionado, permisos, preview real y publicación; hoy el gestor no edita. |
 | A01 | Autenticación y roles básicos | IMPLEMENTADO | [`middleware.ts`](../src/middleware.ts), [`profiles.role`](../db/schema.sql), [pruebas auth/RBAC](../tests/unit) | Revisar autorización completa de rutas y sesiones expiradas. |
@@ -63,5 +63,6 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 | Baseline técnico recuperado y despliegue seguro acreditado | [#60](https://github.com/codingships/honestSpanish/pull/60) | `21c1f21373454526f43ee653075ab50d082f7f5f` | [CI + despliegue + smoke](https://github.com/codingships/honestSpanish/actions/runs/30764154143) |
 | Pipeline proporcional, ledger de preparación y contrato de garantía | [#61](https://github.com/codingships/honestSpanish/pull/61) | `32edc799b7b93516ac15a00636bb6ae94d573626` | [despliegue + smoke exactos](https://github.com/codingships/honestSpanish/actions/runs/30825001929) |
 | Permisos administrativos granulares e historial visible | [#62](https://github.com/codingships/honestSpanish/pull/62) | `71d7eb7dc6e5cbefb02e339406a8786e4bd2a6b6` | [CI + despliegue + smoke](https://github.com/codingships/honestSpanish/actions/runs/30834746304) |
+| Catálogo V2 administrable y versionado | [#63](https://github.com/codingships/honestSpanish/pull/63) | `e653f211c26630a7e0425d13e4d86d7ff34b2d89` | Pendiente de migración y despliegue autorizados en staging. |
 
 El siguiente hito se añade cuando la PR esté integrada y, si cambia runtime, cuando el mismo SHA quede acreditado en staging. GitHub conserva el detalle; esta tabla no lo duplica.

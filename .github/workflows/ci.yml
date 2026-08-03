@@ -186,6 +186,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/support-operations.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/admin-access-foundation.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/catalog-v2-admin.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_incremental -f tests/sql/cms-content-workflow.sql
 
       - name: Verify clean canonical schema
         run: |
@@ -206,6 +207,7 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/support-operations.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/admin-access-foundation.sql
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/catalog-v2-admin.sql
+          psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/cms-content-workflow.sql
 
   build-and-test:
     needs: classify-changes

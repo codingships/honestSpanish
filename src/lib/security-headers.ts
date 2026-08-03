@@ -20,7 +20,7 @@ export const HSTS_HEADER = 'max-age=31536000';
 export const API_CACHE_CONTROL = 'no-store, no-cache, must-revalidate';
 export const PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS = 5;
 export const PUBLIC_BOOKABLE_SLOTS_CACHE_CONTROL = `public, max-age=${PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS}, s-maxage=${PUBLIC_BOOKABLE_SLOTS_CACHE_TTL_SECONDS}, must-revalidate`;
-export const PUBLIC_SHELL_CACHE_CONTROL = 'public, max-age=0, must-revalidate';
+export const PUBLIC_SHELL_CACHE_CONTROL = 'public, max-age=0, s-maxage=300, must-revalidate';
 export const PRIVATE_PAGE_CACHE_CONTROL = 'private, no-store';
 export const ADMIN_EMAIL_PREVIEW_FRAME_PATH = '/api/email/preview-frame';
 export const ADMIN_EMAIL_PREVIEW_CACHE_CONTROL = 'private, no-store, no-cache, must-revalidate';

@@ -1,7 +1,6 @@
-// Generated from the Supabase staging schema after the four pinned RC
-// hardening migrations were applied, then reconciled with the pending
-// 20260712195500 sessions status contract. PostgreSQL's catalog does not
-// expose NULL semantics for PL/pgSQL argument/result fields precisely. The
+// Generated from the Supabase schema and reconciled through the pending
+// 20260803182652 managed-content workflow. PostgreSQL's catalog does not
+// expose NULL semantics for PL/pgSQL argument/result fields precisely; the
 // nullable RPC fields below
 // are deliberately widened to match their SQL bodies.
 export type Json =
@@ -1375,6 +1374,175 @@ export type Database = {
             columns: ["subscription_id"];
             isOneToOne: false;
             referencedRelation: "subscriptions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      cms_content_drafts: {
+        Row: {
+          base_version: number;
+          created_at: string;
+          created_by: string | null;
+          discarded_at: string | null;
+          document_id: string;
+          id: string;
+          payload: Json;
+          published_at: string | null;
+          published_version: number | null;
+          revision: number;
+          status: Database["public"]["Enums"]["cms_content_draft_status"];
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          base_version: number;
+          created_at?: string;
+          created_by?: string | null;
+          discarded_at?: string | null;
+          document_id: string;
+          id?: string;
+          payload: Json;
+          published_at?: string | null;
+          published_version?: number | null;
+          revision?: number;
+          status?: Database["public"]["Enums"]["cms_content_draft_status"];
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          base_version?: number;
+          created_at?: string;
+          created_by?: string | null;
+          discarded_at?: string | null;
+          document_id?: string;
+          id?: string;
+          payload?: Json;
+          published_at?: string | null;
+          published_version?: number | null;
+          revision?: number;
+          status?: Database["public"]["Enums"]["cms_content_draft_status"];
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cms_content_drafts_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "cms_content_drafts_document_id_fkey";
+            columns: ["document_id"];
+            isOneToOne: false;
+            referencedRelation: "cms_documents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "cms_content_drafts_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      cms_content_versions: {
+        Row: {
+          document_id: string;
+          id: string;
+          operation_id: string;
+          payload: Json;
+          published_at: string;
+          published_by: string | null;
+          source_draft_id: string | null;
+          version: number;
+        };
+        Insert: {
+          document_id: string;
+          id?: string;
+          operation_id: string;
+          payload: Json;
+          published_at?: string;
+          published_by?: string | null;
+          source_draft_id?: string | null;
+          version: number;
+        };
+        Update: {
+          document_id?: string;
+          id?: string;
+          operation_id?: string;
+          payload?: Json;
+          published_at?: string;
+          published_by?: string | null;
+          source_draft_id?: string | null;
+          version?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cms_content_versions_document_id_fkey";
+            columns: ["document_id"];
+            isOneToOne: false;
+            referencedRelation: "cms_documents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "cms_content_versions_published_by_fkey";
+            columns: ["published_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "cms_content_versions_source_draft_id_fkey";
+            columns: ["source_draft_id"];
+            isOneToOne: false;
+            referencedRelation: "cms_content_drafts";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      cms_documents: {
+        Row: {
+          content_key: string;
+          created_at: string;
+          current_version: number;
+          id: string;
+          locale: Database["public"]["Enums"]["cms_content_locale"];
+          published_at: string | null;
+          published_by: string | null;
+          published_payload: Json | null;
+          updated_at: string;
+        };
+        Insert: {
+          content_key: string;
+          created_at?: string;
+          current_version?: number;
+          id?: string;
+          locale: Database["public"]["Enums"]["cms_content_locale"];
+          published_at?: string | null;
+          published_by?: string | null;
+          published_payload?: Json | null;
+          updated_at?: string;
+        };
+        Update: {
+          content_key?: string;
+          created_at?: string;
+          current_version?: number;
+          id?: string;
+          locale?: Database["public"]["Enums"]["cms_content_locale"];
+          published_at?: string | null;
+          published_by?: string | null;
+          published_payload?: Json | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "cms_documents_published_by_fkey";
+            columns: ["published_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -5133,6 +5301,21 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      create_cms_content_draft: {
+        Args: {
+          p_actor_id: string;
+          p_content_key: string;
+          p_initial_payload: Json;
+          p_locale: Database["public"]["Enums"]["cms_content_locale"];
+        };
+        Returns: Database["public"]["Tables"]["cms_content_drafts"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "cms_content_drafts";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       create_package_catalog_draft: {
         Args: {
           p_actor_id: string;
@@ -5168,6 +5351,20 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      discard_cms_content_draft: {
+        Args: {
+          p_actor_id: string;
+          p_draft_id: string;
+          p_expected_revision: number;
+        };
+        Returns: Database["public"]["Tables"]["cms_content_drafts"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "cms_content_drafts";
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -5315,6 +5512,20 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "checkout_v2_cycles";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      publish_cms_content_draft: {
+        Args: {
+          p_actor_id: string;
+          p_draft_id: string;
+          p_expected_revision: number;
+        };
+        Returns: Database["public"]["Tables"]["cms_content_drafts"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "cms_content_drafts";
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -5721,6 +5932,37 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      rollback_cms_content_document: {
+        Args: {
+          p_actor_id: string;
+          p_document_id: string;
+          p_expected_current_version: number;
+          p_operation_id: string;
+          p_source_version: number;
+        };
+        Returns: Database["public"]["Tables"]["cms_documents"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "cms_documents";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      update_cms_content_draft: {
+        Args: {
+          p_actor_id: string;
+          p_draft_id: string;
+          p_expected_revision: number;
+          p_payload: Json;
+        };
+        Returns: Database["public"]["Tables"]["cms_content_drafts"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "cms_content_drafts";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       update_package_catalog_draft: {
         Args: {
           p_actor_id: string;
@@ -5765,6 +6007,8 @@ export type Database = {
         | "finance.write"
         | "access.read"
         | "access.write";
+      cms_content_draft_status: "draft" | "published" | "discarded";
+      cms_content_locale: "es" | "en" | "ru";
       lead_status: "new" | "contacted" | "discarded";
       package_catalog_draft_status: "draft" | "published" | "discarded";
       payment_status: "succeeded" | "pending" | "failed" | "refunded";
@@ -5926,6 +6170,8 @@ export const Constants = {
         "access.read",
         "access.write",
       ],
+      cms_content_draft_status: ["draft", "published", "discarded"],
+      cms_content_locale: ["es", "en", "ru"],
       lead_status: ["new", "contacted", "discarded"],
       package_catalog_draft_status: ["draft", "published", "discarded"],
       payment_status: ["succeeded", "pending", "failed", "refunded"],

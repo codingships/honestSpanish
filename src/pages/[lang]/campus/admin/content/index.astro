@@ -1,0 +1,37 @@
+---
+import CmsContentManager from '../../../../../components/admin/CmsContentManager';
+import CampusLayout from '../../../../../layouts/CampusLayout.astro';
+import { requireAdminCapability } from '../../../../../lib/admin-access';
+import { createSupabaseServerClient } from '../../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const auth = await requireAdminCapability(Astro, 'content.read');
+if (auth.error || !auth.user) return auth.error;
+
+const supabase = createSupabaseServerClient(Astro);
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('full_name, role')
+    .eq('id', auth.user.id)
+    .single();
+
+if (!profile || profile.role !== 'admin') return Astro.redirect(`/${lang}/campus`);
+---
+
+<CampusLayout
+    title="Contenido público"
+    user={{ email: auth.user.email, full_name: profile.full_name, role: profile.role }}
+    lang={lang}
+>
+    <div class="mx-auto max-w-7xl space-y-6">
+        <div>
+            <h1 class="font-display text-3xl uppercase text-[#006064]">Contenido público</h1>
+            <p class="mt-1 max-w-3xl font-mono text-sm text-[#006064]">
+                SEO, navegación, hero y preguntas frecuentes de la home. Los borradores son privados; publicar crea una versión recuperable.
+            </p>
+        </div>
+        <CmsContentManager client:load />
+    </div>
+</CampusLayout>

@@ -124,6 +124,16 @@ La fórmula de cartera es `cobros - devoluciones - obligación docente devengada
 - Retirar desactiva primero la oferta local y después intenta archivar Prices y Product. Si la limpieza de Stripe falla, el checkout permanece cerrado y la interfaz informa de una limpieza técnica pendiente; nunca se reactiva la base de datos para compensar el fallo externo.
 - Cada publicación y retirada conserva versiones y auditoría. Corregir un error significa crear otra versión o retirar la oferta, no modificar snapshots históricos.
 
+## Operación del contenido público
+
+- `Contenido` exige `content.read`; crear, guardar, publicar, descartar o republicar exige además `content.write`. No se editan directamente las tablas `cms_*`.
+- Cada idioma tiene su propio documento y como máximo un borrador abierto. Un borrador nace de la versión publicada o, si todavía no existe, del fallback integrado en código.
+- Guardar usa la revisión observada. Un conflicto significa que otra operación avanzó el borrador: se recarga y se decide sobre el estado nuevo; no se fuerza ni se sobrescribe.
+- La vista previa protegida renderiza el borrador guardado con la home real, `noindex` y `no-store`. Los cambios locales sin guardar no se previsualizan ni se publican.
+- Publicar crea una versión inmutable y actualiza la proyección pública en la misma transacción. La caché pública puede conservar la versión anterior durante un máximo de cinco minutos.
+- Descartar cierra solo el borrador; no cambia la web. Republicar una versión histórica crea otra versión y queda auditado. Si existe un borrador abierto, primero se publica o descarta.
+- Si la lectura server-only o la validación del payload fallan, la home usa el contenido integrado. Eso mantiene servicio, pero requiere revisar Sentry y el historial antes de volver a publicar.
+
 ## Recuperación de la garantía Checkout V2
 
 La referencia operativa es una única fila de `checkout_v2_guarantee_operations`. Repetir una petición o una acción administrativa reanuda esa operación; nunca se cambia su importe, PaymentIntent, suscripción de Stripe ni identificadores congelados, y nunca se crea una devolución manual paralela.
