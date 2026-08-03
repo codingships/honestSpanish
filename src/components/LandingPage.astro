@@ -4,7 +4,9 @@ import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { ui } from '../i18n/translations';
 import type { LandingPackage } from '../lib/landing-data';
 import PricingSection from './PricingSection';
-import madridAtmosphere from '../assets/madrid_atmosphere.png';
+import madridAtmosphere480 from '../assets/madrid-atmosphere-480.jpg';
+import madridAtmosphere768 from '../assets/madrid-atmosphere-768.jpg';
+import madridAtmosphere1024 from '../assets/madrid-atmosphere-1024.jpg';
 import avatarAlejandro from '../assets/avatar_alejandro_team.png';
 import avatarAlin from '../assets/avatar_alin_team.png';
 import avatarIrene from '../assets/avatar_irene_team.png';
@@ -436,8 +438,12 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     {/* Atmosphere Break */}
     <div class={`w-full h-64 md:h-96 overflow-hidden border-b-2 ${s.border} relative`}>
         <img
-            src={madridAtmosphere.src}
+            src={madridAtmosphere768.src}
+            srcset={`${madridAtmosphere480.src} 480w, ${madridAtmosphere768.src} 768w, ${madridAtmosphere1024.src} 1024w`}
+            sizes="100vw"
             alt={accessibilityCopy.atmosphereAlt}
+            width="1024"
+            height="1024"
             class="w-full h-full object-cover grayscale"
             loading="lazy"
             decoding="async"

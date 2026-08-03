@@ -1,5 +1,7 @@
 ---
-import heroImage from '../../assets/hero.png';
+import hero480 from '../../assets/hero-480.jpg';
+import hero768 from '../../assets/hero-768.jpg';
+import hero1024 from '../../assets/hero-1024.jpg';
 
 interface Props {
   headline1: string;
@@ -42,11 +44,16 @@ const s = {
         <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden min-h-0">
             <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
                 <img
-                    src={heroImage.src}
+                    src={hero768.src}
+                    srcset={`${hero480.src} 480w, ${hero768.src} 768w, ${hero1024.src} 1024w`}
+                    sizes="(min-width: 1024px) 42vw, 100vw"
                     alt={imageAlt}
+                    width="1024"
+                    height="1024"
                     class="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-700" 
                     loading="eager"
                     decoding="async"
+                    fetchpriority="high"
                 />
             </div>
             <div class={`flex-1 ${s.secondaryBg} p-8 lg:p-12 flex flex-col justify-center items-center text-center`}>
