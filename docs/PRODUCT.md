@@ -26,7 +26,7 @@ El servicio es exclusivamente para mayores de 18 años. Registro y compra exigen
 | Horario | Franja semanal, zona horaria y primera fecha identificadas antes de pagar |
 | Compra | Directa B2C; revisión manual solo como excepción o recuperación |
 
-Los primeros 259 EUR se cobran al reservar la plaza. Antes de confirmar la compra se muestran las cuatro fechas previstas —días 0, 7, 14 y 21 desde la primera clase— y la fecha exacta de la siguiente renovación, que se cobra 28 días después de esa primera clase. Si el alumno cambia la primera fecha mediante autoservicio dentro del plazo permitido antes de empezar, se desplazan el ancla y las cuatro fechas. Un cambio excepcional gestionado por soporte fuera de ese plazo no mueve automáticamente el ancla; una vez comenzada la primera clase, el ancla queda fija. No se aceptan prorratas ni fechas implícitas distintas de lo comunicado al alumno.
+Los primeros 259 EUR se cobran al reservar la plaza. Antes de confirmar la compra se muestran las cuatro fechas previstas —días 0, 7, 14 y 21 desde la primera clase— y la fecha exacta de la siguiente renovación, que se cobra 28 días después de esa primera clase. Si el alumno cambia la primera fecha mediante autoservicio dentro del plazo permitido antes de empezar, se desplazan el ancla y las cuatro fechas. Un cambio excepcional gestionado por soporte fuera de ese plazo no mueve automáticamente el ancla; una vez comenzada la primera clase, el ancla queda fija. El cobro del ciclo no se prorratea ni usa fechas implícitas distintas de lo comunicado; la devolución proporcional de sesiones no consumidas se rige exclusivamente por la garantía siguiente.
 
 Un cambio futuro de precio o condiciones crea una versión contractual nueva. Nunca reescribe compras, sesiones o obligaciones históricas.
 
@@ -45,13 +45,15 @@ Una plaza se retiene temporalmente durante checkout y se libera si el pago no te
 - La academia puede proponer un sustituto y el alumno puede rechazarlo.
 - Reprogramar es una única operación: la nueva reserva y la liberación de la anterior no pueden duplicar ni perder el crédito.
 
-## Garantía
+## Garantía proporcional por clases no consumidas
 
-Después de completar la primera clase y antes de comenzar la segunda, el alumno puede solicitar la devolución del valor contractual de las tres clases restantes. La primera clase queda pagada. Reprogramar la segunda con al menos 24 horas conserva esta ventana hasta que comience la nueva sesión; una cancelación tardía o un no-show que soporte no haya reclasificado consume la segunda clase y cierra la ventana.
+En cualquier paquete y ciclo ya cobrado, después de consumir una o más clases y antes de comenzar la siguiente, el alumno puede terminar el servicio y solicitar la devolución del valor contractual de todas las clases todavía no consumidas. Las clases completadas permanecen pagadas. Una cancelación tardía o un no-show que soporte no haya reclasificado cuenta como clase consumida; reprogramar con al menos 24 horas conserva la posibilidad de solicitar la devolución antes de la nueva fecha.
 
-Para la versión de 259 EUR, el importe de referencia de las tres clases es 194,25 EUR. El cálculo se realiza desde el snapshot contractual de la compra, no desde el catálogo vigente. Una devolución invalida las tres sesiones restantes, cancela las renovaciones futuras y no puede ejecutarse dos veces. La revisión jurídica final confirmará desistimiento y consentimiento para comenzar antes de catorce días sin alterar esta regla comercial salvo decisión expresa del propietario.
+El importe se calcula exclusivamente desde el snapshot contractual de ese ciclo, nunca desde el catálogo vigente ni mediante un importe fijo de la interfaz. El snapshot asigna en céntimos el valor de cada clase y garantiza que la suma coincide exactamente con el precio cobrado, incluido cualquier resto de redondeo. La devolución es la suma de las clases no consumidas.
 
-La resolución de una incidencia de la segunda sesión modifica exclusivamente la elegibilidad de la garantía y, cuando corresponda, el crédito del alumno. Una cancelación tardía o un no-show siguen siendo liquidables al profesor y esa resolución no revierte su remuneración.
+Para la versión actual de 259 EUR y cuatro clases de 64,75 EUR, la referencia es: 194,25 EUR después de consumir una clase; 129,50 EUR después de dos; 64,75 EUR después de tres; y 0 EUR cuando las cuatro se han consumido. Una devolución invalida únicamente las sesiones pendientes de ese ciclo, cancela todas las renovaciones futuras y no puede ejecutarse dos veces sobre las mismas unidades contractuales.
+
+La resolución de una incidencia modifica la clasificación de consumo y, cuando corresponda, el crédito del alumno. No borra el hecho histórico ni revierte una remuneración docente ya devengada. La revisión jurídica final confirmará desistimiento y consentimiento para comenzar antes de catorce días sin alterar esta regla comercial salvo decisión expresa del propietario.
 
 ## Profesor y remuneración operativa
 

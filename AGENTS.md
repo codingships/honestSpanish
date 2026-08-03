@@ -27,6 +27,8 @@ Staging sirve para verificar un SHA; no es una fuente alternativa. El historial 
 
 GitHub conserva commits, PR, revisión y CI. No se crean handoffs, evidence packs, gates documentales, informes de estado ni scripts que vuelvan a probar documentos.
 
+`docs/READINESS.md` es la única excepción: un índice breve de capacidades y hitos que enlaza a la evidencia nativa. No sustituye a código, migraciones, CI, GitHub ni staging, no contiene secretos y no se verifica mediante otra capa documental. Se actualiza en la misma PR únicamente cuando cambia el estado real de una capacidad.
+
 ## Contexto y agentes
 
 `AGENTS.md` se aplica automáticamente. No se releen todos los documentos al empezar cada tarea:

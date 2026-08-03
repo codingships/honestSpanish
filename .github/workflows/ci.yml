@@ -16,7 +16,70 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      application: ${{ steps.classify.outputs.application }}
+      browser: ${{ steps.classify.outputs.browser }}
+      database: ${{ steps.classify.outputs.database }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.12.0'
+
+      - name: Classify changed surfaces
+        id: classify
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          FORCE_ALL: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          changed_files="$RUNNER_TEMP/changed-files.txt"
+          : > "$changed_files"
+          force_argument=()
+          if [ "$FORCE_ALL" = "true" ] \
+             || [ -z "${BASE_SHA:-}" ] \
+             || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            force_argument=(--force-all)
+          else
+            git cat-file -e "$BASE_SHA^{commit}"
+            git diff --name-only "$BASE_SHA" "$GITHUB_SHA" > "$changed_files"
+          fi
+          node --experimental-strip-types scripts/ci/classify-changes.ts \
+            --files "$changed_files" \
+            --output "$GITHUB_OUTPUT" \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            "${force_argument[@]}"
+
+  repository-safety:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.12.0'
+
+      - name: Check tracked secrets
+        run: node scripts/check-secrets.cjs
+
   database-contract:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.database == 'true'
     runs-on: ubuntu-latest
 
     services:
@@ -141,6 +204,8 @@ jobs:
           psql -X -v ON_ERROR_STOP=1 -d checkout_v2_fresh -f tests/sql/support-operations.sql
 
   build-and-test:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.application == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -182,9 +247,6 @@ jobs:
       - name: Check fulfillment Worker types
         run: pnpm run fulfillment:typecheck
 
-      - name: Check tracked secrets
-        run: pnpm run secrets:check
-
       - name: Build
         env:
           CLOUDFLARE_ENV: "staging"
@@ -201,6 +263,31 @@ jobs:
           PUBLIC_APP_ENV: "staging"
           CHECKOUT_ENABLED: "false"
         run: pnpm run build
+
+  public-browser:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 10.33.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22.12.0'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Cache Playwright browsers
         uses: actions/cache@v6
@@ -225,14 +312,72 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: "placeholder-service-role-key"
         run: pnpm exec playwright test --project=public
 
+  quality-gate:
+    if: always()
+    needs:
+      - classify-changes
+      - repository-safety
+      - database-contract
+      - build-and-test
+      - public-browser
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Require every selected verification surface
+        shell: bash
+        env:
+          APPLICATION_REQUIRED: ${{ needs.classify-changes.outputs.application }}
+          APPLICATION_RESULT: ${{ needs.build-and-test.result }}
+          BROWSER_REQUIRED: ${{ needs.classify-changes.outputs.browser }}
+          BROWSER_RESULT: ${{ needs.public-browser.result }}
+          CLASSIFIER_RESULT: ${{ needs.classify-changes.result }}
+          DATABASE_REQUIRED: ${{ needs.classify-changes.outputs.database }}
+          DATABASE_RESULT: ${{ needs.database-contract.result }}
+          SAFETY_RESULT: ${{ needs.repository-safety.result }}
+        run: |
+          set -euo pipefail
+          failures=()
+
+          require_success() {
+            local label="$1"
+            local result="$2"
+            if [ "$result" != "success" ]; then
+              failures+=("$label=$result")
+            fi
+          }
+
+          require_selected() {
+            local label="$1"
+            local required="$2"
+            local result="$3"
+            if [ "$required" = "true" ]; then
+              require_success "$label" "$result"
+            elif [ "$required" != "false" ] || { [ "$result" != "skipped" ] && [ "$result" != "success" ]; }; then
+              failures+=("$label=invalid-selection:$required/$result")
+            fi
+          }
+
+          require_success classifier "$CLASSIFIER_RESULT"
+          require_success repository-safety "$SAFETY_RESULT"
+          require_selected database "$DATABASE_REQUIRED" "$DATABASE_RESULT"
+          require_selected application "$APPLICATION_REQUIRED" "$APPLICATION_RESULT"
+          require_selected browser "$BROWSER_REQUIRED" "$BROWSER_RESULT"
+
+          if [ "${#failures[@]}" -gt 0 ]; then
+            printf 'Quality gate failed: %s\n' "${failures[*]}"
+            exit 1
+          fi
+          echo "Quality gate passed for every selected surface."
+
   deploy-staging:
     name: Deploy Cloudflare staging
-    needs: [database-contract, build-and-test]
+    needs: [quality-gate]
     if: >-
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      needs.quality-gate.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      contains(github.event.head_commit.message, '[deploy-staging]'))
+      contains(github.event.head_commit.message, '[deploy-staging]')))
     permissions:
       checks: read
       contents: read
