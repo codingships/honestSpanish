@@ -47,7 +47,11 @@ vi.mock('../../src/lib/stripe', () => ({
     },
 }));
 
-function createRoleClient(role: string | null, user: { id: string; email: string } | null = { id: 'admin-1', email: 'admin@example.com' }) {
+function createRoleClient(
+    role: string | null,
+    user: { id: string; email: string } | null = { id: 'admin-1', email: 'admin@example.com' },
+    capabilities: 'all' | readonly string[] = 'all',
+) {
     const profileChain: any = {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
@@ -58,6 +62,11 @@ function createRoleClient(role: string | null, user: { id: string; email: string
         auth: {
             getUser: vi.fn().mockResolvedValue({ data: { user }, error: null }),
         },
+        rpc: vi.fn((_name: string, args: { p_capability: string }) => Promise.resolve({
+            data: role === 'admin'
+                && (capabilities === 'all' || capabilities.includes(args.p_capability)),
+            error: null,
+        })),
         from: vi.fn(() => profileChain),
     };
 }
@@ -251,6 +260,45 @@ describe('/api/admin/packages', () => {
         const response = await GET(contextWithBody({}, 'POST') as any);
 
         expect(response.status).toBe(403);
+        expect(createSupabaseAdminClient).not.toHaveBeenCalled();
+    });
+
+    it('allows catalog reads without granting catalog writes', async () => {
+        const client = createAdminClientForList([], []);
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        const roleClient = createRoleClient(
+            'admin',
+            { id: 'admin-1', email: 'admin@example.com' },
+            ['catalog.read'],
+        );
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient as any);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as any);
+
+        const { GET, POST } = await import('../../src/pages/api/admin/packages');
+        const readResponse = await GET(contextWithBody({}, 'POST') as any);
+
+        expect(readResponse.status).toBe(200);
+        expect(roleClient.rpc).toHaveBeenCalledWith('has_my_admin_capability', {
+            p_capability: 'catalog.read',
+        });
+
+        vi.clearAllMocks();
+        const writeResponse = await POST(contextWithBody({
+            action: 'create_package',
+            name: 'another',
+            displayName: { es: 'Otro', en: 'Another', ru: 'Another' },
+            priceMonthlyEur: 100,
+            sessionsPerMonth: 4,
+            hasGroupSession: false,
+            hasDualTeacher: false,
+            isActive: false,
+        }, 'POST') as any);
+
+        expect(writeResponse.status).toBe(403);
+        expect(roleClient.rpc).toHaveBeenCalledWith('has_my_admin_capability', {
+            p_capability: 'catalog.write',
+        });
         expect(createSupabaseAdminClient).not.toHaveBeenCalled();
     });
 

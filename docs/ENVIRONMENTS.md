@@ -8,7 +8,7 @@ Los identificadores confidenciales viven una sola vez en el GitHub Environment o
 
 - GitHub: `codingships/honestSpanish`.
 - Rama integrada: `main`.
-- CI requerida: check `build-and-test`.
+- CI requerida: check agregado `quality-gate` de GitHub Actions (`app_id 15368`).
 - Entorno de despliegue de staging: `staging`.
 - Entorno protegido de producción: `Production`.
 

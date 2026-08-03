@@ -1,8 +1,8 @@
 import type { APIContext, APIRoute } from 'astro';
 import type Stripe from 'stripe';
 import { z } from 'zod';
+import { requireAdminCapability } from '../../../lib/admin-access';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
-import { createSupabaseServerClient } from '../../../lib/supabase-server';
 import {
     calculatePackageTotalCents,
     isPackageCheckoutReady,
@@ -86,24 +86,6 @@ async function readJsonBody(context: APIContext): Promise<{ data: unknown; error
     } catch {
         return { data: null, error: jsonResponse({ error: 'Invalid JSON body' }, 400) };
     }
-}
-
-async function requireAdmin(context: APIContext) {
-    const supabase = createSupabaseServerClient(context);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return { error: jsonResponse({ error: 'Unauthorized' }, 401), user: null };
-
-    const { data: profile } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .single();
-
-    if (profile?.role !== 'admin') {
-        return { error: jsonResponse({ error: 'Forbidden' }, 403), user: null };
-    }
-
-    return { error: null, user };
 }
 
 function centsFromEuro(value: number): number {
@@ -411,7 +393,7 @@ async function ensureStripePrice(input: {
 }
 
 export const GET: APIRoute = async (context) => {
-    const auth = await requireAdmin(context);
+    const auth = await requireAdminCapability(context, 'catalog.read');
     if (auth.error) return auth.error;
 
     const supabaseAdmin = createSupabaseAdminClient();
@@ -438,7 +420,7 @@ export const GET: APIRoute = async (context) => {
 };
 
 export const PATCH: APIRoute = async (context) => {
-    const auth = await requireAdmin(context);
+    const auth = await requireAdminCapability(context, 'catalog.write');
     if (auth.error || !auth.user) return auth.error;
 
     const rawBody = await readJsonBody(context);
@@ -518,7 +500,7 @@ export const PATCH: APIRoute = async (context) => {
 };
 
 export const POST: APIRoute = async (context) => {
-    const auth = await requireAdmin(context);
+    const auth = await requireAdminCapability(context, 'catalog.write');
     if (auth.error || !auth.user) return auth.error;
 
     const rawBody = await readJsonBody(context);

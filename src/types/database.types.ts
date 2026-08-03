@@ -61,6 +61,42 @@ export type Database = {
           },
         ];
       };
+      admin_role_assignments: {
+        Row: {
+          access_role: Database["public"]["Enums"]["admin_access_role"];
+          granted_at: string;
+          granted_by: string | null;
+          profile_id: string;
+        };
+        Insert: {
+          access_role: Database["public"]["Enums"]["admin_access_role"];
+          granted_at?: string;
+          granted_by?: string | null;
+          profile_id: string;
+        };
+        Update: {
+          access_role?: Database["public"]["Enums"]["admin_access_role"];
+          granted_at?: string;
+          granted_by?: string | null;
+          profile_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "admin_role_assignments_granted_by_fkey";
+            columns: ["granted_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "admin_role_assignments_profile_id_fkey";
+            columns: ["profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       acquisition_attribution_events: {
         Row: {
           captured_at: string;
@@ -4236,6 +4272,14 @@ export type Database = {
       };
     };
     Functions: {
+      admin_grant_access_role: {
+        Args: {
+          p_access_role: Database["public"]["Enums"]["admin_access_role"];
+          p_actor_id: string;
+          p_profile_id: string;
+        };
+        Returns: Json;
+      };
       admin_mutate_support_ticket: {
         Args: {
           p_admin_id: string;
@@ -4249,6 +4293,14 @@ export type Database = {
           p_new_status?: string | null;
           p_request_id: string;
           p_ticket_id: string;
+        };
+        Returns: Json;
+      };
+      admin_revoke_access_role: {
+        Args: {
+          p_access_role: Database["public"]["Enums"]["admin_access_role"];
+          p_actor_id: string;
+          p_profile_id: string;
         };
         Returns: Json;
       };
@@ -4267,6 +4319,10 @@ export type Database = {
           ticket_id: string;
         }[];
       };
+      get_my_admin_capabilities: {
+        Args: Record<PropertyKey, never>;
+        Returns: Database["public"]["Enums"]["admin_capability"][];
+      };
       get_my_support_tickets: {
         Args: { p_limit?: number; p_offset?: number };
         Returns: {
@@ -4279,6 +4335,12 @@ export type Database = {
           status: string;
           updated_at: string;
         }[];
+      };
+      has_my_admin_capability: {
+        Args: {
+          p_capability: Database["public"]["Enums"]["admin_capability"];
+        };
+        Returns: boolean;
       };
       activate_teacher_profile: {
         Args: {
@@ -5485,6 +5547,25 @@ export type Database = {
       };
     };
     Enums: {
+      admin_access_role:
+        | "owner"
+        | "content_editor"
+        | "catalog_editor"
+        | "operator"
+        | "finance"
+        | "viewer";
+      admin_capability:
+        | "dashboard.read"
+        | "content.read"
+        | "content.write"
+        | "catalog.read"
+        | "catalog.write"
+        | "operations.read"
+        | "operations.write"
+        | "finance.read"
+        | "finance.write"
+        | "access.read"
+        | "access.write";
       lead_status: "new" | "contacted" | "discarded";
       payment_status: "succeeded" | "pending" | "failed" | "refunded";
       subscription_status:
@@ -5624,6 +5705,27 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      admin_access_role: [
+        "owner",
+        "content_editor",
+        "catalog_editor",
+        "operator",
+        "finance",
+        "viewer",
+      ],
+      admin_capability: [
+        "dashboard.read",
+        "content.read",
+        "content.write",
+        "catalog.read",
+        "catalog.write",
+        "operations.read",
+        "operations.write",
+        "finance.read",
+        "finance.write",
+        "access.read",
+        "access.write",
+      ],
       lead_status: ["new", "contacted", "discarded"],
       payment_status: ["succeeded", "pending", "failed", "refunded"],
       subscription_status: [

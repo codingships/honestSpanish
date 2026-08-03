@@ -1,0 +1,35 @@
+---
+import AdminAccessManager from '../../../../components/admin/AdminAccessManager';
+import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import { requireAdminCapability } from '../../../../lib/admin-access';
+import { createSupabaseServerClient } from '../../../../lib/supabase-server';
+
+export const prerender = false;
+
+const { lang } = Astro.params as { lang: 'es' | 'en' | 'ru' };
+const auth = await requireAdminCapability(Astro, 'access.read');
+if (auth.error || !auth.user) return auth.error;
+
+const supabase = createSupabaseServerClient(Astro);
+const { data: profile } = await supabase
+    .from('profiles')
+    .select('email, full_name, role')
+    .eq('id', auth.user.id)
+    .single();
+
+if (!profile) {
+    return new Response('Profile unavailable', { status: 503 });
+}
+---
+
+<CampusLayout title="Accesos" user={profile} lang={lang}>
+    <div class="mx-auto max-w-7xl space-y-6">
+        <div>
+            <h1 class="font-display text-3xl uppercase text-[#006064]">Accesos administrativos</h1>
+            <p class="mt-1 max-w-3xl font-mono text-sm text-[#006064]">
+                Concede solo las capacidades necesarias. Los roles son acumulables y siempre debe quedar al menos un propietario.
+            </p>
+        </div>
+        <AdminAccessManager client:load />
+    </div>
+</CampusLayout>

@@ -60,6 +60,14 @@ Tablas centrales:
 
 RLS protege el acceso por rol. Las operaciones administrativas y de fulfillment usan la service role únicamente en código server-only.
 
+## Acceso administrativo y auditoría
+
+Supabase Auth conserva la identidad y `profiles.role` conserva el rol académico (`student`, `teacher`, `admin`). Los permisos operativos no se obtienen de metadatos del token: `admin_role_assignments` permite acumular `owner`, contenido, catálogo, operaciones, finanzas o lectura sobre un perfil que ya es administrador. Los administradores existentes reciben `owner` al aplicar la migración; después, los cambios pasan por RPC server-only, son idempotentes y no permiten retirar el último owner.
+
+`src/middleware.ts` aplica un mapa central de capacidades a páginas y APIs administrativas y falla cerrado si la comprobación no está disponible. El panel global, que mezcla datos operativos y financieros, queda reservado a `owner` y `viewer`; los roles especializados se redirigen a su primera superficie permitida y la navegación solo muestra capacidades efectivas. La promoción o invitación de un perfil nuevo a administrador no forma parte todavía de este flujo.
+
+`admin_audit_log` es append-only para acciones directas y solo admite la pseudonimización del actor provocada por la eliminación de su perfil. La vista administrativa de historial exige `access.read`, permite filtrar metadatos y no devuelve los snapshots `before`/`after`; ampliar la cobertura de auditoría a cada mutación del producto sigue siendo trabajo incremental.
+
 El progreso de Checkout V2 se deriva de los hechos de `sessions` por ciclo; `subscriptions.sessions_used` conserva su significado operativo de cuota reservada y no representa clases consumidas. `checkout_v2_session_consumption` clasifica cada posición materializada y `checkout_v2_cycle_progress` solo publica contadores de consumo cuando existen exactamente las cuatro posiciones y el ciclo está listo. Un ciclo pendiente o inconsistente conserva su estado explícito y no se presenta como un progreso real de 0/4.
 
 `checkout_v2_session_credit_adjustments` es un ledger append-only para decisiones administrativas que restauran crédito tras un no-show o una cancelación tardía del alumno. La restauración no altera el hecho original ni `teacher_compensation_ledger`. Todavía no existe una RPC de escritura: restaurar crédito sin materializar de forma atómica la sesión de reemplazo dejaría el contrato incompleto, por lo que esa operación se añadirá cuando se diseñe conjuntamente la reposición. Las lecturas masivas usan `get_checkout_v2_subscriptions_progress(UUID[])`, que deduplica y devuelve únicamente el ciclo con mayor `cycle_number` de cada suscripción. La aplicación la invoca en lotes de 500 para no depender de límites de URL o filas de PostgREST; la RPC rechaza más de 5.000 identificadores por llamada.

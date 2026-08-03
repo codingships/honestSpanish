@@ -1,4 +1,14 @@
 import { defineMiddleware } from "astro:middleware";
+import {
+    type AdminCapability,
+    requireAdminCapability,
+    requireCapabilityForAdminActor,
+} from './lib/admin-access';
+import {
+    requiredAdminActorCapabilityForRequest,
+    requiredAdminCapabilityForCampusPath,
+    requiredAdminCapabilityForRequest,
+} from './lib/admin-route-capabilities';
 import { createSupabaseServerClient } from "./lib/supabase-server";
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from "./lib/adult-account";
 import { isUnauthenticatedAuthError } from './lib/auth-session';
@@ -16,6 +26,13 @@ const BOOTSTRAP_DIAGNOSTIC_PATHS = new Set([
 const LOCAL_APP_ENVIRONMENTS = new Set(['dev', 'development', 'local', 'test']);
 const HOSTED_APP_ENVIRONMENTS = new Set(['staging', 'production']);
 const CAMPUS_ROLES = new Set(['student', 'teacher', 'admin']);
+const ADMIN_CAPABILITY_LANDINGS = [
+    ['content.read', 'emails'],
+    ['catalog.read', 'packages'],
+    ['operations.read', 'leads'],
+    ['finance.read', 'payments'],
+    ['access.read', 'access'],
+] as const satisfies readonly (readonly [AdminCapability, string])[];
 
 function normalizedAppEnvironment(context: Parameters<typeof readRuntimeEnv>[1]): string | undefined {
     return readRuntimeEnv('PUBLIC_APP_ENV', context)?.trim().toLowerCase() || undefined;
@@ -112,6 +129,30 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
         }
     }
 
+    const administratorApiCapability = requiredAdminCapabilityForRequest(
+        path,
+        context.request.method,
+    );
+    if (administratorApiCapability) {
+        const authorization = await requireAdminCapability(
+            context,
+            administratorApiCapability,
+        );
+        if (authorization.error) return authorization.error;
+    }
+
+    const administratorActorCapability = requiredAdminActorCapabilityForRequest(
+        path,
+        context.request.method,
+    );
+    if (administratorActorCapability) {
+        const authorizationError = await requireCapabilityForAdminActor(
+            context,
+            administratorActorCapability,
+        );
+        if (authorizationError) return authorizationError;
+    }
+
     // Extract language and path segments
     const pathSegments = path.split('/').filter(Boolean);
     const lang = pathSegments[0];
@@ -203,12 +244,68 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
             if (userRole !== 'teacher' && userRole !== 'admin') {
                 return context.redirect(`/${lang}/campus`);
             }
+            if (userRole === 'admin') {
+                const { data: allowed, error: capabilityError } = await supabase.rpc(
+                    'has_my_admin_capability',
+                    { p_capability: 'operations.read' },
+                );
+                if (capabilityError) {
+                    reportCampusReadError('middleware.admin-capability', capabilityError);
+                    return campusUnavailableResponse(lang, url);
+                }
+                if (allowed !== true) {
+                    return new Response('Forbidden', {
+                        status: 403,
+                        headers: {
+                            'Cache-Control': 'private, no-store',
+                            'Content-Type': 'text/plain; charset=utf-8',
+                        },
+                    });
+                }
+            }
         }
 
         // Admin routes - only accessible by admin
         if (campusSubPath === 'admin') {
             if (userRole !== 'admin') {
                 return context.redirect(getRoleBasedRedirect(userRole, lang));
+            }
+
+            const requiredCapability = requiredAdminCapabilityForCampusPath(path);
+            if (requiredCapability) {
+                const { data: allowed, error: capabilityError } = await supabase.rpc(
+                    'has_my_admin_capability',
+                    { p_capability: requiredCapability },
+                );
+                if (capabilityError) {
+                    reportCampusReadError('middleware.admin-capability', capabilityError);
+                    return campusUnavailableResponse(lang, url);
+                }
+                if (allowed !== true) {
+                    if (requiredCapability === 'dashboard.read' && pathSegments.length === 3) {
+                        const { data: capabilities, error: capabilitiesError } = await supabase.rpc(
+                            'get_my_admin_capabilities',
+                        );
+                        if (capabilitiesError) {
+                            reportCampusReadError('middleware.admin-capabilities', capabilitiesError);
+                            return campusUnavailableResponse(lang, url);
+                        }
+
+                        const landing = ADMIN_CAPABILITY_LANDINGS.find(([capability]) => (
+                            capabilities?.includes(capability)
+                        ));
+                        if (landing) {
+                            return context.redirect(`/${lang}/campus/admin/${landing[1]}`);
+                        }
+                    }
+                    return new Response('Forbidden', {
+                        status: 403,
+                        headers: {
+                            'Cache-Control': 'private, no-store',
+                            'Content-Type': 'text/plain; charset=utf-8',
+                        },
+                    });
+                }
             }
         }
     }
