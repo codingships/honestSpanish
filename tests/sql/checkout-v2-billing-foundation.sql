@@ -2250,9 +2250,22 @@ EXCEPTION WHEN unique_violation THEN
 END
 $$;
 
--- Authenticated administrators may perform writes allowed by the session RLS
--- policy without receiving 42501 from private ledger/slot lookups. The same
--- trigger must still reject the write when a durable reservation is active.
+-- An authenticated operations administrator may perform writes allowed by the
+-- session RLS policy without receiving 42501 from private ledger/slot lookups.
+-- Explicitly assign the capability because academic role=admin no longer
+-- grants every database operation. The same trigger must still reject the
+-- write when a durable reservation is active.
+INSERT INTO public.admin_role_assignments (
+    profile_id,
+    access_role,
+    granted_by
+) VALUES (
+    '10000000-0000-4000-8000-000000000003',
+    'operator',
+    '10000000-0000-4000-8000-000000000003'
+)
+ON CONFLICT (profile_id, access_role) DO NOTHING;
+
 SAVEPOINT checkout_v2_authenticated_admin_guard;
 
 SELECT public.mark_checkout_v2_reschedule_outcome(
