@@ -61,7 +61,7 @@ test.describe('Public launch offer', () => {
         await expect(page.getByRole('dialog').locator('time')).toHaveCount(6);
         await slot.check();
 
-        await expect(page.getByRole('status')).toContainText(
+        await expect(page.getByRole('status').filter({ hasText: 'Esta plaza es real' })).toContainText(
             'Esta plaza es real y está disponible, pero el pago todavía no está habilitado.',
         );
         await expect(page.getByRole('button', { name: 'Reservar y pagar' })).toHaveCount(0);

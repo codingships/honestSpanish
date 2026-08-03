@@ -53,6 +53,7 @@ interface LeadCaptureFormProps {
         consentError: string;
         adultError: string;
         securityError: string;
+        noScript: string;
     };
     onSuccess?: () => void;
 }
@@ -79,6 +80,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
     const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
     const [errorMessage, setErrorMessage] = useState('');
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+    const [isInteractive, setIsInteractive] = useState(false);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = e.target;
@@ -100,6 +102,8 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
     };
 
     useEffect(() => {
+        setIsInteractive(true);
+
         const applyPreferredPackage = (detail: PreferredPackageDetail | null | undefined) => {
             const preferredPackage = detail?.preferredPackage?.trim();
             if (!preferredPackage) return;
@@ -224,16 +228,29 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                     {t.success}
                 </div>
             ) : (
-                <form onSubmit={handleSubmit} className="flex flex-col gap-4" aria-busy={status === 'loading'}>
+                <form
+                    action="/api/subscribe"
+                    method="post"
+                    onSubmit={handleSubmit}
+                    className="flex flex-col gap-4"
+                    aria-busy={status === 'loading'}
+                    data-interactive={isInteractive ? 'true' : 'false'}
+                >
+                    <noscript>
+                        <div role="status" className="border-2 border-[#7A2E00] bg-[#FFF3D6] p-3 text-sm font-bold text-[#7A2E00]">
+                            {t.noScript}
+                        </div>
+                    </noscript>
                     {/* Name */}
                     <div>
                         <label htmlFor="lead-name" className="block text-xs font-bold uppercase text-[#006064] mb-1">{t.name}</label>
                         <input
                             id="lead-name"
                             type="text"
-                            name="name"
+                            name={isInteractive ? 'name' : undefined}
                             value={formData.name}
                             onChange={handleChange}
+                            autoComplete="name"
                             required
                             className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans"
                         />
@@ -245,9 +262,10 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         <input
                             id="lead-email"
                             type="email"
-                            name="email"
+                            name={isInteractive ? 'email' : undefined}
                             value={formData.email}
                             onChange={handleChange}
+                            autoComplete="email"
                             placeholder={t.placeholder}
                             required
                             className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans"
@@ -259,7 +277,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         <label htmlFor="lead-interest" className="block text-xs font-bold uppercase text-[#006064] mb-1">{t.interest}</label>
                         <select
                             id="lead-interest"
-                            name="interest"
+                            name={isInteractive ? 'interest' : undefined}
                             value={formData.interest}
                             onChange={handleChange}
                             className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-[#006064]"
@@ -274,7 +292,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         <label htmlFor="lead-current-level" className="block text-xs font-bold uppercase text-[#006064] mb-1">{t.level}</label>
                         <select
                             id="lead-current-level"
-                            name="currentLevel"
+                            name={isInteractive ? 'currentLevel' : undefined}
                             value={formData.currentLevel}
                             onChange={handleChange}
                             className="w-full p-3 border-2 border-[#006064] bg-white focus:outline-none focus:ring-4 focus:ring-[#006064] focus:ring-offset-2 font-sans text-[#006064]"
@@ -318,7 +336,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         <input
                             id="lead-other-languages"
                             type="text"
-                            name="otherLanguages"
+                            name={isInteractive ? 'otherLanguages' : undefined}
                             value={formData.otherLanguages}
                             onChange={handleChange}
                             placeholder={t.otherLanguagesPlaceholder}
@@ -331,7 +349,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         <label htmlFor="lead-learning-goal" className="block text-xs font-bold uppercase text-[#006064] mb-1">{t.goal}</label>
                         <textarea
                             id="lead-learning-goal"
-                            name="learningGoal"
+                            name={isInteractive ? 'learningGoal' : undefined}
                             value={formData.learningGoal}
                             onChange={handleChange}
                             placeholder={t.goalPlaceholder}
@@ -345,7 +363,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                         <label htmlFor="lead-availability" className="block text-xs font-bold uppercase text-[#006064] mb-1">{t.availability}</label>
                         <textarea
                             id="lead-availability"
-                            name="availability"
+                            name={isInteractive ? 'availability' : undefined}
                             value={formData.availability}
                             onChange={handleChange}
                             placeholder={t.availabilityPlaceholder}
@@ -358,7 +376,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                     <label className="flex items-start gap-2 mt-2 text-xs text-[#006064]/80 leading-snug">
                         <input
                             type="checkbox"
-                            name="adultConfirmed"
+                            name={isInteractive ? 'adultConfirmed' : undefined}
                             checked={formData.adultConfirmed}
                             onChange={handleChange}
                             aria-required="true"
@@ -371,7 +389,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                     <div className="flex items-start gap-2 mt-2">
                         <input
                             type="checkbox"
-                            name="consent"
+                            name={isInteractive ? 'consent' : undefined}
                             id="consent"
                             checked={formData.consent}
                             onChange={handleChange}
@@ -401,7 +419,8 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
 
                     <button
                         type="submit"
-                        disabled={status === 'loading'}
+                        disabled={!isInteractive || status === 'loading'}
+                        aria-disabled={!isInteractive || status === 'loading'}
                         aria-busy={status === 'loading'}
                         className={`
                             w-full mt-2 py-3 font-bold text-sm uppercase tracking-widest

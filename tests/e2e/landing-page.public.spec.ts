@@ -82,6 +82,14 @@ test.describe('LandingPage', () => {
         await expect(menuButton).toHaveAttribute('aria-expanded', 'true');
         await expect(overlay).toHaveAttribute('aria-hidden', 'false');
         await expect(overlay).toHaveJSProperty('hidden', false);
+        const mobileLinks = page.locator('#mobile-overlay .mobile-link');
+        expect(await mobileLinks.count()).toBeGreaterThan(0);
+        await expect(mobileLinks.first()).toBeFocused();
+        const navigationBox = await page.getByTestId('primary-navigation').boundingBox();
+        const overlayBox = await overlay.boundingBox();
+        expect(navigationBox).not.toBeNull();
+        expect(overlayBox).not.toBeNull();
+        expect(overlayBox!.y).toBeGreaterThanOrEqual(navigationBox!.y + navigationBox!.height - 1);
         await expect
             .poll(() => page.evaluate(() => document.body.classList.contains('overflow-hidden')))
             .toBe(true);
