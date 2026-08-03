@@ -13,6 +13,7 @@
         --eh-campus-mint: #F0FDFA;
         --eh-google-blue: #4285F4;
         --eh-google-blue-dark: #3367D6;
+        --environment-banner-height: 0px;
     }
 }
 
@@ -71,6 +72,14 @@
 
     .eh-admin-badge {
         @apply inline-flex items-center border border-campus-ink px-2 py-1 font-mono text-xs font-bold uppercase text-campus-ink;
+    }
+
+    .public-primary-navigation {
+        top: var(--environment-banner-height);
+    }
+
+    .public-mobile-overlay {
+        top: calc(var(--environment-banner-height) + 4rem);
     }
 }
 

@@ -564,6 +564,7 @@ export const ui = {
             consentError: "Debes aceptar la política de privacidad.",
             adultError: "Debes confirmar que tienes al menos 18 años.",
             securityError: "La verificación de seguridad sigue cargando, o ha fallado.",
+            noScript: "Activa JavaScript para enviar la consulta de forma segura. Sin JavaScript no transmitimos los datos escritos en este formulario.",
         },
         levelCheck: {
             metaTitle: "Diagnóstico ligero de español | Español Honesto",
@@ -1047,6 +1048,7 @@ export const ui = {
             consentError: "You need to accept the privacy policy.",
             adultError: "You must confirm that you are at least 18.",
             securityError: "The security verification is still loading, or failed.",
+            noScript: "Enable JavaScript to send the question securely. Without JavaScript, we do not transmit the details entered in this form.",
         },
         levelCheck: {
             metaTitle: "Lightweight Spanish diagnostic | Espanol Honesto",
@@ -1669,6 +1671,7 @@ export const ui = {
             consentError: "Необходимо принять политику конфиденциальности.",
             adultError: "Подтвердите, что вам исполнилось 18 лет.",
             securityError: "Проверка безопасности еще загружается или не прошла.",
+            noScript: "Включите JavaScript, чтобы безопасно отправить вопрос. Без JavaScript данные из этой формы не передаются.",
         },
         levelCheck: {
             metaTitle: "Короткая диагностика испанского | Espanol Honesto",

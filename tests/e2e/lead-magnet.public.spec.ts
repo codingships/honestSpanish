@@ -133,3 +133,26 @@ test.describe('Lead Magnet Form — public', () => {
         expect(subscribeCalls).toBe(0);
     });
 });
+
+test.describe('Lead Magnet Form without JavaScript', () => {
+    test.use({ javaScriptEnabled: false });
+
+    test('keeps typed personal data out of the URL and does not submit before hydration', async ({ page }) => {
+        await page.goto('/en');
+
+        const form = page.locator('#contacto form');
+        await expect(form).toHaveAttribute('method', 'post');
+        await expect(form).toHaveAttribute('action', '/api/subscribe');
+        await expect(form).toHaveAttribute('data-interactive', 'false');
+        await expect(form.getByRole('status')).toContainText('Enable JavaScript');
+        await expect(form.getByRole('button', { name: 'SEND QUESTION' })).toBeDisabled();
+        await expect(form.locator('[name]')).toHaveCount(0);
+
+        await form.locator('#lead-name').fill('No Script Person');
+        await form.locator('#lead-email').fill('private-address@example.test');
+
+        expect(new URL(page.url()).search).toBe('');
+        expect(page.url()).not.toContain('No%20Script%20Person');
+        expect(page.url()).not.toContain('private-address');
+    });
+});
