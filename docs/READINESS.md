@@ -16,17 +16,17 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 ## Línea base acreditada
 
 - Repositorio: `codingships/honestSpanish`.
-- Último `main` y staging acreditados antes de este programa: `21c1f21373454526f43ee653075ab50d082f7f5f`.
-- Evidencia: [CI, despliegue y smoke exactos](https://github.com/codingships/honestSpanish/actions/runs/30764154143).
+- Último `main` y staging acreditados: `32edc799b7b93516ac15a00636bb6ae94d573626`.
+- Evidencia: [CI de `main`](https://github.com/codingships/honestSpanish/actions/runs/30824349864) y [despliegue + smoke del mismo SHA](https://github.com/codingships/honestSpanish/actions/runs/30825001929).
 - Producción no forma parte de esta acreditación.
 
 ## Capacidades
 
 | ID | Capacidad | Estado | Evidencia nativa | Falta para cerrar |
 |---|---|---|---|---|
-| R01 | Autoridad de `origin/main` y despliegue del SHA exacto | VERIFICADO | [`AGENTS.md`](../AGENTS.md), [`deploy-staging.yml`](../.github/workflows/deploy-staging.yml), [run `21c1f213`](https://github.com/codingships/honestSpanish/actions/runs/30764154143) | Mantener el mismo contrato en cada despliegue. |
-| R02 | CI proporcional con gate único | IMPLEMENTADO | [`ci.yml`](../.github/workflows/ci.yml), [`classify-changes.ts`](../scripts/ci/classify-changes.ts), [pruebas](../tests/unit/ci-change-classifier.test.ts) | Acreditar la PR en GitHub y hacer requerido `quality-gate`. |
-| R03 | Historial pequeño y recuperable de capacidades | IMPLEMENTADO | Este archivo y [plantilla de PR](../.github/pull_request_template.md) | Registrar solo cambios reales, sin crear informes paralelos. |
+| R01 | Autoridad de `origin/main` y despliegue del SHA exacto | VERIFICADO | [`AGENTS.md`](../AGENTS.md), [`deploy-staging.yml`](../.github/workflows/deploy-staging.yml), [run del SHA `32edc799`](https://github.com/codingships/honestSpanish/actions/runs/30825001929) | Mantener el mismo contrato en cada despliegue. |
+| R02 | CI proporcional con gate único | VERIFICADO | [`ci.yml`](../.github/workflows/ci.yml), [`classify-changes.ts`](../scripts/ci/classify-changes.ts), [CI de `main`](https://github.com/codingships/honestSpanish/actions/runs/30824349864); `main` exige `quality-gate` | Mantener la clasificación alineada al añadir superficies nuevas. |
+| R03 | Historial pequeño y recuperable de capacidades | VERIFICADO | Este archivo, [plantilla de PR](../.github/pull_request_template.md) y [PR #61](https://github.com/codingships/honestSpanish/pull/61) | Registrar solo cambios reales, sin crear informes paralelos. |
 | P01 | Oferta inicial 1:1 de 4 × 50 min, 259 EUR, ciclo de 28 días | IMPLEMENTADO | [`PRODUCT.md`](PRODUCT.md), [`package-pricing.ts`](../src/lib/package-pricing.ts), [contrato SQL](../tests/sql/checkout-v2-billing-foundation.sql) | Verificar compra pública normal de extremo a extremo en Sandbox. |
 | P02 | Catálogo versionado y snapshots históricos | IMPLEMENTADO | [`ARCHITECTURE.md`](../ARCHITECTURE.md), [`package_prices`](../db/schema.sql), [API de paquetes](../src/pages/api/admin/packages.ts) | La administración V2 todavía no permite gestionar la oferta vigente. |
 | P03 | Catálogo V2 manejable sin programar | PENDIENTE | La [API actual](../src/pages/api/admin/packages.ts) limita edición y sincronización a V1 | Crear borrador, validación, preview, publicación y retirada versionada. |
@@ -35,8 +35,8 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 | C02 | Blog editable y conectado al producto | PARCIAL | [Configuración Keystatic](../keystatic.config.ts), [páginas de blog](../src/pages/[lang]/blog) | Sustituir almacenamiento local para editores, integrar navegación y medir conversión. |
 | C03 | Emails editables de forma segura | PARCIAL | [Plantillas](../src/lib/email/templates.ts), [gestor administrativo](../src/components/admin/EmailTemplateManager.tsx) | Versionado, permisos, preview real y publicación; hoy el gestor no edita. |
 | A01 | Autenticación y roles básicos | IMPLEMENTADO | [`middleware.ts`](../src/middleware.ts), [`profiles.role`](../db/schema.sql), [pruebas auth/RBAC](../tests/unit) | Revisar autorización completa de rutas y sesiones expiradas. |
-| A02 | Permisos administrativos granulares | PENDIENTE | El modelo actual distingue `student`, `teacher` y `admin` | Separar owner, contenido, catálogo, operaciones, finanzas y lectura. |
-| A03 | Historial administrativo visible | PARCIAL | [`admin_audit_log`](../db/schema.sql) | Cubrir mutaciones relevantes y ofrecer consulta/filtrado en admin. |
+| A02 | Permisos administrativos granulares | IMPLEMENTADO | [`admin-access.ts`](../src/lib/admin-access.ts), [mapa central](../src/lib/admin-route-capabilities.ts), [migración y RLS por capacidad](../supabase/migrations/20260803151112_admin_access_foundation.sql), [gestor](../src/components/admin/AdminAccessManager.tsx), [contrato SQL de acceso directo](../tests/sql/admin-access-foundation.sql) | Acreditar PR y staging. El gestor asigna permisos a perfiles ya administradores; la invitación/promoción segura de nuevo personal sigue pendiente. |
+| A03 | Historial administrativo visible | PARCIAL | Ledger inmutable en [`db/schema.sql`](../db/schema.sql), [API redactada](../src/pages/api/admin/audit.ts) y [vista filtrable](../src/components/admin/AdminAuditHistory.tsx) | Acreditar PR/staging y ampliar cobertura a todas las mutaciones relevantes; la vista índice no expone snapshots con PII. |
 | U01 | UX/UI pública coherente en escritorio y móvil | PARCIAL | [Componentes públicos](../src/components), [E2E público](../tests/e2e) | Corregir menú móvil, jerarquía, formulario sin JS, confianza y estados. |
 | U02 | Tipografía coherente ES/EN/RU | PARCIAL | [Fuentes y estilos](../src/styles), [`translations.ts`](../src/i18n/translations.ts) | Corregir cobertura cirílica y fallbacks; comprobar visualmente las plantillas. |
 | U03 | Accesibilidad WCAG 2.2 AA proporcional | DESCONOCIDO | Axe está disponible en dependencias y existen pruebas públicas | Completar teclado, foco, reflow, contraste, errores, idiomas y lector de pantalla mínimo. |
@@ -61,5 +61,6 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 | Resultado | PR | SHA integrado | Staging |
 |---|---|---|---|
 | Baseline técnico recuperado y despliegue seguro acreditado | [#60](https://github.com/codingships/honestSpanish/pull/60) | `21c1f21373454526f43ee653075ab50d082f7f5f` | [CI + despliegue + smoke](https://github.com/codingships/honestSpanish/actions/runs/30764154143) |
+| Pipeline proporcional, ledger de preparación y contrato de garantía | [#61](https://github.com/codingships/honestSpanish/pull/61) | `32edc799b7b93516ac15a00636bb6ae94d573626` | [despliegue + smoke exactos](https://github.com/codingships/honestSpanish/actions/runs/30825001929) |
 
 El siguiente hito se añade cuando la PR esté integrada y, si cambia runtime, cuando el mismo SHA quede acreditado en staging. GitHub conserva el detalle; esta tabla no lo duplica.

@@ -82,9 +82,10 @@ BEGIN
         FROM pg_catalog.pg_policies
         WHERE schemaname = 'public'
           AND tablename = 'fulfillment_jobs'
-          AND policyname = 'Admins can view fulfillment jobs'
+          AND policyname = 'Admin operations readers can view fulfillment jobs'
           AND cmd = 'SELECT'
           AND 'authenticated' = ANY(roles)
+          AND COALESCE(qual, '') ILIKE '%operations.read%'
     ) <> 1 OR EXISTS (
         SELECT 1
         FROM pg_catalog.pg_policies

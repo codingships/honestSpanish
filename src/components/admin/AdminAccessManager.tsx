@@ -1,0 +1,176 @@
+import { useEffect, useMemo, useState } from 'react';
+import {
+    ADMIN_ACCESS_ROLES,
+    type AdminAccessRole,
+} from '../../lib/admin-access-contract';
+
+type AdminSummary = {
+    id: string;
+    email: string;
+    fullName: string | null;
+    roles: AdminAccessRole[];
+};
+
+type AccessResponse = {
+    admins?: AdminSummary[];
+    canWrite?: boolean;
+    error?: string;
+};
+
+const roleCopy: Record<AdminAccessRole, { label: string; description: string }> = {
+    owner: {
+        label: 'Propietario',
+        description: 'Control total, incluida la gestión de accesos.',
+    },
+    content_editor: {
+        label: 'Contenido',
+        description: 'Edita páginas, SEO, navegación, FAQ, blog y emails.',
+    },
+    catalog_editor: {
+        label: 'Catálogo',
+        description: 'Prepara y publica paquetes, términos y precios.',
+    },
+    operator: {
+        label: 'Operaciones',
+        description: 'Gestiona alumnos, profesores, clases, CRM y soporte.',
+    },
+    finance: {
+        label: 'Finanzas',
+        description: 'Consulta y gestiona cobros, devoluciones y liquidaciones.',
+    },
+    viewer: {
+        label: 'Solo lectura',
+        description: 'Consulta todas las áreas sin poder cambiar datos.',
+    },
+};
+
+export default function AdminAccessManager() {
+    const [admins, setAdmins] = useState<AdminSummary[]>([]);
+    const [canWrite, setCanWrite] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [pendingKey, setPendingKey] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [message, setMessage] = useState<string | null>(null);
+    const ownerCount = useMemo(
+        () => admins.filter((admin) => admin.roles.includes('owner')).length,
+        [admins],
+    );
+
+    const load = async () => {
+        setLoading(true);
+        setError(null);
+        try {
+            const response = await fetch('/api/admin/access');
+            const data = await response.json() as AccessResponse;
+            if (!response.ok) throw new Error(data.error || 'No se pudieron cargar los accesos');
+            setAdmins(data.admins ?? []);
+            setCanWrite(data.canWrite === true);
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'No se pudieron cargar los accesos');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        void load();
+    }, []);
+
+    const mutate = async (
+        admin: AdminSummary,
+        accessRole: AdminAccessRole,
+        action: 'grant' | 'revoke',
+    ) => {
+        const key = `${admin.id}:${accessRole}`;
+        if (!canWrite || pendingKey) return;
+        setPendingKey(key);
+        setError(null);
+        setMessage(null);
+        try {
+            const response = await fetch('/api/admin/access', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action,
+                    profileId: admin.id,
+                    accessRole,
+                }),
+            });
+            const data = await response.json() as AccessResponse;
+            if (!response.ok) throw new Error(data.error || 'No se pudo cambiar el acceso');
+            setAdmins(data.admins ?? []);
+            setCanWrite(data.canWrite === true);
+            setMessage(action === 'grant' ? 'Acceso concedido' : 'Acceso retirado');
+        } catch (cause) {
+            setError(cause instanceof Error ? cause.message : 'No se pudo cambiar el acceso');
+        } finally {
+            setPendingKey(null);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div role="status" className="border-2 border-[#006064] bg-white p-6 font-mono text-[#006064]">
+                Cargando accesos...
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-5">
+            {!canWrite && (
+                <p className="border-2 border-[#006064] bg-[#E0F7FA] p-4 text-sm font-bold text-[#006064]">
+                    Puedes consultar los accesos, pero solo un propietario puede modificarlos.
+                </p>
+            )}
+            {error && <p role="alert" className="border-2 border-red-700 bg-red-50 p-4 font-bold text-red-800">{error}</p>}
+            {message && <p role="status" className="border-2 border-green-700 bg-green-50 p-4 font-bold text-green-800">{message}</p>}
+
+            <div className="grid gap-5 xl:grid-cols-2">
+                {admins.map((admin) => (
+                    <section key={admin.id} className="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0_0_#006064]">
+                        <div className="mb-4 border-b-2 border-[#006064] pb-3">
+                            <h2 className="text-lg font-black text-[#006064]">{admin.fullName || admin.email}</h2>
+                            {admin.fullName && <p className="mt-1 font-mono text-xs text-[#006064]">{admin.email}</p>}
+                        </div>
+
+                        <ul className="space-y-3">
+                            {ADMIN_ACCESS_ROLES.map((role) => {
+                                const assigned = admin.roles.includes(role);
+                                const isLastOwner = role === 'owner' && assigned && ownerCount === 1;
+                                const pending = pendingKey === `${admin.id}:${role}`;
+                                return (
+                                    <li key={role} className="flex flex-col gap-3 border border-[#006064]/30 p-3 sm:flex-row sm:items-center sm:justify-between">
+                                        <div>
+                                            <p className="font-black text-[#006064]">{roleCopy[role].label}</p>
+                                            <p className="mt-1 text-xs text-gray-700">{roleCopy[role].description}</p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={!canWrite || pendingKey !== null || isLastOwner}
+                                            aria-label={`${assigned ? 'Retirar' : 'Conceder'} ${roleCopy[role].label} a ${admin.fullName || admin.email}`}
+                                            title={isLastOwner ? 'Debe quedar al menos un propietario' : undefined}
+                                            onClick={() => void mutate(admin, role, assigned ? 'revoke' : 'grant')}
+                                            className={`min-w-28 border-2 px-3 py-2 text-xs font-black uppercase transition-colors focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-[#006064] disabled:cursor-not-allowed disabled:opacity-50 ${assigned
+                                                ? 'border-red-800 bg-white text-red-800 hover:bg-red-50'
+                                                : 'border-[#006064] bg-[#006064] text-white hover:bg-[#004d40]'
+                                            }`}
+                                        >
+                                            {pending ? 'Guardando...' : assigned ? 'Retirar' : 'Conceder'}
+                                        </button>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </section>
+                ))}
+            </div>
+
+            {admins.length === 0 && (
+                <p role="status" className="border-2 border-[#006064] bg-white p-6 text-center text-[#006064]">
+                    No hay perfiles administradores disponibles.
+                </p>
+            )}
+        </div>
+    );
+}

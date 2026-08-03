@@ -58,7 +58,15 @@ Tablas centrales:
 - `processed_webhook_events`
 - `admin_audit_log`
 
-RLS protege el acceso por rol. Las operaciones administrativas y de fulfillment usan la service role únicamente en código server-only.
+RLS protege el acceso académico por rol y el acceso administrativo directo por capacidad efectiva. Las operaciones administrativas y de fulfillment que usan la service role viven únicamente en código server-only.
+
+## Acceso administrativo y auditoría
+
+Supabase Auth conserva la identidad y `profiles.role` conserva el rol académico (`student`, `teacher`, `admin`). Los permisos operativos no se obtienen de metadatos del token: `admin_role_assignments` permite acumular `owner`, contenido, catálogo, operaciones, finanzas o lectura sobre un perfil que ya es administrador. Los administradores existentes reciben `owner` al aplicar la migración; después, los cambios pasan por RPC server-only, son idempotentes y no permiten retirar el último owner.
+
+`src/middleware.ts` aplica un mapa central de capacidades a páginas y APIs administrativas y falla cerrado si la comprobación no está disponible. La misma separación se aplica en las políticas RLS de catálogo, operaciones, finanzas y acceso para que una sesión autenticada no pueda eludir la aplicación mediante la Data API. Los cambios de rol académico, email y atestación de adulto continúan siendo server-only incluso para un administrador. El panel global, que mezcla datos operativos y financieros, queda reservado a `owner` y `viewer`; los roles especializados se redirigen a su primera superficie permitida y la navegación solo muestra capacidades efectivas. La promoción o invitación de un perfil nuevo a administrador no forma parte todavía de este flujo.
+
+`admin_audit_log` es append-only para acciones directas y solo admite la pseudonimización del actor provocada por la eliminación de su perfil. La vista administrativa de historial exige `access.read`, permite filtrar metadatos y no devuelve los snapshots `before`/`after`; ampliar la cobertura de auditoría a cada mutación del producto sigue siendo trabajo incremental.
 
 El progreso de Checkout V2 se deriva de los hechos de `sessions` por ciclo; `subscriptions.sessions_used` conserva su significado operativo de cuota reservada y no representa clases consumidas. `checkout_v2_session_consumption` clasifica cada posición materializada y `checkout_v2_cycle_progress` solo publica contadores de consumo cuando existen exactamente las cuatro posiciones y el ciclo está listo. Un ciclo pendiente o inconsistente conserva su estado explícito y no se presenta como un progreso real de 0/4.
 

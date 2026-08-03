@@ -1,6 +1,8 @@
 ---
 import BaseLayout from './BaseLayout.astro';
 import { getLangFromParam, useTranslations } from '../i18n/utils';
+import type { AdminCapability } from '../lib/admin-access-contract';
+import { createSupabaseServerClient } from '../lib/supabase-server';
 
 interface Props {
   title: string;
@@ -16,6 +18,18 @@ const { title, user, lang: langParam } = Astro.props;
 const lang = getLangFromParam(langParam);
 const t = useTranslations(lang);
 const role = user.role || 'student';
+const adminCapabilities = new Set<AdminCapability>();
+if (role === 'admin') {
+    const supabase = createSupabaseServerClient(Astro);
+    const { data, error } = await supabase.rpc('get_my_admin_capabilities');
+    if (error) {
+        console.error('[CampusLayout] Administrator navigation unavailable', {
+            code: error.code ?? 'unknown',
+        });
+    } else {
+        for (const capability of data ?? []) adminCapabilities.add(capability);
+    }
+}
 
 const accessibilityCopy = {
     es: {
@@ -86,6 +100,7 @@ const icons = {
     support: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 2-2.5 2-2.5 4"/><path d="M12 17h.01"/></svg>',
     job: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8l2 3v17H6V7l2-3Z"/><path d="M8 8h8M9 13h6M9 17h4"/></svg>',
     email: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg>',
+    key: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m11 12 9-9M16 7l3 3M14 9l3 3"/></svg>',
 } as const;
 
 // Role badge colors
@@ -98,7 +113,12 @@ const badge = roleBadges[role] || roleBadges.student;
 
 // Navigation items based on role
 type NavIcon = keyof typeof icons;
-type NavItem = { href: string; icon: NavIcon; label: string; active?: boolean; disabled?: boolean };
+type NavItem = {
+    href: string;
+    icon: NavIcon;
+    label: string;
+    requiredCapability?: AdminCapability;
+};
 
 const studentNav: NavItem[] = [
     { href: `/${lang}/campus`, icon: 'home', label: t('campus.nav.dashboard') },
@@ -116,26 +136,31 @@ const teacherNav: NavItem[] = [
 ];
 
 const adminNav: NavItem[] = [
-    { href: `/${lang}/campus/admin`, icon: 'chart', label: t('campus.nav.adminDashboard') },
-    { href: `/${lang}/campus/admin/leads`, icon: 'target', label: 'CRM Leads' },
-    { href: `/${lang}/campus/admin/packages`, icon: 'package', label: catalogLabel },
-    { href: `/${lang}/campus/admin/jobs`, icon: 'job', label: 'Jobs' },
-    { href: `/${lang}/campus/admin/support`, icon: 'support', label: 'Tickets soporte' },
-    { href: `/${lang}/campus/admin/emails`, icon: 'email', label: t('campus.nav.emails') },
-    { href: `/${lang}/campus/admin/students`, icon: 'users', label: t('campus.nav.students') },
-    { href: `/${lang}/campus/admin/teachers`, icon: 'users', label: teachersAndSlotsLabel },
-    { href: `/${lang}/campus/admin/users`, icon: 'users', label: 'Matching' },
-    { href: `/${lang}/campus/admin/calendar`, icon: 'calendar', label: t('campus.admin.calendar.title') },
-    { href: `/${lang}/campus/admin/payments`, icon: 'card', label: t('campus.nav.payments') },
-    { href: `/${lang}/campus/admin/profitability`, icon: 'chart', label: t('campus.nav.profitability') },
-    { href: `/${lang}/campus/admin/compensation`, icon: 'chart', label: 'Remuneración docente' },
-    { href: `/${lang}/campus/admin/guarantees`, icon: 'card', label: 'Garantías' },
+    { href: `/${lang}/campus/admin`, icon: 'chart', label: t('campus.nav.adminDashboard'), requiredCapability: 'dashboard.read' },
+    { href: `/${lang}/campus/admin/leads`, icon: 'target', label: 'CRM Leads', requiredCapability: 'operations.read' },
+    { href: `/${lang}/campus/admin/packages`, icon: 'package', label: catalogLabel, requiredCapability: 'catalog.read' },
+    { href: `/${lang}/campus/admin/jobs`, icon: 'job', label: 'Jobs', requiredCapability: 'operations.read' },
+    { href: `/${lang}/campus/admin/support`, icon: 'support', label: 'Tickets soporte', requiredCapability: 'operations.read' },
+    { href: `/${lang}/campus/admin/emails`, icon: 'email', label: t('campus.nav.emails'), requiredCapability: 'content.read' },
+    { href: `/${lang}/campus/admin/students`, icon: 'users', label: t('campus.nav.students'), requiredCapability: 'operations.read' },
+    { href: `/${lang}/campus/admin/teachers`, icon: 'users', label: teachersAndSlotsLabel, requiredCapability: 'operations.read' },
+    { href: `/${lang}/campus/admin/users`, icon: 'users', label: 'Matching', requiredCapability: 'operations.read' },
+    { href: `/${lang}/campus/admin/calendar`, icon: 'calendar', label: t('campus.admin.calendar.title'), requiredCapability: 'operations.read' },
+    { href: `/${lang}/campus/admin/payments`, icon: 'card', label: t('campus.nav.payments'), requiredCapability: 'finance.read' },
+    { href: `/${lang}/campus/admin/profitability`, icon: 'chart', label: t('campus.nav.profitability'), requiredCapability: 'finance.read' },
+    { href: `/${lang}/campus/admin/access`, icon: 'key', label: 'Accesos', requiredCapability: 'access.read' },
+    { href: `/${lang}/campus/admin/audit`, icon: 'job', label: 'Historial', requiredCapability: 'access.read' },
+    { href: `/${lang}/campus/admin/compensation`, icon: 'chart', label: 'Remuneración docente', requiredCapability: 'finance.read' },
+    { href: `/${lang}/campus/admin/guarantees`, icon: 'card', label: 'Garantías', requiredCapability: 'finance.read' },
     { href: `/${lang}/campus/support`, icon: 'support', label: t('campus.nav.support') },
     { href: `/${lang}/campus/account`, icon: 'user', label: t('campus.nav.account') },
 ];
 
 // Select nav based on role
-const navItems = role === 'admin' ? adminNav : role === 'teacher' ? teacherNav : studentNav;
+const visibleAdminNav = adminNav.filter((item) => (
+    !item.requiredCapability || adminCapabilities.has(item.requiredCapability)
+));
+const navItems = role === 'admin' ? visibleAdminNav : role === 'teacher' ? teacherNav : studentNav;
 const normalizedPath = Astro.url.pathname.replace(/\/+$/, '') || '/';
 const isCurrentNavItem = (href: string) => {
     const normalizedHref = href.replace(/\/+$/, '') || '/';

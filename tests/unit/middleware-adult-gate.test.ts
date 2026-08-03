@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     getUser: vi.fn(),
     signOut: vi.fn(),
     single: vi.fn(),
+    rpc: vi.fn(),
 }));
 
 vi.mock('../../src/lib/runtime-env', () => ({
@@ -25,6 +26,7 @@ vi.mock('../../src/lib/supabase-server', () => ({
             single: mocks.single,
             maybeSingle: mocks.single,
         })),
+        rpc: mocks.rpc,
     })),
 }));
 
@@ -52,6 +54,7 @@ describe('campus adult-account middleware gate', () => {
             error: null,
         });
         mocks.signOut.mockResolvedValue({ error: null });
+        mocks.rpc.mockResolvedValue({ data: true, error: null });
         mocks.single.mockResolvedValue({
             data: {
                 role: 'student',
@@ -289,6 +292,110 @@ describe('campus adult-account middleware gate', () => {
         expect(response.status).toBe(200);
         expect(next).toHaveBeenCalledOnce();
         expect(mocks.signOut).not.toHaveBeenCalled();
+    });
+
+    it('enforces the mapped capability before an administrator API handler runs', async () => {
+        mocks.rpc.mockResolvedValue({ data: false, error: null });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/api/admin/profitability');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(403);
+        expect(mocks.rpc).toHaveBeenCalledWith('has_my_admin_capability', {
+            p_capability: 'finance.read',
+        });
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('enforces page-level capabilities after confirming the academic admin role', async () => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'admin',
+                adult_confirmed: false,
+                adult_confirmed_at: null,
+                age_policy_version: null,
+            },
+            error: null,
+        });
+        mocks.rpc.mockResolvedValue({ data: false, error: null });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es/campus/admin/packages');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(403);
+        expect(mocks.rpc).toHaveBeenCalledWith('has_my_admin_capability', {
+            p_capability: 'catalog.read',
+        });
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('redirects a specialized administrator away from the mixed-data dashboard', async () => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'admin',
+                adult_confirmed: false,
+                adult_confirmed_at: null,
+                age_policy_version: null,
+            },
+            error: null,
+        });
+        mocks.rpc.mockImplementation((name: string) => {
+            if (name === 'has_my_admin_capability') {
+                return Promise.resolve({ data: false, error: null });
+            }
+            if (name === 'get_my_admin_capabilities') {
+                return Promise.resolve({
+                    data: ['catalog.read', 'catalog.write'],
+                    error: null,
+                });
+            }
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/es/campus/admin');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(302);
+        expect(response.headers.get('Location')).toBe('/es/campus/admin/packages');
+        expect(mocks.rpc).toHaveBeenNthCalledWith(1, 'has_my_admin_capability', {
+            p_capability: 'dashboard.read',
+        });
+        expect(mocks.rpc).toHaveBeenNthCalledWith(2, 'get_my_admin_capabilities');
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('keeps a shared calendar route available to a student actor', async () => {
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/api/calendar/sessions');
+        const next = vi.fn().mockResolvedValue(new Response('{}'));
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(200);
+        expect(next).toHaveBeenCalledOnce();
+        expect(mocks.rpc).not.toHaveBeenCalled();
+    });
+
+    it('requires operations.read when the same shared calendar route is used by an admin', async () => {
+        mocks.single.mockResolvedValue({ data: { role: 'admin' }, error: null });
+        mocks.rpc.mockResolvedValue({ data: false, error: null });
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext('/api/calendar/sessions');
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.status).toBe(403);
+        expect(mocks.rpc).toHaveBeenCalledWith('has_my_admin_capability', {
+            p_capability: 'operations.read',
+        });
+        expect(next).not.toHaveBeenCalled();
     });
 
     it('blocks every application route while production is in bootstrap mode', async () => {
