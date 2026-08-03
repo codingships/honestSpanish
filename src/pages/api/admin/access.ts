@@ -126,7 +126,12 @@ export const POST: APIRoute = async (context) => {
 
     try {
         const admins = await loadAccessRoster(supabaseAdmin);
-        return jsonResponse({ admins, result: data });
+        const currentAdmin = admins.find((admin) => admin.id === auth.user.id);
+        return jsonResponse({
+            admins,
+            canWrite: currentAdmin?.roles.includes('owner') ?? false,
+            result: data,
+        });
     } catch {
         return jsonResponse({
             error: 'Access changed but the updated roster could not be loaded',

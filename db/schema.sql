@@ -24060,3 +24060,309 @@ COMMENT ON FUNCTION public.admin_revoke_access_role(
     UUID,
     public.admin_access_role
 ) IS 'Idempotently revokes one administrative role, preserving at least one owner, and records an immutable audit event.';
+
+-- The browser/API middleware is not a security boundary for Supabase's Data
+-- API. Replace the historical all-admin policies with the same capability
+-- model so a restricted administrator cannot bypass the application by using
+-- their authenticated session directly.
+
+DROP POLICY IF EXISTS "Admins can manage leads" ON public.leads;
+DROP POLICY IF EXISTS "Admins can view leads" ON public.leads;
+CREATE POLICY "Admin operations readers can view leads"
+    ON public.leads FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage leads"
+    ON public.leads FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can manage crm contacts" ON public.crm_contacts;
+DROP POLICY IF EXISTS "Admins can manage crm opportunities" ON public.crm_opportunities;
+DROP POLICY IF EXISTS "Admins can manage crm tasks" ON public.crm_tasks;
+DROP POLICY IF EXISTS "Admins can manage crm activities" ON public.crm_activities;
+DROP POLICY IF EXISTS "Admins can manage crm consents" ON public.crm_consents;
+
+CREATE POLICY "Admin operations readers can view crm contacts"
+    ON public.crm_contacts FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage crm contacts"
+    ON public.crm_contacts FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view crm opportunities"
+    ON public.crm_opportunities FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage crm opportunities"
+    ON public.crm_opportunities FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view crm tasks"
+    ON public.crm_tasks FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage crm tasks"
+    ON public.crm_tasks FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view crm activities"
+    ON public.crm_activities FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage crm activities"
+    ON public.crm_activities FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view crm consents"
+    ON public.crm_consents FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage crm consents"
+    ON public.crm_consents FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can manage packages" ON public.packages;
+CREATE POLICY "Admin catalog readers can view packages"
+    ON public.packages FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'catalog.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin catalog writers can manage packages"
+    ON public.packages FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'catalog.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'catalog.write'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can manage payments" ON public.payments;
+CREATE POLICY "Admin finance readers can view payments"
+    ON public.payments FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'finance.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin finance writers can manage payments"
+    ON public.payments FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'finance.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'finance.write'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can do everything on profiles" ON public.profiles;
+DROP POLICY IF EXISTS "Admins can manage profiles_private" ON public.profiles_private;
+DROP POLICY IF EXISTS "Admins can manage sessions" ON public.sessions;
+DROP POLICY IF EXISTS "Admins can manage assignments" ON public.student_teachers;
+DROP POLICY IF EXISTS "Admins can manage subscriptions" ON public.subscriptions;
+DROP POLICY IF EXISTS "Admins can manage all availability" ON public.teacher_availability;
+
+CREATE POLICY "Admin operations readers can view profiles"
+    ON public.profiles FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage profiles"
+    ON public.profiles FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view profiles private"
+    ON public.profiles_private FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage profiles private"
+    ON public.profiles_private FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view sessions"
+    ON public.sessions FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage sessions"
+    ON public.sessions FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view assignments"
+    ON public.student_teachers FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage assignments"
+    ON public.student_teachers FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view subscriptions"
+    ON public.subscriptions FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage subscriptions"
+    ON public.subscriptions FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+CREATE POLICY "Admin operations readers can view availability"
+    ON public.teacher_availability FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+CREATE POLICY "Admin operations writers can manage availability"
+    ON public.teacher_availability FOR ALL TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )))
+    WITH CHECK ((SELECT public.has_my_admin_capability(
+        'operations.write'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can view processed webhook events"
+    ON public.processed_webhook_events;
+CREATE POLICY "Admin operations readers can view processed webhook events"
+    ON public.processed_webhook_events FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can manage fulfillment jobs"
+    ON public.fulfillment_jobs;
+DROP POLICY IF EXISTS "Admins can view fulfillment jobs"
+    ON public.fulfillment_jobs;
+CREATE POLICY "Admin operations readers can view fulfillment jobs"
+    ON public.fulfillment_jobs FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can view audit log" ON public.admin_audit_log;
+CREATE POLICY "Admin access readers can view audit log"
+    ON public.admin_audit_log FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'access.read'::public.admin_capability
+    )));
+
+DROP POLICY IF EXISTS "Admins can read support ticket history"
+    ON public.support_ticket_events;
+CREATE POLICY "Admin operations readers can read support ticket history"
+    ON public.support_ticket_events FOR SELECT TO authenticated
+    USING ((SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    )));
+
+CREATE OR REPLACE FUNCTION private.can_read_support_ticket_event(
+    p_ticket_id UUID,
+    p_visibility TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+    SELECT (SELECT public.has_my_admin_capability(
+        'operations.read'::public.admin_capability
+    ))
+        OR (
+            p_visibility = 'public'
+            AND EXISTS (
+                SELECT 1 FROM public.support_tickets AS ticket
+                WHERE ticket.id = p_ticket_id
+                  AND ticket.user_id = (SELECT auth.uid())
+            )
+        );
+$$;
+
+-- Authenticated users, including administrators, cannot mutate academic roles,
+-- login identities, or adult attestation through a direct profile update. Those
+-- transitions remain server-only and therefore independently auditable.
+CREATE OR REPLACE FUNCTION private.protect_profile_role()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, private, pg_temp
+AS $$
+BEGIN
+    IF auth.uid() IS NULL THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.adult_confirmed IS DISTINCT FROM OLD.adult_confirmed
+        OR NEW.adult_confirmed_at IS DISTINCT FROM OLD.adult_confirmed_at
+        OR NEW.age_policy_version IS DISTINCT FROM OLD.age_policy_version THEN
+        RAISE EXCEPTION 'Cannot modify adult account attestation';
+    END IF;
+
+    IF NEW.role IS DISTINCT FROM OLD.role THEN
+        RAISE EXCEPTION 'Cannot modify role';
+    END IF;
+
+    IF NEW.email IS DISTINCT FROM OLD.email THEN
+        RAISE EXCEPTION 'Cannot modify profile email';
+    END IF;
+
+    RETURN NEW;
+END;
+$$;

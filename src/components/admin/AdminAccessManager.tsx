@@ -99,6 +99,7 @@ export default function AdminAccessManager() {
             const data = await response.json() as AccessResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo cambiar el acceso');
             setAdmins(data.admins ?? []);
+            setCanWrite(data.canWrite === true);
             setMessage(action === 'grant' ? 'Acceso concedido' : 'Acceso retirado');
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : 'No se pudo cambiar el acceso');

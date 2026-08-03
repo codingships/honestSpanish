@@ -8,7 +8,11 @@ INSERT INTO auth.users (id, email, email_confirmed_at) VALUES
     ('99300000-0000-4000-8000-000000000001', 'owner@example.test', clock_timestamp()),
     ('99300000-0000-4000-8000-000000000002', 'editor@example.test', clock_timestamp()),
     ('99300000-0000-4000-8000-000000000003', 'erasable@example.test', clock_timestamp()),
-    ('99300000-0000-4000-8000-000000000004', 'student@example.test', clock_timestamp());
+    ('99300000-0000-4000-8000-000000000004', 'student@example.test', clock_timestamp()),
+    ('99300000-0000-4000-8000-000000000005', 'operator@example.test', clock_timestamp()),
+    ('99300000-0000-4000-8000-000000000006', 'viewer@example.test', clock_timestamp()),
+    ('99300000-0000-4000-8000-000000000007', 'finance@example.test', clock_timestamp()),
+    ('99300000-0000-4000-8000-000000000008', 'content@example.test', clock_timestamp());
 INSERT INTO public.profiles (
     id,
     email,
@@ -48,6 +52,38 @@ INSERT INTO public.profiles (
         TRUE,
         clock_timestamp(),
         'test'
+    ),
+    (
+        '99300000-0000-4000-8000-000000000005',
+        'operator@example.test',
+        'admin',
+        TRUE,
+        clock_timestamp(),
+        'test'
+    ),
+    (
+        '99300000-0000-4000-8000-000000000006',
+        'viewer@example.test',
+        'admin',
+        TRUE,
+        clock_timestamp(),
+        'test'
+    ),
+    (
+        '99300000-0000-4000-8000-000000000007',
+        'finance@example.test',
+        'admin',
+        TRUE,
+        clock_timestamp(),
+        'test'
+    ),
+    (
+        '99300000-0000-4000-8000-000000000008',
+        'content@example.test',
+        'admin',
+        TRUE,
+        clock_timestamp(),
+        'test'
     );
 INSERT INTO public.admin_role_assignments (
     profile_id,
@@ -59,6 +95,74 @@ INSERT INTO public.admin_role_assignments (
     NULL
 );
 SET LOCAL session_replication_role = origin;
+
+INSERT INTO public.packages (
+    id,
+    name,
+    display_name,
+    price_monthly,
+    sessions_per_month,
+    is_active,
+    is_publicly_listed
+) VALUES (
+    '99400000-0000-4000-8000-000000000001',
+    'admin-access-private-package',
+    '{"es":"Paquete privado de prueba"}'::JSONB,
+    25900,
+    4,
+    FALSE,
+    FALSE
+);
+
+INSERT INTO public.leads (id, email, name) VALUES (
+    '99400000-0000-4000-8000-000000000002',
+    'rls-lead@example.test',
+    'RLS lead'
+);
+
+INSERT INTO public.payments (
+    id,
+    student_id,
+    amount,
+    status,
+    description
+) VALUES (
+    '99400000-0000-4000-8000-000000000003',
+    '99300000-0000-4000-8000-000000000004',
+    25900,
+    'succeeded',
+    'RLS payment'
+);
+
+INSERT INTO public.support_tickets (
+    id,
+    user_id,
+    issue_type,
+    issue_title,
+    message
+) VALUES (
+    '99400000-0000-4000-8000-000000000004',
+    '99300000-0000-4000-8000-000000000004',
+    'other',
+    'RLS support ticket',
+    'Support ticket created for the admin capability contract.'
+);
+
+INSERT INTO public.support_ticket_events (
+    ticket_id,
+    sequence,
+    actor_id,
+    event_type,
+    visibility,
+    body
+) VALUES (
+    '99400000-0000-4000-8000-000000000004',
+    2,
+    '99300000-0000-4000-8000-000000000001',
+    'internal_note',
+    'internal',
+    'Internal RLS note'
+);
 
 DO $$
 BEGIN
@@ -126,6 +230,26 @@ SELECT public.admin_grant_access_role(
     '99300000-0000-4000-8000-000000000002',
     'catalog_editor'
 );
+SELECT public.admin_grant_access_role(
+    '99300000-0000-4000-8000-000000000001',
+    '99300000-0000-4000-8000-000000000005',
+    'operator'
+);
+SELECT public.admin_grant_access_role(
+    '99300000-0000-4000-8000-000000000001',
+    '99300000-0000-4000-8000-000000000006',
+    'viewer'
+);
+SELECT public.admin_grant_access_role(
+    '99300000-0000-4000-8000-000000000001',
+    '99300000-0000-4000-8000-000000000007',
+    'finance'
+);
+SELECT public.admin_grant_access_role(
+    '99300000-0000-4000-8000-000000000001',
+    '99300000-0000-4000-8000-000000000008',
+    'content_editor'
+);
 RESET ROLE;
 
 DO $$
@@ -173,6 +297,347 @@ BEGIN
         'catalog.write'::public.admin_capability
     ] THEN
         RAISE EXCEPTION 'catalog_editor_self_capability_list_is_wrong: %', capabilities;
+    END IF;
+END
+$$;
+RESET ROLE;
+
+-- The database itself enforces the same domains as the application. These
+-- checks deliberately use authenticated sessions against the Data API surface.
+DO $$
+DECLARE
+    exposed_admin_functions TEXT[];
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_policies AS policy
+        WHERE policy.schemaname = 'public'
+          AND (
+              COALESCE(policy.qual, '') ILIKE '%private.is_admin%'
+              OR COALESCE(policy.with_check, '') ILIKE '%private.is_admin%'
+          )
+    ) THEN
+        RAISE EXCEPTION 'legacy_all_admin_rls_policy_remains';
+    END IF;
+
+    IF pg_catalog.strpos(
+        pg_catalog.pg_get_functiondef(
+            'private.protect_profile_role()'::REGPROCEDURE
+        ),
+        'private.is_admin'
+    ) > 0 THEN
+        RAISE EXCEPTION 'profile_role_guard_still_bypasses_for_admins';
+    END IF;
+
+    SELECT pg_catalog.array_agg(
+        pg_catalog.format('%I.%I', namespace.nspname, routine.proname)
+        ORDER BY routine.proname
+    )
+    INTO exposed_admin_functions
+    FROM pg_catalog.pg_proc AS routine
+    JOIN pg_catalog.pg_namespace AS namespace
+      ON namespace.oid = routine.pronamespace
+    WHERE namespace.nspname = 'public'
+      AND routine.proname LIKE 'admin\_%' ESCAPE '\'
+      AND pg_catalog.has_function_privilege(
+          'authenticated',
+          routine.oid,
+          'EXECUTE'
+      );
+
+    IF exposed_admin_functions IS NOT NULL THEN
+        RAISE EXCEPTION 'authenticated_admin_rpc_surface_is_exposed: %',
+            exposed_admin_functions;
+    END IF;
+END
+$$;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    '99300000-0000-4000-8000-000000000002',
+    TRUE
+);
+DO $$
+DECLARE
+    visible_count INTEGER;
+    changed_count INTEGER;
+BEGIN
+    SELECT count(*) INTO visible_count
+    FROM public.packages
+    WHERE id = '99400000-0000-4000-8000-000000000001';
+    IF visible_count <> 1 THEN
+        RAISE EXCEPTION 'catalog_editor_cannot_read_private_package';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.leads
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'catalog_editor_can_read_operations_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.payments
+    WHERE id = '99400000-0000-4000-8000-000000000003';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'catalog_editor_can_read_finance_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.admin_audit_log;
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'catalog_editor_can_read_access_history';
+    END IF;
+
+    UPDATE public.packages
+    SET price_monthly = 26000
+    WHERE id = '99400000-0000-4000-8000-000000000001';
+    GET DIAGNOSTICS changed_count = ROW_COUNT;
+    IF changed_count <> 1 THEN
+        RAISE EXCEPTION 'catalog_editor_cannot_write_package';
+    END IF;
+
+    UPDATE public.leads
+    SET name = 'Forbidden catalog edit'
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    GET DIAGNOSTICS changed_count = ROW_COUNT;
+    IF changed_count <> 0 THEN
+        RAISE EXCEPTION 'catalog_editor_can_write_operations_data';
+    END IF;
+END
+$$;
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    '99300000-0000-4000-8000-000000000005',
+    TRUE
+);
+DO $$
+DECLARE
+    visible_count INTEGER;
+    changed_count INTEGER;
+BEGIN
+    SELECT count(*) INTO visible_count
+    FROM public.leads
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    IF visible_count <> 1 THEN
+        RAISE EXCEPTION 'operator_cannot_read_operations_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.packages
+    WHERE id = '99400000-0000-4000-8000-000000000001';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'operator_can_read_private_catalog_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.payments
+    WHERE id = '99400000-0000-4000-8000-000000000003';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'operator_can_read_finance_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.support_ticket_events
+    WHERE ticket_id = '99400000-0000-4000-8000-000000000004'
+      AND visibility = 'internal';
+    IF visible_count <> 1 THEN
+        RAISE EXCEPTION 'operator_cannot_read_internal_support_history';
+    END IF;
+
+    UPDATE public.leads
+    SET name = 'Operator edit'
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    GET DIAGNOSTICS changed_count = ROW_COUNT;
+    IF changed_count <> 1 THEN
+        RAISE EXCEPTION 'operator_cannot_write_operations_data';
+    END IF;
+
+    BEGIN
+        UPDATE public.profiles
+        SET role = 'teacher'
+        WHERE id = '99300000-0000-4000-8000-000000000004';
+        RAISE EXCEPTION 'profile_role_update_not_blocked';
+    EXCEPTION
+        WHEN OTHERS THEN
+            IF SQLERRM NOT IN (
+                'Cannot modify role',
+                'profile_role_requires_managed_activation'
+            ) THEN
+                RAISE;
+            END IF;
+    END;
+END
+$$;
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    '99300000-0000-4000-8000-000000000006',
+    TRUE
+);
+DO $$
+DECLARE
+    visible_count INTEGER;
+    changed_count INTEGER;
+BEGIN
+    SELECT count(*) INTO visible_count
+    FROM public.packages
+    WHERE id = '99400000-0000-4000-8000-000000000001';
+    IF visible_count <> 1 THEN
+        RAISE EXCEPTION 'viewer_cannot_read_catalog_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.leads
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    IF visible_count <> 1 THEN
+        RAISE EXCEPTION 'viewer_cannot_read_operations_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.payments
+    WHERE id = '99400000-0000-4000-8000-000000000003';
+    IF visible_count <> 1 THEN
+        RAISE EXCEPTION 'viewer_cannot_read_finance_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.admin_audit_log;
+    IF visible_count < 1 THEN
+        RAISE EXCEPTION 'viewer_cannot_read_access_history';
+    END IF;
+
+    UPDATE public.packages
+    SET price_monthly = 27000
+    WHERE id = '99400000-0000-4000-8000-000000000001';
+    GET DIAGNOSTICS changed_count = ROW_COUNT;
+    IF changed_count <> 0 THEN
+        RAISE EXCEPTION 'viewer_can_write_catalog_data';
+    END IF;
+
+    DELETE FROM public.leads
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    GET DIAGNOSTICS changed_count = ROW_COUNT;
+    IF changed_count <> 0 THEN
+        RAISE EXCEPTION 'viewer_can_delete_operations_data';
+    END IF;
+END
+$$;
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    '99300000-0000-4000-8000-000000000007',
+    TRUE
+);
+DO $$
+DECLARE
+    visible_count INTEGER;
+    changed_count INTEGER;
+BEGIN
+    SELECT count(*) INTO visible_count
+    FROM public.payments
+    WHERE id = '99400000-0000-4000-8000-000000000003';
+    IF visible_count <> 1 THEN
+        RAISE EXCEPTION 'finance_admin_cannot_read_finance_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.leads
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'finance_admin_can_read_operations_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.packages
+    WHERE id = '99400000-0000-4000-8000-000000000001';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'finance_admin_can_read_private_catalog_data';
+    END IF;
+
+    UPDATE public.payments
+    SET description = 'Finance edit'
+    WHERE id = '99400000-0000-4000-8000-000000000003';
+    GET DIAGNOSTICS changed_count = ROW_COUNT;
+    IF changed_count <> 1 THEN
+        RAISE EXCEPTION 'finance_admin_cannot_write_finance_data';
+    END IF;
+END
+$$;
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    '99300000-0000-4000-8000-000000000008',
+    TRUE
+);
+DO $$
+DECLARE
+    visible_count INTEGER;
+BEGIN
+    SELECT count(*) INTO visible_count
+    FROM public.packages
+    WHERE id = '99400000-0000-4000-8000-000000000001';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'content_editor_can_read_private_catalog_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.leads
+    WHERE id = '99400000-0000-4000-8000-000000000002';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'content_editor_can_read_operations_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.payments
+    WHERE id = '99400000-0000-4000-8000-000000000003';
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'content_editor_can_read_finance_data';
+    END IF;
+
+    SELECT count(*) INTO visible_count
+    FROM public.admin_audit_log;
+    IF visible_count <> 0 THEN
+        RAISE EXCEPTION 'content_editor_can_read_access_history';
+    END IF;
+END
+$$;
+RESET ROLE;
+
+SET LOCAL ROLE authenticated;
+SELECT set_config(
+    'request.jwt.claim.sub',
+    '99300000-0000-4000-8000-000000000004',
+    TRUE
+);
+DO $$
+DECLARE
+    public_count INTEGER;
+    internal_count INTEGER;
+BEGIN
+    SELECT count(*) INTO public_count
+    FROM public.support_ticket_events
+    WHERE ticket_id = '99400000-0000-4000-8000-000000000004'
+      AND visibility = 'public';
+    SELECT count(*) INTO internal_count
+    FROM public.support_ticket_events
+    WHERE ticket_id = '99400000-0000-4000-8000-000000000004'
+      AND visibility = 'internal';
+
+    IF public_count <> 1 OR internal_count <> 0 THEN
+        RAISE EXCEPTION 'student_support_history_visibility_is_wrong: public %, internal %',
+            public_count,
+            internal_count;
     END IF;
 END
 $$;

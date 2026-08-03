@@ -139,13 +139,36 @@ describe('/api/admin/access', () => {
             profileId: editorId,
             accessRole: 'catalog_editor',
         }) as never);
+        const body = await response.json() as { canWrite: boolean };
 
         expect(response.status).toBe(200);
+        expect(body.canWrite).toBe(true);
         expect(requireAdminCapability).toHaveBeenCalledWith(expect.anything(), 'access.write');
         expect(client.rpc).toHaveBeenCalledWith('admin_grant_access_role', {
             p_actor_id: owner.id,
             p_profile_id: editorId,
             p_access_role: 'catalog_editor',
+        });
+    });
+
+    it('returns refreshed write authority after an owner revokes their own owner role', async () => {
+        const { client } = adminClient({
+            assignments: [
+                { profile_id: editorId, access_role: 'owner', granted_at: '2026-08-03T00:00:00Z', granted_by: owner.id },
+            ],
+        });
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
+
+        const { POST } = await import('../../src/pages/api/admin/access');
+        const response = await POST(context({
+            action: 'revoke',
+            profileId: owner.id,
+            accessRole: 'owner',
+        }) as never);
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            canWrite: false,
         });
     });
 

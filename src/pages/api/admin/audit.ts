@@ -9,9 +9,13 @@ export const config = {
 
 const querySchema = z.object({
     before: z.string().datetime({ offset: true }).optional(),
+    beforeId: z.string().uuid().optional(),
     entityType: z.string().trim().regex(/^[a-z0-9_.:-]{1,80}$/).optional(),
     limit: z.coerce.number().int().min(1).max(100).default(50),
-});
+}).refine(
+    ({ before, beforeId }) => Boolean(before) === Boolean(beforeId),
+    { message: 'Audit cursor requires timestamp and id' },
+);
 
 function jsonResponse(payload: unknown, status = 200): Response {
     return new Response(JSON.stringify(payload), {
@@ -27,6 +31,7 @@ export const GET: APIRoute = async (context) => {
     const url = new URL(context.request.url);
     const parsed = querySchema.safeParse({
         before: url.searchParams.get('before') || undefined,
+        beforeId: url.searchParams.get('beforeId') || undefined,
         entityType: url.searchParams.get('entityType') || undefined,
         limit: url.searchParams.get('limit') || undefined,
     });
@@ -42,7 +47,12 @@ export const GET: APIRoute = async (context) => {
         .order('id', { ascending: false })
         .limit(parsed.data.limit);
 
-    if (parsed.data.before) query = query.lt('created_at', parsed.data.before);
+    if (parsed.data.before && parsed.data.beforeId) {
+        query = query.or([
+            `created_at.lt.${parsed.data.before}`,
+            `and(created_at.eq.${parsed.data.before},id.lt.${parsed.data.beforeId})`,
+        ].join(','));
+    }
     if (parsed.data.entityType) query = query.eq('entity_type', parsed.data.entityType);
 
     const { data: rows, error } = await query;
@@ -61,6 +71,8 @@ export const GET: APIRoute = async (context) => {
         }
     }
 
+    const lastRow = rows?.length === parsed.data.limit ? rows.at(-1) : null;
+
     return jsonResponse({
         events: (rows ?? []).map((row) => ({
             id: row.id,
@@ -73,8 +85,8 @@ export const GET: APIRoute = async (context) => {
             hasBefore: row.before !== null,
             hasAfter: row.after !== null,
         })),
-        nextBefore: rows?.length === parsed.data.limit
-            ? rows.at(-1)?.created_at ?? null
+        nextCursor: lastRow?.created_at
+            ? { createdAt: lastRow.created_at, id: lastRow.id }
             : null,
     });
 };

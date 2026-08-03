@@ -14,31 +14,39 @@ type AuditEvent = {
 
 type AuditResponse = {
     events?: AuditEvent[];
-    nextBefore?: string | null;
+    nextCursor?: AuditCursor | null;
     error?: string;
+};
+
+type AuditCursor = {
+    createdAt: string;
+    id: string;
 };
 
 export default function AdminAuditHistory() {
     const [events, setEvents] = useState<AuditEvent[]>([]);
-    const [nextBefore, setNextBefore] = useState<string | null>(null);
+    const [nextCursor, setNextCursor] = useState<AuditCursor | null>(null);
     const [entityType, setEntityType] = useState('');
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const load = async (before?: string, append = false) => {
+    const load = async (cursor?: AuditCursor, append = false) => {
         if (append) setLoadingMore(true);
         else setLoading(true);
         setError(null);
         try {
             const params = new URLSearchParams({ limit: '50' });
-            if (before) params.set('before', before);
+            if (cursor) {
+                params.set('before', cursor.createdAt);
+                params.set('beforeId', cursor.id);
+            }
             if (entityType.trim()) params.set('entityType', entityType.trim());
             const response = await fetch(`/api/admin/audit?${params.toString()}`);
             const data = await response.json() as AuditResponse;
             if (!response.ok) throw new Error(data.error || 'No se pudo cargar el historial');
             setEvents((current) => append ? [...current, ...(data.events ?? [])] : data.events ?? []);
-            setNextBefore(data.nextBefore ?? null);
+            setNextCursor(data.nextCursor ?? null);
         } catch (cause) {
             setError(cause instanceof Error ? cause.message : 'No se pudo cargar el historial');
         } finally {
@@ -110,8 +118,8 @@ export default function AdminAuditHistory() {
                 </div>
             )}
 
-            {nextBefore && (
-                <button type="button" disabled={loadingMore} onClick={() => void load(nextBefore, true)} className="border-2 border-[#006064] bg-white px-5 py-2 font-black uppercase text-[#006064] disabled:opacity-50">
+            {nextCursor && (
+                <button type="button" disabled={loadingMore} onClick={() => void load(nextCursor, true)} className="border-2 border-[#006064] bg-white px-5 py-2 font-black uppercase text-[#006064] disabled:opacity-50">
                     {loadingMore ? 'Cargando...' : 'Cargar anteriores'}
                 </button>
             )}

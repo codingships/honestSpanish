@@ -74,6 +74,43 @@ describe('granular administrator access schema', () => {
         expect(sql).toContain("pg_catalog.to_jsonb(NEW) - 'admin_id'");
     });
 
+    it.each(surfaces)('enforces capability domains at the database policy boundary', (sql) => {
+        expect(sql).toContain('DROP POLICY IF EXISTS "Admins can manage leads" ON public.leads;');
+        expect(sql).toContain('CREATE POLICY "Admin operations readers can view leads"');
+        expect(sql).toContain('CREATE POLICY "Admin operations writers can manage leads"');
+        expect(sql).toContain('CREATE POLICY "Admin catalog readers can view packages"');
+        expect(sql).toContain('CREATE POLICY "Admin catalog writers can manage packages"');
+        expect(sql).toContain('CREATE POLICY "Admin finance readers can view payments"');
+        expect(sql).toContain('CREATE POLICY "Admin finance writers can manage payments"');
+        expect(sql).toContain('CREATE POLICY "Admin access readers can view audit log"');
+        expect(sql).toContain('CREATE POLICY "Admin operations readers can read support ticket history"');
+        expect(sql).toContain("'operations.read'::public.admin_capability");
+        expect(sql).toContain("'operations.write'::public.admin_capability");
+        expect(sql).toContain("'catalog.read'::public.admin_capability");
+        expect(sql).toContain("'catalog.write'::public.admin_capability");
+        expect(sql).toContain("'finance.read'::public.admin_capability");
+        expect(sql).toContain("'finance.write'::public.admin_capability");
+        expect(sql).toContain("'access.read'::public.admin_capability");
+    });
+
+    it.each(surfaces)('keeps direct profile identity changes server-only', (sql) => {
+        const guardStart = sql.lastIndexOf(
+            'CREATE OR REPLACE FUNCTION private.protect_profile_role()',
+        );
+        const nextFunction = sql.indexOf(
+            'CREATE OR REPLACE FUNCTION private.guard_admin_audit_log_immutable()',
+            guardStart,
+        );
+        const guard = sql.slice(
+            guardStart,
+            nextFunction === -1 ? sql.length : nextFunction,
+        );
+        expect(guardStart).toBeGreaterThan(-1);
+        expect(guard).toContain("RAISE EXCEPTION 'Cannot modify role'");
+        expect(guard).toContain("RAISE EXCEPTION 'Cannot modify profile email'");
+        expect(guard).not.toContain('private.is_admin');
+    });
+
     it('keeps generated application types aligned with the new contract', () => {
         expect(databaseTypes).toContain('admin_role_assignments: {');
         expect(databaseTypes).toContain('admin_access_role:');

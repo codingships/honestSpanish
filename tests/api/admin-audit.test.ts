@@ -36,6 +36,7 @@ function auditClient(input: {
         order: vi.fn().mockReturnThis(),
         limit: vi.fn().mockReturnThis(),
         lt: vi.fn().mockReturnThis(),
+        or: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
         then: (resolve: (value: typeof auditResult) => unknown) => Promise.resolve(auditResult).then(resolve),
     };
@@ -95,9 +96,20 @@ describe('/api/admin/audit', () => {
         expect(createSupabaseAdminClient).not.toHaveBeenCalled();
     });
 
+    it('rejects an incomplete composite pagination cursor', async () => {
+        const { GET } = await import('../../src/pages/api/admin/audit');
+        const response = await GET(context(
+            '?before=2026-08-03T11%3A00%3A00.000Z',
+        ) as never);
+
+        expect(response.status).toBe(400);
+        expect(createSupabaseAdminClient).not.toHaveBeenCalled();
+    });
+
     it('returns redacted event metadata, resolves actors and applies filters', async () => {
         const createdAt = '2026-08-03T10:15:30.000Z';
         const previousPage = '2026-08-03T11:00:00.000Z';
+        const previousId = '99500000-0000-4000-8000-000000000099';
         const sensitiveBefore = { email: 'private-before@example.test' };
         const sensitiveAfter = { email: 'private-after@example.test' };
         const { client, auditQuery, actorQuery } = auditClient({
@@ -117,16 +129,19 @@ describe('/api/admin/audit', () => {
 
         const { GET } = await import('../../src/pages/api/admin/audit');
         const response = await GET(context(
-            `?entityType=admin_access&before=${encodeURIComponent(previousPage)}&limit=10`,
+            `?entityType=admin_access&before=${encodeURIComponent(previousPage)}&beforeId=${previousId}&limit=10`,
         ) as never);
         const body = await response.json() as {
             events: Array<Record<string, unknown>>;
-            nextBefore: string | null;
+            nextCursor: { createdAt: string; id: string } | null;
         };
 
         expect(response.status).toBe(200);
         expect(requireAdminCapability).toHaveBeenCalledWith(expect.anything(), 'access.read');
-        expect(auditQuery.lt).toHaveBeenCalledWith('created_at', previousPage);
+        expect(auditQuery.or).toHaveBeenCalledWith([
+            `created_at.lt.${previousPage}`,
+            `and(created_at.eq.${previousPage},id.lt.${previousId})`,
+        ].join(','));
         expect(auditQuery.eq).toHaveBeenCalledWith('entity_type', 'admin_access');
         expect(auditQuery.limit).toHaveBeenCalledWith(10);
         expect(actorQuery.in).toHaveBeenCalledWith('id', [owner.id]);
@@ -142,12 +157,37 @@ describe('/api/admin/audit', () => {
                 hasBefore: true,
                 hasAfter: true,
             }],
-            nextBefore: null,
+            nextCursor: null,
         });
         expect(JSON.stringify(body)).not.toContain('private-before@example.test');
         expect(JSON.stringify(body)).not.toContain('private-after@example.test');
         expect(body.events[0]).not.toHaveProperty('before');
         expect(body.events[0]).not.toHaveProperty('after');
+    });
+
+    it('returns timestamp and id together when another page may exist', async () => {
+        const createdAt = '2026-08-03T10:15:30.000Z';
+        const id = '99500000-0000-4000-8000-000000000001';
+        const { client } = auditClient({
+            rows: [{
+                id,
+                admin_id: null,
+                action: 'admin_access.revoke',
+                entity_type: 'admin_access',
+                entity_id: null,
+                created_at: createdAt,
+                before: { access_role: 'viewer' },
+                after: null,
+            }],
+        });
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
+
+        const { GET } = await import('../../src/pages/api/admin/audit');
+        const response = await GET(context('?limit=1') as never);
+
+        await expect(response.json()).resolves.toMatchObject({
+            nextCursor: { createdAt, id },
+        });
     });
 
     it('fails closed when the audit store is unavailable', async () => {
