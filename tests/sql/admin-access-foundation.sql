@@ -390,13 +390,14 @@ BEGIN
         RAISE EXCEPTION 'catalog_editor_can_read_access_history';
     END IF;
 
-    UPDATE public.packages
-    SET price_monthly = 26000
-    WHERE id = '99400000-0000-4000-8000-000000000001';
-    GET DIAGNOSTICS changed_count = ROW_COUNT;
-    IF changed_count <> 1 THEN
-        RAISE EXCEPTION 'catalog_editor_cannot_write_package';
-    END IF;
+    BEGIN
+        UPDATE public.packages
+        SET price_monthly = 26000
+        WHERE id = '99400000-0000-4000-8000-000000000001';
+        RAISE EXCEPTION 'catalog_editor_can_bypass_managed_catalog_rpc';
+    EXCEPTION
+        WHEN insufficient_privilege THEN NULL;
+    END;
 
     UPDATE public.leads
     SET name = 'Forbidden catalog edit'
@@ -513,13 +514,14 @@ BEGIN
         RAISE EXCEPTION 'viewer_cannot_read_access_history';
     END IF;
 
-    UPDATE public.packages
-    SET price_monthly = 27000
-    WHERE id = '99400000-0000-4000-8000-000000000001';
-    GET DIAGNOSTICS changed_count = ROW_COUNT;
-    IF changed_count <> 0 THEN
-        RAISE EXCEPTION 'viewer_can_write_catalog_data';
-    END IF;
+    BEGIN
+        UPDATE public.packages
+        SET price_monthly = 27000
+        WHERE id = '99400000-0000-4000-8000-000000000001';
+        RAISE EXCEPTION 'viewer_can_bypass_managed_catalog_rpc';
+    EXCEPTION
+        WHEN insufficient_privilege THEN NULL;
+    END;
 
     DELETE FROM public.leads
     WHERE id = '99400000-0000-4000-8000-000000000002';

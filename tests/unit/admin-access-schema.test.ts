@@ -5,6 +5,10 @@ const migration = readFileSync(
     'supabase/migrations/20260803151112_admin_access_foundation.sql',
     'utf8',
 ).replace(/\r\n/g, '\n');
+const catalogV2Migration = readFileSync(
+    'supabase/migrations/20260803171044_catalog_v2_admin_drafts.sql',
+    'utf8',
+).replace(/\r\n/g, '\n');
 const schema = readFileSync('db/schema.sql', 'utf8').replace(/\r\n/g, '\n');
 const databaseTypes = readFileSync('src/types/database.types.ts', 'utf8').replace(/\r\n/g, '\n');
 
@@ -91,6 +95,40 @@ describe('granular administrator access schema', () => {
         expect(sql).toContain("'finance.read'::public.admin_capability");
         expect(sql).toContain("'finance.write'::public.admin_capability");
         expect(sql).toContain("'access.read'::public.admin_capability");
+    });
+
+    it('replaces direct catalog writes with server-only versioned mutations', () => {
+        for (const sql of [catalogV2Migration, schema]) {
+            expect(sql).toContain(
+                'REVOKE INSERT, UPDATE, DELETE ON TABLE public.packages FROM authenticated;',
+            );
+            expect(sql).toContain(
+                'DROP POLICY IF EXISTS "Admin catalog writers can manage packages" ON public.packages;',
+            );
+            expect(sql).toContain(
+                'REVOKE ALL ON TABLE public.package_catalog_drafts\n    FROM PUBLIC, anon, authenticated, service_role;',
+            );
+            expect(sql).toContain(
+                'GRANT SELECT ON TABLE public.package_catalog_drafts TO service_role;',
+            );
+            expect(sql).toContain(
+                'GRANT EXECUTE ON FUNCTION public.create_package_catalog_draft(',
+            );
+            expect(sql).toContain(
+                'GRANT EXECUTE ON FUNCTION public.publish_package_catalog_draft(',
+            );
+            expect(sql).toContain(
+                'GRANT EXECUTE ON FUNCTION public.retire_versioned_package(UUID, UUID)',
+            );
+        }
+
+        expect(
+            schema.lastIndexOf(
+                'DROP POLICY IF EXISTS "Admin catalog writers can manage packages" ON public.packages;',
+            ),
+        ).toBeGreaterThan(
+            schema.lastIndexOf('CREATE POLICY "Admin catalog writers can manage packages"'),
+        );
     });
 
     it.each(surfaces)('keeps direct profile identity changes server-only', (sql) => {

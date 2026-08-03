@@ -1253,6 +1253,7 @@ export type Database = {
       };
       checkout_v2_price_snapshots: {
         Row: {
+          class_duration_minutes: number;
           created_at: string;
           currency: string;
           initial_amount_cents: number;
@@ -1262,23 +1263,31 @@ export type Database = {
           recurring_interval_count: number;
           recurring_interval_unit: string;
           recurring_stripe_price_id: string;
+          session_base_amount_cents: number;
+          session_remainder_units: number;
+          sessions_per_period: number;
           stripe_account_id: string;
           stripe_livemode: boolean;
         };
         Insert: {
+          class_duration_minutes: number;
           created_at?: string;
-          currency?: string;
-          initial_amount_cents?: number;
+          currency: string;
+          initial_amount_cents: number;
           initial_stripe_price_id: string;
           package_price_id: string;
-          recurring_amount_cents?: number;
-          recurring_interval_count?: number;
-          recurring_interval_unit?: string;
+          recurring_amount_cents: number;
+          recurring_interval_count: number;
+          recurring_interval_unit: string;
           recurring_stripe_price_id: string;
+          session_base_amount_cents: number;
+          session_remainder_units: number;
+          sessions_per_period: number;
           stripe_account_id: string;
           stripe_livemode: boolean;
         };
         Update: {
+          class_duration_minutes?: number;
           created_at?: string;
           currency?: string;
           initial_amount_cents?: number;
@@ -1288,6 +1297,9 @@ export type Database = {
           recurring_interval_count?: number;
           recurring_interval_unit?: string;
           recurring_stripe_price_id?: string;
+          session_base_amount_cents?: number;
+          session_remainder_units?: number;
+          sessions_per_period?: number;
           stripe_account_id?: string;
           stripe_livemode?: boolean;
         };
@@ -2036,6 +2048,113 @@ export type Database = {
             columns: ["crm_opportunity_id"];
             isOneToOne: false;
             referencedRelation: "crm_opportunities";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      package_catalog_drafts: {
+        Row: {
+          amount_cents: number;
+          base_catalog_version: number;
+          billing_interval_count: number;
+          billing_interval_unit: string;
+          class_duration_minutes: number;
+          created_at: string;
+          created_by: string;
+          currency: string;
+          discarded_at: string | null;
+          display_name: Json;
+          has_dual_teacher: boolean;
+          has_group_session: boolean;
+          id: string;
+          is_publicly_listed: boolean;
+          package_id: string;
+          package_key: string;
+          published_at: string | null;
+          published_package_price_id: string | null;
+          revision: number;
+          sessions_per_period: number;
+          status: Database["public"]["Enums"]["package_catalog_draft_status"];
+          updated_at: string;
+          updated_by: string;
+        };
+        Insert: {
+          amount_cents: number;
+          base_catalog_version: number;
+          billing_interval_count: number;
+          billing_interval_unit: string;
+          class_duration_minutes: number;
+          created_at?: string;
+          created_by: string;
+          currency?: string;
+          discarded_at?: string | null;
+          display_name: Json;
+          has_dual_teacher?: boolean;
+          has_group_session?: boolean;
+          id?: string;
+          is_publicly_listed?: boolean;
+          package_id: string;
+          package_key: string;
+          published_at?: string | null;
+          published_package_price_id?: string | null;
+          revision?: number;
+          sessions_per_period: number;
+          status?: Database["public"]["Enums"]["package_catalog_draft_status"];
+          updated_at?: string;
+          updated_by: string;
+        };
+        Update: {
+          amount_cents?: number;
+          base_catalog_version?: number;
+          billing_interval_count?: number;
+          billing_interval_unit?: string;
+          class_duration_minutes?: number;
+          created_at?: string;
+          created_by?: string;
+          currency?: string;
+          discarded_at?: string | null;
+          display_name?: Json;
+          has_dual_teacher?: boolean;
+          has_group_session?: boolean;
+          id?: string;
+          is_publicly_listed?: boolean;
+          package_id?: string;
+          package_key?: string;
+          published_at?: string | null;
+          published_package_price_id?: string | null;
+          revision?: number;
+          sessions_per_period?: number;
+          status?: Database["public"]["Enums"]["package_catalog_draft_status"];
+          updated_at?: string;
+          updated_by?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "package_catalog_drafts_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "package_catalog_drafts_package_id_fkey";
+            columns: ["package_id"];
+            isOneToOne: false;
+            referencedRelation: "packages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "package_catalog_drafts_published_package_price_id_fkey";
+            columns: ["published_package_price_id"];
+            isOneToOne: true;
+            referencedRelation: "package_prices";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "package_catalog_drafts_updated_by_fkey";
+            columns: ["updated_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -5014,6 +5133,29 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      create_package_catalog_draft: {
+        Args: {
+          p_actor_id: string;
+          p_amount_cents?: number | null;
+          p_billing_interval_count?: number | null;
+          p_billing_interval_unit?: string | null;
+          p_class_duration_minutes?: number | null;
+          p_display_name?: Json | null;
+          p_has_dual_teacher?: boolean;
+          p_has_group_session?: boolean;
+          p_is_publicly_listed?: boolean;
+          p_package_id?: string | null;
+          p_package_key?: string | null;
+          p_sessions_per_period?: number | null;
+        };
+        Returns: Database["public"]["Tables"]["package_catalog_drafts"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "package_catalog_drafts";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       create_bookable_slot: {
         Args: {
           p_created_by: string;
@@ -5026,6 +5168,20 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "bookable_slots";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      discard_package_catalog_draft: {
+        Args: {
+          p_actor_id: string;
+          p_draft_id: string;
+          p_expected_revision: number;
+        };
+        Returns: Database["public"]["Tables"]["package_catalog_drafts"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "package_catalog_drafts";
           isOneToOne: true;
           isSetofReturn: false;
         };
@@ -5162,6 +5318,19 @@ export type Database = {
           isOneToOne: true;
           isSetofReturn: false;
         };
+      };
+      publish_package_catalog_draft: {
+        Args: {
+          p_actor_id: string;
+          p_draft_id: string;
+          p_expected_revision: number;
+          p_initial_stripe_price_id: string;
+          p_recurring_stripe_price_id: string;
+          p_stripe_account_id: string;
+          p_stripe_livemode: boolean;
+          p_stripe_product_id: string;
+        };
+        Returns: Json;
       };
       publish_bookable_slot: {
         Args: {
@@ -5400,6 +5569,13 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      retire_versioned_package: {
+        Args: {
+          p_actor_id: string;
+          p_package_id: string;
+        };
+        Returns: Json;
+      };
       refresh_crm_no_show_contact_alarm: {
         Args: {
           p_contact_id: string;
@@ -5545,6 +5721,29 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      update_package_catalog_draft: {
+        Args: {
+          p_actor_id: string;
+          p_amount_cents: number;
+          p_billing_interval_count: number;
+          p_billing_interval_unit: string;
+          p_class_duration_minutes: number;
+          p_display_name: Json;
+          p_draft_id: string;
+          p_expected_revision: number;
+          p_has_dual_teacher: boolean;
+          p_has_group_session: boolean;
+          p_is_publicly_listed: boolean;
+          p_sessions_per_period: number;
+        };
+        Returns: Database["public"]["Tables"]["package_catalog_drafts"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "package_catalog_drafts";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
     };
     Enums: {
       admin_access_role:
@@ -5567,6 +5766,7 @@ export type Database = {
         | "access.read"
         | "access.write";
       lead_status: "new" | "contacted" | "discarded";
+      package_catalog_draft_status: "draft" | "published" | "discarded";
       payment_status: "succeeded" | "pending" | "failed" | "refunded";
       subscription_status:
         | "active"
@@ -5727,6 +5927,7 @@ export const Constants = {
         "access.write",
       ],
       lead_status: ["new", "contacted", "discarded"],
+      package_catalog_draft_status: ["draft", "published", "discarded"],
       payment_status: ["succeeded", "pending", "failed", "refunded"],
       subscription_status: [
         "active",

@@ -116,6 +116,14 @@ La superficie de rentabilidad es administrativa y no ejecuta pagos. Su operació
 
 La fórmula de cartera es `cobros - devoluciones - obligación docente devengada - costes directos registrados - gasto total de captación`. Es una contribución provisional: no contiene comisiones de Stripe sin conciliar, costes compartidos, reserva, impuestos, pago efectivo de obligaciones, trabajo fundador no docente ni reparto. Un cobro confirmado sigue visible aunque la materialización de sus clases esté pendiente o haya fallado. Un saldo sin asignar o un dato ausente se muestra; no se transforma en cero por conveniencia.
 
+## Operación del catálogo V2
+
+- Crear, editar, previsualizar y descartar borradores no llama a Stripe. No se editan directamente `packages`, `package_prices`, `package_catalog_drafts` ni `checkout_v2_price_snapshots`.
+- Publicar exige `catalog.write`, verifica la cuenta y el modo de Stripe y crea o recupera el mismo Product y la misma pareja de Prices mediante claves idempotentes. Si Stripe termina pero la respuesta de base de datos es incierta, se reintenta el mismo borrador y revisión; no se crean precios manuales paralelos.
+- Una oferta solo se marca pública cuando la interfaz indica `Compatible con checkout actual`. `Checkout pendiente` significa que puede conservarse como oferta interna, pero compra, agenda y ciclo académico aún no ejecutan esos términos.
+- Retirar desactiva primero la oferta local y después intenta archivar Prices y Product. Si la limpieza de Stripe falla, el checkout permanece cerrado y la interfaz informa de una limpieza técnica pendiente; nunca se reactiva la base de datos para compensar el fallo externo.
+- Cada publicación y retirada conserva versiones y auditoría. Corregir un error significa crear otra versión o retirar la oferta, no modificar snapshots históricos.
+
 ## Recuperación de la garantía Checkout V2
 
 La referencia operativa es una única fila de `checkout_v2_guarantee_operations`. Repetir una petición o una acción administrativa reanuda esa operación; nunca se cambia su importe, PaymentIntent, suscripción de Stripe ni identificadores congelados, y nunca se crea una devolución manual paralela.

@@ -67,11 +67,16 @@ INSERT INTO public.package_prices (
 
 INSERT INTO public.checkout_v2_price_snapshots (
     package_price_id, stripe_account_id, stripe_livemode,
-    initial_stripe_price_id, recurring_stripe_price_id
+    initial_stripe_price_id, recurring_stripe_price_id,
+    initial_amount_cents, recurring_amount_cents, currency,
+    recurring_interval_unit, recurring_interval_count,
+    sessions_per_period, class_duration_minutes,
+    session_base_amount_cents, session_remainder_units
 ) VALUES (
     '77200000-0000-4000-8000-000000000001',
     'acct_guarantee_test', FALSE,
-    'price_guarantee_initial', 'price_guarantee_recurring'
+    'price_guarantee_initial', 'price_guarantee_recurring',
+    25900, 25900, 'eur', 'day', 28, 4, 50, 6475, 0
 );
 
 INSERT INTO public.crm_contacts (
