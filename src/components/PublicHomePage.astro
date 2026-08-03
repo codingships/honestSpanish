@@ -1,0 +1,62 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import LandingPage from './LandingPage.astro';
+import { useTranslations, type SupportedLang } from '../i18n/utils';
+import { getStaticLandingPackages } from '../lib/landing-data';
+import { buildLandingSchema } from '../lib/landing-schema';
+import { serializeJsonForHtml, sha256CspHash } from '../lib/csp';
+import {
+    createCmsHomeTranslator,
+    getDefaultCmsHomeContent,
+    type CmsHomeContent,
+} from '../lib/cms-home-content';
+import { loadPublishedCmsHomeContent } from '../lib/cms-home-content-server';
+import { PRIVATE_PAGE_CACHE_CONTROL, PUBLIC_SHELL_CACHE_CONTROL } from '../lib/security-headers';
+
+interface Props {
+    lang: SupportedLang;
+    contentOverride?: CmsHomeContent;
+    preview?: boolean;
+}
+
+const { lang, contentOverride, preview = false } = Astro.props;
+const published = contentOverride ? null : await loadPublishedCmsHomeContent(lang);
+const content = contentOverride
+    ?? published?.content
+    ?? getDefaultCmsHomeContent(lang);
+const fallback = useTranslations(lang);
+const translate = createCmsHomeTranslator(fallback, content);
+const packages = getStaticLandingPackages();
+const schema = buildLandingSchema(lang, translate, packages);
+const schemaJson = serializeJsonForHtml(schema);
+Astro.csp?.insertScriptHash(await sha256CspHash(schemaJson));
+
+Astro.response.headers.set(
+    'Cache-Control',
+    preview
+        ? PRIVATE_PAGE_CACHE_CONTROL
+        : PUBLIC_SHELL_CACHE_CONTROL,
+);
+
+const previewCopy = {
+    es: 'Vista previa protegida · este borrador no está publicado',
+    en: 'Protected preview · this draft is not published',
+    ru: 'Защищённый предпросмотр · этот черновик не опубликован',
+}[lang];
+---
+
+<BaseLayout
+    title={content.seo.title}
+    description={content.seo.description}
+    lang={lang}
+    canonicalPath="/"
+    noindex={preview}
+>
+    <script is:inline type="application/ld+json" set:html={schemaJson} />
+    {preview && (
+        <div class="sticky top-0 z-[100] border-b-2 border-amber-950 bg-amber-300 px-4 py-2 text-center font-mono text-xs font-bold uppercase text-amber-950">
+            {previewCopy}
+        </div>
+    )}
+    <LandingPage lang={lang} packages={packages} content={content} />
+</BaseLayout>

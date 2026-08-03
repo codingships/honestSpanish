@@ -102,9 +102,9 @@ const cleanup = () => rmSync(runtimeVarsPath, { force: true });
 process.once('exit', cleanup);
 
 const astroCli = resolve(cwd, 'node_modules', 'astro', 'bin', 'astro.mjs');
-// Prime every explicitly allowlisted dependency before the HTTP server can
-// accept a request. Re-optimizing React while an SSR request is in flight can
-// otherwise mix two Vite browser hashes and produce a false invalid-hook-call.
+// Generate Astro's runtime types before starting the isolated server. The
+// Vite SSR environment itself pre-transforms the public-home module graph so
+// React cannot be re-optimized while the first request is being rendered.
 const sync = spawnSync(process.execPath, [astroCli, 'sync'], {
     cwd,
     env: process.env,

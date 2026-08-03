@@ -13,14 +13,21 @@ import ProblemsSection from './landing/ProblemsSection.astro';
 import MethodSection from './landing/MethodSection.astro';
 import LevelsSection from './landing/LevelsSection.astro';
 import LeadCaptureForm from './LeadCaptureForm.tsx';
+import {
+  createCmsHomeTranslator,
+  getDefaultCmsHomeContent,
+  type CmsHomeContent,
+} from '../lib/cms-home-content';
 
 interface Props {
   lang: 'es' | 'en' | 'ru';
   packages: LandingPackage[];
+  content?: CmsHomeContent;
 }
 
-const { lang, packages } = Astro.props;
-const t = useTranslations(lang);
+const { lang, packages, content = getDefaultCmsHomeContent(Astro.props.lang) } = Astro.props;
+const managedTranslate = createCmsHomeTranslator(useTranslations(lang), content);
+const t = (key: string): string => String(managedTranslate(key));
 const localizedUi = ui[lang];
 
 // Data structure helper for complex arrays 
@@ -28,7 +35,7 @@ const problemsStatements = localizedUi.problems.statements;
 const methodColumns = localizedUi.method.columns;
 const progressLevels = localizedUi.progress.levels;
 const teamMembers = localizedUi.team.members;
-const faqItems = localizedUi.faq.items;
+const faqItems = content.faq.items;
 const leadCaptureTranslations = localizedUi.leadCapture;
 
 const launchPricingPlans = {

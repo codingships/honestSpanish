@@ -57,6 +57,7 @@ Tablas centrales:
 - `fulfillment_jobs`
 - `processed_webhook_events`
 - `admin_audit_log`
+- `cms_documents`, `cms_content_drafts`, `cms_content_versions`
 
 RLS protege el acceso académico por rol y el acceso administrativo directo por capacidad efectiva. Las operaciones administrativas y de fulfillment que usan la service role viven únicamente en código server-only.
 
@@ -67,6 +68,14 @@ Supabase Auth conserva la identidad y `profiles.role` conserva el rol académico
 `src/middleware.ts` aplica un mapa central de capacidades a páginas y APIs administrativas y falla cerrado si la comprobación no está disponible. La misma separación se aplica en las políticas RLS de catálogo, operaciones, finanzas y acceso para que una sesión autenticada no pueda eludir la aplicación mediante la Data API. Los cambios de rol académico, email y atestación de adulto continúan siendo server-only incluso para un administrador. El panel global, que mezcla datos operativos y financieros, queda reservado a `owner` y `viewer`; los roles especializados se redirigen a su primera superficie permitida y la navegación solo muestra capacidades efectivas. La promoción o invitación de un perfil nuevo a administrador no forma parte todavía de este flujo.
 
 `admin_audit_log` es append-only para acciones directas y solo admite la pseudonimización del actor provocada por la eliminación de su perfil. La vista administrativa de historial exige `access.read`, permite filtrar metadatos y no devuelve los snapshots `before`/`after`; ampliar la cobertura de auditoría a cada mutación del producto sigue siendo trabajo incremental.
+
+## Contenido público administrado
+
+La home ES/EN/RU conserva en código un fallback completo y ejecutable. `cms_documents` mantiene la única proyección publicada por clave e idioma, `cms_content_drafts` permite un solo borrador abierto y `cms_content_versions` conserva un historial inmutable. Publicar y hacer rollback son transacciones PostgreSQL: el rollback republica una versión anterior como una versión nueva y nunca reescribe historia.
+
+Las tablas tienen RLS y no se exponen a `anon` ni `authenticated`; el Worker las lee mediante service role y las mutaciones solo pasan por RPCs server-only que vuelven a comprobar `content.write`, revisión esperada y versión base. La vista previa exige `content.read`, usa exactamente el componente público y nunca entra en la proyección publicada ni en caché. La home publicada se sirve dinámicamente con caché corta y, si Supabase o el payload no están disponibles, degrada al contenido integrado sin dejar la página fuera de servicio.
+
+Este primer dominio administrado cubre SEO, navegación, hero y FAQ de la home. Blog, resto de páginas, emails y medios siguen siendo superficies separadas; no se consideran administrables por la existencia de este flujo.
 
 ## Catálogo versionado
 

@@ -363,7 +363,7 @@ function DraftFields(props: {
                 </div>
             </fieldset>
 
-            <section className="border border-[#006064]/30 bg-[#f5ffff] p-4" aria-label="Vista previa del paquete">
+            <section className="border border-[#006064]/30 bg-[#f0fdfa] p-4" aria-label="Vista previa del paquete">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                         <p className="font-mono text-xs uppercase tracking-wide text-[#006064]/65">Vista previa</p>
@@ -511,7 +511,7 @@ export default function VersionedCatalogManager() {
 
     return (
         <section className="space-y-6" aria-labelledby="catalog-v2-title">
-            <div className="border-2 border-[#006064] bg-[#eaffff] p-5">
+            <div className="border-2 border-[#006064] bg-[#e0f7fa] p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                         <p className="font-mono text-xs font-bold uppercase tracking-widest text-[#006064]/65">Flujo recomendado</p>
