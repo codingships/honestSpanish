@@ -14,7 +14,18 @@ function reader(result: { data: unknown; error: { code?: string } | null }) {
 }
 
 describe('published homepage content lookup', () => {
-    afterEach(() => vi.restoreAllMocks());
+    afterEach(() => {
+        vi.unstubAllEnvs();
+        vi.restoreAllMocks();
+    });
+
+    it('keeps the isolated public browser runtime offline', async () => {
+        vi.stubEnv('PUBLIC_APP_ENV', 'test');
+        vi.stubEnv('E2E_RUNTIME_ISOLATED', 'true');
+        vi.stubEnv('E2E_DISABLE_EXTERNAL_INTEGRATIONS', 'true');
+
+        await expect(loadPublishedCmsHomeContent('en')).resolves.toBeNull();
+    });
 
     it('returns only a valid positive published version', async () => {
         const content = getDefaultCmsHomeContent('en');

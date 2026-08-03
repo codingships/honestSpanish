@@ -235,6 +235,15 @@ export default defineConfig({
                     optimizeDeps: {
                         include: e2eSsrOptimizedDependencies,
                     },
+                    dev: {
+                        preTransformRequests: true,
+                        warmup: [
+                            './src/components/PublicHomePage.astro',
+                            './src/components/LandingPage.astro',
+                            './src/components/PricingSection.tsx',
+                            './src/components/LeadCaptureForm.tsx',
+                        ],
+                    },
                 },
             },
         } : {}),

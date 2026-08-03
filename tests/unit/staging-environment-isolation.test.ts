@@ -28,6 +28,10 @@ describe('staging environment isolation', () => {
         expect(astroConfig).toContain("'@supabase/ssr'");
         expect(astroConfig).toContain("'react/jsx-dev-runtime'");
         expect(astroConfig).toContain('include: e2eSsrOptimizedDependencies');
+        expect(astroConfig).toContain("'./src/components/PublicHomePage.astro'");
+        expect(astroConfig).toContain("'./src/components/PricingSection.tsx'");
+        expect(astroConfig).toContain("'./src/components/LeadCaptureForm.tsx'");
+        expect(astroConfig).toContain('preTransformRequests: true');
         expect(e2eServer).toContain("spawnSync(process.execPath, [astroCli, 'sync']");
         expect(e2eServer).toContain("[astroCli, 'dev']");
         expect(e2eServer).not.toContain("[astroCli, 'dev', '--force']");

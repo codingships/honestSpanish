@@ -1,5 +1,7 @@
 import type { SupportedLang } from '../i18n/utils';
 import { createSupabaseAdminClient } from './supabase-admin';
+import { shouldDisableExternalIntegrations } from './external-integrations';
+import { readRuntimeEnv } from './runtime-env';
 import {
     CMS_HOME_CONTENT_KEY,
     parseCmsHomeContent,
@@ -30,12 +32,23 @@ export type PublishedCmsHomeContent = {
     version: number;
 };
 
+function usesIsolatedPublicTestRuntime(): boolean {
+    return readRuntimeEnv('PUBLIC_APP_ENV') === 'test'
+        && readRuntimeEnv('E2E_RUNTIME_ISOLATED') === 'true'
+        && shouldDisableExternalIntegrations();
+}
+
 export async function loadPublishedCmsHomeContent(
     lang: SupportedLang,
-    reader: CmsDocumentReader = createSupabaseAdminClient() as unknown as CmsDocumentReader,
+    reader?: CmsDocumentReader,
 ): Promise<PublishedCmsHomeContent | null> {
+    if (!reader && usesIsolatedPublicTestRuntime()) return null;
+
+    const source = reader
+        ?? createSupabaseAdminClient() as unknown as CmsDocumentReader;
+
     try {
-        const { data, error } = await reader
+        const { data, error } = await source
             .from('cms_documents')
             .select('current_version, published_payload')
             .eq('content_key', CMS_HOME_CONTENT_KEY)
