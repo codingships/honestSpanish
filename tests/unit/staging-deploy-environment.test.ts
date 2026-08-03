@@ -82,7 +82,13 @@ describe('manual staging deploy environment boundary', () => {
         expect(ciWorkflow).toContain("github.sha || 'normal'");
         expect(deployWorkflow).toContain('  workflow_call:');
         expect(deployWorkflow).toContain('  workflow_dispatch:');
-        expect(deployJob).toContain('needs: [database-contract, build-and-test]');
+        expect(ciWorkflow).toContain('  classify-changes:');
+        expect(ciWorkflow).toContain('  repository-safety:');
+        expect(ciWorkflow).toContain('  public-browser:');
+        expect(ciWorkflow).toContain('  quality-gate:');
+        expect(ciWorkflow).toContain('if: always()');
+        expect(deployJob).toContain('needs: [quality-gate]');
+        expect(deployJob).toContain("needs.quality-gate.result == 'success'");
         expect(deployJob).toContain("github.event_name == 'push'");
         expect(deployJob).toContain("github.ref == 'refs/heads/main'");
         expect(deployJob).toContain("contains(github.event.head_commit.message, '[deploy-staging]')");
@@ -90,6 +96,7 @@ describe('manual staging deploy environment boundary', () => {
         expect(deployJob).toContain('checks: read');
         expect(deployJob).toContain('contents: read');
         expect(deployJob).toContain('secrets: inherit');
+        expect(deployWorkflow).toContain('const required = ["quality-gate"]');
     });
 
     it('keeps private runtime credentials out of the build process', () => {

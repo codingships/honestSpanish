@@ -6,10 +6,22 @@
 2. Crear una rama/worktree para un resultado y fijar hasta tres criterios de aceptación.
 3. Implementar y ejecutar pruebas focales.
 4. Revisar el diff y abrir una PR.
-5. Dejar que `build-and-test` ejecute la verificación completa una vez.
+5. Dejar que `quality-gate` exija una vez las superficies seleccionadas por el diff.
 6. Integrar y retirar la rama/worktree.
 
-No se crean documentos de traspaso ni carpetas de evidencia. El estado observable vive en el issue/tarea, el diff, la PR, CI y el despliegue.
+No se crean documentos de traspaso ni carpetas de evidencia. El estado observable vive en el issue/tarea, el diff, la PR, CI y el despliegue. `docs/READINESS.md` solo los indexa cuando una capacidad cambia de estado.
+
+## CI proporcional
+
+`classify-changes` calcula las superficies afectadas a partir del diff del evento. La clasificación es cerrada y conservadora:
+
+- `repository-safety` siempre busca secretos en archivos versionados o no ignorados.
+- `database-contract` se ejecuta para migraciones, esquema consolidado o pruebas SQL.
+- `build-and-test` se ejecuta para código, configuración o tooling y agrupa tipos, lint, unitarias, Worker y build.
+- `public-browser` se ejecuta para superficies que pueden cambiar el runtime público y corre en paralelo con `build-and-test`.
+- `quality-gate` se ejecuta siempre, falla si la clasificación no es válida o cualquier superficie seleccionada no termina correctamente, y es el único check requerido por `main` y staging.
+
+Un dispatch manual, un diff vacío o un cambio en workflows/clasificador fuerza todas las superficies. Las pruebas focales siguen haciéndose durante la implementación; no se repite la CI completa localmente ni varias veces por rutina.
 
 ## Entorno Codex
 

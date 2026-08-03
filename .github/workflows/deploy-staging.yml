@@ -98,7 +98,7 @@ jobs:
                 )
                 .map((run) => run.name)
             );
-            const required = ["build-and-test", "database-contract"];
+            const required = ["quality-gate"];
             const missing = required.filter((name) => !successful.has(name));
             if (missing.length > 0) {
               throw new Error(`Refusing staging deploy: exact commit lacks successful checks: ${missing.join(", ")}`);
