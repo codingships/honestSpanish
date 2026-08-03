@@ -88,5 +88,5 @@ html {
 }
 
 body {
-    font-family: 'Pretendard', sans-serif;
+    font-family: var(--font-eh-body);
 }
