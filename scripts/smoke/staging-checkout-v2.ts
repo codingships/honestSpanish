@@ -234,6 +234,16 @@ function combineCookies(...values: Array<string | undefined>): string {
     return values.filter(Boolean).join('; ');
 }
 
+export function stagingCheckoutV2CleanupCookieHeader(input: Pick<
+    StagingCheckoutV2RunState,
+    'adminCookie' | 'grantCookie'
+>): string {
+    return combineCookies(
+        stringValue(input.adminCookie, 'Staging admin session'),
+        stringValue(input.grantCookie, 'Staging checkout grant'),
+    );
+}
+
 async function packageRow(admin: SupabaseClient<Database>) {
     const { data, error } = await admin
         .from('packages')
@@ -607,7 +617,13 @@ async function cleanupReal(env: Env, state: StagingCheckoutV2RunState, log: Log)
         await attempt('grant-cookie', async () => {
             const response = await fetchWithTimeout(`${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/internal/staging-e2e-checkout`, {
                 method: 'DELETE',
-                headers: { Cookie: grantCookie, Origin: STAGING_CHECKOUT_V2_IDENTITY.webOrigin },
+                headers: {
+                    Cookie: stagingCheckoutV2CleanupCookieHeader({
+                        adminCookie: state.adminCookie,
+                        grantCookie,
+                    }),
+                    Origin: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
+                },
             });
             if (response.status !== 204) throw new Error(`Grant cleanup failed with HTTP ${response.status}`);
         });

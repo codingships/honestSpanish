@@ -10,6 +10,7 @@ import {
 } from '../../scripts/smoke/staging-checkout-v2-safety';
 import {
     runStagingCheckoutV2,
+    stagingCheckoutV2CleanupCookieHeader,
     type StagingCheckoutV2Journey,
 } from '../../scripts/smoke/staging-checkout-v2';
 
@@ -218,5 +219,15 @@ describe('staging Checkout V2 runner safety', () => {
         ]);
         expect(() => stagingBrowserCookies('malformed')).toThrow('malformed browser cookie');
         expect(() => stagingBrowserCookies('same=one; same=two')).toThrow('duplicate browser cookies');
+    });
+
+    it('keeps the authenticated admin session when revoking the staging checkout grant', () => {
+        expect(stagingCheckoutV2CleanupCookieHeader({
+            adminCookie: 'sb-auth-token=admin',
+            grantCookie: '__Host-hs_staging_e2e_checkout=grant',
+        })).toBe('sb-auth-token=admin; __Host-hs_staging_e2e_checkout=grant');
+        expect(() => stagingCheckoutV2CleanupCookieHeader({
+            grantCookie: '__Host-hs_staging_e2e_checkout=grant',
+        })).toThrow('Staging admin session');
     });
 });
