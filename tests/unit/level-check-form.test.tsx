@@ -69,6 +69,26 @@ describe('LevelCheckForm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('resolves signed fragment links without putting the email in the URL', async () => {
+        const leadId = '00000000-0000-4000-8000-000000000001';
+        window.history.pushState(null, '', `/es/diagnostico#leadId=${leadId}&token=signed-level-token`);
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: true,
+            json: async () => ({ email: 'linked.student@example.com' }),
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        renderLevelCheckForm();
+
+        await waitFor(() => expect(screen.getByLabelText(translations.email)).toHaveValue('linked.student@example.com'));
+        expect(screen.getByLabelText(translations.email)).toHaveAttribute('readonly');
+        expect(window.location.href).not.toContain('linked.student%40example.com');
+        expect(fetchMock).toHaveBeenCalledWith('/api/level-check-prefill', expect.objectContaining({
+            method: 'POST',
+            body: JSON.stringify({ leadId, token: 'signed-level-token' }),
+        }));
+    });
+
     it('requires diagnostic consent after adult confirmation is satisfied', async () => {
         const fetchMock = vi.fn();
         vi.stubGlobal('fetch', fetchMock);

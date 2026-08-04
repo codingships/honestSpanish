@@ -175,7 +175,7 @@ async function readJson(response: Response) {
 }
 
 function expectedDiagnosticUrl(leadId: string) {
-    return `https://staging.espanolhonesto.com/en/diagnostico?email=student%40example.com&leadId=${leadId}&token=signed-level-token`;
+    return `https://staging.espanolhonesto.com/en/diagnostico#leadId=${leadId}&token=signed-level-token`;
 }
 
 function checkoutReadyPackage(id: string, name = 'standard') {
