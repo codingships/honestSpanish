@@ -24,6 +24,9 @@ export type FulfillmentJobPayload = {
     startsAt?: string;
     endsAt?: string;
     sessionsTotal?: number;
+    sessionsConsumed?: number;
+    sessionsRefundable?: number;
+    cycleNumber?: number;
     amountTotal?: number;
     currency?: string;
     legalPolicyVersion?: string;

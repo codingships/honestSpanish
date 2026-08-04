@@ -780,14 +780,16 @@ export type Database = {
           created_at: string;
           currency: string;
           cycle_id: string;
+          cycle_number: number;
           first_session_id: string;
-          fourth_session_id: string;
+          fourth_session_id: string | null;
           gross_amount_cents: number;
           id: string;
           last_error: string | null;
           lease_expires_at: string | null;
           lease_token: string | null;
           payment_id: string;
+          package_price_id: string;
           refund_amount_cents: number;
           refund_created_at: string | null;
           refund_started_at: string | null;
@@ -795,6 +797,10 @@ export type Database = {
           refunded_at: string | null;
           request_id: string;
           second_session_id: string;
+          session_base_amount_cents: number;
+          session_remainder_units: number;
+          sessions_consumed: number;
+          sessions_total: number;
           status: string;
           stripe_cancelled_at: string | null;
           stripe_customer_id: string;
@@ -804,7 +810,7 @@ export type Database = {
           stripe_subscription_id: string;
           support_ticket_id: string | null;
           terminated_at: string | null;
-          third_session_id: string;
+          third_session_id: string | null;
           subscription_id: string;
           updated_at: string;
         };
@@ -815,14 +821,16 @@ export type Database = {
           created_at?: string;
           currency: string;
           cycle_id: string;
+          cycle_number: number;
           first_session_id: string;
-          fourth_session_id: string;
+          fourth_session_id?: string | null;
           gross_amount_cents: number;
           id?: string;
           last_error?: string | null;
           lease_expires_at?: string | null;
           lease_token?: string | null;
           payment_id: string;
+          package_price_id: string;
           refund_amount_cents: number;
           refund_created_at?: string | null;
           refund_started_at?: string | null;
@@ -830,6 +838,10 @@ export type Database = {
           refunded_at?: string | null;
           request_id: string;
           second_session_id: string;
+          session_base_amount_cents: number;
+          session_remainder_units: number;
+          sessions_consumed: number;
+          sessions_total: number;
           status?: string;
           stripe_cancelled_at?: string | null;
           stripe_customer_id: string;
@@ -839,7 +851,7 @@ export type Database = {
           stripe_subscription_id: string;
           support_ticket_id?: string | null;
           terminated_at?: string | null;
-          third_session_id: string;
+          third_session_id?: string | null;
           subscription_id: string;
           updated_at?: string;
         };
@@ -850,14 +862,16 @@ export type Database = {
           created_at?: string;
           currency?: string;
           cycle_id?: string;
+          cycle_number?: number;
           first_session_id?: string;
-          fourth_session_id?: string;
+          fourth_session_id?: string | null;
           gross_amount_cents?: number;
           id?: string;
           last_error?: string | null;
           lease_expires_at?: string | null;
           lease_token?: string | null;
           payment_id?: string;
+          package_price_id?: string;
           refund_amount_cents?: number;
           refund_created_at?: string | null;
           refund_started_at?: string | null;
@@ -865,6 +879,10 @@ export type Database = {
           refunded_at?: string | null;
           request_id?: string;
           second_session_id?: string;
+          session_base_amount_cents?: number;
+          session_remainder_units?: number;
+          sessions_consumed?: number;
+          sessions_total?: number;
           status?: string;
           stripe_cancelled_at?: string | null;
           stripe_customer_id?: string;
@@ -874,7 +892,7 @@ export type Database = {
           stripe_subscription_id?: string;
           support_ticket_id?: string | null;
           terminated_at?: string | null;
-          third_session_id?: string;
+          third_session_id?: string | null;
           subscription_id?: string;
           updated_at?: string;
         };
@@ -908,6 +926,13 @@ export type Database = {
             referencedColumns: ["id"];
           },
           {
+            foreignKeyName: "checkout_v2_guarantee_operations_package_price_id_fkey";
+            columns: ["package_price_id"];
+            isOneToOne: false;
+            referencedRelation: "package_prices";
+            referencedColumns: ["id"];
+          },
+          {
             foreignKeyName: "checkout_v2_guarantee_operations_payment_id_fkey";
             columns: ["payment_id"];
             isOneToOne: true;
@@ -938,6 +963,58 @@ export type Database = {
           {
             foreignKeyName: "checkout_v2_guarantee_operations_third_session_id_fkey";
             columns: ["third_session_id"];
+            isOneToOne: true;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      checkout_v2_guarantee_operation_sessions: {
+        Row: {
+          amount_cents: number;
+          created_at: string;
+          cycle_id: string;
+          operation_id: string;
+          session_id: string;
+          session_index: number;
+          was_consumed: boolean;
+        };
+        Insert: {
+          amount_cents: number;
+          created_at?: string;
+          cycle_id: string;
+          operation_id: string;
+          session_id: string;
+          session_index: number;
+          was_consumed: boolean;
+        };
+        Update: {
+          amount_cents?: number;
+          created_at?: string;
+          cycle_id?: string;
+          operation_id?: string;
+          session_id?: string;
+          session_index?: number;
+          was_consumed?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "checkout_v2_guarantee_operation_sessions_cycle_id_fkey";
+            columns: ["cycle_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_cycles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operation_sessions_operation_id_fkey";
+            columns: ["operation_id"];
+            isOneToOne: false;
+            referencedRelation: "checkout_v2_guarantee_operations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "checkout_v2_guarantee_operation_sessions_session_id_fkey";
+            columns: ["session_id"];
             isOneToOne: true;
             referencedRelation: "sessions";
             referencedColumns: ["id"];
@@ -4862,10 +4939,14 @@ export type Database = {
       get_checkout_v2_guarantee_state: {
         Args: { p_actor_id: string; p_subscription_id: string };
         Returns: {
+          cycle_id: string;
           currency: string;
           operation_id: string;
           reason: string;
           refund_amount_cents: number;
+          sessions_consumed: number;
+          sessions_refundable: number;
+          sessions_total: number;
           state: string;
           subscription_id: string;
           updated_at: string;

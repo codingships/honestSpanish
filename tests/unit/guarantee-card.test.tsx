@@ -6,14 +6,19 @@ import GuaranteeCard from '../../src/components/account/GuaranteeCard';
 
 const subscriptionId = '11111111-1111-4111-8111-111111111111';
 const requestId = '22222222-2222-4222-8222-222222222222';
+const cycleId = '33333333-3333-4333-8333-333333333333';
 
 function guarantee(status: string, overrides: Record<string, unknown> = {}) {
     return {
         guarantee: {
             subscriptionId,
+            cycleId,
             status,
             refundAmountCents: 19425,
             currency: 'eur',
+            sessionsTotal: 4,
+            sessionsConsumed: 1,
+            sessionsRefundable: 3,
             operationId: null,
             reason: null,
             ...overrides,
@@ -54,8 +59,8 @@ describe('GuaranteeCard', () => {
         const dialog = screen.getByRole('dialog', { name: 'Confirmar devolución' });
         expect(dialog).toHaveAttribute('aria-modal', 'true');
         expect(dialog).toHaveTextContent('medio de pago original');
-        expect(dialog).toHaveTextContent('La primera clase permanece pagada');
-        expect(dialog).toHaveTextContent('Las otras tres clases quedarán invalidadas');
+        expect(dialog).toHaveTextContent('La clase ya consumida permanece pagada');
+        expect(dialog).toHaveTextContent('Las 3 clases no consumidas de este ciclo quedarán invalidadas');
         expect(dialog).toHaveTextContent('Se cancelarán todas las renovaciones futuras');
         expect(dialog).toHaveTextContent('Esta acción no se puede deshacer');
 
@@ -99,7 +104,7 @@ describe('GuaranteeCard', () => {
     });
 
     it.each([
-        ['not_started', 200, 'La garantía estará disponible después de completar la primera clase'],
+        ['not_started', 200, 'La garantía estará disponible después de completar al menos una clase'],
         ['closed', 409, 'La ventana de esta garantía está cerrada'],
         ['refunded', 200, 'La devolución se ha completado'],
     ])('never offers a refund when the authoritative state is %s', async (status, httpStatus, expectedCopy) => {
@@ -162,12 +167,26 @@ describe('GuaranteeCard', () => {
     });
 
     it('fails closed when the backend response does not match the exact contract', async () => {
-        vi.stubGlobal('fetch', vi.fn(() => response(guarantee('eligible', { refundAmountCents: 20000 }))));
+        vi.stubGlobal('fetch', vi.fn(() => response(guarantee('eligible', { sessionsRefundable: 2 }))));
 
         render(<GuaranteeCard subscriptionId={subscriptionId} lang="ru" />);
 
         await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Получен недопустимый статус'));
         expect(screen.queryByRole('button', { name: 'Запросить возврат' })).toBeNull();
+    });
+
+    it('renders a non-four-session proportional snapshot without fixed copy', async () => {
+        vi.stubGlobal('fetch', vi.fn(() => response(guarantee('eligible', {
+            refundAmountCents: 18071,
+            sessionsTotal: 6,
+            sessionsConsumed: 2,
+            sessionsRefundable: 4,
+        }))));
+
+        render(<GuaranteeCard subscriptionId={subscriptionId} lang="en" />);
+
+        expect(await screen.findByText('You can now request a refund for the 4 unconsumed classes.')).toBeInTheDocument();
+        expect(screen.getByText('€180.71')).toBeInTheDocument();
     });
 
     it('keeps the latest subscription visible after cancellation and mounts the guarantee card', () => {

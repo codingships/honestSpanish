@@ -15,9 +15,13 @@ type GuaranteeStatus = typeof guaranteeStatuses[number];
 
 type Guarantee = {
     subscriptionId: string;
+    cycleId: string | null;
     status: GuaranteeStatus;
     refundAmountCents: number;
-    currency: 'eur';
+    currency: string;
+    sessionsTotal: number;
+    sessionsConsumed: number;
+    sessionsRefundable: number;
     operationId?: string | null;
     reason?: string | null;
 };
@@ -40,7 +44,7 @@ type GuaranteeCopy = {
     loadError: string;
     retryLoad: string;
     notStarted: string;
-    eligible: string;
+    eligible: (remaining: number) => string;
     closed: string;
     processing: string;
     refundPending: string;
@@ -57,7 +61,7 @@ type GuaranteeCopy = {
     reference: string;
     dialogTitle: string;
     dialogIntro: string;
-    effects: (amount: string) => string[];
+    effects: (amount: string, consumed: number, remaining: number) => string[];
     acknowledge: string;
     confirm: string;
     cancel: string;
@@ -67,12 +71,14 @@ type GuaranteeCopy = {
 
 const copy: Record<Lang, GuaranteeCopy> = {
     es: {
-        title: 'Garantía de la primera clase',
+        title: 'Garantía proporcional',
         loading: 'Comprobando tu garantía…',
         loadError: 'No hemos podido comprobar la garantía. No se ha realizado ninguna solicitud.',
         retryLoad: 'Comprobar de nuevo',
-        notStarted: 'La garantía estará disponible después de completar la primera clase y antes de comenzar la segunda.',
-        eligible: 'Ya puedes solicitar la devolución de las tres clases restantes.',
+        notStarted: 'La garantía estará disponible después de completar al menos una clase y antes de comenzar la siguiente.',
+        eligible: (remaining: number) => remaining === 1
+            ? 'Ya puedes solicitar la devolución de la clase no consumida.'
+            : `Ya puedes solicitar la devolución de las ${remaining} clases no consumidas.`,
         closed: 'La ventana de esta garantía está cerrada.',
         processing: 'Tu solicitud se está procesando. No necesitas crear otra.',
         refundPending: 'La devolución está en curso en el medio de pago original.',
@@ -89,10 +95,14 @@ const copy: Record<Lang, GuaranteeCopy> = {
         reference: 'Referencia',
         dialogTitle: 'Confirmar devolución',
         dialogIntro: 'Antes de continuar, confirma que entiendes todos los efectos:',
-        effects: (amount: string) => [
+        effects: (amount: string, consumed: number, remaining: number) => [
             `Se devolverán ${amount} al medio de pago original.`,
-            'La primera clase permanece pagada.',
-            'Las otras tres clases quedarán invalidadas.',
+            consumed === 1
+                ? 'La clase ya consumida permanece pagada.'
+                : `Las ${consumed} clases ya consumidas permanecen pagadas.`,
+            remaining === 1
+                ? 'La clase no consumida de este ciclo quedará invalidada.'
+                : `Las ${remaining} clases no consumidas de este ciclo quedarán invalidadas.`,
             'Se cancelarán todas las renovaciones futuras.',
             'Esta acción no se puede deshacer.',
         ],
@@ -103,12 +113,14 @@ const copy: Record<Lang, GuaranteeCopy> = {
         invalidResponse: 'El estado recibido no es válido. No se ha habilitado ninguna operación.',
     },
     en: {
-        title: 'First-class guarantee',
+        title: 'Proportional guarantee',
         loading: 'Checking your guarantee…',
         loadError: 'We could not check the guarantee. No request has been made.',
         retryLoad: 'Check again',
-        notStarted: 'The guarantee will be available after the first class is completed and before the second begins.',
-        eligible: 'You can now request a refund for the three remaining classes.',
+        notStarted: 'The guarantee will be available after at least one class is completed and before the next one begins.',
+        eligible: (remaining: number) => remaining === 1
+            ? 'You can now request a refund for the unconsumed class.'
+            : `You can now request a refund for the ${remaining} unconsumed classes.`,
         closed: 'This guarantee window is closed.',
         processing: 'Your request is being processed. You do not need to create another one.',
         refundPending: 'The refund is in progress to the original payment method.',
@@ -125,10 +137,14 @@ const copy: Record<Lang, GuaranteeCopy> = {
         reference: 'Reference',
         dialogTitle: 'Confirm refund',
         dialogIntro: 'Before continuing, confirm that you understand every effect:',
-        effects: (amount: string) => [
+        effects: (amount: string, consumed: number, remaining: number) => [
             `${amount} will be refunded to the original payment method.`,
-            'The first class remains paid.',
-            'The other three classes will be invalidated.',
+            consumed === 1
+                ? 'The class already consumed remains paid.'
+                : `The ${consumed} classes already consumed remain paid.`,
+            remaining === 1
+                ? 'The unconsumed class in this cycle will be invalidated.'
+                : `The ${remaining} unconsumed classes in this cycle will be invalidated.`,
             'All future renewals will be cancelled.',
             'This action cannot be undone.',
         ],
@@ -139,12 +155,12 @@ const copy: Record<Lang, GuaranteeCopy> = {
         invalidResponse: 'The received status is invalid. No operation has been enabled.',
     },
     ru: {
-        title: 'Гарантия после первого занятия',
+        title: 'Пропорциональная гарантия',
         loading: 'Проверяем гарантию…',
         loadError: 'Не удалось проверить гарантию. Запрос не был создан.',
         retryLoad: 'Проверить снова',
-        notStarted: 'Гарантия станет доступна после завершения первого занятия и до начала второго.',
-        eligible: 'Теперь можно запросить возврат за три оставшихся занятия.',
+        notStarted: 'Гарантия станет доступна после завершения хотя бы одного занятия и до начала следующего.',
+        eligible: (remaining: number) => `Теперь можно запросить возврат за неиспользованные занятия: ${remaining}.`,
         closed: 'Срок действия этой гарантии завершён.',
         processing: 'Запрос обрабатывается. Создавать новый запрос не нужно.',
         refundPending: 'Возврат на исходный способ оплаты выполняется.',
@@ -161,10 +177,10 @@ const copy: Record<Lang, GuaranteeCopy> = {
         reference: 'Номер обращения',
         dialogTitle: 'Подтвердить возврат',
         dialogIntro: 'Перед продолжением подтвердите, что понимаете все последствия:',
-        effects: (amount: string) => [
+        effects: (amount: string, consumed: number, remaining: number) => [
             `${amount} будут возвращены на исходный способ оплаты.`,
-            'Первое занятие остаётся оплаченным.',
-            'Остальные три занятия будут аннулированы.',
+            `Уже использованные занятия останутся оплаченными: ${consumed}.`,
+            `Неиспользованные занятия этого цикла будут аннулированы: ${remaining}.`,
             'Все будущие продления будут отменены.',
             'Это действие нельзя отменить.',
         ],
@@ -181,8 +197,30 @@ function isGuarantee(value: unknown, subscriptionId: string): value is Guarantee
     const candidate = value as Partial<Guarantee>;
     return candidate.subscriptionId === subscriptionId
         && guaranteeStatuses.includes(candidate.status as GuaranteeStatus)
-        && candidate.refundAmountCents === 19425
-        && candidate.currency === 'eur'
+        && (candidate.cycleId === null || typeof candidate.cycleId === 'string')
+        && Number.isSafeInteger(candidate.refundAmountCents)
+        && (candidate.refundAmountCents ?? -1) >= 0
+        && typeof candidate.currency === 'string'
+        && /^[a-z]{3}$/.test(candidate.currency)
+        && Number.isSafeInteger(candidate.sessionsTotal)
+        && (candidate.sessionsTotal ?? 0) >= 1
+        && (candidate.sessionsTotal ?? 0) <= 200
+        && Number.isSafeInteger(candidate.sessionsConsumed)
+        && (candidate.sessionsConsumed ?? -1) >= 0
+        && (candidate.sessionsConsumed ?? 0) <= (candidate.sessionsTotal ?? 0)
+        && Number.isSafeInteger(candidate.sessionsRefundable)
+        && candidate.sessionsRefundable === Math.max(
+            (candidate.sessionsTotal ?? 0) - (candidate.sessionsConsumed ?? 0),
+            0,
+        )
+        && (
+            candidate.status !== 'eligible'
+            || (
+                (candidate.sessionsConsumed ?? 0) >= 1
+                && (candidate.sessionsRefundable ?? 0) >= 1
+                && (candidate.refundAmountCents ?? 0) > 0
+            )
+        )
         && (candidate.operationId === undefined
             || candidate.operationId === null
             || typeof candidate.operationId === 'string')
@@ -219,7 +257,7 @@ function clearStoredRequestId(subscriptionId: string) {
     }
 }
 
-function formatAmount(amountCents: number, currency: 'eur', lang: Lang) {
+function formatAmount(amountCents: number, currency: string, lang: Lang) {
     return new Intl.NumberFormat(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-GB', {
         style: 'currency',
         currency: currency.toUpperCase(),
@@ -357,13 +395,13 @@ export default function GuaranteeCard({ subscriptionId, lang }: Props) {
     };
 
     const amount = formatAmount(
-        guarantee?.refundAmountCents ?? 19425,
+        guarantee?.refundAmountCents ?? 0,
         guarantee?.currency ?? 'eur',
         lang,
     );
     const statusCopy = guarantee ? {
         not_started: t.notStarted,
-        eligible: t.eligible,
+        eligible: t.eligible(guarantee?.sessionsRefundable ?? 0),
         closed: t.closed,
         processing: t.processing,
         refund_pending: t.refundPending,
@@ -479,7 +517,11 @@ export default function GuaranteeCard({ subscriptionId, lang }: Props) {
                             {t.dialogIntro}
                         </p>
                         <ul className="mt-4 list-disc space-y-2 pl-5 text-sm text-[#006064]">
-                            {t.effects(amount).map((effect) => <li key={effect}>{effect}</li>)}
+                            {t.effects(
+                                amount,
+                                guarantee.sessionsConsumed,
+                                guarantee.sessionsRefundable,
+                            ).map((effect) => <li key={effect}>{effect}</li>)}
                         </ul>
                         <label className="mt-5 flex items-start gap-3 text-sm font-bold text-[#006064]">
                             <input

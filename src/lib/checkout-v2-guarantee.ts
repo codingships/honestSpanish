@@ -1,11 +1,10 @@
 import type { APIContext } from 'astro';
 import type Stripe from 'stripe';
-import { INITIAL_INDIVIDUAL_OFFER, PACKAGE_CURRENCY } from './package-pricing';
+import { PACKAGE_CURRENCY, VERSIONED_CONTRACT_SCHEMA_VERSION } from './package-pricing';
 import { stripe } from './stripe';
 import { assertStripeRuntimeAccount } from './stripe-runtime-guard';
 import { createSupabaseAdminClient } from './supabase-admin';
 
-const GUARANTEE_REFUND_AMOUNT_CENTS = 19_425;
 const GUARANTEE_OPERATION_METADATA_KEY = 'guaranteeOperationId';
 const REFUND_PAGE_SIZE = 100;
 const REFUND_MAX_PAGES = 10;
@@ -38,9 +37,13 @@ export type CheckoutV2GuaranteePublicStatus =
 
 export type CheckoutV2GuaranteeResult = {
     subscriptionId: string | null;
+    cycleId: string | null;
     status: CheckoutV2GuaranteePublicStatus;
     refundAmountCents: number;
     currency: string;
+    sessionsTotal: number;
+    sessionsConsumed: number;
+    sessionsRefundable: number;
     operationId: string | null;
     reason: string | null;
 };
@@ -54,8 +57,14 @@ export type CheckoutV2GuaranteeOperation = {
     actor_id: string;
     first_session_id: string;
     second_session_id: string;
-    third_session_id: string;
-    fourth_session_id: string;
+    third_session_id: string | null;
+    fourth_session_id: string | null;
+    package_price_id: string;
+    cycle_number: number;
+    sessions_total: number;
+    sessions_consumed: number;
+    session_base_amount_cents: number;
+    session_remainder_units: number;
     stripe_customer_id: string;
     stripe_subscription_id: string;
     stripe_invoice_id: string;
@@ -83,6 +92,7 @@ type GuaranteeStateRow = Partial<CheckoutV2GuaranteeOperation> & {
     state?: CheckoutV2GuaranteePublicStatus;
     operation_id?: string | null;
     reason?: string | null;
+    sessions_refundable?: number;
 };
 
 type LocalSubscription = {
@@ -118,6 +128,9 @@ type LocalPriceSnapshot = {
     recurring_stripe_price_id: string;
     recurring_interval_count: number;
     recurring_interval_unit: string;
+    sessions_per_period: number;
+    session_base_amount_cents: number;
+    session_remainder_units: number;
     currency: string;
     stripe_account_id: string;
     stripe_livemode: boolean;
@@ -211,13 +224,22 @@ function publicStatus(row: GuaranteeStateRow): CheckoutV2GuaranteePublicStatus {
 }
 
 function toPublicResult(row: GuaranteeStateRow | null, subscriptionId: string | null): CheckoutV2GuaranteeResult {
+    const sessionsTotal = Number.isSafeInteger(row?.sessions_total) ? row?.sessions_total ?? 0 : 0;
+    const sessionsConsumed = Number.isSafeInteger(row?.sessions_consumed) ? row?.sessions_consumed ?? 0 : 0;
+    const derivedRefundable = Math.max(sessionsTotal - sessionsConsumed, 0);
     return {
         subscriptionId: typeof row?.subscription_id === 'string' ? row.subscription_id : subscriptionId,
+        cycleId: typeof row?.cycle_id === 'string' ? row.cycle_id : null,
         status: row ? publicStatus(row) : 'not_started',
         refundAmountCents: typeof row?.refund_amount_cents === 'number'
             ? row.refund_amount_cents
-            : GUARANTEE_REFUND_AMOUNT_CENTS,
+            : 0,
         currency: typeof row?.currency === 'string' ? row.currency.toLowerCase() : PACKAGE_CURRENCY,
+        sessionsTotal,
+        sessionsConsumed,
+        sessionsRefundable: Number.isSafeInteger(row?.sessions_refundable)
+            ? row?.sessions_refundable ?? 0
+            : derivedRefundable,
         operationId: typeof row?.id === 'string'
             ? row.id
             : typeof row?.operation_id === 'string'
@@ -330,7 +352,7 @@ async function loadLocalContract(admin: GuaranteeAdmin, operation: CheckoutV2Gua
         admin.from('package_prices').select('id, stripe_account_id, stripe_livemode, stripe_product_id')
             .eq('id', subscription.package_price_id).single(),
         admin.from('checkout_v2_price_snapshots')
-            .select('package_price_id, initial_amount_cents, initial_stripe_price_id, recurring_amount_cents, recurring_stripe_price_id, recurring_interval_count, recurring_interval_unit, currency, stripe_account_id, stripe_livemode')
+            .select('package_price_id, initial_amount_cents, initial_stripe_price_id, recurring_amount_cents, recurring_stripe_price_id, recurring_interval_count, recurring_interval_unit, sessions_per_period, session_base_amount_cents, session_remainder_units, currency, stripe_account_id, stripe_livemode')
             .eq('package_price_id', subscription.package_price_id).single(),
         admin.from('payments')
             .select('id, student_id, subscription_id, amount, currency, status, stripe_invoice_id, stripe_payment_intent_id')
@@ -363,6 +385,28 @@ async function loadLocalContract(admin: GuaranteeAdmin, operation: CheckoutV2Gua
 }
 
 function operationIsValid(value: GuaranteeStateRow, expected: { subscriptionId: string; actorId: string }): value is CheckoutV2GuaranteeOperation {
+    const sessionsTotal = value.sessions_total;
+    const sessionsConsumed = value.sessions_consumed;
+    const baseAmount = value.session_base_amount_cents;
+    const remainder = value.session_remainder_units;
+    const grossAmount = value.gross_amount_cents;
+    const refundAmount = value.refund_amount_cents;
+    const hasValidAllocation = Number.isSafeInteger(sessionsTotal)
+        && Number.isSafeInteger(sessionsConsumed)
+        && Number.isSafeInteger(baseAmount)
+        && Number.isSafeInteger(remainder)
+        && Number.isSafeInteger(grossAmount)
+        && Number.isSafeInteger(refundAmount)
+        && (sessionsTotal ?? 0) >= 2
+        && (sessionsTotal ?? 0) <= 200
+        && (sessionsConsumed ?? 0) >= 1
+        && (sessionsConsumed ?? 0) < (sessionsTotal ?? 0)
+        && (baseAmount ?? 0) > 0
+        && (remainder ?? -1) >= 0
+        && (remainder ?? 0) < (sessionsTotal ?? 0)
+        && grossAmount === (baseAmount ?? 0) * (sessionsTotal ?? 0) + (remainder ?? 0)
+        && refundAmount === (baseAmount ?? 0) * ((sessionsTotal ?? 0) - (sessionsConsumed ?? 0))
+            + Math.max((remainder ?? 0) - (sessionsConsumed ?? 0), 0);
     return isUuid(value.id)
         && isUuid(value.request_id)
         && value.subscription_id === expected.subscriptionId
@@ -371,15 +415,18 @@ function operationIsValid(value: GuaranteeStateRow, expected: { subscriptionId: 
         && value.actor_id === expected.actorId
         && isUuid(value.first_session_id)
         && isUuid(value.second_session_id)
-        && isUuid(value.third_session_id)
-        && isUuid(value.fourth_session_id)
+        && ((sessionsTotal ?? 0) < 3 ? value.third_session_id == null : isUuid(value.third_session_id))
+        && ((sessionsTotal ?? 0) < 4 ? value.fourth_session_id == null : isUuid(value.fourth_session_id))
+        && isUuid(value.package_price_id)
+        && Number.isSafeInteger(value.cycle_number)
+        && (value.cycle_number ?? 0) > 0
         && typeof value.stripe_customer_id === 'string'
         && typeof value.stripe_subscription_id === 'string'
         && typeof value.stripe_invoice_id === 'string'
         && typeof value.stripe_payment_intent_id === 'string'
-        && value.gross_amount_cents === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && value.refund_amount_cents === GUARANTEE_REFUND_AMOUNT_CENTS
-        && value.currency?.toLowerCase() === PACKAGE_CURRENCY
+        && hasValidAllocation
+        && typeof value.currency === 'string'
+        && /^[a-z]{3}$/.test(value.currency.toLowerCase())
         && ['requested', 'processing', 'refund_pending', 'refunded', 'retryable', 'manual_review'].includes(value.status ?? '');
 }
 
@@ -400,27 +447,37 @@ function requireActiveLease(operation: CheckoutV2GuaranteeOperation, workerToken
 
 function localContractMatches(operation: CheckoutV2GuaranteeOperation, contract: LocalStripeContract): boolean {
     const { subscription, checkoutIntent, packagePrice, snapshot, payment } = contract;
+    const expectedGrossAmount = operation.cycle_number === 1
+        ? snapshot.initial_amount_cents
+        : snapshot.recurring_amount_cents;
     return subscription.id === operation.subscription_id
         && subscription.student_id === operation.actor_id
-        && subscription.contract_schema_version === INITIAL_INDIVIDUAL_OFFER.contractSchemaVersion
+        && subscription.package_price_id === operation.package_price_id
+        && subscription.contract_schema_version === VERSIONED_CONTRACT_SCHEMA_VERSION
         && subscription.stripe_subscription_id === operation.stripe_subscription_id
-        && subscription.stripe_invoice_id === operation.stripe_invoice_id
+        && (
+            operation.cycle_number > 1
+            || subscription.stripe_invoice_id === operation.stripe_invoice_id
+        )
         && checkoutIntent.id === subscription.checkout_intent_id
         && checkoutIntent.student_id === operation.actor_id
         && checkoutIntent.package_price_id === subscription.package_price_id
         && checkoutIntent.stripe_customer_id === operation.stripe_customer_id
         && packagePrice.id === subscription.package_price_id
         && snapshot.package_price_id === subscription.package_price_id
-        && snapshot.initial_amount_cents === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && snapshot.recurring_amount_cents === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && snapshot.currency.toLowerCase() === PACKAGE_CURRENCY
-        && snapshot.recurring_interval_unit === INITIAL_INDIVIDUAL_OFFER.billingIntervalUnit
-        && snapshot.recurring_interval_count === INITIAL_INDIVIDUAL_OFFER.billingIntervalCount
+        && snapshot.sessions_per_period === operation.sessions_total
+        && snapshot.session_base_amount_cents === operation.session_base_amount_cents
+        && snapshot.session_remainder_units === operation.session_remainder_units
+        && expectedGrossAmount === operation.gross_amount_cents
+        && snapshot.currency.toLowerCase() === operation.currency
+        && ['day', 'week', 'month', 'year'].includes(snapshot.recurring_interval_unit)
+        && Number.isSafeInteger(snapshot.recurring_interval_count)
+        && snapshot.recurring_interval_count > 0
         && payment.id === operation.payment_id
         && payment.student_id === operation.actor_id
         && payment.subscription_id === operation.subscription_id
-        && payment.amount === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && payment.currency.toLowerCase() === PACKAGE_CURRENCY
+        && payment.amount === operation.gross_amount_cents
+        && payment.currency.toLowerCase() === operation.currency
         && payment.status === 'succeeded'
         && payment.stripe_invoice_id === operation.stripe_invoice_id
         && payment.stripe_payment_intent_id === operation.stripe_payment_intent_id;
@@ -440,7 +497,7 @@ function remoteSubscriptionMatches(
         && ['trialing', 'active', 'canceled'].includes(remote.status)
         && stripeObjectId(remote.customer) === operation.stripe_customer_id
         && stripeObjectId(remote.latest_invoice) === operation.stripe_invoice_id
-        && remote.metadata.contractSchemaVersion === String(INITIAL_INDIVIDUAL_OFFER.contractSchemaVersion)
+        && remote.metadata.contractSchemaVersion === String(VERSIONED_CONTRACT_SCHEMA_VERSION)
         && remote.metadata.userId === operation.actor_id
         && remote.metadata.checkoutIntentId === contract.checkoutIntent.id
         && remote.metadata.packagePriceId === contract.packagePrice.id
@@ -448,11 +505,11 @@ function remoteSubscriptionMatches(
         && item.quantity === 1
         && price?.id === contract.snapshot.recurring_stripe_price_id
         && price.type === 'recurring'
-        && price.unit_amount === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && price.currency.toLowerCase() === PACKAGE_CURRENCY
+        && price.unit_amount === contract.snapshot.recurring_amount_cents
+        && price.currency.toLowerCase() === operation.currency
         && price.livemode === livemode
-        && price.recurring?.interval === INITIAL_INDIVIDUAL_OFFER.billingIntervalUnit
-        && price.recurring.interval_count === INITIAL_INDIVIDUAL_OFFER.billingIntervalCount
+        && price.recurring?.interval === contract.snapshot.recurring_interval_unit
+        && price.recurring.interval_count === contract.snapshot.recurring_interval_count
         && stripeProductId(price.product) === contract.packagePrice.stripe_product_id
         && contract.packagePrice.stripe_account_id === accountId
         && contract.packagePrice.stripe_livemode === livemode
@@ -475,9 +532,9 @@ function paymentIntentMatches(
     return intent.id === operation.stripe_payment_intent_id
         && intent.livemode === livemode
         && intent.status === 'succeeded'
-        && intent.amount === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && intent.amount_received === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && intent.currency.toLowerCase() === PACKAGE_CURRENCY
+        && intent.amount === operation.gross_amount_cents
+        && intent.amount_received === operation.gross_amount_cents
+        && intent.currency.toLowerCase() === operation.currency
         && stripeObjectId(intent.customer) === operation.stripe_customer_id;
 }
 
@@ -489,10 +546,10 @@ function invoiceMatches(
     return invoice.id === operation.stripe_invoice_id
         && invoice.livemode === livemode
         && invoice.status === 'paid'
-        && invoice.total === INITIAL_INDIVIDUAL_OFFER.amountCents
-        && invoice.amount_paid === INITIAL_INDIVIDUAL_OFFER.amountCents
+        && invoice.total === operation.gross_amount_cents
+        && invoice.amount_paid === operation.gross_amount_cents
         && stripeObjectId(invoice.customer) === operation.stripe_customer_id
-        && invoice.currency.toLowerCase() === PACKAGE_CURRENCY
+        && invoice.currency.toLowerCase() === operation.currency
         && stripeObjectId(invoice.parent?.subscription_details?.subscription) === operation.stripe_subscription_id;
 }
 
@@ -521,15 +578,15 @@ async function listPaymentIntentRefunds(paymentIntentId: string): Promise<Stripe
 function exactGuaranteeRefund(operation: CheckoutV2GuaranteeOperation, refund: Stripe.Refund): boolean {
     const metadata = refund.metadata;
     return stripeObjectId(refund.payment_intent) === operation.stripe_payment_intent_id
-        && refund.amount === GUARANTEE_REFUND_AMOUNT_CENTS
-        && refund.currency.toLowerCase() === PACKAGE_CURRENCY
+        && refund.amount === operation.refund_amount_cents
+        && refund.currency.toLowerCase() === operation.currency
         && ['pending', 'requires_action', 'succeeded', 'failed', 'canceled'].includes(refund.status ?? '')
         && Number.isSafeInteger(refund.created)
         && refund.created > 0
         && metadata?.[GUARANTEE_OPERATION_METADATA_KEY] === operation.id
         && metadata?.subscriptionId === operation.subscription_id
         && metadata?.paymentId === operation.payment_id
-        && metadata?.contractSchemaVersion === String(INITIAL_INDIVIDUAL_OFFER.contractSchemaVersion);
+        && metadata?.contractSchemaVersion === String(VERSIONED_CONTRACT_SCHEMA_VERSION);
 }
 
 function classifyRefunds(operation: CheckoutV2GuaranteeOperation, refunds: Stripe.Refund[]): Stripe.Refund | null {
@@ -735,13 +792,13 @@ export async function runCheckoutV2Guarantee(input: {
     try {
         refund = await stripe.refunds.create({
             payment_intent: operation.stripe_payment_intent_id,
-            amount: GUARANTEE_REFUND_AMOUNT_CENTS,
+            amount: operation.refund_amount_cents,
             reason: 'requested_by_customer',
             metadata: {
                 guaranteeOperationId: operation.id,
                 subscriptionId: operation.subscription_id,
                 paymentId: operation.payment_id,
-                contractSchemaVersion: String(INITIAL_INDIVIDUAL_OFFER.contractSchemaVersion),
+                contractSchemaVersion: String(VERSIONED_CONTRACT_SCHEMA_VERSION),
             },
         }, { idempotencyKey: `checkout-v2-guarantee-refund:${operation.id}` });
     } catch (createError) {

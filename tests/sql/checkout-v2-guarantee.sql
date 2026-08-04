@@ -354,7 +354,12 @@ BEGIN
     );
     IF state_row.state IS DISTINCT FROM 'eligible'
        OR state_row.refund_amount_cents IS DISTINCT FROM 19425
-       OR state_row.currency IS DISTINCT FROM 'eur' THEN
+       OR state_row.currency IS DISTINCT FROM 'eur'
+       OR state_row.cycle_id IS DISTINCT FROM
+            '77800000-0000-4000-8000-000000000001'::UUID
+       OR state_row.sessions_total IS DISTINCT FROM 4::SMALLINT
+       OR state_row.sessions_consumed IS DISTINCT FROM 1::SMALLINT
+       OR state_row.sessions_refundable IS DISTINCT FROM 3::SMALLINT THEN
         RAISE EXCEPTION 'checkout_v2_guarantee_eligible_state_is_wrong';
     END IF;
 
@@ -368,6 +373,276 @@ BEGIN
     END IF;
 END
 $$;
+
+-- The same current 259 EUR cycle stays eligible after the second and third
+-- consumed classes, with the exact remaining contractual allocation.
+BEGIN;
+SET LOCAL session_replication_role = replica;
+UPDATE public.sessions
+SET
+    status = 'completed',
+    scheduled_at = :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '1 day',
+    completed_at = :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '1 day 50 minutes'
+WHERE id = '77910000-0000-4000-8000-000000000002';
+
+DO $$
+DECLARE state_row RECORD;
+BEGIN
+    SELECT * INTO state_row
+    FROM public.get_checkout_v2_guarantee_state(
+        '77600000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000001'
+    );
+    IF state_row.state IS DISTINCT FROM 'eligible'
+       OR state_row.refund_amount_cents IS DISTINCT FROM 12950
+       OR state_row.sessions_consumed IS DISTINCT FROM 2::SMALLINT
+       OR state_row.sessions_refundable IS DISTINCT FROM 2::SMALLINT THEN
+        RAISE EXCEPTION 'checkout_v2_guarantee_second_position_is_wrong';
+    END IF;
+END
+$$;
+
+UPDATE public.sessions
+SET
+    status = 'completed',
+    scheduled_at = :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '2 days',
+    completed_at = :'guarantee_first_at'::TIMESTAMPTZ + INTERVAL '2 days 50 minutes'
+WHERE id = '77910000-0000-4000-8000-000000000003';
+
+DO $$
+DECLARE state_row RECORD;
+BEGIN
+    SELECT * INTO state_row
+    FROM public.get_checkout_v2_guarantee_state(
+        '77600000-0000-4000-8000-000000000001',
+        '77000000-0000-4000-8000-000000000001'
+    );
+    IF state_row.state IS DISTINCT FROM 'eligible'
+       OR state_row.refund_amount_cents IS DISTINCT FROM 6475
+       OR state_row.sessions_consumed IS DISTINCT FROM 3::SMALLINT
+       OR state_row.sessions_refundable IS DISTINCT FROM 1::SMALLINT THEN
+        RAISE EXCEPTION 'checkout_v2_guarantee_third_position_is_wrong';
+    END IF;
+END
+$$;
+ROLLBACK;
+
+-- A six-session contract with remainder cents proves that the guarantee is
+-- package-independent. 27107 = (4517 * 6) + 5, so after consuming the first
+-- two allocations the exact refund is 18071 cents, not a rounded percentage.
+BEGIN;
+SET LOCAL session_replication_role = replica;
+
+INSERT INTO public.profiles (id, email, role) VALUES
+    (
+        '77000000-0000-4000-8000-000000000004',
+        'guarantee-six-student@test.invalid',
+        'student'
+    ),
+    (
+        '77000000-0000-4000-8000-000000000005',
+        'guarantee-six-teacher@test.invalid',
+        'teacher'
+    );
+
+INSERT INTO public.packages (
+    id, name, display_name, price_monthly, sessions_per_month,
+    contract_schema_version, amount_cents, billing_interval_unit,
+    billing_interval_count, sessions_per_period, class_duration_minutes
+) VALUES (
+    '77100000-0000-4000-8000-000000000006',
+    'guarantee_v2_six', '{"en":"Guarantee V2 Six"}'::JSONB,
+    27107, 6, 2, 27107, 'day', 42, 6, 50
+);
+
+INSERT INTO public.package_prices (
+    id, package_id, catalog_version, package_key, display_name,
+    duration_months, amount_cents, currency, sessions_per_month,
+    sessions_per_period, has_group_session, has_dual_teacher,
+    stripe_account_id, stripe_livemode, stripe_product_id, stripe_price_id,
+    status, contract_schema_version, billing_interval_unit,
+    billing_interval_count, class_duration_minutes
+) VALUES (
+    '77200000-0000-4000-8000-000000000006',
+    '77100000-0000-4000-8000-000000000006',
+    1, 'guarantee_v2_six', '{"en":"Guarantee V2 Six"}'::JSONB,
+    NULL, 27107, 'eur', NULL, 6, FALSE, FALSE,
+    'acct_guarantee_test', FALSE, 'prod_guarantee_six',
+    'price_guarantee_six_recurring', 'active', 2, 'day', 42, 50
+);
+
+INSERT INTO public.checkout_v2_price_snapshots (
+    package_price_id, stripe_account_id, stripe_livemode,
+    initial_stripe_price_id, recurring_stripe_price_id,
+    initial_amount_cents, recurring_amount_cents, currency,
+    recurring_interval_unit, recurring_interval_count,
+    sessions_per_period, class_duration_minutes,
+    session_base_amount_cents, session_remainder_units
+) VALUES (
+    '77200000-0000-4000-8000-000000000006',
+    'acct_guarantee_test', FALSE,
+    'price_guarantee_six_initial', 'price_guarantee_six_recurring',
+    27107, 27107, 'eur', 'day', 42, 6, 50, 4517, 5
+);
+
+INSERT INTO public.crm_contacts (
+    id, profile_id, primary_email, full_name
+) VALUES (
+    '77300000-0000-4000-8000-000000000006',
+    '77000000-0000-4000-8000-000000000004',
+    'guarantee-six-student@test.invalid',
+    'Guarantee Six Student'
+);
+
+INSERT INTO public.crm_opportunities (
+    id, contact_id, stage, interest, preferred_package_id,
+    checkout_approved_at
+) VALUES (
+    '77400000-0000-4000-8000-000000000006',
+    '77300000-0000-4000-8000-000000000006',
+    'won', 'direct_checkout',
+    '77100000-0000-4000-8000-000000000006',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '20 days'
+);
+
+INSERT INTO public.checkout_intents (
+    id, opportunity_id, contact_id, student_id, package_price_id,
+    lang, legal_policy_version, policy_accepted_at, site_url, status,
+    stripe_checkout_session_id, stripe_customer_id,
+    stripe_session_expires_at, expires_at, completed_at, created_at, updated_at
+) VALUES (
+    '77500000-0000-4000-8000-000000000006',
+    '77400000-0000-4000-8000-000000000006',
+    '77300000-0000-4000-8000-000000000006',
+    '77000000-0000-4000-8000-000000000004',
+    '77200000-0000-4000-8000-000000000006',
+    'en', 'guarantee-test-v1',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '20 days',
+    'https://example.test', 'completed',
+    'cs_guarantee_six', 'cus_guarantee_six',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '19 days',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '18 days',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '18 days',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '20 days',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '18 days'
+);
+
+INSERT INTO public.subscriptions (
+    id, student_id, package_id, package_price_id, checkout_intent_id,
+    status, duration_months, starts_at, ends_at, sessions_total,
+    contracted_sessions_per_period, sessions_used, stripe_subscription_id,
+    stripe_invoice_id, contract_schema_version, billing_interval_unit,
+    billing_interval_count, class_duration_minutes
+) VALUES (
+    '77600000-0000-4000-8000-000000000006',
+    '77000000-0000-4000-8000-000000000004',
+    '77100000-0000-4000-8000-000000000006',
+    '77200000-0000-4000-8000-000000000006',
+    '77500000-0000-4000-8000-000000000006',
+    'active', NULL,
+    (transaction_timestamp() - INTERVAL '14 days')::DATE,
+    (transaction_timestamp() + INTERVAL '28 days')::DATE,
+    6, 6, 6, 'sub_guarantee_six', 'in_guarantee_six',
+    2, 'day', 42, 50
+);
+
+INSERT INTO public.payments (
+    id, student_id, subscription_id, amount, currency, status,
+    stripe_payment_intent_id, stripe_invoice_id
+) VALUES (
+    '77700000-0000-4000-8000-000000000006',
+    '77000000-0000-4000-8000-000000000004',
+    '77600000-0000-4000-8000-000000000006',
+    27107, 'eur', 'succeeded', 'pi_guarantee_six', 'in_guarantee_six'
+);
+
+INSERT INTO public.checkout_v2_cycles (
+    id, subscription_id, cycle_number, cycle_kind, starts_at, ends_at,
+    sessions_total, amount_cents, currency, stripe_price_id,
+    stripe_invoice_id, payment_id, materialization_state,
+    sessions_materialized_at
+) VALUES (
+    '77800000-0000-4000-8000-000000000006',
+    '77600000-0000-4000-8000-000000000006', 1, 'initial',
+    date_trunc('second', transaction_timestamp()) - INTERVAL '14 days',
+    date_trunc('second', transaction_timestamp()) + INTERVAL '28 days',
+    6, 27107, 'eur', 'price_guarantee_six_initial',
+    'in_guarantee_six', '77700000-0000-4000-8000-000000000006',
+    'ready', date_trunc('second', transaction_timestamp()) - INTERVAL '14 days'
+);
+
+UPDATE public.payments
+SET checkout_v2_cycle_id = '77800000-0000-4000-8000-000000000006'
+WHERE id = '77700000-0000-4000-8000-000000000006';
+
+INSERT INTO public.sessions (
+    id, subscription_id, student_id, teacher_id, scheduled_at,
+    duration_minutes, status, completed_at, checkout_v2_cycle_id,
+    checkout_v2_cycle_session_index
+)
+SELECT
+    ('77960000-0000-4000-8000-' || lpad(position::TEXT, 12, '0'))::UUID,
+    '77600000-0000-4000-8000-000000000006'::UUID,
+    '77000000-0000-4000-8000-000000000004'::UUID,
+    '77000000-0000-4000-8000-000000000005'::UUID,
+    date_trunc('second', transaction_timestamp())
+        + CASE position
+            WHEN 1 THEN INTERVAL '-14 days'
+            WHEN 2 THEN INTERVAL '-7 days'
+            ELSE pg_catalog.make_interval(days => 1 + ((position - 3) * 7))
+          END,
+    50,
+    CASE WHEN position <= 2 THEN 'completed' ELSE 'scheduled' END,
+    CASE WHEN position <= 2 THEN
+        date_trunc('second', transaction_timestamp())
+            + CASE position WHEN 1 THEN INTERVAL '-14 days 50 minutes'
+                            ELSE INTERVAL '-7 days 50 minutes' END
+        ELSE NULL
+    END,
+    '77800000-0000-4000-8000-000000000006'::UUID,
+    position::SMALLINT
+FROM pg_catalog.generate_series(1, 6) AS position;
+
+SET LOCAL session_replication_role = origin;
+
+DO $$
+DECLARE
+    state_row RECORD;
+    operation_row public.checkout_v2_guarantee_operations%ROWTYPE;
+BEGIN
+    SELECT * INTO state_row
+    FROM public.get_checkout_v2_guarantee_state(
+        '77600000-0000-4000-8000-000000000006',
+        '77000000-0000-4000-8000-000000000004'
+    );
+
+    IF state_row.state IS DISTINCT FROM 'eligible'
+       OR state_row.refund_amount_cents IS DISTINCT FROM 18071
+       OR state_row.sessions_total IS DISTINCT FROM 6::SMALLINT
+       OR state_row.sessions_consumed IS DISTINCT FROM 2::SMALLINT
+       OR state_row.sessions_refundable IS DISTINCT FROM 4::SMALLINT THEN
+        RAISE EXCEPTION 'checkout_v2_guarantee_remainder_state_is_wrong:%',
+            pg_catalog.row_to_json(state_row);
+    END IF;
+
+    operation_row := public.prepare_checkout_v2_guarantee(
+        '77a00000-0000-4000-8000-000000000006',
+        '77600000-0000-4000-8000-000000000006',
+        '77000000-0000-4000-8000-000000000004'
+    );
+
+    IF operation_row.refund_amount_cents IS DISTINCT FROM 18071
+       OR operation_row.sessions_total IS DISTINCT FROM 6::SMALLINT
+       OR operation_row.sessions_consumed IS DISTINCT FROM 2::SMALLINT
+       OR (SELECT array_agg(snapshot.amount_cents ORDER BY snapshot.session_index)
+           FROM public.checkout_v2_guarantee_operation_sessions AS snapshot
+           WHERE snapshot.operation_id = operation_row.id)
+            IS DISTINCT FROM ARRAY[4518, 4518, 4518, 4518, 4518, 4517] THEN
+        RAISE EXCEPTION 'checkout_v2_guarantee_remainder_snapshot_is_wrong';
+    END IF;
+END
+$$;
+ROLLBACK;
 
 DO $$
 BEGIN
@@ -446,8 +721,28 @@ BEGIN
        OR operation_row.third_session_id IS DISTINCT FROM
             '77910000-0000-4000-8000-000000000003'::UUID
        OR operation_row.fourth_session_id IS DISTINCT FROM
-            '77910000-0000-4000-8000-000000000004'::UUID THEN
+            '77910000-0000-4000-8000-000000000004'::UUID
+       OR operation_row.package_price_id IS DISTINCT FROM
+            '77200000-0000-4000-8000-000000000001'::UUID
+       OR operation_row.cycle_number IS DISTINCT FROM 1
+       OR operation_row.sessions_total IS DISTINCT FROM 4::SMALLINT
+       OR operation_row.sessions_consumed IS DISTINCT FROM 1::SMALLINT
+       OR operation_row.session_base_amount_cents IS DISTINCT FROM 6475
+       OR operation_row.session_remainder_units IS DISTINCT FROM 0::SMALLINT THEN
         RAISE EXCEPTION 'guarantee_did_not_snapshot_effective_leaves';
+    END IF;
+
+    IF (SELECT COUNT(*)
+        FROM public.checkout_v2_guarantee_operation_sessions AS snapshot
+        WHERE snapshot.operation_id = operation_row.id) <> 4
+       OR (SELECT COALESCE(SUM(snapshot.amount_cents), 0)
+           FROM public.checkout_v2_guarantee_operation_sessions AS snapshot
+           WHERE snapshot.operation_id = operation_row.id) <> 25900
+       OR (SELECT COUNT(*)
+           FROM public.checkout_v2_guarantee_operation_sessions AS snapshot
+           WHERE snapshot.operation_id = operation_row.id
+             AND snapshot.was_consumed) <> 1 THEN
+        RAISE EXCEPTION 'guarantee_session_snapshot_is_wrong';
     END IF;
 END $$;
 
@@ -744,6 +1039,10 @@ BEGIN
               )::UUID,
               'refundAmount', 19425,
               'currency', 'eur',
+              'cycleNumber', 1,
+              'sessionsTotal', 4,
+              'sessionsConsumed', 1,
+              'sessionsRefundable', 3,
               'sendEmail', TRUE
           )
       ) THEN
@@ -809,6 +1108,8 @@ INSERT INTO public.support_tickets (
 INSERT INTO public.checkout_v2_guarantee_operations (
     id, request_id, subscription_id, cycle_id, payment_id, actor_id,
     first_session_id, second_session_id, third_session_id, fourth_session_id,
+    package_price_id, cycle_number, sessions_total, sessions_consumed,
+    session_base_amount_cents, session_remainder_units,
     stripe_customer_id, stripe_subscription_id, stripe_invoice_id,
     stripe_payment_intent_id, gross_amount_cents, refund_amount_cents,
     currency, status, cancellation_started_at, stripe_cancelled_at,
@@ -825,6 +1126,7 @@ INSERT INTO public.checkout_v2_guarantee_operations (
     '78100000-0000-4000-8000-000000000092',
     '78100000-0000-4000-8000-000000000093',
     '78100000-0000-4000-8000-000000000094',
+    '77200000-0000-4000-8000-000000000001', 1, 4, 1, 6475, 0,
     'cus_failed_evidence', 'sub_failed_evidence', 'in_failed_evidence',
     'pi_failed_evidence', 25900, 19425, 'eur', 'manual_review',
     date_trunc('second', clock_timestamp()),

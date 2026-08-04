@@ -84,7 +84,9 @@ describe('public product surface', () => {
         expect(landing).toContain('259 EUR');
         expect(landing).toContain('50 minutos');
         expect(landing).toContain('cada 28 días');
-        expect(landing).toContain('antes de la segunda');
+        expect(landing).toContain('valor contractual de todas las clases no consumidas');
+        expect(landing).toContain('antes de la siguiente');
+        expect(landing).not.toContain('antes de la segunda');
         expect(ui.es.hero.subtitle).toContain('entrar en España de verdad');
         expect(ui.es.hero.manifesto).toContain('Conversación, cultura y criterio');
         expect(ui.en.hero.subtitle).toContain('a real way into Spain');
