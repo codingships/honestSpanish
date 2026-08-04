@@ -59,6 +59,10 @@ type LevelCheckResponse = {
     error?: string;
 };
 
+type LevelCheckPrefillResponse = {
+    email?: string;
+};
+
 export default function LevelCheckForm({ lang, translations: t }: LevelCheckFormProps) {
     const [formData, setFormData] = useState({
         email: '',
@@ -75,18 +79,52 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
     const [errorMessage, setErrorMessage] = useState('');
     const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
     const [leadToken, setLeadToken] = useState<{ leadId: string; token: string } | null>(null);
+    const [inviteState, setInviteState] = useState<'none' | 'loading' | 'resolved'>('none');
 
     useEffect(() => {
         const params = new URLSearchParams(window.location.search);
+        const fragment = new URLSearchParams(window.location.hash.replace(/^#/u, ''));
         const email = params.get('email');
-        const leadId = params.get('leadId');
-        const token = params.get('token');
+        const leadId = fragment.get('leadId') ?? params.get('leadId');
+        const token = fragment.get('token') ?? params.get('token');
         if (email) {
             setFormData(prev => ({ ...prev, email }));
+            params.delete('email');
+            const query = params.toString();
+            window.history.replaceState(
+                null,
+                '',
+                `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`,
+            );
         }
-        if (leadId && token) {
+        if (!leadId || !token) return;
+
+        const controller = new AbortController();
+        setInviteState('loading');
+        void fetch('/api/level-check-prefill', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ leadId, token }),
+            signal: controller.signal,
+        }).then(async (response) => {
+            if (!response.ok) return null;
+            return response.json() as Promise<LevelCheckPrefillResponse>;
+        }).then((prefill) => {
+            const resolvedEmail = prefill?.email?.trim().toLowerCase();
+            if (!resolvedEmail) {
+                setInviteState('none');
+                return;
+            }
+            setFormData(prev => ({ ...prev, email: resolvedEmail }));
             setLeadToken({ leadId, token });
-        }
+            setInviteState('resolved');
+        }).catch((error: unknown) => {
+            if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                setInviteState('none');
+            }
+        });
+
+        return () => controller.abort();
     }, []);
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -159,7 +197,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
     }
 
     return (
-        <form onSubmit={handleSubmit} className="border-2 border-[#006064] bg-white p-6 shadow-[8px_8px_0px_0px_#006064] sm:p-8" aria-busy={status === 'loading'}>
+        <form onSubmit={handleSubmit} className="border-2 border-[#006064] bg-white p-6 shadow-[8px_8px_0px_0px_#006064] sm:p-8" aria-busy={status === 'loading' || inviteState === 'loading'}>
             <div className="mb-6 text-center">
                 <h2 className="font-display text-2xl uppercase text-[#006064]">{t.title}</h2>
                 <p className="mt-3 text-sm leading-6 text-[#006064]">{t.subtitle}</p>
@@ -175,8 +213,9 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                         value={formData.email}
                         onChange={handleChange}
                         placeholder={t.emailPlaceholder}
+                        readOnly={inviteState === 'loading' || inviteState === 'resolved'}
                         required
-                        className="w-full border-2 border-[#006064] bg-white p-3 font-sans text-[#006064] focus:outline-none focus:ring-2 focus:ring-[#006064]/20"
+                        className="w-full border-2 border-[#006064] bg-white p-3 font-sans text-[#006064] read-only:bg-[#E0F7FA] focus:outline-none focus:ring-2 focus:ring-[#006064]/20"
                     />
                 </div>
 
@@ -318,11 +357,11 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
 
                 <button
                     type="submit"
-                    disabled={status === 'loading'}
-                    aria-busy={status === 'loading'}
+                    disabled={status === 'loading' || inviteState === 'loading'}
+                    aria-busy={status === 'loading' || inviteState === 'loading'}
                     className="mt-2 w-full border-2 border-[#006064] bg-[#006064] py-3 text-sm font-bold uppercase tracking-widest text-white transition-all hover:bg-[#004d40] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                    {status === 'loading' ? t.loading : t.button}
+                    {status === 'loading' || inviteState === 'loading' ? t.loading : t.button}
                 </button>
             </div>
         </form>

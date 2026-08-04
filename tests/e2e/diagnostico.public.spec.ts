@@ -35,6 +35,7 @@ test.describe('LevelCheckForm diagnostic public page', () => {
         await expect(page.locator('#level-check-current-level')).toHaveValue('not_sure');
         await expect(page.locator('a[href="/es/legal/privacidad"]')).toBeVisible();
         await expect(page.locator('form')).toBeVisible();
+        await expect(page).toHaveURL('/es/diagnostico');
     });
 
     test('submits a complete diagnostic payload and shows success state', async ({ page }) => {

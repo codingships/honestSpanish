@@ -198,12 +198,11 @@ async function buildDiagnosticUrl(context: APIContext, lead: Pick<Lead, 'id' | '
     const diagnosticUrl = new URL(`${getSiteUrl(requestOrigin)}/${preferredLeadLanguage(lead.lang)}/diagnostico`);
     if (lead.email) {
         const normalizedEmail = lead.email.trim().toLowerCase();
-        diagnosticUrl.searchParams.set('email', normalizedEmail);
-        diagnosticUrl.searchParams.set('leadId', lead.id);
-        diagnosticUrl.searchParams.set('token', await signLeadEmailToken({
+        const token = await signLeadEmailToken({
             leadId: lead.id,
             email: normalizedEmail,
-        }));
+        });
+        diagnosticUrl.hash = new URLSearchParams({ leadId: lead.id, token }).toString();
     }
     return diagnosticUrl.toString();
 }
