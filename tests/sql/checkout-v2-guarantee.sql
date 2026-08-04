@@ -433,11 +433,17 @@ ROLLBACK;
 BEGIN;
 SET LOCAL session_replication_role = replica;
 
-INSERT INTO public.profiles (id, email, role) VALUES (
-    '77000000-0000-4000-8000-000000000004',
-    'guarantee-six-student@test.invalid',
-    'student'
-);
+INSERT INTO public.profiles (id, email, role) VALUES
+    (
+        '77000000-0000-4000-8000-000000000004',
+        'guarantee-six-student@test.invalid',
+        'student'
+    ),
+    (
+        '77000000-0000-4000-8000-000000000005',
+        'guarantee-six-teacher@test.invalid',
+        'teacher'
+    );
 
 INSERT INTO public.packages (
     id, name, display_name, price_monthly, sessions_per_month,
@@ -578,7 +584,7 @@ SELECT
     ('77960000-0000-4000-8000-' || lpad(position::TEXT, 12, '0'))::UUID,
     '77600000-0000-4000-8000-000000000006'::UUID,
     '77000000-0000-4000-8000-000000000004'::UUID,
-    '77000000-0000-4000-8000-000000000002'::UUID,
+    '77000000-0000-4000-8000-000000000005'::UUID,
     date_trunc('second', transaction_timestamp())
         + CASE position
             WHEN 1 THEN INTERVAL '-14 days'
