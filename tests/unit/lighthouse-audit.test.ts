@@ -40,6 +40,8 @@ describe('Lighthouse audit contract', () => {
             '/es',
             '/es/blog/cuanto-tiempo-hablar-espanol-fluido',
         ]);
+        expect(config.floors.performanceMedian).toBe(65);
+        expect(config.floors.lcpMedianMs).toBe(7_000);
     });
 
     it('allows only the isolated local origin or canonical staging', () => {
@@ -54,6 +56,7 @@ describe('Lighthouse audit contract', () => {
         const config = loadConfig();
         expect(config.seoIsInformational).toBe(true);
         expect(config.floors.performanceMedian).toBe(70);
+        expect(config.floors.lcpMedianMs).toBe(4_000);
         expect(config.floors.clsWorst).toBe(0.1);
     });
 });

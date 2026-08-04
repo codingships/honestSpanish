@@ -120,7 +120,7 @@ Las PR que modifican páginas, layouts, estilos, fuentes, imágenes o configurac
 
 Antes de un candidato de lanzamiento se despacha manualmente `Performance audit`: siete plantillas representativas, tres pasadas reproducibles y perfiles móvil y escritorio. El target `candidate` mide el SHA del workflow en el runtime público aislado; `staging` solo se usa después de que el despliegue haya acreditado ese mismo SHA y exige introducirlo completo. Cada ejecución conserva JSON, HTML y un resumen con mediana y peor resultado durante 30 días.
 
-Los mínimos del workflow son suelos de regresión iniciales, no objetivos de negocio. El objetivo de campo, cuando haya tráfico suficiente, sigue siendo LCP ≤ 2,5 s, INP ≤ 200 ms y CLS ≤ 0,1 al p75. Staging y test son deliberadamente `noindex`; `is-crawlable` no bloquea allí y la indexabilidad de producción se verifica por separado en el gate live.
+Los mínimos del workflow son suelos de regresión iniciales, no objetivos de negocio. El smoke de una sola pasada admite la variación de laboratorio sobre la primera línea base medida —rendimiento 65 y LCP 7 s—, mientras que la auditoría completa conserva rendimiento 70 y LCP 4 s para hacer visible la deuda antes del lanzamiento. El objetivo de campo, cuando haya tráfico suficiente, sigue siendo LCP ≤ 2,5 s, INP ≤ 200 ms y CLS ≤ 0,1 al p75. Staging y test son deliberadamente `noindex`; `is-crawlable` no bloquea allí y la indexabilidad de producción se verifica por separado en el gate live.
 
 ## Triaje y alertas
 

@@ -98,13 +98,38 @@ async function stopServer(child: ChildProcess | null): Promise<void> {
     if (!child || child.exitCode !== null || child.killed) return;
     child.kill('SIGTERM');
     await Promise.race([
-        new Promise<void>((resolveExit) => child.once('exit', () => resolveExit())),
+        new Promise<void>((resolveExit) => child.on('exit', () => resolveExit())),
         new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, 5_000)),
     ]);
 }
 
 function routeSlug(route: string): string {
     return route.replace(/^\/+|\/+$/gu, '').replace(/[^a-z0-9]+/giu, '-') || 'root';
+}
+
+function firstNodeSnippet(value: unknown, depth = 0): string | null {
+    if (depth > 6 || value === null || typeof value !== 'object') return null;
+    const record = value as Record<string, unknown>;
+    if (record.node && typeof record.node === 'object') {
+        const node = record.node as Record<string, unknown>;
+        if (typeof node.snippet === 'string') return node.snippet.replace(/\s+/gu, ' ').slice(0, 240);
+        if (typeof node.selector === 'string') return node.selector.slice(0, 240);
+    }
+    for (const child of Object.values(record)) {
+        const snippet = firstNodeSnippet(child, depth + 1);
+        if (snippet) return snippet;
+    }
+    return null;
+}
+
+function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
+    const fcp = report.audits['first-contentful-paint']?.numericValue;
+    const lcp = report.audits['largest-contentful-paint']?.numericValue;
+    const ttfb = report.audits['server-response-time']?.numericValue;
+    const element = firstNodeSnippet(report.audits['largest-contentful-paint-element']);
+    process.stdout.write(
+        `[lighthouse] diagnostic ${route} FCP=${String(Math.round(fcp ?? 0))}ms LCP=${String(Math.round(lcp ?? 0))}ms TTFB=${String(Math.round(ttfb ?? 0))}ms element=${JSON.stringify(element ?? 'unknown')}\n`,
+    );
 }
 
 async function runCommand(arguments_: string[], environment: NodeJS.ProcessEnv): Promise<void> {
@@ -118,8 +143,8 @@ async function runCommand(arguments_: string[], environment: NodeJS.ProcessEnv):
     child.stdout?.on('data', (chunk: Buffer) => { output = boundedLog(output, chunk); });
     child.stderr?.on('data', (chunk: Buffer) => { output = boundedLog(output, chunk); });
     const exitCode = await new Promise<number>((resolveExit, reject) => {
-        child.once('error', reject);
-        child.once('exit', (code) => resolveExit(code ?? 1));
+        child.on('error', reject);
+        child.on('exit', (code: number | null) => resolveExit(code ?? 1));
     });
     if (exitCode !== 0) throw new Error(`Lighthouse exited with ${String(exitCode)}.\n${output}`);
 }
@@ -146,7 +171,9 @@ async function collectReports(
                 `--chrome-flags=${configuration.settings.chromeFlags.join(' ')}`,
                 ...(configuration.profile === 'desktop' ? ['--preset=desktop'] : []),
             ], environment);
-            reports.push(JSON.parse(readFileSync(`${outputBase}.report.json`, 'utf8')) as LighthouseResult);
+            const report = JSON.parse(readFileSync(`${outputBase}.report.json`, 'utf8')) as LighthouseResult;
+            writeRouteDiagnostic(route, report);
+            reports.push(report);
         }
     }
     return reports;
