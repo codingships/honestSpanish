@@ -146,4 +146,17 @@ describe('Lighthouse summary', () => {
         expect(validation.failures).toEqual([]);
         expect(validation.warnings).toHaveLength(1);
     });
+
+    it('includes bounded console evidence in a failed regression gate', () => {
+        const failed = result(0.98, 2_300, 0.01);
+        (failed.audits as Record<string, { score?: number; details?: unknown }>)['errors-in-console'] = {
+            score: 0,
+            details: { items: [{ description: 'Refused to apply inline style' }] },
+        };
+
+        const validation = validateLighthouseResults([failed], loadConfig({ LHCI_SCOPE: 'smoke' }));
+        expect(validation.failures).toEqual([
+            '/es: console errors detected ["{\\"description\\":\\"Refused to apply inline style\\"}"]',
+        ]);
+    });
 });

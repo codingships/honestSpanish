@@ -174,6 +174,14 @@ function lcpSubparts(value: unknown, depth = 0): Record<string, number> {
     );
 }
 
+function consoleErrorSnippets(report: LighthouseResult): string[] {
+    const details = report.audits['errors-in-console']?.details;
+    if (details === null || typeof details !== 'object') return [];
+    const items = (details as Record<string, unknown>).items;
+    if (!Array.isArray(items)) return [];
+    return items.slice(0, 5).map((item) => JSON.stringify(item).slice(0, 600));
+}
+
 function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
     const fcp = report.audits['first-contentful-paint']?.numericValue;
     const lcp = report.audits['largest-contentful-paint']?.numericValue;
@@ -181,8 +189,9 @@ function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
     const lcpInsight = report.audits['lcp-breakdown-insight'];
     const element = firstNodeSnippet(lcpInsight?.details);
     const breakdown = lcpSubparts(lcpInsight?.details);
+    const consoleErrors = consoleErrorSnippets(report);
     process.stdout.write(
-        `[lighthouse] diagnostic ${route} FCP=${String(Math.round(fcp ?? 0))}ms LCP=${String(Math.round(lcp ?? 0))}ms TTFB=${String(Math.round(ttfb ?? 0))}ms breakdown=${JSON.stringify(breakdown)} element=${JSON.stringify(element ?? 'unknown')}\n`,
+        `[lighthouse] diagnostic ${route} FCP=${String(Math.round(fcp ?? 0))}ms LCP=${String(Math.round(lcp ?? 0))}ms TTFB=${String(Math.round(ttfb ?? 0))}ms breakdown=${JSON.stringify(breakdown)} element=${JSON.stringify(element ?? 'unknown')} consoleErrors=${JSON.stringify(consoleErrors)}\n`,
     );
 }
 
@@ -376,7 +385,8 @@ export function validateLighthouseResults(
             failures.push(`${path}: worst CLS above ${String(config.floors.clsWorst)}`);
         }
         if (consoleWorst < config.floors.consoleErrorsWorst) {
-            failures.push(`${path}: console errors detected`);
+            const snippets = routeReports.flatMap(consoleErrorSnippets).slice(0, 5);
+            failures.push(`${path}: console errors detected ${JSON.stringify(snippets)}`);
         }
         if (config.seoIsInformational && required(seo.median, `${path} SEO`) < 90) {
             warnings.push(`${path}: SEO ${String(seo.median)} is informational because test/staging is noindex`);
