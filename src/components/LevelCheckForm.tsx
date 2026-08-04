@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Turnstile } from '@marsidev/react-turnstile';
 import { captureAcquisitionAttribution } from '../lib/acquisition-attribution';
+import ResponsiveTurnstile from './ResponsiveTurnstile';
 
 interface LevelCheckTranslations {
     title: string;
@@ -348,7 +348,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                     </div>
                 )}
 
-                <Turnstile
+                <ResponsiveTurnstile
                     siteKey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA'}
                     onSuccess={(token: string) => setTurnstileToken(token)}
                     onExpire={() => setTurnstileToken(null)}

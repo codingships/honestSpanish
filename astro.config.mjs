@@ -220,6 +220,12 @@ export default defineConfig({
     },
     vite: {
         envDir: envDirectory,
+        build: {
+            // Keep self-hosted fonts as cacheable files. Vite's default small-asset
+            // inlining turns some unicode subsets into data: URLs, which the strict
+            // `font-src 'self'` policy correctly blocks in the browser.
+            assetsInlineLimit: 0,
+        },
         ...(process.env.ESPANOL_RUNTIME_ENV_DIR ? {
             cacheDir: path.join(process.cwd(), 'node_modules', '.vite-staging'),
         } : {}),

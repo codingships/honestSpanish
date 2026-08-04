@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Turnstile } from '@marsidev/react-turnstile';
+import ResponsiveTurnstile from './ResponsiveTurnstile';
 import { captureAcquisitionAttribution } from '../lib/acquisition-attribution';
 
 type PreferredPackageDetail = {
@@ -411,7 +411,7 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                     )}
 
                     <div id="lead-capture-turnstile">
-                        <Turnstile
+                        <ResponsiveTurnstile
                             siteKey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || '1x00000000000000000000AA'}
                             onSuccess={(token: string) => setTurnstileToken(token)}
                         />

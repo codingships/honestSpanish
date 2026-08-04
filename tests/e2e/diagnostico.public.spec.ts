@@ -8,6 +8,16 @@ async function mockTurnstile(page: Page) {
             body: `
                 window.turnstile = {
                     render: function(container, params) {
+                        var target = typeof container === 'string'
+                            ? document.querySelector(container)
+                            : container;
+                        if (target) {
+                            var widget = document.createElement('div');
+                            widget.dataset.mockTurnstileSize = params && params.size ? params.size : 'normal';
+                            widget.style.width = widget.dataset.mockTurnstileSize === 'compact' ? '150px' : '300px';
+                            widget.style.height = widget.dataset.mockTurnstileSize === 'compact' ? '140px' : '65px';
+                            target.appendChild(widget);
+                        }
                         if (params && params.callback) {
                             setTimeout(() => params.callback('fake-e2e-token'), 50);
                         }
@@ -24,6 +34,20 @@ async function mockTurnstile(page: Page) {
 
 // Route-level coverage for src/components/LevelCheckForm.tsx.
 test.describe('LevelCheckForm diagnostic public page', () => {
+    test('keeps the security control usable without horizontal overflow at 320px', async ({ page }) => {
+        await page.setViewportSize({ width: 320, height: 800 });
+        await mockTurnstile(page);
+
+        await page.goto('/en/diagnostico');
+
+        const widget = page.locator('[data-mock-turnstile-size]');
+        await expect(widget).toHaveAttribute('data-mock-turnstile-size', 'compact');
+        expect(await page.evaluate(() => ({
+            documentWidth: document.documentElement.scrollWidth,
+            viewportWidth: document.documentElement.clientWidth,
+        }))).toEqual({ documentWidth: 320, viewportWidth: 320 });
+    });
+
     test('renders noindex diagnostic page with prefilled email and privacy link', async ({ page }) => {
         await mockTurnstile(page);
 
