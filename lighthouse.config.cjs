@@ -60,7 +60,7 @@ module.exports = {
     runCount: exactRunCount(),
     scope,
     settings: {
-        chromeFlags: ['--headless', '--no-sandbox', '--disable-gpu'],
+        chromeFlags: ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
         maxWaitForLoadMs: 60_000,
         onlyCategories: ['performance', 'accessibility', 'best-practices', 'seo'],
     },

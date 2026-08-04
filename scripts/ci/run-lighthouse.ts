@@ -1,8 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import lighthouse, {
+    desktopConfig,
+    generateReport,
+    type Flags as LighthouseFlags,
+} from 'lighthouse/core/index.js';
 import { chromium } from 'playwright';
 import { configurePlaywrightEnvironment } from '../../tests/e2e/environment-guard';
 import {
@@ -39,8 +44,21 @@ export type AuditConfiguration = {
 const require = createRequire(import.meta.url);
 const configuration = require(resolve('lighthouse.config.cjs')) as AuditConfiguration;
 const lighthousePackagePath = require.resolve('lighthouse/package.json');
-const lighthouseCliPath = resolve(dirname(lighthousePackagePath), 'cli', 'index.js');
 const runtimeProbe = 'http://localhost:4321/api/e2e-runtime/environment';
+
+type AuditBrowser = {
+    kill: () => void;
+    port: number;
+};
+
+type ChromeLauncher = {
+    launch: (options: {
+        chromeFlags: string[];
+        chromePath: string;
+        envVars: NodeJS.ProcessEnv;
+        logLevel: 'error';
+    }) => Promise<AuditBrowser>;
+};
 
 function safeOutputDirectory(path: string): string {
     const root = resolve('test-results', 'lighthouse');
@@ -103,6 +121,23 @@ async function stopServer(child: ChildProcess | null): Promise<void> {
     ]);
 }
 
+async function startAuditBrowser(environment: NodeJS.ProcessEnv): Promise<AuditBrowser> {
+    const chromePath = environment.CHROME_PATH?.trim();
+    if (!chromePath) throw new Error('The pinned Lighthouse browser path is missing.');
+
+    // Lighthouse owns chrome-launcher. Resolve that exact dependency from the
+    // pinned Lighthouse package rather than adding a second browser launcher.
+    const lighthouseRequire = createRequire(lighthousePackagePath);
+    const chromeLauncherPath = lighthouseRequire.resolve('chrome-launcher');
+    const chromeLauncher = await import(pathToFileURL(chromeLauncherPath).href) as ChromeLauncher;
+    return chromeLauncher.launch({
+        chromeFlags: configuration.settings.chromeFlags,
+        chromePath,
+        envVars: environment,
+        logLevel: 'error',
+    });
+}
+
 function routeSlug(route: string): string {
     return route.replace(/^\/+|\/+$/gu, '').replace(/[^a-z0-9]+/giu, '-') || 'root';
 }
@@ -150,26 +185,9 @@ function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
     );
 }
 
-async function runCommand(arguments_: string[], environment: NodeJS.ProcessEnv): Promise<void> {
-    let output = '';
-    const child = spawn(process.execPath, arguments_, {
-        cwd: process.cwd(),
-        env: environment,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-    });
-    child.stdout?.on('data', (chunk: Buffer) => { output = boundedLog(output, chunk); });
-    child.stderr?.on('data', (chunk: Buffer) => { output = boundedLog(output, chunk); });
-    const exitCode = await new Promise<number>((resolveExit, reject) => {
-        child.on('error', reject);
-        child.on('exit', (code: number | null) => resolveExit(code ?? 1));
-    });
-    if (exitCode !== 0) throw new Error(`Lighthouse exited with ${String(exitCode)}.\n${output}`);
-}
-
 async function collectReports(
     outputDirectory: string,
-    environment: NodeJS.ProcessEnv,
+    browser: AuditBrowser,
 ): Promise<LighthouseResult[]> {
     const reports: LighthouseResult[] = [];
     for (const route of configuration.routes) {
@@ -177,19 +195,28 @@ async function collectReports(
         for (let run = 1; run <= configuration.runCount; run += 1) {
             const outputBase = join(outputDirectory, `${routeSlug(route)}-run-${String(run)}`);
             process.stdout.write(`[lighthouse] ${configuration.profile} ${route} run ${String(run)}/${String(configuration.runCount)}\n`);
-            await runCommand([
-                lighthouseCliPath,
+            const flags: LighthouseFlags = {
+                channel: 'node',
+                logLevel: 'error',
+                maxWaitForLoad: configuration.settings.maxWaitForLoadMs,
+                onlyCategories: configuration.settings.onlyCategories,
+                port: browser.port,
+            };
+            const result = await lighthouse(
                 url,
-                '--quiet',
-                '--output=json',
-                '--output=html',
-                `--output-path=${outputBase}`,
-                `--only-categories=${configuration.settings.onlyCategories.join(',')}`,
-                `--max-wait-for-load=${String(configuration.settings.maxWaitForLoadMs)}`,
-                `--chrome-flags=${configuration.settings.chromeFlags.join(' ')}`,
-                ...(configuration.profile === 'desktop' ? ['--preset=desktop'] : []),
-            ], environment);
-            const report = JSON.parse(readFileSync(`${outputBase}.report.json`, 'utf8')) as LighthouseResult;
+                flags,
+                configuration.profile === 'desktop' ? desktopConfig : undefined,
+            );
+            if (!result) throw new Error(`Lighthouse did not return a report for ${route}.`);
+
+            const report = result.lhr as LighthouseResult;
+            writeFileSync(`${outputBase}.report.json`, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+            writeFileSync(`${outputBase}.report.html`, generateReport(result.lhr, 'html'), 'utf8');
+            if (result.lhr.runtimeError) {
+                throw new Error(
+                    `Lighthouse runtime error for ${route}: ${result.lhr.runtimeError.code} ${result.lhr.runtimeError.message}`,
+                );
+            }
             writeRouteDiagnostic(route, report);
             reports.push(report);
         }
@@ -256,10 +283,12 @@ async function run(): Promise<void> {
     mkdirSync(outputDirectory, { recursive: true });
     const environment = sanitizedEnvironment();
     let server: ChildProcess | null = null;
+    let browser: AuditBrowser | null = null;
 
     try {
         if (configuration.localServer) server = await startIsolatedServer(environment);
-        const reports = await collectReports(outputDirectory, environment);
+        browser = await startAuditBrowser(environment);
+        const reports = await collectReports(outputDirectory, browser);
         const metadata = {
             baseOrigin: configuration.baseOrigin,
             chromePathSource: process.env.CHROME_PATH ? 'environment' : 'playwright-lockfile',
@@ -278,6 +307,7 @@ async function run(): Promise<void> {
             throw new Error(`Lighthouse regression floors failed:\n- ${validation.failures.join('\n- ')}`);
         }
     } finally {
+        browser?.kill();
         await stopServer(server);
     }
 }

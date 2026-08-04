@@ -50,11 +50,15 @@ const t = copy[lang as keyof typeof copy] || copy.es;
 
 <script>
     const environmentBanner = document.querySelector<HTMLElement>('[data-environment-banner]');
-    const root = document.documentElement;
+    const offsetStyle = document.querySelector<HTMLStyleElement>('style[data-environment-banner-offset]');
+    const offsetRule = Array.from(offsetStyle?.sheet?.cssRules ?? [])
+        .find((rule): rule is CSSStyleRule => rule instanceof CSSStyleRule && rule.selectorText === ':root');
 
     const syncEnvironmentBannerHeight = () => {
         const height = environmentBanner?.getBoundingClientRect().height ?? 0;
-        root.style.setProperty('--environment-banner-height', `${Math.ceil(height)}px`);
+        // Mutate an already CSP-authorized stylesheet rule. Setting an inline
+        // style on <html> is correctly rejected by the strict style-src policy.
+        offsetRule?.style.setProperty('--environment-banner-height', `${Math.ceil(height)}px`);
     };
 
     syncEnvironmentBannerHeight();

@@ -29,12 +29,25 @@ describe('Lighthouse audit contract', () => {
         const server = readFileSync('tests/e2e/start-server.mjs', 'utf8');
 
         expect(runner).toContain("E2E_SERVER_MODE: 'built'");
+        expect(runner).toContain("lighthouseRequire.resolve('chrome-launcher')");
+        expect(runner).toContain('browser = await startAuditBrowser(environment)');
+        expect(runner).toContain('port: browser.port');
         expect(server).toContain("[astroCli, 'build']");
         expect(server).toContain("'--config', builtConfigPath");
         expect(server).toContain("'--env-file', runtimeVarsPath");
         expect(server).toContain("'--local'");
         expect(server).toContain("'--show-interactive-dev-session=false'");
         expect(server).toContain("WRANGLER_SEND_METRICS: 'false'");
+        expect(loadConfig().settings.chromeFlags).toContain('--disable-dev-shm-usage');
+    });
+
+    it('updates the test banner offset without a CSP-blocked inline style', () => {
+        const banner = readFileSync('src/components/EnvironmentBanner.astro', 'utf8');
+        const layout = readFileSync('src/layouts/BaseLayout.astro', 'utf8');
+
+        expect(layout).toContain('data-environment-banner-offset');
+        expect(banner).toContain("offsetRule?.style.setProperty('--environment-banner-height'");
+        expect(banner).not.toContain("document.documentElement.style.setProperty('--environment-banner-height'");
     });
 
     it('audits seven representative templates three times by default', () => {
