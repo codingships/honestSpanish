@@ -82,6 +82,8 @@ Antes de abrir checkout en producción deben quedar acreditados, mediante un ún
 
 La ausencia de incidencias en Sentry no acredita la conexión. Tampoco se considera una alerta accionable hasta que una persona la reciba. Si el diagnóstico exige reproducir un efecto de Stripe, email, Calendar o base de datos, se detiene el triaje y se abre una tarea sintética con recurso, identidad y limpieza explícitos.
 
+Un preflight de solo lectura del 4 de agosto de 2026 confirmó dos reglas de incidencias habilitadas y limitadas a `environment=production`: una para errores nuevos o regresiones y otra para diez eventos en cinco minutos. Ambas envían email al operador canónico `alejandro@espanolhonesto.com`, no habían disparado y Sentry devolvió cero eventos de staging en los 30 días anteriores. Esto acredita existencia y destino configurado, pero no recepción ni capacidad de respuesta; falta la prueba sintética autorizada y un suplente humano.
+
 ## Capacidad y recuperación
 
 Mil alumnos activos no equivalen a mil peticiones simultáneas y las videollamadas ocurren en Google Meet, no atraviesan el Worker web. La hipótesis operativa que debe medirse antes de prometer esa escala es un pico de 50 personas concurrentes: alumnado consultando clases y cuenta, profesorado consultando agenda y administración atendiendo operaciones, mientras 20–30 clases pueden estar en curso fuera de la plataforma.
