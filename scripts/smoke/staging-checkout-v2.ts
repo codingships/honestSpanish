@@ -67,6 +67,7 @@ export type StagingCheckoutV2RunState = {
     adminCookie?: string;
     checkoutSessionId?: string;
     completedPurchase?: boolean;
+    declinedPaymentObserved?: boolean;
     grantCookie?: string;
     runId: string;
     slotId?: string;
@@ -384,43 +385,86 @@ async function issueGrant(state: StagingCheckoutV2RunState): Promise<void> {
 }
 
 async function createCheckout(state: StagingCheckoutV2RunState): Promise<string> {
-    const checkout = await postJson(
-        `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`,
-        combineCookies(state.studentCookie, state.grantCookie),
-        {
-            adultConfirmed: true,
-            lang: 'en',
-            policyVersion: CHECKOUT_TERMS_VERSION,
-            serviceStartRequested: true,
-            slotPublicId: stringValue(state.slotPublicId, 'Synthetic slot'),
-            termsAccepted: true,
-            withdrawalLossAcknowledged: true,
-        },
-    );
-    assertHttp(checkout.response, checkout.body, 200, 'Checkout V2 creation');
-    const checkoutUrl = stringValue(checkout.body.url, 'Checkout V2');
-    const sessionId = new URL(checkoutUrl).pathname
+    const endpoint = `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`;
+    const cookies = combineCookies(state.studentCookie, state.grantCookie);
+    const body = {
+        adultConfirmed: true,
+        lang: 'en',
+        policyVersion: CHECKOUT_TERMS_VERSION,
+        serviceStartRequested: true,
+        slotPublicId: stringValue(state.slotPublicId, 'Synthetic slot'),
+        termsAccepted: true,
+        withdrawalLossAcknowledged: true,
+    };
+    const sessionIdFromUrl = (checkoutUrl: string): string | undefined => new URL(checkoutUrl).pathname
         .split('/')
         .map((segment) => decodeURIComponent(segment))
         .find((segment) => segment.startsWith('cs_test_'));
+
+    const first = await postJson(endpoint, cookies, body);
+    assertHttp(first.response, first.body, 200, 'Checkout V2 creation');
+    const checkoutUrl = stringValue(first.body.url, 'Checkout V2');
+    const sessionId = sessionIdFromUrl(checkoutUrl);
+
+    const retry = await postJson(endpoint, cookies, body);
+    assertHttp(retry.response, retry.body, 200, 'Checkout V2 idempotent retry');
+    const retryUrl = stringValue(retry.body.url, 'Checkout V2 idempotent retry');
+    const retrySessionId = sessionIdFromUrl(retryUrl);
+    if (!sessionId || retrySessionId !== sessionId) {
+        throw new Error('Checkout V2 retry created or returned another Stripe Checkout Session');
+    }
+
     state.checkoutSessionId = stringValue(sessionId, 'Stripe Checkout Session');
     return checkoutUrl;
 }
 
-async function completeCheckout(checkoutUrl: string, state: StagingCheckoutV2RunState): Promise<void> {
+async function assertDeclinedCheckoutHasNoPurchase(
+    context: RealContext,
+    state: StagingCheckoutV2RunState,
+): Promise<void> {
+    const studentId = stringValue(state.studentId, 'Synthetic student');
+    const checkoutSessionId = stringValue(state.checkoutSessionId, 'Stripe Checkout Session');
+    const [checkout, subscriptions] = await Promise.all([
+        context.stripe.checkout.sessions.retrieve(checkoutSessionId),
+        context.admin.from('subscriptions').select('id').eq('student_id', studentId).limit(2),
+    ]);
+    const stripeSubscriptionId = typeof checkout.subscription === 'string'
+        ? checkout.subscription
+        : checkout.subscription?.id;
+    if (
+        subscriptions.error
+        || (subscriptions.data?.length ?? 0) !== 0
+        || checkout.id !== checkoutSessionId
+        || checkout.status !== 'open'
+        || checkout.payment_status !== 'unpaid'
+        || stripeSubscriptionId
+    ) throw new Error('Declined Stripe Sandbox payment materialized a purchase');
+}
+
+async function completeCheckout(
+    checkoutUrl: string,
+    realContext: RealContext,
+    state: StagingCheckoutV2RunState,
+): Promise<void> {
     const browser = await chromium.launch({ headless: true });
     try {
-        const context = await browser.newContext();
-        await context.addCookies(stagingBrowserCookies(
+        const browserContext = await browser.newContext();
+        await browserContext.addCookies(stagingBrowserCookies(
             stringValue(state.studentCookie, 'Student authentication'),
         ));
-        const page = await context.newPage();
-        await completeStripeCheckoutSandbox({
+        const page = await browserContext.newPage();
+        const result = await completeStripeCheckoutSandbox({
+            afterDecline: () => assertDeclinedCheckoutHasNoPurchase(realContext, state),
             checkoutUrl,
+            exerciseDeclineBeforeSuccess: true,
             page,
             syntheticEmail: state.syntheticEmail,
             timeoutMs: 90_000,
         });
+        if (!result.declinedPaymentObserved) {
+            throw new Error('Stripe Sandbox decline was not observed before successful payment');
+        }
+        state.declinedPaymentObserved = true;
         state.completedPurchase = true;
     } finally {
         await browser.close();
@@ -501,6 +545,16 @@ async function waitForPurchase(context: RealContext, state: StagingCheckoutV2Run
                 ? checkout.subscription
                 : checkout.subscription?.id;
             state.stripeCustomerId = checkoutCustomerId;
+            const checkoutIntentId = checkout.metadata?.checkoutIntentId;
+            const customerSessions = checkoutCustomerId && checkoutIntentId
+                ? await context.stripe.checkout.sessions.list({
+                    customer: checkoutCustomerId,
+                    limit: 100,
+                })
+                : null;
+            const intentSessions = customerSessions?.data.filter((session) => (
+                session.metadata?.checkoutIntentId === checkoutIntentId
+            )) ?? [];
             const stripeSubscription = await context.stripe.subscriptions.retrieve(
                 stringValue(state.stripeSubscriptionId, 'Stripe subscription'),
             );
@@ -516,6 +570,9 @@ async function waitForPurchase(context: RealContext, state: StagingCheckoutV2Run
                 || checkout.metadata?.slotPublicId !== state.slotPublicId
                 || checkout.metadata?.initialPriceId !== fixtures.initialPriceId
                 || checkout.metadata?.recurringPriceId !== fixtures.recurringPriceId
+                || !state.declinedPaymentObserved
+                || intentSessions.length !== 1
+                || intentSessions[0]?.id !== checkout.id
                 || stripeSubscription.status !== 'trialing'
                 || stripeSubscription.metadata.stagingE2ERunId !== state.runId
                 || stripeSubscription.items.data.length !== 1
@@ -631,10 +688,10 @@ const realJourney: StagingCheckoutV2Journey = {
         await createSyntheticStudent(env, context, state);
         await issueGrant(state);
         const checkoutUrl = await createCheckout(state);
-        log(`[staging-checkout-v2] checkout=created run_id=${state.runId}`);
-        await completeCheckout(checkoutUrl, state);
+        log(`[staging-checkout-v2] checkout=created run_id=${state.runId} idempotent_retry=same_session`);
+        await completeCheckout(checkoutUrl, context, state);
         await waitForPurchase(context, state);
-        log('[staging-checkout-v2] purchase=verified amount=25900 sessions=4 renewal=28-days fulfillment=succeeded');
+        log('[staging-checkout-v2] purchase=verified declined_card=recovered unique_checkout=true amount=25900 sessions=4 renewal=28-days fulfillment=succeeded');
     },
     cleanup: cleanupReal,
 };

@@ -16,6 +16,7 @@ type ControlKind =
     | 'email'
     | 'expiry'
     | 'name'
+    | 'paymentError'
     | 'postalCode'
     | 'submit';
 
@@ -26,6 +27,7 @@ function kindForSelector(selector: string): ControlKind | null {
     if (/name="email"|#email|autocomplete="email"/u.test(selector)) return 'email';
     if (/cardExpiry|cc-exp/u.test(selector)) return 'expiry';
     if (/billingName|cc-name/u.test(selector)) return 'name';
+    if (/payment-form-error|role="alert"|card-errors/u.test(selector)) return 'paymentError';
     if (/billingPostalCode|postal-code/u.test(selector)) return 'postalCode';
     if (/submit/u.test(selector)) return 'submit';
     return null;
@@ -38,7 +40,9 @@ function checkoutPage(input: {
 } = {}) {
     const missing = new Set(input.missing ?? []);
     const fills = new Map<ControlKind, string>();
+    const cardNumbers: string[] = [];
     const clicks: ControlKind[] = [];
+    let declineVisible = false;
     let currentUrl = checkoutUrl;
 
     const controls = new Map<ControlKind, Record<string, ReturnType<typeof vi.fn>>>() as Map<
@@ -46,16 +50,27 @@ function checkoutPage(input: {
         Record<string, ReturnType<typeof vi.fn>>
     >;
     for (const kind of [
-        'cardNumber', 'country', 'cvc', 'email', 'expiry', 'name', 'postalCode', 'submit',
+        'cardNumber', 'country', 'cvc', 'email', 'expiry', 'name', 'paymentError', 'postalCode', 'submit',
     ] as const) {
         controls.set(kind, {
-            click: vi.fn(async () => { clicks.push(kind); }),
-            fill: vi.fn(async (value: string) => { fills.set(kind, value); }),
+            click: vi.fn(async () => {
+                clicks.push(kind);
+                if (kind === 'submit' && fills.get('cardNumber') === '4000000000000002') {
+                    declineVisible = true;
+                }
+            }),
+            fill: vi.fn(async (value: string) => {
+                fills.set(kind, value);
+                if (kind === 'cardNumber') cardNumbers.push(value);
+            }),
             first: vi.fn(function (this: unknown) { return this; }),
             inputValue: vi.fn(async () => input.lockedEmail ?? syntheticEmail),
             isEditable: vi.fn(async () => kind !== 'email' || input.lockedEmail === undefined),
-            isVisible: vi.fn(async () => !missing.has(kind)),
+            isVisible: vi.fn(async () => (
+                !missing.has(kind) && (kind !== 'paymentError' || declineVisible)
+            )),
             selectOption: vi.fn(async (value: string) => { fills.set(kind, value); }),
+            textContent: vi.fn(async () => kind === 'paymentError' ? 'Your card was declined.' : ''),
         });
     }
     const hidden = {
@@ -66,6 +81,7 @@ function checkoutPage(input: {
         isEditable: vi.fn(async () => false),
         isVisible: vi.fn(async () => false),
         selectOption: vi.fn(),
+        textContent: vi.fn(async () => ''),
     };
     const frame = {
         locator: vi.fn((selector: string) => {
@@ -84,7 +100,7 @@ function checkoutPage(input: {
             if (!predicate(new URL(currentUrl))) throw new Error('unexpected return');
         }),
     } as unknown as Page;
-    return { clicks, fills, page };
+    return { cardNumbers, clicks, fills, page };
 }
 
 describe('hosted Stripe Checkout Sandbox browser helper', () => {
@@ -111,13 +127,50 @@ describe('hosted Stripe Checkout Sandbox browser helper', () => {
             page: browser.page,
             syntheticEmail,
             timeoutMs: 5_000,
-        })).resolves.toEqual({ completed: true });
+        })).resolves.toEqual({ completed: true, declinedPaymentObserved: false });
 
         expect(browser.fills.get('email')).toBe(syntheticEmail);
         expect(browser.fills.get('cardNumber')).toBe('4242424242424242');
         expect(browser.fills.get('cvc')).toBe('123');
         expect(browser.fills.get('country')).toBe('ES');
         expect(browser.fills.get('postalCode')).toBe('28001');
+        expect(browser.clicks).toEqual(['submit']);
+    });
+
+    it('observes a declined card and completes the same Checkout with a successful retry', async () => {
+        const browser = checkoutPage();
+        const afterDecline = vi.fn(async () => undefined);
+
+        await expect(completeStripeCheckoutSandbox({
+            afterDecline,
+            checkoutUrl,
+            exerciseDeclineBeforeSuccess: true,
+            page: browser.page,
+            syntheticEmail,
+            timeoutMs: 5_000,
+        })).resolves.toEqual({ completed: true, declinedPaymentObserved: true });
+
+        expect(browser.cardNumbers).toEqual([
+            '4000000000000002',
+            '4242424242424242',
+        ]);
+        expect(afterDecline).toHaveBeenCalledOnce();
+        expect(browser.clicks).toEqual(['submit', 'submit']);
+    });
+
+    it('stops after a decline when the no-purchase invariant cannot be verified', async () => {
+        const browser = checkoutPage();
+
+        await expect(completeStripeCheckoutSandbox({
+            afterDecline: async () => { throw new Error('purchase already materialized'); },
+            checkoutUrl,
+            exerciseDeclineBeforeSuccess: true,
+            page: browser.page,
+            syntheticEmail,
+            timeoutMs: 5_000,
+        })).rejects.toThrow('purchase already materialized');
+
+        expect(browser.cardNumbers).toEqual(['4000000000000002']);
         expect(browser.clicks).toEqual(['submit']);
     });
 

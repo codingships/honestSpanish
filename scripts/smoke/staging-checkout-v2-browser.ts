@@ -45,6 +45,11 @@ const selectors = Object.freeze({
         'input#billingPostalCode',
         'input[autocomplete="postal-code"]',
     ],
+    paymentError: [
+        '[data-testid="payment-form-error"]',
+        '[role="alert"]',
+        '#card-errors',
+    ],
     submit: [
         'button[data-testid="hosted-payment-submit-button"]',
         'button#submit',
@@ -68,7 +73,9 @@ export class StripeCheckoutSandboxError extends Error {
 }
 
 export type CompleteStripeCheckoutSandboxInput = {
+    afterDecline?: () => Promise<void>;
     checkoutUrl: string;
+    exerciseDeclineBeforeSuccess?: boolean;
     page: Page;
     syntheticEmail: string;
     timeoutMs?: number;
@@ -163,7 +170,7 @@ async function assertOrFillSyntheticEmail(locator: Locator, expected: string, ti
 
 export async function completeStripeCheckoutSandbox(
     input: CompleteStripeCheckoutSandboxInput,
-): Promise<{ completed: true }> {
+): Promise<{ completed: true; declinedPaymentObserved: boolean }> {
     if (!isStripeSandboxCheckoutUrl(input.checkoutUrl)) {
         throw new StripeCheckoutSandboxError(
             'INVALID_CHECKOUT_URL',
@@ -218,13 +225,50 @@ export async function completeStripeCheckoutSandbox(
     const postalCode = await visibleLocator(input.page, selectors.postalCode, 500);
 
     if (name) await name.fill('Español Honesto Staging', { timeout: timeoutMs });
-    await cardNumber.fill('4242424242424242', { timeout: timeoutMs });
+    await cardNumber.fill(
+        input.exerciseDeclineBeforeSuccess ? '4000000000000002' : '4242424242424242',
+        { timeout: timeoutMs },
+    );
     await expiry.fill(futureExpiry(new Date()), { timeout: timeoutMs });
     await cvc.fill('123', { timeout: timeoutMs });
     if (postalCode) await postalCode.fill('28001', { timeout: timeoutMs });
 
-    const submit = await requiredLocator(input.page, selectors.submit, 'payment submit', timeoutMs);
+    let submit = await requiredLocator(input.page, selectors.submit, 'payment submit', timeoutMs);
     await submit.click({ timeout: timeoutMs });
+
+    if (input.exerciseDeclineBeforeSuccess) {
+        const paymentError = await requiredLocator(
+            input.page,
+            selectors.paymentError,
+            'declined payment error',
+            timeoutMs,
+        );
+        const paymentErrorText = (await paymentError.textContent({ timeout: timeoutMs }))?.trim();
+        if (!paymentErrorText) {
+            throw new StripeCheckoutSandboxError(
+                'CHECKOUT_NOT_READY',
+                'Stripe Sandbox exposed an empty payment error after the declined card',
+            );
+        }
+        if (!isStripeSandboxCheckoutUrl(input.page.url())) {
+            throw new StripeCheckoutSandboxError(
+                'RETURN_URL_MISMATCH',
+                'A declined Stripe Sandbox payment navigated away from hosted checkout',
+            );
+        }
+        await input.afterDecline?.();
+
+        // Stripe can re-render and clear the payment controls after a decline.
+        // Resolve them again and complete the same Checkout Session successfully.
+        cardNumber = await requiredLocator(input.page, selectors.cardNumber, 'card number', timeoutMs);
+        const retryExpiry = await requiredLocator(input.page, selectors.expiry, 'card expiry', timeoutMs);
+        const retryCvc = await requiredLocator(input.page, selectors.cvc, 'card security code', timeoutMs);
+        await cardNumber.fill('4242424242424242', { timeout: timeoutMs });
+        await retryExpiry.fill(futureExpiry(new Date()), { timeout: timeoutMs });
+        await retryCvc.fill('123', { timeout: timeoutMs });
+        submit = await requiredLocator(input.page, selectors.submit, 'payment submit', timeoutMs);
+        await submit.click({ timeout: timeoutMs });
+    }
 
     try {
         await input.page.waitForURL(
@@ -243,5 +287,8 @@ export async function completeStripeCheckoutSandbox(
             'Stripe Sandbox Checkout finished at an unexpected URL',
         );
     }
-    return { completed: true };
+    return {
+        completed: true,
+        declinedPaymentObserved: input.exerciseDeclineBeforeSuccess === true,
+    };
 }
