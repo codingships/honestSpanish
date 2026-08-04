@@ -21,6 +21,7 @@ describe('self-hosted multilingual typography', () => {
             expect(source).toContain("styles/fonts.css");
         }
         expect(astroConfig).toContain("\"font-src 'self'\"");
+        expect(astroConfig).toContain('assetsInlineLimit: 0');
         expect(astroConfig).toContain('resources: ["\'self\'"]');
     });
 
