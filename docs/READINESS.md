@@ -16,9 +16,9 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 ## Línea base acreditada
 
 - Repositorio: `codingships/honestSpanish`.
-- Base canónica acreditada: `1706b984853ac1b2493dd6d37c9ae5392557dee3`, integrado por [PR #69](https://github.com/codingships/honestSpanish/pull/69); el despliegue exigió y encontró `quality-gate` verde para ese SHA exacto.
-- Último staging acreditado: el mismo `1706b984853ac1b2493dd6d37c9ae5392557dee3`, con [despliegue + verificación exacta del runtime](https://github.com/codingships/honestSpanish/actions/runs/30901236505) en ambos Workers.
-- Catálogo V2, CMS de home, correcciones públicas y garantía proporcional están integrados y desplegados en staging. Producción no forma parte de esta acreditación.
+- Base canónica acreditada: `8b6a51a97fb40c9a3b31f10f93e9e20fc2c3c691`, integrado por [PR #71](https://github.com/codingships/honestSpanish/pull/71); el despliegue exigió y encontró la CI requerida verde para ese SHA exacto.
+- Último staging acreditado: el mismo `8b6a51a97fb40c9a3b31f10f93e9e20fc2c3c691`, con [despliegue + verificación exacta del runtime](https://github.com/codingships/honestSpanish/actions/runs/30918352248) en ambos Workers.
+- Catálogo V2, CMS de home, correcciones públicas, garantía proporcional y rentabilidad provisional con comisiones Stripe conciliadas están integrados y desplegados en staging. Producción no forma parte de esta acreditación.
 
 ## Capacidades
 
@@ -49,7 +49,7 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 | O02 | Fulfillment duradero, Queue y DLQ | VERIFICADO | [`ARCHITECTURE.md`](../ARCHITECTURE.md), [Worker](../workers/fulfillment), [run `21c1f213`](https://github.com/codingships/honestSpanish/actions/runs/30764154143) | Añadir señales y alertas operativas accionables. |
 | O03 | Soporte y recuperación de efectos parciales | IMPLEMENTADO | [API de soporte](../src/pages/api/admin/support-tickets.ts), [contrato SQL](../tests/sql/support-operations.sql), [`OPERATIONS.md`](OPERATIONS.md) | Completar runbooks y simulacros de incidentes principales. |
 | O04 | Obligación y liquidación docente | IMPLEMENTADO | [API de compensación](../src/pages/api/admin/teacher-compensation.ts), [contratos SQL](../tests/sql/teacher-compensation-settlements.sql) | Validar flujo humano de factura/transferencia; no ejecutar pagos desde la plataforma. |
-| O05 | Rentabilidad por alumno y campaña | PARCIAL | [vistas económicas](../db/schema.sql), [contrato SQL](../tests/sql/provisional-unit-economics.sql) | Añadir comisiones conciliadas y costes acordados sin fingir contabilidad fiscal. |
+| O05 | Rentabilidad provisional por alumno y campaña | VERIFICADO | [PR #71](https://github.com/codingships/honestSpanish/pull/71), [migración](../supabase/migrations/20260804144402_stripe_fee_reconciliation.sql), [contrato SQL](../tests/sql/provisional-unit-economics.sql) y [staging del SHA exacto](https://github.com/codingships/honestSpanish/actions/runs/30918352248) | Mantener separados reparto, reserva y fiscalidad: no son beneficio neto ni se infieren desde esta vista. |
 | M01 | Captación, UTM y conversión mínima | IMPLEMENTADO | [`acquisition_attribution_events`](../db/schema.sql), [contrato SQL](../tests/sql/acquisition-attribution-foundation.sql) | Verificar funnel/consentimiento y reporting accionable antes de campañas. |
 | R04 | Observabilidad y alertas accionables | PARCIAL | [Sentry](../astro.config.mjs), [`OPERATIONS.md`](OPERATIONS.md), [fulfillment](../workers/fulfillment) | Acreditar alertas, responsables, correlación y ausencia de PII. |
 | R05 | Backup y restauración ensayada | DESCONOCIDO | Reglas generales en [`OPERATIONS.md`](OPERATIONS.md) | Documentar RPO/RTO y ejecutar restauración inocua en staging. |
@@ -68,5 +68,6 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 | UX móvil, navegación y formulario con fallo seguro | [#65](https://github.com/codingships/honestSpanish/pull/65) | `afd3bf849a89ff3b74ad49d44eba42079fde9366` | [Desplegado y comprobado dentro de `1706b98`](https://github.com/codingships/honestSpanish/actions/runs/30901236505). |
 | Tipografía multilingüe autocontenida e imágenes optimizadas | [#66](https://github.com/codingships/honestSpanish/pull/66), [#67](https://github.com/codingships/honestSpanish/pull/67) | `174a7bbbcfcd25719e9fcc1035293c8537e3a344`, `a8c074271546792285b812ddc68ade179be74ad8` | [Desplegado dentro de `1706b98`](https://github.com/codingships/honestSpanish/actions/runs/30901236505); quedan mediciones visuales y de rendimiento amplias. |
 | Garantía proporcional para cualquier ciclo y paquete | [#69](https://github.com/codingships/honestSpanish/pull/69) | `1706b984853ac1b2493dd6d37c9ae5392557dee3` | [Migración, despliegue y runtime exacto acreditados](https://github.com/codingships/honestSpanish/actions/runs/30901236505). |
+| Comisiones Stripe autoritativas y rentabilidad provisional fail-closed | [#71](https://github.com/codingships/honestSpanish/pull/71) | `8b6a51a97fb40c9a3b31f10f93e9e20fc2c3c691` | [Migración, despliegue y runtime exacto acreditados](https://github.com/codingships/honestSpanish/actions/runs/30918352248); conciliación focal de un cobro sintético, sin dinero, correo ni datos reales. |
 
 El siguiente hito se añade cuando la PR esté integrada y, si cambia runtime, cuando el mismo SHA quede acreditado en staging. GitHub conserva el detalle; esta tabla no lo duplica.
