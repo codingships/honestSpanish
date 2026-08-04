@@ -72,6 +72,7 @@
     "test:e2e:all-browsers": "playwright test --project=public --project=public-firefox --project=public-webkit",
     "test:all": "vitest run && playwright test --project=public",
     "preflight:staging:integrations": "tsx scripts/smoke/staging-integrations.ts --preflight",
+    "diagnose:capacity:local": "tsx scripts/diagnostics/local-capacity-rehearsal.ts",
     "style:admin": "tsx scripts/style/check-admin-style-tokens.ts",
     "verify:staging-runtime": "tsx scripts/ci/verify-staging-runtime.ts",
     "secrets:check": "node scripts/check-secrets.cjs",
