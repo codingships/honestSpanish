@@ -82,6 +82,18 @@ Antes de abrir checkout en producción deben quedar acreditados, mediante un ún
 
 La ausencia de incidencias en Sentry no acredita la conexión. Tampoco se considera una alerta accionable hasta que una persona la reciba. Si el diagnóstico exige reproducir un efecto de Stripe, email, Calendar o base de datos, se detiene el triaje y se abre una tarea sintética con recurso, identidad y limpieza explícitos.
 
+## Capacidad y recuperación
+
+Mil alumnos activos no equivalen a mil peticiones simultáneas y las videollamadas ocurren en Google Meet, no atraviesan el Worker web. La hipótesis operativa que debe medirse antes de prometer esa escala es un pico de 50 personas concurrentes: alumnado consultando clases y cuenta, profesorado consultando agenda y administración atendiendo operaciones, mientras 20–30 clases pueden estar en curso fuera de la plataforma.
+
+`pnpm run diagnose:capacity:local` ejecuta deliberadamente solo un ensayo del runtime público aislado: 1.000 lecturas, concurrencia 30, credenciales eliminadas y proveedores desactivados. Rechaza cualquier destino distinto de `http://localhost:4321` y no forma parte de CI. Dos ejecuciones del 4 de agosto de 2026 produjeron 2.000/2.000 respuestas correctas, sin IDs de correlación ausentes; el peor p95 fue 562 ms, el peor p99 623 ms y el rendimiento mínimo 97,8 peticiones/s. Esto detecta regresiones gruesas del código; no acredita Cloudflare, Supabase, campus autenticado, checkout ni fulfillment.
+
+El ensayo completo solo se ejecuta como diagnóstico autorizado sobre staging, con identidades y filas sintéticas que puedan limpiarse y sin Stripe, Google o correo salvo que la tarea los nombre. Antes se obtiene una línea base de un solo usuario para cada ruta. Se considera aceptable si no aparecen 5xx, límites de Worker, agotamiento de base de datos ni crecimiento residual de Queue/DLQ; las lecturas mantienen p95 no superior al doble de su línea base y las acciones conservan sus invariantes e idempotencia. Se observan por separado latencia, errores, CPU del Worker, consultas/CPU/memoria de Supabase y profundidad de cola. Una prueba pública o local nunca se extrapola a campus.
+
+El objetivo provisional para los primeros alumnos es RPO de 24 horas y RTO de 4 horas. Un preflight de solo lectura del 4 de agosto de 2026 confirmó que Supabase staging no tenía PITR ni copias disponibles. Antes de almacenar datos reales, el proyecto canónico debe disponer como mínimo de copia diaria —[Supabase la incluye en planes Pro o superiores](https://supabase.com/docs/guides/platform/backups)— o una copia lógica externa equivalente, y debe restaurarse una copia en un destino inocuo verificando migraciones, roles, Auth, objetos de Storage y configuración que no formen parte del dump. PITR solo se justifica cuando perder hasta 24 horas ya no sea reconstruible de forma segura; no se añade por anticipación.
+
+La aplicación no necesita Kubernetes, una caché nueva ni separar el monolito para este escenario. [Cloudflare distribuye las peticiones del Worker sin un límite general de peticiones por segundo](https://developers.cloudflare.com/workers/platform/limits/) y [Supabase permite ampliar compute](https://supabase.com/docs/guides/platform/compute-and-disk) cuando la medición lo exija. Se escala una restricción observada, no el número nominal de alumnos.
+
 ## Base de datos
 
 Toda evolución de esquema es una migración nueva en `supabase/migrations/`. No se reescribe una migración aplicada ni se mantiene SQL suelto como versión alternativa. `db/schema.sql` se actualiza como vista consolidada.
