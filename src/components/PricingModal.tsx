@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
-import { Turnstile, type TurnstileInstance } from '@marsidev/react-turnstile';
+import type { TurnstileInstance } from '@marsidev/react-turnstile';
+import ResponsiveTurnstile from './ResponsiveTurnstile';
 import { formatPackagePrice } from '../lib/package-pricing';
 import { buildCheckoutLoginUrl, parseBookableSlotsResponse } from '../lib/public-checkout-ui';
 import {
@@ -768,8 +769,8 @@ export default function PricingModal({
                             </label>
                         </div>
 
-                        <div className="mt-6 overflow-hidden" id="checkout-turnstile">
-                            <Turnstile
+                        <div className="mt-6" id="checkout-turnstile">
+                            <ResponsiveTurnstile
                                 ref={turnstileRef}
                                 siteKey={import.meta.env.PUBLIC_TURNSTILE_SITE_KEY || turnstileTestingSiteKey}
                                 options={{ action: 'checkout_hold', language: lang, size: 'flexible' }}
