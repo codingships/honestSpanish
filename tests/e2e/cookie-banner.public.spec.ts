@@ -19,7 +19,9 @@ test.describe('Cookie banner', () => {
         await expect(banner).toHaveAttribute('aria-hidden', 'true');
         await expect(banner).toBeVisible({ timeout: bannerAppearTimeoutMs });
         await expect(banner).toHaveAttribute('data-visible', 'true');
-        await expect(page.locator('#cookie-banner a[href="/es/legal/cookies"]')).toBeVisible();
+        const policyLink = page.getByRole('link', { name: 'Política de cookies' });
+        await expect(policyLink).toHaveAttribute('href', '/es/legal/cookies');
+        await expect(policyLink).toBeVisible();
 
         const acceptButton = page.getByRole('button', { name: /Aceptar/i });
         await expect(acceptButton).toHaveAttribute('type', 'button');
@@ -57,6 +59,10 @@ test.describe('Cookie banner', () => {
 
         const banner = page.locator('#cookie-banner');
         await expect(banner).toBeVisible({ timeout: bannerAppearTimeoutMs });
+        await expect(page.getByRole('link', { name: 'Cookie policy' })).toHaveAttribute(
+            'href',
+            '/en/legal/cookies',
+        );
         await page.getByRole('button', { name: /Accept/i }).click();
         await expect(banner).toBeHidden({ timeout: 2000 });
     });
