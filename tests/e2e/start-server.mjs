@@ -5,6 +5,12 @@ import { resolve } from 'node:path';
 const cwd = process.cwd();
 const runtimeDirectory = resolve(cwd, 'tests', 'e2e', 'runtime');
 const runtimeVarsPath = resolve(runtimeDirectory, '.dev.vars');
+const isolatedToolState = resolve(cwd, '.wrangler', 'e2e-isolated');
+const childEnvironment = {
+    ...process.env,
+    XDG_CACHE_HOME: resolve(isolatedToolState, 'cache'),
+    XDG_CONFIG_HOME: resolve(isolatedToolState, 'config'),
+};
 const publicSupabaseRef = 'placeholder';
 const publicSupabaseUrl = 'https://placeholder.supabase.co';
 const publicSupabaseAnonKey = 'placeholder-anon-key';
@@ -94,6 +100,8 @@ const content = `${runtimeBindingKeys
     .join('\n')}\n`;
 
 mkdirSync(runtimeDirectory, { recursive: true });
+mkdirSync(childEnvironment.XDG_CACHE_HOME, { recursive: true });
+mkdirSync(childEnvironment.XDG_CONFIG_HOME, { recursive: true });
 if (!existsSync(runtimeVarsPath) || readFileSync(runtimeVarsPath, 'utf8') !== content) {
     writeFileSync(runtimeVarsPath, content, { encoding: 'utf8', mode: 0o600 });
 }
@@ -107,7 +115,7 @@ const astroCli = resolve(cwd, 'node_modules', 'astro', 'bin', 'astro.mjs');
 // React cannot be re-optimized while the first request is being rendered.
 const sync = spawnSync(process.execPath, [astroCli, 'sync'], {
     cwd,
-    env: process.env,
+    env: childEnvironment,
     stdio: 'inherit',
 });
 if (sync.error || sync.status !== 0) {
@@ -117,7 +125,7 @@ if (sync.error || sync.status !== 0) {
 
 const server = spawn(process.execPath, [astroCli, 'dev'], {
     cwd,
-    env: process.env,
+    env: childEnvironment,
     stdio: 'inherit',
 });
 
