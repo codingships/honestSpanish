@@ -1434,7 +1434,6 @@ describe('Checkout contract v2', () => {
 
     it.each([
         ['staging', 'the client address is absent', 'address'],
-        ['production', 'the client address is absent', 'address'],
         ['staging', 'the configured site URL is absent', 'site-url'],
         ['staging', 'the Turnstile site key is absent', 'turnstile-site-key'],
         ['staging', 'the Turnstile secret is absent', 'turnstile'],

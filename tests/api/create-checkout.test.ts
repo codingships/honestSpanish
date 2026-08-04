@@ -416,10 +416,10 @@ describe('POST /api/create-checkout', () => {
         expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
     });
 
-    it.each(['staging', 'production'])('dispatches the v2 contract instead of reopening legacy checkout in %s', async (appEnvironment) => {
+    it('dispatches the v2 contract instead of reopening legacy checkout in staging', async () => {
         runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
             if (key === 'CHECKOUT_ENABLED') return 'true';
-            if (key === 'PUBLIC_APP_ENV') return appEnvironment;
+            if (key === 'PUBLIC_APP_ENV') return 'staging';
             return undefined;
         });
         const { server, admin } = makeClients();
@@ -432,6 +432,30 @@ describe('POST /api/create-checkout', () => {
         await expect(response.json()).resolves.toEqual({ error: 'A valid slotPublicId is required' });
         expect(response.status).toBe(400);
         expect(createSupabaseServerClient).toHaveBeenCalledOnce();
+        expect(server.from).not.toHaveBeenCalled();
+        expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('keeps production checkout closed while the legal identity is provisional', async () => {
+        runtimeEnvMock.readRuntimeEnv.mockImplementation((key: string) => {
+            if (key === 'CHECKOUT_ENABLED') return 'true';
+            if (key === 'PUBLIC_APP_ENV') return 'production';
+            return undefined;
+        });
+        const { server, admin } = makeClients();
+        await installClients(server, admin);
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...acceptedPolicies, slotPublicId: packageId }) as any);
+
+        await expect(response.json()).resolves.toEqual({
+            error: 'Checkout is disabled',
+            errorCode: 'CHECKOUT_DISABLED',
+        });
+        expect(response.status).toBe(403);
+        expect(createSupabaseServerClient).not.toHaveBeenCalled();
         expect(server.from).not.toHaveBeenCalled();
         expect(stripeMock.accounts.retrieve).not.toHaveBeenCalled();
         expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
