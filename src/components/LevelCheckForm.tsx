@@ -197,13 +197,13 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
     }
 
     return (
-        <form onSubmit={handleSubmit} className="border-2 border-[#006064] bg-white p-6 shadow-[8px_8px_0px_0px_#006064] sm:p-8" aria-busy={status === 'loading' || inviteState === 'loading'}>
+        <form onSubmit={handleSubmit} className="min-w-0 border-2 border-[#006064] bg-white p-6 shadow-[8px_8px_0px_0px_#006064] sm:p-8" aria-busy={status === 'loading' || inviteState === 'loading'}>
             <div className="mb-6 text-center">
                 <h2 className="font-display text-2xl uppercase text-[#006064]">{t.title}</h2>
                 <p className="mt-3 text-sm leading-6 text-[#006064]">{t.subtitle}</p>
             </div>
 
-            <div className="grid gap-4">
+            <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">
                 <div>
                     <label htmlFor="level-check-email" className="mb-1 block text-xs font-bold uppercase text-[#006064]">{t.email}</label>
                     <input

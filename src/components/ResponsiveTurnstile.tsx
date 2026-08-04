@@ -47,7 +47,7 @@ const ResponsiveTurnstile = forwardRef<TurnstileInstance, TurnstileProps>(functi
     }, [requestedSize]);
 
     return (
-        <div ref={containerRef} className="flex w-full justify-center" data-responsive-turnstile-container>
+        <div ref={containerRef} className="flex w-full min-w-0 max-w-full justify-center" data-responsive-turnstile-container>
             <Turnstile ref={ref} {...props} options={{ ...options, size }} />
         </div>
     );
