@@ -25,6 +25,10 @@ describe('Astro Sentry runtime boundary', () => {
             expect(config).toContain('declare const __SENTRY_ENVIRONMENT__: string;');
             expect(config).toContain('const environment = __SENTRY_ENVIRONMENT__;');
             expect(config).toContain('environment: environment || undefined');
+            expect(config).toContain('sendDefaultPii: false');
+            expect(config).toContain('beforeBreadcrumb: scrubSentryBreadcrumb');
+            expect(config).toContain('beforeSend: scrubSentryEvent');
+            expect(config).toContain('beforeSendTransaction: scrubSentryEvent');
         }
 
         expect(sentryServerConfig).toContain('defaultIntegrations: false');

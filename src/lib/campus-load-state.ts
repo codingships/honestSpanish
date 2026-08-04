@@ -1,3 +1,5 @@
+import { reportOperationalFailure } from './operational-error';
+
 export type CampusQueryResult<T> = {
     data: T | null;
     error: unknown | null;
@@ -91,13 +93,15 @@ function readErrorCode(error: unknown): string {
  * Reports only stable diagnostic identifiers. Error messages, query details,
  * hints and user data are deliberately excluded.
  */
-export function reportCampusReadError(surface: string, error: unknown): void {
+export function reportCampusReadError(surface: string, error: unknown, requestId?: string): void {
     if (error === null || error === undefined) {
         return;
     }
 
-    console.error('[CampusRead] Query failed', {
-        surface: sanitizeDiagnosticPart(surface, 'unknown'),
+    reportOperationalFailure({
+        surface: `campus.${sanitizeDiagnosticPart(surface, 'unknown')}`,
         code: readErrorCode(error),
+        error,
+        requestId,
     });
 }

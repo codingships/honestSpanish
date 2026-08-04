@@ -33,6 +33,7 @@ vi.mock('../../src/lib/supabase-server', () => ({
 function middlewareContext(path: string) {
     return {
         request: new Request(`https://example.com${path}`),
+        locals: {} as Record<string, unknown>,
         redirect: vi.fn((location: string) => new Response(null, {
             status: 302,
             headers: { Location: location },
@@ -99,9 +100,11 @@ describe('campus adult-account middleware gate', () => {
         expect(context.redirect).not.toHaveBeenCalled();
         expect(mocks.signOut).not.toHaveBeenCalled();
         expect(next).not.toHaveBeenCalled();
-        expect(consoleError).toHaveBeenCalledWith('[CampusRead] Query failed', {
-            surface: 'middleware.auth',
+        expect(JSON.parse(String(consoleError.mock.calls[0]?.[0]))).toEqual({
+            event: 'operational_failure',
+            surface: 'campus.middleware.auth',
             code: 'AUTH_TIMEOUT',
+            requestId: expect.any(String),
         });
     });
 
@@ -176,9 +179,11 @@ describe('campus adult-account middleware gate', () => {
         expect(context.redirect).not.toHaveBeenCalled();
         expect(mocks.signOut).not.toHaveBeenCalled();
         expect(next).not.toHaveBeenCalled();
-        expect(consoleError).toHaveBeenCalledWith('[CampusRead] Query failed', {
-            surface: 'middleware.profile',
+        expect(JSON.parse(String(consoleError.mock.calls[0]?.[0]))).toEqual({
+            event: 'operational_failure',
+            surface: 'campus.middleware.profile',
             code: 'PGRST_TIMEOUT',
+            requestId: expect.any(String),
         });
     });
 
@@ -453,10 +458,32 @@ describe('campus adult-account middleware gate', () => {
         expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
         expect(response.headers.get('X-Frame-Options')).toBe('DENY');
         expect(response.headers.get('Strict-Transport-Security')).toBe('max-age=31536000');
+        expect(response.headers.get('X-Request-ID')).toMatch(/^[0-9a-f-]{36}$/);
         expect(response.headers.get('Content-Security-Policy')).toContain("frame-ancestors 'none'");
         expect(next).toHaveBeenCalledOnce();
         expect(mocks.getUser).not.toHaveBeenCalled();
         expect(response.headers.get('Cache-Control')).toBe('public, max-age=0, s-maxage=300, must-revalidate');
+    });
+
+    it('generates its own request ID instead of trusting a caller value', async () => {
+        Object.assign(mocks.runtimeEnv, {
+            PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
+        });
+        const context = middlewareContext('/es');
+        context.request = new Request('https://example.com/es', {
+            headers: { 'X-Request-ID': 'caller-controlled' },
+        });
+        const { onRequest } = await import('../../src/middleware');
+
+        const response = await onRequest(
+            context as any,
+            vi.fn().mockResolvedValue(new Response('ok')),
+        ) as Response;
+
+        expect(response.headers.get('X-Request-ID')).toMatch(/^[0-9a-f-]{36}$/);
+        expect(response.headers.get('X-Request-ID')).not.toBe('caller-controlled');
+        expect(context.locals.requestId).toBe(response.headers.get('X-Request-ID'));
     });
 
     it('adds the global robots header to a staging redirect created by the auth gate', async () => {

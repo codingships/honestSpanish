@@ -32,6 +32,12 @@ interface ImportMeta {
     readonly env: ImportMetaEnv;
 }
 
+declare namespace App {
+    interface Locals {
+        requestId: string;
+    }
+}
+
 declare const __E2E_RUNTIME_BUILD__: boolean;
 
 declare module '*.wasm?url' {
