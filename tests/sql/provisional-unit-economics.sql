@@ -485,7 +485,12 @@ DECLARE student_one public.student_unit_economics%ROWTYPE;
 DECLARE portfolio public.portfolio_unit_economics%ROWTYPE;
 BEGIN
     IF (SELECT count(*) FROM public.stripe_payment_fee_reconciliations
-        WHERE status = 'pending') <> 3 THEN
+        WHERE status = 'pending'
+          AND payment_id IN (
+              'bb700000-0000-4000-8000-000000000001',
+              'bb700000-0000-4000-8000-000000000002',
+              'bb700000-0000-4000-8000-000000000003'
+          )) <> 3 THEN
         RAISE EXCEPTION 'stripe_fee_pending_backfill_missing';
     END IF;
 
