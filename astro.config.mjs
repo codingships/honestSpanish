@@ -178,7 +178,10 @@ const cspConnectResources = [
 
 // https://astro.build/config
 export default defineConfig({
-    site: 'https://espanolhonesto.com',
+    // Astro uses `site` as the request origin while prerendering. The isolated
+    // test build must therefore use its allowed localhost origin; otherwise
+    // middleware correctly snapshots PUBLIC_APP_ENV_INVALID into static pages.
+    site: e2eRuntimeIsolated ? 'http://localhost:4321' : 'https://espanolhonesto.com',
     output: 'server',
     markdown: {
         // Shiki emits inline styles that cannot satisfy Astro's hash-based CSP.
