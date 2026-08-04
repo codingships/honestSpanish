@@ -559,6 +559,71 @@ describe('Checkout contract v2', () => {
         );
     });
 
+    it('returns the same open Checkout Session without resnapshotting its frozen Customer', async () => {
+        enablePrivateStagingCheckoutGrant();
+        const recoveredIntent = {
+            ...checkoutIntent,
+            status: 'open',
+            stripe_checkout_session_id: 'cs_staging_e2e_existing',
+            stripe_customer_id: 'cus_v2',
+        };
+        const recoveredSession = createdSession({
+            customer: 'cus_v2',
+            client_reference_id: 'student-1',
+            line_items: [
+                { price: 'price_initial_259', quantity: 1 },
+                { price: 'price_recurring_28d', quantity: 1 },
+            ],
+            metadata: {
+                contractSchemaVersion: '2',
+                userId: 'student-1',
+                packageId,
+                packagePriceId,
+                crmOpportunityId: opportunityId,
+                checkoutIntentId,
+                slotPublicId,
+                initialPriceId: 'price_initial_259',
+                recurringPriceId: 'price_recurring_28d',
+                firstClassAt,
+                renewalAnchorAt,
+                legalPolicyVersion: CHECKOUT_TERMS_VERSION,
+                stagingE2ERunId,
+            },
+        }, { id: recoveredIntent.stripe_checkout_session_id });
+        stripeMock.checkout.sessions.retrieve.mockResolvedValue(recoveredSession);
+
+        const { server, admin } = makeClients();
+        server.auth.getUser.mockResolvedValue({
+            data: {
+                user: {
+                    id: 'student-1',
+                    email: stagingE2EStudentEmail,
+                    email_confirmed_at: '2026-08-01T10:00:00Z',
+                },
+            },
+            error: null,
+        });
+        admin.rpc.mockImplementation(async (name: string) => {
+            if (name === 'claim_direct_checkout_intent_for_slot') {
+                return { data: recoveredIntent, error: null };
+            }
+            throw new Error(`Unexpected RPC ${name}`);
+        });
+        await installClients(server, admin);
+        const { POST } = await import('../../src/pages/api/create-checkout');
+
+        const response = await POST(context({ ...policies, slotPublicId, lang: 'en' }) as any);
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toEqual({ url: 'https://checkout.stripe.test/v2' });
+        expect(admin.rpc).not.toHaveBeenCalledWith('snapshot_checkout_intent_customer', expect.anything());
+        expect(stripeMock.checkout.sessions.retrieve).toHaveBeenCalledWith(
+            recoveredIntent.stripe_checkout_session_id,
+            { expand: ['line_items.data.price'] },
+        );
+        expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    });
+
     it('rejects a recovered Checkout Session issued for another staging E2E run', async () => {
         enablePrivateStagingCheckoutGrant();
         const recoveredIntent = {

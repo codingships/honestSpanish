@@ -861,20 +861,22 @@ export async function handleCheckoutV2(
                 'CUSTOMER_BALANCE_CONFLICT',
             );
 
-            const snapshotted = await supabaseAdmin.rpc('snapshot_checkout_intent_customer', {
-                p_intent_id: checkoutIntent.id,
-                p_stripe_customer_id: customerId,
-            });
-            if (
-                snapshotted.error
-                || !snapshotted.data
-                || snapshotted.data.id !== checkoutIntent.id
-                || snapshotted.data.stripe_customer_id !== customerId
-            ) return checkoutErrorResponse(
-                'Checkout Customer could not be recorded safely',
-                'CUSTOMER_CONFIGURATION_ERROR',
-            );
-            checkoutIntent = snapshotted.data;
+            if (!checkoutIntent.stripe_customer_id) {
+                const snapshotted = await supabaseAdmin.rpc('snapshot_checkout_intent_customer', {
+                    p_intent_id: checkoutIntent.id,
+                    p_stripe_customer_id: customerId,
+                });
+                if (
+                    snapshotted.error
+                    || !snapshotted.data
+                    || snapshotted.data.id !== checkoutIntent.id
+                    || snapshotted.data.stripe_customer_id !== customerId
+                ) return checkoutErrorResponse(
+                    'Checkout Customer could not be recorded safely',
+                    'CUSTOMER_CONFIGURATION_ERROR',
+                );
+                checkoutIntent = snapshotted.data;
+            }
 
             const policyAcceptedAt = checkoutIntent.policy_accepted_at;
             const metadata = {

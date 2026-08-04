@@ -405,6 +405,7 @@ async function createCheckout(state: StagingCheckoutV2RunState): Promise<string>
     assertHttp(first.response, first.body, 200, 'Checkout V2 creation');
     const checkoutUrl = stringValue(first.body.url, 'Checkout V2');
     const sessionId = sessionIdFromUrl(checkoutUrl);
+    state.checkoutSessionId = stringValue(sessionId, 'Stripe Checkout Session');
 
     const retry = await postJson(endpoint, cookies, body);
     assertHttp(retry.response, retry.body, 200, 'Checkout V2 idempotent retry');
@@ -414,7 +415,6 @@ async function createCheckout(state: StagingCheckoutV2RunState): Promise<string>
         throw new Error('Checkout V2 retry created or returned another Stripe Checkout Session');
     }
 
-    state.checkoutSessionId = stringValue(sessionId, 'Stripe Checkout Session');
     return checkoutUrl;
 }
 
