@@ -49,12 +49,18 @@ describe('Lighthouse audit contract', () => {
         expect(runner).toContain('staging Lighthouse remains mandatory');
     });
 
-    it('updates the test banner offset without a CSP-blocked inline style', () => {
+    it('reserves the test banner offset without runtime style mutation', () => {
         const banner = readFileSync('src/components/EnvironmentBanner.astro', 'utf8');
+        const layout = readFileSync('src/layouts/BaseLayout.astro', 'utf8');
+        const globalStyles = readFileSync('src/styles/global.css', 'utf8');
 
-        expect(banner).toContain('findOffsetRule(stylesheet.cssRules)');
-        expect(banner).toContain("offsetRule?.style.setProperty('--environment-banner-height'");
-        expect(banner).not.toContain("document.documentElement.style.setProperty('--environment-banner-height'");
+        expect(layout).toContain("data-environment-banner={showEnvironmentBanner ? 'true' : undefined}");
+        expect(layout).toContain('<EnvironmentBanner lang={pageLang} visible={showEnvironmentBanner} />');
+        expect(globalStyles).toContain(":root[data-environment-banner='true']");
+        expect(globalStyles).toContain('--environment-banner-height: 7rem');
+        expect(globalStyles).toContain('--environment-banner-height: 4rem');
+        expect(banner).not.toContain('.style.');
+        expect(banner).not.toContain('<script>');
     });
 
     it('audits seven representative templates three times by default', () => {

@@ -1,17 +1,10 @@
 ---
 interface Props {
     lang: string;
+    visible?: boolean;
 }
 
-const { lang } = Astro.props;
-const appEnv = (import.meta.env.PUBLIC_APP_ENV || '').toLowerCase();
-const publicSiteUrl = (import.meta.env.PUBLIC_SITE_URL || '').toLowerCase();
-const host = Astro.url.hostname.toLowerCase();
-const marker = `${appEnv} ${publicSiteUrl} ${host}`;
-const showBanner = appEnv === 'staging'
-    || appEnv === 'test'
-    || marker.includes('staging')
-    || host.endsWith('.pages.dev');
+const { lang, visible = false } = Astro.props;
 
 const copy = {
     es: {
@@ -31,9 +24,9 @@ const copy = {
 const t = copy[lang as keyof typeof copy] || copy.es;
 ---
 
-{showBanner && (
+{visible && (
     <div
-        class="sticky top-0 z-[100] border-b-2 border-[#7A2E00] bg-[#FFF3D6] px-4 py-2 text-[#7A2E00]"
+        class="sticky top-0 z-[100] flex min-h-28 items-center border-b-2 border-[#7A2E00] bg-[#FFF3D6] px-4 py-2 text-[#7A2E00] sm:min-h-16"
         role="status"
         aria-live="polite"
         aria-atomic="true"
@@ -47,51 +40,3 @@ const t = copy[lang as keyof typeof copy] || copy.es;
         </div>
     </div>
 )}
-
-<script>
-    const environmentBanner = document.querySelector<HTMLElement>('[data-environment-banner]');
-
-    const findOffsetRule = (rules: CSSRuleList): CSSStyleRule | undefined => {
-        for (const rule of rules) {
-            if (
-                rule instanceof CSSStyleRule
-                && rule.style.getPropertyValue('--environment-banner-height')
-            ) return rule;
-
-            const nestedRules = (rule as CSSRule & { cssRules?: CSSRuleList }).cssRules;
-            const nestedMatch = nestedRules ? findOffsetRule(nestedRules) : undefined;
-            if (nestedMatch) return nestedMatch;
-        }
-        return undefined;
-    };
-
-    const offsetRule = Array.from(document.styleSheets).reduce<CSSStyleRule | undefined>(
-        (match, stylesheet) => {
-            if (match) return match;
-            try {
-                return findOffsetRule(stylesheet.cssRules);
-            } catch {
-                // Cross-origin stylesheets are intentionally unreadable. The
-                // application stylesheet is same-origin and remains available.
-                return undefined;
-            }
-        },
-        undefined,
-    );
-
-    const syncEnvironmentBannerHeight = () => {
-        const height = environmentBanner?.getBoundingClientRect().height ?? 0;
-        // Mutate the existing same-origin stylesheet rule. Setting an inline
-        // style on <html> is correctly rejected by the strict style-src policy.
-        offsetRule?.style.setProperty('--environment-banner-height', `${Math.ceil(height)}px`);
-    };
-
-    syncEnvironmentBannerHeight();
-
-    if (environmentBanner && 'ResizeObserver' in window) {
-        const resizeObserver = new ResizeObserver(syncEnvironmentBannerHeight);
-        resizeObserver.observe(environmentBanner);
-    } else {
-        window.addEventListener('resize', syncEnvironmentBannerHeight, { passive: true });
-    }
-</script>
