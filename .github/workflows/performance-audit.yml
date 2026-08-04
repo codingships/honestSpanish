@@ -24,6 +24,8 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'public/**'
+      - 'scripts/ci/run-lighthouse.ts'
+      - 'scripts/ci/summarize-lighthouse.ts'
       - 'src/assets/**'
       - 'src/components/blog/**'
       - 'src/components/CookieBanner.astro'
@@ -43,6 +45,8 @@ on:
       - 'src/lib/public-seo.ts'
       - 'src/pages/**'
       - 'src/styles/**'
+      - 'tests/e2e/start-server.mjs'
+      - 'tests/unit/lighthouse-audit.test.ts'
 
 permissions:
   contents: read
