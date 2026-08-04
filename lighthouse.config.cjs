@@ -54,6 +54,11 @@ const isSmoke = scope === 'smoke';
 module.exports = {
     baseOrigin,
     localServer: baseOrigin === LOCAL_ORIGIN,
+    // Chrome's trace collector repeatedly reports NO_FCP for this prerendered
+    // page behind local Wrangler even though a clean browser records FCP. Keep
+    // the local candidate check as an explicit paint probe; staging remains a
+    // strict Lighthouse audit for every route.
+    localPaintProbeRoutes: ['/es/blog/cuanto-tiempo-hablar-espanol-fluido'],
     outputDirectory: `test-results/lighthouse/${profile}`,
     profile,
     routes: scope === 'smoke' ? smokeRoutes : fullRoutes,

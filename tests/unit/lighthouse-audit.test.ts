@@ -43,6 +43,10 @@ describe('Lighthouse audit contract', () => {
             "site: e2eRuntimeIsolated ? 'http://localhost:4321' : 'https://espanolhonesto.com'",
         );
         expect(loadConfig().settings.chromeFlags).toContain('--disable-dev-shm-usage');
+        expect(loadConfig().localPaintProbeRoutes).toEqual([
+            '/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+        ]);
+        expect(runner).toContain('staging Lighthouse remains mandatory');
     });
 
     it('updates the test banner offset without a CSP-blocked inline style', () => {

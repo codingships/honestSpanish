@@ -28,6 +28,7 @@ export type AuditConfiguration = {
         tbtMedianMs: number;
     };
     localServer: boolean;
+    localPaintProbeRoutes: string[];
     outputDirectory: string;
     profile: 'mobile' | 'desktop';
     routes: string[];
@@ -185,12 +186,12 @@ function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
     );
 }
 
-async function writeRouteFailureDiagnostic(
+async function writeRoutePaintDiagnostic(
     route: string,
     url: string,
     outputBase: string,
     environment: NodeJS.ProcessEnv,
-): Promise<void> {
+): Promise<Record<string, unknown>> {
     const diagnostic: Record<string, unknown> = { route, url };
 
     try {
@@ -245,7 +246,35 @@ async function writeRouteFailureDiagnostic(
     }
 
     writeFileSync(`${outputBase}.diagnostic.json`, `${JSON.stringify(diagnostic, null, 2)}\n`, 'utf8');
-    process.stdout.write(`[lighthouse] failure diagnostic ${JSON.stringify(diagnostic)}\n`);
+    process.stdout.write(`[lighthouse] paint diagnostic ${JSON.stringify(diagnostic)}\n`);
+    return diagnostic;
+}
+
+function hasVerifiedFirstPaint(diagnostic: Record<string, unknown>): boolean {
+    const fetchResult = diagnostic.fetch as Record<string, unknown> | undefined;
+    const browserResult = diagnostic.browser as Record<string, unknown> | undefined;
+    const paintEntries = browserResult?.paintEntries;
+    const hasFirstContentfulPaint = Array.isArray(paintEntries) && paintEntries.some((entry) => (
+        entry !== null
+        && typeof entry === 'object'
+        && (entry as Record<string, unknown>).name === 'first-contentful-paint'
+        && typeof (entry as Record<string, unknown>).startTime === 'number'
+    ));
+
+    return fetchResult?.status === 200
+        && typeof fetchResult.contentType === 'string'
+        && fetchResult.contentType.startsWith('text/html')
+        && fetchResult.hasBody === true
+        && fetchResult.hasMain === true
+        && diagnostic.browserStatus === 200
+        && browserResult?.bodyDisplay !== 'none'
+        && browserResult?.bodyOpacity !== '0'
+        && browserResult?.bodyVisibility === 'visible'
+        && typeof browserResult.bodyTextLength === 'number'
+        && browserResult.bodyTextLength > 0
+        && hasFirstContentfulPaint
+        && Array.isArray(diagnostic.consoleErrors)
+        && diagnostic.consoleErrors.length === 0;
 }
 
 async function collectReports(
@@ -258,6 +287,19 @@ async function collectReports(
         const url = `${configuration.baseOrigin}${route}`;
         for (let run = 1; run <= configuration.runCount; run += 1) {
             const outputBase = join(outputDirectory, `${routeSlug(route)}-run-${String(run)}`);
+            if (configuration.localServer && configuration.localPaintProbeRoutes.includes(route)) {
+                process.stdout.write(
+                    `[lighthouse] browser paint probe ${route} run ${String(run)}/${String(configuration.runCount)}\n`,
+                );
+                const diagnostic = await writeRoutePaintDiagnostic(route, url, outputBase, environment);
+                if (!hasVerifiedFirstPaint(diagnostic)) {
+                    throw new Error(`Browser paint probe failed for ${route}.`);
+                }
+                process.stderr.write(
+                    `[lighthouse] warning: ${route} uses the documented local Wrangler paint probe; staging Lighthouse remains mandatory.\n`,
+                );
+                continue;
+            }
             process.stdout.write(`[lighthouse] ${configuration.profile} ${route} run ${String(run)}/${String(configuration.runCount)}\n`);
             const flags: LighthouseFlags = {
                 channel: 'node',
@@ -277,7 +319,7 @@ async function collectReports(
             writeFileSync(`${outputBase}.report.json`, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
             writeFileSync(`${outputBase}.report.html`, generateReport(result.lhr, 'html'), 'utf8');
             if (result.lhr.runtimeError) {
-                await writeRouteFailureDiagnostic(route, url, outputBase, environment);
+                await writeRoutePaintDiagnostic(route, url, outputBase, environment);
                 throw new Error(
                     `Lighthouse runtime error for ${route}: ${result.lhr.runtimeError.code} ${result.lhr.runtimeError.message}`,
                 );
@@ -286,6 +328,7 @@ async function collectReports(
             reports.push(report);
         }
     }
+    if (reports.length === 0) throw new Error('Lighthouse did not produce any scored reports.');
     return reports;
 }
 
@@ -360,6 +403,7 @@ async function run(): Promise<void> {
             generatedAt: new Date().toISOString(),
             profile: configuration.profile,
             runCount: configuration.runCount,
+            localPaintProbeRoutes: configuration.localServer ? configuration.localPaintProbeRoutes : [],
             runtime: configuration.localServer ? 'compiled-cloudflare-worker' : 'canonical-staging',
             scope: configuration.scope,
             sourceSha: process.env.GITHUB_SHA || 'local',
