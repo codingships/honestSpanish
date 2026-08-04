@@ -179,6 +179,8 @@ Los fallos posteriores de Calendar, email o CRM se recuperan en `fulfillment_job
 
 La única realidad operativa de producción es Cloudflare Pages, según `docs/ENVIRONMENTS.md`. Este repositorio no ofrece aliases, builds, validadores ni entornos Wrangler para Workers o colas de producción.
 
+La identidad del vendedor permanece versionada en `src/lib/legal-identity.ts`. Mientras su modo sea `example`, cualquier runtime nuevo que se identifique como producción devuelve health no disponible y fuerza checkout cerrado, aunque una variable de entorno intente habilitarlo. Cambiar el modo a `verified` exige completar todos los campos con datos revisados; no basta con retirar el aviso visual.
+
 Los Workers y colas de producción que ya existen están reservados fuera de alcance: no se despliegan, validan, reutilizan ni eliminan por continuidad implícita. Un cambio futuro de arquitectura exigiría una decisión nueva de producto e infraestructura y una tarea explícita que reconstruya las garantías necesarias.
 
 Cualquier cambio de Pages, Supabase, Stripe live, DNS, email live o datos reales exige autorización explícita, preflight de identidad, alcance, verificación y recuperación. Una aprobación de staging no se extiende a producción.

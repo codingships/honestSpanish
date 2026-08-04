@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro';
 import { isCheckoutEnabled } from '../lib/checkout-enabled';
+import { isLegalIdentityProductionReady } from '../lib/legal-identity';
 import { readRuntimeEnv } from '../lib/runtime-env';
 
 export const prerender = false;
@@ -30,6 +31,8 @@ export const GET: APIRoute = async (context) => {
     const checkoutConfigured = booleanFlag(readRuntimeEnv('CHECKOUT_ENABLED', context));
     const checkoutOverride = booleanFlag(readRuntimeEnv('CHECKOUT_ENABLED_OVERRIDE', context));
     const checkoutEnabled = isCheckoutEnabled(context);
+    const legalIdentityReady = appEnvironment !== 'production'
+        || isLegalIdentityProductionReady();
 
     const expectedIdentity = appEnvironment === 'staging'
         ? 'espanolhonesto-staging'
@@ -48,12 +51,14 @@ export const GET: APIRoute = async (context) => {
         expectedIdentity
         && workerIdentity === expectedIdentity
         && validMode
-        && validCheckout,
+        && validCheckout
+        && legalIdentityReady,
     );
 
     return json(healthy ? 200 : 503, {
         appEnvironment: appEnvironment ?? 'invalid',
         checkoutEnabled,
+        legalIdentityReady,
         runtimeMode: runtimeMode ?? 'invalid',
         status: healthy ? 'ok' : 'invalid',
         workerIdentity: workerIdentity ?? 'invalid',

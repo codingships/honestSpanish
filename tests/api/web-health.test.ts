@@ -2,10 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
     env: {} as Record<string, string | undefined>,
+    legalIdentityReady: true,
 }));
 
 vi.mock('../../src/lib/runtime-env', () => ({
     readRuntimeEnv: vi.fn((key: string) => mocks.env[key]),
+}));
+
+vi.mock('../../src/lib/legal-identity', () => ({
+    isLegalIdentityProductionReady: vi.fn(() => mocks.legalIdentityReady),
 }));
 
 import { GET } from '../../src/pages/health';
@@ -13,6 +18,7 @@ import { GET } from '../../src/pages/health';
 describe('web health', () => {
     beforeEach(() => {
         for (const key of Object.keys(mocks.env)) delete mocks.env[key];
+        mocks.legalIdentityReady = true;
     });
 
     it('reports an active staging runtime with closed checkout as ready', async () => {
@@ -31,6 +37,7 @@ describe('web health', () => {
         await expect(response.json()).resolves.toMatchObject({
             appEnvironment: 'staging',
             checkoutEnabled: false,
+            legalIdentityReady: true,
             runtimeMode: 'active',
             status: 'ok',
             workerIdentity: 'espanolhonesto-staging',
@@ -60,6 +67,7 @@ describe('web health', () => {
         await expect(response.json()).resolves.toMatchObject({
             appEnvironment: 'production',
             checkoutEnabled: expectedEnabled,
+            legalIdentityReady: true,
             runtimeMode: 'active',
             status: 'ok',
             workerIdentity: 'espanolhonesto',
@@ -83,6 +91,26 @@ describe('web health', () => {
             runtimeMode: 'bootstrap',
             status: 'invalid',
             workerIdentity: 'espanolhonesto',
+        });
+    });
+
+    it('fails closed while the production seller identity is provisional', async () => {
+        mocks.legalIdentityReady = false;
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'production',
+            WEB_RUNTIME_MODE: 'active',
+            WORKER_IDENTITY: 'espanolhonesto',
+            CHECKOUT_ENABLED: 'true',
+            CHECKOUT_ENABLED_OVERRIDE: 'true',
+        });
+
+        const response = await GET({} as Parameters<typeof GET>[0]) as Response;
+
+        expect(response.status).toBe(503);
+        await expect(response.json()).resolves.toMatchObject({
+            checkoutEnabled: false,
+            legalIdentityReady: false,
+            status: 'invalid',
         });
     });
 
