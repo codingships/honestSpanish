@@ -16,6 +16,9 @@ const baseResponse = {
         totalTeacherObligationCents: 0,
         totalDirectCostCents: 0,
         totalAcquisitionAllocatedCents: 0,
+        totalStripeFeeCents: 0,
+        stripeFeeReconciliationStatus: 'reconciled',
+        unreconciledPaymentCount: 0,
         totalProvisionalContributionCents: -20000,
         totalCampaignSpendCents: 20000,
         totalUnallocatedCampaignSpendCents: 20000,
@@ -35,6 +38,9 @@ const baseResponse = {
         netCollectedCents: 0,
         teacherObligationCents: 0,
         directCostCents: 0,
+        stripeFeeCents: 0,
+        stripeFeeReconciliationStatus: 'reconciled',
+        unreconciledPaymentCount: 0,
         provisionalContributionCents: -20000,
     }, {
         id: '70000000-0000-4000-8000-000000000020',
@@ -47,6 +53,9 @@ const baseResponse = {
         utmTerm: 'different-term',
         netSpendCents: 0,
         studentCount: 0,
+        stripeFeeCents: 0,
+        stripeFeeReconciliationStatus: 'reconciled',
+        unreconciledPaymentCount: 0,
         provisionalContributionCents: 0,
     }, {
         id: '70000000-0000-4000-8000-000000000021',
@@ -55,6 +64,9 @@ const baseResponse = {
         attributionMode: 'manual',
         netSpendCents: 0,
         studentCount: 0,
+        stripeFeeCents: 0,
+        stripeFeeReconciliationStatus: 'reconciled',
+        unreconciledPaymentCount: 0,
         provisionalContributionCents: 0,
     }],
     students: [],
@@ -83,6 +95,7 @@ const baseResponse = {
         utmCampaign: 'pilot',
         hasActiveAllocation: true,
     }],
+    feeReconciliations: [],
     pagination: { page: 0, limit: 25, studentsHasMore: false, costsHasMore: false, allocationsHasMore: false },
 };
 
@@ -120,11 +133,52 @@ describe('ProfitabilityManager', () => {
         render(<ProfitabilityManager lang="es" />);
 
         expect(await screen.findByRole('heading', { name: 'Campañas' })).toBeInTheDocument();
-        const campaignTable = screen.getByRole('table', { name: 'Gasto, asignación e ingresos por campaña' });
+        const campaignTable = screen.getByRole('table', { name: 'Gasto, asignación, comisiones e ingresos por campaña' });
         const campaignRow = within(campaignTable).getByText(/Piloto Google/).closest('tr');
         expect(campaignRow).toHaveTextContent('-200,00');
         expect(campaignRow).toHaveTextContent('N/A');
         expect(screen.getByText('La asignación es manual y explícita. Nunca se reparte automáticamente el gasto entre alumnos.')).toBeInTheDocument();
+    });
+
+    it('keeps contribution unknown while Stripe fees are pending and offers an explicit retry', async () => {
+        const pendingResponse = {
+            ...baseResponse,
+            summary: {
+                ...baseResponse.summary,
+                totalStripeFeeCents: null,
+                stripeFeeReconciliationStatus: 'pending',
+                unreconciledPaymentCount: 1,
+                totalProvisionalContributionCents: null,
+            },
+            feeReconciliations: [{
+                paymentId: '70000000-0000-4000-8000-000000000090',
+                studentId,
+                studentName: 'Ana Alumna',
+                studentEmail: 'ana@example.test',
+                grossAmountCents: 25900,
+                amountRefundedCents: 0,
+                currency: 'eur',
+                status: 'pending',
+                lastErrorCode: 'stripe_fee_remote_unavailable',
+                lastAttemptedAt: null,
+            }],
+        };
+        vi.stubGlobal('fetch', vi.fn(async (_input, init) => init?.method === 'POST'
+            ? response({ result: { status: 'reconciled' } })
+            : response(pendingResponse)));
+
+        render(<ProfitabilityManager lang="es" />);
+
+        expect(await screen.findByText(/Hay 1 cobro sin comisiones conciliadas/)).toBeInTheDocument();
+        const totals = screen.getByRole('heading', { name: 'Totales observados' }).closest('section');
+        expect(totals).not.toBeNull();
+        expect(within(totals!).getAllByText('Pendiente de conciliar')).toHaveLength(2);
+        fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+        await waitFor(() => expect(postBodies()).toContainEqual({
+            action: 'reconcile_stripe_fee',
+            requestId: '70000000-0000-4000-8000-000000000001',
+            paymentId: '70000000-0000-4000-8000-000000000090',
+        }));
     });
 
     it('creates an observed campaign with its exact UTM identity', async () => {

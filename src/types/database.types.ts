@@ -3178,6 +3178,124 @@ export type Database = {
           },
         ];
       };
+      stripe_payment_balance_transactions: {
+        Row: {
+          amount_cents: number;
+          balance_type: string;
+          currency: string;
+          fee_cents: number;
+          net_cents: number;
+          observed_at: string;
+          payment_id: string;
+          reporting_category: string;
+          source_id: string;
+          source_kind: string;
+          stripe_account_id: string;
+          stripe_balance_transaction_id: string;
+          stripe_created_at: string;
+          stripe_livemode: boolean;
+          stripe_payment_intent_id: string;
+          stripe_type: string;
+        };
+        Insert: {
+          amount_cents: number;
+          balance_type: string;
+          currency: string;
+          fee_cents: number;
+          net_cents: number;
+          observed_at: string;
+          payment_id: string;
+          reporting_category: string;
+          source_id: string;
+          source_kind: string;
+          stripe_account_id: string;
+          stripe_balance_transaction_id: string;
+          stripe_created_at: string;
+          stripe_livemode: boolean;
+          stripe_payment_intent_id: string;
+          stripe_type: string;
+        };
+        Update: {
+          amount_cents?: number;
+          balance_type?: string;
+          currency?: string;
+          fee_cents?: number;
+          net_cents?: number;
+          observed_at?: string;
+          payment_id?: string;
+          reporting_category?: string;
+          source_id?: string;
+          source_kind?: string;
+          stripe_account_id?: string;
+          stripe_balance_transaction_id?: string;
+          stripe_created_at?: string;
+          stripe_livemode?: boolean;
+          stripe_payment_intent_id?: string;
+          stripe_type?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "stripe_payment_balance_transactions_payment_id_fkey";
+            columns: ["payment_id"];
+            isOneToOne: false;
+            referencedRelation: "payments";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      stripe_payment_fee_reconciliations: {
+        Row: {
+          created_at: string;
+          last_attempted_at: string | null;
+          last_error_code: string | null;
+          payment_id: string;
+          reconciled_amount_refunded_cents: number;
+          reconciled_at: string | null;
+          reconciled_transaction_count: number;
+          status: string;
+          stripe_account_id: string | null;
+          stripe_livemode: boolean | null;
+          stripe_payment_intent_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          last_attempted_at?: string | null;
+          last_error_code?: string | null;
+          payment_id: string;
+          reconciled_amount_refunded_cents?: number;
+          reconciled_at?: string | null;
+          reconciled_transaction_count?: number;
+          status?: string;
+          stripe_account_id?: string | null;
+          stripe_livemode?: boolean | null;
+          stripe_payment_intent_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          last_attempted_at?: string | null;
+          last_error_code?: string | null;
+          payment_id?: string;
+          reconciled_amount_refunded_cents?: number;
+          reconciled_at?: string | null;
+          reconciled_transaction_count?: number;
+          status?: string;
+          stripe_account_id?: string | null;
+          stripe_livemode?: boolean | null;
+          stripe_payment_intent_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "stripe_payment_fee_reconciliations_payment_id_fkey";
+            columns: ["payment_id"];
+            isOneToOne: true;
+            referencedRelation: "payments";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       student_teachers: {
         Row: {
           assigned_at: string | null;
@@ -4358,7 +4476,10 @@ export type Database = {
           provider: string | null;
           provisional_contribution_cents: number | null;
           refunds_cents: number | null;
+          stripe_fee_cents: number | null;
+          stripe_fee_reconciliation_status: string | null;
           teacher_compensation_cents: number | null;
+          unreconciled_payment_count: number | null;
           unallocated_spend_cents: number | null;
           utm_campaign: string | null;
           utm_content: string | null;
@@ -4470,9 +4591,31 @@ export type Database = {
           portfolio_key: string | null;
           provisional_contribution_cents: number | null;
           refunds_cents: number | null;
+          stripe_fee_cents: number | null;
+          stripe_fee_reconciliation_status: string | null;
           student_count: number | null;
           teacher_compensation_cents: number | null;
+          unreconciled_payment_count: number | null;
           unallocated_acquisition_cost_cents: number | null;
+        };
+        Relationships: [];
+      };
+      stripe_payment_fee_status: {
+        Row: {
+          amount_refunded_cents: number | null;
+          checkout_v2_cycle_id: string | null;
+          currency: string | null;
+          gross_amount_cents: number | null;
+          last_attempted_at: string | null;
+          last_error_code: string | null;
+          payment_id: string | null;
+          reconciled_at: string | null;
+          reconciled_transaction_count: number | null;
+          reconciliation_status: string | null;
+          stripe_fee_cents: number | null;
+          stripe_payment_intent_id: string | null;
+          student_id: string | null;
+          subscription_id: string | null;
         };
         Relationships: [];
       };
@@ -4491,11 +4634,14 @@ export type Database = {
           paid_cycle_count: number | null;
           provisional_contribution_cents: number | null;
           refunds_cents: number | null;
+          stripe_fee_cents: number | null;
+          stripe_fee_reconciliation_status: string | null;
           student_email: string | null;
           student_full_name: string | null;
           student_id: string;
           subscription_count: number | null;
           teacher_compensation_cents: number | null;
+          unreconciled_payment_count: number | null;
         };
         Relationships: [];
       };
@@ -5667,6 +5813,22 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      mark_stripe_payment_fee_reconciliation_pending: {
+        Args: {
+          p_attempted_at: string;
+          p_error_code: string;
+          p_payment_id: string;
+          p_stripe_account_id: string;
+          p_stripe_livemode: boolean;
+        };
+        Returns: Database["public"]["Tables"]["stripe_payment_fee_reconciliations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "stripe_payment_fee_reconciliations";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
       reconcile_checkout_v2_provisional_anchor: {
         Args: {
           p_expected_revision: number;
@@ -5698,6 +5860,24 @@ export type Database = {
         SetofOptions: {
           from: "*";
           to: "teacher_compensation_ledger";
+          isOneToOne: true;
+          isSetofReturn: false;
+        };
+      };
+      reconcile_stripe_payment_fees: {
+        Args: {
+          p_amount_refunded_cents: number;
+          p_charge_id: string;
+          p_observed_at: string;
+          p_payment_id: string;
+          p_stripe_account_id: string;
+          p_stripe_livemode: boolean;
+          p_transactions: Json;
+        };
+        Returns: Database["public"]["Tables"]["stripe_payment_fee_reconciliations"]["Row"];
+        SetofOptions: {
+          from: "*";
+          to: "stripe_payment_fee_reconciliations";
           isOneToOne: true;
           isSetofReturn: false;
         };
