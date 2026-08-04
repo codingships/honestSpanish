@@ -29,6 +29,14 @@ const guaranteeMocks = vi.hoisted(() => ({
     observeCheckoutV2GuaranteeRefundFromWebhook: vi.fn().mockResolvedValue(false),
 }));
 
+const feeMocks = vi.hoisted(() => ({
+    reconcileStripePaymentFeesBestEffort: vi.fn().mockResolvedValue({
+        status: 'reconciled',
+        paymentId: 'payment-fee-test',
+        transactionCount: 1,
+    }),
+}));
+
 const studentId = '10000000-0000-4000-8000-000000000001';
 const packageId = '20000000-0000-4000-8000-000000000002';
 const packagePriceId = '30000000-0000-4000-8000-000000000003';
@@ -87,6 +95,10 @@ vi.mock('../../src/lib/crm/activity-sync', () => ({
 
 vi.mock('../../src/lib/checkout-v2-guarantee', () => ({
     observeCheckoutV2GuaranteeRefundFromWebhook: guaranteeMocks.observeCheckoutV2GuaranteeRefundFromWebhook,
+}));
+
+vi.mock('../../src/lib/stripe-fee-reconciliation', () => ({
+    reconcileStripePaymentFeesBestEffort: feeMocks.reconcileStripePaymentFeesBestEffort,
 }));
 
 function webhookContext(signature: string | null = 't=123,v1=test') {
@@ -2568,6 +2580,18 @@ describe('POST /api/stripe-webhook', () => {
             ],
             renewalAnchorAt: '2026-08-31T10:00:00.000Z',
         });
+        expect(feeMocks.reconcileStripePaymentFeesBestEffort).toHaveBeenCalledWith({
+            supabaseAdmin: v2.client,
+            runtime: expect.objectContaining({ accountId: 'acct_test', livemode: false }),
+            payment: {
+                id: 'payment-v2-1',
+                amount: 25900,
+                amount_refunded: 0,
+                currency: 'eur',
+                status: 'succeeded',
+                stripe_payment_intent_id: 'pi_1',
+            },
+        });
     });
 
     it('rejects an initial Checkout V2 invoice with an extra concept even when the paid total stays 259 EUR', async () => {
@@ -2752,6 +2776,18 @@ describe('POST /api/stripe-webhook', () => {
             expect.any(Object),
             5,
         );
+        expect(feeMocks.reconcileStripePaymentFeesBestEffort).toHaveBeenCalledWith({
+            supabaseAdmin: v2.client,
+            runtime: expect.objectContaining({ accountId: 'acct_test', livemode: false }),
+            payment: {
+                id: 'payment-v2-renewal',
+                amount: 25900,
+                amount_refunded: 0,
+                currency: 'eur',
+                status: 'succeeded',
+                stripe_payment_intent_id: 'pi_v2_renewal',
+            },
+        });
     });
 
     it('converges renewal after the first-session no-show already fixed the local V2 anchor', async () => {

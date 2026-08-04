@@ -2,6 +2,9 @@ import type { APIContext, APIRoute } from 'astro';
 import { z } from 'zod';
 import { createSupabaseAdminClient } from '../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
+import { stripe } from '../../../lib/stripe';
+import { assertStripeRuntimeAccount } from '../../../lib/stripe-runtime-guard';
+import { reconcileStripePaymentFeesBestEffort } from '../../../lib/stripe-fee-reconciliation';
 
 const jsonHeaders = {
     'Cache-Control': 'private, no-store',
@@ -98,6 +101,11 @@ const actionSchema = z.discriminatedUnion('action', [
         allocationEntryId: uuid,
         amountDeltaCents: centsDelta,
         reason: z.string().trim().min(5).max(1000),
+    }).strict(),
+    z.object({
+        action: z.literal('reconcile_stripe_fee'),
+        requestId: uuid,
+        paymentId: uuid,
     }).strict(),
 ]);
 
@@ -248,6 +256,14 @@ export const GET: APIRoute = async (context) => {
         );
     }
 
+    const feeReconciliationsQuery = admin
+        .from('stripe_payment_fee_status')
+        .select('payment_id, student_id, gross_amount_cents, amount_refunded_cents, currency, reconciliation_status, last_error_code, last_attempted_at')
+        .eq('reconciliation_status', 'pending')
+        .order('last_attempted_at', { ascending: true, nullsFirst: true })
+        .order('payment_id', { ascending: true })
+        .limit(1000);
+
     const [
         portfolioResult,
         campaignsResult,
@@ -255,6 +271,7 @@ export const GET: APIRoute = async (context) => {
         costsResult,
         allocationsResult,
         candidatesResult,
+        feeReconciliationsResult,
     ] = await Promise.all([
         portfolioQuery,
         campaignsQuery,
@@ -262,6 +279,7 @@ export const GET: APIRoute = async (context) => {
         costsQuery,
         allocationsQuery,
         candidatesQuery,
+        feeReconciliationsQuery,
     ]);
 
     const failed = [
@@ -271,6 +289,7 @@ export const GET: APIRoute = async (context) => {
         costsResult,
         allocationsResult,
         candidatesResult,
+        feeReconciliationsResult,
     ].find((result) => result.error);
     if (failed?.error) {
         console.error('[Profitability] Could not load unit economics', { code: failed.error.code });
@@ -282,6 +301,7 @@ export const GET: APIRoute = async (context) => {
     const rawCostRows = costsResult.data || [];
     const rawAllocationRows = allocationsResult.data || [];
     const rawCandidateRows = candidatesResult.data || [];
+    const rawFeeReconciliationRows = feeReconciliationsResult.data || [];
     const campaigns = rawCampaigns.filter(
         (row): row is typeof row & { campaign_id: string } => typeof row.campaign_id === 'string',
     );
@@ -303,12 +323,18 @@ export const GET: APIRoute = async (context) => {
     const candidateRows = rawCandidateRows.filter(
         (row): row is typeof row & { student_id: string } => typeof row.student_id === 'string',
     );
+    const feeReconciliationRows = rawFeeReconciliationRows.filter(
+        (row): row is typeof row & { payment_id: string; student_id: string } => (
+            typeof row.payment_id === 'string' && typeof row.student_id === 'string'
+        ),
+    );
     if (
         campaigns.length !== rawCampaigns.length
         || studentRows.length !== rawStudentRows.length
         || costRows.length !== rawCostRows.length
         || allocationRows.length !== rawAllocationRows.length
         || candidateRows.length !== rawCandidateRows.length
+        || feeReconciliationRows.length !== rawFeeReconciliationRows.length
     ) {
         console.error('[Profitability] A unit-economics view returned a row without its required identity');
         return json({ error: 'No se pudo cargar la rentabilidad operativa' }, 500);
@@ -317,6 +343,7 @@ export const GET: APIRoute = async (context) => {
         ...studentRows.map((row) => row.student_id),
         ...allocationRows.map((row) => row.student_id),
         ...candidateRows.map((row) => row.student_id),
+        ...feeReconciliationRows.map((row) => row.student_id),
     ].filter((id): id is string => typeof id === 'string')));
 
     const profilesResult = studentIds.length > 0
@@ -339,7 +366,10 @@ export const GET: APIRoute = async (context) => {
             totalTeacherObligationCents: numberValue(portfolio?.teacher_compensation_cents),
             totalDirectCostCents: numberValue(portfolio?.direct_operational_cost_cents),
             totalAcquisitionAllocatedCents: numberValue(portfolio?.allocated_acquisition_cost_cents),
-            totalProvisionalContributionCents: numberValue(portfolio?.provisional_contribution_cents),
+            totalStripeFeeCents: portfolio?.stripe_fee_cents ?? null,
+            stripeFeeReconciliationStatus: portfolio?.stripe_fee_reconciliation_status ?? 'pending',
+            unreconciledPaymentCount: numberValue(portfolio?.unreconciled_payment_count),
+            totalProvisionalContributionCents: portfolio?.provisional_contribution_cents ?? null,
             totalCampaignSpendCents: numberValue(portfolio?.campaign_spend_cents),
             totalUnallocatedCampaignSpendCents: numberValue(portfolio?.unallocated_acquisition_cost_cents),
         },
@@ -362,6 +392,9 @@ export const GET: APIRoute = async (context) => {
             netCollectedCents: campaign.net_revenue_cents,
             teacherObligationCents: campaign.teacher_compensation_cents,
             directCostCents: campaign.direct_operational_cost_cents,
+            stripeFeeCents: campaign.stripe_fee_cents,
+            stripeFeeReconciliationStatus: campaign.stripe_fee_reconciliation_status,
+            unreconciledPaymentCount: campaign.unreconciled_payment_count,
             provisionalContributionCents: campaign.provisional_contribution_cents,
         })),
         students: studentRows.slice(0, limit).map((student) => {
@@ -381,6 +414,9 @@ export const GET: APIRoute = async (context) => {
                 teacherObligationCents: student.teacher_compensation_cents,
                 directCostCents: student.direct_operational_cost_cents,
                 acquisitionCostCents: student.acquisition_cost_cents,
+                stripeFeeCents: student.stripe_fee_cents,
+                stripeFeeReconciliationStatus: student.stripe_fee_reconciliation_status,
+                unreconciledPaymentCount: student.unreconciled_payment_count,
                 provisionalContributionCents: student.provisional_contribution_cents,
                 campaignId: student.active_campaign_id,
                 campaignName: student.active_campaign_name
@@ -441,6 +477,26 @@ export const GET: APIRoute = async (context) => {
                 utmContent: candidate.utm_content,
             };
         }),
+        feeReconciliations: feeReconciliationRows.map((fee) => {
+            const label = profileLabel(
+                profiles.get(fee.student_id),
+                null,
+                null,
+                fee.student_id,
+            );
+            return {
+                paymentId: fee.payment_id,
+                studentId: fee.student_id,
+                studentName: label.name,
+                studentEmail: label.email,
+                grossAmountCents: fee.gross_amount_cents,
+                amountRefundedCents: fee.amount_refunded_cents,
+                currency: fee.currency,
+                status: fee.reconciliation_status,
+                lastErrorCode: fee.last_error_code,
+                lastAttemptedAt: fee.last_attempted_at,
+            };
+        }),
         pagination: {
             page,
             limit,
@@ -468,6 +524,46 @@ export const POST: APIRoute = async (context) => {
 
     const admin = createSupabaseAdminClient();
     const action = parsed.data;
+
+    if (action.action === 'reconcile_stripe_fee') {
+        const { data: payment, error: paymentError } = await admin
+            .from('payments')
+            .select('id, amount, amount_refunded, currency, status, stripe_payment_intent_id, checkout_v2_cycle_id')
+            .eq('id', action.paymentId)
+            .maybeSingle();
+        if (paymentError) {
+            console.error('[Profitability] Could not load Stripe fee payment', { code: paymentError.code });
+            return json({ error: 'No se pudo cargar el cobro para conciliarlo' }, 500);
+        }
+        if (!payment || !payment.checkout_v2_cycle_id) {
+            return json({ error: 'El cobro Checkout V2 no existe' }, 404);
+        }
+
+        try {
+            const account = await stripe.accounts.retrieve();
+            const runtime = assertStripeRuntimeAccount(context, account);
+            const outcome = await reconcileStripePaymentFeesBestEffort({
+                supabaseAdmin: admin,
+                runtime,
+                payment: {
+                    id: payment.id,
+                    amount: payment.amount,
+                    amount_refunded: payment.amount_refunded,
+                    currency: payment.currency,
+                    status: payment.status,
+                    stripe_payment_intent_id: payment.stripe_payment_intent_id,
+                },
+            });
+            if (outcome.status === 'pending') {
+                return json({ error: 'Stripe todavía no permite conciliar este cobro' }, 503);
+            }
+            return json({ result: outcome });
+        } catch {
+            console.error('[Profitability] Stripe fee retry could not verify its runtime');
+            return json({ error: 'No se pudo verificar Stripe para conciliar el cobro' }, 503);
+        }
+    }
+
     let result;
 
     switch (action.action) {

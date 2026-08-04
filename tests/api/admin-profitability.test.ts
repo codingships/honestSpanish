@@ -1,11 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const stripeMocks = vi.hoisted(() => ({ accountRetrieve: vi.fn() }));
+const feeMocks = vi.hoisted(() => ({ reconcileStripePaymentFeesBestEffort: vi.fn() }));
+
 vi.mock('../../src/lib/supabase-server', () => ({
     createSupabaseServerClient: vi.fn(),
 }));
 
 vi.mock('../../src/lib/supabase-admin', () => ({
     createSupabaseAdminClient: vi.fn(),
+}));
+
+vi.mock('../../src/lib/stripe', () => ({
+    stripe: { accounts: { retrieve: stripeMocks.accountRetrieve } },
+}));
+
+vi.mock('../../src/lib/stripe-fee-reconciliation', () => ({
+    reconcileStripePaymentFeesBestEffort: feeMocks.reconcileStripePaymentFeesBestEffort,
 }));
 
 const ids = {
@@ -18,6 +29,7 @@ const ids = {
     contact: '70000000-0000-4000-8000-000000000007',
     subscription: '70000000-0000-4000-8000-000000000008',
     cycle: '70000000-0000-4000-8000-000000000009',
+    payment: '70000000-0000-4000-8000-000000000013',
 };
 
 function roleClient(role: string | null, user: { id: string } | null = { id: 'admin-1' }) {
@@ -41,6 +53,7 @@ function context(body?: unknown, origin = 'http://localhost:4321', query = '') {
             json: vi.fn().mockResolvedValue(body),
         },
         cookies: { get: vi.fn(), set: vi.fn() },
+        locals: {},
     };
 }
 
@@ -48,7 +61,7 @@ function rpcClient(data: Record<string, unknown> = { original_cost_id: ids.cost,
     return { rpc: vi.fn().mockResolvedValue({ data, error: null }) };
 }
 
-function listAdminClient(options: { economicsStudentId?: string | null } = {}) {
+function listAdminClient(options: { economicsStudentId?: string | null; pendingFee?: boolean } = {}) {
     const results: Record<string, unknown[]> = {
         portfolio_unit_economics: [{
             portfolio_key: 'all',
@@ -61,6 +74,9 @@ function listAdminClient(options: { economicsStudentId?: string | null } = {}) {
             campaign_spend_cents: 20000,
             allocated_acquisition_cost_cents: 10000,
             unallocated_acquisition_cost_cents: 10000,
+            unreconciled_payment_count: 0,
+            stripe_fee_reconciliation_status: 'reconciled',
+            stripe_fee_cents: 2100,
             provisional_contribution_cents: 2875,
             currency: 'eur',
         }],
@@ -83,6 +99,9 @@ function listAdminClient(options: { economicsStudentId?: string | null } = {}) {
             allocated_acquisition_cost_cents: 10000,
             campaign_spend_cents: 20000,
             unallocated_spend_cents: 10000,
+            unreconciled_payment_count: 0,
+            stripe_fee_reconciliation_status: 'reconciled',
+            stripe_fee_cents: 1400,
             provisional_contribution_cents: 4375,
             currency: 'eur',
             created_at: '2026-08-01T10:00:00.000Z',
@@ -99,6 +118,9 @@ function listAdminClient(options: { economicsStudentId?: string | null } = {}) {
             teacher_compensation_cents: 8000,
             direct_operational_cost_cents: 1500,
             acquisition_cost_cents: 10000,
+            unreconciled_payment_count: 0,
+            stripe_fee_reconciliation_status: 'reconciled',
+            stripe_fee_cents: 1400,
             provisional_contribution_cents: 12875,
             active_campaign_id: ids.campaign,
             active_campaign_name: 'English launch',
@@ -152,6 +174,16 @@ function listAdminClient(options: { economicsStudentId?: string | null } = {}) {
             utm_content: 'hero_a',
             first_paid_at: '2026-08-01T10:00:00.000Z',
         }]],
+        stripe_payment_fee_status: [options.pendingFee ? [{
+            payment_id: ids.payment,
+            student_id: ids.student,
+            gross_amount_cents: 25900,
+            amount_refunded_cents: 0,
+            currency: 'eur',
+            reconciliation_status: 'pending',
+            last_error_code: 'stripe_fee_remote_unavailable',
+            last_attempted_at: '2026-08-04T10:00:00.000Z',
+        }] : []],
         profiles: [[{
             id: ids.student,
             full_name: 'Ana Actual',
@@ -180,6 +212,15 @@ function listAdminClient(options: { economicsStudentId?: string | null } = {}) {
 describe('/api/admin/profitability', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        vi.stubEnv('STRIPE_SECRET_KEY', 'sk_test_example');
+        vi.stubEnv('PUBLIC_APP_ENV', 'test');
+        vi.stubEnv('STRIPE_EXPECTED_ACCOUNT_ID', '');
+        stripeMocks.accountRetrieve.mockResolvedValue({ id: 'acct_test' });
+        feeMocks.reconcileStripePaymentFeesBestEffort.mockResolvedValue({
+            status: 'reconciled',
+            paymentId: ids.payment,
+            transactionCount: 1,
+        });
     });
 
     it('rejects unauthenticated and non-admin callers before privileged client creation', async () => {
@@ -388,6 +429,66 @@ describe('/api/admin/profitability', () => {
         });
     });
 
+    it('retries a pending Checkout V2 Stripe fee only after verifying the runtime account', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        const paymentQuery: any = {};
+        paymentQuery.select = vi.fn(() => paymentQuery);
+        paymentQuery.eq = vi.fn(() => paymentQuery);
+        paymentQuery.maybeSingle = vi.fn().mockResolvedValue({
+            data: {
+                id: ids.payment,
+                amount: 25900,
+                amount_refunded: 0,
+                currency: 'eur',
+                status: 'succeeded',
+                stripe_payment_intent_id: 'pi_fee_admin',
+                checkout_v2_cycle_id: ids.cycle,
+            },
+            error: null,
+        });
+        const admin = { from: vi.fn(() => paymentQuery), rpc: vi.fn() };
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(admin as never);
+        const { POST } = await import('../../src/pages/api/admin/profitability');
+
+        const response = await POST(context({
+            action: 'reconcile_stripe_fee',
+            requestId: ids.request,
+            paymentId: ids.payment,
+        }) as never);
+
+        expect(response.status).toBe(200);
+        expect(stripeMocks.accountRetrieve).toHaveBeenCalledOnce();
+        expect(feeMocks.reconcileStripePaymentFeesBestEffort).toHaveBeenCalledWith({
+            supabaseAdmin: admin,
+            runtime: { accountId: 'acct_test', appEnvironment: 'test', livemode: false },
+            payment: {
+                id: ids.payment,
+                amount: 25900,
+                amount_refunded: 0,
+                currency: 'eur',
+                status: 'succeeded',
+                stripe_payment_intent_id: 'pi_fee_admin',
+            },
+        });
+
+        feeMocks.reconcileStripePaymentFeesBestEffort.mockResolvedValueOnce({
+            status: 'pending',
+            paymentId: ids.payment,
+            code: 'stripe_fee_remote_unavailable',
+        });
+        const pendingResponse = await POST(context({
+            action: 'reconcile_stripe_fee',
+            requestId: ids.request,
+            paymentId: ids.payment,
+        }) as never);
+        expect(pendingResponse.status).toBe(503);
+        expect(await pendingResponse.json()).toEqual({
+            error: 'Stripe todavía no permite conciliar este cobro',
+        });
+    });
+
     it('maps all ledgers, portfolio totals, live profile labels and pagination', async () => {
         const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
         const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
@@ -398,12 +499,13 @@ describe('/api/admin/profitability', () => {
 
         const response = await GET(context(undefined, 'http://localhost:4321', '?page=0&limit=1&candidateQuery=Ana') as never);
         const body = await response.json() as {
-            summary: Record<string, number>;
+            summary: Record<string, number | string | null>;
             campaigns: Array<Record<string, unknown>>;
             students: Array<Record<string, unknown>>;
             costs: Array<Record<string, unknown>>;
             allocations: Array<Record<string, unknown>>;
             candidates: Array<Record<string, unknown>>;
+            feeReconciliations: Array<Record<string, unknown>>;
             pagination: Record<string, unknown>;
         };
 
@@ -416,6 +518,9 @@ describe('/api/admin/profitability', () => {
             totalTeacherObligationCents: 8000,
             totalDirectCostCents: 1500,
             totalAcquisitionAllocatedCents: 10000,
+            totalStripeFeeCents: 2100,
+            stripeFeeReconciliationStatus: 'reconciled',
+            unreconciledPaymentCount: 0,
             totalProvisionalContributionCents: 2875,
             totalCampaignSpendCents: 20000,
             totalUnallocatedCampaignSpendCents: 10000,
@@ -427,6 +532,8 @@ describe('/api/admin/profitability', () => {
             utmContent: 'hero_a',
             netSpendCents: 20000,
             unallocatedAcquisitionCents: 10000,
+            stripeFeeCents: 1400,
+            stripeFeeReconciliationStatus: 'reconciled',
         });
         expect(body.students).toEqual([expect.objectContaining({
             studentId: ids.student,
@@ -434,6 +541,8 @@ describe('/api/admin/profitability', () => {
             studentEmail: 'ana@example.test',
             campaignName: 'English launch',
             firstCycleId: ids.cycle,
+            stripeFeeCents: 1400,
+            stripeFeeReconciliationStatus: 'reconciled',
         })]);
         expect(body.costs).toEqual([expect.objectContaining({
             entryId: ids.cost,
@@ -452,6 +561,7 @@ describe('/api/admin/profitability', () => {
             utmTerm: 'adult-spanish',
             utmContent: 'hero_a',
         })]);
+        expect(body.feeReconciliations).toEqual([]);
         expect(body.pagination).toEqual({
             page: 0,
             limit: 1,
@@ -464,6 +574,33 @@ describe('/api/admin/profitability', () => {
             method: 'ilike',
             args: ['student_full_name', '%Ana%'],
         });
+    });
+
+    it('lists pending fee reconciliation without exposing Stripe payment identifiers', async () => {
+        const { createSupabaseServerClient } = await import('../../src/lib/supabase-server');
+        const { createSupabaseAdminClient } = await import('../../src/lib/supabase-admin');
+        const { client } = listAdminClient({ pendingFee: true });
+        vi.mocked(createSupabaseServerClient).mockReturnValue(roleClient('admin') as never);
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
+        const { GET } = await import('../../src/pages/api/admin/profitability');
+
+        const response = await GET(context() as never);
+        const body = await response.json() as { feeReconciliations: Array<Record<string, unknown>> };
+
+        expect(response.status).toBe(200);
+        expect(body.feeReconciliations).toEqual([{
+            paymentId: ids.payment,
+            studentId: ids.student,
+            studentName: 'Ana Actual',
+            studentEmail: 'ana@example.test',
+            grossAmountCents: 25900,
+            amountRefundedCents: 0,
+            currency: 'eur',
+            status: 'pending',
+            lastErrorCode: 'stripe_fee_remote_unavailable',
+            lastAttemptedAt: '2026-08-04T10:00:00.000Z',
+        }]);
+        expect(JSON.stringify(body.feeReconciliations)).not.toContain('pi_');
     });
 
     it('maps database conflicts without exposing database details', async () => {

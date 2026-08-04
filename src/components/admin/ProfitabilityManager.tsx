@@ -10,7 +10,10 @@ type Summary = {
     totalTeacherObligationCents?: number;
     totalDirectCostCents?: number;
     totalAcquisitionAllocatedCents?: number;
-    totalProvisionalContributionCents?: number;
+    totalStripeFeeCents?: Nullable<number>;
+    stripeFeeReconciliationStatus?: 'pending' | 'reconciled' | string;
+    unreconciledPaymentCount?: number;
+    totalProvisionalContributionCents?: Nullable<number>;
     totalCampaignSpendCents?: number;
     totalUnallocatedCampaignSpendCents?: number;
 };
@@ -34,7 +37,10 @@ type Campaign = {
     netCollectedCents?: number;
     teacherObligationCents?: number;
     directCostCents?: number;
-    provisionalContributionCents?: number;
+    stripeFeeCents?: Nullable<number>;
+    stripeFeeReconciliationStatus?: 'pending' | 'reconciled' | string;
+    unreconciledPaymentCount?: number;
+    provisionalContributionCents?: Nullable<number>;
 };
 
 type StudentEconomics = {
@@ -47,7 +53,10 @@ type StudentEconomics = {
     teacherObligationCents?: number;
     directCostCents?: number;
     acquisitionCostCents?: number;
-    provisionalContributionCents?: number;
+    stripeFeeCents?: Nullable<number>;
+    stripeFeeReconciliationStatus?: 'pending' | 'reconciled' | string;
+    unreconciledPaymentCount?: number;
+    provisionalContributionCents?: Nullable<number>;
     campaignId?: Nullable<string>;
     campaignName?: Nullable<string>;
     acquisitionBasis?: Nullable<string>;
@@ -96,6 +105,19 @@ type Candidate = {
     hasActiveAllocation?: boolean;
 };
 
+type FeeReconciliation = {
+    paymentId: string;
+    studentId: string;
+    studentName?: Nullable<string>;
+    studentEmail?: Nullable<string>;
+    grossAmountCents?: number;
+    amountRefundedCents?: number;
+    currency?: string;
+    status?: string;
+    lastErrorCode?: Nullable<string>;
+    lastAttemptedAt?: Nullable<string>;
+};
+
 type ProfitabilityResponse = {
     summary?: Summary;
     campaigns?: Campaign[];
@@ -103,6 +125,7 @@ type ProfitabilityResponse = {
     costs?: CostEntry[];
     allocations?: Allocation[];
     candidates?: Candidate[];
+    feeReconciliations?: FeeReconciliation[];
     pagination?: {
         page?: number;
         limit?: number;
@@ -114,12 +137,22 @@ type ProfitabilityResponse = {
 
 type Props = { lang?: string };
 
-const emptyData: Required<Pick<ProfitabilityResponse, 'summary' | 'campaigns' | 'students' | 'costs' | 'allocations' | 'candidates'>> = {
-    summary: {}, campaigns: [], students: [], costs: [], allocations: [], candidates: [],
+const emptyData: Required<Pick<ProfitabilityResponse, 'summary' | 'campaigns' | 'students' | 'costs' | 'allocations' | 'candidates' | 'feeReconciliations'>> = {
+    summary: {}, campaigns: [], students: [], costs: [], allocations: [], candidates: [], feeReconciliations: [],
 };
 
 function money(cents: Nullable<number>, currency = 'EUR'): string {
     return new Intl.NumberFormat('es-ES', { style: 'currency', currency }).format((cents ?? 0) / 100);
+}
+
+function moneyOrPending(cents: Nullable<number>, currency = 'EUR'): string {
+    return cents == null ? 'Pendiente de conciliar' : money(cents, currency);
+}
+
+function dateTimeLabel(value: Nullable<string>): string {
+    if (!value) return 'Nunca';
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) ? date.toLocaleString('es-ES') : 'No disponible';
 }
 
 function candidateLabel(candidate: Candidate): string {
@@ -361,25 +394,66 @@ export default function ProfitabilityManager({ lang = 'es' }: Props) {
         setAdjustmentReason('');
     }
 
+    async function retryStripeFee(paymentId: string) {
+        await postAction(
+            'reconcile_stripe_fee',
+            { paymentId },
+            'Comisión de Stripe conciliada',
+        );
+    }
+
     return (
         <div className="space-y-8" aria-busy={loading || mutating}>
             {message && <div role={message.kind === 'error' ? 'alert' : 'status'} className={`border-2 p-4 text-sm font-bold ${message.kind === 'error' ? 'border-red-800 bg-red-50 text-red-900' : 'border-[#006064] bg-white text-[#006064]'}`}>{message.text}</div>}
 
             <section aria-labelledby="totals-heading">
                 <h2 id="totals-heading" className="font-display text-2xl uppercase text-[#006064]">Totales observados</h2>
+                {(summary.unreconciledPaymentCount ?? 0) > 0 && (
+                    <p role="status" className="mt-3 border-2 border-amber-700 bg-amber-50 p-4 text-sm font-bold text-amber-950">
+                        Hay {summary.unreconciledPaymentCount} cobro{summary.unreconciledPaymentCount === 1 ? '' : 's'} sin comisiones conciliadas. La contribución permanece oculta hasta tener el coste real de Stripe.
+                    </p>
+                )}
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     {[
-                        ['Cobrado bruto', summary.totalGrossCollectedCents],
-                        ['Devuelto', summary.totalRefundsCents],
-                        ['Ingreso neto', summary.totalNetRevenueCents],
-                        ['Obligación docente', summary.totalTeacherObligationCents],
-                        ['Coste directo', summary.totalDirectCostCents],
-                        ['Captación asignada', summary.totalAcquisitionAllocatedCents],
-                        ['Contribución provisional', summary.totalProvisionalContributionCents],
-                        ['Gasto de campaña', summary.totalCampaignSpendCents],
-                        ['Gasto sin asignar', summary.totalUnallocatedCampaignSpendCents],
-                    ].map(([label, value]) => <div key={String(label)} className="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0_0_#006064]"><p className="font-display text-2xl text-[#006064]">{money(value as number)}</p><p className="mt-1 font-mono text-xs uppercase text-[#006064]">{label}</p></div>)}
+                        { label: 'Cobrado bruto', value: summary.totalGrossCollectedCents },
+                        { label: 'Devuelto', value: summary.totalRefundsCents },
+                        { label: 'Ingreso neto', value: summary.totalNetRevenueCents },
+                        { label: 'Comisiones Stripe', value: summary.totalStripeFeeCents, pendingAware: true },
+                        { label: 'Obligación docente', value: summary.totalTeacherObligationCents },
+                        { label: 'Coste directo', value: summary.totalDirectCostCents },
+                        { label: 'Captación asignada', value: summary.totalAcquisitionAllocatedCents },
+                        { label: 'Contribución provisional', value: summary.totalProvisionalContributionCents, pendingAware: true },
+                        { label: 'Gasto de campaña', value: summary.totalCampaignSpendCents },
+                        { label: 'Gasto sin asignar', value: summary.totalUnallocatedCampaignSpendCents },
+                    ].map(({ label, value, pendingAware }) => <div key={label} className="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0_0_#006064]"><p className="font-display text-2xl text-[#006064]">{pendingAware ? moneyOrPending(value) : money(value)}</p><p className="mt-1 font-mono text-xs uppercase text-[#006064]">{label}</p></div>)}
                 </div>
+            </section>
+
+            <section aria-labelledby="stripe-fees-heading" className="space-y-4">
+                <div>
+                    <h2 id="stripe-fees-heading" className="font-display text-2xl uppercase text-[#006064]">Conciliación Stripe</h2>
+                    <p className="mt-1 text-sm text-[#006064]">Cada comisión procede de la transacción de saldo de Stripe; un cobro pendiente nunca se interpreta como comisión cero.</p>
+                </div>
+                {(data.feeReconciliations || []).length > 0 ? (
+                    <div className="overflow-x-auto border-2 border-[#006064] bg-white" tabIndex={0} aria-label="Cobros pendientes de conciliar con Stripe">
+                        <table className="w-full min-w-[900px] text-sm">
+                            <caption className="sr-only">Cobros de Stripe cuya comisión todavía no está conciliada</caption>
+                            <thead className="bg-[#006064] text-white"><tr>{['Alumno', 'Cobrado', 'Devuelto', 'Último intento', 'Motivo técnico', 'Acción'].map((label) => <th key={label} className="p-3 text-left">{label}</th>)}</tr></thead>
+                            <tbody className="divide-y divide-[#006064]/20">
+                                {(data.feeReconciliations || []).map((fee) => <tr key={fee.paymentId}>
+                                    <td className="p-3"><a href={`/${lang}/campus/admin/student/${fee.studentId}`} className="font-bold text-[#006064] underline">{fee.studentName || fee.studentEmail || fee.studentId}</a></td>
+                                    <td className="p-3 text-[#006064]">{money(fee.grossAmountCents, fee.currency || 'EUR')}</td>
+                                    <td className="p-3 text-[#006064]">{money(fee.amountRefundedCents, fee.currency || 'EUR')}</td>
+                                    <td className="p-3 text-[#006064]">{dateTimeLabel(fee.lastAttemptedAt)}</td>
+                                    <td className="p-3 font-mono text-xs text-[#006064]">{fee.lastErrorCode || 'Pendiente inicial'}</td>
+                                    <td className="p-3"><button type="button" onClick={() => retryStripeFee(fee.paymentId)} disabled={mutating} className="border-2 border-[#006064] px-4 py-2 text-xs font-bold uppercase text-[#006064] disabled:opacity-50">Reintentar</button></td>
+                                </tr>)}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
+                    <p role="status" className="border-2 border-[#006064] bg-white p-4 text-sm font-bold text-[#006064]">No hay cobros pendientes de conciliación.</p>
+                )}
             </section>
 
             <section aria-labelledby="create-campaign-heading" className="space-y-4">
@@ -437,12 +511,32 @@ export default function ProfitabilityManager({ lang = 'es' }: Props) {
 
             <section aria-labelledby="campaigns-heading" className="space-y-4">
                 <h2 id="campaigns-heading" className="font-display text-2xl uppercase text-[#006064]">Campañas</h2>
-                <div className="overflow-x-auto border-2 border-[#006064] bg-white" tabIndex={0} aria-label="Contribución provisional por campaña"><table className="w-full min-w-[1200px] text-sm"><caption className="sr-only">Gasto, asignación e ingresos por campaña</caption><thead className="bg-[#006064] text-white"><tr>{['Campaña','Gasto','Asignado','Sin asignar','Alumnos asignados','Ingreso neto','Obligación docente','Coste directo','Contribución provisional','Gasto / alumno asignado'].map((label) => <th key={label} className="p-3 text-left">{label}</th>)}</tr></thead><tbody className="divide-y divide-[#006064]/20">{campaigns.length ? campaigns.map((campaign) => { const students = campaign.studentCount ?? 0; const cac = students > 0 ? money(Math.round((campaign.netSpendCents ?? 0) / students)) : 'N/A'; return <tr key={campaign.id}><td className="p-3 font-bold text-[#006064]">{campaignLabel(campaign)}</td><td className="p-3 text-[#006064]">{money(campaign.netSpendCents)}</td><td className="p-3 text-[#006064]">{money(campaign.allocatedAcquisitionCents)}</td><td className="p-3 text-[#006064]">{money(campaign.unallocatedAcquisitionCents)}</td><td className="p-3 text-[#006064]">{students}</td><td className="p-3 text-[#006064]">{money(campaign.netCollectedCents)}</td><td className="p-3 text-[#006064]">{money(campaign.teacherObligationCents)}</td><td className="p-3 text-[#006064]">{money(campaign.directCostCents)}</td><td className={`p-3 font-bold ${(campaign.provisionalContributionCents ?? 0) < 0 ? 'text-red-800' : 'text-[#006064]'}`}>{money(campaign.provisionalContributionCents)}</td><td className="p-3 text-[#006064]">{cac}</td></tr>; }) : <tr><td colSpan={10} role="status" className="p-5 text-[#006064]">No hay campañas registradas.</td></tr>}</tbody></table></div>
+                <div className="overflow-x-auto border-2 border-[#006064] bg-white" tabIndex={0} aria-label="Contribución provisional por campaña">
+                    <table className="w-full min-w-[1400px] text-sm">
+                        <caption className="sr-only">Gasto, asignación, comisiones e ingresos por campaña</caption>
+                        <thead className="bg-[#006064] text-white"><tr>{['Campaña', 'Gasto', 'Asignado', 'Sin asignar', 'Alumnos asignados', 'Ingreso neto', 'Comisiones Stripe', 'Obligación docente', 'Coste directo', 'Contribución provisional', 'Gasto / alumno asignado'].map((label) => <th key={label} className="p-3 text-left">{label}</th>)}</tr></thead>
+                        <tbody className="divide-y divide-[#006064]/20">{campaigns.length ? campaigns.map((campaign) => {
+                            const students = campaign.studentCount ?? 0;
+                            const cac = students > 0 ? money(Math.round((campaign.netSpendCents ?? 0) / students)) : 'N/A';
+                            const contributionClass = campaign.provisionalContributionCents != null && campaign.provisionalContributionCents < 0 ? 'text-red-800' : 'text-[#006064]';
+                            return <tr key={campaign.id}><td className="p-3 font-bold text-[#006064]">{campaignLabel(campaign)}</td><td className="p-3 text-[#006064]">{money(campaign.netSpendCents)}</td><td className="p-3 text-[#006064]">{money(campaign.allocatedAcquisitionCents)}</td><td className="p-3 text-[#006064]">{money(campaign.unallocatedAcquisitionCents)}</td><td className="p-3 text-[#006064]">{students}</td><td className="p-3 text-[#006064]">{money(campaign.netCollectedCents)}</td><td className="p-3 text-[#006064]">{moneyOrPending(campaign.stripeFeeCents)}</td><td className="p-3 text-[#006064]">{money(campaign.teacherObligationCents)}</td><td className="p-3 text-[#006064]">{money(campaign.directCostCents)}</td><td className={`p-3 font-bold ${contributionClass}`}>{moneyOrPending(campaign.provisionalContributionCents)}</td><td className="p-3 text-[#006064]">{cac}</td></tr>;
+                        }) : <tr><td colSpan={11} role="status" className="p-5 text-[#006064]">No hay campañas registradas.</td></tr>}</tbody>
+                    </table>
+                </div>
             </section>
 
             <section aria-labelledby="students-heading" className="space-y-4">
                 <h2 id="students-heading" className="font-display text-2xl uppercase text-[#006064]">Alumnos</h2>
-                <div className="overflow-x-auto border-2 border-[#006064] bg-white" tabIndex={0} aria-label="Contribución provisional por alumno"><table className="w-full min-w-[1050px] text-sm"><caption className="sr-only">Cobros y costes observados por alumno</caption><thead className="bg-[#006064] text-white"><tr>{['Alumno','Campaña','Bruto','Devoluciones','Neto','Obligación docente','Coste directo','Captación asignada','Contribución provisional'].map((label) => <th key={label} className="p-3 text-left">{label}</th>)}</tr></thead><tbody className="divide-y divide-[#006064]/20">{(data.students || []).length ? data.students!.map((student) => <tr key={student.studentId}><td className="p-3"><a href={`/${lang}/campus/admin/student/${student.studentId}`} className="font-bold text-[#006064] underline">{student.studentName || student.studentEmail || student.studentId}</a></td><td className="p-3 text-[#006064]">{student.campaignName || 'Sin campaña asignada'}</td><td className="p-3 text-[#006064]">{money(student.grossCollectedCents)}</td><td className="p-3 text-[#006064]">{money(student.refundsCents)}</td><td className="p-3 text-[#006064]">{money(student.netCollectedCents)}</td><td className="p-3 text-[#006064]">{money(student.teacherObligationCents)}</td><td className="p-3 text-[#006064]">{money(student.directCostCents)}</td><td className="p-3 text-[#006064]">{money(student.acquisitionCostCents)}</td><td className={`p-3 font-bold ${(student.provisionalContributionCents ?? 0) < 0 ? 'text-red-800' : 'text-[#006064]'}`}>{money(student.provisionalContributionCents)}</td></tr>) : <tr><td colSpan={9} role="status" className="p-5 text-[#006064]">No hay alumnos con ciclos pagados en este filtro.</td></tr>}</tbody></table></div>
+                <div className="overflow-x-auto border-2 border-[#006064] bg-white" tabIndex={0} aria-label="Contribución provisional por alumno">
+                    <table className="w-full min-w-[1200px] text-sm">
+                        <caption className="sr-only">Cobros, comisiones y costes observados por alumno</caption>
+                        <thead className="bg-[#006064] text-white"><tr>{['Alumno', 'Campaña', 'Bruto', 'Devoluciones', 'Neto', 'Comisiones Stripe', 'Obligación docente', 'Coste directo', 'Captación asignada', 'Contribución provisional'].map((label) => <th key={label} className="p-3 text-left">{label}</th>)}</tr></thead>
+                        <tbody className="divide-y divide-[#006064]/20">{(data.students || []).length ? data.students!.map((student) => {
+                            const contributionClass = student.provisionalContributionCents != null && student.provisionalContributionCents < 0 ? 'text-red-800' : 'text-[#006064]';
+                            return <tr key={student.studentId}><td className="p-3"><a href={`/${lang}/campus/admin/student/${student.studentId}`} className="font-bold text-[#006064] underline">{student.studentName || student.studentEmail || student.studentId}</a></td><td className="p-3 text-[#006064]">{student.campaignName || 'Sin campaña asignada'}</td><td className="p-3 text-[#006064]">{money(student.grossCollectedCents)}</td><td className="p-3 text-[#006064]">{money(student.refundsCents)}</td><td className="p-3 text-[#006064]">{money(student.netCollectedCents)}</td><td className="p-3 text-[#006064]">{moneyOrPending(student.stripeFeeCents)}</td><td className="p-3 text-[#006064]">{money(student.teacherObligationCents)}</td><td className="p-3 text-[#006064]">{money(student.directCostCents)}</td><td className="p-3 text-[#006064]">{money(student.acquisitionCostCents)}</td><td className={`p-3 font-bold ${contributionClass}`}>{moneyOrPending(student.provisionalContributionCents)}</td></tr>;
+                        }) : <tr><td colSpan={10} role="status" className="p-5 text-[#006064]">No hay alumnos con ciclos pagados en este filtro.</td></tr>}</tbody>
+                    </table>
+                </div>
             </section>
 
             <nav aria-label="Paginación de rentabilidad" className="flex items-center justify-between gap-4"><button type="button" onClick={() => setPage((value) => Math.max(0, value - 1))} disabled={loading || mutating || page === 0} className="border-2 border-[#006064] px-4 py-2 text-xs font-bold uppercase text-[#006064] disabled:opacity-50">Anterior</button><span className="font-mono text-xs uppercase text-[#006064]">Página {page + 1}</span><button type="button" onClick={() => setPage((value) => value + 1)} disabled={loading || mutating || !hasMore} className="border-2 border-[#006064] px-4 py-2 text-xs font-bold uppercase text-[#006064] disabled:opacity-50">Siguiente</button></nav>

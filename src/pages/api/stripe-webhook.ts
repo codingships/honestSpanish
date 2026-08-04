@@ -4,9 +4,11 @@ import { recordCrmActivityForProfileSafe } from '../../lib/crm/activity-sync';
 import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { enqueueRenewalNotice, enqueueWelcomeFulfillment } from '../../lib/fulfillment/queue';
 import { triggerFulfillmentProcessing } from '../../lib/internal-job-service';
+import { runAfterResponse } from '../../lib/cloudflare-runtime';
 import { readRuntimeEnv } from '../../lib/runtime-env';
 import { isRequiredStripeWebhookEvent } from '../../lib/stripe-webhook-events';
 import { assertStripeRuntimeAccount, type StripeRuntimeContext } from '../../lib/stripe-runtime-guard';
+import { reconcileStripePaymentFeesBestEffort } from '../../lib/stripe-fee-reconciliation';
 import { isPackageDuration, PACKAGE_CURRENCY } from '../../lib/package-pricing';
 import { observeCheckoutV2GuaranteeRefundFromWebhook } from '../../lib/checkout-v2-guarantee';
 import type Stripe from 'stripe';
@@ -772,7 +774,7 @@ export const POST: APIRoute = async (context) => {
 
             case 'charge.refunded': {
                 const charge = event.data.object as Stripe.Charge;
-                await handleChargeRefunded(supabaseAdmin, charge, stripeRuntime);
+                await handleChargeRefunded(supabaseAdmin, charge, stripeRuntime, context);
                 break;
             }
 
@@ -1239,6 +1241,18 @@ async function handleCheckoutV2Completed(
     }
     if (!queued) throw new Error('Checkout V2 welcome fulfillment could not be queued');
     triggerFulfillmentProcessing(context, 5);
+    runAfterResponse(context, reconcileStripePaymentFeesBestEffort({
+        supabaseAdmin,
+        runtime: stripeRuntime,
+        payment: {
+            id: payment.id,
+            amount: CHECKOUT_V2_AMOUNT_CENTS,
+            amount_refunded: 0,
+            currency: PACKAGE_CURRENCY,
+            status: 'succeeded',
+            stripe_payment_intent_id: paymentIntentId,
+        },
+    }));
 }
 
 async function handleCheckoutCompleted(
@@ -2040,6 +2054,18 @@ async function handleCheckoutV2InvoicePaid(
             },
         });
     }
+    runAfterResponse(context, reconcileStripePaymentFeesBestEffort({
+        supabaseAdmin,
+        runtime: stripeRuntime,
+        payment: {
+            id: payment.id,
+            amount: CHECKOUT_V2_AMOUNT_CENTS,
+            amount_refunded: 0,
+            currency: PACKAGE_CURRENCY,
+            status: 'succeeded',
+            stripe_payment_intent_id: paymentIntentId,
+        },
+    }));
     console.log(`[Webhook] Checkout V2 renewal ${invoice.id} reconciled and materialized`);
 }
 
@@ -2473,7 +2499,8 @@ async function resolveAuthoritativeRefund(
 async function handleChargeRefunded(
     supabaseAdmin: SupabaseClient<Database>,
     charge: Stripe.Charge,
-    stripeRuntime: StripeRuntimeContext
+    stripeRuntime: StripeRuntimeContext,
+    context: APIContext,
 ) {
     const paymentIntentId = stripeObjectId(charge.payment_intent);
 
@@ -2547,6 +2574,19 @@ async function handleChargeRefunded(
             stripe_refund_id: reconciledPayment.stripe_refund_id,
         },
     });
+
+    runAfterResponse(context, reconcileStripePaymentFeesBestEffort({
+        supabaseAdmin,
+        runtime: stripeRuntime,
+        payment: {
+            id: reconciledPayment.id,
+            amount: reconciledPayment.amount,
+            amount_refunded: reconciledPayment.amount_refunded,
+            currency: reconciledPayment.currency,
+            status: reconciledPayment.status,
+            stripe_payment_intent_id: reconciledPayment.stripe_payment_intent_id,
+        },
+    }));
 
     console.log(`[Webhook] Refund synchronized (${fullyRefunded ? 'full' : 'partial'})`);
 }

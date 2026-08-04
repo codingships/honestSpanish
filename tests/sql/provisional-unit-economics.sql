@@ -86,6 +86,11 @@ INSERT INTO public.checkout_v2_cycles (
     ('bb800000-0000-4000-8000-000000000002', 'bb600000-0000-4000-8000-000000000002', 1, 'initial', TIMESTAMPTZ '2035-02-01 10:00:00+00', TIMESTAMPTZ '2035-03-01 10:00:00+00', 'price_economics_test', 'in_economics_2', 'bb700000-0000-4000-8000-000000000002', 'ready', TIMESTAMPTZ '2035-01-21 10:00:00+00', TIMESTAMPTZ '2035-01-21 10:00:00+00'),
     ('bb800000-0000-4000-8000-000000000003', 'bb600000-0000-4000-8000-000000000001', 2, 'renewal', TIMESTAMPTZ '2035-01-29 10:00:00+00', TIMESTAMPTZ '2035-02-26 10:00:00+00', 'price_economics_test', 'in_economics_renewal_1', 'bb700000-0000-4000-8000-000000000003', 'pending', NULL, TIMESTAMPTZ '2035-01-22 10:00:00+00');
 
+-- Payment-to-cycle binding is the runtime transition that must create the
+-- initial pending Stripe-fee reconciliation state. Keep unrelated fixture
+-- triggers disabled, but exercise this boundary with every guard enabled.
+SET LOCAL session_replication_role = origin;
+
 UPDATE public.payments SET checkout_v2_cycle_id = CASE id
     WHEN 'bb700000-0000-4000-8000-000000000001'::UUID THEN 'bb800000-0000-4000-8000-000000000001'::UUID
     WHEN 'bb700000-0000-4000-8000-000000000002'::UUID THEN 'bb800000-0000-4000-8000-000000000002'::UUID
@@ -95,6 +100,8 @@ WHERE id IN (
     'bb700000-0000-4000-8000-000000000002',
     'bb700000-0000-4000-8000-000000000003'
 );
+
+SET LOCAL session_replication_role = replica;
 
 INSERT INTO public.sessions (
     id, subscription_id, student_id, teacher_id, scheduled_at,
@@ -470,6 +477,159 @@ BEGIN
 END
 $$;
 
+-- Stripe fees are unknown until every authoritative balance transaction for a
+-- local payment has been reconciled. Unknown fees must suppress contribution,
+-- never become an implicit zero.
+DO $$
+DECLARE student_one public.student_unit_economics%ROWTYPE;
+DECLARE portfolio public.portfolio_unit_economics%ROWTYPE;
+BEGIN
+    IF (SELECT count(*) FROM public.stripe_payment_fee_reconciliations
+        WHERE status = 'pending') <> 3 THEN
+        RAISE EXCEPTION 'stripe_fee_pending_backfill_missing';
+    END IF;
+
+    SELECT * INTO student_one FROM public.student_unit_economics
+    WHERE student_id = 'bb000000-0000-4000-8000-000000000002';
+    SELECT * INTO portfolio FROM public.portfolio_unit_economics;
+    IF student_one.unreconciled_payment_count <> 2
+       OR student_one.stripe_fee_reconciliation_status <> 'pending'
+       OR student_one.stripe_fee_cents IS NOT NULL
+       OR student_one.provisional_contribution_cents IS NOT NULL
+       OR portfolio.unreconciled_payment_count <> 3
+       OR portfolio.stripe_fee_reconciliation_status <> 'pending'
+       OR portfolio.stripe_fee_cents IS NOT NULL
+       OR portfolio.provisional_contribution_cents IS NOT NULL THEN
+        RAISE EXCEPTION 'unknown_stripe_fees_were_treated_as_zero:%:%',
+            to_jsonb(student_one), to_jsonb(portfolio);
+    END IF;
+END
+$$;
+
+SELECT public.reconcile_stripe_payment_fees(
+    'bb700000-0000-4000-8000-000000000001', 'acct_economics_test', FALSE,
+    'ch_economics_1', 19425,
+    '[
+      {
+        "amount_cents": 25900,
+        "balance_type": "payments",
+        "currency": "eur",
+        "fee_cents": 800,
+        "net_cents": 25100,
+        "reporting_category": "charge",
+        "source_id": "ch_economics_1",
+        "source_kind": "charge",
+        "stripe_balance_transaction_id": "txn_economics_charge_1",
+        "stripe_created_at": "2026-07-20T10:00:00Z",
+        "stripe_type": "charge"
+      },
+      {
+        "amount_cents": -19425,
+        "balance_type": "payments",
+        "currency": "eur",
+        "fee_cents": -100,
+        "net_cents": -19325,
+        "reporting_category": "refund",
+        "source_id": "re_economics_1",
+        "source_kind": "refund",
+        "stripe_balance_transaction_id": "txn_economics_refund_1",
+        "stripe_created_at": "2026-07-20T11:00:00Z",
+        "stripe_type": "refund"
+      }
+    ]'::JSONB,
+    TIMESTAMPTZ '2026-07-20 11:05:00+00'
+);
+
+SELECT public.reconcile_stripe_payment_fees(
+    'bb700000-0000-4000-8000-000000000002', 'acct_economics_test', FALSE,
+    'ch_economics_2', 0,
+    '[{
+      "amount_cents": 25900,
+      "balance_type": "payments",
+      "currency": "eur",
+      "fee_cents": 700,
+      "net_cents": 25200,
+      "reporting_category": "charge",
+      "source_id": "ch_economics_2",
+      "source_kind": "charge",
+      "stripe_balance_transaction_id": "txn_economics_charge_2",
+      "stripe_created_at": "2026-07-21T10:00:00Z",
+      "stripe_type": "charge"
+    }]'::JSONB,
+    TIMESTAMPTZ '2026-07-21 10:05:00+00'
+);
+
+SELECT public.reconcile_stripe_payment_fees(
+    'bb700000-0000-4000-8000-000000000003', 'acct_economics_test', FALSE,
+    'ch_economics_renewal_1', 0,
+    '[{
+      "amount_cents": 25900,
+      "balance_type": "payments",
+      "currency": "eur",
+      "fee_cents": 700,
+      "net_cents": 25200,
+      "reporting_category": "charge",
+      "source_id": "ch_economics_renewal_1",
+      "source_kind": "charge",
+      "stripe_balance_transaction_id": "txn_economics_charge_renewal_1",
+      "stripe_created_at": "2026-07-22T10:00:00Z",
+      "stripe_type": "charge"
+    }]'::JSONB,
+    TIMESTAMPTZ '2026-07-22 10:05:00+00'
+);
+
+-- The same immutable Stripe evidence remains stable when observed again at a
+-- later time; a changed transaction with that identity still fails closed.
+SELECT public.reconcile_stripe_payment_fees(
+    'bb700000-0000-4000-8000-000000000002', 'acct_economics_test', FALSE,
+    'ch_economics_2', 0,
+    '[{
+      "amount_cents": 25900,
+      "balance_type": "payments",
+      "currency": "eur",
+      "fee_cents": 700,
+      "net_cents": 25200,
+      "reporting_category": "charge",
+      "source_id": "ch_economics_2",
+      "source_kind": "charge",
+      "stripe_balance_transaction_id": "txn_economics_charge_2",
+      "stripe_created_at": "2026-07-21T10:00:00Z",
+      "stripe_type": "charge"
+    }]'::JSONB,
+    TIMESTAMPTZ '2026-07-23 10:05:00+00'
+);
+
+DO $$ BEGIN
+    PERFORM public.reconcile_stripe_payment_fees(
+        'bb700000-0000-4000-8000-000000000002', 'acct_economics_test', FALSE,
+        'ch_economics_2', 0,
+        '[{
+          "amount_cents": 25900,
+          "balance_type": "payments",
+          "currency": "eur",
+          "fee_cents": 701,
+          "net_cents": 25199,
+          "reporting_category": "charge",
+          "source_id": "ch_economics_2",
+          "source_kind": "charge",
+          "stripe_balance_transaction_id": "txn_economics_charge_2",
+          "stripe_created_at": "2026-07-21T10:00:00Z",
+          "stripe_type": "charge"
+        }]'::JSONB,
+        TIMESTAMPTZ '2026-07-21 10:05:00+00');
+    RAISE EXCEPTION 'changed_stripe_fee_replay_was_accepted';
+EXCEPTION WHEN serialization_failure THEN
+    IF SQLERRM <> 'stripe_payment_fee_transaction_identity_conflicts' THEN RAISE; END IF;
+END $$;
+
+DO $$ BEGIN
+    UPDATE public.stripe_payment_balance_transactions SET fee_cents = 1
+    WHERE stripe_balance_transaction_id = 'txn_economics_charge_2';
+    RAISE EXCEPTION 'stripe_fee_ledger_update_was_accepted';
+EXCEPTION WHEN object_not_in_prerequisite_state THEN
+    IF SQLERRM <> 'stripe_payment_balance_transaction_is_immutable' THEN RAISE; END IF;
+END $$;
+
 DO $$
 DECLARE student_one public.student_unit_economics%ROWTYPE;
 DECLARE portfolio public.portfolio_unit_economics%ROWTYPE;
@@ -480,10 +640,13 @@ BEGIN
        OR student_one.gross_revenue_cents <> 51800
        OR student_one.refunds_cents <> 19425
        OR student_one.net_revenue_cents <> 32375
+       OR student_one.unreconciled_payment_count <> 0
+       OR student_one.stripe_fee_reconciliation_status <> 'reconciled'
+       OR student_one.stripe_fee_cents <> 1400
        OR student_one.teacher_compensation_cents <> 8000
        OR student_one.direct_operational_cost_cents <> 1100
        OR student_one.acquisition_cost_cents <> 5000
-       OR student_one.provisional_contribution_cents <> 18275 THEN
+       OR student_one.provisional_contribution_cents <> 16875 THEN
         RAISE EXCEPTION 'pending_cycle_student_economics_wrong:%', to_jsonb(student_one);
     END IF;
     IF student_one.paid_cycle_count <> 2 OR student_one.subscription_count <> 1 THEN
@@ -512,10 +675,13 @@ BEGIN
         WHERE campaign_name = 'Manual Partnership'
           AND acquired_student_count = 1
           AND gross_revenue_cents = 51800
+          AND unreconciled_payment_count = 0
+          AND stripe_fee_reconciliation_status = 'reconciled'
+          AND stripe_fee_cents = 1400
           AND teacher_compensation_cents = 8000
           AND allocated_acquisition_cost_cents = 5000
           AND campaign_spend_cents = 5000
-          AND provisional_contribution_cents = 18275
+          AND provisional_contribution_cents = 16875
     ) THEN
         RAISE EXCEPTION 'renewal_changed_acquisition_cardinality_or_cost';
     END IF;
@@ -525,12 +691,15 @@ BEGIN
        OR portfolio.gross_revenue_cents <> 77700
        OR portfolio.refunds_cents <> 19425
        OR portfolio.net_revenue_cents <> 58275
+       OR portfolio.unreconciled_payment_count <> 0
+       OR portfolio.stripe_fee_reconciliation_status <> 'reconciled'
+       OR portfolio.stripe_fee_cents <> 2100
        OR portfolio.teacher_compensation_cents <> 8000
        OR portfolio.direct_operational_cost_cents <> 1100
        OR portfolio.campaign_spend_cents <> 28000
        OR portfolio.allocated_acquisition_cost_cents <> 13000
        OR portfolio.unallocated_acquisition_cost_cents <> 15000
-       OR portfolio.provisional_contribution_cents <> 21175
+       OR portfolio.provisional_contribution_cents <> 19075
        OR portfolio.currency <> 'eur' THEN
         RAISE EXCEPTION 'portfolio_economics_wrong:%', to_jsonb(portfolio);
     END IF;
