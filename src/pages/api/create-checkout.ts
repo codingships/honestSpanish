@@ -21,6 +21,7 @@ import { createSupabaseAdminClient } from '../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../lib/supabase-server';
 import { handleCheckoutV2 } from '../../lib/checkout-v2';
 import { readStagingE2ECheckoutGrant } from '../../lib/staging-e2e-checkout';
+import { reportOperationalFailure } from '../../lib/operational-error';
 
 const supportedCheckoutLangs = new Set(['es', 'en', 'ru']);
 const jsonHeaders = { 'Content-Type': 'application/json' };
@@ -696,7 +697,11 @@ export const POST: APIRoute = async (context) => {
 
         return jsonResponse({ error: 'Checkout recovery requires manual review' }, 409);
     } catch (error) {
-        console.error('Checkout error:', error);
+        reportOperationalFailure({
+            surface: 'checkout.legacy',
+            error,
+            requestId: context.locals.requestId,
+        });
         return jsonResponse({ error: 'Internal server error' }, 500);
     }
 };

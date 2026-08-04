@@ -101,9 +101,11 @@ describe('campus load state', () => {
         );
 
         expect(consoleError).toHaveBeenCalledOnce();
-        expect(consoleError).toHaveBeenCalledWith('[CampusRead] Query failed', {
-            surface: 'unknown',
+        expect(JSON.parse(String(consoleError.mock.calls[0]?.[0]))).toEqual({
+            event: 'operational_failure',
+            surface: 'campus.unknown',
             code: 'unknown',
+            requestId: 'unavailable',
         });
 
         const serializedCall = JSON.stringify(consoleError.mock.calls[0]);
@@ -117,9 +119,11 @@ describe('campus load state', () => {
 
         reportCampusReadError('student_dashboard.subscription', { code: 'PGRST116' });
 
-        expect(consoleError).toHaveBeenCalledWith('[CampusRead] Query failed', {
-            surface: 'student_dashboard.subscription',
+        expect(JSON.parse(String(consoleError.mock.calls[0]?.[0]))).toEqual({
+            event: 'operational_failure',
+            surface: 'campus.student_dashboard.subscription',
             code: 'PGRST116',
+            requestId: 'unavailable',
         });
     });
 
@@ -130,9 +134,11 @@ describe('campus load state', () => {
         reportCampusReadError('session', null);
 
         expect(consoleError).toHaveBeenCalledOnce();
-        expect(consoleError).toHaveBeenCalledWith('[CampusRead] Query failed', {
-            surface: 'unknown',
+        expect(JSON.parse(String(consoleError.mock.calls[0]?.[0]))).toEqual({
+            event: 'operational_failure',
+            surface: 'campus.unknown',
             code: 'unknown',
+            requestId: 'unavailable',
         });
     });
 });

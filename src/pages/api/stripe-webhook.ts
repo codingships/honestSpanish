@@ -14,6 +14,7 @@ import { observeCheckoutV2GuaranteeRefundFromWebhook } from '../../lib/checkout-
 import type Stripe from 'stripe';
 import type { Database, Json } from '../../types/database.types';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { reportOperationalFailure } from '../../lib/operational-error';
 
 function isStripePriceId(value: unknown): value is string {
     return typeof value === 'string' && /^price_[A-Za-z0-9_]+$/.test(value);
@@ -677,7 +678,11 @@ export const POST: APIRoute = async (context) => {
     const webhookSecret = readRuntimeEnv('STRIPE_WEBHOOK_SECRET');
 
     if (!webhookSecret) {
-        console.error('Missing STRIPE_WEBHOOK_SECRET');
+        reportOperationalFailure({
+            surface: 'stripe_webhook.configuration',
+            code: 'STRIPE_WEBHOOK_SECRET_MISSING',
+            requestId: context.locals.requestId,
+        });
         return new Response('Webhook secret not configured', { status: 500 });
     }
 
@@ -708,7 +713,12 @@ export const POST: APIRoute = async (context) => {
             throw new Error('Stripe webhook event mode does not match this runtime');
         }
     } catch (error) {
-        console.error('[Webhook] Stripe runtime isolation failed:', error);
+        reportOperationalFailure({
+            surface: 'stripe_webhook.runtime',
+            code: 'STRIPE_RUNTIME_ISOLATION_FAILED',
+            error,
+            requestId: context.locals.requestId,
+        });
         return new Response(JSON.stringify({ error: 'Stripe runtime isolation failed' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -724,13 +734,24 @@ export const POST: APIRoute = async (context) => {
         });
     }
     if (markProcessed.status === 'processing' || markProcessed.status === 'previously_failed') {
-        console.warn(`[Webhook] Event ${event.id} is not eligible for duplicate processing: ${markProcessed.status}`);
+        reportOperationalFailure({
+            surface: 'stripe_webhook.claim',
+            code: markProcessed.status === 'processing'
+                ? 'WEBHOOK_ALREADY_PROCESSING'
+                : 'WEBHOOK_PREVIOUSLY_FAILED',
+            requestId: context.locals.requestId,
+        });
         return new Response(JSON.stringify({ error: 'Webhook event is already processing or failed' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
         });
     }
     if (markProcessed.status === 'failed' || !markProcessed.leaseToken) {
+        reportOperationalFailure({
+            surface: 'stripe_webhook.claim',
+            code: 'WEBHOOK_CLAIM_FAILED',
+            requestId: context.locals.requestId,
+        });
         return new Response(JSON.stringify({ error: 'Webhook event could not be claimed for processing' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -808,7 +829,12 @@ export const POST: APIRoute = async (context) => {
         }
     } catch (error) {
         await markWebhookEventFailed(supabaseAdmin, event, markProcessed.leaseToken, error);
-        console.error(`[Webhook] Error processing ${event.type}:`, error);
+        reportOperationalFailure({
+            surface: `stripe_webhook.${event.type}`,
+            code: 'WEBHOOK_PROCESSING_FAILED',
+            error,
+            requestId: context.locals.requestId,
+        });
         return new Response(JSON.stringify({ error: 'Webhook processing failed' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },
@@ -817,6 +843,11 @@ export const POST: APIRoute = async (context) => {
 
     const markSucceeded = await markWebhookEventSucceeded(supabaseAdmin, event, markProcessed.leaseToken);
     if (markSucceeded === 'failed') {
+        reportOperationalFailure({
+            surface: 'stripe_webhook.finalize',
+            code: 'WEBHOOK_FINALIZE_FAILED',
+            requestId: context.locals.requestId,
+        });
         return new Response(JSON.stringify({ error: 'Webhook event could not be recorded as processed' }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' },

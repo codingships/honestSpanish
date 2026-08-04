@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/astro';
+import { scrubSentryBreadcrumb, scrubSentryEvent } from './src/lib/sentry-privacy';
 
 declare const __SENTRY_DSN__: string;
 declare const __SENTRY_ENVIRONMENT__: string;
@@ -10,4 +11,8 @@ Sentry.init({
     dsn: dsn || undefined,
     enabled: Boolean(dsn),
     environment: environment || undefined,
+    sendDefaultPii: false,
+    beforeBreadcrumb: scrubSentryBreadcrumb,
+    beforeSend: scrubSentryEvent,
+    beforeSendTransaction: scrubSentryEvent,
 });

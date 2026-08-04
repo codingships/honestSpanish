@@ -67,6 +67,21 @@ El rollback es de mejor esfuerzo: una cancelación forzada, caída del runner, r
 
 Un rollback de Workers no revierte base de datos, pagos, emails ni documentos. Por eso el smoke estándar es inocuo y una tarea con efectos reales debe definir antes su recuperación específica.
 
+## Triaje y alertas
+
+Cada respuesta del Worker web incluye un `X-Request-ID` nuevo, generado por el servidor. Soporte debe pedirlo junto con la hora aproximada y la acción realizada; nunca debe pedir contraseñas, cookies, enlaces de sesión ni datos de tarjeta. Los fallos controlados de campus, checkout y webhooks emiten `operational_failure` con `surface`, `code` y ese identificador. El evento Sentry elimina usuario, cuerpo, cookies, query string, cabeceras y breadcrumbs de consola antes de salir; no se pega después el error bruto en notas o tickets.
+
+Se trata como P0 cualquier cobro confirmado sin ciclo materializado, devolución incierta, webhook requerido atascado, pérdida de acceso a datos o incapacidad de restaurar servicio. Una DLQ no vacía, un `operational_failure` de `checkout.*` o `stripe_webhook.*`, o dos health checks consecutivos fallidos requieren revisión inmediata. Un fallo de contenido con fallback, una entrega secundaria reintentable o una única lectura transitoria son P1 mientras no afecten dinero, datos ni la siguiente clase.
+
+Antes de abrir checkout en producción deben quedar acreditados, mediante un único evento sintético sin PII en staging:
+
+1. recepción en `honestspanish/espanol-honesto-astro` con `environment=staging` y el `request_id` esperado;
+2. una regla de alerta que llegue al canal operativo acordado;
+3. titular humano y suplente capaces de localizar el mismo identificador en Sentry/Cloudflare y seguir el runbook del flujo afectado;
+4. ausencia del email, query string, cuerpo, cookie, cabecera de autorización y mensaje bruto usados como señuelos de privacidad.
+
+La ausencia de incidencias en Sentry no acredita la conexión. Tampoco se considera una alerta accionable hasta que una persona la reciba. Si el diagnóstico exige reproducir un efecto de Stripe, email, Calendar o base de datos, se detiene el triaje y se abre una tarea sintética con recurso, identidad y limpieza explícitos.
+
 ## Base de datos
 
 Toda evolución de esquema es una migración nueva en `supabase/migrations/`. No se reescribe una migración aplicada ni se mantiene SQL suelto como versión alternativa. `db/schema.sql` se actualiza como vista consolidada.

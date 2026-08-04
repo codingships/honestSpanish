@@ -23,6 +23,7 @@ import { isUnauthenticatedAuthError } from './auth-session';
 import { verifyCheckoutTurnstile } from './turnstile';
 import type { Database } from '../types/database.types';
 import { recordAcquisitionAttributionSafe } from './crm/acquisition-attribution';
+import { reportOperationalFailure } from './operational-error';
 
 type CheckoutContext = Parameters<APIRoute>[0];
 type CheckoutAccess =
@@ -1096,7 +1097,11 @@ export async function handleCheckoutV2(
             'CHECKOUT_CONFIGURATION_ERROR',
         );
     } catch (error) {
-        console.error('Error creating checkout v2:', error);
+        reportOperationalFailure({
+            surface: 'checkout.v2',
+            error,
+            requestId: context.locals.requestId,
+        });
         return jsonResponse({ error: 'Internal server error' }, 500);
     }
 }

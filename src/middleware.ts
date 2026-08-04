@@ -178,7 +178,7 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
     const authMeansUnauthenticated = authError !== null && isUnauthenticatedAuthError(authError);
 
     if (authError && !authMeansUnauthenticated) {
-        reportCampusReadError('middleware.auth', authError);
+        reportCampusReadError('middleware.auth', authError, context.locals.requestId);
         return campusUnavailableResponse(lang, url);
     }
     const user = authMeansUnauthenticated ? null : resolvedUser;
@@ -194,15 +194,15 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
             .eq('id', user.id)
             .maybeSingle();
         if (profileError) {
-            reportCampusReadError('middleware.profile', profileError);
+            reportCampusReadError('middleware.profile', profileError, context.locals.requestId);
             return campusUnavailableResponse(lang, url);
         }
         if (profile && !CAMPUS_ROLES.has(profile.role ?? '')) {
-            reportCampusReadError('middleware.profile', { code: 'PROFILE_ROLE_INVALID' });
+            reportCampusReadError('middleware.profile', { code: 'PROFILE_ROLE_INVALID' }, context.locals.requestId);
             return campusUnavailableResponse(lang, url);
         }
         if (!profile) {
-            reportCampusReadError('middleware.profile', { code: 'PROFILE_MISSING' });
+            reportCampusReadError('middleware.profile', { code: 'PROFILE_MISSING' }, context.locals.requestId);
         }
         profileFound = Boolean(profile);
         userRole = profile?.role || 'student';
@@ -250,7 +250,7 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
                     { p_capability: 'operations.read' },
                 );
                 if (capabilityError) {
-                    reportCampusReadError('middleware.admin-capability', capabilityError);
+                    reportCampusReadError('middleware.admin-capability', capabilityError, context.locals.requestId);
                     return campusUnavailableResponse(lang, url);
                 }
                 if (allowed !== true) {
@@ -278,7 +278,7 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
                     { p_capability: requiredCapability },
                 );
                 if (capabilityError) {
-                    reportCampusReadError('middleware.admin-capability', capabilityError);
+                    reportCampusReadError('middleware.admin-capability', capabilityError, context.locals.requestId);
                     return campusUnavailableResponse(lang, url);
                 }
                 if (allowed !== true) {
@@ -287,7 +287,7 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
                             'get_my_admin_capabilities',
                         );
                         if (capabilitiesError) {
-                            reportCampusReadError('middleware.admin-capabilities', capabilitiesError);
+                            reportCampusReadError('middleware.admin-capabilities', capabilitiesError, context.locals.requestId);
                             return campusUnavailableResponse(lang, url);
                         }
 
@@ -329,6 +329,10 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
 });
 
 export const onRequest = defineMiddleware(async (context, next) => {
+    // Never trust a caller-provided correlation ID: a fresh value prevents log
+    // injection and gives support one identifier that maps to this request.
+    const requestId = crypto.randomUUID();
+    context.locals.requestId = requestId;
     const response = await handleApplicationRequest(context, next);
     if (!response) {
         throw new Error('Application middleware returned no response');
@@ -350,6 +354,8 @@ export const onRequest = defineMiddleware(async (context, next) => {
     if (appEnvironment === 'staging') {
         response.headers.set('X-Robots-Tag', 'noindex, nofollow, noarchive');
     }
+
+    response.headers.set('X-Request-ID', requestId);
 
     return response;
 });
