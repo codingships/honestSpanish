@@ -166,7 +166,7 @@ describe('lead application email', () => {
         expect(preview.html).toContain('Teacher: Alejandro García');
         expect(preview.html).toContain('Europe/Madrid');
         expect(preview.html).toContain('exactly 28 days after the first class');
-        expect(preview.html).toContain('EUR 194.25 refund');
+        expect(preview.html).toContain('exact refund for every unconsumed class');
         expect(preview.html).toContain('Terms version: 2026-07-10');
         expect(preview.html).toContain('/en/legal/terminos');
         expect(html).toContain('Welcome, Alina');
@@ -189,9 +189,9 @@ describe('lead application email', () => {
     });
 
     it.each([
-        ['es', '259 EUR cobrados al reservar', 'Profesor: Alejandro García', 'Siguiente cobro', '194,25 EUR', 'al menos 24 horas', 'no-show', 'salvo que soporte reclasifique una incidencia justificada'],
-        ['en', 'EUR 259 charged when you reserved', 'Teacher: Alejandro García', 'Next charge', 'EUR 194.25', 'at least 24 hours', 'no-show', 'unless support reclassifies a justified incident'],
-        ['ru', '259 EUR списаны при бронировании', 'Преподаватель: Alejandro García', 'Следующее списание', '194,25 EUR', 'не менее чем за 24 часа', 'неявка', 'если только служба поддержки не переклассифицирует подтверждённый уважительный случай'],
+        ['es', '259 EUR cobrados al reservar', 'Profesor: Alejandro García', 'Siguiente cobro', 'devolución exacta de todas las clases no consumidas', 'al menos 24 horas', 'no-show', 'salvo que soporte reclasifique una incidencia justificada'],
+        ['en', 'EUR 259 charged when you reserved', 'Teacher: Alejandro García', 'Next charge', 'exact refund for every unconsumed class', 'at least 24 hours', 'no-show', 'unless support reclassifies a justified incident'],
+        ['ru', '259 EUR списаны при бронировании', 'Преподаватель: Alejandro García', 'Следующее списание', 'точный возврат за все неиспользованные занятия', 'не менее чем за 24 часа', 'неявка', 'если поддержка не переклассифицирует подтверждённый уважительный случай'],
     ] as const)(
         'renders the complete immutable Checkout V2 welcome contract in %s',
         (locale, paid, teacher, renewal, refund, timely, late, justifiedIncident) => {

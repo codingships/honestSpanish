@@ -142,9 +142,9 @@ La referencia operativa es una única fila de `checkout_v2_guarantee_operations`
 - `refund_pending`: esperar o reconciliar el mismo refund mediante webhook/lectura de Stripe. No se crea otro refund.
 - `retryable`: reintentar la misma operación desde administración después de comprobar la identidad y el modo de Stripe.
 - `manual_review`: trabajar desde el ticket enlazado y comparar el snapshot local con Stripe. Si existe un refund ID, administración solo puede reconciliar ese refund mediante lecturas y `observe`; un refund `failed` o `canceled` exige una decisión financiera manual y nunca dispara un segundo refund. Si todavía no existe refund, la misma operación solo puede volver a `retryable` después de cerrar el ticket y registrar un motivo auditado; entonces se reanuda sin cambiar el snapshot.
-- `refunded`: estado terminal. Verificar 19.425 céntimos en EUR, suscripción cancelada, una sesión consumida, tres invalidadas y jobs deduplicados; no repetir efectos financieros.
+- `refunded`: estado terminal. Verificar que el importe coincide exactamente con la suma inmutable de las sesiones no consumidas del ciclo, que la suscripción está cancelada, que solo esas sesiones se han invalidado y que los jobs están deduplicados; no repetir efectos financieros.
 
-Una cancelación tardía o no-show de la segunda sesión solo se puede excusar desde administración, con un motivo obligatorio, mediante el ledger inmutable de incidencias. La acción no cambia el estado histórico de la sesión ni la reprograma. Toda corrección distinta pasa por soporte y una decisión explícita.
+Una cancelación tardía o no-show de cualquier sesión materializada solo se puede excusar desde administración, con un motivo obligatorio, mediante el ledger inmutable de incidencias. La acción no cambia el estado histórico de la sesión ni la reprograma. Toda corrección distinta pasa por soporte y una decisión explícita.
 
 Los fallos posteriores de Calendar, email o CRM se recuperan en `fulfillment_jobs`; no justifican revertir ni repetir la devolución. Antes de probar este flujo en staging se hace el preflight exacto de Supabase y Stripe Sandbox y se usan exclusivamente datos de prueba.
 

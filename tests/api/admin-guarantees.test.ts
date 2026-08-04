@@ -34,6 +34,8 @@ const operationId = '20000000-0000-4000-8000-000000000002';
 const subscriptionId = '30000000-0000-4000-8000-000000000003';
 const studentId = '40000000-0000-4000-8000-000000000004';
 const sessionId = '50000000-0000-4000-8000-000000000005';
+const cycleId = '70000000-0000-4000-8000-000000000007';
+const packagePriceId = '80000000-0000-4000-8000-000000000008';
 
 function roleClient(role: string | null) {
     const profileQuery = {
@@ -97,8 +99,12 @@ describe('/api/admin/guarantees', () => {
         const operationRow = {
             id: operationId,
             subscription_id: subscriptionId,
+            cycle_id: cycleId,
             payment_id: '60000000-0000-4000-8000-000000000006',
-            second_session_id: sessionId,
+            package_price_id: packagePriceId,
+            cycle_number: 1,
+            sessions_total: 4,
+            sessions_consumed: 1,
             gross_amount_cents: 25900,
             refund_amount_cents: 19425,
             currency: 'eur',
@@ -118,13 +124,14 @@ describe('/api/admin/guarantees', () => {
         const sessionRow = {
             id: sessionId,
             subscription_id: subscriptionId,
+            checkout_v2_cycle_session_index: 2,
             status: 'no_show',
             scheduled_at: '2026-08-01T11:00:00.000Z',
             cancelled_at: null,
             cancelled_by: null,
             updated_at: '2026-08-01T11:15:00.000Z',
             subscription: operationRow.subscription,
-            cycle: { id: '70000000-0000-4000-8000-000000000007', cycle_number: 1, cycle_kind: 'initial' },
+            cycle: { id: cycleId, cycle_number: 1, cycle_kind: 'initial' },
         };
         const operationsQuery = query({ data: [operationRow], error: null });
         const incidentsQuery = query({ data: [sessionRow], error: null });
@@ -157,6 +164,10 @@ describe('/api/admin/guarantees', () => {
             guaranteeRefundCents: 19425,
             refundedCents: 1000,
             netCents: 24900,
+            cycleNumber: 1,
+            sessionsTotal: 4,
+            sessionsConsumed: 1,
+            sessionsRefundable: 3,
         }));
         expect(body.incidents[0]).toEqual(expect.objectContaining({
             sessionId,
@@ -164,7 +175,7 @@ describe('/api/admin/guarantees', () => {
         }));
     });
 
-    it('applies the student and Checkout V2 initial-cycle filters before the result limit', async () => {
+    it('applies the student and Checkout V2 filters before the result limit', async () => {
         const subscriptionsQuery = query({ data: [{ id: subscriptionId }], error: null });
         const operationsQuery = query({ data: [], error: null });
         const incidentsQuery = query({ data: [], error: null });
@@ -189,8 +200,6 @@ describe('/api/admin/guarantees', () => {
         expect(operationsQuery.in).toHaveBeenCalledWith('subscription_id', [subscriptionId]);
         expect(incidentsQuery.in).toHaveBeenCalledWith('subscription_id', [subscriptionId]);
         expect(incidentsQuery.eq).toHaveBeenCalledWith('subscription.contract_schema_version', 2);
-        expect(incidentsQuery.eq).toHaveBeenCalledWith('cycle.cycle_number', 1);
-        expect(incidentsQuery.eq).toHaveBeenCalledWith('cycle.cycle_kind', 'initial');
         expect(operationsQuery.in.mock.invocationCallOrder[0]).toBeLessThan(operationsQuery.limit.mock.invocationCallOrder[0]);
         expect(incidentsQuery.in.mock.invocationCallOrder[0]).toBeLessThan(incidentsQuery.limit.mock.invocationCallOrder[0]);
     });
@@ -205,13 +214,14 @@ describe('/api/admin/guarantees', () => {
         const sessionRow = {
             id: sessionId,
             subscription_id: subscriptionId,
+            checkout_v2_cycle_session_index: 2,
             status: 'no_show',
             scheduled_at: '2026-08-01T11:00:00.000Z',
             cancelled_at: null,
             cancelled_by: null,
             updated_at: '2026-08-01T11:15:00.000Z',
             subscription,
-            cycle: { id: '70000000-0000-4000-8000-000000000007', cycle_number: 1, cycle_kind: 'initial' },
+            cycle: { id: cycleId, cycle_number: 2, cycle_kind: 'renewal' },
         };
         const listedOperations = query({ data: [], error: null });
         const incidentsQuery = query({ data: [sessionRow], error: null });
@@ -244,10 +254,11 @@ describe('/api/admin/guarantees', () => {
         expect(incidentOperationGuard.in).toHaveBeenCalledWith('subscription_id', [subscriptionId]);
     });
 
-    it('fails closed if a legacy or non-initial session leaks through the database filters', async () => {
+    it('fails closed if a legacy session leaks through the database filters', async () => {
         const legacySession = {
             id: sessionId,
             subscription_id: subscriptionId,
+            checkout_v2_cycle_session_index: 2,
             status: 'no_show',
             scheduled_at: '2026-08-01T11:00:00.000Z',
             cancelled_at: null,
@@ -259,7 +270,7 @@ describe('/api/admin/guarantees', () => {
                 contract_schema_version: 1,
                 student: { id: studentId, full_name: 'Legacy', email: 'legacy@example.com' },
             },
-            cycle: { id: '70000000-0000-4000-8000-000000000007', cycle_number: 2, cycle_kind: 'renewal' },
+            cycle: { id: cycleId, cycle_number: 2, cycle_kind: 'renewal' },
         };
         const listedOperations = query({ data: [], error: null });
         const incidentsQuery = query({ data: [legacySession], error: null });

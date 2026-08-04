@@ -122,9 +122,9 @@ const welcomeEmailCopy = {
         classDates: 'Tus cuatro clases',
         renewalDate: 'Siguiente cobro',
         renewalRule: 'La siguiente cuota de 259 EUR se cobra exactamente 28 días después de la primera clase. Solo un cambio mediante autoservicio antes de empezar, solicitado con al menos 24 horas y hasta un máximo inclusivo de 28 días desde la fecha original, mueve las cuatro fechas y el ancla. Un cambio gestionado por soporte fuera de ese límite no la mueve automáticamente. Tras comenzar la primera clase, el ancla queda fija.',
-        guaranteeTitle: 'Garantía del primer ciclo',
-        guarantee: 'Después de completar la primera clase y antes de comenzar la segunda, puedes solicitar la devolución de 194,25 EUR por las tres clases restantes. La devolución cancela todas las renovaciones futuras.',
-        guaranteeWindow: 'Reprogramar la segunda clase con al menos 24 horas de antelación mantiene abierta la garantía. Una cancelación tardía o un no-show consume esa segunda clase y cierra la ventana, salvo que soporte reclasifique una incidencia justificada.',
+        guaranteeTitle: 'Garantía proporcional por ciclo',
+        guarantee: 'Después de consumir una o más clases de cualquier ciclo pagado y antes de comenzar la siguiente, puedes solicitar la devolución exacta de todas las clases no consumidas. El importe se calcula desde el precio contractual de ese ciclo y la devolución cancela todas las renovaciones futuras.',
+        guaranteeWindow: 'Reprogramar la siguiente clase con al menos 24 horas de antelación conserva la posibilidad de solicitar la garantía antes de la nueva fecha. Una cancelación tardía o un no-show cuenta como clase consumida, salvo que soporte reclasifique una incidencia justificada.',
         checkoutV2Service: 'Este contrato incluye exclusivamente cuatro clases individuales de 50 minutos por cada ciclo literal de 28 días.',
         cancellationChannel: 'Puedes desactivar la renovación desde el portal de pagos o solicitarlo a soporte. Mantendrás el acceso hasta el final del periodo pagado, salvo reembolso o derecho legal distinto.',
         withdrawal: 'Desistimiento: como consumidor dispones de 14 días naturales desde la celebración del contrato. Si pediste el inicio durante ese plazo, podrá descontarse la parte proporcional ya prestada cuando legalmente proceda.',
@@ -180,9 +180,9 @@ const welcomeEmailCopy = {
         classDates: 'Your four classes',
         renewalDate: 'Next charge',
         renewalRule: 'The next EUR 259 charge is collected exactly 28 days after the first class. Only a self-service change before classes begin, requested at least 24 hours ahead and up to an inclusive maximum of 28 days from the original date, moves all four dates and the renewal anchor. A change handled by support outside that limit does not move the anchor automatically. Once the first class begins, the renewal anchor is fixed.',
-        guaranteeTitle: 'First-cycle guarantee',
-        guarantee: 'After completing the first class and before the second begins, you may request a EUR 194.25 refund for the three remaining classes. The refund cancels all future renewals.',
-        guaranteeWindow: 'Rescheduling the second class at least 24 hours ahead keeps the guarantee window open. A late cancellation or no-show consumes that second class and closes the window, unless support reclassifies a justified incident.',
+        guaranteeTitle: 'Proportional guarantee for each cycle',
+        guarantee: 'After consuming one or more classes in any paid cycle and before the next class begins, you may request an exact refund for every unconsumed class. The amount comes from that cycle’s contractual price and the refund cancels all future renewals.',
+        guaranteeWindow: 'Rescheduling the next class at least 24 hours ahead preserves the option to request the guarantee before the new date. A late cancellation or no-show counts as a consumed class unless support reclassifies a justified incident.',
         checkoutV2Service: 'This contract includes exactly four individual 50-minute classes in each literal 28-day cycle.',
         cancellationChannel: 'You may disable renewal through the billing portal or ask support. Access remains until the end of the paid period unless a refund or another statutory right applies.',
         withdrawal: 'Withdrawal: as a consumer you have 14 calendar days from conclusion of the contract. If you requested an early start, the proportion already supplied may be deducted where legally applicable.',
@@ -238,9 +238,9 @@ const welcomeEmailCopy = {
         classDates: 'Ваши четыре занятия',
         renewalDate: 'Следующее списание',
         renewalRule: 'Следующие 259 EUR списываются ровно через 28 дней после первого занятия. Только самостоятельный перенос до начала, оформленный не менее чем за 24 часа и не позднее чем через 28 дней включительно от исходной даты, сдвигает все четыре даты и дату продления. Изменение через службу поддержки вне этого предела не переносит дату продления автоматически. После начала первого занятия дата продления фиксируется.',
-        guaranteeTitle: 'Гарантия первого цикла',
-        guarantee: 'После завершения первого занятия и до начала второго можно запросить возврат 194,25 EUR за три оставшихся занятия. Возврат отменяет все будущие продления.',
-        guaranteeWindow: 'Перенос второго занятия не менее чем за 24 часа сохраняет гарантийное окно. Поздняя отмена или неявка списывает второе занятие и закрывает окно, если только служба поддержки не переклассифицирует подтверждённый уважительный случай.',
+        guaranteeTitle: 'Пропорциональная гарантия для каждого цикла',
+        guarantee: 'После использования одного или нескольких занятий любого оплаченного цикла и до начала следующего можно запросить точный возврат за все неиспользованные занятия. Сумма определяется договорной ценой цикла, а возврат отменяет все будущие продления.',
+        guaranteeWindow: 'Перенос следующего занятия не менее чем за 24 часа сохраняет возможность запросить гарантию до новой даты. Поздняя отмена или неявка считается использованным занятием, если поддержка не переклассифицирует подтверждённый уважительный случай.',
         checkoutV2Service: 'Этот договор включает ровно четыре индивидуальных занятия по 50 минут в каждом цикле продолжительностью 28 календарных дней.',
         cancellationChannel: 'Отключить продление можно в платёжном портале или через поддержку. Доступ сохраняется до конца оплаченного периода, если иное не следует из возврата или закона.',
         withdrawal: 'Отказ от договора: у потребителя есть 14 календарных дней с момента заключения договора. При запросе досрочного начала может быть удержана пропорциональная стоимость оказанной части, если это допускается законом.',
@@ -685,6 +685,10 @@ export interface GuaranteeRefundEmailData {
     studentName: string;
     refundAmount: number;
     currency: string;
+    cycleNumber: number;
+    sessionsTotal: number;
+    sessionsConsumed: number;
+    sessionsRefundable: number;
     accountUrl: string;
     supportUrl: string;
 }
@@ -694,11 +698,11 @@ const guaranteeRefundCopy = {
         subject: 'Devolución de tu garantía confirmada - Español Honesto',
         title: 'Tu garantía ya se ha aplicado',
         hello: 'Hola',
-        intro: 'Hemos confirmado la devolución correspondiente a las tres clases restantes de tu primer ciclo.',
+        intro: (remaining: number, cycle: number) => `Hemos confirmado la devolución de ${remaining} clase${remaining === 1 ? '' : 's'} no consumida${remaining === 1 ? '' : 's'} del ciclo ${cycle}.`,
         refund: 'Importe devuelto',
         method: 'La devolución se ha enviado al mismo medio de pago de la compra. Tu banco puede tardar varios días en reflejarla.',
-        firstClass: 'La primera clase permanece pagada.',
-        remainingClasses: 'Las otras tres clases han quedado invalidadas y retiradas del calendario.',
+        consumedClasses: (consumed: number) => `${consumed} clase${consumed === 1 ? '' : 's'} consumida${consumed === 1 ? '' : 's'} permanece${consumed === 1 ? '' : 'n'} pagada${consumed === 1 ? '' : 's'}.`,
+        remainingClasses: (remaining: number) => `${remaining} clase${remaining === 1 ? '' : 's'} no consumida${remaining === 1 ? '' : 's'} ha${remaining === 1 ? '' : 'n'} quedado invalidada${remaining === 1 ? '' : 's'} y retirada${remaining === 1 ? '' : 's'} del calendario.`,
         renewal: 'La renovación automática y los cobros futuros de esta suscripción están cancelados.',
         accountButton: 'VER ESTADO EN MI CUENTA',
         support: 'Contactar con soporte',
@@ -708,11 +712,11 @@ const guaranteeRefundCopy = {
         subject: 'Your guarantee refund is confirmed - Español Honesto',
         title: 'Your guarantee has been applied',
         hello: 'Hello',
-        intro: 'We have confirmed the refund for the three remaining classes in your first cycle.',
+        intro: (remaining: number, cycle: number) => `We have confirmed the refund for ${remaining} unconsumed class${remaining === 1 ? '' : 'es'} in cycle ${cycle}.`,
         refund: 'Amount refunded',
         method: 'The refund was sent to the original payment method. Your bank may take several days to display it.',
-        firstClass: 'Your first class remains paid.',
-        remainingClasses: 'The other three classes have been invalidated and removed from the calendar.',
+        consumedClasses: (consumed: number) => `${consumed} consumed class${consumed === 1 ? '' : 'es'} remain${consumed === 1 ? 's' : ''} paid.`,
+        remainingClasses: (remaining: number) => `${remaining} unconsumed class${remaining === 1 ? '' : 'es'} ${remaining === 1 ? 'has' : 'have'} been invalidated and removed from the calendar.`,
         renewal: 'Automatic renewal and future charges for this subscription are cancelled.',
         accountButton: 'VIEW STATUS IN MY ACCOUNT',
         support: 'Contact support',
@@ -722,11 +726,11 @@ const guaranteeRefundCopy = {
         subject: 'Возврат по гарантии подтверждён - Español Honesto',
         title: 'Гарантия применена',
         hello: 'Здравствуйте',
-        intro: 'Мы подтвердили возврат стоимости трёх оставшихся занятий первого цикла.',
+        intro: (remaining: number, cycle: number) => `Мы подтвердили возврат за неиспользованные занятия цикла ${cycle}: ${remaining}.`,
         refund: 'Сумма возврата',
         method: 'Возврат отправлен на исходный способ оплаты. Банку может потребоваться несколько дней, чтобы отобразить его.',
-        firstClass: 'Первое занятие остаётся оплаченным.',
-        remainingClasses: 'Остальные три занятия аннулированы и удалены из календаря.',
+        consumedClasses: (consumed: number) => `Использованные занятия остаются оплаченными: ${consumed}.`,
+        remainingClasses: (remaining: number) => `Неиспользованные занятия аннулированы и удалены из календаря: ${remaining}.`,
         renewal: 'Автопродление и будущие списания по этой подписке отменены.',
         accountButton: 'ПОСМОТРЕТЬ СТАТУС',
         support: 'Связаться с поддержкой',
@@ -744,6 +748,17 @@ export function guaranteeRefundEmailTemplate(data: GuaranteeRefundEmailData): st
     if (!Number.isInteger(data.refundAmount) || data.refundAmount <= 0) {
         throw new Error('Guarantee refund email requires a positive integer amount');
     }
+    if (
+        !Number.isInteger(data.cycleNumber)
+        || data.cycleNumber < 1
+        || !Number.isInteger(data.sessionsTotal)
+        || data.sessionsTotal < 2
+        || !Number.isInteger(data.sessionsConsumed)
+        || data.sessionsConsumed < 1
+        || data.sessionsConsumed >= data.sessionsTotal
+        || !Number.isInteger(data.sessionsRefundable)
+        || data.sessionsRefundable !== data.sessionsTotal - data.sessionsConsumed
+    ) throw new Error('Guarantee refund email requires a coherent session snapshot');
     const amount = new Intl.NumberFormat(renewalIntlLocales[data.locale], {
         style: 'currency',
         currency,
@@ -755,15 +770,15 @@ export function guaranteeRefundEmailTemplate(data: GuaranteeRefundEmailData): st
     const content = `
         <h2 style="color: #006064; margin: 0 0 20px 0;">${copy.title}</h2>
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.hello} ${studentName},</p>
-        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.intro}</p>
+        <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.intro(data.sessionsRefundable, data.cycleNumber)}</p>
 
         <div style="background-color: #f9f9f9; padding: 20px; margin: 25px 0; border: 2px solid #006064;">
             <p style="margin: 0; color: #006064; font-size: 18px;"><strong>${copy.refund}: ${escapeEmailHtml(amount)}</strong></p>
         </div>
 
         <ul style="color: #333333; font-size: 16px; line-height: 1.8; padding-left: 22px;">
-            <li>${copy.firstClass}</li>
-            <li>${copy.remainingClasses}</li>
+            <li>${copy.consumedClasses(data.sessionsConsumed)}</li>
+            <li>${copy.remainingClasses(data.sessionsRefundable)}</li>
             <li>${copy.renewal}</li>
         </ul>
         <p style="color: #333333; font-size: 16px; line-height: 1.6;">${copy.method}</p>
@@ -1212,7 +1227,7 @@ export function classCancelledTemplate(data: ClassCancelledData): string {
         student: 'the student',
         teacher: 'the teacher',
         admin: 'the admin team',
-        guarantee: 'the first-class guarantee',
+        guarantee: 'the proportional guarantee',
     }[data.cancelledBy];
     const recipientName = escapeEmailHtml(data.recipientName);
     const date = escapeEmailHtml(data.date);

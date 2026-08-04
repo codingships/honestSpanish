@@ -5,6 +5,12 @@ type OperationStatus = 'requested' | 'processing' | 'refund_pending' | 'refunded
 type Operation = {
     id: string;
     subscriptionId: string;
+    cycleId: string;
+    packagePriceId: string;
+    cycleNumber: number;
+    sessionsTotal: number;
+    sessionsConsumed: number;
+    sessionsRefundable: number;
     student: { id: string; fullName: string | null; email: string | null } | null;
     status: OperationStatus;
     grossCents: number;
@@ -35,6 +41,10 @@ type Resolution = {
 type Incident = {
     sessionId: string;
     subscriptionId: string;
+    cycleId: string;
+    cycleNumber: number;
+    cycleKind: string;
+    sessionIndex: number;
     student: { id: string; fullName: string | null; email: string | null };
     originalStatus: string;
     scheduledAt: string | null;
@@ -312,6 +322,8 @@ export default function GuaranteeOperationsManager({ lang, studentId = null }: P
                                             ) : <span className="font-bold">Alumno no disponible</span>}
                                             <p className="text-xs">{operation.student?.email}</p>
                                             <p className="mt-2 font-mono text-xs">Suscripción {shortId(operation.subscriptionId)}</p>
+                                            <p className="font-mono text-xs">Ciclo {operation.cycleNumber} · {operation.sessionsConsumed}/{operation.sessionsTotal} consumidas</p>
+                                            <p className="font-mono text-xs">Reembolsables: {operation.sessionsRefundable}</p>
                                             <p className="font-mono text-xs">Operación {shortId(operation.id)}</p>
                                         </td>
                                         <td className="p-3">
@@ -425,7 +437,7 @@ export default function GuaranteeOperationsManager({ lang, studentId = null }: P
             <section aria-labelledby="guarantee-incidents-title" className="space-y-4">
                 <div>
                     <h2 id="guarantee-incidents-title" className="font-display text-2xl uppercase text-[#006064]">
-                        Incidencias de segunda sesión
+                        Incidencias de sesión
                     </h2>
                     <p className="mt-1 text-sm text-[#006064]/70">
                         La reclasificación documenta una excepción; no reabre, reprograma ni modifica una clase.
@@ -453,6 +465,9 @@ export default function GuaranteeOperationsManager({ lang, studentId = null }: P
                                             </a>
                                             <p>{incident.student.email}</p>
                                             <p className="mt-2 font-mono text-xs">Sesión {shortId(incident.sessionId)}</p>
+                                            <p className="font-mono text-xs">
+                                                Ciclo {incident.cycleNumber} ({incident.cycleKind}) · posición {incident.sessionIndex}
+                                            </p>
                                             <p className="font-mono text-xs">Estado original: {incident.originalStatus}</p>
                                             <p className="font-mono text-xs">Programada: {formatDate(incident.scheduledAt)}</p>
                                             <p className="font-mono text-xs">Incidencia: {formatDate(incident.incidentAt)}</p>

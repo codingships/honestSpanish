@@ -74,8 +74,12 @@ type TicketRelation = { id: string; status: string; issue_title: string };
 type OperationRow = {
     id: string;
     subscription_id: string;
+    cycle_id: string;
     payment_id: string;
-    second_session_id: string;
+    package_price_id: string;
+    cycle_number: number;
+    sessions_total: number;
+    sessions_consumed: number;
     gross_amount_cents: number;
     refund_amount_cents: number;
     currency: string;
@@ -96,6 +100,7 @@ type CycleRelation = { id: string; cycle_number: number; cycle_kind: string };
 type IncidentSessionRow = {
     id: string;
     subscription_id: string;
+    checkout_v2_cycle_session_index: number;
     status: string;
     scheduled_at: string | null;
     cancelled_at: string | null;
@@ -168,6 +173,12 @@ function mapOperation(row: OperationRow) {
     return {
         id: row.id,
         subscriptionId: row.subscription_id,
+        cycleId: row.cycle_id,
+        packagePriceId: row.package_price_id,
+        cycleNumber: row.cycle_number,
+        sessionsTotal: row.sessions_total,
+        sessionsConsumed: row.sessions_consumed,
+        sessionsRefundable: Math.max(row.sessions_total - row.sessions_consumed, 0),
         student: student ? {
             id: student.id,
             fullName: student.full_name,
@@ -244,8 +255,12 @@ export const GET: APIRoute = async (context) => {
         .select(`
             id,
             subscription_id,
+            cycle_id,
             payment_id,
-            second_session_id,
+            package_price_id,
+            cycle_number,
+            sessions_total,
+            sessions_consumed,
             gross_amount_cents,
             refund_amount_cents,
             currency,
@@ -282,6 +297,7 @@ export const GET: APIRoute = async (context) => {
         .select(`
             id,
             subscription_id,
+            checkout_v2_cycle_session_index,
             status,
             scheduled_at,
             cancelled_at,
@@ -295,11 +311,8 @@ export const GET: APIRoute = async (context) => {
             ),
             cycle:checkout_v2_cycles!sessions_checkout_v2_cycle_id_fkey!inner (id, cycle_number, cycle_kind)
         `)
-        .eq('checkout_v2_cycle_session_index', 2)
         .in('status', ['cancelled', 'no_show'])
-        .eq('subscription.contract_schema_version', 2)
-        .eq('cycle.cycle_number', 1)
-        .eq('cycle.cycle_kind', 'initial');
+        .eq('subscription.contract_schema_version', 2);
     if (studentSubscriptionIds) incidentQuery = incidentQuery.in('subscription_id', studentSubscriptionIds);
     incidentQuery = incidentQuery
         .order('updated_at', { ascending: false })
@@ -348,8 +361,9 @@ export const GET: APIRoute = async (context) => {
         if (!subscription
             || subscription.contract_schema_version !== 2
             || !student
-            || cycle?.cycle_number !== 1
-            || cycle.cycle_kind !== 'initial') return [];
+            || !cycle
+            || !Number.isInteger(session.checkout_v2_cycle_session_index)
+            || session.checkout_v2_cycle_session_index < 1) return [];
         if (studentId && student.id !== studentId) return [];
         const resolution = resolutionBySession.get(session.id) ?? null;
         const isEligibleIncident = session.status === 'no_show'
@@ -358,6 +372,10 @@ export const GET: APIRoute = async (context) => {
         return [{
             sessionId: session.id,
             subscriptionId: subscription.id,
+            cycleId: cycle.id,
+            cycleNumber: cycle.cycle_number,
+            cycleKind: cycle.cycle_kind,
+            sessionIndex: session.checkout_v2_cycle_session_index,
             student: {
                 id: student.id,
                 fullName: student.full_name,

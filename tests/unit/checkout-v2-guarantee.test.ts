@@ -77,6 +77,12 @@ function operation(status = 'requested', overrides: Record<string, unknown> = {}
         second_session_id: sessionIds[1],
         third_session_id: sessionIds[2],
         fourth_session_id: sessionIds[3],
+        package_price_id: packagePriceId,
+        cycle_number: 1,
+        sessions_total: 4,
+        sessions_consumed: 1,
+        session_base_amount_cents: 6_475,
+        session_remainder_units: 0,
         stripe_customer_id: 'cus_guarantee',
         stripe_subscription_id: 'sub_guarantee',
         stripe_invoice_id: 'in_guarantee',
@@ -102,7 +108,11 @@ function operation(status = 'requested', overrides: Record<string, unknown> = {}
     };
 }
 
-function remoteSubscription(status = 'trialing', comment: string | null = null) {
+function remoteSubscription(
+    status = 'trialing',
+    comment: string | null = null,
+    overrides: Record<string, unknown> = {},
+) {
     return {
         id: 'sub_guarantee',
         livemode: false,
@@ -125,10 +135,11 @@ function remoteSubscription(status = 'trialing', comment: string | null = null) 
                 recurring: { interval: 'day', interval_count: 28 },
             },
         }] },
+        ...overrides,
     };
 }
 
-function exactRefund(status = 'succeeded') {
+function exactRefund(status = 'succeeded', overrides: Record<string, unknown> = {}) {
     return {
         id: 're_guarantee',
         payment_intent: 'pi_guarantee',
@@ -142,6 +153,7 @@ function exactRefund(status = 'succeeded') {
             paymentId,
             contractSchemaVersion: '2',
         },
+        ...overrides,
     };
 }
 
@@ -160,16 +172,23 @@ function successfulAdmin(input: {
     claimError?: { code: string; message: string };
     terminationError?: { code: string; message: string };
     operationOverrides?: Record<string, unknown>;
+    subscriptionOverrides?: Record<string, unknown>;
+    snapshotOverrides?: Record<string, unknown>;
+    paymentOverrides?: Record<string, unknown>;
 } = {}) {
+    const operationRow = (status?: string, overrides: Record<string, unknown> = {}) => operation(
+        status,
+        { ...input.operationOverrides, ...overrides },
+    );
     const rpc = vi.fn(async (name: string, args: Record<string, unknown>) => {
         const worker = String(args.p_worker_token ?? '');
         if (name === 'get_checkout_v2_guarantee_state') return { data: null, error: null };
-        if (name === 'prepare_checkout_v2_guarantee') return { data: operation(input.preparedStatus), error: null };
+        if (name === 'prepare_checkout_v2_guarantee') return { data: operationRow(input.preparedStatus), error: null };
         if (name === 'claim_checkout_v2_guarantee' && input.claimError) {
             return { data: null, error: input.claimError };
         }
         if (name === 'claim_checkout_v2_guarantee') return {
-            data: operation('processing', {
+            data: operationRow('processing', {
                 lease_token: input.claimLease === 'other' ? 'd0000000-0000-4000-8000-00000000000d' : worker,
                 lease_expires_at: new Date(Date.now() + (input.claimLease === 'expired' ? -60_000 : 60_000)).toISOString(),
             }),
@@ -180,13 +199,13 @@ function successfulAdmin(input: {
             lease_expires_at: new Date(Date.now() + 60_000).toISOString(),
         };
         if (name === 'begin_checkout_v2_guarantee_cancellation') return {
-            data: operation('processing', { ...leased, cancellation_started_at: new Date().toISOString() }), error: null,
+            data: operationRow('processing', { ...leased, cancellation_started_at: new Date().toISOString() }), error: null,
         };
         if (name === 'apply_checkout_v2_guarantee_termination' && input.terminationError) {
             return { data: null, error: input.terminationError };
         }
         if (name === 'apply_checkout_v2_guarantee_termination') return {
-            data: operation('processing', {
+            data: operationRow('processing', {
                 ...leased,
                 cancellation_started_at: new Date().toISOString(),
                 stripe_cancelled_at: args.p_stripe_cancelled_at,
@@ -195,7 +214,7 @@ function successfulAdmin(input: {
             error: null,
         };
         if (name === 'begin_checkout_v2_guarantee_refund') return {
-            data: operation('processing', {
+            data: operationRow('processing', {
                 ...leased,
                 cancellation_started_at: new Date().toISOString(),
                 stripe_cancelled_at: new Date().toISOString(),
@@ -212,7 +231,7 @@ function successfulAdmin(input: {
                     ? 'refund_pending'
                     : 'manual_review';
             return {
-                data: operation(observedStatus, {
+                data: operationRow(observedStatus, {
                     stripe_refund_id: args.p_stripe_refund_id,
                     refund_status: args.p_refund_status,
                     refund_created_at: args.p_refund_created_at,
@@ -224,10 +243,10 @@ function successfulAdmin(input: {
             };
         }
         if (name === 'mark_checkout_v2_guarantee_outcome') return {
-            data: operation(String(args.p_status), { last_error: args.p_error }), error: null,
+            data: operationRow(String(args.p_status), { last_error: args.p_error }), error: null,
         };
         if (name === 'resolve_checkout_v2_guarantee_review') return {
-            data: operation('retryable', input.operationOverrides), error: null,
+            data: operationRow('retryable'), error: null,
         };
         throw new Error(`Unexpected RPC ${name}`);
     });
@@ -237,6 +256,7 @@ function successfulAdmin(input: {
                 id: subscriptionId, student_id: actorId, package_price_id: packagePriceId,
                 checkout_intent_id: checkoutIntentId, contract_schema_version: 2, status: 'active',
                 stripe_subscription_id: 'sub_guarantee', stripe_invoice_id: 'in_guarantee',
+                ...input.subscriptionOverrides,
             },
             checkout_intents: {
                 id: checkoutIntentId, student_id: actorId, package_price_id: packagePriceId,
@@ -250,13 +270,17 @@ function successfulAdmin(input: {
                 package_price_id: packagePriceId, initial_amount_cents: 25_900,
                 initial_stripe_price_id: 'price_initial', recurring_amount_cents: 25_900,
                 recurring_stripe_price_id: 'price_recurring', recurring_interval_count: 28,
-                recurring_interval_unit: 'day', currency: 'eur', stripe_account_id: 'acct_test',
+                recurring_interval_unit: 'day', sessions_per_period: 4,
+                session_base_amount_cents: 6_475, session_remainder_units: 0,
+                currency: 'eur', stripe_account_id: 'acct_test',
                 stripe_livemode: false,
+                ...input.snapshotOverrides,
             },
             payments: {
                 id: paymentId, student_id: actorId, subscription_id: subscriptionId,
                 amount: 25_900, currency: 'eur', status: 'succeeded', stripe_invoice_id: 'in_guarantee',
                 stripe_payment_intent_id: 'pi_guarantee',
+                ...input.paymentOverrides,
             },
             checkout_v2_guarantee_operations: operation(
                 input.tableStatus ?? input.preparedStatus,
@@ -298,9 +322,13 @@ describe('Checkout V2 guarantee saga', () => {
         (admin.rpc as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
             data: [{
                 subscription_id: subscriptionId,
+                cycle_id: cycleId,
                 state: 'eligible',
                 refund_amount_cents: 19_425,
                 currency: 'eur',
+                sessions_total: 4,
+                sessions_consumed: 1,
+                sessions_refundable: 3,
                 operation_id: operationId,
                 reason: 'eligible',
             }],
@@ -310,9 +338,13 @@ describe('Checkout V2 guarantee saga', () => {
         const { getCheckoutV2GuaranteeState } = await import('../../src/lib/checkout-v2-guarantee');
         await expect(getCheckoutV2GuaranteeState({ actorId, subscriptionId })).resolves.toEqual({
             subscriptionId,
+            cycleId,
             status: 'eligible',
             refundAmountCents: 19_425,
             currency: 'eur',
+            sessionsTotal: 4,
+            sessionsConsumed: 1,
+            sessionsRefundable: 3,
             operationId,
             reason: 'eligible',
         });
@@ -333,6 +365,88 @@ describe('Checkout V2 guarantee saga', () => {
         expect(stripeMocks.refundsCreate).toHaveBeenCalledWith(expect.objectContaining({
             payment_intent: 'pi_guarantee', amount: 19_425, reason: 'requested_by_customer',
             metadata: expect.objectContaining({ paymentId }),
+        }), { idempotencyKey: `checkout-v2-guarantee-refund:${operationId}` });
+    });
+
+    it('uses the immutable renewal-cycle allocation for a six-session remainder refund', async () => {
+        const dynamicOperation = {
+            cycle_number: 2,
+            sessions_total: 6,
+            sessions_consumed: 2,
+            session_base_amount_cents: 4_517,
+            session_remainder_units: 5,
+            stripe_invoice_id: 'in_guarantee_renewal',
+            stripe_payment_intent_id: 'pi_guarantee_renewal',
+            gross_amount_cents: 27_107,
+            refund_amount_cents: 18_071,
+        };
+        const admin = successfulAdmin({
+            operationOverrides: dynamicOperation,
+            snapshotOverrides: {
+                initial_amount_cents: 27_107,
+                recurring_amount_cents: 27_107,
+                recurring_interval_count: 42,
+                sessions_per_period: 6,
+                session_base_amount_cents: 4_517,
+                session_remainder_units: 5,
+            },
+            paymentOverrides: {
+                amount: 27_107,
+                stripe_invoice_id: 'in_guarantee_renewal',
+                stripe_payment_intent_id: 'pi_guarantee_renewal',
+            },
+        });
+        const recurringItem = {
+            quantity: 1,
+            price: {
+                id: 'price_recurring', type: 'recurring', unit_amount: 27_107,
+                currency: 'eur', livemode: false, product: 'prod_guarantee',
+                recurring: { interval: 'day', interval_count: 42 },
+            },
+        };
+        const beforeCancellation = remoteSubscription('active', null, {
+            latest_invoice: 'in_guarantee_renewal',
+            items: { data: [recurringItem] },
+        });
+        const afterCancellation = remoteSubscription(
+            'canceled',
+            `checkout-v2-guarantee:${operationId}`,
+            { latest_invoice: 'in_guarantee_renewal', items: { data: [recurringItem] } },
+        );
+        const refund = exactRefund('succeeded', {
+            payment_intent: 'pi_guarantee_renewal',
+            amount: 18_071,
+        });
+        supabaseMocks.create.mockReturnValue(admin);
+        stripeMocks.subscriptionRetrieve.mockResolvedValue(beforeCancellation);
+        stripeMocks.subscriptionCancel.mockResolvedValue(afterCancellation);
+        stripeMocks.paymentIntentRetrieve.mockResolvedValue({
+            id: 'pi_guarantee_renewal', livemode: false, status: 'succeeded', amount: 27_107,
+            amount_received: 27_107, currency: 'eur', customer: 'cus_guarantee',
+        });
+        stripeMocks.invoiceRetrieve.mockResolvedValue({
+            id: 'in_guarantee_renewal', livemode: false, status: 'paid', total: 27_107,
+            amount_paid: 27_107, customer: 'cus_guarantee', currency: 'eur',
+            parent: { subscription_details: { subscription: 'sub_guarantee' } },
+        });
+        stripeMocks.invoicePaymentsList.mockResolvedValue({
+            data: [{ payment: { type: 'payment_intent', payment_intent: 'pi_guarantee_renewal' } }],
+        });
+        stripeMocks.refundsCreate.mockResolvedValue(refund);
+
+        const { runCheckoutV2Guarantee } = await import('../../src/lib/checkout-v2-guarantee');
+        const result = await runCheckoutV2Guarantee({ context: testContext(), actorId, requestId, subscriptionId });
+
+        expect(result).toMatchObject({
+            status: 'refunded',
+            refundAmountCents: 18_071,
+            sessionsTotal: 6,
+            sessionsConsumed: 2,
+            sessionsRefundable: 4,
+        });
+        expect(stripeMocks.refundsCreate).toHaveBeenCalledWith(expect.objectContaining({
+            payment_intent: 'pi_guarantee_renewal',
+            amount: 18_071,
         }), { idempotencyKey: `checkout-v2-guarantee-refund:${operationId}` });
     });
 

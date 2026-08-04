@@ -6,6 +6,12 @@ import GuaranteeOperationsManager from '../../src/components/admin/GuaranteeOper
 const operation = {
     id: '10000000-0000-4000-8000-000000000001',
     subscriptionId: '20000000-0000-4000-8000-000000000002',
+    cycleId: '60000000-0000-4000-8000-000000000006',
+    packagePriceId: '70000000-0000-4000-8000-000000000007',
+    cycleNumber: 1,
+    sessionsTotal: 4,
+    sessionsConsumed: 1,
+    sessionsRefundable: 3,
     student: { id: '30000000-0000-4000-8000-000000000003', fullName: 'Ana Alumna', email: 'ana@example.com' },
     status: 'retryable',
     grossCents: 25900,
@@ -27,6 +33,10 @@ const operation = {
 const incident = {
     sessionId: '50000000-0000-4000-8000-000000000005',
     subscriptionId: operation.subscriptionId,
+    cycleId: operation.cycleId,
+    cycleNumber: 1,
+    cycleKind: 'initial',
+    sessionIndex: 2,
     student: operation.student,
     originalStatus: 'no_show',
     scheduledAt: '2026-08-01T11:00:00.000Z',
@@ -59,6 +69,8 @@ describe('GuaranteeOperationsManager', () => {
         expect(screen.getByText(/Garantía:/)).toHaveTextContent('194,25');
         expect(screen.getByText(/Devuelto:/)).toHaveTextContent('0,00');
         expect(screen.getByText(/Neto:/)).toHaveTextContent('259,00');
+        expect(screen.getByText(/Ciclo 1/)).toHaveTextContent('1/4 consumidas');
+        expect(screen.getByText(/Reembolsables:/)).toHaveTextContent('3');
         expect(screen.getByText('Sin refund ID')).toBeInTheDocument();
         expect(screen.getByText('refund_preflight_temporarily_unavailable')).toBeInTheDocument();
     });

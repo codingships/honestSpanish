@@ -530,6 +530,10 @@ async function processGuaranteeRefund(
     const operationId = payload.operationId;
     const refundAmount = payload.refundAmount;
     const currency = payload.currency?.toLowerCase();
+    const cycleNumber = payload.cycleNumber;
+    const sessionsTotal = payload.sessionsTotal;
+    const sessionsConsumed = payload.sessionsConsumed;
+    const sessionsRefundable = payload.sessionsRefundable;
     const studentId = job.student_id;
     const subscriptionId = job.subscription_id;
     if (
@@ -540,8 +544,24 @@ async function processGuaranteeRefund(
         || (payload.userId !== undefined && payload.userId !== studentId)
         || (payload.subscriptionId !== undefined && payload.subscriptionId !== subscriptionId)
         || job.dedupe_key !== `guarantee_refund:${operationId}`
-        || refundAmount !== 19425
-        || currency !== 'eur'
+        || typeof refundAmount !== 'number'
+        || !Number.isSafeInteger(refundAmount)
+        || refundAmount <= 0
+        || !currency
+        || !/^[a-z]{3}$/.test(currency)
+        || typeof cycleNumber !== 'number'
+        || !Number.isSafeInteger(cycleNumber)
+        || cycleNumber < 1
+        || typeof sessionsTotal !== 'number'
+        || !Number.isSafeInteger(sessionsTotal)
+        || sessionsTotal < 2
+        || typeof sessionsConsumed !== 'number'
+        || !Number.isSafeInteger(sessionsConsumed)
+        || sessionsConsumed < 1
+        || sessionsConsumed >= sessionsTotal
+        || typeof sessionsRefundable !== 'number'
+        || !Number.isSafeInteger(sessionsRefundable)
+        || sessionsRefundable !== sessionsTotal - sessionsConsumed
         || payload.sendEmail !== true
     ) {
         throw new Error('guarantee_refund payload does not match the Checkout V2 contract');
@@ -549,7 +569,7 @@ async function processGuaranteeRefund(
 
     const { data: operation, error: operationError } = await supabaseAdmin
         .from('checkout_v2_guarantee_operations')
-        .select('id, actor_id, subscription_id, status, refund_amount_cents, currency, stripe_refund_id, refunded_at')
+        .select('id, actor_id, subscription_id, cycle_number, sessions_total, sessions_consumed, status, refund_amount_cents, currency, stripe_refund_id, refunded_at')
         .eq('id', operationId)
         .maybeSingle();
     if (
@@ -560,6 +580,10 @@ async function processGuaranteeRefund(
         || operation.status !== 'refunded'
         || operation.refund_amount_cents !== refundAmount
         || operation.currency !== currency
+        || operation.cycle_number !== cycleNumber
+        || operation.sessions_total !== sessionsTotal
+        || operation.sessions_consumed !== sessionsConsumed
+        || operation.sessions_total - operation.sessions_consumed !== sessionsRefundable
         || !operation.stripe_refund_id
         || !operation.refunded_at
     ) {
@@ -583,6 +607,10 @@ async function processGuaranteeRefund(
         studentName: student.full_name || student.email.split('@')[0],
         refundAmount,
         currency,
+        cycleNumber,
+        sessionsTotal,
+        sessionsConsumed,
+        sessionsRefundable,
         accountUrl: `${getSiteUrl('https://espanolhonesto.com')}/${locale}/campus/account`,
         supportUrl: `${getSiteUrl('https://espanolhonesto.com')}/${locale}/campus/support`,
     }, fulfillmentEmailOptions(supabaseAdmin, job, 'email.guarantee_refund.student'));
