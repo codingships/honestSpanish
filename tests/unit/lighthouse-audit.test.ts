@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -23,6 +24,19 @@ afterEach(() => {
 });
 
 describe('Lighthouse audit contract', () => {
+    it('measures the compiled local Worker without external integrations', () => {
+        const runner = readFileSync('scripts/ci/run-lighthouse.ts', 'utf8');
+        const server = readFileSync('tests/e2e/start-server.mjs', 'utf8');
+
+        expect(runner).toContain("E2E_SERVER_MODE: 'built'");
+        expect(server).toContain("[astroCli, 'build']");
+        expect(server).toContain("'--config', builtConfigPath");
+        expect(server).toContain("'--env-file', runtimeVarsPath");
+        expect(server).toContain("'--local'");
+        expect(server).toContain("'--show-interactive-dev-session=false'");
+        expect(server).toContain("WRANGLER_SEND_METRICS: 'false'");
+    });
+
     it('audits seven representative templates three times by default', () => {
         const config = loadConfig();
         expect(config.runCount).toBe(3);

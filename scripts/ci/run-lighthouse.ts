@@ -84,7 +84,7 @@ async function startIsolatedServer(environment: NodeJS.ProcessEnv): Promise<Chil
     let logs = '';
     const child = spawn(process.execPath, ['tests/e2e/start-server.mjs'], {
         cwd: process.cwd(),
-        env: environment,
+        env: { ...environment, E2E_SERVER_MODE: 'built' },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
     });
@@ -110,6 +110,10 @@ function routeSlug(route: string): string {
 function firstNodeSnippet(value: unknown, depth = 0): string | null {
     if (depth > 6 || value === null || typeof value !== 'object') return null;
     const record = value as Record<string, unknown>;
+    if (record.type === 'node') {
+        if (typeof record.snippet === 'string') return record.snippet.replace(/\s+/gu, ' ').slice(0, 240);
+        if (typeof record.selector === 'string') return record.selector.slice(0, 240);
+    }
     if (record.node && typeof record.node === 'object') {
         const node = record.node as Record<string, unknown>;
         if (typeof node.snippet === 'string') return node.snippet.replace(/\s+/gu, ' ').slice(0, 240);
@@ -122,13 +126,27 @@ function firstNodeSnippet(value: unknown, depth = 0): string | null {
     return null;
 }
 
+function lcpSubparts(value: unknown, depth = 0): Record<string, number> {
+    if (depth > 8 || value === null || typeof value !== 'object') return {};
+    const record = value as Record<string, unknown>;
+    const own = typeof record.subpart === 'string' && typeof record.duration === 'number'
+        ? { [record.subpart]: Math.round(record.duration) }
+        : {};
+    return Object.assign(
+        own,
+        ...Object.values(record).map((child) => lcpSubparts(child, depth + 1)),
+    );
+}
+
 function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
     const fcp = report.audits['first-contentful-paint']?.numericValue;
     const lcp = report.audits['largest-contentful-paint']?.numericValue;
     const ttfb = report.audits['server-response-time']?.numericValue;
-    const element = firstNodeSnippet(report.audits['largest-contentful-paint-element']);
+    const lcpInsight = report.audits['lcp-breakdown-insight'];
+    const element = firstNodeSnippet(lcpInsight?.details);
+    const breakdown = lcpSubparts(lcpInsight?.details);
     process.stdout.write(
-        `[lighthouse] diagnostic ${route} FCP=${String(Math.round(fcp ?? 0))}ms LCP=${String(Math.round(lcp ?? 0))}ms TTFB=${String(Math.round(ttfb ?? 0))}ms element=${JSON.stringify(element ?? 'unknown')}\n`,
+        `[lighthouse] diagnostic ${route} FCP=${String(Math.round(fcp ?? 0))}ms LCP=${String(Math.round(lcp ?? 0))}ms TTFB=${String(Math.round(ttfb ?? 0))}ms breakdown=${JSON.stringify(breakdown)} element=${JSON.stringify(element ?? 'unknown')}\n`,
     );
 }
 
@@ -248,6 +266,7 @@ async function run(): Promise<void> {
             generatedAt: new Date().toISOString(),
             profile: configuration.profile,
             runCount: configuration.runCount,
+            runtime: configuration.localServer ? 'compiled-cloudflare-worker' : 'canonical-staging',
             scope: configuration.scope,
             sourceSha: process.env.GITHUB_SHA || 'local',
         };

@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 type AuditValue = {
+    details?: unknown;
     numericValue?: number;
     score?: number | null;
 };
