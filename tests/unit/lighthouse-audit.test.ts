@@ -43,9 +43,8 @@ describe('Lighthouse audit contract', () => {
 
     it('updates the test banner offset without a CSP-blocked inline style', () => {
         const banner = readFileSync('src/components/EnvironmentBanner.astro', 'utf8');
-        const layout = readFileSync('src/layouts/BaseLayout.astro', 'utf8');
 
-        expect(layout).toContain('data-environment-banner-offset');
+        expect(banner).toContain('findOffsetRule(stylesheet.cssRules)');
         expect(banner).toContain("offsetRule?.style.setProperty('--environment-banner-height'");
         expect(banner).not.toContain("document.documentElement.style.setProperty('--environment-banner-height'");
     });
@@ -64,8 +63,8 @@ describe('Lighthouse audit contract', () => {
         const config = loadConfig({ LHCI_SCOPE: 'smoke', LHCI_RUNS: '1' });
         expect(config.runCount).toBe(1);
         expect(config.routes).toEqual([
-            '/es',
             '/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+            '/es',
         ]);
         expect(config.floors.performanceMedian).toBe(65);
         expect(config.floors.lcpMedianMs).toBe(7_000);

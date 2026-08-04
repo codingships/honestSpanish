@@ -185,9 +185,73 @@ function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
     );
 }
 
+async function writeRouteFailureDiagnostic(
+    route: string,
+    url: string,
+    outputBase: string,
+    environment: NodeJS.ProcessEnv,
+): Promise<void> {
+    const diagnostic: Record<string, unknown> = { route, url };
+
+    try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        const body = await response.text();
+        diagnostic.fetch = {
+            bodyBytes: Buffer.byteLength(body),
+            contentType: response.headers.get('content-type'),
+            hasBody: /<body(?:\s|>)/iu.test(body),
+            hasMain: /<main(?:\s|>)/iu.test(body),
+            status: response.status,
+        };
+    } catch (error) {
+        diagnostic.fetch = { error: error instanceof Error ? error.message : String(error) };
+    }
+
+    let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+    try {
+        browser = await chromium.launch({
+            args: configuration.settings.chromeFlags.filter((flag) => flag !== '--headless'),
+            executablePath: environment.CHROME_PATH,
+            headless: true,
+        });
+        const page = await browser.newPage({ viewport: { height: 823, width: 412 } });
+        const consoleErrors: string[] = [];
+        page.on('console', (message) => {
+            if (message.type() === 'error') consoleErrors.push(message.text().slice(0, 500));
+        });
+        const response = await page.goto(url, { timeout: 30_000, waitUntil: 'domcontentloaded' });
+        await page.waitForTimeout(500);
+        diagnostic.browser = await page.evaluate(() => ({
+            bodyDisplay: getComputedStyle(document.body).display,
+            bodyOpacity: getComputedStyle(document.body).opacity,
+            bodyTextLength: document.body.innerText.length,
+            bodyVisibility: getComputedStyle(document.body).visibility,
+            documentHeight: document.documentElement.scrollHeight,
+            paintEntries: performance.getEntriesByType('paint').map((entry) => ({
+                duration: Math.round(entry.duration),
+                name: entry.name,
+                startTime: Math.round(entry.startTime),
+            })),
+            readyState: document.readyState,
+            title: document.title,
+        }));
+        diagnostic.browserStatus = response?.status() ?? null;
+        diagnostic.consoleErrors = consoleErrors;
+        await page.screenshot({ fullPage: false, path: `${outputBase}.diagnostic.png` });
+    } catch (error) {
+        diagnostic.browser = { error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        await browser?.close();
+    }
+
+    writeFileSync(`${outputBase}.diagnostic.json`, `${JSON.stringify(diagnostic, null, 2)}\n`, 'utf8');
+    process.stdout.write(`[lighthouse] failure diagnostic ${JSON.stringify(diagnostic)}\n`);
+}
+
 async function collectReports(
     outputDirectory: string,
     browser: AuditBrowser,
+    environment: NodeJS.ProcessEnv,
 ): Promise<LighthouseResult[]> {
     const reports: LighthouseResult[] = [];
     for (const route of configuration.routes) {
@@ -213,6 +277,7 @@ async function collectReports(
             writeFileSync(`${outputBase}.report.json`, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
             writeFileSync(`${outputBase}.report.html`, generateReport(result.lhr, 'html'), 'utf8');
             if (result.lhr.runtimeError) {
+                await writeRouteFailureDiagnostic(route, url, outputBase, environment);
                 throw new Error(
                     `Lighthouse runtime error for ${route}: ${result.lhr.runtimeError.code} ${result.lhr.runtimeError.message}`,
                 );
@@ -288,7 +353,7 @@ async function run(): Promise<void> {
     try {
         if (configuration.localServer) server = await startIsolatedServer(environment);
         browser = await startAuditBrowser(environment);
-        const reports = await collectReports(outputDirectory, browser);
+        const reports = await collectReports(outputDirectory, browser, environment);
         const metadata = {
             baseOrigin: configuration.baseOrigin,
             chromePathSource: process.env.CHROME_PATH ? 'environment' : 'playwright-lockfile',

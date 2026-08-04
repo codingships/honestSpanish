@@ -11,8 +11,8 @@ const fullRoutes = [
     '/es/legal/privacidad',
 ];
 const smokeRoutes = [
-    '/es',
     '/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+    '/es',
 ];
 
 function exactEnum(name, allowed, fallback) {

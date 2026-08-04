@@ -115,9 +115,6 @@ const getAlternateUrl = (targetLang: PublicLang): string => {
     {isIndexableSurface && rssPath && (
       <link rel="alternate" type="application/rss+xml" title={brandName + ' Blog'} href={absolutePublicUrl(rssPath)} />
     )}
-    <style is:inline data-environment-banner-offset>
-      :root { --environment-banner-height: 0px; }
-    </style>
     <slot name="head" />
 
   </head>
