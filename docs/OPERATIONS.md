@@ -31,6 +31,53 @@ Las skills permanecen instaladas porque se cargan de forma progresiva solo cuand
 
 Una tarea ya abierta puede conservar el catálogo anterior. La comprobación funcional consiste en abrir una tarea nueva en este repositorio, confirmar por lectura las identidades y modos permitidos sin mostrar secretos, y abrir otra tarea en un proyecto distinto para comprobar que su catálogo global no cambió. El rollback es `git revert` del commit del perfil y una tarea nueva.
 
+## Inputs humanos del primer lanzamiento
+
+### Identidad legal provisional
+
+La web usa deliberadamente datos inequívocos de prueba mientras no exista una revisión humana final. La fuente única es `src/lib/legal-identity.ts` y, a fecha de este registro, contiene:
+
+- modo: `example`;
+- titular: `EJEMPLO — titular pendiente de confirmar`;
+- NIF/CIF: `EJEMPLO — NIF/CIF pendiente de confirmar`;
+- domicilio legal: `EJEMPLO — domicilio pendiente de confirmar, Madrid, España`;
+- domicilio abreviado del pie: `EJEMPLO — domicilio pendiente de confirmar`;
+- localidad del pie: `Madrid, España · NO VÁLIDO PARA PRODUCCIÓN`;
+- email: `alejandro@espanolhonesto.com`;
+- actividad: `Servicios de enseñanza de español para extranjeros`.
+
+No se sustituyen por un NIF o domicilio ficticios verosímiles: deben seguir siendo reconocibles como prueba. Mientras quede cualquiera de esos marcadores, health y checkout de producción fallan cerrados.
+
+Checklist del propietario para reemplazarlos:
+
+1. Obtener del asesor o responsable legal el nombre o razón social, NIF/CIF, domicilio, email público y descripción fiscal exactos.
+2. Sustituir los siete campos de `legalIdentity` y revisar su presentación en pie, aviso legal, privacidad y términos en ES, EN y RU.
+3. Buscar y eliminar todos los marcadores `EJEMPLO`, `pendiente de confirmar` y `NO VÁLIDO PARA PRODUCCIÓN`.
+4. Cambiar `LEGAL_IDENTITY_MODE` a `verified` únicamente después de esa revisión humana.
+5. Ejecutar las pruebas focales de identidad, checkout y health; abrir PR y exigir `quality-gate` verde.
+6. Desplegar el SHA exacto en staging y comprobar allí que `legalIdentityReady` es verdadero y que el checkout sigue cerrado por el gate propio de staging.
+7. Activar producción solo mediante una autorización independiente que nombre SHA y recursos live.
+
+### Inventario inicial de cinco plazas
+
+Una plaza no es un candidato ni un alumno. Es una franja semanal real que una persona todavía desconocida podrá comprar viendo antes profesor, primera fecha, las cuatro sesiones y zona horaria. El inventario inicial acordado son tres plazas de Álex y dos de Irene; no hay que tener cinco interesados para prepararlo.
+
+Se configura en `/{lang}/campus/admin/teachers` —por ejemplo, `/es/campus/admin/teachers`— y siempre en `Europe/Madrid`:
+
+1. Confirmar que Álex e Irene ya tienen una cuenta con email verificado; la pantalla activa cuentas existentes, no las crea.
+2. Activar cada perfil como profesor y registrar el vínculo `founder` con fecha efectiva y motivo.
+3. Declarar su disponibilidad semanal real. Esto todavía no pone nada a la venta.
+4. Crear tres borradores para Álex y dos para Irene indicando primera fecha y hora semanal. La pantalla previsualiza las cuatro clases de cada plaza en los días 0, 7, 14 y 21.
+5. Revisar que profesor, fechas y horario sean asumibles; publicar solo entonces. Una plaza publicada queda disponible para cualquier comprador y puede pausarse mientras no tenga una reserva temporal.
+
+Si aún no se conocen las horas reales, se dejan en borrador o no se crean. No se inventa disponibilidad para completar el número cinco. Las plazas vendidas conservan su contrato histórico; para ampliar o cambiar la oferta futura se publican plazas nuevas.
+
+### Soporte del piloto
+
+Para los primeros alumnos basta un único canal por email: `alejandro@espanolhonesto.com`, complementado por los tickets internos visibles en `/{lang}/campus/admin/support`. No se promete teléfono, WhatsApp, atención 24/7 ni un SLA público.
+
+La responsabilidad puede rotar y no necesita nombres fijos: quien esté pendiente de la bandeja es la persona de guardia. Antes de cobrar debe comprobarse que la bandeja y las alertas se ven desde el móvil, que otra persona puede asumirla si la guardia deja de estar disponible y que se revisan al menos una vez al día y antes de las clases próximas. Como objetivo interno, una consulta normal se acusa en el siguiente día laborable y una incidencia que afecte al siguiente cobro o clase se revisa el mismo día. Este objetivo organiza el trabajo; no se publica como promesa contractual.
+
 ## Staging
 
 Staging solo se alinea con un SHA integrado de `main` que tenga CI verde:
@@ -77,12 +124,12 @@ Antes de abrir checkout en producción deben quedar acreditados, mediante un ún
 
 1. recepción en `honestspanish/espanol-honesto-astro` con `environment=staging` y el `request_id` esperado;
 2. una regla de alerta que llegue al canal operativo acordado;
-3. titular humano y suplente capaces de localizar el mismo identificador en Sentry/Cloudflare y seguir el runbook del flujo afectado;
+3. una persona de guardia capaz de localizar el mismo identificador en Sentry/Cloudflare y continuidad de acceso resuelta si deja de estar disponible;
 4. ausencia del email, query string, cuerpo, cookie, cabecera de autorización y mensaje bruto usados como señuelos de privacidad.
 
 La ausencia de incidencias en Sentry no acredita la conexión. Tampoco se considera una alerta accionable hasta que una persona la reciba. Si el diagnóstico exige reproducir un efecto de Stripe, email, Calendar o base de datos, se detiene el triaje y se abre una tarea sintética con recurso, identidad y limpieza explícitos.
 
-Un preflight de solo lectura del 4 de agosto de 2026 confirmó dos reglas de incidencias habilitadas y limitadas a `environment=production`: una para errores nuevos o regresiones y otra para diez eventos en cinco minutos. Ambas envían email al operador canónico `alejandro@espanolhonesto.com`, no habían disparado y Sentry devolvió cero eventos de staging en los 30 días anteriores. Esto acredita existencia y destino configurado, pero no recepción ni capacidad de respuesta; falta la prueba sintética autorizada y un suplente humano.
+Un preflight de solo lectura del 4 de agosto de 2026 confirmó dos reglas de incidencias habilitadas y limitadas a `environment=production`: una para errores nuevos o regresiones y otra para diez eventos en cinco minutos. Ambas envían email al operador canónico `alejandro@espanolhonesto.com`, no habían disparado y Sentry devolvió cero eventos de staging en los 30 días anteriores. Esto acredita existencia y destino configurado, pero no recepción ni capacidad de respuesta; falta la prueba sintética autorizada y confirmar la continuidad de acceso a esa bandeja.
 
 ## Capacidad y recuperación
 
@@ -92,7 +139,7 @@ Mil alumnos activos no equivalen a mil peticiones simultáneas y las videollamad
 
 El ensayo completo solo se ejecuta como diagnóstico autorizado sobre staging, con identidades y filas sintéticas que puedan limpiarse y sin Stripe, Google o correo salvo que la tarea los nombre. Antes se obtiene una línea base de un solo usuario para cada ruta. Se considera aceptable si no aparecen 5xx, límites de Worker, agotamiento de base de datos ni crecimiento residual de Queue/DLQ; las lecturas mantienen p95 no superior al doble de su línea base y las acciones conservan sus invariantes e idempotencia. Se observan por separado latencia, errores, CPU del Worker, consultas/CPU/memoria de Supabase y profundidad de cola. Una prueba pública o local nunca se extrapola a campus.
 
-El objetivo provisional para los primeros alumnos es RPO de 24 horas y RTO de 4 horas. Un preflight de solo lectura del 4 de agosto de 2026 confirmó que Supabase staging no tenía PITR ni copias disponibles. Antes de almacenar datos reales, el proyecto canónico debe disponer como mínimo de copia diaria —[Supabase la incluye en planes Pro o superiores](https://supabase.com/docs/guides/platform/backups)— o una copia lógica externa equivalente, y debe restaurarse una copia en un destino inocuo verificando migraciones, roles, Auth, objetos de Storage y configuración que no formen parte del dump. PITR solo se justifica cuando perder hasta 24 horas ya no sea reconstruible de forma segura; no se añade por anticipación.
+El objetivo provisional para los primeros alumnos es RPO de 24 horas y RTO de 4 horas. Un preflight de solo lectura del 4 de agosto de 2026 confirmó que Supabase staging no tenía PITR ni copias disponibles. Desarrollo y staging pueden continuar así, pero no se abre producción ni se almacenan datos reales sin recuperación mínima. Antes de cobrar, el proyecto canónico debe disponer como mínimo de copia diaria —[Supabase la incluye en planes Pro o superiores](https://supabase.com/docs/guides/platform/backups)— o una copia lógica externa equivalente, y debe restaurarse una copia en un destino inocuo verificando migraciones, roles, Auth, objetos de Storage y configuración que no formen parte del dump. PITR solo se justifica cuando perder hasta 24 horas ya no sea reconstruible de forma segura; no se añade por anticipación.
 
 La aplicación no necesita Kubernetes, una caché nueva ni separar el monolito para este escenario. [Cloudflare distribuye las peticiones del Worker sin un límite general de peticiones por segundo](https://developers.cloudflare.com/workers/platform/limits/) y [Supabase permite ampliar compute](https://supabase.com/docs/guides/platform/compute-and-disk) cuando la medición lo exija. Se escala una restricción observada, no el número nominal de alumnos.
 
