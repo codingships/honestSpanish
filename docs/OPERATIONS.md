@@ -114,6 +114,14 @@ El rollback es de mejor esfuerzo: una cancelación forzada, caída del runner, r
 
 Un rollback de Workers no revierte base de datos, pagos, emails ni documentos. Por eso el smoke estándar es inocuo y una tarea con efectos reales debe definir antes su recuperación específica.
 
+## Rendimiento y Lighthouse
+
+Las PR que modifican páginas, layouts, estilos, fuentes, imágenes o configuración web ejecutan un smoke Lighthouse móvil de una sola pasada sobre la portada y un artículo. No se añade a cambios de datos, documentación o backend que no afecten la superficie pública. Su función es detectar regresiones gruesas, no certificar rendimiento ni perseguir una puntuación 100.
+
+Antes de un candidato de lanzamiento se despacha manualmente `Performance audit`: siete plantillas representativas, tres pasadas reproducibles y perfiles móvil y escritorio. El target `candidate` mide el SHA del workflow en el runtime público aislado; `staging` solo se usa después de que el despliegue haya acreditado ese mismo SHA y exige introducirlo completo. Cada ejecución conserva JSON, HTML y un resumen con mediana y peor resultado durante 30 días.
+
+Los mínimos del workflow son suelos de regresión iniciales, no objetivos de negocio. El objetivo de campo, cuando haya tráfico suficiente, sigue siendo LCP ≤ 2,5 s, INP ≤ 200 ms y CLS ≤ 0,1 al p75. Staging y test son deliberadamente `noindex`; `is-crawlable` no bloquea allí y la indexabilidad de producción se verifica por separado en el gate live.
+
 ## Triaje y alertas
 
 Cada respuesta del Worker web incluye un `X-Request-ID` nuevo, generado por el servidor. Soporte debe pedirlo junto con la hora aproximada y la acción realizada; nunca debe pedir contraseñas, cookies, enlaces de sesión ni datos de tarjeta. Los fallos controlados de campus, checkout y webhooks emiten `operational_failure` con `surface`, `code` y ese identificador. El evento Sentry elimina usuario, cuerpo, cookies, query string, cabeceras y breadcrumbs de consola antes de salir; no se pega después el error bruto en notas o tickets.
@@ -129,13 +137,7 @@ Antes de abrir checkout en producción deben quedar acreditados, mediante un ún
 
 La ausencia de incidencias en Sentry no acredita la conexión. Tampoco se considera una alerta accionable hasta que una persona la reciba. Si el diagnóstico exige reproducir un efecto de Stripe, email, Calendar o base de datos, se detiene el triaje y se abre una tarea sintética con recurso, identidad y limpieza explícitos.
 
-Un preflight de solo lectura del 4 de agosto de 2026 confirmó dos reglas de incidencias habilitadas y limitadas a `environment=production`: una para errores nuevos o regresiones y otra para diez eventos en cinco minutos. Ambas envían email al operador canónico `alejandro@espanolhonesto.com`, no habían disparado y Sentry devolvió cero eventos de staging en los 30 días anteriores. Esto acredita existencia y destino configurado, pero no recepción ni capacidad de respuesta; falta la prueba sintética autorizada y confirmar la continuidad de acceso a esa bandeja.
-
-## Capacidad y recuperación
-
-Mil alumnos activos no equivalen a mil peticiones simultáneas y las videollamadas ocurren en Google Meet, no atraviesan el Worker web. La hipótesis operativa que debe medirse antes de prometer esa escala es un pico de 50 personas concurrentes: alumnado consultando clases y cuenta, profesorado consultando agenda y administración atendiendo operaciones, mientras 20–30 clases pueden estar en curso fuera de la plataforma.
-
-`pnpm run diagnose:capacity:local` ejecuta deliberadamente solo un ensayo del runtime público aislado: 1.000 lecturas, concurrencia 30, credenciales eliminadas y proveedores desactivados. Rechaza cualquier destino distinto de `http://localhost:4321` y no forma parte de CI. Dos ejecuciones del 4 de agosto de 2026 produjeron 2.000/2.000 respuestas correctas, sin IDs de correlación ausentes; el peor p95 fue 562 ms, el peor p99 623 ms y el rendimiento mínimo 97,8 peticiones/s. Esto detecta regresiones gruesas del código; no acredita Cloudflare, Supabase, campus autenticado, checkout ni fulfillment.
+Un preflight de solo lectura del 4 de agosto de 2026 confirmó dos reglas de incidencias habilitadas y limitadas a `environment=production`: una para errores nuevos o regresiones y otra para diez eventos en cinco minutos. Ambas envían email al operador canónico `alejandro@espanolhonesto.com`, no habían disparado y Sentry devolvió cero eventos de staging en los 30 días anteriores. Esto acredita existencia y destino configurado, pero no recepción ni capacidad de re۽��G����ƭy�a parte de CI. Dos ejecuciones del 4 de agosto de 2026 produjeron 2.000/2.000 respuestas correctas, sin IDs de correlación ausentes; el peor p95 fue 562 ms, el peor p99 623 ms y el rendimiento mínimo 97,8 peticiones/s. Esto detecta regresiones gruesas del código; no acredita Cloudflare, Supabase, campus autenticado, checkout ni fulfillment.
 
 El ensayo completo solo se ejecuta como diagnóstico autorizado sobre staging, con identidades y filas sintéticas que puedan limpiarse y sin Stripe, Google o correo salvo que la tarea los nombre. Antes se obtiene una línea base de un solo usuario para cada ruta. Se considera aceptable si no aparecen 5xx, límites de Worker, agotamiento de base de datos ni crecimiento residual de Queue/DLQ; las lecturas mantienen p95 no superior al doble de su línea base y las acciones conservan sus invariantes e idempotencia. Se observan por separado latencia, errores, CPU del Worker, consultas/CPU/memoria de Supabase y profundidad de cola. Una prueba pública o local nunca se extrapola a campus.
 

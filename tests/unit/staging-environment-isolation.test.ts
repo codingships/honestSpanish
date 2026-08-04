@@ -34,6 +34,10 @@ describe('staging environment isolation', () => {
         expect(astroConfig).toContain('preTransformRequests: true');
         expect(e2eServer).toContain("spawnSync(process.execPath, [astroCli, 'sync']");
         expect(e2eServer).toContain("[astroCli, 'dev']");
+        expect(e2eServer).toContain("resolve(cwd, '.wrangler', 'e2e-isolated')");
+        expect(e2eServer).toContain('XDG_CACHE_HOME');
+        expect(e2eServer).toContain('XDG_CONFIG_HOME');
+        expect(e2eServer).toContain('env: childEnvironment');
         expect(e2eServer).not.toContain("[astroCli, 'dev', '--force']");
         expect(playwrightConfig).toContain("url: 'http://localhost:4321/api/e2e-runtime/environment'");
     });
