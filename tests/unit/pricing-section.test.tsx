@@ -73,7 +73,7 @@ describe('PricingSection', () => {
         expect(screen.getByText('50 minutos por clase')).toBeInTheDocument();
         expect(screen.getByText('Renovación automática cada 28 días')).toBeInTheDocument();
         expect(screen.getByText('Profesor y franja semanal identificados antes de pagar')).toBeInTheDocument();
-        expect(screen.getByText('Garantía tras la primera clase y antes de la segunda')).toBeInTheDocument();
+        expect(screen.getByText('Garantía proporcional sobre las clases no consumidas')).toBeInTheDocument();
         expect(screen.getByTestId('select-plan-individual_4x50_28d')).toBeEnabled();
         expect(screen.getByTestId('select-plan-individual_4x50_28d')).toHaveTextContent(translations.modal.viewAvailability!);
     });

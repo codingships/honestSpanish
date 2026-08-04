@@ -26,6 +26,26 @@ const anchorContractPatterns: Record<SupportedLang, RegExp[]> = {
         /дата продления фиксируется с началом первого занятия/iu,
     ],
 };
+const guaranteeContractPatterns: Record<SupportedLang, RegExp[]> = {
+    es: [
+        /cualquier ciclo pagado/iu,
+        /valor contractual de todas las clases no consumidas/iu,
+        /antes de comenzar la siguiente/iu,
+        /cancela las renovaciones futuras/iu,
+    ],
+    en: [
+        /any paid cycle/iu,
+        /contractual value of every unconsumed class/iu,
+        /before the next class begins/iu,
+        /cancels future renewals/iu,
+    ],
+    ru: [
+        /любом оплаченном цикле/iu,
+        /договорной стоимости всех неиспользованных занятий/iu,
+        /до начала следующего/iu,
+        /отменяет продления/iu,
+    ],
+};
 
 function faqText(lang: SupportedLang): string {
     return ui[lang].faq.items
@@ -46,13 +66,17 @@ describe('public contract truth', () => {
         expect(ui[lang].faq.items).toHaveLength(6);
 
         const text = faqText(lang);
-        for (const fragment of ['4', '50', '259', '28', '24', '194']) {
+        for (const fragment of ['4', '50', '259', '28', '24']) {
             expect(text).toContain(fragment);
         }
         for (const pattern of anchorContractPatterns[lang]) {
             expect(text).toMatch(pattern);
         }
+        for (const pattern of guaranteeContractPatterns[lang]) {
+            expect(text).toMatch(pattern);
+        }
 
+        expect(text).not.toContain('194');
         expect(text).not.toMatch(/\bA2\b/u);
         expect(text).not.toMatch(/change plans?|cambiar de plan|сменить план/iu);
         expect(text).not.toMatch(/classes? for compan|clases para empresas|уроки для компаний/iu);
