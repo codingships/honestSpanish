@@ -1,8 +1,13 @@
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import lighthouse, {
+    desktopConfig,
+    generateReport,
+    type Flags as LighthouseFlags,
+} from 'lighthouse/core/index.js';
 import { chromium } from 'playwright';
 import { configurePlaywrightEnvironment } from '../../tests/e2e/environment-guard';
 import {
@@ -23,6 +28,7 @@ export type AuditConfiguration = {
         tbtMedianMs: number;
     };
     localServer: boolean;
+    localPaintProbeRoutes: string[];
     outputDirectory: string;
     profile: 'mobile' | 'desktop';
     routes: string[];
@@ -39,8 +45,21 @@ export type AuditConfiguration = {
 const require = createRequire(import.meta.url);
 const configuration = require(resolve('lighthouse.config.cjs')) as AuditConfiguration;
 const lighthousePackagePath = require.resolve('lighthouse/package.json');
-const lighthouseCliPath = resolve(dirname(lighthousePackagePath), 'cli', 'index.js');
 const runtimeProbe = 'http://localhost:4321/api/e2e-runtime/environment';
+
+type AuditBrowser = {
+    kill: () => void;
+    port: number;
+};
+
+type ChromeLauncher = {
+    launch: (options: {
+        chromeFlags: string[];
+        chromePath: string;
+        envVars: NodeJS.ProcessEnv;
+        logLevel: 'error';
+    }) => Promise<AuditBrowser>;
+};
 
 function safeOutputDirectory(path: string): string {
     const root = resolve('test-results', 'lighthouse');
@@ -84,7 +103,7 @@ async function startIsolatedServer(environment: NodeJS.ProcessEnv): Promise<Chil
     let logs = '';
     const child = spawn(process.execPath, ['tests/e2e/start-server.mjs'], {
         cwd: process.cwd(),
-        env: environment,
+        env: { ...environment, E2E_SERVER_MODE: 'built' },
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
     });
@@ -103,6 +122,23 @@ async function stopServer(child: ChildProcess | null): Promise<void> {
     ]);
 }
 
+async function startAuditBrowser(environment: NodeJS.ProcessEnv): Promise<AuditBrowser> {
+    const chromePath = environment.CHROME_PATH?.trim();
+    if (!chromePath) throw new Error('The pinned Lighthouse browser path is missing.');
+
+    // Lighthouse owns chrome-launcher. Resolve that exact dependency from the
+    // pinned Lighthouse package rather than adding a second browser launcher.
+    const lighthouseRequire = createRequire(lighthousePackagePath);
+    const chromeLauncherPath = lighthouseRequire.resolve('chrome-launcher');
+    const chromeLauncher = await import(pathToFileURL(chromeLauncherPath).href) as ChromeLauncher;
+    return chromeLauncher.launch({
+        chromeFlags: configuration.settings.chromeFlags,
+        chromePath,
+        envVars: environment,
+        logLevel: 'error',
+    });
+}
+
 function routeSlug(route: string): string {
     return route.replace(/^\/+|\/+$/gu, '').replace(/[^a-z0-9]+/giu, '-') || 'root';
 }
@@ -110,6 +146,10 @@ function routeSlug(route: string): string {
 function firstNodeSnippet(value: unknown, depth = 0): string | null {
     if (depth > 6 || value === null || typeof value !== 'object') return null;
     const record = value as Record<string, unknown>;
+    if (record.type === 'node') {
+        if (typeof record.snippet === 'string') return record.snippet.replace(/\s+/gu, ' ').slice(0, 240);
+        if (typeof record.selector === 'string') return record.selector.slice(0, 240);
+    }
     if (record.node && typeof record.node === 'object') {
         const node = record.node as Record<string, unknown>;
         if (typeof node.snippet === 'string') return node.snippet.replace(/\s+/gu, ' ').slice(0, 240);
@@ -122,35 +162,133 @@ function firstNodeSnippet(value: unknown, depth = 0): string | null {
     return null;
 }
 
+function lcpSubparts(value: unknown, depth = 0): Record<string, number> {
+    if (depth > 8 || value === null || typeof value !== 'object') return {};
+    const record = value as Record<string, unknown>;
+    const own = typeof record.subpart === 'string' && typeof record.duration === 'number'
+        ? { [record.subpart]: Math.round(record.duration) }
+        : {};
+    return Object.assign(
+        own,
+        ...Object.values(record).map((child) => lcpSubparts(child, depth + 1)),
+    );
+}
+
+function consoleErrorSnippets(report: LighthouseResult): string[] {
+    const details = report.audits['errors-in-console']?.details;
+    if (details === null || typeof details !== 'object') return [];
+    const items = (details as Record<string, unknown>).items;
+    if (!Array.isArray(items)) return [];
+    return items.slice(0, 5).map((item) => JSON.stringify(item).slice(0, 600));
+}
+
 function writeRouteDiagnostic(route: string, report: LighthouseResult): void {
     const fcp = report.audits['first-contentful-paint']?.numericValue;
     const lcp = report.audits['largest-contentful-paint']?.numericValue;
     const ttfb = report.audits['server-response-time']?.numericValue;
-    const element = firstNodeSnippet(report.audits['largest-contentful-paint-element']);
+    const lcpInsight = report.audits['lcp-breakdown-insight'];
+    const element = firstNodeSnippet(lcpInsight?.details);
+    const breakdown = lcpSubparts(lcpInsight?.details);
+    const consoleErrors = consoleErrorSnippets(report);
     process.stdout.write(
-        `[lighthouse] diagnostic ${route} FCP=${String(Math.round(fcp ?? 0))}ms LCP=${String(Math.round(lcp ?? 0))}ms TTFB=${String(Math.round(ttfb ?? 0))}ms element=${JSON.stringify(element ?? 'unknown')}\n`,
+        `[lighthouse] diagnostic ${route} FCP=${String(Math.round(fcp ?? 0))}ms LCP=${String(Math.round(lcp ?? 0))}ms TTFB=${String(Math.round(ttfb ?? 0))}ms breakdown=${JSON.stringify(breakdown)} element=${JSON.stringify(element ?? 'unknown')} consoleErrors=${JSON.stringify(consoleErrors)}\n`,
     );
 }
 
-async function runCommand(arguments_: string[], environment: NodeJS.ProcessEnv): Promise<void> {
-    let output = '';
-    const child = spawn(process.execPath, arguments_, {
-        cwd: process.cwd(),
-        env: environment,
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-    });
-    child.stdout?.on('data', (chunk: Buffer) => { output = boundedLog(output, chunk); });
-    child.stderr?.on('data', (chunk: Buffer) => { output = boundedLog(output, chunk); });
-    const exitCode = await new Promise<number>((resolveExit, reject) => {
-        child.on('error', reject);
-        child.on('exit', (code: number | null) => resolveExit(code ?? 1));
-    });
-    if (exitCode !== 0) throw new Error(`Lighthouse exited with ${String(exitCode)}.\n${output}`);
+async function writeRoutePaintDiagnostic(
+    route: string,
+    url: string,
+    outputBase: string,
+    environment: NodeJS.ProcessEnv,
+): Promise<Record<string, unknown>> {
+    const diagnostic: Record<string, unknown> = { route, url };
+
+    try {
+        const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+        const body = await response.text();
+        diagnostic.fetch = {
+            bodyBytes: Buffer.byteLength(body),
+            contentType: response.headers.get('content-type'),
+            hasBody: /<body(?:\s|>)/iu.test(body),
+            hasMain: /<main(?:\s|>)/iu.test(body),
+            status: response.status,
+        };
+    } catch (error) {
+        diagnostic.fetch = { error: error instanceof Error ? error.message : String(error) };
+    }
+
+    let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+    try {
+        browser = await chromium.launch({
+            args: configuration.settings.chromeFlags.filter((flag) => flag !== '--headless'),
+            executablePath: environment.CHROME_PATH,
+            headless: true,
+        });
+        const page = await browser.newPage({ viewport: { height: 823, width: 412 } });
+        const consoleErrors: string[] = [];
+        page.on('console', (message) => {
+            if (message.type() === 'error') consoleErrors.push(message.text().slice(0, 500));
+        });
+        const response = await page.goto(url, { timeout: 30_000, waitUntil: 'domcontentloaded' });
+        await page.waitForTimeout(500);
+        diagnostic.browser = await page.evaluate(() => ({
+            bodyDisplay: getComputedStyle(document.body).display,
+            bodyOpacity: getComputedStyle(document.body).opacity,
+            bodyTextLength: document.body.innerText.length,
+            bodyVisibility: getComputedStyle(document.body).visibility,
+            documentHeight: document.documentElement.scrollHeight,
+            paintEntries: performance.getEntriesByType('paint').map((entry) => ({
+                duration: Math.round(entry.duration),
+                name: entry.name,
+                startTime: Math.round(entry.startTime),
+            })),
+            readyState: document.readyState,
+            title: document.title,
+        }));
+        diagnostic.browserStatus = response?.status() ?? null;
+        diagnostic.consoleErrors = consoleErrors;
+        await page.screenshot({ fullPage: false, path: `${outputBase}.diagnostic.png` });
+    } catch (error) {
+        diagnostic.browser = { error: error instanceof Error ? error.message : String(error) };
+    } finally {
+        await browser?.close();
+    }
+
+    writeFileSync(`${outputBase}.diagnostic.json`, `${JSON.stringify(diagnostic, null, 2)}\n`, 'utf8');
+    process.stdout.write(`[lighthouse] paint diagnostic ${JSON.stringify(diagnostic)}\n`);
+    return diagnostic;
+}
+
+function hasVerifiedFirstPaint(diagnostic: Record<string, unknown>): boolean {
+    const fetchResult = diagnostic.fetch as Record<string, unknown> | undefined;
+    const browserResult = diagnostic.browser as Record<string, unknown> | undefined;
+    const paintEntries = browserResult?.paintEntries;
+    const hasFirstContentfulPaint = Array.isArray(paintEntries) && paintEntries.some((entry) => (
+        entry !== null
+        && typeof entry === 'object'
+        && (entry as Record<string, unknown>).name === 'first-contentful-paint'
+        && typeof (entry as Record<string, unknown>).startTime === 'number'
+    ));
+
+    return fetchResult?.status === 200
+        && typeof fetchResult.contentType === 'string'
+        && fetchResult.contentType.startsWith('text/html')
+        && fetchResult.hasBody === true
+        && fetchResult.hasMain === true
+        && diagnostic.browserStatus === 200
+        && browserResult?.bodyDisplay !== 'none'
+        && browserResult?.bodyOpacity !== '0'
+        && browserResult?.bodyVisibility === 'visible'
+        && typeof browserResult.bodyTextLength === 'number'
+        && browserResult.bodyTextLength > 0
+        && hasFirstContentfulPaint
+        && Array.isArray(diagnostic.consoleErrors)
+        && diagnostic.consoleErrors.length === 0;
 }
 
 async function collectReports(
     outputDirectory: string,
+    browser: AuditBrowser,
     environment: NodeJS.ProcessEnv,
 ): Promise<LighthouseResult[]> {
     const reports: LighthouseResult[] = [];
@@ -158,24 +296,48 @@ async function collectReports(
         const url = `${configuration.baseOrigin}${route}`;
         for (let run = 1; run <= configuration.runCount; run += 1) {
             const outputBase = join(outputDirectory, `${routeSlug(route)}-run-${String(run)}`);
+            if (configuration.localServer && configuration.localPaintProbeRoutes.includes(route)) {
+                process.stdout.write(
+                    `[lighthouse] browser paint probe ${route} run ${String(run)}/${String(configuration.runCount)}\n`,
+                );
+                const diagnostic = await writeRoutePaintDiagnostic(route, url, outputBase, environment);
+                if (!hasVerifiedFirstPaint(diagnostic)) {
+                    throw new Error(`Browser paint probe failed for ${route}.`);
+                }
+                process.stderr.write(
+                    `[lighthouse] warning: ${route} uses the documented local Wrangler paint probe; staging Lighthouse remains mandatory.\n`,
+                );
+                continue;
+            }
             process.stdout.write(`[lighthouse] ${configuration.profile} ${route} run ${String(run)}/${String(configuration.runCount)}\n`);
-            await runCommand([
-                lighthouseCliPath,
+            const flags: LighthouseFlags = {
+                channel: 'node',
+                logLevel: 'error',
+                maxWaitForLoad: configuration.settings.maxWaitForLoadMs,
+                onlyCategories: configuration.settings.onlyCategories,
+                port: browser.port,
+            };
+            const result = await lighthouse(
                 url,
-                '--quiet',
-                '--output=json',
-                '--output=html',
-                `--output-path=${outputBase}`,
-                `--only-categories=${configuration.settings.onlyCategories.join(',')}`,
-                `--max-wait-for-load=${String(configuration.settings.maxWaitForLoadMs)}`,
-                `--chrome-flags=${configuration.settings.chromeFlags.join(' ')}`,
-                ...(configuration.profile === 'desktop' ? ['--preset=desktop'] : []),
-            ], environment);
-            const report = JSON.parse(readFileSync(`${outputBase}.report.json`, 'utf8')) as LighthouseResult;
+                flags,
+                configuration.profile === 'desktop' ? desktopConfig : undefined,
+            );
+            if (!result) throw new Error(`Lighthouse did not return a report for ${route}.`);
+
+            const report = result.lhr as LighthouseResult;
+            writeFileSync(`${outputBase}.report.json`, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+            writeFileSync(`${outputBase}.report.html`, generateReport(result.lhr, 'html'), 'utf8');
+            if (result.lhr.runtimeError) {
+                await writeRoutePaintDiagnostic(route, url, outputBase, environment);
+                throw new Error(
+                    `Lighthouse runtime error for ${route}: ${result.lhr.runtimeError.code} ${result.lhr.runtimeError.message}`,
+                );
+            }
             writeRouteDiagnostic(route, report);
             reports.push(report);
         }
     }
+    if (reports.length === 0) throw new Error('Lighthouse did not produce any scored reports.');
     return reports;
 }
 
@@ -223,7 +385,8 @@ export function validateLighthouseResults(
             failures.push(`${path}: worst CLS above ${String(config.floors.clsWorst)}`);
         }
         if (consoleWorst < config.floors.consoleErrorsWorst) {
-            failures.push(`${path}: console errors detected`);
+            const snippets = routeReports.flatMap(consoleErrorSnippets).slice(0, 5);
+            failures.push(`${path}: console errors detected ${JSON.stringify(snippets)}`);
         }
         if (config.seoIsInformational && required(seo.median, `${path} SEO`) < 90) {
             warnings.push(`${path}: SEO ${String(seo.median)} is informational because test/staging is noindex`);
@@ -238,16 +401,20 @@ async function run(): Promise<void> {
     mkdirSync(outputDirectory, { recursive: true });
     const environment = sanitizedEnvironment();
     let server: ChildProcess | null = null;
+    let browser: AuditBrowser | null = null;
 
     try {
         if (configuration.localServer) server = await startIsolatedServer(environment);
-        const reports = await collectReports(outputDirectory, environment);
+        browser = await startAuditBrowser(environment);
+        const reports = await collectReports(outputDirectory, browser, environment);
         const metadata = {
             baseOrigin: configuration.baseOrigin,
             chromePathSource: process.env.CHROME_PATH ? 'environment' : 'playwright-lockfile',
             generatedAt: new Date().toISOString(),
             profile: configuration.profile,
             runCount: configuration.runCount,
+            localPaintProbeRoutes: configuration.localServer ? configuration.localPaintProbeRoutes : [],
+            runtime: configuration.localServer ? 'compiled-cloudflare-worker' : 'canonical-staging',
             scope: configuration.scope,
             sourceSha: process.env.GITHUB_SHA || 'local',
         };
@@ -259,6 +426,7 @@ async function run(): Promise<void> {
             throw new Error(`Lighthouse regression floors failed:\n- ${validation.failures.join('\n- ')}`);
         }
     } finally {
+        browser?.kill();
         await stopServer(server);
     }
 }

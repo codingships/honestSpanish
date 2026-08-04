@@ -1,4 +1,5 @@
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -23,6 +24,45 @@ afterEach(() => {
 });
 
 describe('Lighthouse audit contract', () => {
+    it('measures the compiled local Worker without external integrations', () => {
+        const runner = readFileSync('scripts/ci/run-lighthouse.ts', 'utf8');
+        const server = readFileSync('tests/e2e/start-server.mjs', 'utf8');
+        const astroConfig = readFileSync('astro.config.mjs', 'utf8');
+
+        expect(runner).toContain("E2E_SERVER_MODE: 'built'");
+        expect(runner).toContain("lighthouseRequire.resolve('chrome-launcher')");
+        expect(runner).toContain('browser = await startAuditBrowser(environment)');
+        expect(runner).toContain('port: browser.port');
+        expect(server).toContain("[astroCli, 'build']");
+        expect(server).toContain("'--config', builtConfigPath");
+        expect(server).toContain("'--env-file', runtimeVarsPath");
+        expect(server).toContain("'--local'");
+        expect(server).toContain("'--show-interactive-dev-session=false'");
+        expect(server).toContain("WRANGLER_SEND_METRICS: 'false'");
+        expect(astroConfig).toContain(
+            "site: e2eRuntimeIsolated ? 'http://localhost:4321' : 'https://espanolhonesto.com'",
+        );
+        expect(loadConfig().settings.chromeFlags).toContain('--disable-dev-shm-usage');
+        expect(loadConfig().localPaintProbeRoutes).toEqual([
+            '/es/blog/cuanto-tiempo-hablar-espanol-fluido',
+        ]);
+        expect(runner).toContain('staging Lighthouse remains mandatory');
+    });
+
+    it('reserves the test banner offset without runtime style mutation', () => {
+        const banner = readFileSync('src/components/EnvironmentBanner.astro', 'utf8');
+        const layout = readFileSync('src/layouts/BaseLayout.astro', 'utf8');
+        const globalStyles = readFileSync('src/styles/global.css', 'utf8');
+
+        expect(layout).toContain("data-environment-banner={showEnvironmentBanner ? 'true' : undefined}");
+        expect(layout).toContain('<EnvironmentBanner lang={pageLang} visible={showEnvironmentBanner} />');
+        expect(globalStyles).toContain(":root[data-environment-banner='true']");
+        expect(globalStyles).toContain('--environment-banner-height: 7rem');
+        expect(globalStyles).toContain('--environment-banner-height: 4rem');
+        expect(banner).not.toContain('.style.');
+        expect(banner).not.toContain('<script>');
+    });
+
     it('audits seven representative templates three times by default', () => {
         const config = loadConfig();
         expect(config.runCount).toBe(3);
@@ -111,5 +151,18 @@ describe('Lighthouse summary', () => {
         ], loadConfig());
         expect(validation.failures).toEqual([]);
         expect(validation.warnings).toHaveLength(1);
+    });
+
+    it('includes bounded console evidence in a failed regression gate', () => {
+        const failed = result(0.98, 2_300, 0.01);
+        (failed.audits as Record<string, { score?: number; details?: unknown }>)['errors-in-console'] = {
+            score: 0,
+            details: { items: [{ description: 'Refused to apply inline style' }] },
+        };
+
+        const validation = validateLighthouseResults([failed], loadConfig({ LHCI_SCOPE: 'smoke' }));
+        expect(validation.failures).toEqual([
+            '/es: console errors detected ["{\\"description\\":\\"Refused to apply inline style\\"}"]',
+        ]);
     });
 });

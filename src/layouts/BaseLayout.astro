@@ -49,6 +49,13 @@ const {
 if (!isPublicLang(lang)) throw new Error('Unsupported public page language: ' + lang);
 const pageLang: PublicLang = lang;
 const appEnvironment = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase();
+const publicSiteUrl = (import.meta.env.PUBLIC_SITE_URL || '').toLowerCase();
+const requestHost = Astro.url.hostname.toLowerCase();
+const environmentMarker = `${appEnvironment} ${publicSiteUrl} ${requestHost}`;
+const showEnvironmentBanner = appEnvironment === 'staging'
+  || appEnvironment === 'test'
+  || environmentMarker.includes('staging')
+  || requestHost.endsWith('.pages.dev');
 const shouldNoindex = noindex || appEnvironment === 'staging';
 const brandName = 'Espa' + String.fromCodePoint(0x00F1) + 'ol Honesto';
 const resolvedOgImageAlt = ogImageAlt || brandName + ' | ' + title;
@@ -72,7 +79,7 @@ const getAlternateUrl = (targetLang: PublicLang): string => {
 ---
 
 <!doctype html>
-<html lang={pageLang}>
+<html lang={pageLang} data-environment-banner={showEnvironmentBanner ? 'true' : undefined}>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -119,7 +126,7 @@ const getAlternateUrl = (targetLang: PublicLang): string => {
 
   </head>
   <body>
-    <EnvironmentBanner lang={pageLang} />
+    <EnvironmentBanner lang={pageLang} visible={showEnvironmentBanner} />
     <slot />
     {demoGuideEnabled && <DemoGuide />}
     <CookieBanner lang={pageLang} />

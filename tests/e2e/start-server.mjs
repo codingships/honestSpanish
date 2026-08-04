@@ -3,11 +3,17 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { resolve } from 'node:path';
 
 const cwd = process.cwd();
+const serverMode = process.env.E2E_SERVER_MODE || 'dev';
+if (serverMode !== 'dev' && serverMode !== 'built') {
+    throw new Error(`[e2e-env] Unsupported E2E_SERVER_MODE: ${serverMode}.`);
+}
 const runtimeDirectory = resolve(cwd, 'tests', 'e2e', 'runtime');
 const runtimeVarsPath = resolve(runtimeDirectory, '.dev.vars');
 const isolatedToolState = resolve(cwd, '.wrangler', 'e2e-isolated');
+const localPersistence = resolve(isolatedToolState, 'state');
 const childEnvironment = {
     ...process.env,
+    WRANGLER_SEND_METRICS: 'false',
     XDG_CACHE_HOME: resolve(isolatedToolState, 'cache'),
     XDG_CONFIG_HOME: resolve(isolatedToolState, 'config'),
 };
@@ -102,6 +108,7 @@ const content = `${runtimeBindingKeys
 mkdirSync(runtimeDirectory, { recursive: true });
 mkdirSync(childEnvironment.XDG_CACHE_HOME, { recursive: true });
 mkdirSync(childEnvironment.XDG_CONFIG_HOME, { recursive: true });
+mkdirSync(localPersistence, { recursive: true });
 if (!existsSync(runtimeVarsPath) || readFileSync(runtimeVarsPath, 'utf8') !== content) {
     writeFileSync(runtimeVarsPath, content, { encoding: 'utf8', mode: 0o600 });
 }
@@ -110,20 +117,45 @@ const cleanup = () => rmSync(runtimeVarsPath, { force: true });
 process.once('exit', cleanup);
 
 const astroCli = resolve(cwd, 'node_modules', 'astro', 'bin', 'astro.mjs');
-// Generate Astro's runtime types before starting the isolated server. The
-// Vite SSR environment itself pre-transforms the public-home module graph so
-// React cannot be re-optimized while the first request is being rendered.
-const sync = spawnSync(process.execPath, [astroCli, 'sync'], {
+const prepareArgs = serverMode === 'built'
+    ? [astroCli, 'build']
+    : [astroCli, 'sync'];
+// Public E2E keeps the fast dev server. Performance audits select `built` so
+// Lighthouse measures the generated Cloudflare Worker instead of Vite's
+// transform and compilation latency.
+const prepare = spawnSync(process.execPath, prepareArgs, {
     cwd,
     env: childEnvironment,
     stdio: 'inherit',
 });
-if (sync.error || sync.status !== 0) {
+if (prepare.error || prepare.status !== 0) {
     cleanup();
-    throw new Error(`[e2e-env] Astro sync failed with exit code ${String(sync.status)}.`);
+    throw new Error(
+        `[e2e-env] Astro ${serverMode === 'built' ? 'build' : 'sync'} failed with exit code ${String(prepare.status)}.`,
+    );
 }
 
-const server = spawn(process.execPath, [astroCli, 'dev'], {
+const builtConfigPath = resolve(cwd, 'dist', 'server', 'wrangler.json');
+if (serverMode === 'built' && !existsSync(builtConfigPath)) {
+    cleanup();
+    throw new Error('[e2e-env] Astro build did not produce dist/server/wrangler.json.');
+}
+const wranglerCli = resolve(cwd, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
+const serverArgs = serverMode === 'built'
+    ? [
+        wranglerCli,
+        'dev',
+        '--config', builtConfigPath,
+        '--env-file', runtimeVarsPath,
+        '--local',
+        '--ip', '127.0.0.1',
+        '--port', '4321',
+        '--persist-to', localPersistence,
+        '--log-level', 'error',
+        '--show-interactive-dev-session=false',
+    ]
+    : [astroCli, 'dev'];
+const server = spawn(process.execPath, serverArgs, {
     cwd,
     env: childEnvironment,
     stdio: 'inherit',
