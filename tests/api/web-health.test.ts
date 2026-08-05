@@ -44,6 +44,28 @@ describe('web health', () => {
         });
     });
 
+    it('reports an active staging runtime with open checkout as ready', async () => {
+        Object.assign(mocks.env, {
+            PUBLIC_APP_ENV: 'staging',
+            WEB_RUNTIME_MODE: 'active',
+            WORKER_IDENTITY: 'espanolhonesto-staging',
+            CHECKOUT_ENABLED: 'true',
+            CHECKOUT_ENABLED_OVERRIDE: 'true',
+        });
+
+        const response = await GET({} as Parameters<typeof GET>[0]) as Response;
+
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+            appEnvironment: 'staging',
+            checkoutEnabled: true,
+            legalIdentityReady: true,
+            runtimeMode: 'active',
+            status: 'ok',
+            workerIdentity: 'espanolhonesto-staging',
+        });
+    });
+
     it.each([
         ['enabled', 'false', 'true', true],
         ['closed', 'true', 'false', false],
@@ -157,7 +179,7 @@ describe('web health', () => {
         });
     });
 
-    it('does not report staging ready when checkout is enabled', async () => {
+    it('does not report staging ready when checkout flags disagree', async () => {
         Object.assign(mocks.env, {
             PUBLIC_APP_ENV: 'staging',
             WEB_RUNTIME_MODE: 'active',

@@ -46,7 +46,10 @@ export const GET: APIRoute = async (context) => {
             : false;
     const validCheckout = checkoutConfigured !== null
         && checkoutOverride !== null
-        && (appEnvironment !== 'staging' || (!checkoutConfigured && !checkoutOverride));
+        && (
+            appEnvironment !== 'staging'
+            || checkoutConfigured === checkoutOverride
+        );
     const healthy = Boolean(
         expectedIdentity
         && workerIdentity === expectedIdentity
