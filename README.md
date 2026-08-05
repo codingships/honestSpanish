@@ -36,7 +36,7 @@ Para un cambio transversal se añaden las pruebas afectadas y `pnpm run build`. 
 
 ## Forma de trabajar
 
-`origin/main` es el producto canónico. Cada tarea parte de un `main` limpio, usa una rama/worktree aislados, entrega un resultado por PR y deja que GitHub ejecute la CI. Las reglas completas están en `AGENTS.md`.
+`origin/main` es el producto canónico. Cada tarea parte de un `main` limpio, usa una rama aislada, entrega un resultado por PR y deja que GitHub ejecute la CI. Las reglas completas están en `AGENTS.md`.
 
 El despliegue de staging se despacha manualmente desde `main` mediante `.github/workflows/deploy-staging.yml`; GitHub fija automáticamente el SHA del evento y exige que su CI esté verde. No existe despliegue automático a producción.
 

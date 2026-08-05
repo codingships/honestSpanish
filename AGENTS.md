@@ -17,13 +17,13 @@ Staging sirve para verificar un SHA; no es una fuente alternativa. El historial 
 ## Ciclo normal
 
 1. Partir de un `origin/main` limpio y verificado.
-2. Usar una rama y un worktree aislados para un único resultado observable.
+2. Usar una rama aislada para un único resultado observable. Un worktree separado solo se justifica cuando hay trabajo paralelo real sobre otra rama.
 3. Escribir de uno a tres criterios de aceptación antes de implementar.
 4. Inspeccionar solo el código y los recursos relevantes.
 5. Resolver autónomamente las decisiones técnicas dentro del alcance.
 6. Ejecutar pruebas focales durante el trabajo. Ejecutar la CI completa una vez en la PR.
-7. Revisar el diff, integrar en `main` y retirar rama/worktree cuando termine.
-8. Si cambia el runtime, desplegar ese SHA exacto en staging y ejecutar un único smoke inocuo.
+7. Revisar el diff, integrar en `main` y retirar la rama cuando termine.
+8. Si cambia el runtime, acreditar en staging un SHA integrado —individual o acumulado por hito— con un único smoke inocuo. No se despliega por inercia después de cada PR.
 
 GitHub conserva commits, PR, revisión y CI. No se crean handoffs, evidence packs, gates documentales, informes de estado ni scripts que vuelvan a probar documentos.
 
