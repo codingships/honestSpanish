@@ -18,6 +18,9 @@ export const STAGING_FULFILLMENT_ORIGIN = 'https://espanol-honesto-fulfillment-s
 export const STAGING_LEGACY_IDENTITY_WEB_VERSION_ID = '8f90a491-99f9-4347-a793-b762a782a8d3';
 export const STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID = '4dd8e219-0389-4186-91eb-e1cfec2e7728';
 export const STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID = 'af8a64fd-0cdc-47f2-a926-15df53266e43';
+/** Open-checkout baseline still signed with the previous Turnstile secret. */
+export const STAGING_TURNSTILE_ROTATION_WEB_VERSION_ID = '7c94c3bf-20c1-4ca8-860f-1c45eee53056';
+export const STAGING_TURNSTILE_ROTATION_FULFILLMENT_VERSION_ID = 'dd668aee-4a49-494e-afb2-bc2ebfbb9069';
 
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -218,9 +221,16 @@ function isApprovedLegacyIdentityBaseline(
     schema: number,
     versionId: string,
 ): boolean {
-    return schema === 5 && (role === 'web'
+    if (schema === 5 && (role === 'web'
         ? versionId === STAGING_LEGACY_IDENTITY_WEB_VERSION_ID
-        : versionId === STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID);
+        : versionId === STAGING_LEGACY_IDENTITY_FULFILLMENT_VERSION_ID)) {
+        return true;
+    }
+    // One-shot: rotate staging Turnstile to Cloudflare always-pass test keys while
+    // the live open-checkout versions still fingerprint the previous secret.
+    return role === 'web'
+        ? versionId === STAGING_TURNSTILE_ROTATION_WEB_VERSION_ID
+        : versionId === STAGING_TURNSTILE_ROTATION_FULFILLMENT_VERSION_ID;
 }
 
 export function extractRollbackBindingNamesFromVersionView(
