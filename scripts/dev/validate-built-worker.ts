@@ -95,8 +95,8 @@ function validateBuiltConfig(configValue: BuiltWranglerConfig): void {
             : null,
         vars.WORKER_IDENTITY === expected.name ? null : `WORKER_IDENTITY=${expected.name}`,
         vars.PUBLIC_SITE_URL === expected.site ? null : `PUBLIC_SITE_URL=${expected.site}`,
-        vars.CHECKOUT_ENABLED === 'false' ? null : 'CHECKOUT_ENABLED=false',
-        vars.CHECKOUT_ENABLED_OVERRIDE === 'false' ? null : 'CHECKOUT_ENABLED_OVERRIDE=false',
+        vars.CHECKOUT_ENABLED === 'true' ? null : 'CHECKOUT_ENABLED=true',
+        vars.CHECKOUT_ENABLED_OVERRIDE === 'true' ? null : 'CHECKOUT_ENABLED_OVERRIDE=true',
         Array.isArray(configValue.definedEnvironments) && configValue.definedEnvironments.includes('staging')
             ? null
             : 'definedEnvironments includes staging',

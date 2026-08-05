@@ -2,7 +2,7 @@
 
 Este documento recoge las decisiones duraderas de producto de Español Honesto. Si una tarea propone cambiar precio, oferta, promesa pública, proveedor, política de datos o comportamiento de negocio, se detiene para que el propietario decida y se actualizan código y documento en la misma PR.
 
-El código integrado todavía implementa parte de la oferta anterior. Mientras dure la transición, `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false` impiden aceptar dinero por un contrato que aún no esté implementado y verificado de extremo a extremo.
+El código integrado todavía implementa parte de la oferta anterior en superficies no acreditadas. Staging abre el checkout Sandbox (`CHECKOUT_ENABLED=true`) solo para acreditar el contrato; producción permanece cerrada hasta autorización explícita.
 
 ## Propuesta y público
 
@@ -87,8 +87,8 @@ El CRM es propio y vive dentro del admin Astro/Supabase. El contacto es el regis
 - Stripe cobra 259 EUR al reservar y programa la recurrencia para 28 días después de la primera clase. La implementación puede separar el pago inicial de la suscripción futura, pero para el alumno forman un único contrato y nunca dos cobros iniciales.
 - Checkout, webhooks, renovaciones, devoluciones y trabajos externos son idempotentes.
 - El portal permite gestionar método de pago y cancelación según la política vigente; no ofrece planes retirados.
-- `CHECKOUT_ENABLED=false` y `CHECKOUT_ENABLED_OVERRIDE=false` siguen siendo el estado normal hasta superar Stripe test, revisión final y autorización de producción.
-- Activar pagos reales, cambiar proveedor o abrir checkout exige un gate explícito.
+- Staging acredita el checkout Sandbox con `CHECKOUT_ENABLED=true`. Producción permanece en `CHECKOUT_ENABLED=false` hasta revisión final y autorización explícita.
+- Activar pagos reales, cambiar proveedor o abrir checkout de producción exige un gate explícito.
 
 Stack confirmado: Cloudflare Workers, Supabase, Stripe, Google Workspace, Resend, Turnstile y Sentry. Los recursos exactos están en `docs/ENVIRONMENTS.md`; no se sustituye uno por otro aunque una cuenta contenga otros proyectos.
 

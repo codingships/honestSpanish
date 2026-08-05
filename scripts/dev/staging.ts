@@ -96,8 +96,8 @@ if (useLocalStaging) {
         PUBLIC_APP_ENV: 'staging',
         SUPABASE_EXPECTED_PROJECT_REF: stagingRef,
         PUBLIC_SITE_URL: 'http://localhost:4321',
-        CHECKOUT_ENABLED: 'false',
-        CHECKOUT_ENABLED_OVERRIDE: 'false',
+        CHECKOUT_ENABLED: 'true',
+        CHECKOUT_ENABLED_OVERRIDE: 'true',
         SENTRY_CAPTURE_LOCAL: 'false',
     };
     for (const key of requiredKeys) output[key] = source[key]!;

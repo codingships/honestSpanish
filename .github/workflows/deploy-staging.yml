@@ -158,8 +158,8 @@ jobs:
         env:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
-          CHECKOUT_ENABLED: "false"
-          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CHECKOUT_ENABLED: "true"
+          CHECKOUT_ENABLED_OVERRIDE: "true"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_DAILY_RECIPIENT_LIMIT: "10"
           EMAIL_DELIVERY_MODE: "allowlist"
@@ -219,8 +219,8 @@ jobs:
           PUBLIC_SENTRY_DSN: ${{ secrets.PUBLIC_SENTRY_DSN }}
           CRON_SECRET: "build-only-placeholder-cron"
           INTERNAL_JOB_SECRET: "build-only-placeholder-internal-job"
-          CHECKOUT_ENABLED: "false"
-          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CHECKOUT_ENABLED: "true"
+          CHECKOUT_ENABLED_OVERRIDE: "true"
           EMAIL_DELIVERY_MODE: "allowlist"
         run: pnpm run build:staging:release
 
@@ -273,8 +273,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
-          CHECKOUT_ENABLED: "false"
-          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CHECKOUT_ENABLED: "true"
+          CHECKOUT_ENABLED_OVERRIDE: "true"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_DAILY_RECIPIENT_LIMIT: "10"
           EMAIL_DELIVERY_MODE: "allowlist"
@@ -590,8 +590,8 @@ jobs:
         env:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
-          CHECKOUT_ENABLED: "false"
-          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CHECKOUT_ENABLED: "true"
+          CHECKOUT_ENABLED_OVERRIDE: "true"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_DAILY_RECIPIENT_LIMIT: "10"
           EMAIL_DELIVERY_MODE: "allowlist"
@@ -641,8 +641,8 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           CHECKOUT_HOLD_FINGERPRINT_SECRET: ${{ secrets.CHECKOUT_HOLD_FINGERPRINT_SECRET }}
-          CHECKOUT_ENABLED: "false"
-          CHECKOUT_ENABLED_OVERRIDE: "false"
+          CHECKOUT_ENABLED: "true"
+          CHECKOUT_ENABLED_OVERRIDE: "true"
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           EMAIL_DAILY_RECIPIENT_LIMIT: "10"
           EMAIL_DELIVERY_MODE: "allowlist"

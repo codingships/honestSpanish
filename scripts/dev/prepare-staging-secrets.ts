@@ -78,8 +78,8 @@ try {
 
 Object.assign(staging, {
     ADMIN_EMAIL: test.TEST_ADMIN_EMAIL,
-    CHECKOUT_ENABLED: 'false',
-    CHECKOUT_ENABLED_OVERRIDE: 'false',
+    CHECKOUT_ENABLED: 'true',
+    CHECKOUT_ENABLED_OVERRIDE: 'true',
     CHECKOUT_HOLD_FINGERPRINT_SECRET: checkoutHoldFingerprintSecret,
     CRON_SECRET: cronSecret,
     EMAIL_DAILY_RECIPIENT_LIMIT: '10',

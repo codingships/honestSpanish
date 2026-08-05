@@ -193,8 +193,8 @@ export function validateStagingCheckoutV2Gate(input: {
     requireExactValue(env, 'PUBLIC_APP_ENV', 'staging');
     requireExactValue(env, 'SUPABASE_EXPECTED_PROJECT_REF', STAGING_CHECKOUT_V2_IDENTITY.supabaseProjectRef);
     requireExactValue(env, 'STRIPE_EXPECTED_ACCOUNT_ID', STAGING_CHECKOUT_V2_IDENTITY.stripeAccountId);
-    requireExactValue(env, 'CHECKOUT_ENABLED', 'false');
-    requireExactValue(env, 'CHECKOUT_ENABLED_OVERRIDE', 'false');
+    requireExactValue(env, 'CHECKOUT_ENABLED', 'true');
+    requireExactValue(env, 'CHECKOUT_ENABLED_OVERRIDE', 'true');
 
     requireExactOrigin(
         requireValue(env, 'PUBLIC_SITE_URL'),

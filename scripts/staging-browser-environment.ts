@@ -63,12 +63,11 @@ export function buildStagingBrowserEnvironment(
         throw new Error('[staging-browser-env] Refusing to run: .env.staging must set PUBLIC_APP_ENV=staging');
     }
 
-    if (requireValue(stagingEnv, 'CHECKOUT_ENABLED', '.env.staging') !== 'false') {
-        throw new Error('[staging-browser-env] Refusing to run: .env.staging must keep checkout disabled');
+    if (requireValue(stagingEnv, 'CHECKOUT_ENABLED', '.env.staging') !== 'true') {
+        throw new Error('[staging-browser-env] Refusing to run: .env.staging must keep staging checkout enabled');
     }
-    if (stagingEnv.CHECKOUT_ENABLED_OVERRIDE?.trim()
-        && stagingEnv.CHECKOUT_ENABLED_OVERRIDE.trim() !== 'false') {
-        throw new Error('[staging-browser-env] Refusing to run: .env.staging must keep the checkout override disabled');
+    if (requireValue(stagingEnv, 'CHECKOUT_ENABLED_OVERRIDE', '.env.staging') !== 'true') {
+        throw new Error('[staging-browser-env] Refusing to run: .env.staging must keep the checkout override enabled');
     }
 
     assertStagingOrLocalBrowserBaseUrl(
@@ -108,8 +107,8 @@ export function buildStagingBrowserEnvironment(
     values.PUBLIC_SUPABASE_URL = stagingUrl;
     values.SUPABASE_EXPECTED_PROJECT_REF = STAGING_BROWSER_SUPABASE_REF;
     values.E2E_TARGET_SUPABASE_REF = STAGING_BROWSER_SUPABASE_REF;
-    values.CHECKOUT_ENABLED = 'false';
-    values.CHECKOUT_ENABLED_OVERRIDE = 'false';
+    values.CHECKOUT_ENABLED = 'true';
+    values.CHECKOUT_ENABLED_OVERRIDE = 'true';
     values.CLOUDFLARE_ENV = 'staging';
     delete values.SUPABASE_DB_URL;
 

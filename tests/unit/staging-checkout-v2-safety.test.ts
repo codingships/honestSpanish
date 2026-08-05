@@ -21,8 +21,8 @@ const webhookSecret = 'whsec_private-never-log';
 
 function validEnv(): Record<string, string> {
     return {
-        CHECKOUT_ENABLED: 'false',
-        CHECKOUT_ENABLED_OVERRIDE: 'false',
+        CHECKOUT_ENABLED: 'true',
+        CHECKOUT_ENABLED_OVERRIDE: 'true',
         FULFILLMENT_WORKER_URL: STAGING_CHECKOUT_V2_IDENTITY.fulfillmentOrigin,
         PUBLIC_APP_ENV: 'staging',
         PUBLIC_SITE_URL: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
@@ -173,8 +173,8 @@ describe('staging Checkout V2 runner safety', () => {
         })).toThrow('DLQ');
     });
 
-    it('keeps global checkout closed and refuses production or live-shaped runtime', () => {
-        expect(() => validate({ env: { ...validEnv(), CHECKOUT_ENABLED: 'true' } }))
+    it('keeps global staging checkout open and refuses production or live-shaped runtime', () => {
+        expect(() => validate({ env: { ...validEnv(), CHECKOUT_ENABLED: 'false' } }))
             .toThrow('CHECKOUT_ENABLED');
         expect(() => validate({ env: { ...validEnv(), PUBLIC_APP_ENV: 'production' } }))
             .toThrow('PUBLIC_APP_ENV');

@@ -23,11 +23,11 @@ Los identificadores confidenciales viven una sola vez en el GitHub Environment o
 - Supabase: proyecto `espanol-staging`, ref `mzjyvmlxfpzdfdjzxxyj`, región `eu-central-1`.
 - Stripe: Sandbox España/EUR, cuenta `acct_1TruqOC22M3erP0j`; las claves deben ser de test.
 - Webhook Stripe: el endpoint de staging debe entregar `checkout.session.completed`, `checkout.session.expired`, `invoice.paid`, `invoice.payment_failed`, `invoice.upcoming`, `charge.refunded`, `refund.created`, `refund.updated`, `refund.failed`, `customer.subscription.updated` y `customer.subscription.deleted`.
-- Turnstile: site key pública de test `1x00000000000000000000AA`; el secret nunca se documenta. El backend admite los campos de respuesta dummy documentados solo fuera de producción y rechaza esa site key en producción.
+- Turnstile: site key pública de test `1x00000000000000000000AA` y secret always-pass de test `1x0000000000000000000000000000000AA`; el secret nunca se documenta fuera de este identificador de prueba. El backend admite los campos de respuesta dummy documentados solo fuera de producción y rechaza esa site key en producción.
 - Google Workspace: tenant `espanolhonesto.com`; los bindings `GOOGLE_*` deben resolver la carpeta `STAGING - Espanol Honesto` y la plantilla `STAGING - Plantilla de clase`.
 - Resend: remitente bajo `espanolhonesto.com`, binding `RESEND_FROM_EMAIL`, modo allowlist.
 - Sentry: proyecto `honestspanish/espanol-honesto-astro`, host DSN `o4510912289701888.ingest.de.sentry.io`, project ID `4510917714444368`; el build de staging no consulta credenciales ni sube sourcemaps.
-- Checkout: desactivado.
+- Checkout: habilitado en Sandbox (`CHECKOUT_ENABLED=true` / `CHECKOUT_ENABLED_OVERRIDE=true`). Producción permanece cerrada.
 - Cron fulfillment: `0 * * * *`.
 
 ## Producción

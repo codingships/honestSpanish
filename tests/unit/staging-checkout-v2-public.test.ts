@@ -7,7 +7,7 @@ import {
 const grantedSlot = '3dc6cdb0-7f72-4e67-9673-dc5bd3b768b0';
 
 describe('staging public checkout journey guards', () => {
-    it('accepts only the exact granted slot public id', () => {
+    it('accepts only the exact synthetic slot public id', () => {
         expect(validatePublicCheckoutJourneyInput({ slotPublicId: grantedSlot })).toEqual({
             slotPublicId: grantedSlot,
             timeoutMs: 90_000,

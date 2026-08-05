@@ -202,7 +202,7 @@ describe('Cloudflare staging deployment state', () => {
 
         expect(() => assertStagingVersionBindingInventory(bindingVersion(
             STAGING_WORKERS.web,
-            replace(webBindings, 'CHECKOUT_ENABLED', { text: 'true' }),
+            replace(webBindings, 'CHECKOUT_ENABLED', { text: 'false' }),
         ), STAGING_WORKERS.web)).toThrow('exact staging plain-text value');
 
         expect(() => assertStagingVersionBindingInventory(bindingVersion(
