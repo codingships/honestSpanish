@@ -41,9 +41,12 @@ export type StagingCheckoutV2Gate = {
 };
 
 export type StagingBrowserCookie = {
+    httpOnly: boolean;
     name: string;
-    value: string;
+    sameSite: 'Lax' | 'Strict';
+    secure: true;
     url: string;
+    value: string;
 };
 
 export function stagingBrowserCookies(cookieHeader: string): StagingBrowserCookie[] {
@@ -61,7 +64,19 @@ export function stagingBrowserCookies(cookieHeader: string): StagingBrowserCooki
             throw new Error('Synthetic staging authentication returned duplicate browser cookies');
         }
         names.add(name);
-        cookies.push({ name, value, url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin });
+        const hostCookie = name.startsWith('__Host-');
+        // Playwright accepts either `url` or `path`/`domain`. Prefer `url` so
+        // __Host- cookies keep Path=/ and Secure without a Domain attribute.
+        // Auth cookies must be Lax: Stripe's top-level return navigation would
+        // otherwise drop Strict session cookies and miss the campus success URL.
+        cookies.push({
+            httpOnly: hostCookie,
+            name,
+            sameSite: hostCookie ? 'Strict' : 'Lax',
+            secure: true,
+            url: `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/`,
+            value,
+        });
     }
 
     if (cookies.length === 0) {
@@ -207,6 +222,10 @@ export function validateStagingCheckoutV2Gate(input: {
     requireValue(env, 'TEST_ADMIN_EMAIL');
     requireValue(env, 'TEST_ADMIN_PASSWORD');
     requireValue(env, 'TEST_TEACHER_EMAIL');
+    const databaseUrl = requireValue(env, 'SUPABASE_DB_URL');
+    if (!databaseUrl.includes(STAGING_CHECKOUT_V2_IDENTITY.supabaseProjectRef)) {
+        throw new Error('SUPABASE_DB_URL does not identify the allowlisted staging project');
+    }
 
     requireConfig(input.webConfig, `name = "${STAGING_CHECKOUT_V2_IDENTITY.webWorker}"`, 'Web Worker');
     requireConfig(

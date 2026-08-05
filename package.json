@@ -72,6 +72,8 @@
     "test:e2e:all-browsers": "playwright test --project=public --project=public-firefox --project=public-webkit",
     "test:all": "vitest run && playwright test --project=public",
     "preflight:staging:integrations": "tsx scripts/smoke/staging-integrations.ts --preflight",
+    "preflight:staging:checkout-v2": "tsx scripts/smoke/staging-checkout-v2.ts --preflight",
+    "verify:staging:checkout-v2": "tsx scripts/smoke/staging-checkout-v2.ts --execute",
     "diagnose:capacity:local": "tsx scripts/diagnostics/local-capacity-rehearsal.ts",
     "performance:audit": "tsx scripts/ci/run-lighthouse.ts",
     "performance:summarize": "tsx scripts/ci/summarize-lighthouse.ts",

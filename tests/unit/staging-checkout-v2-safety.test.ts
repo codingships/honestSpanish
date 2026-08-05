@@ -37,6 +37,7 @@ function validEnv(): Record<string, string> {
         TEST_ADMIN_EMAIL: 'admin@example.test',
         TEST_ADMIN_PASSWORD: 'admin-password-never-log',
         TEST_TEACHER_EMAIL: 'teacher@example.test',
+        SUPABASE_DB_URL: `postgresql://postgres@db.${STAGING_CHECKOUT_V2_IDENTITY.supabaseProjectRef}.supabase.co:5432/postgres`,
     };
 }
 
@@ -249,16 +250,22 @@ describe('staging Checkout V2 runner safety', () => {
     });
 
     it('restores the synthetic student session only on the exact staging origin', () => {
-        expect(stagingBrowserCookies('sb-auth-token.0=first==; sb-auth-token.1=second=')).toEqual([
+        expect(stagingBrowserCookies('sb-auth-token.0=first==; __Host-hs_staging_e2e_checkout=grant')).toEqual([
             {
+                httpOnly: false,
                 name: 'sb-auth-token.0',
+                sameSite: 'Lax',
+                secure: true,
+                url: `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/`,
                 value: 'first==',
-                url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
             },
             {
-                name: 'sb-auth-token.1',
-                value: 'second=',
-                url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
+                httpOnly: true,
+                name: '__Host-hs_staging_e2e_checkout',
+                sameSite: 'Strict',
+                secure: true,
+                url: `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/`,
+                value: 'grant',
             },
         ]);
         expect(() => stagingBrowserCookies('malformed')).toThrow('malformed browser cookie');
