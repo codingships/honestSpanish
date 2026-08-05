@@ -1,15 +1,20 @@
 ---
-import { Image } from 'astro:assets';
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { ui } from '../i18n/translations';
 import type { LandingPackage } from '../lib/landing-data';
 import PricingSection from './PricingSection';
-import madridAtmosphere480 from '../assets/madrid-atmosphere-480.jpg';
-import madridAtmosphere768 from '../assets/madrid-atmosphere-768.jpg';
-import madridAtmosphere1024 from '../assets/madrid-atmosphere-1024.jpg';
-import avatarAlejandro from '../assets/avatar_alejandro_team.png';
-import avatarAlin from '../assets/avatar_alin_team.png';
-import avatarIrene from '../assets/avatar_irene_team.png';
+import madridAtmosphere480 from '../assets/madrid-atmosphere-480.webp';
+import madridAtmosphere768 from '../assets/madrid-atmosphere-768.webp';
+import madridAtmosphere1024 from '../assets/madrid-atmosphere-1024.webp';
+import avatarAlejandro320 from '../assets/avatar-alejandro-team-320.webp';
+import avatarAlejandro480 from '../assets/avatar-alejandro-team-480.webp';
+import avatarAlejandro640 from '../assets/avatar-alejandro-team-640.webp';
+import avatarAlin320 from '../assets/avatar-alin-team-320.webp';
+import avatarAlin480 from '../assets/avatar-alin-team-480.webp';
+import avatarAlin640 from '../assets/avatar-alin-team-640.webp';
+import avatarIrene320 from '../assets/avatar-irene-team-320.webp';
+import avatarIrene480 from '../assets/avatar-irene-team-480.webp';
+import avatarIrene640 from '../assets/avatar-irene-team-640.webp';
 import HeroSection from './landing/HeroSection.astro';
 import ProblemsSection from './landing/ProblemsSection.astro';
 import MethodSection from './landing/MethodSection.astro';
@@ -91,7 +96,20 @@ const ireneMemberByLang = {
 }[lang];
 
 const teamMembersWithIrene = [...teamMembers, ireneMemberByLang];
-const teamImages = [avatarAlejandro, avatarAlin, avatarIrene];
+const teamImages = [
+    {
+        src: avatarAlejandro640.src,
+        srcset: `${avatarAlejandro320.src} 320w, ${avatarAlejandro480.src} 480w, ${avatarAlejandro640.src} 640w`,
+    },
+    {
+        src: avatarAlin640.src,
+        srcset: `${avatarAlin320.src} 320w, ${avatarAlin480.src} 480w, ${avatarAlin640.src} 640w`,
+    },
+    {
+        src: avatarIrene640.src,
+        srcset: `${avatarIrene320.src} 320w, ${avatarIrene480.src} 480w, ${avatarIrene640.src} 640w`,
+    },
+];
 const accessibilityCopy = {
     es: {
         skip: 'Saltar al contenido principal',
@@ -564,11 +582,13 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
                     <div class="flex flex-col">
                         <div class="aspect-square bg-gray-200 rounded-lg mb-4 w-full overflow-hidden border-2 border-[#006064]">
                             {memberImage ? (
-                                <Image
-                                    src={memberImage}
+                                <img
+                                    src={memberImage.src}
+                                    srcset={memberImage.srcset}
                                     alt={member.name}
-                                    widths={[320, 480, 640]}
                                     sizes="(min-width: 768px) 33vw, 100vw"
+                                    width="640"
+                                    height="640"
                                     class="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
                                     loading="lazy"
                                     decoding="async"
