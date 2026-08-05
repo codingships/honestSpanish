@@ -27,12 +27,16 @@ export const STAGING_CHECKOUT_V2_IDENTITY = Object.freeze({
 export type StagingCheckoutV2RunnerArgs = {
     confirmation?: string;
     envFile: string;
+    guarantee: boolean;
+    journey: 'api' | 'public';
     mode: 'execute' | 'preflight';
 };
 
 export type StagingCheckoutV2Gate = {
     envFile: string;
+    guarantee: boolean;
     identity: typeof STAGING_CHECKOUT_V2_IDENTITY;
+    journey: StagingCheckoutV2RunnerArgs['journey'];
     mode: StagingCheckoutV2RunnerArgs['mode'];
 };
 
@@ -73,8 +77,14 @@ function optionValue(argv: string[], index: number, option: string): string {
 }
 
 export function parseStagingCheckoutV2Args(argv: string[]): StagingCheckoutV2RunnerArgs {
-    const args: StagingCheckoutV2RunnerArgs = { envFile: '.env.staging', mode: 'preflight' };
+    const args: StagingCheckoutV2RunnerArgs = {
+        envFile: '.env.staging',
+        guarantee: false,
+        journey: 'api',
+        mode: 'preflight',
+    };
     let selectedMode: StagingCheckoutV2RunnerArgs['mode'] | null = null;
+    let selectedJourney = false;
 
     for (let index = 0; index < argv.length; index += 1) {
         const option = argv[index];
@@ -89,6 +99,17 @@ export function parseStagingCheckoutV2Args(argv: string[]): StagingCheckoutV2Run
         } else if (option === '--confirmation') {
             if (args.confirmation !== undefined) throw new Error('--confirmation was provided more than once');
             args.confirmation = optionValue(argv, index++, option);
+        } else if (option === '--journey') {
+            if (selectedJourney) throw new Error('--journey was provided more than once');
+            selectedJourney = true;
+            const journey = optionValue(argv, index++, option);
+            if (journey !== 'api' && journey !== 'public') {
+                throw new Error('--journey accepts only "api" or "public"');
+            }
+            args.journey = journey;
+        } else if (option === '--guarantee') {
+            if (args.guarantee) throw new Error('--guarantee was provided more than once');
+            args.guarantee = true;
         } else {
             throw new Error('Unknown option; production, live, DNS and arbitrary targets are forbidden');
         }
@@ -99,6 +120,9 @@ export function parseStagingCheckoutV2Args(argv: string[]): StagingCheckoutV2Run
     }
     if (args.mode === 'preflight' && args.confirmation !== undefined) {
         throw new Error('--confirmation is valid only with --execute');
+    }
+    if (args.mode === 'preflight' && args.guarantee) {
+        throw new Error('--guarantee is valid only with --execute');
     }
     return args;
 }
@@ -206,13 +230,21 @@ export function validateStagingCheckoutV2Gate(input: {
         'Fulfillment DLQ',
     );
 
-    return { envFile, identity: STAGING_CHECKOUT_V2_IDENTITY, mode: args.mode };
+    return {
+        envFile,
+        guarantee: args.guarantee,
+        identity: STAGING_CHECKOUT_V2_IDENTITY,
+        journey: args.journey,
+        mode: args.mode,
+    };
 }
 
 export function safeStagingCheckoutV2Summary(gate: StagingCheckoutV2Gate): string[] {
     const identity = gate.identity;
     return [
         `mode=${gate.mode}`,
+        `journey=${gate.journey}`,
+        `guarantee=${String(gate.guarantee)}`,
         `repository=${identity.repository}`,
         `supabase_project_ref=${identity.supabaseProjectRef}`,
         `stripe_account=${identity.stripeAccountId}`,

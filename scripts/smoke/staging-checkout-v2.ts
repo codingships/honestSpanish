@@ -9,7 +9,7 @@
  * in finally so a failed run cannot leave a chargeable test subscription.
  */
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -21,6 +21,7 @@ import Stripe from 'stripe';
 import type { Database } from '../../src/types/database.types';
 import { CHECKOUT_TERMS_VERSION } from '../../src/lib/legal-policy';
 import { completeStripeCheckoutSandbox } from './staging-checkout-v2-browser';
+import { drivePublicCheckoutJourney } from './staging-checkout-v2-public';
 import {
     parseStagingCheckoutV2Args,
     safeStagingCheckoutV2Summary,
@@ -69,6 +70,8 @@ export type StagingCheckoutV2RunState = {
     completedPurchase?: boolean;
     declinedPaymentObserved?: boolean;
     grantCookie?: string;
+    guaranteeRefunded?: boolean;
+    guaranteeStripeRefundId?: string;
     runId: string;
     slotId?: string;
     slotPublicId?: string;
@@ -80,9 +83,19 @@ export type StagingCheckoutV2RunState = {
     syntheticEmail: string;
 };
 
+export type StagingCheckoutV2JourneyOptions = {
+    guarantee: boolean;
+    journey: 'api' | 'public';
+};
+
 export type StagingCheckoutV2Journey = {
     cleanup(env: Env, state: StagingCheckoutV2RunState, log: Log): Promise<void>;
-    execute(env: Env, state: StagingCheckoutV2RunState, log: Log): Promise<void>;
+    execute(
+        env: Env,
+        state: StagingCheckoutV2RunState,
+        log: Log,
+        options?: StagingCheckoutV2JourneyOptions,
+    ): Promise<void>;
     preflight(env: Env, log: Log): Promise<void>;
 };
 
@@ -394,37 +407,51 @@ async function issueGrant(state: StagingCheckoutV2RunState): Promise<void> {
     state.grantCookie = setCookieValue(grant.response, '__Host-hs_staging_e2e_checkout');
 }
 
-async function createCheckout(state: StagingCheckoutV2RunState): Promise<string> {
-    const endpoint = `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`;
-    const cookies = combineCookies(state.studentCookie, state.grantCookie);
-    const body = {
+function checkoutRequestBody(state: StagingCheckoutV2RunState, lang: 'en' | 'es'): Record<string, unknown> {
+    return {
         adultConfirmed: true,
-        lang: 'en',
+        lang,
         policyVersion: CHECKOUT_TERMS_VERSION,
         serviceStartRequested: true,
         slotPublicId: stringValue(state.slotPublicId, 'Synthetic slot'),
         termsAccepted: true,
         withdrawalLossAcknowledged: true,
     };
-    const sessionIdFromUrl = (checkoutUrl: string): string | undefined => new URL(checkoutUrl).pathname
+}
+
+function sessionIdFromUrl(checkoutUrl: string): string | undefined {
+    return new URL(checkoutUrl).pathname
         .split('/')
         .map((segment) => decodeURIComponent(segment))
         .find((segment) => segment.startsWith('cs_test_'));
+}
 
-    const first = await postJson(endpoint, cookies, body);
-    assertHttp(first.response, first.body, 200, 'Checkout V2 creation');
-    const checkoutUrl = stringValue(first.body.url, 'Checkout V2');
-    const sessionId = sessionIdFromUrl(checkoutUrl);
-    state.checkoutSessionId = stringValue(sessionId, 'Stripe Checkout Session');
-
-    const retry = await postJson(endpoint, cookies, body);
+async function assertIdempotentCheckoutRetry(
+    state: StagingCheckoutV2RunState,
+    lang: 'en' | 'es',
+): Promise<void> {
+    const retry = await postJson(
+        `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`,
+        combineCookies(state.studentCookie, state.grantCookie),
+        checkoutRequestBody(state, lang),
+    );
     assertHttp(retry.response, retry.body, 200, 'Checkout V2 idempotent retry');
     const retryUrl = stringValue(retry.body.url, 'Checkout V2 idempotent retry');
-    const retrySessionId = sessionIdFromUrl(retryUrl);
-    if (!sessionId || retrySessionId !== sessionId) {
+    if (sessionIdFromUrl(retryUrl) !== stringValue(state.checkoutSessionId, 'Stripe Checkout Session')) {
         throw new Error('Checkout V2 retry created or returned another Stripe Checkout Session');
     }
+}
 
+async function createCheckout(state: StagingCheckoutV2RunState): Promise<string> {
+    const first = await postJson(
+        `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`,
+        combineCookies(state.studentCookie, state.grantCookie),
+        checkoutRequestBody(state, 'en'),
+    );
+    assertHttp(first.response, first.body, 200, 'Checkout V2 creation');
+    const checkoutUrl = stringValue(first.body.url, 'Checkout V2');
+    state.checkoutSessionId = stringValue(sessionIdFromUrl(checkoutUrl), 'Stripe Checkout Session');
+    await assertIdempotentCheckoutRetry(state, 'en');
     return checkoutUrl;
 }
 
@@ -463,6 +490,47 @@ async function completeCheckout(
             stringValue(state.studentCookie, 'Student authentication'),
         ));
         const page = await browserContext.newPage();
+        const result = await completeStripeCheckoutSandbox({
+            afterDecline: () => assertDeclinedCheckoutHasNoPurchase(realContext, state),
+            checkoutUrl,
+            exerciseDeclineBeforeSuccess: true,
+            page,
+            syntheticEmail: state.syntheticEmail,
+            timeoutMs: 90_000,
+        });
+        if (!result.declinedPaymentObserved) {
+            throw new Error('Stripe Sandbox decline was not observed before successful payment');
+        }
+        state.declinedPaymentObserved = true;
+        state.completedPurchase = true;
+    } finally {
+        await browser.close();
+    }
+}
+
+async function purchaseThroughPublicJourney(
+    realContext: RealContext,
+    state: StagingCheckoutV2RunState,
+    log: Log,
+): Promise<void> {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const browserContext = await browser.newContext();
+        await browserContext.addCookies(stagingBrowserCookies(combineCookies(
+            stringValue(state.studentCookie, 'Student authentication'),
+            stringValue(state.grantCookie, 'Staging checkout grant'),
+        )));
+        const page = await browserContext.newPage();
+        const { checkoutUrl } = await drivePublicCheckoutJourney({
+            page,
+            slotPublicId: stringValue(state.slotPublicId, 'Synthetic slot'),
+            timeoutMs: 90_000,
+        });
+        state.checkoutSessionId = stringValue(sessionIdFromUrl(checkoutUrl), 'Stripe Checkout Session');
+        log(`[staging-checkout-v2] public_journey=hosted-checkout run_id=${state.runId}`);
+        await assertIdempotentCheckoutRetry(state, 'es');
+        log('[staging-checkout-v2] checkout=created via=public-ui idempotent_retry=same_session');
+
         const result = await completeStripeCheckoutSandbox({
             afterDecline: () => assertDeclinedCheckoutHasNoPurchase(realContext, state),
             checkoutUrl,
@@ -606,6 +674,131 @@ async function waitForPurchase(context: RealContext, state: StagingCheckoutV2Run
     throw new Error(`Checkout V2 was not fully fulfilled before timeout (${lastStatus})`);
 }
 
+const guaranteeRefundCents = 19_425;
+
+/**
+ * The guarantee window opens after the first class is really over and before
+ * the second one starts. A fresh synthetic purchase has all four classes in
+ * the future, so the first session is time-shifted with the service role into
+ * a validly completed past class before exercising the public guarantee API.
+ */
+async function makeFirstClassSyntheticallyCompleted(
+    context: RealContext,
+    state: StagingCheckoutV2RunState,
+): Promise<void> {
+    const nowMs = Date.now();
+    const { data, error } = await context.admin
+        .from('sessions')
+        .update({
+            completed_at: new Date(nowMs - 60 * 60_000).toISOString(),
+            scheduled_at: new Date(nowMs - 120 * 60_000).toISOString(),
+            status: 'completed',
+        })
+        .eq('subscription_id', stringValue(state.subscriptionId, 'Subscription'))
+        .eq('checkout_v2_cycle_session_index', 1)
+        .select('id');
+    if (error || data?.length !== 1) {
+        throw error ?? new Error('Could not mark the synthetic first class as completed');
+    }
+}
+
+async function accreditGuarantee(
+    context: RealContext,
+    state: StagingCheckoutV2RunState,
+    log: Log,
+): Promise<void> {
+    const subscriptionId = stringValue(state.subscriptionId, 'Subscription');
+    const studentCookie = stringValue(state.studentCookie, 'Student authentication');
+    const endpoint = `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/account/guarantee`;
+
+    await makeFirstClassSyntheticallyCompleted(context, state);
+    log('[staging-checkout-v2] guarantee_setup=first-class-completed synthetic_time_shift=true');
+
+    const requestId = randomUUID();
+    const body = { requestId, subscriptionId };
+    const guaranteeOf = (payload: Record<string, unknown>): Record<string, unknown> => (
+        payload.guarantee && typeof payload.guarantee === 'object' && !Array.isArray(payload.guarantee)
+            ? payload.guarantee as Record<string, unknown>
+            : {}
+    );
+
+    const first = await postJson(endpoint, studentCookie, body);
+    if (![200, 202].includes(first.response.status)) {
+        throw new Error(`Guarantee request failed with HTTP ${first.response.status}`);
+    }
+    const duplicate = await postJson(endpoint, studentCookie, body);
+    if (![200, 202].includes(duplicate.response.status)) {
+        throw new Error(`Guarantee idempotent duplicate failed with HTTP ${duplicate.response.status}`);
+    }
+    const firstOperationId = guaranteeOf(first.body).operationId;
+    const duplicateOperationId = guaranteeOf(duplicate.body).operationId;
+    if (
+        typeof firstOperationId !== 'string'
+        || !firstOperationId
+        || duplicateOperationId !== firstOperationId
+    ) {
+        throw new Error('The duplicated guarantee request did not reuse the same operation');
+    }
+    log('[staging-checkout-v2] guarantee=requested idempotent_duplicate=same_operation');
+
+    const deadline = Date.now() + 240_000;
+    let publicStatus = 'unknown';
+    while (Date.now() < deadline) {
+        const response = await fetchWithTimeout(
+            `${endpoint}?subscriptionId=${subscriptionId}`,
+            { headers: { Cookie: studentCookie } },
+        );
+        const guarantee = guaranteeOf(await jsonResponse(response));
+        publicStatus = typeof guarantee.status === 'string' ? guarantee.status : 'unknown';
+        if (publicStatus === 'refunded') {
+            if (guarantee.refundAmountCents !== guaranteeRefundCents || guarantee.currency !== currency) {
+                throw new Error('The public guarantee state does not match the proportional refund');
+            }
+            break;
+        }
+        if (!['processing', 'refund_pending', 'eligible'].includes(publicStatus)) {
+            throw new Error(`Guarantee reached a non-refundable state: ${publicStatus}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+    if (publicStatus !== 'refunded') {
+        throw new Error(`Guarantee was not refunded before timeout (${publicStatus})`);
+    }
+
+    const { data: operation, error: operationError } = await context.admin
+        .from('checkout_v2_guarantee_operations')
+        .select('status, refund_amount_cents, currency, stripe_refund_id, refund_status')
+        .eq('request_id', requestId)
+        .single();
+    if (operationError || !operation) {
+        throw operationError ?? new Error('Guarantee operation row is missing');
+    }
+    if (
+        operation.status !== 'refunded'
+        || operation.refund_amount_cents !== guaranteeRefundCents
+        || operation.currency !== currency
+        || operation.refund_status !== 'succeeded'
+        || typeof operation.stripe_refund_id !== 'string'
+    ) throw new Error('Guarantee operation did not settle as a succeeded proportional refund');
+
+    const [refund, stripeSubscription] = await Promise.all([
+        context.stripe.refunds.retrieve(operation.stripe_refund_id),
+        context.stripe.subscriptions.retrieve(
+            stringValue(state.stripeSubscriptionId, 'Stripe subscription'),
+        ),
+    ]);
+    if (
+        refund.amount !== guaranteeRefundCents
+        || refund.currency !== currency
+        || refund.status !== 'succeeded'
+        || stripeSubscription.status !== 'canceled'
+    ) throw new Error('Stripe Sandbox refund does not match the proportional guarantee contract');
+
+    state.guaranteeRefunded = true;
+    state.guaranteeStripeRefundId = operation.stripe_refund_id;
+    log(`[staging-checkout-v2] guarantee=refunded amount=${guaranteeRefundCents} currency=${currency} subscription=canceled`);
+}
+
 async function cleanupReal(env: Env, state: StagingCheckoutV2RunState, log: Log): Promise<void> {
     const context = createRealContext(env);
     const errors: string[] = [];
@@ -690,7 +883,7 @@ const realJourney: StagingCheckoutV2Journey = {
         await verifyExactFixtures(env, context);
         log('[staging-checkout-v2] preflight=ok supabase=staging stripe=sandbox web=staging');
     },
-    async execute(env, state, log) {
+    async execute(env, state, log, options = { guarantee: false, journey: 'api' }) {
         const context = createRealContext(env);
         state.slotId = fixtures.slotId;
         state.slotPublicId = fixtures.slotPublicId;
@@ -703,11 +896,16 @@ const realJourney: StagingCheckoutV2Journey = {
         );
         await createSyntheticStudent(env, context, state);
         await issueGrant(state);
-        const checkoutUrl = await createCheckout(state);
-        log(`[staging-checkout-v2] checkout=created run_id=${state.runId} idempotent_retry=same_session`);
-        await completeCheckout(checkoutUrl, context, state);
+        if (options.journey === 'public') {
+            await purchaseThroughPublicJourney(context, state, log);
+        } else {
+            const checkoutUrl = await createCheckout(state);
+            log(`[staging-checkout-v2] checkout=created run_id=${state.runId} idempotent_retry=same_session`);
+            await completeCheckout(checkoutUrl, context, state);
+        }
         await waitForPurchase(context, state);
-        log('[staging-checkout-v2] purchase=verified declined_card=recovered unique_checkout=true amount=25900 sessions=4 renewal=28-days fulfillment=succeeded');
+        log(`[staging-checkout-v2] purchase=verified journey=${options.journey} declined_card=recovered unique_checkout=true amount=25900 sessions=4 renewal=28-days fulfillment=succeeded`);
+        if (options.guarantee) await accreditGuarantee(context, state, log);
     },
     cleanup: cleanupReal,
 };
@@ -743,7 +941,7 @@ export async function runStagingCheckoutV2(
     const state = createRunState();
     let executionError: unknown;
     try {
-        await journey.execute(env, state, log);
+        await journey.execute(env, state, log, { guarantee: gate.guarantee, journey: gate.journey });
     } catch (error) {
         executionError = error;
     }
