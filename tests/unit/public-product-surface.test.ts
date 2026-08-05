@@ -30,16 +30,19 @@ describe('public product surface', () => {
         expect(landing).toContain("name: 'IRENE'");
         expect(landing).toContain("languages: ['ES', 'EN', 'CS', 'FR', 'LSE']");
         expect(landing).toContain('const teamMembersWithIrene = [...teamMembers, ireneMemberByLang]');
-        expect(landing).toContain('const teamImages = [avatarAlejandro, avatarAlin, avatarIrene]');
+        expect(landing).toContain('const teamImages = [');
+        expect(landing).toContain('src: avatarAlejandro640.src');
+        expect(landing).toContain('src: avatarAlin640.src');
+        expect(landing).toContain('src: avatarIrene640.src');
         expect(landing).toContain('{teamMembersWithIrene.map((member, index) =>');
-        expect(landing).toContain('src={memberImage}');
+        expect(landing).toContain('src={memberImage.src}');
+        expect(landing).toContain('srcset={memberImage.srcset}');
 
-        for (const portrait of [
-            'src/assets/avatar_alejandro_team.png',
-            'src/assets/avatar_alin_team.png',
-            'src/assets/avatar_irene_team.png',
-        ]) {
-            expect(existsSync(portrait), portrait).toBe(true);
+        for (const teacher of ['alejandro', 'alin', 'irene']) {
+            for (const width of [320, 480, 640]) {
+                const portrait = `src/assets/avatar-${teacher}-team-${String(width)}.webp`;
+                expect(existsSync(portrait), portrait).toBe(true);
+            }
         }
     });
 
