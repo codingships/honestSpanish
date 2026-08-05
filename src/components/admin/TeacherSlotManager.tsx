@@ -48,9 +48,21 @@ type TeachersSlotsResponse = {
     slots?: BookableSlot[];
 };
 
+type StaffInvitationResponse = {
+    auditDegraded?: boolean;
+    error?: string;
+    state?: 'existing_pending' | 'existing_verified' | 'sent';
+};
+
 const COPY = {
     es: {
         intro: 'Declara cuÃ¡ndo puede trabajar cada profesor y publica por separado las plazas concretas que un alumno puede comprar.',
+        inviteTitle: 'Invitar nuevo profesor',
+        inviteIntro: 'EnvÃ­a el acceso desde el panel. La invitaciÃ³n no concede el rol de profesor: despuÃ©s de verificar el email y completar el perfil, actÃ­valo expresamente abajo.',
+        fullName: 'Nombre completo', invite: 'Enviar invitaciÃ³n', inviting: 'Enviandoâ€¦',
+        invited: 'InvitaciÃ³n enviada. Activa la cuenta cuando la persona haya confirmado el email y completado su perfil.',
+        existingPending: 'La cuenta ya existe y estÃ¡ pendiente de confirmar el email. No se ha enviado otra invitaciÃ³n.',
+        existingVerified: 'La cuenta ya estÃ¡ verificada. Puedes activarla abajo.',
         activateTitle: 'Activar profesor existente',
         activateIntro: 'Esta acciÃ³n no crea una cuenta. Activa como profesor una cuenta existente identificada exactamente por su email.',
         email: 'Email de la cuenta',
@@ -125,6 +137,12 @@ const COPY = {
     },
     en: {
         intro: 'Define when each teacher can work and separately publish the specific places a student can buy.',
+        inviteTitle: 'Invite a new teacher',
+        inviteIntro: 'Send access from the panel. An invitation does not grant the teacher role: after the email is verified and the profile is complete, activate it explicitly below.',
+        fullName: 'Full name', invite: 'Send invitation', inviting: 'Sendingâ€¦',
+        invited: 'Invitation sent. Activate the account after the person verifies the email and completes the profile.',
+        existingPending: 'The account already exists and is waiting for email verification. No duplicate invitation was sent.',
+        existingVerified: 'The account is already verified. You can activate it below.',
         activateTitle: 'Activate an existing teacher',
         activateIntro: 'This action does not create an account. It activates an existing account as a teacher using its exact email.',
         email: 'Account email', engagement: 'Engagement', founder: 'Founder', external: 'External',
@@ -164,6 +182,12 @@ const COPY = {
     },
     ru: {
         intro: 'Ð£ÐºÐ°Ð¶Ð¸Ñ‚Ðµ, ÐºÐ¾Ð³Ð´Ð° ÐºÐ°Ð¶Ð´Ñ‹Ð¹ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»ÑŒ Ð¼Ð¾Ð¶ÐµÑ‚ Ñ€Ð°Ð±Ð¾Ñ‚Ð°Ñ‚ÑŒ, Ð¸ Ð¾Ñ‚Ð´ÐµÐ»ÑŒÐ½Ð¾ Ð¿ÑƒÐ±Ð»Ð¸ÐºÑƒÐ¹Ñ‚Ðµ ÐºÐ¾Ð½ÐºÑ€ÐµÑ‚Ð½Ñ‹Ðµ Ð¼ÐµÑÑ‚Ð°, Ð´Ð¾ÑÑ‚ÑƒÐ¿Ð½Ñ‹Ðµ Ð´Ð»Ñ Ð¿Ð¾ÐºÑƒÐ¿ÐºÐ¸.',
+        inviteTitle: 'ÐŸÑ€Ð¸Ð³Ð»Ð°ÑÐ¸Ñ‚ÑŒ Ð½Ð¾Ð²Ð¾Ð³Ð¾ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»Ñ',
+        inviteIntro: 'ÐžÑ‚Ð¿Ñ€Ð°Ð²ÑŒÑ‚Ðµ Ð´Ð¾ÑÑ‚ÑƒÐ¿ Ð¸Ð· Ð¿Ð°Ð½ÐµÐ»Ð¸. ÐŸÑ€Ð¸Ð³Ð»Ð°ÑˆÐµÐ½Ð¸Ðµ Ð½Ðµ Ð²Ñ‹Ð´Ð°Ñ‘Ñ‚ Ñ€Ð¾Ð»ÑŒ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»Ñ: Ð¿Ð¾ÑÐ»Ðµ Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´ÐµÐ½Ð¸Ñ email Ð¸ Ð·Ð°Ð¿Ð¾Ð»Ð½ÐµÐ½Ð¸Ñ Ð¿Ñ€Ð¾Ñ„Ð¸Ð»Ñ Ð°ÐºÑ‚Ð¸Ð²Ð¸Ñ€ÑƒÐ¹Ñ‚Ðµ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚ Ð½Ð¸Ð¶Ðµ.',
+        fullName: 'ÐŸÐ¾Ð»Ð½Ð¾Ðµ Ð¸Ð¼Ñ', invite: 'ÐžÑ‚Ð¿Ñ€Ð°Ð²Ð¸Ñ‚ÑŒ Ð¿Ñ€Ð¸Ð³Ð»Ð°ÑˆÐµÐ½Ð¸Ðµ', inviting: 'ÐžÑ‚Ð¿Ñ€Ð°Ð²Ð»ÑÐµÐ¼â€¦',
+        invited: 'ÐŸÑ€Ð¸Ð³Ð»Ð°ÑˆÐµÐ½Ð¸Ðµ Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð»ÐµÐ½Ð¾. ÐÐºÑ‚Ð¸Ð²Ð¸Ñ€ÑƒÐ¹Ñ‚Ðµ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚ Ð¿Ð¾ÑÐ»Ðµ Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´ÐµÐ½Ð¸Ñ email Ð¸ Ð·Ð°Ð¿Ð¾Ð»Ð½ÐµÐ½Ð¸Ñ Ð¿Ñ€Ð¾Ñ„Ð¸Ð»Ñ.',
+        existingPending: 'ÐÐºÐºÐ°ÑƒÐ½Ñ‚ ÑƒÐ¶Ðµ ÑÑƒÑ‰ÐµÑÑ‚Ð²ÑƒÐµÑ‚ Ð¸ Ð¾Ð¶Ð¸Ð´Ð°ÐµÑ‚ Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´ÐµÐ½Ð¸Ñ email. ÐŸÐ¾Ð²Ñ‚Ð¾Ñ€Ð½Ð¾Ðµ Ð¿Ñ€Ð¸Ð³Ð»Ð°ÑˆÐµÐ½Ð¸Ðµ Ð½Ðµ Ð¾Ñ‚Ð¿Ñ€Ð°Ð²Ð»ÑÐ»Ð¾ÑÑŒ.',
+        existingVerified: 'ÐÐºÐºÐ°ÑƒÐ½Ñ‚ ÑƒÐ¶Ðµ Ð¿Ð¾Ð´Ñ‚Ð²ÐµÑ€Ð¶Ð´Ñ‘Ð½. Ð•Ð³Ð¾ Ð¼Ð¾Ð¶Ð½Ð¾ Ð°ÐºÑ‚Ð¸Ð²Ð¸Ñ€Ð¾Ð²Ð°Ñ‚ÑŒ Ð½Ð¸Ð¶Ðµ.',
         activateTitle: 'ÐÐºÑ‚Ð¸Ð²Ð¸Ñ€Ð¾Ð²Ð°Ñ‚ÑŒ ÑÑƒÑ‰ÐµÑÑ‚Ð²ÑƒÑŽÑ‰ÐµÐ³Ð¾ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»Ñ',
         activateIntro: 'Ð­Ñ‚Ð¾ Ð´ÐµÐ¹ÑÑ‚Ð²Ð¸Ðµ Ð½Ðµ ÑÐ¾Ð·Ð´Ð°Ñ‘Ñ‚ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚. ÐžÐ½Ð¾ Ð°ÐºÑ‚Ð¸Ð²Ð¸Ñ€ÑƒÐµÑ‚ ÑÑƒÑ‰ÐµÑÑ‚Ð²ÑƒÑŽÑ‰Ð¸Ð¹ Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»Ñ Ð¿Ð¾ Ñ‚Ð¾Ñ‡Ð½Ð¾Ð¼Ñƒ email.',
         email: 'Email Ð°ÐºÐºÐ°ÑƒÐ½Ñ‚Ð°', engagement: 'Ð¢Ð¸Ð¿ ÑÐ¾Ñ‚Ñ€ÑƒÐ´Ð½Ð¸Ñ‡ÐµÑÑ‚Ð²Ð°', founder: 'ÐžÑÐ½Ð¾Ð²Ð°Ñ‚ÐµÐ»ÑŒ', external: 'Ð’Ð½ÐµÑˆÐ½Ð¸Ð¹ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»ÑŒ',
@@ -183,354 +207,8 @@ const COPY = {
         noSlots: 'Ð£ ÑÑ‚Ð¾Ð³Ð¾ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»Ñ Ð¿Ð¾ÐºÐ° Ð½ÐµÑ‚ Ð¼ÐµÑÑ‚.', status: 'Ð¡Ñ‚Ð°Ñ‚ÑƒÑ', schedule: 'Ð Ð°ÑÐ¿Ð¸ÑÐ°Ð½Ð¸Ðµ',
         firstClass: 'ÐŸÐµÑ€Ð²Ð¾Ðµ Ð·Ð°Ð½ÑÑ‚Ð¸Ðµ', actions: 'Ð”ÐµÐ¹ÑÑ‚Ð²Ð¸Ñ', publicId: 'ÐŸÑƒÐ±Ð»Ð¸Ñ‡Ð½Ð°Ñ ÑÑÑ‹Ð»ÐºÐ°', liveHold: 'Ð’Ñ€ÐµÐ¼ÐµÐ½Ð½Ð¾ Ð·Ð°Ñ€ÐµÐ·ÐµÑ€Ð²Ð¸Ñ€Ð¾Ð²Ð°Ð½Ð¾',
         draft: 'Ð§ÐµÑ€Ð½Ð¾Ð²Ð¸Ðº', available: 'Ð”Ð¾ÑÑ‚ÑƒÐ¿Ð½Ð¾', paused: 'ÐŸÑ€Ð¸Ð¾ÑÑ‚Ð°Ð½Ð¾Ð²Ð»ÐµÐ½Ð¾', sold: 'ÐŸÑ€Ð¾Ð´Ð°Ð½Ð¾', retired: 'Ð¡Ð½ÑÑ‚Ð¾',
-        publish: 'ÐžÐ¿ÑƒÐ±Ð»Ð¸ÐºÐ¾Ð²Ð°Ñ‚ÑŒ', resume: 'Ð’Ð¾Ð·Ð¾Ð±Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ', pause: 'ÐŸÑ€Ð¸Ð¾ÑÑ‚Ð°Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ', retire: 'Ð¡Ð½ÑÑ‚ÑŒ',
-        confirmAction: 'ÐŸÐ¾Ð´Ñ‚Ð²ÐµÑ€Ð´Ð¸Ñ‚ÑŒ Ð´ÐµÐ¹ÑÑ‚Ð²Ð¸Ðµ', confirmPublish: 'ÐŸÐ¾ÑÐ»Ðµ Ð¿ÑƒÐ±Ð»Ð¸ÐºÐ°Ñ†Ð¸Ð¸ Ð¼ÐµÑÑ‚Ð¾ Ð¼Ð¾Ð¶Ð½Ð¾ Ð±ÑƒÐ´ÐµÑ‚ ÐºÑƒÐ¿Ð¸Ñ‚ÑŒ, Ð° Ñ‡ÐµÑ‚Ñ‹Ñ€Ðµ Ð´Ð°Ñ‚Ñ‹ Ð·Ð°Ð½ÑÑ‚Ð¸Ð¹ Ð±ÑƒÐ´ÑƒÑ‚ Ð·Ð°Ñ„Ð¸ÐºÑÐ¸Ñ€Ð¾Ð²Ð°Ð½Ñ‹.',
-        confirmTransition: 'ÐŸÐ¾Ð´Ñ‚Ð²ÐµÑ€Ð´Ð¸Ñ‚Ðµ Ð¸Ð·Ð¼ÐµÐ½ÐµÐ½Ð¸Ðµ ÑÑ‚Ð°Ñ‚ÑƒÑÐ° Ð¼ÐµÑÑ‚Ð°.', confirm: 'ÐŸÐ¾Ð´Ñ‚Ð²ÐµÑ€Ð´Ð¸Ñ‚ÑŒ', cancel: 'ÐžÑ‚Ð¼ÐµÐ½Ð°',
-        loadError: 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð·Ð°Ð³Ñ€ÑƒÐ·Ð¸Ñ‚ÑŒ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»ÐµÐ¹ Ð¸ Ð¼ÐµÑÑ‚Ð°.', retry: 'ÐŸÐ¾Ð²Ñ‚Ð¾Ñ€Ð¸Ñ‚ÑŒ', loading: 'Ð—Ð°Ð³Ñ€ÑƒÐ¶Ð°ÐµÐ¼ Ð¿Ñ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»ÐµÐ¹ Ð¸ Ð¼ÐµÑÑ‚Ð°â€¦',
-        saving: 'Ð¡Ð¾Ñ…Ñ€Ð°Ð½ÑÐµÐ¼â€¦', activated: 'ÐŸÑ€ÐµÐ¿Ð¾Ð´Ð°Ð²Ð°Ñ‚ÐµÐ»ÑŒ Ð°ÐºÑ‚Ð¸Ð²Ð¸Ñ€Ð¾Ð²Ð°Ð½.',
-        draftCreated: 'ÐœÐµÑÑ‚Ð¾ ÑÐ¾Ð·Ð´Ð°Ð½Ð¾ ÐºÐ°Ðº Ñ‡ÐµÑ€Ð½Ð¾Ð²Ð¸Ðº. ÐŸÑ€Ð¾Ð²ÐµÑ€ÑŒÑ‚Ðµ ÐµÐ³Ð¾ Ð¿ÐµÑ€ÐµÐ´ Ð¿ÑƒÐ±Ð»Ð¸ÐºÐ°Ñ†Ð¸ÐµÐ¹.', transitionDone: 'Ð¡Ñ‚Ð°Ñ‚ÑƒÑ Ð¼ÐµÑÑ‚Ð° Ð¾Ð±Ð½Ð¾Ð²Ð»Ñ‘Ð½.',
-        genericError: 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð²Ñ‹Ð¿Ð¾Ð»Ð½Ð¸Ñ‚ÑŒ Ð¾Ð¿ÐµÑ€Ð°Ñ†Ð¸ÑŽ.', reasonPlaceholder: 'ÐšÑ€Ð°Ñ‚ÐºÐ¾ Ð¾Ð±ÑŠÑÑÐ½Ð¸Ñ‚Ðµ Ð¿Ñ€Ð¸Ñ‡Ð¸Ð½Ñƒ Ð´ÐµÐ¹ÑÑ‚Ð²Ð¸Ñ',
-        requiredReason: 'ÐŸÑ€Ð¸Ñ‡Ð¸Ð½Ð° Ð´Ð¾Ð»Ð¶Ð½Ð° ÑÐ¾Ð´ÐµÑ€Ð¶Ð°Ñ‚ÑŒ Ð½Ðµ Ð¼ÐµÐ½ÐµÐµ 5 ÑÐ¸Ð¼Ð²Ð¾Ð»Ð¾Ð².', packageLabel: 'Ð¡Ð²ÑÐ·Ð°Ð½Ð½Ð¾Ðµ Ð¿Ñ€ÐµÐ´Ð»Ð¾Ð¶ÐµÐ½Ð¸Ðµ',
-        placesAvailable: 'Ð´Ð¾ÑÑ‚ÑƒÐ¿Ð½Ð¾', placesDraft: 'Ñ‡ÐµÑ€Ð½Ð¾Ð²Ð¸ÐºÐ¾Ð²', noAvailability: 'ÐÐµÑ‚ ÐµÐ¶ÐµÐ½ÐµÐ´ÐµÐ»ÑŒÐ½Ð¾Ð¹ Ð´Ð¾ÑÑ‚ÑƒÐ¿Ð½Ð¾ÑÑ‚Ð¸',
-        availabilityConfigured: 'Ð”Ð¾ÑÑ‚ÑƒÐ¿Ð½Ð¾ÑÑ‚ÑŒ Ð½Ð°ÑÑ‚Ñ€Ð¾ÐµÐ½Ð°', holdBlocked: 'ÐÐµÐ»ÑŒÐ·Ñ Ð¿Ñ€Ð¸Ð¾ÑÑ‚Ð°Ð½Ð¾Ð²Ð¸Ñ‚ÑŒ Ð¸Ð»Ð¸ ÑÐ½ÑÑ‚ÑŒ Ð¼ÐµÑÑ‚Ð¾, Ð¿Ð¾ÐºÐ° Ð´ÐµÐ¹ÑÑ‚Ð²ÑƒÐµÑ‚ Ð²Ñ€ÐµÐ¼ÐµÐ½Ð½Ð°Ñ Ñ€ÐµÐ·ÐµÑ€Ð²Ð°Ñ†Ð¸Ñ.',
-        days: ['Ð²Ð¾ÑÐºÑ€ÐµÑÐµÐ½ÑŒÐµ', 'Ð¿Ð¾Ð½ÐµÐ´ÐµÐ»ÑŒÐ½Ð¸Ðº', 'Ð²Ñ‚Ð¾Ñ€Ð½Ð¸Ðº', 'ÑÑ€ÐµÐ´Ð°', 'Ñ‡ÐµÑ‚Ð²ÐµÑ€Ð³', 'Ð¿ÑÑ‚Ð½Ð¸Ñ†Ð°', 'ÑÑƒÐ±Ð±Ð¾Ñ‚Ð°'],
-        addSlot: 'Ð”Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ Ð²Ñ€ÐµÐ¼Ñ', removeSlot: 'Ð£Ð´Ð°Ð»Ð¸Ñ‚ÑŒ', from: 'Ð¡', to: 'Ð”Ð¾', save: 'Ð¡Ð¾Ñ…Ñ€Ð°Ð½Ð¸Ñ‚ÑŒ',
-        cancelAvailability: 'ÐžÑ‚Ð¼ÐµÐ½Ð°', noAvailabilitySlots: 'ÐÐµÑ‚ Ð²Ñ€ÐµÐ¼ÐµÐ½Ð¸', day: 'Ð”ÐµÐ½ÑŒ',
-        slotAdded: 'Ð’Ñ€ÐµÐ¼Ñ Ð´Ð¾Ð±Ð°Ð²Ð»ÐµÐ½Ð¾.', slotRemoved: 'Ð’Ñ€ÐµÐ¼Ñ ÑƒÐ´Ð°Ð»ÐµÐ½Ð¾.',
-        errorAdding: 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ Ð´Ð¾Ð±Ð°Ð²Ð¸Ñ‚ÑŒ Ð²Ñ€ÐµÐ¼Ñ.', errorRemoving: 'ÐÐµ ÑƒÐ´Ð°Ð»Ð¾ÑÑŒ ÑƒÐ´Ð°Ð»Ð¸Ñ‚ÑŒ Ð²Ñ€ÐµÐ¼Ñ.',
-        invalidTimeRange: 'Ð’Ñ€ÐµÐ¼Ñ Ð¾ÐºÐ¾Ð½Ñ‡Ð°Ð½Ð¸Ñ Ð´Ð¾Ð»Ð¶Ð½Ð¾ Ð±Ñ‹Ñ‚ÑŒ Ð¿Ð¾Ð·Ð¶Ðµ Ð²Ñ€ÐµÐ¼ÐµÐ½Ð¸ Ð½Ð°Ñ‡Ð°Ð»Ð°.',
-        timezoneNotice: 'Ð”Ð¾ÑÑ‚ÑƒÐ¿Ð½Ð¾ÑÑ‚ÑŒ Ð²Ð²Ð¾Ð´Ð¸Ñ‚ÑÑ Ð¸ Ð¾Ñ‚Ð¾Ð±Ñ€Ð°Ð¶Ð°ÐµÑ‚ÑÑ Ð² Europe/Madrid.',
-    },
-} as const;
-
-const STATUS_STYLES: Record<SlotStatus, string> = {
-    draft: 'border-gray-500 bg-gray-100 text-gray-800',
-    available: 'border-green-700 bg-green-50 text-green-800',
-    paused: 'border-amber-700 bg-amber-50 text-amber-900',
-    sold: 'border-blue-700 bg-blue-50 text-blue-800',
-    retired: 'border-slate-500 bg-slate-100 text-slate-700',
-};
-
-const TRANSITIONS: Record<SlotStatus, SlotTransition[]> = {
-    draft: ['publish', 'retire'],
-    available: ['pause', 'retire'],
-    paused: ['resume', 'retire'],
-    sold: [],
-    retired: [],
-};
-
-function makeRequestId(): string {
-    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (character) => {
-        const random = Math.floor(Math.random() * 16);
-        const value = character === 'x' ? random : (random & 0x3) | 0x8;
-        return value.toString(16);
-    });
-}
-
-function teacherLabel(teacher: Teacher): string {
-    return teacher.fullName?.trim() || teacher.email;
-}
-
-function engagementKind(teacher: Teacher): EngagementKind | null {
-    if (typeof teacher.currentEngagement === 'string') return teacher.currentEngagement;
-    return teacher.currentEngagement?.engagementKind ?? null;
-}
-
-function engagementEffectiveFrom(teacher: Teacher): string | null {
-    return typeof teacher.currentEngagement === 'object'
-        ? teacher.currentEngagement?.effectiveFrom ?? null
-        : null;
-}
-
-function addDays(dateKey: string, days: number): string {
-    const [year, month, day] = dateKey.split('-').map(Number);
-    const date = new Date(Date.UTC(year, month - 1, day + days));
-    return date.toISOString().slice(0, 10);
-}
-
-function responseError(payload: TeachersSlotsResponse | null, fallback: string): string {
-    if (typeof payload?.error === 'string') return payload.error;
-    if (payload?.error && typeof payload.error.message === 'string') return payload.error.message;
-    return fallback;
-}
-
-function packageLabel(value: unknown, lang: Lang): string {
-    if (!value || typeof value !== 'object') return 'â€”';
-    const pkg = value as Record<string, unknown>;
-    const display = pkg.displayName ?? pkg.display_name;
-    if (typeof display === 'string') return display;
-    if (display && typeof display === 'object') {
-        const labels = display as Record<string, unknown>;
-        const first = labels[lang] ?? labels.es ?? labels.en ?? labels.ru;
-        if (typeof first === 'string') return first;
-    }
-    return typeof pkg.name === 'string' ? pkg.name : 'â€”';
-}
-
-function formatInstant(value: string, lang: Lang): string {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return value;
-    return new Intl.DateTimeFormat(lang, {
-        timeZone: 'Europe/Madrid',
-        dateStyle: 'medium',
-        timeStyle: 'short',
-    }).format(date);
-}
-
-function occurrenceInstant(occurrence: Occurrence): string | null {
-    return occurrence.startsAt ?? occurrence.starts_at ?? null;
-}
-
-export default function TeacherSlotManager({ lang }: { lang: Lang }) {
-    const t = COPY[lang];
-    const [data, setData] = useState<{ package?: unknown; teachers: Teacher[]; slots: BookableSlot[] }>({ teachers: [], slots: [] });
-    const [selectedTeacherId, setSelectedTeacherId] = useState('');
-    const [loading, setLoading] = useState(true);
-    const [loadError, setLoadError] = useState<string | null>(null);
-    const [workingKey, setWorkingKey] = useState<string | null>(null);
-    const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-    const [activation, setActivation] = useState({
-        email: '', engagementKind: 'external' as EngagementKind, effectiveFrom: '', reason: '', confirmed: false,
-    });
-    const [engagement, setEngagement] = useState({ engagementKind: 'external' as EngagementKind, effectiveFrom: '', reason: '' });
-    const [draft, setDraft] = useState({ firstClassDate: '', localStartTime: '09:00', reason: '' });
-    const [pendingTransition, setPendingTransition] = useState<{ slot: BookableSlot; transition: SlotTransition } | null>(null);
-    const [transitionReason, setTransitionReason] = useState('');
-    const requestIds = useRef(new Map<string, { id: string; payload: string }>());
-
-    const load = useCallback(async (signal?: AbortSignal) => {
-        setLoading(true);
-        setLoadError(null);
-        try {
-            const response = await fetch('/api/admin/teachers-slots', { signal, headers: { Accept: 'application/json' } });
-            const payload = await response.json().catch(() => null) as TeachersSlotsResponse | null;
-            if (!response.ok) throw new Error(responseError(payload, t.loadError));
-            const teachers = payload?.teachers ?? [];
-            setData({ package: payload?.package, teachers, slots: payload?.slots ?? [] });
-            setSelectedTeacherId((current) => teachers.some((teacher) => teacher.id === current) ? current : teachers[0]?.id ?? '');
-        } catch (error) {
-            if (error instanceof DOMException && error.name === 'AbortError') return;
-            setLoadError(error instanceof Error ? error.message : t.loadError);
-        } finally {
-            if (!signal?.aborted) setLoading(false);
-        }
-    }, [t.loadError]);
-
-    useEffect(() => {
-        const controller = new AbortController();
-        void load(controller.signal);
-        return () => controller.abort();
-    }, [load]);
-
-    const postAction = async (body: Record<string, unknown>, key: string, success: string): Promise<boolean> => {
-        setWorkingKey(key);
-        setMessage(null);
-        const serializedPayload = JSON.stringify(body);
-        const existingRequest = requestIds.current.get(key);
-        const logicalRequest = existingRequest?.payload === serializedPayload
-            ? existingRequest
-            : { id: makeRequestId(), payload: serializedPayload };
-        requestIds.current.set(key, logicalRequest);
-        try {
-            const response = await fetch('/api/admin/teachers-slots', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-                body: JSON.stringify({ ...body, requestId: logicalRequest.id }),
-            });
-            requestIds.current.delete(key);
-            const payload = await response.json().catch(() => null) as TeachersSlotsResponse | null;
-            if (!response.ok) throw new Error(responseError(payload, t.genericError));
-            setMessage({ type: 'success', text: success });
-            await load();
-            return true;
-        } catch (error) {
-            setMessage({ type: 'error', text: error instanceof Error ? error.message : t.genericError });
-            return false;
-        } finally {
-            setWorkingKey(null);
-        }
-    };
-
-    const selectedTeacher = data.teachers.find((teacher) => teacher.id === selectedTeacherId) ?? null;
-    const selectedSlots = useMemo(
-        () => data.slots.filter((slot) => slot.teacherId === selectedTeacherId),
-        [data.slots, selectedTeacherId],
-    );
-    const previewDates = draft.firstClassDate
-        ? [0, 7, 14, 21].map((days) => addDays(draft.firstClassDate, days))
-        : [];
-    const availableCount = data.slots.filter((slot) => slot.status === 'available').length;
-    const draftCount = data.slots.filter((slot) => slot.status === 'draft').length;
-    const isMutating = workingKey !== null;
-
-    const submitActivation = async (event: FormEvent) => {
-        event.preventDefault();
-        if (!activation.confirmed || activation.reason.trim().length < 5) return;
-        const succeeded = await postAction({
-            action: 'activate_teacher',
-            email: activation.email.trim(),
-            engagementKind: activation.engagementKind,
-            effectiveFrom: new Date(activation.effectiveFrom).toISOString(),
-            reason: activation.reason.trim(),
-        }, 'activate_teacher', t.activated);
-        if (succeeded) setActivation({ email: '', engagementKind: 'external', effectiveFrom: '', reason: '', confirmed: false });
-    };
-
-    const submitEngagement = async (event: FormEvent) => {
-        event.preventDefault();
-        if (!selectedTeacher || engagement.reason.trim().length < 5 || !engagement.effectiveFrom) return;
-        const succeeded = await postAction({
-            action: 'configure_engagement',
-            teacherId: selectedTeacher.id,
-            engagementKind: engagement.engagementKind,
-            effectiveFrom: new Date(engagement.effectiveFrom).toISOString(),
-            reason: engagement.reason.trim(),
-        }, `configure_engagement:${selectedTeacher.id}`, t.engagementConfigured);
-        if (succeeded) setEngagement({ engagementKind: engagement.engagementKind, effectiveFrom: '', reason: '' });
-    };
-
-    const submitDraft = async (event: FormEvent) => {
-        event.preventDefault();
-        if (!selectedTeacher || draft.reason.trim().length < 5) return;
-        const succeeded = await postAction({
-            action: 'create_slot',
-            teacherId: selectedTeacher.id,
-            firstClassDate: draft.firstClassDate,
-            localStartTime: draft.localStartTime,
-            reason: draft.reason.trim(),
-        }, 'create_slot', t.draftCreated);
-        if (succeeded) setDraft({ firstClassDate: '', localStartTime: draft.localStartTime, reason: '' });
-    };
-
-    const submitTransition = async () => {
-        if (!pendingTransition || transitionReason.trim().length < 5) return;
-        const succeeded = await postAction({
-            action: 'transition_slot',
-            slotId: pendingTransition.slot.id,
-            transition: pendingTransition.transition,
-            reason: transitionReason.trim(),
-        }, `transition:${pendingTransition.slot.id}`, t.transitionDone);
-        if (succeeded) {
-            setPendingTransition(null);
-            setTransitionReason('');
-        }
-    };
-
-    return (
-        <div className="space-y-8">
-            <header className="border-2 border-[#006064] bg-white p-5 shadow-[4px_4px_0px_0px_#006064] sm:p-7">
-                <p className="max-w-4xl text-sm leading-6 text-[#006064]">{t.intro}</p>
-                <dl className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <div className="border border-[#006064] bg-[#E0F7FA] p-3"><dt className="text-xs font-bold uppercase text-[#006064]">{t.teachers}</dt><dd className="font-display text-2xl text-[#006064]">{data.teachers.length}</dd></div>
-                    <div className="border border-[#006064] bg-[#E0F7FA] p-3"><dt className="text-xs font-bold uppercase text-[#006064]">{t.placesAvailable}</dt><dd className="font-display text-2xl text-[#006064]">{availableCount}</dd></div>
-                    <div className="border border-[#006064] bg-[#E0F7FA] p-3"><dt className="text-xs font-bold uppercase text-[#006064]">{t.placesDraft}</dt><dd className="font-display text-2xl text-[#006064]">{draftCount}</dd></div>
-                    <div className="border border-[#006064] bg-[#E0F7FA] p-3"><dt className="text-xs font-bold uppercase text-[#006064]">{t.packageLabel}</dt><dd className="mt-1 text-sm font-bold text-[#006064]">{packageLabel(data.package, lang)}</dd></div>
-                </dl>
-            </header>
-
-            {message && <div aria-live="polite" role={message.type === 'error' ? 'alert' : 'status'} className={`border-2 p-4 font-bold ${message.type === 'error' ? 'border-red-700 bg-red-50 text-red-800' : 'border-green-700 bg-green-50 text-green-800'}`}>{message.text}</div>}
-
-            <section aria-labelledby="activate-teacher-heading" className="space-y-4">
-                <header><h2 id="activate-teacher-heading" className="font-display text-2xl uppercase text-[#006064]">{t.activateTitle}</h2><p className="mt-1 max-w-3xl text-sm text-[#006064]">{t.activateIntro}</p></header>
-                <form onSubmit={submitActivation} className="grid gap-4 border-2 border-[#006064] bg-white p-5 md:grid-cols-2">
-                    <label className="text-sm font-bold text-[#006064]">{t.email}<input type="email" required value={activation.email} onChange={(event) => setActivation({ ...activation, email: event.target.value })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /></label>
-                    <label className="text-sm font-bold text-[#006064]">{t.engagement}<select value={activation.engagementKind} onChange={(event) => setActivation({ ...activation, engagementKind: event.target.value as EngagementKind })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3"><option value="founder">{t.founder}</option><option value="external">{t.external}</option></select></label>
-                    <label className="text-sm font-bold text-[#006064]">{t.effectiveFrom}<input type="datetime-local" required value={activation.effectiveFrom} onChange={(event) => setActivation({ ...activation, effectiveFrom: event.target.value })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /></label>
-                    <label className="text-sm font-bold text-[#006064]">{t.reason}<input required minLength={5} maxLength={1000} value={activation.reason} onChange={(event) => setActivation({ ...activation, reason: event.target.value })} placeholder={t.reasonPlaceholder} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /></label>
-                    <label className="flex items-start gap-3 text-sm font-bold text-[#006064] md:col-span-2"><input type="checkbox" checked={activation.confirmed} onChange={(event) => setActivation({ ...activation, confirmed: event.target.checked })} disabled={isMutating} className="mt-1 h-5 w-5 accent-[#006064]" /><span>{t.confirmExisting}</span></label>
-                    <button type="submit" disabled={isMutating || !activation.confirmed || activation.reason.trim().length < 5} aria-busy={workingKey === 'activate_teacher'} className="w-fit border-2 border-[#006064] bg-[#006064] px-5 py-3 text-sm font-bold uppercase text-white disabled:opacity-50">{workingKey === 'activate_teacher' ? t.saving : t.activate}</button>
-                </form>
-            </section>
-
-            {loading ? (
-                <p role="status" className="border-2 border-[#006064] bg-white p-6 font-mono text-[#006064]">{t.loading}</p>
-            ) : loadError ? (
-                <div role="alert" className="border-2 border-red-700 bg-red-50 p-5 text-red-800"><p className="font-bold">{loadError}</p><button type="button" onClick={() => void load()} className="mt-3 border-2 border-red-800 bg-white px-4 py-2 text-sm font-bold uppercase">{t.retry}</button></div>
-            ) : data.teachers.length === 0 ? (
-                <p role="status" className="border-2 border-[#006064] bg-white p-6 text-[#006064]">{t.noTeachers}</p>
-            ) : selectedTeacher ? (
-                <>
-                    <section aria-labelledby="teacher-selection-heading" className="border-2 border-[#006064] bg-white p-5">
-                        <label id="teacher-selection-heading" htmlFor="teacher-selection" className="block text-sm font-bold uppercase text-[#006064]">{t.selectTeacher}</label>
-                        <select id="teacher-selection" value={selectedTeacherId} onChange={(event) => { setSelectedTeacherId(event.target.value); setPendingTransition(null); setTransitionReason(''); }} disabled={isMutating} className="mt-2 w-full border-2 border-[#006064] p-3 sm:max-w-xl">
-                            {data.teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacherLabel(teacher)} Â· {engagementKind(teacher) === 'founder' ? t.founder : engagementKind(teacher) === 'external' ? t.external : 'â€”'}</option>)}
-                        </select>
-                        <p className={`mt-3 text-sm font-bold ${selectedTeacher.availability.length ? 'text-green-800' : 'text-amber-900'}`}>{selectedTeacher.availability.length ? t.availabilityConfigured : t.noAvailability}</p>
-                    </section>
-
-                    <section aria-labelledby="engagement-heading" className="space-y-4">
-                        <header><h2 id="engagement-heading" className="font-display text-2xl uppercase text-[#006064]">{t.configureEngagement}</h2><p className="mt-1 text-sm font-bold text-[#006064]">{t.configureEngagementIntro}</p></header>
-                        <p className="border-2 border-[#006064] bg-[#E0F7FA] p-4 text-sm font-bold text-[#006064]">{t.latestEngagement}: {engagementKind(selectedTeacher) === 'founder' ? t.founder : engagementKind(selectedTeacher) === 'external' ? t.external : 'â€”'}{engagementEffectiveFrom(selectedTeacher) ? ` Â· ${formatInstant(engagementEffectiveFrom(selectedTeacher) as string, lang)}` : ''}</p>
-                        <form onSubmit={submitEngagement} className="grid gap-4 border-2 border-[#006064] bg-white p-5 md:grid-cols-2">
-                            <label className="text-sm font-bold text-[#006064]">{t.engagement}<select value={engagement.engagementKind} onChange={(event) => setEngagement({ ...engagement, engagementKind: event.target.value as EngagementKind })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3"><option value="founder">{t.founder}</option><option value="external">{t.external}</option></select></label>
-                            <label className="text-sm font-bold text-[#006064]">{t.effectiveFrom}<input type="datetime-local" required value={engagement.effectiveFrom} onChange={(event) => setEngagement({ ...engagement, effectiveFrom: event.target.value })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /></label>
-                            <label className="text-sm font-bold text-[#006064] md:col-span-2">{t.reason}<input required minLength={5} maxLength={1000} value={engagement.reason} onChange={(event) => setEngagement({ ...engagement, reason: event.target.value })} placeholder={t.reasonPlaceholder} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /></label>
-                            <button type="submit" disabled={isMutating || !engagement.effectiveFrom || engagement.reason.trim().length < 5} aria-busy={workingKey === `configure_engagement:${selectedTeacher.id}`} className="w-fit border-2 border-[#006064] bg-[#006064] px-5 py-3 text-sm font-bold uppercase text-white disabled:opacity-50">{workingKey === `configure_engagement:${selectedTeacher.id}` ? t.saving : t.configureEngagement}</button>
-                        </form>
-                    </section>
-
-                    <section aria-labelledby="availability-heading" className="space-y-4">
-                        <header><h2 id="availability-heading" className="font-display text-2xl uppercase text-[#006064]">{t.availabilityTitle}</h2><p className="mt-1 text-sm font-bold text-[#006064]">{t.availabilityIntro}</p></header>
-                        <AvailabilityManager
-                            key={selectedTeacher.id}
-                            initialAvailability={selectedTeacher.availability.map((slot) => ({
-                                id: slot.id,
-                                day_of_week: slot.dayOfWeek,
-                                start_time: slot.startTime,
-                                end_time: slot.endTime,
-                                is_active: true,
-                            }))}
-                            teacherId={selectedTeacher.id}
-                            onAvailabilityChange={(nextAvailability: AvailabilitySlot[]) => {
-                                setData((current) => ({
-                                    ...current,
-                                    teachers: current.teachers.map((teacher) => teacher.id === selectedTeacher.id ? {
-                                        ...teacher,
-                                        availability: nextAvailability.map((slot) => ({
-                                            id: slot.id,
-                                            dayOfWeek: slot.day_of_week,
-                                            startTime: slot.start_time,
-                                            endTime: slot.end_time,
-                                        })),
-                                    } : teacher),
-                                }));
-                            }}
-                            lang={lang}
-                            translations={{
-                                dayNames: [...t.days], addSlot: t.addSlot, removeSlot: t.removeSlot, from: t.from, to: t.to,
-                                save: t.save, cancel: t.cancelAvailability, noSlots: t.noAvailabilitySlots, day: t.day,
-                                slotAdded: t.slotAdded, slotRemoved: t.slotRemoved, errorAdding: t.errorAdding,
-                                errorRemoving: t.errorRemoving, invalidTimeRange: t.invalidTimeRange, timezoneNotice: t.timezoneNotice,
-                            }}
-                        />
-                    </section>
-
-                    <section aria-labelledby="bookable-slots-heading" className="space-y-5">
-                        <header><h2 id="bookable-slots-heading" className="font-display text-2xl uppercase text-[#006064]">{t.slotsTitle}</h2><p className="mt-1 max-w-3xl text-sm font-bold text-[#006064]">{t.slotsIntro}</p></header>
-
-                        <form onSubmit={submitDraft} className="grid gap-4 border-2 border-[#006064] bg-white p-5 md:grid-cols-2">
-                            <h3 className="font-display text-xl uppercase text-[#006064] md:col-span-2">{t.createTitle}</h3>
-                            <label className="text-sm font-bold text-[#006064]">{t.firstClassDate}<input type="date" required value={draft.firstClassDate} onChange={(event) => setDraft({ ...draft, firstClassDate: event.target.value })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /></label>
-                            <label className="text-sm font-bold text-[#006064]">{t.localStartTime}<input type="time" required value={draft.localStartTime} onChange={(event) => setDraft({ ...draft, localStartTime: event.target.value })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /><span className="mt-1 block text-xs">{t.timezone}</span></label>
-                            <label className="text-sm font-bold text-[#006064] md:col-span-2">{t.reason}<input required minLength={5} maxLength={1000} value={draft.reason} onChange={(event) => setDraft({ ...draft, reason: event.target.value })} placeholder={t.reasonPlaceholder} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] p-3" /></label>
-                            {previewDates.length > 0 && <fieldset className="border-2 border-[#006064] bg-[#E0F7FA] p-4 md:col-span-2"><legend className="px-2 text-xs font-bold uppercase text-[#006064]">{t.preview}</legend><ol className="grid gap-2 sm:grid-cols-2">{previewDates.map((date, index) => <li key={date} className="font-mono text-sm text-[#006064]">{index + 1}. {date} Â· {draft.localStartTime}</li>)}</ol></fieldset>}
-                            <button type="submit" disabled={isMutating || !draft.firstClassDate || draft.reason.trim().length < 5} aria-busy={workingKey === 'create_slot'} className="w-fit border-2 border-[#006064] bg-[#006064] px-5 py-3 text-sm font-bold uppercase text-white disabled:opacity-50">{workingKey === 'create_slot' ? t.saving : t.createDraft}</button>
-                        </form>
-
-                        {pendingTransition && <section aria-labelledby="transition-heading" className="border-4 border-amber-800 bg-amber-50 p-5 text-amber-950 shadow-[4px_4px_0px_0px_currentColor]"><h3 id="transition-heading" className="font-display text-xl uppercase text-amber-950">{t.confirmAction}: {t[pendingTransition.transition]}</h3><p className="mt-2 font-mono text-sm font-bold text-amber-950">{t.publicId}: {pendingTransition.slot.publicId}</p><p className="mt-2 text-sm text-amber-950">{pendingTransition.transition === 'publish' ? t.confirmPublish : t.confirmTransition}</p><label className="mt-4 block text-sm font-bold text-amber-950">{t.reason}<input autoFocus required minLength={5} maxLength={1000} value={transitionReason} onChange={(event) => setTransitionReason(event.target.value)} className="mt-1 block w-full border-2 border-amber-900 bg-white p-3" /></label>{transitionReason.length > 0 && transitionReason.trim().length < 5 && <p role="alert" className="mt-2 text-sm font-bold text-red-800">{t.requiredReason}</p>}<div className="mt-4 flex flex-wrap gap-3"><button type="button" onClick={() => void submitTransition()} disabled={isMutating || transitionReason.trim().length < 5} className="border-2 border-amber-950 bg-amber-950 px-4 py-2 text-sm font-bold uppercase text-white disabled:opacity-50">{isMutating ? t.saving : t.confirm}</button><button type="button" onClick={() => { setPendingTransition(null); setTransitionReason(''); }} disabled={isMutating} className="border-2 border-amber-950 bg-white px-4 py-2 text-sm font-bold uppercase text-amber-950">{t.cancel}</button></div></section>}
-
-                        {selectedSlots.length === 0 ? <p role="status" className="border-2 border-[#006064] bg-white p-6 text-[#006064]">{t.noSlots}</p> : (
-                            <div className="overflow-x-auto border-2 border-[#006064] bg-white" tabIndex={0} aria-label={t.slotsTitle}>
-                                <table className="w-full min-w-[920px] text-left text-sm"><thead className="bg-[#006064] text-white"><tr><th className="p-3">{t.status}</th><th className="p-3">{t.schedule}</th><th className="p-3">{t.firstClass}</th><th className="p-3">{t.publicId}</th><th className="p-3">{t.actions}</th></tr></thead><tbody className="divide-y divide-[#006064]/20">{selectedSlots.map((slot) => {
-                                    const actions = TRANSITIONS[slot.status];
-                                    return <tr key={slot.id}><td className="p-3 align-top"><span className={`inline-flex border px-2 py-1 text-xs font-bold uppercase ${STATUS_STYLES[slot.status]}`}>{t[slot.status]}</span>{slot.hasLiveHold && <span className="mt-2 block w-fit border border-violet-700 bg-violet-50 px-2 py-1 text-xs font-bold text-violet-900">{t.liveHold}</span>}</td><td className="p-3 align-top font-bold text-[#006064]">{t.days[slot.weekday]} Â· {slot.localStartTime.slice(0, 5)}<ol className="mt-2 space-y-1 font-mono text-xs font-normal">{[...slot.occurrences].sort((a, b) => (a.index ?? a.occurrenceIndex ?? a.occurrence_index ?? 0) - (b.index ?? b.occurrenceIndex ?? b.occurrence_index ?? 0)).map((occurrence, index) => { const instant = occurrenceInstant(occurrence); return <li key={`${slot.id}-${index}`}>{index + 1}. {instant ? formatInstant(instant, lang) : 'â€”'}</li>; })}</ol></td><td className="p-3 align-top text-[#006064]">{formatInstant(slot.firstOccurrenceAt, lang)}</td><td className="p-3 align-top font-mono text-xs text-[#006064]">{slot.publicId}</td><td className="p-3 align-top"><div className="flex flex-wrap gap-2">{actions.map((transition) => { const blockedByHold = slot.hasLiveHold && (transition === 'pause' || transition === 'retire'); return <button key={transition} type="button" onClick={() => { setPendingTransition({ slot, transition }); setTransitionReason(''); }} disabled={isMutating || blockedByHold} title={blockedByHold ? t.holdBlocked : undefined} className="border-2 border-[#006064] px-3 py-2 text-xs font-bold uppercase text-[#006064] disabled:cursor-not-allowed disabled:opacity-40">{t[transition]}</button>; })}</div>{slot.hasLiveHold && actions.some((action) => action === 'pause' || action === 'retire') && <p className="mt-2 max-w-xs text-xs font-bold text-violet-900">{t.holdBlocked}</p>}</td></tr>;
-                                })}</tbody></table>
-                            </div>
-                        )}
-                    </section>
-                </>
-            ) : null}
-        </div>
-    );
-}
+        puë®}¶‰žËkºwµçI‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆ€¼øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹É•…Í½¹ôñ¥¹ÁÕÐÉ•ÅÕ¥É•µ¥¹1•¹Ñ õìÕôµ…á1•¹Ñ õìÄÀÀÁôÙ…±Õ”õí…Ñ¥Ù…Ñ¥½¸¹É•…Í½¹ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•ÑÑ¥Ù…Ñ¥½¸¡ì€¸¸¹…Ñ¥Ù…Ñ¥½¸°É•…Í½¸è•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”ô¥ôÁ±…•¡½±‘•ÈõíÐ¹É•…Í½¹A±…•¡½±‘•Éô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆ€¼øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰™±•à¥Ñ•µÌµÍÑ…ÉÐ…À´ÌÑ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtµé½°µÍÁ…¸´Èˆøñ¥¹ÁÕÐÑåÁ”ô‰¡•­‰½àˆ¡•­•õí…Ñ¥Ù…Ñ¥½¸¹½¹™¥Éµ•‘ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•ÑÑ¥Ù…Ñ¥½¸¡ì€¸¸¹…Ñ¥Ù…Ñ¥½¸°½¹™¥Éµ•è•Ù•¹Ð¹Ñ…É•Ð¹¡•­•ô¥ô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä ´ÔÜ´Ô…•¹ÐµlŒÀÀØÀØÑtˆ€¼øñÍÁ…¸ùíÐ¹½¹™¥Éµá¥ÍÑ¥¹ôð½ÍÁ…¸øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰ÍÕ‰µ¥Ðˆ‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹œñð€……Ñ¥Ù…Ñ¥½¸¹½¹™¥Éµ•ñð…Ñ¥Ù…Ñ¥½¸¹É•…Í½¸¹ÑÉ¥´ ¤¹±•¹Ñ €ð€Õô…É¥„µ‰ÕÍäõíÝ½É­¥¹-•ä€ôôô€…Ñ¥Ù…Ñ•}Ñ•…¡•Èô±…ÍÍ9…µ”ô‰Üµ™¥Ð‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµlŒÀÀØÀØÑtÁà´ÔÁä´ÌÑ•áÐµÍ´™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµÝ¡¥Ñ”‘¥Í…‰±•é½Á…¥Ñä´ÔÀˆùíÝ½É­¥¹-•ä€ôôô€…Ñ¥Ù…Ñ•}Ñ•…¡•Èœ€üÐ¹Í…Ù¥¹œ€èÐ¹…Ñ¥Ù…Ñ•ôð½‰ÕÑÑ½¸ø(€€€€€€€€€€€€€€€€ð½™½É´ø(€€€€€€€€€€€€ð½Í•Ñ¥½¸ø((€€€€€€€€€€€í±½…‘¥¹œ€ü€ (€€€€€€€€€€€€€€€€ñÀÉ½±”ô‰ÍÑ…ÑÕÌˆ±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµÝ¡¥Ñ”À´Ø™½¹Ðµµ½¹¼Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹±½…‘¥¹ôð½Àø(€€€€€€€€€€€€¤€è±½…‘ÉÉ½È€ü€ (€€€€€€€€€€€€€€€€ñ‘¥ØÉ½±”ô‰…±•ÉÐˆ±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµÉ•´ÜÀÀ‰œµÉ•´ÔÀÀ´ÔÑ•áÐµÉ•´àÀÀˆøñÀ±…ÍÍ9…µ”ô‰™½¹Ðµ‰½±ˆùí±½…‘ÉÉ½Éôð½Àøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥±½… ¥ô±…ÍÍ9…µ”ô‰µÐ´Ì‰½É‘•È´È‰½É‘•ÈµÉ•´àÀÀ‰œµÝ¡¥Ñ”Áà´ÐÁä´ÈÑ•áÐµÍ´™½¹Ðµ‰½±ÕÁÁ•É…Í”ˆùíÐ¹É•ÑÉåôð½‰ÕÑÑ½¸øð½‘¥Øø(€€€€€€€€€€€€¤€è‘…Ñ„¹Ñ•…¡•ÉÌ¹±•¹Ñ €ôôô€À€ü€ (€€€€€€€€€€€€€€€€ñÀÉ½±”ô‰ÍÑ…ÑÕÌˆ±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµÝ¡¥Ñ”À´ØÑ•áÐµlŒÀÀØÀØÑtˆùíÐ¹¹½Q•…¡•ÉÍôð½Àø(€€€€€€€€€€€€¤€èÍ•±•Ñ•‘Q•…¡•È€ü€ (€€€€€€€€€€€€€€€€ðø(€€€€€€€€€€€€€€€€€€€€ñÍ•Ñ¥½¸…É¥„µ±…‰•±±•‘‰äô‰Ñ•…¡•ÈµÍ•±•Ñ¥½¸µ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµÝ¡¥Ñ”À´Ôˆø(€€€€€€€€€€€€€€€€€€€€€€€€ñ±…‰•°¥ô‰Ñ•…¡•ÈµÍ•±•Ñ¥½¸µ¡•…‘¥¹œˆ¡Ñµ±½Èô‰Ñ•…¡•ÈµÍ•±•Ñ¥½¸ˆ±…ÍÍ9…µ”ô‰‰±½¬Ñ•áÐµÍ´™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹Í•±•ÑQ•…¡•Éôð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€€€€€ñÍ•±•Ð¥ô‰Ñ•…¡•ÈµÍ•±•Ñ¥½¸ˆÙ…±Õ”õíÍ•±•Ñ•‘Q•…¡•É%‘ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøìÍ•ÑM•±•Ñ•‘Q•…¡•É%¡•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”¤ìÍ•ÑA•¹‘¥¹QÉ…¹Í¥Ñ¥½¸¡¹Õ±°¤ìÍ•ÑQÉ…¹Í¥Ñ¥½¹I•…Í½¸ œœ¤ìõô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´ÈÜµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´ÌÍ´éµ…àµÜµá°ˆø(€€€€€€€€€€€€€€€€€€€€€€€€€€€í‘…Ñ„¹Ñ•…¡•ÉÌ¹µ…À ¡Ñ•…¡•È¤€ôø€ñ½ÁÑ¥½¸­•äõíÑ•…¡•È¹¥‘ôÙ…±Õ”õíÑ•…¡•È¹¥‘ôùíÑ•…¡•É1…‰•°¡Ñ•…¡•È¥ôƒ
+Üí•¹…•µ•¹Ñ-¥¹¡Ñ•…¡•È¤€ôôô€™½Õ¹‘•Èœ€üÐ¹™½Õ¹‘•È€è•¹…•µ•¹Ñ-¥¹¡Ñ•…¡•È¤€ôôô€•áÑ•É¹…°œ€üÐ¹•áÑ•É¹…°€è€ŸŠPôð½½ÁÑ¥½¸ø¥ô(€€€€€€€€€€€€€€€€€€€€€€€€ð½Í•±•Ðø(€€€€€€€€€€€€€€€€€€€€€€€€ñÀ±…ÍÍ9…µ”õíµÐ´ÌÑ•áÐµÍ´™½¹Ðµ‰½±€‘íÍ•±•Ñ•‘Q•…¡•È¹…Ù…¥±…‰¥±¥Ñä¹±•¹Ñ €ü€Ñ•áÐµÉ••¸´àÀÀœ€è€Ñ•áÐµ…µ‰•È´äÀÀõôùíÍ•±•Ñ•‘Q•…¡•È¹…Ù…¥±…‰¥±¥Ñä¹±•¹Ñ €üÐ¹…Ù…¥±…‰¥±¥Ñå½¹™¥ÕÉ•€èÐ¹¹½Ù…¥±…‰¥±¥Ñåôð½Àø(€€€€€€€€€€€€€€€€€€€€ð½Í•Ñ¥½¸ø((€€€€€€€€€€€€€€€€€€€€ñÍ•Ñ¥½¸…É¥„µ±…‰•±±•‘‰äô‰•¹…•µ•¹Ðµ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰ÍÁ…”µä´Ðˆø(€€€€€€€€€€€€€€€€€€€€€€€€ñ¡•…‘•Èøñ È¥ô‰•¹…•µ•¹Ðµ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰™½¹Ðµ‘¥ÍÁ±…äÑ•áÐ´Éá°ÕÁÁ•É…Í”Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹½¹™¥ÕÉ•¹…•µ•¹Ñôð½ ÈøñÀ±…ÍÍ9…µ”ô‰µÐ´ÄÑ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹½¹™¥ÕÉ•¹…•µ•¹Ñ%¹ÑÉ½ôð½Àøð½¡•…‘•Èø(€€€€€€€€€€€€€€€€€€€€€€€€ñÀ±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµlÁÝtÀ´ÐÑ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹±…Ñ•ÍÑ¹…•µ•¹Ñôèí•¹…•µ•¹Ñ-¥¹¡Í•±•Ñ•‘Q•…¡•È¤€ôôô€™½Õ¹‘•Èœ€üÐ¹™½Õ¹‘•È€è•¹…•µ•¹Ñ-¥¹¡Í•±•Ñ•‘Q•…¡•È¤€ôôô€•áÑ•É¹…°œ€üÐ¹•áÑ•É¹…°€è€ŸŠPõí•¹…•µ•¹Ñ™™•Ñ¥Ù•É½´¡Í•±•Ñ•‘Q•…¡•È¤€ü€ƒ
+Ü€‘í™½Éµ…Ñ%¹ÍÑ…¹Ð¡•¹…•µ•¹Ñ™™•Ñ¥Ù•É½´¡Í•±•Ñ•‘Q•…¡•È¤…ÌÍÑÉ¥¹œ°±…¹œ¥õ€€è€œôð½Àø(€€€€€€€€€€€€€€€€€€€€€€€€ñ™½É´½¹MÕ‰µ¥ÐõíÍÕ‰µ¥Ñ¹…•µ•¹Ñô±…ÍÍ9…µ”ô‰É¥…À´Ð‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµÝ¡¥Ñ”À´ÔµéÉ¥µ½±Ì´Èˆø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹•¹…•µ•¹ÑôñÍ•±•ÐÙ…±Õ”õí•¹…•µ•¹Ð¹•¹…•µ•¹Ñ-¥¹‘ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•Ñ¹…•µ•¹Ð¡ì€¸¸¹•¹…•µ•¹Ð°•¹…•µ•¹Ñ-¥¹è•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”…Ì¹…•µ•¹Ñ-¥¹ô¥ô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆøñ½ÁÑ¥½¸Ù…±Õ”ô‰™½Õ¹‘•ÈˆùíÐ¹™½Õ¹‘•Éôð½½ÁÑ¥½¸øñ½ÁÑ¥½¸Ù…±Õ”ô‰•áÑ•É¹…°ˆùíÐ¹•áÑ•É¹…±ôð½½ÁÑ¥½¸øð½Í•±•Ðøð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹•™™•Ñ¥Ù•É½µôñ¥¹ÁÕÐÑåÁ”ô‰‘…Ñ•Ñ¥µ”µ±½…°ˆÉ•ÅÕ¥É•Ù…±Õ”õí•¹…•µ•¹Ð¹•™™•Ñ¥Ù•É½µô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•Ñ¹…•µ•¹Ð¡ì€¸¸¹•¹…•µ•¹Ð°•™™•Ñ¥Ù•É½´è•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”ô¥ô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆ€¼øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtµé½°µÍÁ…¸´ÈˆùíÐ¹É•…Í½¹ôñ¥¹ÁÕÐÉ•ÅÕ¥É•µ¥¹1•¹Ñ õìÕôµ…á1•¹Ñ õìÄÀÀÁôÙ…±Õ”õí•¹…•µ•¹Ð¹É•…Í½¹ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•Ñ¹…•µ•¹Ð¡ì€¸¸¹•¹…•µ•¹Ð°É•…Í½¸è•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”ô¥ôÁ±…•¡½±‘•ÈõíÐ¹É•…Í½¹A±…•¡½±‘•Éô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆ€¼øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰ÍÕ‰µ¥Ðˆ‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹œñð€…•¹…•µ•¹Ð¹•™™•Ñ¥Ù•É½´ñð•¹…•µ•¹Ð¹É•…Í½¸¹ÑÉ¥´ ¤¹±•¹Ñ €ð€Õô…É¥„µ‰ÕÍäõíÝ½É­¥¹-•ä€ôôô½¹™¥ÕÉ•}•¹…•µ•¹Ðè‘íÍ•±•Ñ•‘Q•…¡•È¹¥‘õô±…ÍÍ9…µ”ô‰Üµ™¥Ð‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµlŒÀÀØÀØÑtÁà´ÔÁä´ÌÑ•áÐµÍ´™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµÝ¡¥Ñ”‘¥Í…‰±•é½Á…¥Ñä´ÔÀˆùíÝ½É­¥¹-•ä€ôôô½¹™¥ÕÉ•}•¹…•µ•¹Ðè‘íÍ•±•Ñ•‘Q•…¡•È¹¥‘õ€€üÐ¹Í…Ù¥¹œ€èÐ¹½¹™¥ÕÉ•¹…•µ•¹Ñôð½‰ÕÑÑ½¸ø(€€€€€€€€€€€€€€€€€€€€€€€€ð½™½É´ø(€€€€€€€€€€€€€€€€€€€€ð½Í•Ñ¥½¸ø((€€€€€€€€€€€€€€€€€€€€ñÍ•Ñ¥½¸…É¥„µ±…‰•±±•‘‰äô‰…Ù…¥±…‰¥±¥Ñäµ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰ÍÁ…”µä´Ðˆø(€€€€€€€€€€€€€€€€€€€€€€€€ñ¡•…‘•Èøñ È¥ô‰…Ù…¥±…‰¥±¥Ñäµ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰™½¹Ðµ‘¥ÍÁ±…äÑ•áÐ´Éá°ÕÁÁ•É…Í”Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹…Ù…¥±…‰¥±¥ÑåQ¥Ñ±•ôð½ ÈøñÀ±…ÍÍ9…µ”ô‰µÐ´ÄÑ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹…Ù…¥±…‰¥±¥Ñå%¹ÑÉ½ôð½Àøð½¡•…‘•Èø(€€€€€€€€€€€€€€€€€€€€€€€€ñÙ…¥±…‰¥±¥Ñå5…¹…•È(€€€€€€€€€€€€€€€€€€€€€€€€€€€­•äõíÍ•±•Ñ•‘Q•…¡•È¹¥‘ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€¥¹¥Ñ¥…±Ù…¥±…‰¥±¥ÑäõíÍ•±•Ñ•‘Q•…¡•È¹…Ù…¥±…‰¥±¥Ñä¹µ…À ¡Í±½Ð¤€ôø€¡ì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€¥èÍ±½Ð¹¥°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€‘…å}½™}Ý••¬èÍ±½Ð¹‘…å=™]••¬°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ÍÑ…ÉÑ}Ñ¥µ”èÍ±½Ð¹ÍÑ…ÉÑQ¥µ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€•¹‘}Ñ¥µ”èÍ±½Ð¹•¹‘Q¥µ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€¥Í}…Ñ¥Ù”èÑÉÕ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€ô¤¥ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€Ñ•…¡•É%õíÍ•±•Ñ•‘Q•…¡•È¹¥‘ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€½¹Ù…¥±…‰¥±¥Ñå¡…¹”õì¡¹•áÑÙ…¥±…‰¥±¥ÑäèÙ…¥±…‰¥±¥ÑåM±½Ñmt¤€ôøì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€Í•Ñ…Ñ„ ¡ÕÉÉ•¹Ð¤€ôø€¡ì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€¸¸¹ÕÉÉ•¹Ð°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€Ñ•…¡•ÉÌèÕÉÉ•¹Ð¹Ñ•…¡•ÉÌ¹µ…À ¡Ñ•…¡•È¤€ôøÑ•…¡•È¹¥€ôôôÍ•±•Ñ•‘Q•…¡•È¹¥€üì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€¸¸¹Ñ•…¡•È°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€…Ù…¥±…‰¥±¥Ñäè¹•áÑÙ…¥±…‰¥±¥Ñä¹µ…À ¡Í±½Ð¤€ôø€¡ì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€¥èÍ±½Ð¹¥°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€‘…å=™]••¬èÍ±½Ð¹‘…å}½™}Ý••¬°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ÍÑ…ÉÑQ¥µ”èÍ±½Ð¹ÍÑ…ÉÑ}Ñ¥µ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€•¹‘Q¥µ”èÍ±½Ð¹•¹‘}Ñ¥µ”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ô¤¤°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ô€èÑ•…¡•È¤°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ô¤¤ì(€€€€€€€€€€€€€€€€€€€€€€€€€€€õô(€€€€€€€€€€€€€€€€€€€€€€€€€€€±…¹œõí±…¹ô(€€€€€€€€€€€€€€€€€€€€€€€€€€€ÑÉ…¹Í±…Ñ¥½¹Ìõíì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€‘…å9…µ•Ìèl¸¸¹Ð¹‘…åÍt°…‘‘M±½ÐèÐ¹…‘‘M±½Ð°É•µ½Ù•M±½ÐèÐ¹É•µ½Ù•M±½Ð°™É½´èÐ¹™É½´°Ñ¼èÐ¹Ñ¼°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€Í…Ù”èÐ¹Í…Ù”°…¹•°èÐ¹…¹•±Ù…¥±…‰¥±¥Ñä°¹½M±½ÑÌèÐ¹¹½Ù…¥±…‰¥±¥ÑåM±½ÑÌ°‘…äèÐ¹‘…ä°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€Í±½Ñ‘‘•èÐ¹Í±½Ñ‘‘•°Í±½ÑI•µ½Ù•èÐ¹Í±½ÑI•µ½Ù•°•ÉÉ½É‘‘¥¹œèÐ¹•ÉÉ½É‘‘¥¹œ°(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€•ÉÉ½ÉI•µ½Ù¥¹œèÐ¹•ÉÉ½ÉI•µ½Ù¥¹œ°¥¹Ù…±¥‘Q¥µ•I…¹”èÐ¹¥¹Ù…±¥‘Q¥µ•I…¹”°Ñ¥µ•é½¹•9½Ñ¥”èÐ¹Ñ¥µ•é½¹•9½Ñ¥”°(€€€€€€€€€€€€€€€€€€€€€€€€€€€õô(€€€€€€€€€€€€€€€€€€€€€€€€¼ø(€€€€€€€€€€€€€€€€€€€€ð½Í•Ñ¥½¸ø((€€€€€€€€€€€€€€€€€€€€ñÍ•Ñ¥½¸…É¥„µ±…‰•±±•‘‰äô‰‰½½­…‰±”µÍ±½ÑÌµ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰ÍÁ…”µä´Ôˆø(€€€€€€€€€€€€€€€€€€€€€€€€ñ¡•…‘•Èøñ È¥ô‰‰½½­…‰±”µÍ±½ÑÌµ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰™½¹Ðµ‘¥ÍÁ±…äÑ•áÐ´Éá°ÕÁÁ•É…Í”Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹Í±½ÑÍQ¥Ñ±•ôð½ ÈøñÀ±…ÍÍ9…µ”ô‰µÐ´Äµ…àµÜ´Íá°Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹Í±½ÑÍ%¹ÑÉ½ôð½Àøð½¡•…‘•Èø((€€€€€€€€€€€€€€€€€€€€€€€€ñ™½É´½¹MÕ‰µ¥ÐõíÍÕ‰µ¥ÑÉ…™Ñô±…ÍÍ9…µ”ô‰É¥…À´Ð‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµÝ¡¥Ñ”À´ÔµéÉ¥µ½±Ì´Èˆø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ Ì±…ÍÍ9…µ”ô‰™½¹Ðµ‘¥ÍÁ±…äÑ•áÐµá°ÕÁÁ•É…Í”Ñ•áÐµlŒÀÀØÀØÑtµé½°µÍÁ…¸´ÈˆùíÐ¹É•…Ñ•Q¥Ñ±•ôð½ Ìø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹™¥ÉÍÑ±…ÍÍ…Ñ•ôñ¥¹ÁÕÐÑåÁ”ô‰‘…Ñ”ˆÉ•ÅÕ¥É•Ù…±Õ”õí‘É…™Ð¹™¥ÉÍÑ±…ÍÍ…Ñ•ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•ÑÉ…™Ð¡ì€¸¸¹‘É…™Ð°™¥ÉÍÑ±…ÍÍ…Ñ”è•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”ô¥ô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆ€¼øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹±½…±MÑ…ÉÑQ¥µ•ôñ¥¹ÁÕÐÑåÁ”ô‰Ñ¥µ”ˆÉ•ÅÕ¥É•Ù…±Õ”õí‘É…™Ð¹±½…±MÑ…ÉÑQ¥µ•ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•ÑÉ…™Ð¡ì€¸¸¹‘É…™Ð°±½…±MÑ…ÉÑQ¥µ”è•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”ô¥ô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆ€¼øñÍÁ…¸±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Ñ•áÐµáÌˆùíÐ¹Ñ¥µ•é½¹•ôð½ÍÁ…¸øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ±…‰•°±…ÍÍ9…µ”ô‰Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtµé½°µÍÁ…¸´ÈˆùíÐ¹É•…Í½¹ôñ¥¹ÁÕÐÉ•ÅÕ¥É•µ¥¹1•¹Ñ õìÕôµ…á1•¹Ñ õìÄÀÀÁôÙ…±Õ”õí‘É…™Ð¹É•…Í½¹ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•ÑÉ…™Ð¡ì€¸¸¹‘É…™Ð°É•…Í½¸è•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”ô¥ôÁ±…•¡½±‘•ÈõíÐ¹É•…Í½¹A±…•¡½±‘•Éô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÀ´Ìˆ€¼øð½±…‰•°ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€íÁÉ•Ù¥•Ý…Ñ•Ì¹±•¹Ñ €ø€À€˜˜€ñ™¥•±‘Í•Ð±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµlÁÝtÀ´Ðµé½°µÍÁ…¸´Èˆøñ±••¹±…ÍÍ9…µ”ô‰Áà´ÈÑ•áÐµáÌ™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹ÁÉ•Ù¥•Ýôð½±••¹øñ½°±…ÍÍ9…µ”ô‰É¥…À´ÈÍ´éÉ¥µ½±Ì´ÈˆùíÁÉ•Ù¥•Ý…Ñ•Ì¹µ…À ¡‘…Ñ”°¥¹‘•à¤€ôø€ñ±¤­•äõí‘…Ñ•ô±…ÍÍ9…µ”ô‰™½¹Ðµµ½¹¼Ñ•áÐµÍ´Ñ•áÐµlŒÀÀØÀØÑtˆùí¥¹‘•à€¬€Åô¸í‘…Ñ•ôƒ
+Üí‘É…™Ð¹±½…±MÑ…ÉÑQ¥µ•ôð½±¤ø¥ôð½½°øð½™¥•±‘Í•Ðùô(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ‰ÕÑÑ½¸ÑåÁ”ô‰ÍÕ‰µ¥Ðˆ‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹œñð€…‘É…™Ð¹™¥ÉÍÑ±…ÍÍ…Ñ”ñð‘É…™Ð¹É•…Í½¸¹ÑÉ¥´ ¤¹±•¹Ñ €ð€Õô…É¥„µ‰ÕÍäõíÝ½É­¥¹-•ä€ôôô€É•…Ñ•}Í±½Ðô±…ÍÍ9…µ”ô‰Üµ™¥Ð‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµlŒÀÀØÀØÑtÁà´ÔÁä´ÌÑ•áÐµÍ´™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµÝ¡¥Ñ”‘¥Í…‰±•é½Á…¥Ñä´ÔÀˆùíÝ½É­¥¹-•ä€ôôô€É•…Ñ•}Í±½Ðœ€üÐ¹Í…Ù¥¹œ€èÐ¹É•…Ñ•É…™Ñôð½‰ÕÑÑ½¸ø(€€€€€€€€€€€€€€€€€€€€€€€€ð½™½É´ø((€€€€€€€€€€€€€€€€€€€€€€€íÁ•¹‘¥¹QÉ…¹Í¥Ñ¥½¸€˜˜€ñÍ•Ñ¥½¸…É¥„µ±…‰•±±•‘‰äô‰ÑÉ…¹Í¥Ñ¥½¸µ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰‰½É‘•È´Ð‰½É‘•Èµ…µ‰•È´àÀÀ‰œµ…µ‰•È´ÔÀÀ´ÔÑ•áÐµ…µ‰•È´äÔÀÍ¡…‘½ÜµlÑÁá|ÑÁá|ÁÁá|ÁÁá}ÕÉÉ•¹Ñ½±½Étˆøñ Ì¥ô‰ÑÉ…¹Í¥Ñ¥½¸µ¡•…‘¥¹œˆ±…ÍÍ9…µ”ô‰™½¹Ðµ‘¥ÍÁ±…äÑ•áÐµá°ÕÁÁ•É…Í”Ñ•áÐµ…µ‰•È´äÔÀˆùíÐ¹½¹™¥ÉµÑ¥½¹ôèíÑmÁ•¹‘¥¹QÉ…¹Í¥Ñ¥½¸¹ÑÉ…¹Í¥Ñ¥½¹uôð½ ÌøñÀ±…ÍÍ9…µ”ô‰µÐ´È™½¹Ðµµ½¹¼Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµ…µ‰•È´äÔÀˆùíÐ¹ÁÕ‰±¥%‘ôèíÁ•¹‘¥¹QÉ…¹Í¥Ñ¥½¸¹Í±½Ð¹ÁÕ‰±¥%‘ôð½ÀøñÀ±…ÍÍ9…µ”ô‰µÐ´ÈÑ•áÐµÍ´Ñ•áÐµ…µ‰•È´äÔÀˆùíÁ•¹‘¥¹QÉ…¹Í¥Ñ¥½¸¹ÑÉ…¹Í¥Ñ¥½¸€ôôô€ÁÕ‰±¥Í œ€üÐ¹½¹™¥ÉµAÕ‰±¥Í €èÐ¹½¹™¥ÉµQÉ…¹Í¥Ñ¥½¹ôð½Àøñ±…‰•°±…ÍÍ9…µ”ô‰µÐ´Ð‰±½¬Ñ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµ…µ‰•È´äÔÀˆùíÐ¹É•…Í½¹ôñ¥¹ÁÕÐ…ÕÑ½½ÕÌÉ•ÅÕ¥É•µ¥¹1•¹Ñ õìÕôµ…á1•¹Ñ õìÄÀÀÁôÙ…±Õ”õíÑÉ…¹Í¥Ñ¥½¹I•…Í½¹ô½¹¡…¹”õì¡•Ù•¹Ð¤€ôøÍ•ÑQÉ…¹Í¥Ñ¥½¹I•…Í½¸¡•Ù•¹Ð¹Ñ…É•Ð¹Ù…±Õ”¥ô±…ÍÍ9…µ”ô‰µÐ´Ä‰±½¬Üµ™Õ±°‰½É‘•È´È‰½É‘•Èµ…µ‰•È´äÀÀ‰œµÝ¡¥Ñ”À´Ìˆ€¼øð½±…‰•°ùíÑÉ…¹Í¥Ñ¥½¹I•…Í½¸¹±•¹Ñ €ø€À€˜˜ÑÉ…¹Í¥Ñ¥½¹I•…Í½¸¹ÑÉ¥´ ¤¹±•¹Ñ €ð€Ô€˜˜€ñÀÉ½±”ô‰…±•ÉÐˆ±…ÍÍ9…µ”ô‰µÐ´ÈÑ•áÐµÍ´™½¹Ðµ‰½±Ñ•áÐµÉ•´àÀÀˆùíÐ¹É•ÅÕ¥É•‘I•…Í½¹ôð½Àùôñ‘¥Ø±…ÍÍ9…µ”ô‰µÐ´Ð™±•à™±•àµÝÉ…À…À´Ìˆøñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøÙ½¥ÍÕ‰µ¥ÑQÉ…¹Í¥Ñ¥½¸ ¥ô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹œñðÑÉ…¹Í¥Ñ¥½¹I•…Í½¸¹ÑÉ¥´ ¤¹±•¹Ñ €ð€Õô±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•Èµ…µ‰•È´äÔÀ‰œµ…µ‰•È´äÔÀÁà´ÐÁä´ÈÑ•áÐµÍ´™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµÝ¡¥Ñ”‘¥Í…‰±•é½Á…¥Ñä´ÔÀˆùí¥Í5ÕÑ…Ñ¥¹œ€üÐ¹Í…Ù¥¹œ€èÐ¹½¹™¥Éµôð½‰ÕÑÑ½¸øñ‰ÕÑÑ½¸ÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøìÍ•ÑA•¹‘¥¹QÉ…¹Í¥Ñ¥½¸¡¹Õ±°¤ìÍ•ÑQÉ…¹Í¥Ñ¥½¹I•…Í½¸ œœ¤ìõô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹ô±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•Èµ…µ‰•È´äÔÀ‰œµÝ¡¥Ñ”Áà´ÐÁä´ÈÑ•áÐµÍ´™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµ…µ‰•È´äÔÀˆùíÐ¹…¹•±ôð½‰ÕÑÑ½¸øð½‘¥Øøð½Í•Ñ¥½¸ùô((€€€€€€€€€€€€€€€€€€€€€€€íÍ•±•Ñ•‘M±½ÑÌ¹±•¹Ñ €ôôô€À€ü€ñÀÉ½±”ô‰ÍÑ…ÑÕÌˆ±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµÝ¡¥Ñ”À´ØÑ•áÐµlŒÀÀØÀØÑtˆùíÐ¹¹½M±½ÑÍôð½Àø€è€ (€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñ‘¥Ø±…ÍÍ9…µ”ô‰½Ù•É™±½Üµàµ…ÕÑ¼‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑt‰œµÝ¡¥Ñ”ˆÑ…‰%¹‘•àõìÁô…É¥„µ±…‰•°õíÐ¹Í±½ÑÍQ¥Ñ±•ôø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ñÑ…‰±”±…ÍÍ9…µ”ô‰Üµ™Õ±°µ¥¸µÜµläÈÁÁátÑ•áÐµ±•™ÐÑ•áÐµÍ´ˆøñÑ¡•…±…ÍÍ9…µ”ô‰‰œµlŒÀÀØÀØÑtÑ•áÐµÝ¡¥Ñ”ˆøñÑÈøñÑ ±…ÍÍ9…µ”ô‰À´ÌˆùíÐ¹ÍÑ…ÑÕÍôð½Ñ øñÑ ±…ÍÍ9…µ”ô‰À´ÌˆùíÐ¹Í¡•‘Õ±•ôð½Ñ øñÑ ±…ÍÍ9…µ”ô‰À´ÌˆùíÐ¹™¥ÉÍÑ±…ÍÍôð½Ñ øñÑ ±…ÍÍ9…µ”ô‰À´ÌˆùíÐ¹ÁÕ‰±¥%‘ôð½Ñ øñÑ ±…ÍÍ9…µ”ô‰À´ÌˆùíÐ¹…Ñ¥½¹Íôð½Ñ øð½ÑÈøð½Ñ¡•…øñÑ‰½‘ä±…ÍÍ9…µ”ô‰‘¥Ù¥‘”µä‘¥Ù¥‘”µlŒÀÀØÀØÑt¼ÈÀˆùíÍ•±•Ñ•‘M±½ÑÌ¹µ…À ¡Í±½Ð¤€ôøì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€½¹ÍÐ…Ñ¥½¹Ì€ôQI9M%Q%=9MmÍ±½Ð¹ÍÑ…ÑÕÍtì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€É•ÑÕÉ¸€ñÑÈ­•äõíÍ±½Ð¹¥‘ôøñÑ±…ÍÍ9…µ”ô‰À´Ì…±¥¸µÑ½ÀˆøñÍÁ…¸±…ÍÍ9…µ”õí¥¹±¥¹”µ™±•à‰½É‘•ÈÁà´ÈÁä´ÄÑ•áÐµáÌ™½¹Ðµ‰½±ÕÁÁ•É…Í”€‘íMQQUM}MQe1MmÍ±½Ð¹ÍÑ…ÑÕÍuõôùíÑmÍ±½Ð¹ÍÑ…ÑÕÍuôð½ÍÁ…¸ùíÍ±½Ð¹¡…Í1¥Ù•!½±€˜˜€ñÍÁ…¸±…ÍÍ9…µ”ô‰µÐ´È‰±½¬Üµ™¥Ð‰½É‘•È‰½É‘•ÈµÙ¥½±•Ð´ÜÀÀ‰œµÙ¥½±•Ð´ÔÀÁà´ÈÁä´ÄÑ•áÐµáÌ™½¹Ðµ‰½±Ñ•áÐµÙ¥½±•Ð´äÀÀˆùíÐ¹±¥Ù•!½±‘ôð½ÍÁ…¸ùôð½ÑøñÑ±…ÍÍ9…µ”ô‰À´Ì…±¥¸µÑ½À™½¹Ðµ‰½±Ñ•áÐµlŒÀÀØÀØÑtˆùíÐ¹‘…åÍmÍ±½Ð¹Ý••­‘…åuôƒ
+ÜíÍ±½Ð¹±½…±MÑ…ÉÑQ¥µ”¹Í±¥” À°€Ô¥ôñ½°±…ÍÍ9…µ”ô‰µÐ´ÈÍÁ…”µä´Ä™½¹Ðµµ½¹¼Ñ•áÐµáÌ™½¹Ðµ¹½Éµ…°ˆùíl¸¸¹Í±½Ð¹½ÕÉÉ•¹•Ít¹Í½ÉÐ ¡„°ˆ¤€ôø€¡„¹¥¹‘•à€üü„¹½ÕÉÉ•¹•%¹‘•à€üü„¹½ÕÉÉ•¹•}¥¹‘•à€üü€À¤€´€¡ˆ¹¥¹‘•à€üüˆ¹½ÕÉÉ•¹•%¹‘•à€üüˆ¹½ÕÉÉ•¹•}¥¹‘•à€üü€À¤¤¹µ…À ¡½ÕÉÉ•¹”°¥¹‘•à¤€ôøì½¹ÍÐ¥¹ÍÑ…¹Ð€ô½ÕÉÉ•¹•%¹ÍÑ…¹Ð¡½ÕÉÉ•¹”¤ìÉ•ÑÕÉ¸€ñ±¤­•äõí€‘íÍ±½Ð¹¥‘ô´‘í¥¹‘•áõôùí¥¹‘•à€¬€Åô¸í¥¹ÍÑ…¹Ð€ü™½Éµ…Ñ%¹ÍÑ…¹Ð¡¥¹ÍÑ…¹Ð°±…¹œ¤€è€ŸŠPôð½±¤øìô¥ôð½½°øð½ÑøñÑ±…ÍÍ9…µ”ô‰À´Ì…±¥¸µÑ½ÀÑ•áÐµlŒÀÀØÀØÑtˆùí™½Éµ…Ñ%¹ÍÑ…¹Ð¡Í±½Ð¹™¥ÉÍÑ=ÕÉÉ•¹•Ð°±…¹œ¥ôð½ÑøñÑ±…ÍÍ9…µ”ô‰À´Ì…±¥¸µÑ½À™½¹Ðµµ½¹¼Ñ•áÐµáÌÑ•áÐµlŒÀÀØÀØÑtˆùíÍ±½Ð¹ÁÕ‰±¥%‘ôð½ÑøñÑ±…ÍÍ9…µ”ô‰À´Ì…±¥¸µÑ½Àˆøñ‘¥Ø±…ÍÍ9…µ”ô‰™±•à™±•àµÝÉ…À…À´Èˆùí…Ñ¥½¹Ì¹µ…À ¡ÑÉ…¹Í¥Ñ¥½¸¤€ôøì½¹ÍÐ‰±½­•‘	å!½±€ôÍ±½Ð¹¡…Í1¥Ù•!½±€˜˜€¡ÑÉ…¹Í¥Ñ¥½¸€ôôô€Á…ÕÍ”œñðÑÉ…¹Í¥Ñ¥½¸€ôôô€É•Ñ¥É”œ¤ìÉ•ÑÕÉ¸€ñ‰ÕÑÑ½¸­•äõíÑÉ…¹Í¥Ñ¥½¹ôÑåÁ”ô‰‰ÕÑÑ½¸ˆ½¹±¥¬õì ¤€ôøìÍ•ÑA•¹‘¥¹QÉ…¹Í¥Ñ¥½¸¡ìÍ±½Ð°ÑÉ…¹Í¥Ñ¥½¸ô¤ìÍ•ÑQÉ…¹Í¥Ñ¥½¹I•…Í½¸ œœ¤ìõô‘¥Í…‰±•õí¥Í5ÕÑ…Ñ¥¹œñð‰±½­•‘	å!½±‘ôÑ¥Ñ±”õí‰±½­•‘	å!½±€üÐ¹¡½±‘	±½­•€èÕ¹‘•™¥¹•‘ô±…ÍÍ9…µ”ô‰‰½É‘•È´È‰½É‘•ÈµlŒÀÀØÀØÑtÁà´ÌÁä´ÈÑ•áÐµáÌ™½¹Ðµ‰½±ÕÁÁ•É…Í”Ñ•áÐµlŒÀÀØÀØÑt‘¥Í…‰±•éÕÉÍ½Èµ¹½Ðµ…±±½Ý•‘¥Í…‰±•é½Á…¥Ñä´ÐÀˆùíÑmÑÉ…¹Í¥Ñ¥½¹uôð½‰ÕÑÑ½¸øìô¥ôð½‘¥ØùíÍ±½Ð¹¡…Í1¥Ù•!½±€˜˜…Ñ¥½¹Ì¹Í½µ” ¡…Ñ¥½¸¤€ôø…Ñ¥½¸€ôôô€Á…ÕÍ”œñð…Ñ¥½¸€ôôô€É•Ñ¥É”œ¤€˜˜€ñÀ±…ÍÍ9…µ”ô‰µÐ´Èµ…àµÜµáÌÑ•áÐµáÌ™½¹Ðµ‰½±Ñ•áÐµÙ¥½±•Ð´äÀÀˆùíÐ¹¡½±‘	±½­•‘ôð½Àùôð½Ñøð½ÑÈøì(€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€ô¥ôð½Ñ‰½‘äøð½Ñ…‰±”ø(€€€€€€€€€€€€€€€€€€€€€€€€€€€€ð½‘¥Øø(€€€€€€€€€€€€€€€€€€€€€€€€¥ô(€€€€€€€€€€€€€€€€€€€€ð½Í•Ñ¥½¸ø(€€€€€€€€€€€€€€€€ð¼ø(€€€€€€€€€€€€¤€è¹Õ±±ô(€€€€€€€€ð½‘¥Øø(€€€€¤ì)ô(

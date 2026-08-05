@@ -92,6 +92,30 @@ describe('admin teachers and bookable places surface', () => {
         expect(screen.getByText('У этого преподавателя пока нет мест.')).toBeInTheDocument();
     });
 
+    it('invites a teacher without granting the role in the same action', async () => {
+        const fetchMock = vi.fn()
+            .mockImplementationOnce(() => response(payload()))
+            .mockImplementationOnce(() => response({ state: 'sent', profileId: 'new-profile' }, 202));
+        vi.stubGlobal('fetch', fetchMock);
+        render(<TeacherSlotManager lang="en" />);
+
+        const section = (await screen.findByRole('heading', { name: 'Invite a new teacher' })).closest('section')!;
+        fireEvent.change(within(section).getByLabelText('Full name'), { target: { value: 'New Teacher' } });
+        fireEvent.change(within(section).getByLabelText('Account email'), { target: { value: 'new@example.test' } });
+        fireEvent.change(within(section).getByLabelText('Documented reason'), { target: { value: 'Approved teacher onboarding' } });
+        fireEvent.click(within(section).getByRole('button', { name: 'Send invitation' }));
+
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toMatchObject({
+            target: 'teacher',
+            email: 'new@example.test',
+            fullName: 'New Teacher',
+            lang: 'en',
+            reason: 'Approved teacher onboarding',
+        });
+        expect(await screen.findByRole('status')).toHaveTextContent('Invitation sent.');
+    });
+
     it('blocks pause and retire while an available place has a live hold', async () => {
         vi.stubGlobal('fetch', vi.fn(() => response(payload([slot({ status: 'available', hasLiveHold: true })]))));
         render(<TeacherSlotManager lang="en" />);
