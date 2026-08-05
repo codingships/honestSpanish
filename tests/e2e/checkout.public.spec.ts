@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 const slotPublicId = '11111111-1111-4111-8111-111111111111';
 const availability = {
@@ -19,6 +19,39 @@ const availability = {
         ],
     }],
 };
+
+async function mockTurnstile(page: Page): Promise<void> {
+    await page.route('**/challenges.cloudflare.com/turnstile/**', async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: 'application/javascript',
+            body: `
+                window.turnstile = {
+                    render: function(container, params) {
+                        var target = typeof container === 'string'
+                            ? document.querySelector(container)
+                            : container;
+                        if (target) {
+                            var widget = document.createElement('div');
+                            widget.dataset.mockCheckoutTurnstile = 'ready';
+                            target.appendChild(widget);
+                        }
+                        if (params && params.callback) {
+                            setTimeout(function() {
+                                params.callback('fake-public-checkout-token');
+                                document.documentElement.dataset.e2eCheckoutTurnstileReady = 'true';
+                            }, 0);
+                        }
+                        return 'fake-checkout-widget';
+                    },
+                    reset: function() {},
+                    remove: function() {},
+                    isExpired: function() { return false; }
+                };
+            `,
+        });
+    });
+}
 
 test.describe('Public launch offer', () => {
     test('shows real availability without opening checkout in a closed runtime', async ({ page }) => {
@@ -67,4 +100,69 @@ test.describe('Public launch offer', () => {
         await expect(page.getByRole('button', { name: 'Reservar y pagar' })).toHaveCount(0);
         expect(checkoutRequests).toBe(0);
     });
+
+    test('carries the normal public journey from an available place to hosted checkout', async ({ page }) => {
+        await mockTurnstile(page);
+
+        let checkoutRequests = 0;
+        let checkoutPayload: Record<string, unknown> | null = null;
+        await page.route('**/api/bookable-slots', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({ ...availability, checkoutEnabled: true }),
+            });
+        });
+        await page.route('**/api/auth/checkout-readiness', async (route) => {
+            await route.fulfill({ status: 204 });
+        });
+        await page.route('**/api/create-checkout', async (route) => {
+            checkoutRequests += 1;
+            checkoutPayload = route.request().postDataJSON() as Record<string, unknown>;
+            await route.fulfill({
+                status: 200,
+                contentType: 'application/json',
+                body: JSON.stringify({
+                    url: 'https://checkout.stripe.com/c/pay/cs_test_public_checkout_e2e',
+                }),
+            });
+        });
+        await page.route('https://checkout.stripe.com/**', async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: 'text/html',
+                body: '<!doctype html><title>Synthetic hosted checkout</title><h1>Synthetic hosted checkout</h1>',
+            });
+        });
+
+        await page.goto('/es?utm_source=checkout-e2e');
+        await page.getByTestId('select-plan-individual_4x50_28d').click();
+
+        const dialog = page.getByRole('dialog');
+        await dialog.getByRole('radio', { name: /Álex/i }).check();
+        await expect(dialog.getByRole('checkbox')).toHaveCount(4);
+        for (const checkbox of await dialog.getByRole('checkbox').all()) await checkbox.check();
+        await page.waitForFunction(() => (
+            document.documentElement.dataset.e2eCheckoutTurnstileReady === 'true'
+        ));
+
+        await dialog.getByRole('button', { name: 'Reservar y pagar' }).click();
+
+        await expect(page).toHaveURL('https://checkout.stripe.com/c/pay/cs_test_public_checkout_e2e');
+        await expect(page.getByRole('heading', { name: 'Synthetic hosted checkout' })).toBeVisible();
+        expect(checkoutRequests).toBe(1);
+        expect(checkoutPayload).toMatchObject({
+            slotPublicId,
+            lang: 'es',
+            adultConfirmed: true,
+            termsAccepted: true,
+            serviceStartRequested: true,
+            withdrawalLossAcknowledged: true,
+            'cf-turnstile-response': 'fake-public-checkout-token',
+            attribution: {
+                utmSource: 'checkout-e2e',
+            },
+        });
+    });
 });
+
