@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { MADRID_TIME_ZONE } from '../../lib/calendar/madrid-time';
 
 type Priority = 'low' | 'normal' | 'high' | 'urgent';
 type TaskType = 'email' | 'call' | 'whatsapp' | 'review' | 'admin';
@@ -58,6 +59,7 @@ function formatDateTime(value: string | null) {
         month: 'short',
         hour: '2-digit',
         minute: '2-digit',
+        timeZone: MADRID_TIME_ZONE,
     });
 }
 
