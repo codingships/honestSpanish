@@ -54,6 +54,18 @@ describe('/api/auth/confirm', () => {
         );
     });
 
+    it('preserves a localized campus destination for role filtering after the code exchange', async () => {
+        const campusReturnTo = '/es/campus/admin/packages?tab=drafts';
+        const { GET } = await import('../../src/pages/api/auth/confirm');
+        const response = await GET(contextFor(
+            `?code=valid-code&lang=es&returnTo=${encodeURIComponent(campusReturnTo)}`,
+        ) as any);
+
+        expect(response.headers.get('location')).toBe(
+            `/api/auth/post-login?lang=es&returnTo=${encodeURIComponent(campusReturnTo)}`,
+        );
+    });
+
     it('allowlists the locale and ignores redirect-like input', async () => {
         const { GET } = await import('../../src/pages/api/auth/confirm');
         const response = await GET(contextFor('?code=valid-code&lang=https%3A%2F%2Fevil.example') as any);
@@ -64,8 +76,8 @@ describe('/api/auth/confirm', () => {
     it.each([
         'https%3A%2F%2Fevil.example%2Fes',
         '%2F%2Fevil.example%2Fes',
-        '%2Fes%2Fcampus%2Fadmin',
         '%2Fes%2F%2563ampus%2Fadmin',
+        '%2Fes%2Fcampus%252Fadmin',
         '%2Fes%3FcheckoutSlot%3Dnot-a-uuid%23planes',
     ])('drops unsafe return input %s', async (returnTo) => {
         const { GET } = await import('../../src/pages/api/auth/confirm');

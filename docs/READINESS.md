@@ -53,323 +53,30 @@ Una fila solo usa `VERIFICADO` cuando nombra evidencia para el mismo SHA. Los de
 | M01 | CaptaciÃ³n, UTM y conversiÃ³n mÃ­nima | IMPLEMENTADO | [`acquisition_attribution_events`](../db/schema.sql), [contrato SQL](../tests/sql/acquisition-attribution-foundation.sql) | Verificar funnel/consentimiento y reporting accionable antes de campaÃ±as. |
 | R04 | Observabilidad y alertas accionables | PARCIAL | [Sentry minimizado](../src/lib/sentry-privacy.ts), [fallos operativos correlacionables](../src/lib/operational-error.ts), [`X-Request-ID`](../src/middleware.ts), [pruebas focales](../tests/unit/sentry-privacy.test.ts) y [preflight de reglas](OPERATIONS.md#triaje-y-alertas): dos alertas de producciÃ³n habilitadas con email al operador canÃ³nico, sin disparos; cero eventos de staging en 30 dÃ­as | Enviar un evento sintÃ©tico sin PII, comprobar recepciÃ³n real y confirmar continuidad de acceso a la bandeja. La regla configurada no demuestra por sÃ­ sola la entrega. |
 | R05 | Backup y restauraciÃ³n ensayada | PARCIAL | [Runbook y objetivo provisional](OPERATIONS.md#capacidad-y-recuperaciÃ³n); preflight de solo lectura del 4 de agosto de 2026: staging devolviÃ³ `pitr_enabled=false` y ninguna copia disponible | Antes de guardar datos reales: activar copia diaria en el proyecto canÃ³nico o una alternativa externa equivalente y restaurar una copia en un destino inocuo. El plan gratuito actual no satisface el gate. |
-| R06 | Capacidad para 1.000 alumnos activos | PARCIAL | [Ensayo local aislado](../scripts/diagnostics~yëËh‘éì¶»§q«^wJNÂˆ^Xİ
-[ØÚÜËœœÊKÒ]™P™Y[“Ø[YÚ]
-‹	ÙÙ]Û^WØYZ[—ØØ\Xš[]Y\ÉÊNÂˆ^Xİ
-™^
-K››İÒ]™P™Y[Ø[Y
+| R06 | Capacidad para 1.000 alumnos activos | PARCIAL | [Ensayo local aislado](../scripts/diagnostics/local-capacity-rehearsal.ts): dos ejecuciones de 1.000 lecturas pÃºblicas con concurrencia 30, 2.000/2.000 correctas; peor p95 562 ms, p99 623 ms y mÃ­nimo 97,8 req/s; [prueba del cÃ¡lculo](../tests/unit/local-capacity-rehearsal.test.ts) | El resultado solo acredita aplicaciÃ³n pÃºblica y fallback local. Falta un ensayo autorizado de campus con identidades sintÃ©ticas, Supabase staging y mÃ©tricas Cloudflare/Supabase; no se afirma capacidad de 1.000 alumnos. |
+| G01 | ProducciÃ³n, Stripe live, DNS, correo real y primer alumno | GATE HUMANO | [`ENVIRONMENTS.md`](ENVIRONMENTS.md), [checklist de inputs humanos](OPERATIONS.md#inputs-humanos-del-primer-lanzamiento), [identidad legal fail-closed](../src/lib/legal-identity.ts) | Sustituir y revisar la identidad `example`, configurar plazas reales, confirmar soporte/backup, cerrar checklist live y autorizar producciÃ³n. Mientras tanto health y checkout de producciÃ³n fallan cerrados. |
 
-NÂˆJNÂ‚ˆ]
-	ÚÙY\ÈHÚ\™YØ[[™\ˆ›İ]H]˜Z[X›HÈHİY[XİÜ‰Ë\Ş[˜È
+## Hitos integrados
 
-HOˆÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËØ\KØØ[[™\‹ÜÙ\ÜÚ[ÛœÉÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	ŞßIÊJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JŒ
-NÂˆ^Xİ
-™^
-KÒ]™P™Y[Ø[YÛ˜ÙJ
-NÂˆ^Xİ
-[ØÚÜËœœÊK››İÒ]™P™Y[Ø[Y
+| Resultado | PR | SHA integrado | Staging |
+|---|---|---|---|
+| Baseline tÃ©cnico recuperado y despliegue seguro acreditado | [#60](https://github.com/codingships/honestSpanish/pull/60) | `21c1f21373454526f43ee653075ab50d082f7f5f` | [CI + despliegue + smoke](https://github.com/codingships/honestSpanish/actions/runs/30764154143) |
+| Pipeline proporcional, ledger de preparaciÃ³n y contrato de garantÃ­a | [#61](https://github.com/codingships/honestSpanish/pull/61) | `32edc799b7b93516ac15a00636bb6ae94d573626` | [despliegue + smoke exactos](https://github.com/codingships/honestSpanish/actions/runs/30825001929) |
+| Permisos administrativos granulares e historial visible | [#62](https://github.com/codingships/honestSpanish/pull/62) | `71d7eb7dc6e5cbefb02e339406a8786e4bd2a6b6` | [CI + despliegue + smoke](https://github.com/codingships/honestSpanish/actions/runs/30834746304) |
+| CatÃ¡logo V2 administrable y versionado | [#63](https://github.com/codingships/honestSpanish/pull/63) | `e653f211c26630a7e0425d13e4d86d7ff34b2d89` | [Desplegado dentro de `1706b98`](https://github.com/codingships/honestSpanish/actions/runs/30901236505); falta validaciÃ³n humana. |
+| CMS versionado para la home | [#64](https://github.com/codingships/honestSpanish/pull/64) | `adbfe7267251266189c663909fb9b35a888d5477` | [Desplegado dentro de `1706b98`](https://github.com/codingships/honestSpanish/actions/runs/30901236505); falta validaciÃ³n humana. |
+| UX mÃ³vil, navegaciÃ³n y formulario con fallo seguro | [#65](https://github.com/codingships/honestSpanish/pull/65) | `afd3bf849a89ff3b74ad49d44eba42079fde9366` | [Desplegado y comprobado dentro de `1706b98`](https://github.com/codingships/honestSpanish/actions/runs/30901236505). |
+| TipografÃ­a multilingÃ¼e autocontenida e imÃ¡genes optimizadas | [#66](https://github.com/codingships/honestSpanish/pull/66), [#67](https://github.com/codingships/honestSpanish/pull/67) | `174a7bbbcfcd25719e9fcc1035293c8537e3a344`, `a8c074271546792285b812ddc68ade179be74ad8` | [Desplegado dentro de `1706b98`](https://github.com/codingships/honestSpanish/actions/runs/30901236505); quedan mediciones visuales y de rendimiento amplias. |
+| GarantÃ­a proporcional para cualquier ciclo y paquete | [#69](https://github.com/codingships/honestSpanish/pull/69) | `1706b984853ac1b2493dd6d37c9ae5392557dee3` | [MigraciÃ³n, despliegue y runtime exacto acreditados](https://github.com/codingships/honestSpanish/actions/runs/30901236505). |
+| Comisiones Stripe autoritativas y rentabilidad provisional fail-closed | [#71](https://github.com/codingships/honestSpanish/pull/71) | `8b6a51a97fb40c9a3b31f10f93e9e20fc2c3c691` | [MigraciÃ³n, despliegue y runtime exacto acreditados](https://github.com/codingships/honestSpanish/actions/runs/30918352248); conciliaciÃ³n focal de un cobro sintÃ©tico, sin dinero, correo ni datos reales. |
+| Checkout V2 sintÃ©tico con reintento idempotente y fulfillment completo | [#74](https://github.com/codingships/honestSpanish/pull/74), [#77](https://github.com/codingships/honestSpanish/pull/77) | `1b85baa5d6ac8d75b8cc344e7104e302007bdc89`, `aea2278c7450fa92b5848f4cc81c8c4bc8131863` | [Runtime exacto `1b85baa`](https://github.com/codingships/honestSpanish/actions/runs/30928772960); compra Sandbox verificada y billing transitorio cancelado, sin producciÃ³n ni datos reales. |
+| Fuentes servidas bajo CSP, control mÃ³vil y enlaces diagnÃ³sticos sin email | [#75](https://github.com/codingships/honestSpanish/pull/75), [#76](https://github.com/codingships/honestSpanish/pull/76) | `cd28cf9fd80e50c3d3333022a4b40d132a097495`, `601df26c378427f3989ddf998b96cadd0d685627` | Integrado y comprobado visualmente dentro del [staging exacto `6ed89db`](https://github.com/codingships/honestSpanish/actions/runs/30933059129). |
+| Reflow pÃºblico y gate Axe ampliado | [#79](https://github.com/codingships/honestSpanish/pull/79) | `7c5c08fcf3bfebb4cd5539dfe6b0de492762d80f` | No desplegado; staging continÃºa en `6ed89db`. |
+| Fallos operativos correlacionables y minimizados | [#80](https://github.com/codingships/honestSpanish/pull/80) | `871fc6df31143b9bd807c4baf49f475e806dfcde` | No desplegado; staging continÃºa en `6ed89db`. |
+| Ensayo local acotado de capacidad pÃºblica | [#81](https://github.com/codingships/honestSpanish/pull/81) | `72a0a419d33d7f6c32960c9f2df53a327178f392` | DiagnÃ³stico local; no acredita staging ni campus. |
+| Identidad legal provisional con fallo cerrado | [#82](https://github.com/codingships/honestSpanish/pull/82) | `3e835b4c843023059bf25cc83c1e826f3621995c` | No desplegado; staging continÃºa en `6ed89db`. |
+| Preflight de alertas Sentry registrado | [#83](https://github.com/codingships/honestSpanish/pull/83) | `e31b87015295f066d659420d464dd238375ad2ff` | Evidencia de solo lectura; falta entrega sintÃ©tica. |
+| ImÃ¡genes pÃºblicas WebP responsivas y presupuesto de rendimiento | [#88](https://github.com/codingships/honestSpanish/pull/88) | `3c0f5e55076f80067b2ce377b697569d2cc4cb07` | [Despliegue exacto](https://github.com/codingships/honestSpanish/actions/runs/30999777634); smoke mÃ³vil del Worker compilado en [CI](https://github.com/codingships/honestSpanish/actions/runs/30998391469). |
+| Recorrido de interfaz del checkout pÃºblico protegido | [#89](https://github.com/codingships/honestSpanish/pull/89) | `c8597388c5ba854e92930725aa6a37094634d204` | Cambio solo de prueba; `quality-gate` [verde](https://github.com/codingships/honestSpanish/actions/runs/31004602400), sin despliegue. |
 
-NÂˆJNÂ‚ˆ]
-	Ü™\]Z\™\ÈÜ\˜][ÛœËœ™XYÚ[ˆHØ[YHÚ\™YØ[[™\ˆ›İ]H\È\ÙYH[ˆYZ[‰Ë\Ş[˜È
-
-HOˆÂˆ[ØÚÜËœÚ[™ÛK›[ØÚÔ™\ÛÛ™Y˜[YJÈ]NˆÈ›ÛNˆ	ØYZ[‰ÈK\œ›Üˆ[JNÂˆ[ØÚÜËœœË›[ØÚÔ™\ÛÛ™Y˜[YJÈ]Nˆ˜[ÙK\œ›Üˆ[JNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËØ\KØØ[[™\‹ÜÙ\ÜÚ[ÛœÉÊNÂˆÛÛœİ™^HšK™›Š
-NÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JÊNÂˆ^Xİ
-[ØÚÜËœœÊKÒ]™P™Y[Ø[YÚ]
-	Ú\×Û^WØYZ[—ØØ\Xš[]IËÂˆØØ\Xš[]Nˆ	ÛÜ\˜][ÛœËœ™XY	ËˆJNÂˆ^Xİ
-™^
-K››İÒ]™P™Y[Ø[Y
-
-NÂˆJNÂ‚ˆ]
-	Ø›ØÚÜÈ]™\H\XØ][Ûˆ›İ]HÚ[H›ÙXİ[Ûˆ\È[ˆ›Ûİİ˜\[ÙIË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	Ø›Ûİİ˜\	ËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËÙ\ËÛÙÚ[‰ÊNÂˆÛÛœİ™^HšK™›Š
-NÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JLÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖT›Ø›İËUYÉÊJKĞÛÛZ[Š	Û›Ú[™^	ÊNÂˆ]ØZ]^Xİ
-™\ÜÛœÙKšœÛÛŠ
-JKœ™\ÛÛ™\ËÑ\]X[
-È\œ›ÜÛÙNˆ	ÕÑP—Ô•S•SQWĞ“ÓÕÕT	ÈJNÂˆ^Xİ
-™^
-K››İÒ]™P™Y[Ø[Y
-
-NÂˆ^Xİ
-[ØÚÜË™Ù]\Ù\ŠK››İÒ]™P™Y[Ø[Y
-
-NÂˆJNÂ‚ˆ]™XXÚ
-ÉËÚX[	Ë	ËØ\KÚ[\›˜[Ü[[YKX]\İ][Û‰×JJˆ	Ø[İÜÈÛ›HH›Ûİİ˜\XYÛ›ÜİXÈ›İ]H	\ÉËˆ\Ş[˜È
-]
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	Ø›Ûİİ˜\	ËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-]
-NÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	ÙXYÛ›ÜİXÉÊJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JŒ
-NÂˆ^Xİ
-™^
-KÒ]™P™Y[Ø[YÛ˜ÙJ
-NÂˆ^Xİ
-[ØÚÜË™Ù]\Ù\ŠK››İÒ]™P™Y[Ø[Y
-
-NÂˆKˆ
-NÂ‚ˆ]
-	ØYÈHÛØ˜[›Ø›İÈXY\ˆÈHX›XÈİYÚ[™È™\ÜÛœÙIË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	ÜİYÚ[™ÉËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËÙ\ÉÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	Ï[Ú[‰ËÂˆXY\œÎˆÈ	ĞÛÛ[U\IÎˆ	İ^Ú[ÈÚ\œÙ]]]‹N	ÈKˆJJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JŒ
-NÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖT›Ø›İËUYÉÊJKĞ™J	Û›Ú[™^›Ù›ÛİË›Ø\˜Ú]™IÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖPÛÛ[U\KSÜ[ÛœÉÊJKĞ™J	Û›ÜÛšY™‰ÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖQœ˜[YKSÜ[ÛœÉÊJKĞ™J	ÑS–IÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÔİšXİU˜[œÜÜTÙXİ\š]IÊJKĞ™J	ÛX^XYÙOLÌMLÍŒ	ÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖT™\]Y\İRQ	ÊJKÓX]Ú
-×–ÌNXKY‹W^ÌÍŸIÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞÛÛ[TÙXİ\š]KTÛXŞIÊJKĞÛÛZ[Š™œ˜[YKX[˜Ù\İÜœÈ	Û›Û™IÈŠNÂˆ^Xİ
-™^
-KÒ]™P™Y[Ø[YÛ˜ÙJ
-NÂˆ^Xİ
-[ØÚÜË™Ù]\Ù\ŠK››İÒ]™P™Y[Ø[Y
-
-NÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞØXÚKPÛÛ›Û	ÊJKĞ™J	ÜX›XËX^XYÙOLË[X^YÙOLÌ]\İ\™]˜[Y]IÊNÂˆJNÂ‚ˆ]
-	ÙÙ[™\˜]\È]ÈİÛˆ™\]Y\İQ[œİXYÙˆ\İ[™ÈHØ[\ˆ˜[YIË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	ÜİYÚ[™ÉËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËÙ\ÉÊNÂˆÛÛ^œ™\]Y\İH™]È™\]Y\İ
-	ÚÎ‹ËÙ^[\K˜ÛÛKÙ\ÉËÂˆXY\œÎˆÈ	ÖT™\]Y\İRQ	Îˆ	ØØ[\‹XÛÛ›ÛY	ÈKˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ˆÛÛ^\È[KˆšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	ÛÚÉÊJKˆ
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖT™\]Y\İRQ	ÊJKÓX]Ú
-×–ÌNXKY‹W^ÌÍŸIÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖT™\]Y\İRQ	ÊJK››İĞ™J	ØØ[\‹XÛÛ›ÛY	ÊNÂˆ^Xİ
-ÛÛ^›ØØ[Ëœ™\]Y\İY
-KĞ™J™\ÜÛœÙKšXY\œË™Ù]
-	ÖT™\]Y\İRQ	ÊJNÂˆJNÂ‚ˆ]
-	ØYÈHÛØ˜[›Ø›İÈXY\ˆÈHİYÚ[™È™Y\™XİÜ™X]YHH]]Ø]IË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	ÜİYÚ[™ÉËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆ[ØÚÜË™Ù]\Ù\‹›[ØÚÔ™\ÛÛ™Y˜[YJÈ]NˆÈ\Ù\ˆ[K\œ›Üˆ[JNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËÙ\ËØØ[\\ÉÊNÂˆÛÛœİ™^HšK™›Š
-NÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JÌŠNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÓØØ][Û‰ÊJKĞ™JˆÙ\ËÛÙÚ[Ü™]\›•ÏIÙ[˜ÛÙUT’PÛÛ\Û™[
-	ËÙ\ËØØ[\\ÉÊ_Xˆ
-NÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖT›Ø›İËUYÉÊJKĞ™J	Û›Ú[™^›Ù›ÛİË›Ø\˜Ú]™IÊNÂˆ^Xİ
-™^
-K››İÒ]™P™Y[Ø[Y
-
-NÂˆJNÂ‚ˆ]
-	ÙÙ\È›İYHİYÚ[™È›Ø›İÈXY\ˆÈXİ]™H›ÙXİ[Ûˆ™\ÜÛœÙ\ÉË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËÙ\ÉÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	Ï[Ú[‰ËÂˆXY\œÎˆÈ	ĞÛÛ[U\IÎˆ	İ^Ú[ÈÚ\œÙ]]]‹N	ÈKˆJJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JŒ
-NÂˆ^Xİ
-™\ÜÛœÙKšXY\œËš\Ê	ÖT›Ø›İËUYÉÊJKĞ™J˜[ÙJNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖPÛÛ[U\KSÜ[ÛœÉÊJKĞ™J	Û›ÜÛšY™‰ÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞÛÛ[TÙXİ\š]KTÛXŞIÊJKĞÛÛZ[Š™œ˜[YKX[˜Ù\İÜœÈ	Û›Û™IÈŠNÂˆ^Xİ
-™^
-KÒ]™P™Y[Ø[YÛ˜ÙJ
-NÂˆ^Xİ
-[ØÚÜË™Ù]\Ù\ŠK››İÒ]™P™Y[Ø[Y
-
-NÂˆJNÂ‚ˆ]
-	Ù›Ü˜Ù\È›Ë\İÜ™HØXÚ[™ÈÛˆÜİYTH™\ÜÛœÙ\ÉË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËØ\KÙ^[\IÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	ŞßIËÂˆXY\œÎˆÈ	ĞØXÚKPÛÛ›Û	Îˆ	ÜX›XËX^XYÙOLÍŒ	ÈKˆJJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞØXÚKPÛÛ›Û	ÊJKĞ™J	Û›Ë\İÜ™K›ËXØXÚK]\İ\™]˜[Y]IÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖPÛÛ[U\KSÜ[ÛœÉÊJKĞ™J	Û›ÜÛšY™‰ÊNÂˆJNÂ‚ˆ]
-	Ù›Ü˜Ù\Èš]˜]H›Ë\İÜ™HØXÚ[™ÈÛˆ]][XØ]Y[™™XÛİ™\HYÙ\ÉË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆ[ØÚÜË™Ù]\Ù\‹›[ØÚÔ™\ÛÛ™Y˜[YJÈ]NˆÈ\Ù\ˆ[K\œ›Üˆ[JNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİÛÛ^HZY]Ø\™PÛÛ^
-	ËÙ\ËØØ[\\ÉÊNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ÛÛ^\È[KšK™›Š
-JH\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JÌŠNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞØXÚKPÛÛ›Û	ÊJKĞ™J	Üš]˜]K›Ë\İÜ™IÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞÛÛ[TÙXİ\š]KTÛXŞIÊJKĞÛÛZ[Š™œ˜[YKX[˜Ù\İÜœÈ	Û›Û™IÈŠNÂˆJNÂ‚ˆ]
-	Û›Ü›X[^™\ÈH›ÙXİ[Ûˆ[š\›Û›Y[™Y›Ü™H[™›Ü˜Ú[™È›Ûİİ˜\[ÙIË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	È›ÙXİ[Ûˆ	ËˆÑP—Ô•S•SQWÓSÑNˆ	Ø›Ûİİ˜\	ËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİ™^HšK™›Š
-NÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ZY]Ø\™PÛÛ^
-	ËÙ\ÉÊH\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JLÊNÂˆ]ØZ]^Xİ
-™\ÜÛœÙKšœÛÛŠ
-JKœ™\ÛÛ™\ËÑ\]X[
-È\œ›ÜÛÙNˆ	ÕÑP—Ô•S•SQWĞ“ÓÕÕT	ÈJNÂˆ^Xİ
-™^
-K››İÒ]™P™Y[Ø[Y
-
-NÂˆJNÂ‚ˆ]™XXÚ
-İ[™Yš[™Y	Ü›Ùİ][Û‰×JJˆ	Ù˜Z[ÈÛÜÙYÚ[ˆHÜİY[š\›Û›Y[ÛÛ˜Xİ\È[˜[Y
-	\ÊIËˆ\Ş[˜È
-\[š\›Û›Y[
-HOˆÂˆYˆ
-\[š\›Û›Y[
-H[ØÚÜËœ[[YQ[‹”P“P×ĞTÑS•ˆH\[š\›Û›Y[Âˆ[ÙH[]H[ØÚÜËœ[[YQ[‹”P“P×ĞTÑS•ÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİ™^HšK™›Š
-NÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ZY]Ø\™PÛÛ^
-	ËÙ\ÉÊH\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JLÊNÂˆ]ØZ]^Xİ
-™\ÜÛœÙKšœÛÛŠ
-JKœ™\ÛÛ™\ËÑ\]X[
-È\œ›ÜÛÙNˆ	ÔP“P×ĞTÑS•—ÒS•SQ	ÈJNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞÛÛ[TÙXİ\š]KTÛXŞIÊJKĞÛÛZ[Š™œ˜[YKX[˜Ù\İÜœÈ	Û›Û™IÈŠNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞØXÚKPÛÛ›Û	ÊJKĞÛÛZ[Š	Û›Ë\İÜ™IÊNÂˆ^Xİ
-™^
-K››İÒ]™P™Y[Ø[Y
-
-NÂˆKˆ
-NÂ‚ˆ]™XXÚ
-ÉËÙ\ËËÛÙÚ[‰Ë	ËËÙ\ËÛÙÚ[‰×JJˆ	ÚÙY\È›Ü›X[^™YÙÚ[ˆ™Y\™XİÈš]˜]H[™›Û‹XØXÚXX›H›Üˆ	\ÉËˆ\Ş[˜È
-]
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆ[ØÚÜËœÚ[™ÛK›[ØÚÔ™\ÛÛ™Y˜[YJÂˆ]NˆÂˆ›ÛNˆ	ØYZ[‰ËˆY[ØÛÛ™š\›YYˆ˜[ÙKˆY[ØÛÛ™š\›YYØ]ˆ[ˆYÙWÜÛXŞWİ™\œÚ[Ûˆ[ˆKˆ\œ›Üˆ[ˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ZY]Ø\™PÛÛ^
-]
-H\È[KšK™›Š
-JH\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JÌŠNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÓØØ][Û‰ÊJKĞ™J	ËÙ\ËØØ[\\ËØYZ[‰ÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞØXÚKPÛÛ›Û	ÊJKĞ™J	Üš]˜]K›Ë\İÜ™IÊNÂˆKˆ
-NÂ‚ˆ]
-	ÙÙ\È›İ™X]HÛ™Ù\ˆ[šÛ›İÛˆ]\ÈHÙÚ[ˆYÙIË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	Û›İ›İ[™	ËÈİ]\ÎˆJJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ZY]Ø\™PÛÛ^
-	ËÙ\ËÛÙÚ[‹Ù^˜IÊH\È[K™^
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™J
-NÂˆ^Xİ
-™^
-KÒ]™P™Y[Ø[YÛ˜ÙJ
-NÂˆ^Xİ
-[ØÚÜË™Ù]\Ù\ŠK››İÒ]™P™Y[Ø[Y
-
-NÂˆ^Xİ
-™\ÜÛœÙKšXY\œËš\Ê	ĞØXÚKPÛÛ›Û	ÊJKĞ™J˜[ÙJNÂˆJNÂ‚ˆ]
-	ÙÙ\È›İ][˜ÛÙYØØ[^™Y›İ]HÙYÛY[È\\ÜÈH]][XØ][ÛˆØ]IË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆ[ØÚÜË™Ù]\Ù\‹›[ØÚÔ™\ÛÛ™Y˜[YJÈ]NˆÈ\Ù\ˆ[K\œ›Üˆ[JNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİ™^HšK™›Š
-NÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ˆZY]Ø\™PÛÛ^
-	ËÙ\ËÉMŒØ[\\ËØYZ[‰ÊH\È[Kˆ™^ˆ
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™JÌŠNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÓØØ][Û‰ÊJKĞ™J	ËÙ\ËÛÙÚ[‰ÊNÂˆ^Xİ
-™^
-K››İÒ]™P™Y[Ø[Y
-
-NÂˆJNÂ‚ˆ]
-	ÙÙ\È›İXÛÙHHØØ[^™Y›İ]HÙYÛY[ÚXÙIË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	Û›İ›İ[™	ËÈİ]\ÎˆJJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ˆZY]Ø\™PÛÛ^
-	ËÙ\ËÉLMŒØ[\\ËØYZ[‰ÊH\È[Kˆ™^ˆ
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKœİ]\ÊKĞ™J
-NÂˆ^Xİ
-™^
-KÒ]™P™Y[Ø[YÛ˜ÙJ
-NÂˆ^Xİ
-[ØÚÜË™Ù]\Ù\ŠK››İÒ]™P™Y[Ø[Y
-
-NÂˆ^Xİ
-™\ÜÛœÙKšXY\œËš\Ê	ĞØXÚKPÛÛ›Û	ÊJKĞ™J˜[ÙJNÂˆJNÂ‚ˆ]
-	Ø\Y\ÈTHØXÚHÛÛ›ÛÈÈ[˜ÛÙY›İ]HÙYÛY[ÉË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	ŞßIÊJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ˆZY]Ø\™PÛÛ^
-	ËÉMŒ\KÙ^[\IÊH\È[Kˆ™^ˆ
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞØXÚKPÛÛ›Û	ÊJKĞ™J	Û›Ë\İÜ™K›ËXØXÚK]\İ\™]˜[Y]IÊNÂˆJNÂ‚ˆ]
-	Ü™\Ù\™\ÈH\ÛÛ]YØ[YK[ÜšYÚ[ˆÛXŞH›ÜˆH]][XØ]Y[XZ[™]šY]Èœ˜[YIË\Ş[˜È
-
-HOˆÂˆØš™Xİ˜\ÜÚYÛŠ[ØÚÜËœ[[YQ[‹ÂˆP“P×ĞTÑS•ˆ	Ü›ÙXİ[Û‰ËˆÑP—Ô•S•SQWÓSÑNˆ	ØXİ]™IËˆJNÂˆÛÛœİÈÛ”™\]Y\İHH]ØZ][\Ü
-	Ë‹‹Ë‹‹ÜÜ˜ËÛZY]Ø\™IÊNÂˆÛÛœİ™^HšK™›Š
-K›[ØÚÔ™\ÛÛ™Y˜[YJ™]È™\ÜÛœÙJ	Ï[Ú[‰ËÂˆXY\œÎˆÂˆ	ĞØXÚKPÛÛ›Û	Îˆ	Üš]˜]K›Ë\İÜ™IËˆ	Ô™Y™\œ™\‹TÛXŞIÎˆ	Û›Ë\™Y™\œ™\‰ËˆKˆJJNÂ‚ˆÛÛœİ™\ÜÛœÙHH]ØZ]Û”™\]Y\İ
-ˆZY]Ø\™PÛÛ^
-	ËØ\KÙ[XZ[Ü™]šY]ËYœ˜[YOİ\O]Ù[ÛÛYIÊH\È[Kˆ™^ˆ
-H\È™\ÜÛœÙNÂ‚ˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ÖQœ˜[YKSÜ[ÛœÉÊJKĞ™J	ÔĞSQSÔ’QÒS‰ÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	Ô™Y™\œ™\‹TÛXŞIÊJKĞ™J	Û›Ë\™Y™\œ™\‰ÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞØXÚKPÛÛ›Û	ÊJKĞ™J	Üš]˜]K›Ë\İÜ™K›ËXØXÚK]\İ\™]˜[Y]IÊNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞÛÛ[TÙXİ\š]KTÛXŞIÊJKĞÛÛZ[Š™œ˜[YKX[˜Ù\İÜœÈ	ÜÙ[‰ÈŠNÂˆ^Xİ
-™\ÜÛœÙKšXY\œË™Ù]
-	ĞÛÛ[TÙXİ\š]KTÛXŞIÊJKĞÛÛZ[Šœİ[K\Ü˜È	İ[œØY™KZ[›[™IÈŠNÂˆJNÂŸJNÂ
+El siguiente hito se aÃ±ade cuando la PR estÃ© integrada y, si cambia runtime, cuando el mismo SHA quede acreditado en staging. GitHub conserva el detalle; esta tabla no lo duplica.

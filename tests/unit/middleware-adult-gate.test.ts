@@ -137,7 +137,9 @@ describe('campus adult-account middleware gate', () => {
         const response = await onRequest(context as any, next) as Response;
 
         expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('/en/login');
+        expect(response.headers.get('Location')).toBe(
+            `/en/login?returnTo=${encodeURIComponent('/en/campus')}`,
+        );
         expect(next).not.toHaveBeenCalled();
         expect(mocks.signOut).not.toHaveBeenCalled();
     });
@@ -219,7 +221,9 @@ describe('campus adult-account middleware gate', () => {
         const response = await onRequest(context as any, next) as Response;
 
         expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('/en/adult-confirmation');
+        expect(response.headers.get('Location')).toBe(
+            `/en/adult-confirmation?returnTo=${encodeURIComponent('/en/campus/classes')}`,
+        );
         expect(mocks.signOut).not.toHaveBeenCalled();
         expect(next).not.toHaveBeenCalled();
     });
@@ -275,6 +279,29 @@ describe('campus adult-account middleware gate', () => {
         const response = await onRequest(context as any, next) as Response;
 
         expect(response.headers.get('Location')).toBe('/es/campus/admin');
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('returns an authenticated administrator from login to a compatible campus screen', async () => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role: 'admin',
+                adult_confirmed: false,
+                adult_confirmed_at: null,
+                age_policy_version: null,
+            },
+            error: null,
+        });
+        const adminReturnTo = '/es/campus/admin/packages?tab=drafts';
+        const { onRequest } = await import('../../src/middleware');
+        const context = middlewareContext(
+            `/es/login?returnTo=${encodeURIComponent(adminReturnTo)}`,
+        );
+        const next = vi.fn();
+
+        const response = await onRequest(context as any, next) as Response;
+
+        expect(response.headers.get('Location')).toBe(adminReturnTo);
         expect(next).not.toHaveBeenCalled();
     });
 
@@ -499,7 +526,9 @@ describe('campus adult-account middleware gate', () => {
         const response = await onRequest(context as any, next) as Response;
 
         expect(response.status).toBe(302);
-        expect(response.headers.get('Location')).toBe('/es/login');
+        expect(response.headers.get('Location')).toBe(
+            `/es/login?returnTo=${encodeURIComponent('/es/campus')}`,
+        );
         expect(response.headers.get('X-Robots-Tag')).toBe('noindex, nofollow, noarchive');
         expect(next).not.toHaveBeenCalled();
     });

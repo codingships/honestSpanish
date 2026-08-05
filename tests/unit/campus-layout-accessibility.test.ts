@@ -35,4 +35,15 @@ describe('CampusLayout accessibility contract', () => {
         expect(source).toContain("userBtn.setAttribute('aria-expanded', String(open))");
         expect(source).toContain("setUserMenuOpen(false, true)");
     });
+
+    it('announces an expired session once and offers a localized recovery action', () => {
+        expect(source).toContain('id="session-expired-alert"');
+        expect(source).toContain('role="alert"');
+        expect(source).toContain('aria-live="assertive"');
+        expect(source).toContain('aria-atomic="true"');
+        expect(source).toContain('id="session-expired-login"');
+        expect(source).toContain("document.documentElement.dataset.campusSessionRecovery !== 'installed'");
+        expect(source).toContain('data-auth-api-origin={supabaseAuthOrigin}');
+        expect(source).toContain('sessionAuthApiOrigin');
+    });
 });

@@ -118,12 +118,36 @@ describe('/api/auth/post-login', () => {
         '/es/campus/admin',
         '/es/%63ampus/admin',
         '/es/login',
-    ])('ignores unsafe return destination %s', async (returnTo) => {
+    ])('ignores unsafe or role-incompatible return destination %s', async (returnTo) => {
         const { GET } = await import('../../src/pages/api/auth/post-login');
         const context = contextFor('es', returnTo);
         await GET(context as any);
 
         expect(context.redirect).toHaveBeenCalledWith('/es/campus');
+    });
+
+    it.each([
+        ['student', '/es/campus/classes?view=upcoming', '/es/campus/classes?view=upcoming'],
+        ['teacher', '/es/campus/teacher/calendar?week=next', '/es/campus/teacher/calendar?week=next'],
+        ['admin', '/es/campus/admin/packages?tab=drafts', '/es/campus/admin/packages?tab=drafts'],
+        ['teacher', '/es/campus/account', '/es/campus/account'],
+        ['admin', '/es/campus/support', '/es/campus/support'],
+    ])('returns a %s to a compatible campus destination', async (role, returnTo, expected) => {
+        mocks.single.mockResolvedValue({
+            data: {
+                role,
+                adult_confirmed: true,
+                adult_confirmed_at: '2026-07-10T10:00:00.000Z',
+                age_policy_version: '2026-07-10',
+            },
+            error: null,
+        });
+
+        const { GET } = await import('../../src/pages/api/auth/post-login');
+        const context = contextFor('es', returnTo);
+        await GET(context as any);
+
+        expect(context.redirect).toHaveBeenCalledWith(expected);
     });
 
     it.each([
