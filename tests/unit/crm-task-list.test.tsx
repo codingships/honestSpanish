@@ -80,6 +80,16 @@ describe('CrmTaskList', () => {
         expect(screen.getByRole('status')).toHaveTextContent('Tarea asignada.');
     });
 
+    it('renders due dates in the fixed academy timezone during hydration', () => {
+        const toLocaleStringSpy = vi.spyOn(Date.prototype, 'toLocaleString');
+
+        render(<CrmTaskList tasks={[task]} />);
+
+        expect(toLocaleStringSpy).toHaveBeenCalledWith('es-ES', expect.objectContaining({
+            timeZone: 'Europe/Madrid',
+        }));
+    });
+
     it('does not show the claim action for already assigned tasks', () => {
         render(<CrmTaskList tasks={[assignedTask]} showContact />);
 
