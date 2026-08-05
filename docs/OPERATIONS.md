@@ -3,11 +3,11 @@
 ## Tarea normal
 
 1. Actualizar `main` y comprobar que coincide con `origin/main` y está limpio.
-2. Crear una rama/worktree para un resultado y fijar hasta tres criterios de aceptación.
+2. Crear una rama para un resultado y fijar hasta tres criterios de aceptación. Un worktree separado solo cuando haya trabajo paralelo real.
 3. Implementar y ejecutar pruebas focales.
 4. Revisar el diff y abrir una PR.
 5. Dejar que `quality-gate` exija una vez las superficies seleccionadas por el diff.
-6. Integrar y retirar la rama/worktree.
+6. Integrar y retirar la rama.
 
 No se crean documentos de traspaso ni carpetas de evidencia. El estado observable vive en el issue/tarea, el diff, la PR, CI y el despliegue. `docs/READINESS.md` solo los indexa cuando una capacidad cambia de estado.
 
