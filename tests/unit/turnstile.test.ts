@@ -86,11 +86,21 @@ describe('checkout Turnstile verification', () => {
             clientAddress: '203.0.113.10',
         })).resolves.toEqual({ ok: true });
 
+        fetchMock.mockResolvedValueOnce(Response.json({
+            success: true,
+            hostname: 'example.com',
+            metadata: { result_with_testing_key: true },
+        }));
+        await expect(verifyCheckoutTurnstile({
+            token: 'XXXX.DUMMY.TOKEN.XXXX',
+            clientAddress: '203.0.113.10',
+        })).resolves.toEqual({ ok: true });
+
         runtimeEnvMock.env.PUBLIC_APP_ENV = 'production';
         await expect(verifyCheckoutTurnstile({
             token: 'XXXX.DUMMY.TOKEN.XXXX',
             clientAddress: '203.0.113.10',
         })).resolves.toEqual({ ok: false, reason: 'unavailable' });
-        expect(fetchMock).toHaveBeenCalledTimes(1);
+        expect(fetchMock).toHaveBeenCalledTimes(2);
     });
 });
