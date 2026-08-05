@@ -278,7 +278,8 @@ export async function completeStripeCheckoutSandbox(
     } catch {
         throw new StripeCheckoutSandboxError(
             'RETURN_URL_MISMATCH',
-            'Stripe Sandbox Checkout did not return to the exact staging success URL',
+            'Stripe Sandbox Checkout did not return to the exact staging success URL'
+            + ` (page=${input.page.url()})`,
         );
     }
     if (!isStagingCheckoutSuccessUrl(input.page.url())) {

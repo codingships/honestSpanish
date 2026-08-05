@@ -27,19 +27,26 @@ export const STAGING_CHECKOUT_V2_IDENTITY = Object.freeze({
 export type StagingCheckoutV2RunnerArgs = {
     confirmation?: string;
     envFile: string;
+    guarantee: boolean;
+    journey: 'api' | 'public';
     mode: 'execute' | 'preflight';
 };
 
 export type StagingCheckoutV2Gate = {
     envFile: string;
+    guarantee: boolean;
     identity: typeof STAGING_CHECKOUT_V2_IDENTITY;
+    journey: StagingCheckoutV2RunnerArgs['journey'];
     mode: StagingCheckoutV2RunnerArgs['mode'];
 };
 
 export type StagingBrowserCookie = {
+    httpOnly: boolean;
     name: string;
-    value: string;
+    sameSite: 'Lax' | 'Strict';
+    secure: true;
     url: string;
+    value: string;
 };
 
 export function stagingBrowserCookies(cookieHeader: string): StagingBrowserCookie[] {
@@ -57,7 +64,19 @@ export function stagingBrowserCookies(cookieHeader: string): StagingBrowserCooki
             throw new Error('Synthetic staging authentication returned duplicate browser cookies');
         }
         names.add(name);
-        cookies.push({ name, value, url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin });
+        const hostCookie = name.startsWith('__Host-');
+        // Playwright accepts either `url` or `path`/`domain`. Prefer `url` so
+        // __Host- cookies keep Path=/ and Secure without a Domain attribute.
+        // Auth cookies must be Lax: Stripe's top-level return navigation would
+        // otherwise drop Strict session cookies and miss the campus success URL.
+        cookies.push({
+            httpOnly: hostCookie,
+            name,
+            sameSite: hostCookie ? 'Strict' : 'Lax',
+            secure: true,
+            url: `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/`,
+            value,
+        });
     }
 
     if (cookies.length === 0) {
@@ -73,8 +92,14 @@ function optionValue(argv: string[], index: number, option: string): string {
 }
 
 export function parseStagingCheckoutV2Args(argv: string[]): StagingCheckoutV2RunnerArgs {
-    const args: StagingCheckoutV2RunnerArgs = { envFile: '.env.staging', mode: 'preflight' };
+    const args: StagingCheckoutV2RunnerArgs = {
+        envFile: '.env.staging',
+        guarantee: false,
+        journey: 'api',
+        mode: 'preflight',
+    };
     let selectedMode: StagingCheckoutV2RunnerArgs['mode'] | null = null;
+    let selectedJourney = false;
 
     for (let index = 0; index < argv.length; index += 1) {
         const option = argv[index];
@@ -89,6 +114,17 @@ export function parseStagingCheckoutV2Args(argv: string[]): StagingCheckoutV2Run
         } else if (option === '--confirmation') {
             if (args.confirmation !== undefined) throw new Error('--confirmation was provided more than once');
             args.confirmation = optionValue(argv, index++, option);
+        } else if (option === '--journey') {
+            if (selectedJourney) throw new Error('--journey was provided more than once');
+            selectedJourney = true;
+            const journey = optionValue(argv, index++, option);
+            if (journey !== 'api' && journey !== 'public') {
+                throw new Error('--journey accepts only "api" or "public"');
+            }
+            args.journey = journey;
+        } else if (option === '--guarantee') {
+            if (args.guarantee) throw new Error('--guarantee was provided more than once');
+            args.guarantee = true;
         } else {
             throw new Error('Unknown option; production, live, DNS and arbitrary targets are forbidden');
         }
@@ -99,6 +135,9 @@ export function parseStagingCheckoutV2Args(argv: string[]): StagingCheckoutV2Run
     }
     if (args.mode === 'preflight' && args.confirmation !== undefined) {
         throw new Error('--confirmation is valid only with --execute');
+    }
+    if (args.mode === 'preflight' && args.guarantee) {
+        throw new Error('--guarantee is valid only with --execute');
     }
     return args;
 }
@@ -183,6 +222,10 @@ export function validateStagingCheckoutV2Gate(input: {
     requireValue(env, 'TEST_ADMIN_EMAIL');
     requireValue(env, 'TEST_ADMIN_PASSWORD');
     requireValue(env, 'TEST_TEACHER_EMAIL');
+    const databaseUrl = requireValue(env, 'SUPABASE_DB_URL');
+    if (!databaseUrl.includes(STAGING_CHECKOUT_V2_IDENTITY.supabaseProjectRef)) {
+        throw new Error('SUPABASE_DB_URL does not identify the allowlisted staging project');
+    }
 
     requireConfig(input.webConfig, `name = "${STAGING_CHECKOUT_V2_IDENTITY.webWorker}"`, 'Web Worker');
     requireConfig(
@@ -206,13 +249,21 @@ export function validateStagingCheckoutV2Gate(input: {
         'Fulfillment DLQ',
     );
 
-    return { envFile, identity: STAGING_CHECKOUT_V2_IDENTITY, mode: args.mode };
+    return {
+        envFile,
+        guarantee: args.guarantee,
+        identity: STAGING_CHECKOUT_V2_IDENTITY,
+        journey: args.journey,
+        mode: args.mode,
+    };
 }
 
 export function safeStagingCheckoutV2Summary(gate: StagingCheckoutV2Gate): string[] {
     const identity = gate.identity;
     return [
         `mode=${gate.mode}`,
+        `journey=${gate.journey}`,
+        `guarantee=${String(gate.guarantee)}`,
         `repository=${identity.repository}`,
         `supabase_project_ref=${identity.supabaseProjectRef}`,
         `stripe_account=${identity.stripeAccountId}`,

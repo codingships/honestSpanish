@@ -37,6 +37,7 @@ function validEnv(): Record<string, string> {
         TEST_ADMIN_EMAIL: 'admin@example.test',
         TEST_ADMIN_PASSWORD: 'admin-password-never-log',
         TEST_TEACHER_EMAIL: 'teacher@example.test',
+        SUPABASE_DB_URL: `postgresql://postgres@db.${STAGING_CHECKOUT_V2_IDENTITY.supabaseProjectRef}.supabase.co:5432/postgres`,
     };
 }
 
@@ -95,7 +96,12 @@ function runnerDependencies(journey: StagingCheckoutV2Journey, logs: string[]) {
 
 describe('staging Checkout V2 runner safety', () => {
     it('defaults to read-only preflight and requires the exact execution confirmation', () => {
-        expect(parseStagingCheckoutV2Args([])).toEqual({ envFile: '.env.staging', mode: 'preflight' });
+        expect(parseStagingCheckoutV2Args([])).toEqual({
+            envFile: '.env.staging',
+            guarantee: false,
+            journey: 'api',
+            mode: 'preflight',
+        });
         expect(() => parseStagingCheckoutV2Args(['--execute'])).toThrow('requires --confirmation');
         expect(() => parseStagingCheckoutV2Args([
             '--execute', '--confirmation', 'writes-ok:wrong-target',
@@ -105,9 +111,38 @@ describe('staging Checkout V2 runner safety', () => {
         ])).toEqual({
             confirmation: STAGING_CHECKOUT_V2_CONFIRMATION,
             envFile: '.env.staging',
+            guarantee: false,
+            journey: 'api',
             mode: 'execute',
         });
         expect(() => parseStagingCheckoutV2Args(['--production'])).toThrow('production, live, DNS');
+    });
+
+    it('accepts only the api or public journey and keeps the guarantee behind execute', () => {
+        expect(parseStagingCheckoutV2Args([
+            '--execute',
+            '--confirmation', STAGING_CHECKOUT_V2_CONFIRMATION,
+            '--journey', 'public',
+            '--guarantee',
+        ])).toEqual({
+            confirmation: STAGING_CHECKOUT_V2_CONFIRMATION,
+            envFile: '.env.staging',
+            guarantee: true,
+            journey: 'public',
+            mode: 'execute',
+        });
+        expect(parseStagingCheckoutV2Args(['--journey', 'public'])).toEqual({
+            envFile: '.env.staging',
+            guarantee: false,
+            journey: 'public',
+            mode: 'preflight',
+        });
+        expect(() => parseStagingCheckoutV2Args(['--journey', 'production']))
+            .toThrow('--journey accepts only');
+        expect(() => parseStagingCheckoutV2Args(['--journey', 'api', '--journey', 'api']))
+            .toThrow('--journey was provided more than once');
+        expect(() => parseStagingCheckoutV2Args(['--guarantee']))
+            .toThrow('--guarantee is valid only with --execute');
     });
 
     it('validates exact staging identities without requiring a local Cloudflare account id', () => {
@@ -180,6 +215,12 @@ describe('staging Checkout V2 runner safety', () => {
         ], runnerDependencies(successful, []));
         expect(successState?.checkoutSessionId).toBe('cs_test_exact');
         expect(successful.cleanup).toHaveBeenCalledOnce();
+        expect(successful.execute).toHaveBeenCalledWith(
+            expect.anything(),
+            expect.anything(),
+            expect.any(Function),
+            { guarantee: false, journey: 'api' },
+        );
 
         const failure = new Error('synthetic purchase failed');
         const failing: StagingCheckoutV2Journey = {
@@ -196,25 +237,35 @@ describe('staging Checkout V2 runner safety', () => {
     it('marks execute summaries as staging-only writes', () => {
         const gate = validate({
             args: parseStagingCheckoutV2Args([
-                '--execute', '--confirmation', STAGING_CHECKOUT_V2_CONFIRMATION,
+                '--execute',
+                '--confirmation', STAGING_CHECKOUT_V2_CONFIRMATION,
+                '--journey', 'public',
+                '--guarantee',
             ]),
         });
-        expect(safeStagingCheckoutV2Summary(gate)).toContain(
-            'external_writes=staging-supabase,stripe-sandbox,staging-web',
-        );
+        const summary = safeStagingCheckoutV2Summary(gate);
+        expect(summary).toContain('external_writes=staging-supabase,stripe-sandbox,staging-web');
+        expect(summary).toContain('journey=public');
+        expect(summary).toContain('guarantee=true');
     });
 
     it('restores the synthetic student session only on the exact staging origin', () => {
-        expect(stagingBrowserCookies('sb-auth-token.0=first==; sb-auth-token.1=second=')).toEqual([
+        expect(stagingBrowserCookies('sb-auth-token.0=first==; __Host-hs_staging_e2e_checkout=grant')).toEqual([
             {
+                httpOnly: false,
                 name: 'sb-auth-token.0',
+                sameSite: 'Lax',
+                secure: true,
+                url: `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/`,
                 value: 'first==',
-                url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
             },
             {
-                name: 'sb-auth-token.1',
-                value: 'second=',
-                url: STAGING_CHECKOUT_V2_IDENTITY.webOrigin,
+                httpOnly: true,
+                name: '__Host-hs_staging_e2e_checkout',
+                sameSite: 'Strict',
+                secure: true,
+                url: `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/`,
+                value: 'grant',
             },
         ]);
         expect(() => stagingBrowserCookies('malformed')).toThrow('malformed browser cookie');

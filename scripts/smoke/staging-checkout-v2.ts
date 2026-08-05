@@ -9,7 +9,7 @@
  * in finally so a failed run cannot leave a chargeable test subscription.
  */
 import { execFileSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -21,6 +21,7 @@ import Stripe from 'stripe';
 import type { Database } from '../../src/types/database.types';
 import { CHECKOUT_TERMS_VERSION } from '../../src/lib/legal-policy';
 import { completeStripeCheckoutSandbox } from './staging-checkout-v2-browser';
+import { drivePublicCheckoutJourney } from './staging-checkout-v2-public';
 import {
     parseStagingCheckoutV2Args,
     safeStagingCheckoutV2Summary,
@@ -31,6 +32,7 @@ import {
 } from './staging-checkout-v2-safety';
 
 const packageKey = 'individual_4x50_28d';
+const syntheticEmailPattern = /^delivered\+hs-stg-[a-z0-9][a-z0-9-]{0,45}@resend\.dev$/u;
 const amountCents = 25_900;
 const currency = 'eur';
 const webhookPath = '/api/stripe-webhook';
@@ -40,9 +42,6 @@ const fixtures = Object.freeze({
     packagePriceId: 'ab7c18d9-154d-4c67-b923-2b822cca962d',
     productId: 'prod_Uzz3n6jX0vHDdl',
     recurringPriceId: 'price_1Tzz5NC22M3erP0j5tqhot57',
-    slotFirstClassAt: '2026-08-10T14:00:00+00:00',
-    slotId: 'f2234997-efe9-4e1c-8d29-291452454a16',
-    slotPublicId: '3dc6cdb0-7f72-4e67-9673-dc5bd3b768b0',
     teacherId: '3ee5d324-e8a0-4633-a162-e6cf56c66fa4',
 });
 const requiredWebhookEvents: Stripe.WebhookEndpointCreateParams.EnabledEvent[] = [
@@ -69,6 +68,8 @@ export type StagingCheckoutV2RunState = {
     completedPurchase?: boolean;
     declinedPaymentObserved?: boolean;
     grantCookie?: string;
+    guaranteeRefunded?: boolean;
+    guaranteeStripeRefundId?: string;
     runId: string;
     slotId?: string;
     slotPublicId?: string;
@@ -80,9 +81,19 @@ export type StagingCheckoutV2RunState = {
     syntheticEmail: string;
 };
 
+export type StagingCheckoutV2JourneyOptions = {
+    guarantee: boolean;
+    journey: 'api' | 'public';
+};
+
 export type StagingCheckoutV2Journey = {
     cleanup(env: Env, state: StagingCheckoutV2RunState, log: Log): Promise<void>;
-    execute(env: Env, state: StagingCheckoutV2RunState, log: Log): Promise<void>;
+    execute(
+        env: Env,
+        state: StagingCheckoutV2RunState,
+        log: Log,
+        options?: StagingCheckoutV2JourneyOptions,
+    ): Promise<void>;
     preflight(env: Env, log: Log): Promise<void>;
 };
 
@@ -224,10 +235,17 @@ async function createSessionCookie(env: Env, email: string, password: string): P
 }
 
 function setCookieValue(response: Response, cookieName: string): string {
-    const header = response.headers.get('set-cookie') ?? '';
-    const match = header.match(new RegExp(`(?:^|,\\s*)${cookieName}=([^;]+)`));
-    if (!match?.[1]) throw new Error('Staging Checkout V2 grant cookie was not returned');
-    return `${cookieName}=${match[1]}`;
+    const headers = typeof response.headers.getSetCookie === 'function'
+        ? response.headers.getSetCookie()
+        : [response.headers.get('set-cookie') ?? ''];
+    for (const header of headers) {
+        const prefix = `${cookieName}=`;
+        if (!header.startsWith(prefix)) continue;
+        const value = header.slice(prefix.length).split(';')[0] ?? '';
+        if (!value) break;
+        return `${cookieName}=${value}`;
+    }
+    throw new Error('Staging Checkout V2 grant cookie was not returned');
 }
 
 function combineCookies(...values: Array<string | undefined>): string {
@@ -267,15 +285,116 @@ function stripeProductId(product: string | Stripe.Product | Stripe.DeletedProduc
     return typeof product === 'string' ? product : product.id;
 }
 
+const madridWeekdayHour = new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    hour12: false,
+    minute: '2-digit',
+    timeZone: 'Europe/Madrid',
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+});
+
+function madridParts(date: Date): { dateKey: string; time: string; weekday: number } {
+    const parts = Object.fromEntries(
+        madridWeekdayHour.formatToParts(date).map((part) => [part.type, part.value]),
+    ) as Record<string, string>;
+    const weekdays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return {
+        dateKey: `${parts.year}-${parts.month}-${parts.day}`,
+        time: `${parts.hour === '24' ? '00' : parts.hour}:${parts.minute}`,
+        weekday: weekdays.indexOf(parts.weekday ?? ''),
+    };
+}
+
+/**
+ * Sold slots are immutable by product contract, so every accreditation run
+ * buys a freshly created capacity slot instead of re-arming a used one. The
+ * slot is created and published through the real admin surface and must fit a
+ * free weekday/hour inside the synthetic teacher's availability (Mon-Fri
+ * 09:00-18:00 Madrid) without colliding with already scheduled sessions or
+ * other non-retired slots.
+ */
+async function chooseFreshSlotSchedule(
+    context: RealContext,
+): Promise<{ firstClassDate: string; localStartTime: string }> {
+    const [sessions, slots] = await Promise.all([
+        context.admin.from('sessions')
+            .select('scheduled_at, status')
+            .eq('teacher_id', fixtures.teacherId)
+            .gte('scheduled_at', new Date().toISOString()),
+        context.admin.from('bookable_slots')
+            .select('weekday, local_start_time, status')
+            .eq('teacher_id', fixtures.teacherId)
+            .neq('status', 'retired'),
+    ]);
+    if (sessions.error || slots.error) throw sessions.error ?? slots.error;
+
+    const taken = new Set<string>();
+    for (const session of sessions.data ?? []) {
+        if (session.status === 'cancelled' || !session.scheduled_at) continue;
+        const at = madridParts(new Date(session.scheduled_at));
+        taken.add(`${at.weekday}@${at.time}`);
+    }
+    for (const slot of slots.data ?? []) {
+        taken.add(`${slot.weekday}@${slot.local_start_time.slice(0, 5)}`);
+    }
+
+    for (let dayOffset = 2; dayOffset <= 16; dayOffset += 1) {
+        const candidate = new Date(Date.now() + dayOffset * 86_400_000);
+        const day = madridParts(candidate);
+        if (day.weekday < 1 || day.weekday > 5) continue;
+        for (let hour = 9; hour <= 17; hour += 1) {
+            const localStartTime = `${String(hour).padStart(2, '0')}:00`;
+            if (taken.has(`${day.weekday}@${localStartTime}`)) continue;
+            return { firstClassDate: day.dateKey, localStartTime };
+        }
+    }
+    throw new Error('No free synthetic capacity schedule is available for the staging teacher');
+}
+
+async function createFreshCapacitySlot(
+    state: StagingCheckoutV2RunState,
+    context: RealContext,
+    log: Log,
+): Promise<void> {
+    const adminCookie = stringValue(state.adminCookie, 'Admin authentication');
+    const endpoint = `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/admin/teachers-slots`;
+    const schedule = await chooseFreshSlotSchedule(context);
+
+    const created = await postJson(endpoint, adminCookie, {
+        action: 'create_slot',
+        firstClassDate: schedule.firstClassDate,
+        localStartTime: schedule.localStartTime,
+        reason: `Synthetic staging accreditation run ${state.runId}`,
+        requestId: randomUUID(),
+        teacherId: fixtures.teacherId,
+    });
+    assertHttp(created.response, created.body, 200, 'Synthetic capacity slot creation');
+    const slot = created.body.result as { id?: unknown; public_id?: unknown } | null;
+    state.slotId = stringValue(slot?.id, 'Synthetic capacity slot');
+    state.slotPublicId = stringValue(slot?.public_id, 'Synthetic capacity slot');
+
+    const published = await postJson(endpoint, adminCookie, {
+        action: 'transition_slot',
+        reason: `Synthetic staging accreditation run ${state.runId}`,
+        requestId: randomUUID(),
+        slotId: state.slotId,
+        transition: 'publish',
+    });
+    assertHttp(published.response, published.body, 200, 'Synthetic capacity slot publication');
+    log(`[staging-checkout-v2] slot=created first_class=${schedule.firstClassDate}T${schedule.localStartTime}@Europe/Madrid status=available`);
+}
+
 async function verifyExactFixtures(env: Env, context: RealContext): Promise<void> {
     const exactUrl = `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}${webhookPath}`;
-    const [account, pkg, price, snapshot, slot, engagement, product, initialPrice, recurringPrice, webhooks] = await Promise.all([
+    const [account, pkg, price, snapshot, engagement, product, initialPrice, recurringPrice, webhooks] = await Promise.all([
         context.stripe.accounts.retrieve(),
         packageRow(context.admin),
         context.admin.from('package_prices').select('*').eq('id', fixtures.packagePriceId).single(),
         context.admin.from('checkout_v2_price_snapshots').select('*')
             .eq('package_price_id', fixtures.packagePriceId).single(),
-        context.admin.from('bookable_slots').select('*').eq('id', fixtures.slotId).single(),
         context.admin.from('teacher_compensation_engagements').select('*')
             .eq('teacher_id', fixtures.teacherId).eq('engagement_kind', 'founder')
             .lte('effective_from', new Date().toISOString())
@@ -285,14 +404,13 @@ async function verifyExactFixtures(env: Env, context: RealContext): Promise<void
         context.stripe.prices.retrieve(fixtures.recurringPriceId),
         context.stripe.webhookEndpoints.list({ limit: 100 }),
     ]);
-    const queryError = price.error ?? snapshot.error ?? slot.error ?? engagement.error;
+    const queryError = price.error ?? snapshot.error ?? engagement.error;
     if (queryError) throw queryError;
-    if (!price.data || !snapshot.data || !slot.data || !engagement.data) {
+    if (!price.data || !snapshot.data || !engagement.data) {
         throw new Error('Exact staging database fixtures are incomplete');
     }
     const packagePrice = price.data;
     const priceSnapshot = snapshot.data;
-    const bookableSlot = slot.data;
     if (
         account.id !== STAGING_CHECKOUT_V2_IDENTITY.stripeAccountId
         || pkg.id !== fixtures.packageId
@@ -309,10 +427,6 @@ async function verifyExactFixtures(env: Env, context: RealContext): Promise<void
         || packagePrice.class_duration_minutes !== 50
         || priceSnapshot.initial_stripe_price_id !== fixtures.initialPriceId
         || priceSnapshot.recurring_stripe_price_id !== fixtures.recurringPriceId
-        || bookableSlot.public_id !== fixtures.slotPublicId
-        || bookableSlot.teacher_id !== fixtures.teacherId
-        || bookableSlot.status !== 'available'
-        || new Date(bookableSlot.first_occurrence_at).toISOString() !== new Date(fixtures.slotFirstClassAt).toISOString()
         || engagement.data.engagement_kind !== 'founder'
         || product.id !== fixtures.productId
         || ('deleted' in product && product.deleted)
@@ -394,37 +508,76 @@ async function issueGrant(state: StagingCheckoutV2RunState): Promise<void> {
     state.grantCookie = setCookieValue(grant.response, '__Host-hs_staging_e2e_checkout');
 }
 
-async function createCheckout(state: StagingCheckoutV2RunState): Promise<string> {
-    const endpoint = `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`;
-    const cookies = combineCookies(state.studentCookie, state.grantCookie);
-    const body = {
+async function assertGrantedSlotIsPubliclyOpen(state: StagingCheckoutV2RunState): Promise<void> {
+    const response = await fetchWithTimeout(
+        `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/bookable-slots`,
+        {
+            headers: {
+                Accept: 'application/json',
+                Cookie: combineCookies(state.studentCookie, state.grantCookie),
+            },
+        },
+    );
+    const body = await jsonResponse(response);
+    const slots = Array.isArray(body.slots) ? body.slots as Array<{ publicId?: unknown }> : [];
+    if (
+        response.status !== 200
+        || body.checkoutEnabled !== true
+        || slots.length !== 1
+        || slots[0]?.publicId !== state.slotPublicId
+    ) {
+        throw new Error(
+            'Granted synthetic slot is not the open public checkout lane'
+            + ` (http=${response.status}, checkoutEnabled=${String(body.checkoutEnabled)}, slots=${slots.length})`,
+        );
+    }
+}
+
+function checkoutRequestBody(state: StagingCheckoutV2RunState, lang: 'en' | 'es'): Record<string, unknown> {
+    return {
         adultConfirmed: true,
-        lang: 'en',
+        lang,
         policyVersion: CHECKOUT_TERMS_VERSION,
         serviceStartRequested: true,
         slotPublicId: stringValue(state.slotPublicId, 'Synthetic slot'),
         termsAccepted: true,
         withdrawalLossAcknowledged: true,
     };
-    const sessionIdFromUrl = (checkoutUrl: string): string | undefined => new URL(checkoutUrl).pathname
+}
+
+function sessionIdFromUrl(checkoutUrl: string): string | undefined {
+    return new URL(checkoutUrl).pathname
         .split('/')
         .map((segment) => decodeURIComponent(segment))
         .find((segment) => segment.startsWith('cs_test_'));
+}
 
-    const first = await postJson(endpoint, cookies, body);
-    assertHttp(first.response, first.body, 200, 'Checkout V2 creation');
-    const checkoutUrl = stringValue(first.body.url, 'Checkout V2');
-    const sessionId = sessionIdFromUrl(checkoutUrl);
-    state.checkoutSessionId = stringValue(sessionId, 'Stripe Checkout Session');
-
-    const retry = await postJson(endpoint, cookies, body);
+async function assertIdempotentCheckoutRetry(
+    state: StagingCheckoutV2RunState,
+    lang: 'en' | 'es',
+): Promise<void> {
+    const retry = await postJson(
+        `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`,
+        combineCookies(state.studentCookie, state.grantCookie),
+        checkoutRequestBody(state, lang),
+    );
     assertHttp(retry.response, retry.body, 200, 'Checkout V2 idempotent retry');
     const retryUrl = stringValue(retry.body.url, 'Checkout V2 idempotent retry');
-    const retrySessionId = sessionIdFromUrl(retryUrl);
-    if (!sessionId || retrySessionId !== sessionId) {
+    if (sessionIdFromUrl(retryUrl) !== stringValue(state.checkoutSessionId, 'Stripe Checkout Session')) {
         throw new Error('Checkout V2 retry created or returned another Stripe Checkout Session');
     }
+}
 
+async function createCheckout(state: StagingCheckoutV2RunState): Promise<string> {
+    const first = await postJson(
+        `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`,
+        combineCookies(state.studentCookie, state.grantCookie),
+        checkoutRequestBody(state, 'en'),
+    );
+    assertHttp(first.response, first.body, 200, 'Checkout V2 creation');
+    const checkoutUrl = stringValue(first.body.url, 'Checkout V2');
+    state.checkoutSessionId = stringValue(sessionIdFromUrl(checkoutUrl), 'Stripe Checkout Session');
+    await assertIdempotentCheckoutRetry(state, 'en');
     return checkoutUrl;
 }
 
@@ -463,6 +616,47 @@ async function completeCheckout(
             stringValue(state.studentCookie, 'Student authentication'),
         ));
         const page = await browserContext.newPage();
+        const result = await completeStripeCheckoutSandbox({
+            afterDecline: () => assertDeclinedCheckoutHasNoPurchase(realContext, state),
+            checkoutUrl,
+            exerciseDeclineBeforeSuccess: true,
+            page,
+            syntheticEmail: state.syntheticEmail,
+            timeoutMs: 90_000,
+        });
+        if (!result.declinedPaymentObserved) {
+            throw new Error('Stripe Sandbox decline was not observed before successful payment');
+        }
+        state.declinedPaymentObserved = true;
+        state.completedPurchase = true;
+    } finally {
+        await browser.close();
+    }
+}
+
+async function purchaseThroughPublicJourney(
+    realContext: RealContext,
+    state: StagingCheckoutV2RunState,
+    log: Log,
+): Promise<void> {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const browserContext = await browser.newContext();
+        await browserContext.addCookies(stagingBrowserCookies(combineCookies(
+            stringValue(state.studentCookie, 'Student authentication'),
+            stringValue(state.grantCookie, 'Staging checkout grant'),
+        )));
+        const page = await browserContext.newPage();
+        const { checkoutUrl } = await drivePublicCheckoutJourney({
+            page,
+            slotPublicId: stringValue(state.slotPublicId, 'Synthetic slot'),
+            timeoutMs: 90_000,
+        });
+        state.checkoutSessionId = stringValue(sessionIdFromUrl(checkoutUrl), 'Stripe Checkout Session');
+        log(`[staging-checkout-v2] public_journey=hosted-checkout run_id=${state.runId}`);
+        await assertIdempotentCheckoutRetry(state, 'es');
+        log('[staging-checkout-v2] checkout=created via=public-ui idempotent_retry=same_session');
+
         const result = await completeStripeCheckoutSandbox({
             afterDecline: () => assertDeclinedCheckoutHasNoPurchase(realContext, state),
             checkoutUrl,
@@ -606,6 +800,188 @@ async function waitForPurchase(context: RealContext, state: StagingCheckoutV2Run
     throw new Error(`Checkout V2 was not fully fulfilled before timeout (${lastStatus})`);
 }
 
+const guaranteeRefundCents = 19_425;
+
+/**
+ * The guarantee window opens after the first class is really over and before
+ * the second one starts. A fresh synthetic purchase has all four classes in
+ * the future, so the first session is time-shifted into a completed past class
+ * together with the correlated billing anchor/cycle timestamps. Those writes
+ * must commit in one transaction because the deferred coherence guard spans
+ * sessions, billing_state and cycles.
+ */
+function makeFirstClassSyntheticallyCompleted(
+    env: Env,
+    state: StagingCheckoutV2RunState,
+): void {
+    const subscriptionId = stringValue(state.subscriptionId, 'Subscription');
+    const nowMs = Date.now();
+    const firstClassAt = new Date(nowMs - 120 * 60_000).toISOString();
+    const completedAt = new Date(nowMs - 60 * 60_000).toISOString();
+    const databaseUrl = required(env, 'SUPABASE_DB_URL');
+    if (!databaseUrl.includes(STAGING_CHECKOUT_V2_IDENTITY.supabaseProjectRef)) {
+        throw new Error('Refusing non-staging SUPABASE_DB_URL for guarantee setup');
+    }
+
+    const sql = `
+BEGIN;
+UPDATE public.sessions
+SET
+    scheduled_at = '${firstClassAt}'::timestamptz,
+    completed_at = '${completedAt}'::timestamptz,
+    status = 'completed',
+    updated_at = clock_timestamp()
+WHERE subscription_id = '${subscriptionId}'::uuid
+  AND checkout_v2_cycle_session_index = 1
+  AND status = 'scheduled';
+UPDATE public.checkout_v2_billing_state
+SET
+    first_class_at = '${firstClassAt}'::timestamptz,
+    renewal_anchor_at = '${firstClassAt}'::timestamptz + INTERVAL '672 hours',
+    stripe_renewal_anchor_at = '${firstClassAt}'::timestamptz + INTERVAL '672 hours',
+    anchor_revision = anchor_revision + 1,
+    updated_at = clock_timestamp()
+WHERE subscription_id = '${subscriptionId}'::uuid
+  AND anchor_state = 'provisional'
+  AND first_class_at IS DISTINCT FROM '${firstClassAt}'::timestamptz;
+UPDATE public.checkout_v2_cycles
+SET
+    starts_at = '${firstClassAt}'::timestamptz,
+    ends_at = '${firstClassAt}'::timestamptz + INTERVAL '672 hours',
+    updated_at = clock_timestamp()
+WHERE subscription_id = '${subscriptionId}'::uuid
+  AND cycle_number = 1
+  AND cycle_kind = 'initial';
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM public.sessions
+        WHERE subscription_id = '${subscriptionId}'::uuid
+          AND checkout_v2_cycle_session_index = 1
+          AND status = 'completed'
+          AND scheduled_at = '${firstClassAt}'::timestamptz
+          AND completed_at = '${completedAt}'::timestamptz
+    ) THEN
+        RAISE EXCEPTION 'synthetic_first_class_not_completed';
+    END IF;
+END $$;
+COMMIT;
+`;
+
+    try {
+        execFileSync('psql', [databaseUrl, '-v', 'ON_ERROR_STOP=1', '-X', '-q', '-c', sql], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'pipe'],
+            windowsHide: true,
+        });
+    } catch (error) {
+        const stderr = error && typeof error === 'object' && 'stderr' in error
+            ? String((error as { stderr?: unknown }).stderr ?? '')
+            : '';
+        const detail = stderr.split('\n').map((line) => line.trim()).find(Boolean) ?? 'psql failed';
+        throw new Error(`Synthetic first-class completion failed: ${detail}`);
+    }
+}
+
+async function accreditGuarantee(
+    env: Env,
+    context: RealContext,
+    state: StagingCheckoutV2RunState,
+    log: Log,
+): Promise<void> {
+    const subscriptionId = stringValue(state.subscriptionId, 'Subscription');
+    const studentCookie = stringValue(state.studentCookie, 'Student authentication');
+    const endpoint = `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/account/guarantee`;
+
+    makeFirstClassSyntheticallyCompleted(env, state);
+    log('[staging-checkout-v2] guarantee_setup=first-class-completed synthetic_time_shift=true');
+
+    const requestId = randomUUID();
+    const body = { requestId, subscriptionId };
+    const guaranteeOf = (payload: Record<string, unknown>): Record<string, unknown> => (
+        payload.guarantee && typeof payload.guarantee === 'object' && !Array.isArray(payload.guarantee)
+            ? payload.guarantee as Record<string, unknown>
+            : {}
+    );
+
+    const first = await postJson(endpoint, studentCookie, body);
+    if (![200, 202].includes(first.response.status)) {
+        throw new Error(`Guarantee request failed with HTTP ${first.response.status}`);
+    }
+    const duplicate = await postJson(endpoint, studentCookie, body);
+    if (![200, 202].includes(duplicate.response.status)) {
+        throw new Error(`Guarantee idempotent duplicate failed with HTTP ${duplicate.response.status}`);
+    }
+    const firstOperationId = guaranteeOf(first.body).operationId;
+    const duplicateOperationId = guaranteeOf(duplicate.body).operationId;
+    if (
+        typeof firstOperationId !== 'string'
+        || !firstOperationId
+        || duplicateOperationId !== firstOperationId
+    ) {
+        throw new Error('The duplicated guarantee request did not reuse the same operation');
+    }
+    log('[staging-checkout-v2] guarantee=requested idempotent_duplicate=same_operation');
+
+    const deadline = Date.now() + 240_000;
+    let publicStatus = 'unknown';
+    while (Date.now() < deadline) {
+        const response = await fetchWithTimeout(
+            `${endpoint}?subscriptionId=${subscriptionId}`,
+            { headers: { Cookie: studentCookie } },
+        );
+        const guarantee = guaranteeOf(await jsonResponse(response));
+        publicStatus = typeof guarantee.status === 'string' ? guarantee.status : 'unknown';
+        if (publicStatus === 'refunded') {
+            if (guarantee.refundAmountCents !== guaranteeRefundCents || guarantee.currency !== currency) {
+                throw new Error('The public guarantee state does not match the proportional refund');
+            }
+            break;
+        }
+        if (!['processing', 'refund_pending', 'eligible'].includes(publicStatus)) {
+            throw new Error(`Guarantee reached a non-refundable state: ${publicStatus}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2_000));
+    }
+    if (publicStatus !== 'refunded') {
+        throw new Error(`Guarantee was not refunded before timeout (${publicStatus})`);
+    }
+
+    const { data: operation, error: operationError } = await context.admin
+        .from('checkout_v2_guarantee_operations')
+        .select('status, refund_amount_cents, currency, stripe_refund_id, refund_status')
+        .eq('request_id', requestId)
+        .single();
+    if (operationError || !operation) {
+        throw operationError ?? new Error('Guarantee operation row is missing');
+    }
+    if (
+        operation.status !== 'refunded'
+        || operation.refund_amount_cents !== guaranteeRefundCents
+        || operation.currency !== currency
+        || operation.refund_status !== 'succeeded'
+        || typeof operation.stripe_refund_id !== 'string'
+    ) throw new Error('Guarantee operation did not settle as a succeeded proportional refund');
+
+    const [refund, stripeSubscription] = await Promise.all([
+        context.stripe.refunds.retrieve(operation.stripe_refund_id),
+        context.stripe.subscriptions.retrieve(
+            stringValue(state.stripeSubscriptionId, 'Stripe subscription'),
+        ),
+    ]);
+    if (
+        refund.amount !== guaranteeRefundCents
+        || refund.currency !== currency
+        || refund.status !== 'succeeded'
+        || stripeSubscription.status !== 'canceled'
+    ) throw new Error('Stripe Sandbox refund does not match the proportional guarantee contract');
+
+    state.guaranteeRefunded = true;
+    state.guaranteeStripeRefundId = operation.stripe_refund_id;
+    log(`[staging-checkout-v2] guarantee=refunded amount=${guaranteeRefundCents} currency=${currency} subscription=canceled`);
+}
+
 async function cleanupReal(env: Env, state: StagingCheckoutV2RunState, log: Log): Promise<void> {
     const context = createRealContext(env);
     const errors: string[] = [];
@@ -660,6 +1036,32 @@ async function cleanupReal(env: Env, state: StagingCheckoutV2RunState, log: Log)
             if (error && !error.message.toLowerCase().includes('not found')) throw error;
         });
     }
+    if (state.slotId && state.adminCookie && !state.subscriptionId) {
+        // A slot that never sold must not linger as fake public availability.
+        await attempt('capacity-slot', async () => {
+            const { data: slot, error } = await context.admin
+                .from('bookable_slots')
+                .select('status')
+                .eq('id', state.slotId!)
+                .single();
+            if (error || !slot) throw error ?? new Error('Synthetic capacity slot is missing');
+            if (slot.status === 'sold' || slot.status === 'retired') return;
+            const retired = await postJson(
+                `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/admin/teachers-slots`,
+                state.adminCookie!,
+                {
+                    action: 'transition_slot',
+                    reason: `Synthetic staging accreditation cleanup ${state.runId}`,
+                    requestId: randomUUID(),
+                    slotId: state.slotId,
+                    transition: 'retire',
+                },
+            );
+            if (retired.response.status !== 200) {
+                throw new Error(`Slot retirement failed with HTTP ${retired.response.status}`);
+            }
+        });
+    }
     if (errors.length) throw new Error(`Cleanup incomplete: ${errors.join(', ')}`);
     log(`[staging-checkout-v2] cleanup=ok retained_immutable_evidence=${String(Boolean(state.subscriptionId))}`);
 }
@@ -690,10 +1092,8 @@ const realJourney: StagingCheckoutV2Journey = {
         await verifyExactFixtures(env, context);
         log('[staging-checkout-v2] preflight=ok supabase=staging stripe=sandbox web=staging');
     },
-    async execute(env, state, log) {
+    async execute(env, state, log, options = { guarantee: false, journey: 'api' }) {
         const context = createRealContext(env);
-        state.slotId = fixtures.slotId;
-        state.slotPublicId = fixtures.slotPublicId;
         log('[staging-checkout-v2] fixtures=verified amount=25900 currency=eur interval=28-days');
 
         state.adminCookie = await createSessionCookie(
@@ -701,13 +1101,20 @@ const realJourney: StagingCheckoutV2Journey = {
             required(env, 'TEST_ADMIN_EMAIL'),
             required(env, 'TEST_ADMIN_PASSWORD'),
         );
+        await createFreshCapacitySlot(state, context, log);
         await createSyntheticStudent(env, context, state);
         await issueGrant(state);
-        const checkoutUrl = await createCheckout(state);
-        log(`[staging-checkout-v2] checkout=created run_id=${state.runId} idempotent_retry=same_session`);
-        await completeCheckout(checkoutUrl, context, state);
+        await assertGrantedSlotIsPubliclyOpen(state);
+        if (options.journey === 'public') {
+            await purchaseThroughPublicJourney(context, state, log);
+        } else {
+            const checkoutUrl = await createCheckout(state);
+            log(`[staging-checkout-v2] checkout=created run_id=${state.runId} idempotent_retry=same_session`);
+            await completeCheckout(checkoutUrl, context, state);
+        }
         await waitForPurchase(context, state);
-        log('[staging-checkout-v2] purchase=verified declined_card=recovered unique_checkout=true amount=25900 sessions=4 renewal=28-days fulfillment=succeeded');
+        log(`[staging-checkout-v2] purchase=verified journey=${options.journey} declined_card=recovered unique_checkout=true amount=25900 sessions=4 renewal=28-days fulfillment=succeeded`);
+        if (options.guarantee) await accreditGuarantee(env, context, state, log);
     },
     cleanup: cleanupReal,
 };
@@ -743,7 +1150,7 @@ export async function runStagingCheckoutV2(
     const state = createRunState();
     let executionError: unknown;
     try {
-        await journey.execute(env, state, log);
+        await journey.execute(env, state, log, { guarantee: gate.guarantee, journey: gate.journey });
     } catch (error) {
         executionError = error;
     }
@@ -766,7 +1173,12 @@ export const runStagingCheckoutV2Skeleton = runStagingCheckoutV2;
 const invokedScriptPath = process.argv[1];
 if (invokedScriptPath && import.meta.url === pathToFileURL(path.resolve(invokedScriptPath)).href) {
     runStagingCheckoutV2(process.argv.slice(2)).catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : 'Staging Checkout V2 failed';
+        // Supabase query errors are plain objects, not Error instances.
+        const message = error instanceof Error
+            ? error.message
+            : (error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string'
+                ? (error as { message: string }).message
+                : 'Staging Checkout V2 failed');
         console.error(`[staging-checkout-v2] failed=${message}`);
         process.exitCode = 1;
     });
