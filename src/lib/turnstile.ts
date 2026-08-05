@@ -5,6 +5,7 @@ const siteverifyEndpoint = 'https://challenges.cloudflare.com/turnstile/v0/sitev
 const checkoutAction = 'checkout_hold';
 const testingAction = 'test';
 const testingHostname = 'localhost';
+const alwaysPassDummyHostname = 'example.com';
 const alwaysPassTestingSiteKey = '1x00000000000000000000AA';
 const maximumTokenLength = 2048;
 const defaultTimeoutMs = 5_000;
@@ -15,6 +16,7 @@ type CheckoutTurnstileResult =
 
 function expectedCheckoutVerification(context?: Pick<APIContext, 'locals'>): {
     actions: ReadonlySet<string>;
+    allowMissingAction: boolean;
     hostnames: ReadonlySet<string>;
 } | null {
     const configuredSiteUrl = readRuntimeEnv('PUBLIC_SITE_URL', context)?.trim();
@@ -26,17 +28,20 @@ function expectedCheckoutVerification(context?: Pick<APIContext, 'locals'>): {
         const parsed = new URL(configuredSiteUrl);
         if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return null;
         if (siteKey === alwaysPassTestingSiteKey) {
-            // Cloudflare's documented dummy response uses action=test and
-            // hostname=localhost. Keep that compatibility outside production,
-            // while also accepting the configured widget fields if returned.
+            // Cloudflare always-pass keys historically returned action=test and
+            // hostname=localhost; the live Siteverify response now often omits
+            // action and uses hostname=example.com. Accept both shapes outside
+            // production, plus the configured widget fields if returned.
             if (appEnvironment === 'production') return null;
             return {
                 actions: new Set([checkoutAction, testingAction]),
-                hostnames: new Set([parsed.hostname, testingHostname]),
+                allowMissingAction: true,
+                hostnames: new Set([parsed.hostname, testingHostname, alwaysPassDummyHostname]),
             };
         }
         return {
             actions: new Set([checkoutAction]),
+            allowMissingAction: false,
             hostnames: new Set([parsed.hostname]),
         };
     } catch {
@@ -92,10 +97,12 @@ export async function verifyCheckoutTurnstile(input: {
 
         const payload: unknown = await response.json();
         if (!isVerificationPayload(payload)) return { ok: false, reason: 'unavailable' };
+        const actionOk = typeof payload.action === 'string'
+            ? expected.actions.has(payload.action)
+            : expected.allowMissingAction;
         if (
             payload.success !== true
-            || typeof payload.action !== 'string'
-            || !expected.actions.has(payload.action)
+            || !actionOk
             || typeof payload.hostname !== 'string'
             || !expected.hostnames.has(payload.hostname)
         ) return { ok: false, reason: 'invalid' };
