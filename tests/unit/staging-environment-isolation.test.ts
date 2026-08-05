@@ -52,7 +52,7 @@ describe('staging environment isolation', () => {
         expect(runner).toContain("turnstileTestSecretKey = '1x0000000000000000000000000000000AA'");
         expect(runner).toContain('source.PUBLIC_TURNSTILE_SITE_KEY ||= turnstileTestSiteKey');
         expect(runner).toContain('source.TURNSTILE_SECRET_KEY ||= turnstileTestSecretKey');
-        expect(workerConfig).toContain('CHECKOUT_ENABLED_OVERRIDE = "false"');
+        expect(workerConfig).toContain('CHECKOUT_ENABLED_OVERRIDE = "true"');
         expect(workerConfig).toContain('EMAIL_DELIVERY_MODE = "allowlist"');
         expect(workerConfig).toContain('EMAIL_DAILY_RECIPIENT_LIMIT = "10"');
         expect(workerConfig).toContain('EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"');
@@ -91,7 +91,7 @@ describe('staging environment isolation', () => {
         expect(preparer).toContain("EMAIL_DELIVERY_MODE: 'allowlist'");
         expect(preparer).toContain("EMAIL_DAILY_RECIPIENT_LIMIT: '10'");
         expect(preparer).toContain("EMAIL_MONTHLY_RECIPIENT_LIMIT: '100'");
-        expect(preparer).toContain("CHECKOUT_ENABLED: 'false'");
+        expect(preparer).toContain("CHECKOUT_ENABLED: 'true'");
         expect(preparer).toContain("const cronSecret = requireStagingSecret('CRON_SECRET')");
         expect(preparer).toContain(
             "const checkoutHoldFingerprintSecret = requireStagingSecret('CHECKOUT_HOLD_FINGERPRINT_SECRET')",

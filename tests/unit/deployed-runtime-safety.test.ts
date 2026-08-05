@@ -26,8 +26,8 @@ const roleEmails = ['student@test.invalid', 'teacher@test.invalid', 'admin@test.
 const baseEnv: Record<string, string> = {
     ADMIN_EMAIL: roleEmails[2],
     CHECKOUT_HOLD_FINGERPRINT_SECRET: 'staging-checkout-hold-fingerprint-secret-32-bytes',
-    CHECKOUT_ENABLED: 'false',
-    CHECKOUT_ENABLED_OVERRIDE: 'false',
+    CHECKOUT_ENABLED: 'true',
+    CHECKOUT_ENABLED_OVERRIDE: 'true',
     CRON_SECRET: 'staging-cron-secret',
     EMAIL_DAILY_RECIPIENT_LIMIT: '10',
     EMAIL_DELIVERY_MODE: 'allowlist',
@@ -104,7 +104,7 @@ function deployedFetch(options?: {
         if (url.href === `${STAGING_WEB_ORIGIN}/health`) {
             return Response.json({
                 appEnvironment: 'staging',
-                checkoutEnabled: options?.checkoutEnabled ?? false,
+                checkoutEnabled: options?.checkoutEnabled ?? true,
                 runtimeMode: 'active',
                 status: 'ok',
                 workerIdentity: STAGING_WEB_IDENTITY,
@@ -124,7 +124,7 @@ function deployedFetch(options?: {
             return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
         if (url.href === `${STAGING_WEB_ORIGIN}/api/create-checkout`) {
-            return Response.json({ error: 'Checkout is disabled' }, { status: 403 });
+            return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
         if (new Headers(init?.headers).get('Authorization') !== `Bearer ${baseEnv.INTERNAL_JOB_SECRET}`) {
@@ -140,7 +140,7 @@ function deployedFetch(options?: {
         if (url.href === `${STAGING_WEB_ORIGIN}/api/internal/runtime-attestation`) {
             const envelope = await createRuntimeAttestationForSchema('web', {
                 ...baseEnv,
-                CHECKOUT_ENABLED_OVERRIDE: 'false',
+                CHECKOUT_ENABLED_OVERRIDE: 'true',
                 STRIPE_SECRET_KEY: options?.webSecretKey ?? baseEnv.STRIPE_SECRET_KEY,
                 WORKER_IDENTITY: STAGING_WEB_IDENTITY,
                 WORKER_VERSION_ID: options?.webVersionId ?? webVersionId,
@@ -151,7 +151,7 @@ function deployedFetch(options?: {
             const schema = options?.fulfillmentSchema ?? RUNTIME_ATTESTATION_SCHEMA;
             const envelope = await createRuntimeAttestationForSchema('fulfillment', {
                 ...baseEnv,
-                CHECKOUT_ENABLED_OVERRIDE: 'false',
+                CHECKOUT_ENABLED_OVERRIDE: 'true',
                 FULFILLMENT_RUNTIME_MODE: 'active',
                 GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: options?.fulfillmentGoogleKey ?? baseEnv.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
                 SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
@@ -429,18 +429,18 @@ describe('deployed staging runtime safety', () => {
         })).rejects.toThrow('baseline runtime attestation does not match');
     });
 
-    it('requires fail-closed probes before accepting a legacy identity baseline', async () => {
+    it('requires open-checkout probes before accepting a legacy identity baseline', async () => {
         await expect(captureStagingRollbackBaseline({
             baseOrigin: STAGING_WEB_ORIGIN,
             env: baseEnv,
             expectedFulfillmentVersionId: fulfillmentVersionId,
             expectedWebVersionId: webVersionId,
-            fetchImpl: deployedFetch({ checkoutEnabled: true, fulfillmentSchema: 5 }),
+            fetchImpl: deployedFetch({ checkoutEnabled: false, fulfillmentSchema: 5 }),
             fulfillmentBindingNames: [...legacyFulfillmentBindingNames, 'ADMIN_EMAIL'],
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
             webBindingNames,
-        })).rejects.toThrow('fail-closed staging contract');
+        })).rejects.toThrow('open-checkout staging contract');
     });
 
     it('never treats an invalid bearer or nonce as a legacy identity fallback', async () => {

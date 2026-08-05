@@ -3,11 +3,13 @@
  * page, launch plan, real slot selector, the four explicit consents and the
  * redirect to hosted Stripe Sandbox Checkout. Nothing here bypasses the
  * public interface; the browser context must already carry the synthetic
- * student session and the private staging checkout grant cookies.
+ * student session. Staging must keep global checkout open and Turnstile on
+ * Cloudflare always-pass test keys so the headless harness can present the
+ * documented dummy response token.
  *
- * Turnstile is stubbed only as a headless browser harness: the staging grant
- * lane does not verify the token server-side, but the public UI still requires
- * a client token before calling create-checkout.
+ * Turnstile is stubbed only as a headless browser harness: the public UI
+ * still requires a client token, and create-checkout verifies it server-side
+ * against the staging always-pass secret.
  */
 import type { Page } from 'playwright';
 import { isStripeSandboxCheckoutUrl } from './staging-checkout-v2-browser';
@@ -17,7 +19,7 @@ const planTestId = 'select-plan-individual_4x50_28d';
 const payButtonName = 'Reservar y pagar';
 const requiredConsents = 4;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
-const stagingTurnstileToken = 'staging-public-checkout-turnstile';
+const stagingTurnstileToken = 'XXXX.DUMMY.TOKEN.XXXX';
 
 export class PublicCheckoutJourneyError extends Error {
     constructor(
@@ -46,7 +48,7 @@ export function validatePublicCheckoutJourneyInput(
     if (!uuidPattern.test(input.slotPublicId)) {
         throw new PublicCheckoutJourneyError(
             'INVALID_SLOT_PUBLIC_ID',
-            'The public journey requires the exact granted slot public id',
+            'The public journey requires the exact synthetic slot public id',
         );
     }
     const timeoutMs = input.timeoutMs ?? 90_000;
@@ -106,7 +108,7 @@ export async function drivePublicCheckoutJourney(
     await planButton.waitFor({ state: 'visible', timeout: timeoutMs });
 
     // The pricing island is SSR'd; clicking before hydration is a no-op. Retry
-    // until the modal opens and the granted slot lane answers.
+    // until the modal opens and the open public slot lane answers.
     const dialog = page.getByRole('dialog');
     const deadline = Date.now() + timeoutMs;
     let slotsPayload: {
@@ -150,7 +152,7 @@ export async function drivePublicCheckoutJourney(
     if (!listed || slotsPayload?.checkoutEnabled !== true) {
         throw new PublicCheckoutJourneyError(
             'SLOT_NOT_LISTED',
-            'The granted synthetic slot was not exposed as the open public checkout lane'
+            'The synthetic slot was not exposed in the open public checkout lane'
             + ` (http=${slotsStatus || 'not-observed'}, checkoutEnabled=${String(slotsPayload?.checkoutEnabled)})`,
         );
     }

@@ -19,8 +19,8 @@ const databaseUrl = (projectRef: string): string => {
 const stagingEnv = {
     PUBLIC_APP_ENV: 'staging',
     PUBLIC_SITE_URL: STAGING_BROWSER_ORIGIN,
-    CHECKOUT_ENABLED: 'false',
-    CHECKOUT_ENABLED_OVERRIDE: 'false',
+    CHECKOUT_ENABLED: 'true',
+    CHECKOUT_ENABLED_OVERRIDE: 'true',
     PUBLIC_SUPABASE_URL: `https://${STAGING_BROWSER_SUPABASE_REF}.supabase.co`,
     PUBLIC_SUPABASE_ANON_KEY: 'staging-anon',
     SUPABASE_SERVICE_ROLE_KEY: 'staging-service-role',
@@ -39,8 +39,8 @@ describe('staging browser environment', () => {
             PUBLIC_APP_ENV: 'staging',
             PUBLIC_SUPABASE_URL: `https://${STAGING_BROWSER_SUPABASE_REF}.supabase.co`,
             E2E_TARGET_SUPABASE_REF: STAGING_BROWSER_SUPABASE_REF,
-            CHECKOUT_ENABLED: 'false',
-            CHECKOUT_ENABLED_OVERRIDE: 'false',
+            CHECKOUT_ENABLED: 'true',
+            CHECKOUT_ENABLED_OVERRIDE: 'true',
         });
     });
 

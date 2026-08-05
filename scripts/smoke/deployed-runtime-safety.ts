@@ -94,9 +94,9 @@ export function assertExpectedStagingRuntimeInput(input: {
     if (requireValue(env, 'SUPABASE_EXPECTED_PROJECT_REF') !== STAGING_SUPABASE_REF) {
         throw new Error('SUPABASE_EXPECTED_PROJECT_REF must be the approved staging project');
     }
-    if (requireValue(env, 'CHECKOUT_ENABLED') !== 'false'
-        || requireValue(env, 'CHECKOUT_ENABLED_OVERRIDE') !== 'false') {
-        throw new Error('The local staging source must keep checkout fail-closed');
+    if (requireValue(env, 'CHECKOUT_ENABLED') !== 'true'
+        || requireValue(env, 'CHECKOUT_ENABLED_OVERRIDE') !== 'true') {
+        throw new Error('The local staging source must keep checkout enabled for Sandbox accreditation');
     }
     if (requireValue(env, 'WEB_RUNTIME_MODE') !== 'active'
         || requireValue(env, 'FULFILLMENT_RUNTIME_MODE') !== 'active') {
@@ -356,11 +356,11 @@ async function verifyInnocuousStagingRuntimeProbesForHealthContract(
             if (
                 response.status !== 200
                 || body.appEnvironment !== 'staging'
-                || body.checkoutEnabled !== false
+                || body.checkoutEnabled !== true
                 || body.runtimeMode !== 'active'
                 || body.status !== 'ok'
                 || body.workerIdentity !== STAGING_WEB_IDENTITY
-            ) throw new Error('Web health did not return the exact fail-closed staging contract');
+            ) throw new Error('Web health did not return the exact open-checkout staging contract');
         }),
         requestJson(fetchImpl, `${STAGING_FULFILLMENT_ORIGIN}/health`).then(({ body, response }) => {
             if (
@@ -382,8 +382,8 @@ async function verifyInnocuousStagingRuntimeProbesForHealthContract(
             headers: { 'Content-Type': 'application/json' },
             body: '{}',
         }).then(({ body, response }) => {
-            if (response.status !== 403 || body.error !== 'Checkout is disabled') {
-                throw new Error('Checkout did not return the expected fail-closed response');
+            if (response.status !== 401 || body.error !== 'Unauthorized') {
+                throw new Error('Open checkout did not require authentication for an anonymous request');
             }
         }),
         requestJson(fetchImpl, `${STAGING_WEB_ORIGIN}/api/internal/runtime-attestation`, {
@@ -493,8 +493,8 @@ async function verifyOneAttestation(input: {
     }
     const expectedConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
         ...input.env,
-        CHECKOUT_ENABLED: 'false',
-        CHECKOUT_ENABLED_OVERRIDE: 'false',
+        CHECKOUT_ENABLED: 'true',
+        CHECKOUT_ENABLED_OVERRIDE: 'true',
         FULFILLMENT_RUNTIME_MODE: input.role === 'fulfillment' ? 'active' : 'absent',
         PUBLIC_APP_ENV: 'staging',
         SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
@@ -550,8 +550,8 @@ async function discoverAndVerifyOneBaseline(input: {
     const bindingNames = exactBindingNames(input.bindingNames, input.role);
     const expectedConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
         ...input.env,
-        CHECKOUT_ENABLED: 'false',
-        CHECKOUT_ENABLED_OVERRIDE: 'false',
+        CHECKOUT_ENABLED: 'true',
+        CHECKOUT_ENABLED_OVERRIDE: 'true',
         FULFILLMENT_RUNTIME_MODE: input.role === 'fulfillment' ? 'active' : 'absent',
         PUBLIC_APP_ENV: 'staging',
         SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,

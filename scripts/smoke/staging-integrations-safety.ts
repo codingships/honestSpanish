@@ -176,9 +176,9 @@ export function validateStagingGates(input: {
         '--expected-fulfillment-version-id',
     );
 
-    if (requireEnv(env, 'CHECKOUT_ENABLED') !== 'false'
-        || requireEnv(env, 'CHECKOUT_ENABLED_OVERRIDE') !== 'false') {
-        throw new Error('Checkout must remain disabled during the integration smoke');
+    if (requireEnv(env, 'CHECKOUT_ENABLED') !== 'true'
+        || requireEnv(env, 'CHECKOUT_ENABLED_OVERRIDE') !== 'true') {
+        throw new Error('Checkout must remain enabled during the integration smoke');
     }
 
     const stripeKey = env.STRIPE_SECRET_KEY?.trim();

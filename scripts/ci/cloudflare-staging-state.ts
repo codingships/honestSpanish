@@ -51,8 +51,8 @@ type StagingVersionBindingContract = StagingVersionBinding & {
 };
 
 const WEB_VERSION_PLAIN_TEXT_BINDINGS = [
-    ['CHECKOUT_ENABLED', 'false'],
-    ['CHECKOUT_ENABLED_OVERRIDE', 'false'],
+    ['CHECKOUT_ENABLED', 'true'],
+    ['CHECKOUT_ENABLED_OVERRIDE', 'true'],
     ['EMAIL_DAILY_RECIPIENT_LIMIT', '10'],
     ['EMAIL_DELIVERY_MODE', 'allowlist'],
     ['EMAIL_MONTHLY_RECIPIENT_LIMIT', '100'],
@@ -68,8 +68,8 @@ const WEB_VERSION_PLAIN_TEXT_BINDINGS = [
 ] as const satisfies readonly (readonly [string, string])[];
 
 const FULFILLMENT_VERSION_PLAIN_TEXT_BINDINGS = [
-    ['CHECKOUT_ENABLED', 'false'],
-    ['CHECKOUT_ENABLED_OVERRIDE', 'false'],
+    ['CHECKOUT_ENABLED', 'true'],
+    ['CHECKOUT_ENABLED_OVERRIDE', 'true'],
     ['EMAIL_DAILY_RECIPIENT_LIMIT', '10'],
     ['EMAIL_DELIVERY_MODE', 'allowlist'],
     ['EMAIL_MONTHLY_RECIPIENT_LIMIT', '100'],

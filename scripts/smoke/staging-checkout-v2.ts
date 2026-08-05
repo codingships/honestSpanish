@@ -234,20 +234,6 @@ async function createSessionCookie(env: Env, email: string, password: string): P
     return jar.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ');
 }
 
-function setCookieValue(response: Response, cookieName: string): string {
-    const headers = typeof response.headers.getSetCookie === 'function'
-        ? response.headers.getSetCookie()
-        : [response.headers.get('set-cookie') ?? ''];
-    for (const header of headers) {
-        const prefix = `${cookieName}=`;
-        if (!header.startsWith(prefix)) continue;
-        const value = header.slice(prefix.length).split(';')[0] ?? '';
-        if (!value) break;
-        return `${cookieName}=${value}`;
-    }
-    throw new Error('Staging Checkout V2 grant cookie was not returned');
-}
-
 function combineCookies(...values: Array<string | undefined>): string {
     return values.filter(Boolean).join('; ');
 }
@@ -493,41 +479,26 @@ async function createSyntheticStudent(
     return data.user.id;
 }
 
-async function issueGrant(state: StagingCheckoutV2RunState): Promise<void> {
-    const grant = await postJson(
-        `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/internal/staging-e2e-checkout`,
-        stringValue(state.adminCookie, 'Admin authentication'),
-        {
-            runId: state.runId,
-            slotPublicId: stringValue(state.slotPublicId, 'Synthetic slot'),
-            studentId: stringValue(state.studentId, 'Synthetic student'),
-        },
-        { 'X-Staging-E2E-Confirmation': 'sandbox-journey' },
-    );
-    assertHttp(grant.response, grant.body, 201, 'Private staging checkout grant');
-    state.grantCookie = setCookieValue(grant.response, '__Host-hs_staging_e2e_checkout');
-}
-
-async function assertGrantedSlotIsPubliclyOpen(state: StagingCheckoutV2RunState): Promise<void> {
+async function assertSyntheticSlotIsPubliclyOpen(state: StagingCheckoutV2RunState): Promise<void> {
     const response = await fetchWithTimeout(
         `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/bookable-slots`,
         {
             headers: {
                 Accept: 'application/json',
-                Cookie: combineCookies(state.studentCookie, state.grantCookie),
+                Cookie: stringValue(state.studentCookie, 'Student authentication'),
             },
         },
     );
     const body = await jsonResponse(response);
     const slots = Array.isArray(body.slots) ? body.slots as Array<{ publicId?: unknown }> : [];
+    const listed = slots.some((slot) => slot.publicId === state.slotPublicId);
     if (
         response.status !== 200
         || body.checkoutEnabled !== true
-        || slots.length !== 1
-        || slots[0]?.publicId !== state.slotPublicId
+        || !listed
     ) {
         throw new Error(
-            'Granted synthetic slot is not the open public checkout lane'
+            'Synthetic slot is not listed in the open public checkout lane'
             + ` (http=${response.status}, checkoutEnabled=${String(body.checkoutEnabled)}, slots=${slots.length})`,
         );
     }
@@ -536,6 +507,7 @@ async function assertGrantedSlotIsPubliclyOpen(state: StagingCheckoutV2RunState)
 function checkoutRequestBody(state: StagingCheckoutV2RunState, lang: 'en' | 'es'): Record<string, unknown> {
     return {
         adultConfirmed: true,
+        'cf-turnstile-response': 'XXXX.DUMMY.TOKEN.XXXX',
         lang,
         policyVersion: CHECKOUT_TERMS_VERSION,
         serviceStartRequested: true,
@@ -558,7 +530,7 @@ async function assertIdempotentCheckoutRetry(
 ): Promise<void> {
     const retry = await postJson(
         `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`,
-        combineCookies(state.studentCookie, state.grantCookie),
+        stringValue(state.studentCookie, 'Student authentication'),
         checkoutRequestBody(state, lang),
     );
     assertHttp(retry.response, retry.body, 200, 'Checkout V2 idempotent retry');
@@ -571,7 +543,7 @@ async function assertIdempotentCheckoutRetry(
 async function createCheckout(state: StagingCheckoutV2RunState): Promise<string> {
     const first = await postJson(
         `${STAGING_CHECKOUT_V2_IDENTITY.webOrigin}/api/create-checkout`,
-        combineCookies(state.studentCookie, state.grantCookie),
+        stringValue(state.studentCookie, 'Student authentication'),
         checkoutRequestBody(state, 'en'),
     );
     assertHttp(first.response, first.body, 200, 'Checkout V2 creation');
@@ -642,10 +614,9 @@ async function purchaseThroughPublicJourney(
     const browser = await chromium.launch({ headless: true });
     try {
         const browserContext = await browser.newContext();
-        await browserContext.addCookies(stagingBrowserCookies(combineCookies(
+        await browserContext.addCookies(stagingBrowserCookies(
             stringValue(state.studentCookie, 'Student authentication'),
-            stringValue(state.grantCookie, 'Staging checkout grant'),
-        )));
+        ));
         const page = await browserContext.newPage();
         const { checkoutUrl } = await drivePublicCheckoutJourney({
             page,
@@ -1103,8 +1074,7 @@ const realJourney: StagingCheckoutV2Journey = {
         );
         await createFreshCapacitySlot(state, context, log);
         await createSyntheticStudent(env, context, state);
-        await issueGrant(state);
-        await assertGrantedSlotIsPubliclyOpen(state);
+        await assertSyntheticSlotIsPubliclyOpen(state);
         if (options.journey === 'public') {
             await purchaseThroughPublicJourney(context, state, log);
         } else {
