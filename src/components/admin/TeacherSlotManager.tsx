@@ -48,9 +48,21 @@ type TeachersSlotsResponse = {
     slots?: BookableSlot[];
 };
 
+type StaffInvitationResponse = {
+    auditDegraded?: boolean;
+    error?: string;
+    state?: 'existing_pending' | 'existing_verified' | 'sent';
+};
+
 const COPY = {
     es: {
         intro: 'Declara cuándo puede trabajar cada profesor y publica por separado las plazas concretas que un alumno puede comprar.',
+        inviteTitle: 'Invitar nuevo profesor',
+        inviteIntro: 'Envía el acceso desde el panel. La invitación no concede el rol de profesor: después de verificar el email y completar el perfil, actívalo expresamente abajo.',
+        fullName: 'Nombre completo', invite: 'Enviar invitación', inviting: 'Enviando…',
+        invited: 'Invitación enviada. Activa la cuenta cuando la persona haya confirmado el email y completado su perfil.',
+        existingPending: 'La cuenta ya existe y está pendiente de confirmar el email. No se ha enviado otra invitación.',
+        existingVerified: 'La cuenta ya está verificada. Puedes activarla abajo.',
         activateTitle: 'Activar profesor existente',
         activateIntro: 'Esta acción no crea una cuenta. Activa como profesor una cuenta existente identificada exactamente por su email.',
         email: 'Email de la cuenta',
@@ -125,6 +137,12 @@ const COPY = {
     },
     en: {
         intro: 'Define when each teacher can work and separately publish the specific places a student can buy.',
+        inviteTitle: 'Invite a new teacher',
+        inviteIntro: 'Send access from the panel. An invitation does not grant the teacher role: after the email is verified and the profile is complete, activate it explicitly below.',
+        fullName: 'Full name', invite: 'Send invitation', inviting: 'Sending…',
+        invited: 'Invitation sent. Activate the account after the person verifies the email and completes the profile.',
+        existingPending: 'The account already exists and is waiting for email verification. No duplicate invitation was sent.',
+        existingVerified: 'The account is already verified. You can activate it below.',
         activateTitle: 'Activate an existing teacher',
         activateIntro: 'This action does not create an account. It activates an existing account as a teacher using its exact email.',
         email: 'Account email', engagement: 'Engagement', founder: 'Founder', external: 'External',
@@ -164,6 +182,12 @@ const COPY = {
     },
     ru: {
         intro: 'Укажите, когда каждый преподаватель может работать, и отдельно публикуйте конкретные места, доступные для покупки.',
+        inviteTitle: 'Пригласить нового преподавателя',
+        inviteIntro: 'Отправьте доступ из панели. Приглашение не выдаёт роль преподавателя: после подтверждения email и заполнения профиля активируйте аккаунт ниже.',
+        fullName: 'Полное имя', invite: 'Отправить приглашение', inviting: 'Отправляем…',
+        invited: 'Приглашение отправлено. Активируйте аккаунт после подтверждения email и заполнения профиля.',
+        existingPending: 'Аккаунт уже существует и ожидает подтверждения email. Повторное приглашение не отправлялось.',
+        existingVerified: 'Аккаунт уже подтверждён. Его можно активировать ниже.',
         activateTitle: 'Активировать существующего преподавателя',
         activateIntro: 'Это действие не создаёт аккаунт. Оно активирует существующий аккаунт преподавателя по точному email.',
         email: 'Email аккаунта', engagement: 'Тип сотрудничества', founder: 'Основатель', external: 'Внешний преподаватель',
@@ -290,6 +314,7 @@ export default function TeacherSlotManager({ lang }: { lang: Lang }) {
     const [loadError, setLoadError] = useState<string | null>(null);
     const [workingKey, setWorkingKey] = useState<string | null>(null);
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+    const [invitation, setInvitation] = useState({ fullName: '', email: '', reason: '' });
     const [activation, setActivation] = useState({
         email: '', engagementKind: 'external' as EngagementKind, effectiveFrom: '', reason: '', confirmed: false,
     });
@@ -377,6 +402,56 @@ export default function TeacherSlotManager({ lang }: { lang: Lang }) {
         if (succeeded) setActivation({ email: '', engagementKind: 'external', effectiveFrom: '', reason: '', confirmed: false });
     };
 
+    const submitInvitation = async (event: FormEvent) => {
+        event.preventDefault();
+        if (
+            invitation.fullName.trim().length < 2
+            || !invitation.email.includes('@')
+            || invitation.reason.trim().length < 5
+        ) return;
+
+        const key = 'invite_teacher';
+        const body = {
+            target: 'teacher',
+            fullName: invitation.fullName.trim(),
+            email: invitation.email.trim(),
+            lang,
+            reason: invitation.reason.trim(),
+        };
+        const serializedPayload = JSON.stringify(body);
+        const existingRequest = requestIds.current.get(key);
+        const logicalRequest = existingRequest?.payload === serializedPayload
+            ? existingRequest
+            : { id: makeRequestId(), payload: serializedPayload };
+        requestIds.current.set(key, logicalRequest);
+        setWorkingKey(key);
+        setMessage(null);
+        try {
+            const response = await fetch('/api/admin/staff-invitations', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+                body: JSON.stringify({ ...body, requestId: logicalRequest.id }),
+            });
+            const payload = await response.json().catch(() => null) as StaffInvitationResponse | null;
+            if (!response.ok) throw new Error(payload?.error || t.genericError);
+            requestIds.current.delete(key);
+            setMessage({
+                type: payload?.auditDegraded ? 'error' : 'success',
+                text: payload?.state === 'existing_verified'
+                    ? t.existingVerified
+                    : payload?.state === 'existing_pending'
+                        ? t.existingPending
+                        : t.invited,
+            });
+            setActivation((current) => ({ ...current, email: invitation.email.trim() }));
+            setInvitation({ fullName: '', email: '', reason: '' });
+        } catch (error) {
+            setMessage({ type: 'error', text: error instanceof Error ? error.message : t.genericError });
+        } finally {
+            setWorkingKey(null);
+        }
+    };
+
     const submitEngagement = async (event: FormEvent) => {
         event.preventDefault();
         if (!selectedTeacher || engagement.reason.trim().length < 5 || !engagement.effectiveFrom) return;
@@ -430,6 +505,16 @@ export default function TeacherSlotManager({ lang }: { lang: Lang }) {
             </header>
 
             {message && <div aria-live="polite" role={message.type === 'error' ? 'alert' : 'status'} className={`border-2 p-4 font-bold ${message.type === 'error' ? 'border-red-700 bg-red-50 text-red-800' : 'border-green-700 bg-green-50 text-green-800'}`}>{message.text}</div>}
+
+            <section aria-labelledby="invite-teacher-heading" className="space-y-4">
+                <header><h2 id="invite-teacher-heading" className="font-display text-2xl uppercase text-[#006064]">{t.inviteTitle}</h2><p className="mt-1 max-w-3xl text-sm text-[#006064]">{t.inviteIntro}</p></header>
+                <form onSubmit={submitInvitation} className="grid gap-4 border-2 border-[#006064] bg-[#E0F7FA] p-5 md:grid-cols-2">
+                    <label className="text-sm font-bold text-[#006064]">{t.fullName}<input required minLength={2} maxLength={120} value={invitation.fullName} onChange={(event) => setInvitation({ ...invitation, fullName: event.target.value })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] bg-white p-3" /></label>
+                    <label className="text-sm font-bold text-[#006064]">{t.email}<input type="email" required maxLength={320} autoComplete="email" value={invitation.email} onChange={(event) => setInvitation({ ...invitation, email: event.target.value })} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] bg-white p-3" /></label>
+                    <label className="text-sm font-bold text-[#006064] md:col-span-2">{t.reason}<input required minLength={5} maxLength={1000} value={invitation.reason} onChange={(event) => setInvitation({ ...invitation, reason: event.target.value })} placeholder={t.reasonPlaceholder} disabled={isMutating} className="mt-1 block w-full border-2 border-[#006064] bg-white p-3" /></label>
+                    <button type="submit" disabled={isMutating || invitation.fullName.trim().length < 2 || !invitation.email.includes('@') || invitation.reason.trim().length < 5} aria-busy={workingKey === 'invite_teacher'} className="w-fit border-2 border-[#006064] bg-white px-5 py-3 text-sm font-bold uppercase text-[#006064] disabled:opacity-50">{workingKey === 'invite_teacher' ? t.inviting : t.invite}</button>
+                </form>
+            </section>
 
             <section aria-labelledby="activate-teacher-heading" className="space-y-4">
                 <header><h2 id="activate-teacher-heading" className="font-display text-2xl uppercase text-[#006064]">{t.activateTitle}</h2><p className="mt-1 max-w-3xl text-sm text-[#006064]">{t.activateIntro}</p></header>

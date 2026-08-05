@@ -20,6 +20,7 @@ describe('administrator route capability map', () => {
         ['/api/admin/guarantees', 'POST', 'finance.write'],
         ['/api/admin/support-tickets', 'GET', 'operations.read'],
         ['/api/admin/support-tickets', 'POST', 'operations.write'],
+        ['/api/admin/staff-invitations', 'POST', 'operations.write'],
         ['/api/email/preview-frame', 'GET', 'content.read'],
         ['/api/email/send-test', 'POST', 'content.write'],
     ])('%s %s requires %s', (path, method, capability) => {

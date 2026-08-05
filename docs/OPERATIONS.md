@@ -64,13 +64,25 @@ Una plaza no es un candidato ni un alumno. Es una franja semanal real que una pe
 
 Se configura en `/{lang}/campus/admin/teachers` —por ejemplo, `/es/campus/admin/teachers`— y siempre en `Europe/Madrid`:
 
-1. Confirmar que Álex e Irene ya tienen una cuenta con email verificado; la pantalla activa cuentas existentes, no las crea.
-2. Activar cada perfil como profesor y registrar el vínculo `founder` con fecha efectiva y motivo.
+1. Si Álex o Irene no tienen cuenta, enviarles una invitación desde la misma pantalla con nombre, email y motivo. La invitación crea la identidad, pero no concede el rol de profesor.
+2. Tras confirmar el email y completar el perfil, activar cada cuenta como profesor y registrar el vínculo `founder` con fecha efectiva y motivo.
 3. Declarar su disponibilidad semanal real. Esto todavía no pone nada a la venta.
 4. Crear tres borradores para Álex y dos para Irene indicando primera fecha y hora semanal. La pantalla previsualiza las cuatro clases de cada plaza en los días 0, 7, 14 y 21.
 5. Revisar que profesor, fechas y horario sean asumibles; publicar solo entonces. Una plaza publicada queda disponible para cualquier comprador y puede pausarse mientras no tenga una reserva temporal.
 
 Si aún no se conocen las horas reales, se dejan en borrador o no se crean. No se inventa disponibilidad para completar el número cinco. Las plazas vendidas conservan su contrato histórico; para ampliar o cambiar la oferta futura se publican plazas nuevas.
+
+### Alta de personal y correo de invitación
+
+La administración de profesores vive en `/{lang}/campus/admin/teachers`; la de administradores y sus permisos, en `/{lang}/campus/admin/access`. Invitar y conceder acceso son acciones distintas: una invitación nunca convierte a nadie en profesor o administrador. La promoción posterior exige email confirmado, perfil completo, ausencia de actividad como alumno y un motivo auditado. Repetir exactamente una petición converge; reutilizar su identificador para otra identidad o autorización falla cerrado.
+
+Antes de enviar una invitación a una persona real deben cumplirse estos checks humanos:
+
+1. Supabase Auth tiene configurados el dominio y `/{lang}/login` en la lista de redirecciones permitidas del entorno exacto.
+2. El remitente y SMTP de producción están verificados y se ha comprobado entrega, expiración y contenido del mensaje en una cuenta de prueba controlada.
+3. En staging solo se usa un sumidero o destinatario sintético autorizado; no se prueba con emails del equipo o alumnado.
+4. Quien opera el panel entiende que una cuenta pendiente no se reenvía automáticamente: primero comprueba el estado y resuelve expresamente el reenvío con el proveedor para evitar duplicados.
+5. Después de la confirmación, concede únicamente el rol inicial necesario y verifica el evento en el historial administrativo.
 
 ### Soporte del piloto
 

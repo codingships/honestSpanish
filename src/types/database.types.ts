@@ -4814,6 +4814,16 @@ export type Database = {
         };
         Returns: Json;
       };
+      promote_admin_profile: {
+        Args: {
+          p_access_role: Database["public"]["Enums"]["admin_access_role"];
+          p_admin_id: string;
+          p_profile_id: string;
+          p_reason: string;
+          p_request_id: string;
+        };
+        Returns: Json;
+      };
       get_my_support_ticket_events: {
         Args: {
           p_before_sequence?: number | null;

@@ -27,6 +27,7 @@ function resolvedQuery(data: unknown[], error: unknown = null) {
     const query: any = {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
+        ilike: vi.fn().mockReturnThis(),
         order: vi.fn().mockReturnThis(),
         limit: vi.fn().mockResolvedValue(result),
         then: (resolve: (value: typeof result) => unknown) => Promise.resolve(result).then(resolve),
@@ -37,6 +38,7 @@ function resolvedQuery(data: unknown[], error: unknown = null) {
 function adminClient(input: {
     profiles?: unknown[];
     assignments?: unknown[];
+    promotionProfiles?: unknown[];
     rpcData?: unknown;
     rpcError?: unknown;
 } = {}) {
@@ -49,9 +51,14 @@ function adminClient(input: {
         { profile_id: editorId, access_role: 'viewer', granted_at: '2026-08-03T00:00:00Z', granted_by: owner.id },
         { profile_id: editorId, access_role: 'catalog_editor', granted_at: '2026-08-03T00:00:00Z', granted_by: owner.id },
     ]);
+    const promotionQuery = resolvedQuery(input.promotionProfiles ?? []);
+    let profileReads = 0;
     const client = {
         from: vi.fn((table: string) => {
-            if (table === 'profiles') return profileQuery;
+            if (table === 'profiles') {
+                if (input.promotionProfiles && profileReads++ === 0) return promotionQuery;
+                return profileQuery;
+            }
             if (table === 'admin_role_assignments') return assignmentQuery;
             throw new Error(`Unexpected table ${table}`);
         }),
@@ -60,17 +67,24 @@ function adminClient(input: {
             error: input.rpcError ?? null,
         }),
     };
-    return { client, profileQuery, assignmentQuery };
+    return { client, profileQuery, assignmentQuery, promotionQuery };
 }
 
-function context(body: unknown = {}, invalidJson = false) {
-    return {
-        request: {
-            json: invalidJson
-                ? vi.fn().mockRejectedValue(new Error('bad json'))
-                : vi.fn().mockResolvedValue(body),
+function context(body: unknown = {}, invalidJson = false, origin = 'http://localhost:4321') {
+    const request = new Request('http://localhost:4321/api/admin/access', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            Origin: origin,
         },
-    };
+        body: JSON.stringify(body),
+    });
+    if (invalidJson) {
+        Object.defineProperty(request, 'json', {
+            value: vi.fn().mockRejectedValue(new Error('bad json')),
+        });
+    }
+    return { request };
 }
 
 describe('/api/admin/access', () => {
@@ -124,6 +138,19 @@ describe('/api/admin/access', () => {
         expect(createSupabaseAdminClient).not.toHaveBeenCalled();
     });
 
+    it('rejects cross-origin mutations before resolving access', async () => {
+        const { POST } = await import('../../src/pages/api/admin/access');
+        const response = await POST(context({
+            action: 'grant',
+            profileId: editorId,
+            accessRole: 'viewer',
+        }, false, 'https://attacker.example') as never);
+
+        expect(response.status).toBe(403);
+        expect(requireAdminCapability).not.toHaveBeenCalled();
+        expect(createSupabaseAdminClient).not.toHaveBeenCalled();
+    });
+
     it('grants a role through the audited database RPC and reloads the roster', async () => {
         const { client } = adminClient({
             assignments: [
@@ -169,6 +196,32 @@ describe('/api/admin/access', () => {
         expect(response.status).toBe(200);
         await expect(response.json()).resolves.toMatchObject({
             canWrite: false,
+        });
+    });
+
+    it('promotes one exact invited account through the verified audited RPC', async () => {
+        const { client, promotionQuery } = adminClient({
+            promotionProfiles: [{ id: editorId }],
+        });
+        vi.mocked(createSupabaseAdminClient).mockReturnValue(client as never);
+
+        const { POST } = await import('../../src/pages/api/admin/access');
+        const response = await POST(context({
+            action: 'promote',
+            requestId: '99300000-0000-4000-8000-000000000003',
+            email: 'editor_name@example.test',
+            accessRole: 'content_editor',
+            reason: 'Alta del equipo editorial',
+        }) as never);
+
+        expect(response.status).toBe(200);
+        expect(promotionQuery.ilike).toHaveBeenCalledWith('email', 'editor\\_name@example.test');
+        expect(client.rpc).toHaveBeenCalledWith('promote_admin_profile', {
+            p_request_id: '99300000-0000-4000-8000-000000000003',
+            p_profile_id: editorId,
+            p_access_role: 'content_editor',
+            p_admin_id: owner.id,
+            p_reason: 'Alta del equipo editorial',
         });
     });
 
