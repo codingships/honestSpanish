@@ -2,6 +2,7 @@
 import BaseLayout from './BaseLayout.astro';
 import { getLangFromParam, useTranslations } from '../i18n/utils';
 import type { AdminCapability } from '../lib/admin-access-contract';
+import { readRuntimeEnv } from '../lib/runtime-env';
 import { createSupabaseServerClient } from '../lib/supabase-server';
 
 interface Props {
@@ -18,6 +19,13 @@ const { title, user, lang: langParam } = Astro.props;
 const lang = getLangFromParam(langParam);
 const t = useTranslations(lang);
 const role = user.role || 'student';
+const supabaseAuthOrigin = (() => {
+    try {
+        return new URL(readRuntimeEnv('PUBLIC_SUPABASE_URL', Astro) ?? '').origin;
+    } catch {
+        return '';
+    }
+})();
 const adminCapabilities = new Set<AdminCapability>();
 if (role === 'admin') {
     const supabase = createSupabaseServerClient(Astro);
@@ -39,6 +47,9 @@ const accessibilityCopy = {
         closeSidebar: 'Cerrar navegación del campus',
         userMenu: 'Menú de usuario',
         openUserMenu: 'Abrir menú de usuario',
+        sessionExpiredTitle: 'Tu sesión ha caducado',
+        sessionExpiredMessage: 'Vuelve a iniciar sesión para continuar. Después regresarás a esta pantalla.',
+        sessionExpiredAction: 'INICIAR SESIÓN DE NUEVO',
     },
     en: {
         skip: 'Skip to main content',
@@ -47,6 +58,9 @@ const accessibilityCopy = {
         closeSidebar: 'Close campus navigation',
         userMenu: 'User menu',
         openUserMenu: 'Open user menu',
+        sessionExpiredTitle: 'Your session has expired',
+        sessionExpiredMessage: 'Sign in again to continue. You will return to this screen afterwards.',
+        sessionExpiredAction: 'SIGN IN AGAIN',
     },
     ru: {
         skip: 'Перейти к основному содержанию',
@@ -55,6 +69,9 @@ const accessibilityCopy = {
         closeSidebar: 'Закрыть навигацию кампуса',
         userMenu: 'Меню пользователя',
         openUserMenu: 'Открыть меню пользователя',
+        sessionExpiredTitle: 'Сеанс завершён',
+        sessionExpiredMessage: 'Войдите снова, чтобы продолжить. После входа вы вернётесь на эту страницу.',
+        sessionExpiredAction: 'ВОЙТИ СНОВА',
     },
 }[lang];
 
@@ -180,6 +197,28 @@ const isCurrentNavItem = (href: string) => {
     <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[100] focus:bg-white focus:px-4 focus:py-3 focus:font-bold focus:text-[#006064] focus:outline focus:outline-4 focus:outline-[#006064]">
         {accessibilityCopy.skip}
     </a>
+    <section
+        id="session-expired-alert"
+        data-lang={lang}
+        data-role={role}
+        data-auth-api-origin={supabaseAuthOrigin}
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+        tabindex="-1"
+        hidden
+        class="fixed bottom-4 left-4 right-4 z-[100] mx-auto max-w-xl border-2 border-[#006064] bg-white p-5 text-[#006064] shadow-[6px_6px_0px_0px_#006064] focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-4 focus-visible:outline-[#006064]"
+    >
+        <h2 class="font-display text-xl uppercase">{accessibilityCopy.sessionExpiredTitle}</h2>
+        <p class="mt-2 text-sm leading-6">{accessibilityCopy.sessionExpiredMessage}</p>
+        <a
+            id="session-expired-login"
+            href={`/${lang}/login`}
+            class="mt-4 inline-flex border-2 border-[#006064] bg-[#006064] px-4 py-2 text-sm font-bold text-white hover:bg-[#004d40] focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-[#006064]"
+        >
+            {accessibilityCopy.sessionExpiredAction}
+        </a>
+    </section>
     <div class="flex h-screen bg-[#E0F7FA] overflow-hidden">
         
         <!-- Sidebar (Desktop & Mobile) -->
@@ -323,6 +362,49 @@ const isCurrentNavItem = (href: string) => {
 </style>
 
 <script>
+    import {
+        buildCampusSessionLoginUrl,
+        isCampusSessionFailure,
+    } from '../lib/campus-session-recovery';
+
+    const sessionAlert = document.getElementById('session-expired-alert');
+    const sessionLogin = document.getElementById('session-expired-login');
+    const sessionLang = sessionAlert?.dataset.lang;
+    const sessionRole = sessionAlert?.dataset.role;
+    const sessionAuthApiOrigin = sessionAlert?.dataset.authApiOrigin || undefined;
+
+    if (
+        sessionAlert
+        && sessionLogin instanceof HTMLAnchorElement
+        && (sessionLang === 'es' || sessionLang === 'en' || sessionLang === 'ru')
+        && (sessionRole === 'student' || sessionRole === 'teacher' || sessionRole === 'admin')
+        && document.documentElement.dataset.campusSessionRecovery !== 'installed'
+    ) {
+        document.documentElement.dataset.campusSessionRecovery = 'installed';
+        const nativeFetch: typeof window.fetch = window.fetch.bind(window);
+        let announced = false;
+
+        window.fetch = async (input, init) => {
+            const response = await nativeFetch(input, init);
+            if (!announced && isCampusSessionFailure(
+                input,
+                response.status,
+                window.location.href,
+                sessionAuthApiOrigin,
+            )) {
+                announced = true;
+                sessionLogin.href = buildCampusSessionLoginUrl(
+                    sessionLang,
+                    sessionRole,
+                    window.location.href,
+                );
+                sessionAlert.hidden = false;
+                sessionAlert.focus();
+            }
+            return response;
+        };
+    }
+
     // Elements
     const btn = document.getElementById('mobile-menu-btn');
     const closeBtn = document.getElementById('mobile-menu-close-btn');

@@ -3,7 +3,11 @@ export const config = {
 };
 import type { APIRoute } from 'astro';
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from '../../../lib/adult-account';
-import { appendAuthReturnTo, sanitizeAuthReturnTo } from '../../../lib/auth-return-to';
+import {
+    appendAuthReturnTo,
+    resolveAuthReturnToForRole,
+    sanitizeAuthReturnTo,
+} from '../../../lib/auth-return-to';
 import { createSupabaseServerClient } from '../../../lib/supabase-server';
 
 export const prerender = false;
@@ -53,10 +57,11 @@ export const GET: APIRoute = async (context) => {
         }
 
         const role = profile?.role || 'student';
+        const roleReturnTo = resolveAuthReturnToForRole(returnTo, role, safeLang);
 
         if (role === 'student' && !hasVerifiedAdultAccount(profile)) {
             console.log('[post-login] Student must complete adult self-attestation');
-            return redirect(appendAuthReturnTo(`/${safeLang}/adult-confirmation`, returnTo));
+            return redirect(appendAuthReturnTo(`/${safeLang}/adult-confirmation`, roleReturnTo));
         }
 
         console.log('[post-login] User role:', role, '-> redirecting');
@@ -64,11 +69,11 @@ export const GET: APIRoute = async (context) => {
         // Redirect based on role
         switch (role) {
             case 'admin':
-                return redirect(`/${safeLang}/campus/admin`);
+                return redirect(roleReturnTo ?? `/${safeLang}/campus/admin`);
             case 'teacher':
-                return redirect(`/${safeLang}/campus/teacher`);
+                return redirect(roleReturnTo ?? `/${safeLang}/campus/teacher`);
             case 'student':
-                return redirect(returnTo ?? `/${safeLang}/campus`);
+                return redirect(roleReturnTo ?? `/${safeLang}/campus`);
             default:
                 return redirect(`/${safeLang}/campus`);
         }

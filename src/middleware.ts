@@ -12,7 +12,11 @@ import {
 import { createSupabaseServerClient } from "./lib/supabase-server";
 import { ADULT_ATTESTATION_REQUIRED_QUERY, hasVerifiedAdultAccount } from "./lib/adult-account";
 import { isUnauthenticatedAuthError } from './lib/auth-session';
-import { appendAuthReturnTo, sanitizeAuthReturnTo } from "./lib/auth-return-to";
+import {
+    appendAuthReturnTo,
+    resolveAuthReturnToForRole,
+    sanitizeAuthReturnTo,
+} from "./lib/auth-return-to";
 import { ui } from './i18n/translations';
 import { getLangFromParam } from './i18n/utils';
 import { reportCampusReadError } from './lib/campus-load-state';
@@ -224,7 +228,8 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
     // Protected routes - require authentication
     if (isCampusRoute) {
         if (!user) {
-            return context.redirect(`/${lang}/login`);
+            const campusReturnTo = sanitizeAuthReturnTo(`${url.pathname}${url.search}`);
+            return context.redirect(appendAuthReturnTo(`/${lang}/login`, campusReturnTo));
         }
 
         if (!profileFound) {
@@ -233,7 +238,15 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
         }
 
         if (!adultAccountVerified) {
-            return context.redirect(`/${lang}/adult-confirmation`);
+            const campusReturnTo = resolveAuthReturnToForRole(
+                `${url.pathname}${url.search}`,
+                'student',
+                lang,
+            );
+            return context.redirect(appendAuthReturnTo(
+                `/${lang}/adult-confirmation`,
+                campusReturnTo,
+            ));
         }
 
         // Role-based access control
@@ -320,7 +333,8 @@ const handleApplicationRequest = defineMiddleware(async (context, next) => {
             if (!adultAccountVerified) {
                 return context.redirect(appendAuthReturnTo(`/${lang}/adult-confirmation`, returnTo));
             }
-            if (userRole === 'student' && returnTo) return context.redirect(returnTo);
+            const roleReturnTo = resolveAuthReturnToForRole(returnTo, userRole, lang);
+            if (roleReturnTo) return context.redirect(roleReturnTo);
             return context.redirect(getRoleBasedRedirect(userRole, lang));
         }
     }
