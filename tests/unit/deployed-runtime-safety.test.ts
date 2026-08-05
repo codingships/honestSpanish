@@ -124,6 +124,9 @@ function deployedFetch(options?: {
             return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
         if (url.href === `${STAGING_WEB_ORIGIN}/api/create-checkout`) {
+            if (options?.checkoutEnabled === false) {
+                return Response.json({ error: 'Checkout is disabled' }, { status: 403 });
+            }
             return Response.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
@@ -429,18 +432,55 @@ describe('deployed staging runtime safety', () => {
         })).rejects.toThrow('baseline runtime attestation does not match');
     });
 
-    it('requires open-checkout probes before accepting a legacy identity baseline', async () => {
+    it('accepts a closed-checkout baseline while staging transitions to open checkout', async () => {
+        const fetchImpl = deployedFetch({ checkoutEnabled: false, fulfillmentSchema: 5 });
+        const contract = await captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl,
+            fulfillmentBindingNames: [...legacyFulfillmentBindingNames, 'ADMIN_EMAIL'],
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        });
+        expect(contract.web.workerVersionId).toBe(webVersionId);
+        await expect(verifyDeployedStagingRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).rejects.toThrow('open-checkout staging contract');
+    });
+
+    it('rejects a completely invalid web health before accepting a legacy identity baseline', async () => {
         await expect(captureStagingRollbackBaseline({
             baseOrigin: STAGING_WEB_ORIGIN,
             env: baseEnv,
             expectedFulfillmentVersionId: fulfillmentVersionId,
             expectedWebVersionId: webVersionId,
-            fetchImpl: deployedFetch({ checkoutEnabled: false, fulfillmentSchema: 5 }),
+            fetchImpl: async (input, init) => {
+                const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+                if (url.href === `${STAGING_WEB_ORIGIN}/health`) {
+                    return Response.json({
+                        appEnvironment: 'staging',
+                        checkoutEnabled: 'nope',
+                        runtimeMode: 'active',
+                        status: 'ok',
+                        workerIdentity: STAGING_WEB_IDENTITY,
+                    });
+                }
+                return deployedFetch({ fulfillmentSchema: 5 })(input, init);
+            },
             fulfillmentBindingNames: [...legacyFulfillmentBindingNames, 'ADMIN_EMAIL'],
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
             webBindingNames,
-        })).rejects.toThrow('open-checkout staging contract');
+        })).rejects.toThrow('exact staging contract');
     });
 
     it('never treats an invalid bearer or nonce as a legacy identity fallback', async () => {

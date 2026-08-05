@@ -347,21 +347,37 @@ function rollbackFulfillmentHealthContract(versionId: string): FulfillmentHealth
         : 'current';
 }
 
+type CheckoutProbeMode = 'open' | 'transition';
+
+function isCheckoutEnabledFlag(value: unknown): value is boolean {
+    return value === true || value === false;
+}
+
 async function verifyInnocuousStagingRuntimeProbesForHealthContract(
     fetchImpl: FetchLike,
     fulfillmentHealthContract: FulfillmentHealthContract,
+    checkoutMode: CheckoutProbeMode = 'open',
 ): Promise<void> {
+    const health = await requestJson(fetchImpl, `${STAGING_WEB_ORIGIN}/health`);
+    if (
+        health.response.status !== 200
+        || health.body.appEnvironment !== 'staging'
+        || !isCheckoutEnabledFlag(health.body.checkoutEnabled)
+        || health.body.runtimeMode !== 'active'
+        || health.body.status !== 'ok'
+        || health.body.workerIdentity !== STAGING_WEB_IDENTITY
+    ) {
+        throw new Error(
+            checkoutMode === 'open'
+                ? 'Web health did not return the exact open-checkout staging contract'
+                : 'Web health did not return the exact staging contract',
+        );
+    }
+    if (checkoutMode === 'open' && health.body.checkoutEnabled !== true) {
+        throw new Error('Web health did not return the exact open-checkout staging contract');
+    }
+
     await Promise.all([
-        requestJson(fetchImpl, `${STAGING_WEB_ORIGIN}/health`).then(({ body, response }) => {
-            if (
-                response.status !== 200
-                || body.appEnvironment !== 'staging'
-                || body.checkoutEnabled !== true
-                || body.runtimeMode !== 'active'
-                || body.status !== 'ok'
-                || body.workerIdentity !== STAGING_WEB_IDENTITY
-            ) throw new Error('Web health did not return the exact open-checkout staging contract');
-        }),
         requestJson(fetchImpl, `${STAGING_FULFILLMENT_ORIGIN}/health`).then(({ body, response }) => {
             if (
                 response.status !== 200
@@ -382,8 +398,14 @@ async function verifyInnocuousStagingRuntimeProbesForHealthContract(
             headers: { 'Content-Type': 'application/json' },
             body: '{}',
         }).then(({ body, response }) => {
-            if (response.status !== 401 || body.error !== 'Unauthorized') {
-                throw new Error('Open checkout did not require authentication for an anonymous request');
+            if (health.body.checkoutEnabled === true) {
+                if (response.status !== 401 || body.error !== 'Unauthorized') {
+                    throw new Error('Open checkout did not require authentication for an anonymous request');
+                }
+                return;
+            }
+            if (response.status !== 403 || body.error !== 'Checkout is disabled') {
+                throw new Error('Closed checkout did not return the expected fail-closed response');
             }
         }),
         requestJson(fetchImpl, `${STAGING_WEB_ORIGIN}/api/internal/runtime-attestation`, {
@@ -447,6 +469,7 @@ async function verifyHealth(
 
 async function verifyOneAttestation(input: {
     bindingNames?: readonly string[];
+    checkoutPolicy?: CheckoutProbeMode;
     env: Record<string, string | undefined>;
     expectedIdentity: string;
     expectedVersionId: string;
@@ -501,12 +524,30 @@ async function verifyOneAttestation(input: {
         WORKER_IDENTITY: input.expectedIdentity,
         WORKER_VERSION_ID: input.expectedVersionId,
     }, input.schema, input.bindingNames ? new Set(exactBindingNames(input.bindingNames, input.role)) : undefined);
-    const valid = await verifyRuntimeAttestation(envelope, {
+    let valid = await verifyRuntimeAttestation(envelope, {
         config: expectedConfig,
         nonce,
         role: input.role,
         schema: input.schema,
     }, secret);
+    if (!valid && input.checkoutPolicy === 'transition') {
+        const closedConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
+            ...input.env,
+            CHECKOUT_ENABLED: 'false',
+            CHECKOUT_ENABLED_OVERRIDE: 'false',
+            FULFILLMENT_RUNTIME_MODE: input.role === 'fulfillment' ? 'active' : 'absent',
+            PUBLIC_APP_ENV: 'staging',
+            SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
+            WORKER_IDENTITY: input.expectedIdentity,
+            WORKER_VERSION_ID: input.expectedVersionId,
+        }, input.schema, input.bindingNames ? new Set(exactBindingNames(input.bindingNames, input.role)) : undefined);
+        valid = await verifyRuntimeAttestation(envelope, {
+            config: closedConfig,
+            nonce,
+            role: input.role,
+            schema: input.schema,
+        }, secret);
+    }
     if (!valid) {
         throw new Error(`${input.role} runtime attestation does not match the expected staging configuration`);
     }
@@ -548,7 +589,7 @@ async function discoverAndVerifyOneBaseline(input: {
         throw new Error(`${input.role} baseline runtime identity or version does not match the immutable baseline`);
     }
     const bindingNames = exactBindingNames(input.bindingNames, input.role);
-    const expectedConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
+    const openConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
         ...input.env,
         CHECKOUT_ENABLED: 'true',
         CHECKOUT_ENABLED_OVERRIDE: 'true',
@@ -558,12 +599,30 @@ async function discoverAndVerifyOneBaseline(input: {
         WORKER_IDENTITY: input.expectedIdentity,
         WORKER_VERSION_ID: input.expectedVersionId,
     }, envelope.schema as SupportedRollbackAttestationSchema, new Set(bindingNames));
-    const valid = await verifyRuntimeAttestation(envelope, {
-        config: expectedConfig,
+    let valid = await verifyRuntimeAttestation(envelope, {
+        config: openConfig,
         nonce,
         role: input.role,
         schema: envelope.schema,
     }, secret);
+    if (!valid) {
+        const closedConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
+            ...input.env,
+            CHECKOUT_ENABLED: 'false',
+            CHECKOUT_ENABLED_OVERRIDE: 'false',
+            FULFILLMENT_RUNTIME_MODE: input.role === 'fulfillment' ? 'active' : 'absent',
+            PUBLIC_APP_ENV: 'staging',
+            SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
+            WORKER_IDENTITY: input.expectedIdentity,
+            WORKER_VERSION_ID: input.expectedVersionId,
+        }, envelope.schema as SupportedRollbackAttestationSchema, new Set(bindingNames));
+        valid = await verifyRuntimeAttestation(envelope, {
+            config: closedConfig,
+            nonce,
+            role: input.role,
+            schema: envelope.schema,
+        }, secret);
+    }
     let verificationMode: StagingRollbackRoleContract['verificationMode'] = 'configuration-hmac';
     if (!valid) {
         if (
@@ -646,7 +705,11 @@ export async function captureStagingRollbackBaseline(input: {
     const fetchImpl = input.fetchImpl ?? fetch;
     const fulfillmentHealthContract = rollbackFulfillmentHealthContract(input.expectedFulfillmentVersionId);
     await verifyHealth(fetchImpl, fulfillmentHealthContract);
-    await verifyInnocuousStagingRuntimeProbesForHealthContract(fetchImpl, fulfillmentHealthContract);
+    await verifyInnocuousStagingRuntimeProbesForHealthContract(
+        fetchImpl,
+        fulfillmentHealthContract,
+        'transition',
+    );
     const [web, fulfillment] = await Promise.all([
         discoverAndVerifyOneBaseline({
             bindingNames: input.webBindingNames,
@@ -683,10 +746,15 @@ export async function verifyStagingRollbackRuntime(input: {
     const fetchImpl = input.fetchImpl ?? fetch;
     const fulfillmentHealthContract = rollbackFulfillmentHealthContract(contract.fulfillment.workerVersionId);
     await verifyHealth(fetchImpl, fulfillmentHealthContract);
-    await verifyInnocuousStagingRuntimeProbesForHealthContract(fetchImpl, fulfillmentHealthContract);
+    await verifyInnocuousStagingRuntimeProbesForHealthContract(
+        fetchImpl,
+        fulfillmentHealthContract,
+        'transition',
+    );
     const [web, fulfillment] = await Promise.all([
         verifyOneAttestation({
             bindingNames: contract.web.bindingNames,
+            checkoutPolicy: 'transition',
             env: input.env,
             expectedIdentity: STAGING_WEB_IDENTITY,
             expectedVersionId: contract.web.workerVersionId,
@@ -698,6 +766,7 @@ export async function verifyStagingRollbackRuntime(input: {
         }),
         verifyOneAttestation({
             bindingNames: contract.fulfillment.bindingNames,
+            checkoutPolicy: 'transition',
             env: input.env,
             expectedIdentity: STAGING_FULFILLMENT_IDENTITY,
             expectedVersionId: contract.fulfillment.workerVersionId,
