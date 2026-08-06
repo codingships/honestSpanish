@@ -6,10 +6,12 @@ const BEARER = /\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const PROVIDER_SECRET = /\b(?:sk_(?:live|test)_[A-Za-z0-9_]+|whsec_[A-Za-z0-9_]+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b/g;
 const KEYED_SECRET = /\b(password|secret|token)=([^&\s]+)/gi;
 const IPV4 = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
-const PHONE = /(?:\+?\d[\d\s().-]{7,}\d)/g;
+/** Require a phone-like separator so pure timestamps and request ids survive. */
+const PHONE = /(?:\+\d{1,3}[\s().-]*)?(?:\(?\d{2,4}\)?[\s().-]+)+\d{2,4}(?:[\s().-]*\d{2,4})+/g;
 const QUERY_VALUE = /([?&][^=\s]+)=([^&#\s]+)/g;
 const MAX_COLLECTION_ITEMS = 30;
 const MAX_DEPTH = 6;
+const SAFE_TAG_VALUE = /^[A-Za-z0-9_.:-]{1,120}$/u;
 
 function sanitizeString(value: string): string {
     return value
@@ -55,6 +57,21 @@ function pathnameOnly(value: string | undefined): string | undefined {
  * are deliberately removed.
  */
 export function scrubSentryEvent<T extends Event>(event: T): T {
+    const preservedTags = event.tags
+        ? Object.fromEntries(
+            Object.entries(event.tags).flatMap(([key, value]) => {
+                if (
+                    typeof value === 'string'
+                    && SAFE_TAG_VALUE.test(value)
+                    && !SENSITIVE_KEY.test(key)
+                ) {
+                    return [[key, value] as const];
+                }
+                return [];
+            }),
+        )
+        : undefined;
+
     const scrubbed = sanitizeUnknown(event) as T;
 
     delete scrubbed.user;
@@ -67,6 +84,12 @@ export function scrubSentryEvent<T extends Event>(event: T): T {
         delete scrubbed.request.query_string;
     }
     if (scrubbed.transaction) scrubbed.transaction = pathnameOnly(scrubbed.transaction);
+    if (preservedTags && Object.keys(preservedTags).length > 0) {
+        scrubbed.tags = {
+            ...(typeof scrubbed.tags === 'object' && scrubbed.tags ? scrubbed.tags : {}),
+            ...preservedTags,
+        };
+    }
 
     return scrubbed;
 }

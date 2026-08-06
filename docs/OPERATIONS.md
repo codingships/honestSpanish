@@ -149,7 +149,7 @@ Antes de abrir checkout en producción deben quedar acreditados, mediante un ún
 
 La ausencia de incidencias en Sentry no acredita la conexión. Tampoco se considera una alerta accionable hasta que una persona la reciba. Si el diagnóstico exige reproducir un efecto de Stripe, email, Calendar o base de datos, se detiene el triaje y se abre una tarea sintética con recurso, identidad y limpieza explícitos.
 
-Un preflight de solo lectura del 4 de agosto de 2026 confirmó dos reglas de incidencias habilitadas y limitadas a `environment=production`: una para errores nuevos o regresiones y otra para diez eventos en cinco minutos. Ambas envían email al operador canónico `alejandro@espanolhonesto.com`, no habían disparado y Sentry devolvió cero eventos de staging en los 30 días anteriores. Esto acredita existencia y destino configurado, pero no recepción ni capacidad de respuesta; falta la prueba sintética autorizada y confirmar la continuidad de acceso a esa bandeja.
+Un preflight de solo lectura del 4 de agosto de 2026 confirmó dos reglas de incidencias habilitadas y limitadas a `environment=production`: una para errores nuevos o regresiones y otra para diez eventos en cinco minutos. Ambas envían email al operador canónico `alejandro@espanolhonesto.com` y no habían disparado. El 6 de agosto de 2026 un evento sintético scrubbeado llegó a `honestspanish/espanol-honesto-astro` con `environment=staging` y `request_id=sentry-synth-9e1adaf834a7d3cdd731cacef4ea993b` (`run_id=sentry-synthetic-9e1adaf834a7d3cd`); los señuelos de email, query, cuerpo, cookie y autorización no aparecieron en el evento recibido. Sigue pendiente confirmar la continuidad de acceso a esa bandeja y que una persona de guardia localice el mismo identificador.
 
 ## Capacidad y recuperación
 
