@@ -64,6 +64,7 @@ type AuthCookie = { name: string; value: string };
 
 export type StagingCheckoutV2RunState = {
     adminCookie?: string;
+    campusB03Verified?: boolean;
     checkoutSessionId?: string;
     completedPurchase?: boolean;
     declinedPaymentObserved?: boolean;
@@ -649,7 +650,7 @@ async function purchaseThroughPublicJourney(
 async function waitForPurchase(
     context: RealContext,
     state: StagingCheckoutV2RunState,
-    journey: 'api' | 'public',
+    _journey: 'api' | 'public',
 ): Promise<void> {
     const studentId = stringValue(state.studentId, 'Synthetic student');
     const deadline = Date.now() + 180_000;
@@ -737,35 +738,47 @@ async function waitForPurchase(
             const stripeSubscription = await context.stripe.subscriptions.retrieve(
                 stringValue(state.stripeSubscriptionId, 'Stripe subscription'),
             );
-            // Public checkout never attaches stagingE2ERunId; that metadata is
-            // reserved for the grant-gated staging-e2e path. Correlate public
-            // purchases by student, slot, prices and unique checkout intent.
-            const runIdMatchesJourney = journey === 'public'
-                ? checkout.metadata?.stagingE2ERunId === undefined
-                    && stripeSubscription.metadata.stagingE2ERunId === undefined
-                : checkout.metadata?.stagingE2ERunId === state.runId
-                    && stripeSubscription.metadata.stagingE2ERunId === state.runId;
-            if (
-                checkout.payment_status !== 'paid'
-                || checkout.status !== 'complete'
-                || checkout.amount_total !== amountCents
-                || checkout.currency !== currency
-                || checkout.client_reference_id !== studentId
-                || checkoutSubscriptionId !== state.stripeSubscriptionId
-                || !runIdMatchesJourney
-                || checkout.metadata?.userId !== studentId
-                || checkout.metadata?.slotPublicId !== state.slotPublicId
-                || checkout.metadata?.initialPriceId !== fixtures.initialPriceId
-                || checkout.metadata?.recurringPriceId !== fixtures.recurringPriceId
-                || !state.declinedPaymentObserved
-                || intentSessions.length !== 1
-                || intentSessions[0]?.id !== checkout.id
-                || stripeSubscription.status !== 'trialing'
-                || stripeSubscription.items.data.length !== 1
-                || stripeSubscription.items.data[0]?.price.id !== fixtures.recurringPriceId
-                || stripeSubscription.items.data[0]?.price.recurring?.interval !== 'day'
-                || stripeSubscription.items.data[0].price.recurring.interval_count !== 28
-            ) throw new Error('Stripe Sandbox purchase does not match the Checkout V2 contract');
+            // Open checkout (API or public UI) never attaches stagingE2ERunId;
+            // that metadata is reserved for the grant-gated staging-e2e path.
+            // Correlate by student, slot, prices and the unique checkout intent.
+            const openCheckoutWithoutGrantMeta = checkout.metadata?.stagingE2ERunId === undefined
+                && stripeSubscription.metadata.stagingE2ERunId === undefined;
+            const failures: string[] = [];
+            if (checkout.payment_status !== 'paid') failures.push('payment_status');
+            if (checkout.status !== 'complete') failures.push('checkout_status');
+            if (checkout.amount_total !== amountCents) failures.push('amount_total');
+            if (checkout.currency !== currency) failures.push('currency');
+            if (checkout.client_reference_id !== studentId) failures.push('client_reference_id');
+            if (checkoutSubscriptionId !== state.stripeSubscriptionId) failures.push('checkout_subscription');
+            if (!openCheckoutWithoutGrantMeta) failures.push('unexpected_stagingE2ERunId');
+            if (checkout.metadata?.userId !== studentId) failures.push('metadata.userId');
+            if (checkout.metadata?.slotPublicId !== state.slotPublicId) failures.push('metadata.slotPublicId');
+            if (checkout.metadata?.initialPriceId !== fixtures.initialPriceId) failures.push('metadata.initialPriceId');
+            if (checkout.metadata?.recurringPriceId !== fixtures.recurringPriceId) {
+                failures.push('metadata.recurringPriceId');
+            }
+            if (!state.declinedPaymentObserved) failures.push('declined_payment');
+            if (intentSessions.length !== 1 || intentSessions[0]?.id !== checkout.id) {
+                failures.push(`intent_sessions=${intentSessions.length}`);
+            }
+            if (stripeSubscription.status !== 'trialing') {
+                failures.push(`stripe_status=${stripeSubscription.status}`);
+            }
+            if (stripeSubscription.items.data.length !== 1) failures.push('stripe_item_count');
+            if (stripeSubscription.items.data[0]?.price.id !== fixtures.recurringPriceId) {
+                failures.push('stripe_price');
+            }
+            if (stripeSubscription.items.data[0]?.price.recurring?.interval !== 'day') {
+                failures.push('stripe_interval');
+            }
+            if (stripeSubscription.items.data[0]?.price.recurring?.interval_count !== 28) {
+                failures.push('stripe_interval_count');
+            }
+            if (failures.length) {
+                throw new Error(
+                    `Stripe Sandbox purchase does not match the Checkout V2 contract (${failures.join(',')})`,
+                );
+            }
             return;
         }
         lastStatus = `subscription=${subscription.status};sessions=${sessions.data?.length ?? 0};welcome=${welcome?.status ?? 'missing'};classes=${classes?.status ?? 'missing'}`;
@@ -1048,7 +1061,7 @@ async function cleanupReal(env: Env, state: StagingCheckoutV2RunState, log: Log)
     log(`[staging-checkout-v2] cleanup=ok retained_immutable_evidence=${String(Boolean(state.subscriptionId))}`);
 }
 
-const realJourney: StagingCheckoutV2Journey = {
+export const stagingCheckoutV2RealJourney: StagingCheckoutV2Journey = {
     async preflight(env, log) {
         const context = createRealContext(env);
         const [account, pkg, home, admin, teacher] = await Promise.all([
@@ -1121,7 +1134,7 @@ export async function runStagingCheckoutV2(
     const log = dependencies.log ?? console.log;
     for (const item of safeStagingCheckoutV2Summary(gate)) log(`[staging-checkout-v2] ${item}`);
 
-    const journey = dependencies.journey ?? realJourney;
+    const journey = dependencies.journey ?? stagingCheckoutV2RealJourney;
     await journey.preflight(env, log);
     if (gate.mode === 'preflight') {
         log('[staging-checkout-v2] result=ok external_writes=none');

@@ -76,6 +76,8 @@
     "verify:staging:checkout-v2": "tsx scripts/smoke/staging-checkout-v2.ts --execute",
     "preflight:staging:teacher-ops": "tsx scripts/smoke/staging-teacher-ops.ts --preflight",
     "verify:staging:teacher-ops": "tsx scripts/smoke/staging-teacher-ops.ts --execute",
+    "preflight:staging:campus-ops": "tsx scripts/smoke/staging-campus-ops.ts --preflight",
+    "verify:staging:campus-ops": "tsx scripts/smoke/staging-campus-ops.ts --execute",
     "diagnose:capacity:local": "tsx scripts/diagnostics/local-capacity-rehearsal.ts",
     "performance:audit": "tsx scripts/ci/run-lighthouse.ts",
     "performance:summarize": "tsx scripts/ci/summarize-lighthouse.ts",
