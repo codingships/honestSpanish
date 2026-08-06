@@ -21,6 +21,9 @@ export const STAGING_LEGACY_HEALTH_FULFILLMENT_VERSION_ID = 'af8a64fd-0cdc-47f2-
 /** Open-checkout baseline still signed with the previous Turnstile secret. */
 export const STAGING_TURNSTILE_ROTATION_WEB_VERSION_ID = '7c94c3bf-20c1-4ca8-860f-1c45eee53056';
 export const STAGING_TURNSTILE_ROTATION_FULFILLMENT_VERSION_ID = 'dd668aee-4a49-494e-afb2-bc2ebfbb9069';
+/** Live staging still fingerprints the previous daily Resend recipient ceiling. */
+export const STAGING_PREVIOUS_EMAIL_DAILY_RECIPIENT_LIMIT = '10';
+export const STAGING_EMAIL_DAILY_RECIPIENT_LIMIT = '20';
 
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -108,7 +111,7 @@ export function assertExpectedStagingRuntimeInput(input: {
     if (requireValue(env, 'EMAIL_DELIVERY_MODE') !== 'allowlist') {
         throw new Error('EMAIL_DELIVERY_MODE must be allowlist in staging');
     }
-    if (requireValue(env, 'EMAIL_DAILY_RECIPIENT_LIMIT') !== '20'
+    if (requireValue(env, 'EMAIL_DAILY_RECIPIENT_LIMIT') !== STAGING_EMAIL_DAILY_RECIPIENT_LIMIT
         || requireValue(env, 'EMAIL_MONTHLY_RECIPIENT_LIMIT') !== '100') {
         throw new Error('Staging email budgets must be exactly 20 daily and 100 monthly');
     }
@@ -628,6 +631,27 @@ async function discoverAndVerifyOneBaseline(input: {
         }, envelope.schema as SupportedRollbackAttestationSchema, new Set(bindingNames));
         valid = await verifyRuntimeAttestation(envelope, {
             config: closedConfig,
+            nonce,
+            role: input.role,
+            schema: envelope.schema,
+        }, secret);
+    }
+    if (!valid) {
+        // One-shot deploy transition: raise the daily Resend ceiling while the live
+        // baseline still fingerprints the previous limit in its HMAC attestation.
+        const previousEmailBudgetConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
+            ...input.env,
+            CHECKOUT_ENABLED: 'true',
+            CHECKOUT_ENABLED_OVERRIDE: 'true',
+            EMAIL_DAILY_RECIPIENT_LIMIT: STAGING_PREVIOUS_EMAIL_DAILY_RECIPIENT_LIMIT,
+            FULFILLMENT_RUNTIME_MODE: input.role === 'fulfillment' ? 'active' : 'absent',
+            PUBLIC_APP_ENV: 'staging',
+            SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
+            WORKER_IDENTITY: input.expectedIdentity,
+            WORKER_VERSION_ID: input.expectedVersionId,
+        }, envelope.schema as SupportedRollbackAttestationSchema, new Set(bindingNames));
+        valid = await verifyRuntimeAttestation(envelope, {
+            config: previousEmailBudgetConfig,
             nonce,
             role: input.role,
             schema: envelope.schema,

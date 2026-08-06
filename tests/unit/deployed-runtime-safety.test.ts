@@ -86,6 +86,7 @@ const webBindingNames = Object.keys(baseEnv);
 function deployedFetch(options?: {
     allowMissingBearer?: boolean;
     checkoutEnabled?: boolean;
+    emailDailyLimit?: string;
     fulfillmentGoogleKey?: string;
     legacyFulfillmentHealth?: boolean;
     fulfillmentSchema?: SupportedRollbackAttestationSchema;
@@ -140,11 +141,15 @@ function deployedFetch(options?: {
         }
 
         const body = JSON.parse(String(init?.body)) as { nonce: string };
+        const attestedEnv: Record<string, string> = {
+            ...baseEnv,
+            EMAIL_DAILY_RECIPIENT_LIMIT: options?.emailDailyLimit ?? baseEnv.EMAIL_DAILY_RECIPIENT_LIMIT,
+        };
         if (url.href === `${STAGING_WEB_ORIGIN}/api/internal/runtime-attestation`) {
             const envelope = await createRuntimeAttestationForSchema('web', {
-                ...baseEnv,
+                ...attestedEnv,
                 CHECKOUT_ENABLED_OVERRIDE: 'true',
-                STRIPE_SECRET_KEY: options?.webSecretKey ?? baseEnv.STRIPE_SECRET_KEY,
+                STRIPE_SECRET_KEY: options?.webSecretKey ?? attestedEnv.STRIPE_SECRET_KEY,
                 WORKER_IDENTITY: STAGING_WEB_IDENTITY,
                 WORKER_VERSION_ID: options?.webVersionId ?? webVersionId,
             }, body.nonce, options?.webSchema ?? RUNTIME_ATTESTATION_SCHEMA, new Set(webBindingNames));
@@ -153,10 +158,10 @@ function deployedFetch(options?: {
         if (url.href === `${STAGING_FULFILLMENT_ORIGIN}/internal/runtime-attestation`) {
             const schema = options?.fulfillmentSchema ?? RUNTIME_ATTESTATION_SCHEMA;
             const envelope = await createRuntimeAttestationForSchema('fulfillment', {
-                ...baseEnv,
+                ...attestedEnv,
                 CHECKOUT_ENABLED_OVERRIDE: 'true',
                 FULFILLMENT_RUNTIME_MODE: 'active',
-                GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: options?.fulfillmentGoogleKey ?? baseEnv.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+                GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY: options?.fulfillmentGoogleKey ?? attestedEnv.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
                 SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
                 WORKER_IDENTITY: STAGING_FULFILLMENT_IDENTITY,
                 WORKER_VERSION_ID: options?.fulfillmentVersionId ?? fulfillmentVersionId,
@@ -455,6 +460,32 @@ describe('deployed staging runtime safety', () => {
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
         })).rejects.toThrow('open-checkout staging contract');
+    });
+
+    it('accepts a previous daily email budget baseline while staging raises the ceiling', async () => {
+        const fetchImpl = deployedFetch({ emailDailyLimit: '10', fulfillmentSchema: 5 });
+        const contract = await captureStagingRollbackBaseline({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl,
+            fulfillmentBindingNames: [...legacyFulfillmentBindingNames, 'ADMIN_EMAIL'],
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+            webBindingNames,
+        });
+        expect(contract.web.workerVersionId).toBe(webVersionId);
+        expect(contract.fulfillment.workerVersionId).toBe(fulfillmentVersionId);
+        await expect(verifyDeployedStagingRuntime({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: baseEnv,
+            expectedFulfillmentVersionId: fulfillmentVersionId,
+            expectedWebVersionId: webVersionId,
+            fetchImpl,
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).rejects.toThrow(/runtime attestation|invalid/i);
     });
 
     it('rejects a completely invalid web health before accepting a legacy identity baseline', async () => {
