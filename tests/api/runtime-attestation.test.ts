@@ -89,7 +89,7 @@ describe('web runtime attestation API', () => {
             FULFILLMENT_WORKER_URL: 'https://fulfillment.example.com',
             EMAIL_DELIVERY_MODE: 'allowlist',
             EMAIL_RECIPIENT_ALLOWLIST: 'allowed@example.com',
-            EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+            EMAIL_DAILY_RECIPIENT_LIMIT: '20',
             EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
             EMAIL_FROM: 'Sender <sender@example.com>',
             RESEND_API_KEY: 'resend',

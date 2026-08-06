@@ -82,7 +82,7 @@ Object.assign(staging, {
     CHECKOUT_ENABLED_OVERRIDE: 'true',
     CHECKOUT_HOLD_FINGERPRINT_SECRET: checkoutHoldFingerprintSecret,
     CRON_SECRET: cronSecret,
-    EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+    EMAIL_DAILY_RECIPIENT_LIMIT: '20',
     EMAIL_DELIVERY_MODE: 'allowlist',
     EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
     EMAIL_RECIPIENT_ALLOWLIST: testEmails.join(','),
@@ -118,7 +118,7 @@ writeFileSync(
 chmodSync(stagingPath, 0o600);
 
 console.log(`[env:staging:prepare] Staging runtime configuration is ready for Supabase ${stagingRef}.`);
-console.log(`[env:staging:prepare] Checkout remains disabled; Resend is allowlisted at 10/day and 100/month.`);
+console.log(`[env:staging:prepare] Checkout remains disabled; Resend is allowlisted at 20/day and 100/month.`);
 
 function requireStagingSecret(name: string): string {
     const value = staging[name]?.trim() ?? '';

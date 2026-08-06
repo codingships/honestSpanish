@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
     policy: {
         appEnvironment: 'staging',
         budgetScope: 'nonproduction',
-        dailyLimit: 10,
+        dailyLimit: 20,
         monthlyLimit: 100,
         mode: 'allowlist',
         recipientAllowlist: new Set(['allowed@example.com']),
@@ -63,7 +63,7 @@ function validRuntime() {
         PUBLIC_APP_ENV: 'staging',
         WORKER_IDENTITY: 'espanolhonesto-staging',
         INTERNAL_JOB_SECRET: 'internal-secret',
-        EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+        EMAIL_DAILY_RECIPIENT_LIMIT: '20',
         EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
         EMAIL_FROM: 'Sender <sender@example.com>',
         RESEND_API_KEY: 'resend',

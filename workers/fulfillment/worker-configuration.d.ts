@@ -12,7 +12,7 @@ interface __BaseEnv_FulfillmentEnv {
 	CHECKOUT_ENABLED_OVERRIDE: "false";
 	FULFILLMENT_RUNTIME_MODE: "active";
 	EMAIL_DELIVERY_MODE: "allowlist";
-	EMAIL_DAILY_RECIPIENT_LIMIT: "10";
+	EMAIL_DAILY_RECIPIENT_LIMIT: "20";
 	EMAIL_MONTHLY_RECIPIENT_LIMIT: "100";
 }
 declare namespace Cloudflare {

@@ -101,7 +101,7 @@ export const POST: APIRoute = async (context) => {
         || !Number.isInteger(configuredDailyLimit)
         || !Number.isInteger(configuredMonthlyLimit)
         || configuredDailyLimit < 1
-        || configuredDailyLimit > 10
+        || configuredDailyLimit > 20
         || configuredMonthlyLimit < 1
         || configuredMonthlyLimit > 100
         || !readRuntimeEnv('RESEND_API_KEY', context)

@@ -65,7 +65,7 @@ export type EmailDeliveryPolicy = {
 
 export const PRODUCTION_EMAIL_DAILY_RECIPIENT_LIMIT = 80;
 export const PRODUCTION_EMAIL_MONTHLY_RECIPIENT_LIMIT = 2400;
-export const STAGING_EMAIL_DAILY_RECIPIENT_LIMIT = 10;
+export const STAGING_EMAIL_DAILY_RECIPIENT_LIMIT = 20;
 export const STAGING_EMAIL_MONTHLY_RECIPIENT_LIMIT = 100;
 
 const DELIVERY_MODES = new Set<EmailDeliveryMode>(['disabled', 'allowlist', 'live']);

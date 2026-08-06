@@ -15,7 +15,7 @@ function runtimeEnv() {
         CHECKOUT_HOLD_FINGERPRINT_SECRET: 'checkout-hold-fingerprint-secret-32-bytes',
         CHECKOUT_ENABLED: 'false',
         CHECKOUT_ENABLED_OVERRIDE: 'false',
-        EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+        EMAIL_DAILY_RECIPIENT_LIMIT: '20',
         EMAIL_DELIVERY_MODE: 'allowlist',
         EMAIL_FROM: 'Sender <sender@example.com>',
         EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
