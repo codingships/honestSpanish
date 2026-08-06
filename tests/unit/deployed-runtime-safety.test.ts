@@ -141,7 +141,7 @@ function deployedFetch(options?: {
         }
 
         const body = JSON.parse(String(init?.body)) as { nonce: string };
-        const attestedEnv = {
+        const attestedEnv: Record<string, string> = {
             ...baseEnv,
             EMAIL_DAILY_RECIPIENT_LIMIT: options?.emailDailyLimit ?? baseEnv.EMAIL_DAILY_RECIPIENT_LIMIT,
         };
