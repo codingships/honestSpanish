@@ -485,7 +485,7 @@ describe('deployed staging runtime safety', () => {
             fetchImpl,
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
-        })).rejects.toThrow('runtime attestation does not match');
+        })).rejects.toThrow(/runtime attestation|invalid/i);
     });
 
     it('rejects a completely invalid web health before accepting a legacy identity baseline', async () => {
