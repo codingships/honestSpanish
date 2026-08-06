@@ -80,6 +80,8 @@
     "verify:staging:campus-ops": "tsx scripts/smoke/staging-campus-ops.ts --execute",
     "preflight:staging:session-expired": "tsx scripts/smoke/staging-session-expired.ts --preflight",
     "verify:staging:session-expired": "tsx scripts/smoke/staging-session-expired.ts --execute",
+    "preflight:staging:sentry-synthetic": "tsx scripts/smoke/staging-sentry-synthetic.ts --preflight",
+    "verify:staging:sentry-synthetic": "tsx scripts/smoke/staging-sentry-synthetic.ts --execute",
     "diagnose:capacity:local": "tsx scripts/diagnostics/local-capacity-rehearsal.ts",
     "performance:audit": "tsx scripts/ci/run-lighthouse.ts",
     "performance:summarize": "tsx scripts/ci/summarize-lighthouse.ts",

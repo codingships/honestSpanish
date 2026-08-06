@@ -34,6 +34,22 @@ describe('Sentry privacy boundary', () => {
         expect(JSON.stringify(event)).not.toContain('192.0.2.15');
     });
 
+    it('keeps correlatable request ids and does not treat bare timestamps as phones', () => {
+        const event = scrubSentryEvent({
+            message: 'Call +34 612 345 678 about outage',
+            tags: {
+                request_id: 'sentry-synth-20260806123313-46311f28',
+                'operational.code': 'SYNTHETIC_PROBE',
+            },
+        } as Event);
+
+        expect(event.tags).toEqual({
+            request_id: 'sentry-synth-20260806123313-46311f28',
+            'operational.code': 'SYNTHETIC_PROBE',
+        });
+        expect(event.message).toBe('Call [redacted-phone] about outage');
+    });
+
     it('drops console breadcrumbs and strips parameters from navigation breadcrumbs', () => {
         expect(scrubSentryBreadcrumb({ category: 'console', message: 'learner@example.com' })).toBeNull();
 
