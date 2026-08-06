@@ -31,7 +31,7 @@ describe('fulfillment Worker runtime boundary', () => {
         expect(config).toContain('[alias]');
         expect(config).toContain('"astro:env/server" = "./src/astro-env-server.ts"');
         expect(config).toContain('EMAIL_DELIVERY_MODE = "allowlist"');
-        expect(config).toContain('EMAIL_DAILY_RECIPIENT_LIMIT = "10"');
+        expect(config).toContain('EMAIL_DAILY_RECIPIENT_LIMIT = "20"');
         expect(config).toContain('EMAIL_MONTHLY_RECIPIENT_LIMIT = "100"');
         expect(config).toContain('binding = "FULFILLMENT_QUEUE"');
         expect(config).toContain('queue = "espanol-honesto-fulfillment-staging-queue"');

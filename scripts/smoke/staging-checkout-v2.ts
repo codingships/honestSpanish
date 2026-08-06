@@ -646,7 +646,11 @@ async function purchaseThroughPublicJourney(
     }
 }
 
-async function waitForPurchase(context: RealContext, state: StagingCheckoutV2RunState): Promise<void> {
+async function waitForPurchase(
+    context: RealContext,
+    state: StagingCheckoutV2RunState,
+    journey: 'api' | 'public',
+): Promise<void> {
     const studentId = stringValue(state.studentId, 'Synthetic student');
     const deadline = Date.now() + 180_000;
     let lastStatus = 'not-observed';
@@ -733,6 +737,14 @@ async function waitForPurchase(context: RealContext, state: StagingCheckoutV2Run
             const stripeSubscription = await context.stripe.subscriptions.retrieve(
                 stringValue(state.stripeSubscriptionId, 'Stripe subscription'),
             );
+            // Public checkout never attaches stagingE2ERunId; that metadata is
+            // reserved for the grant-gated staging-e2e path. Correlate public
+            // purchases by student, slot, prices and unique checkout intent.
+            const runIdMatchesJourney = journey === 'public'
+                ? checkout.metadata?.stagingE2ERunId === undefined
+                    && stripeSubscription.metadata.stagingE2ERunId === undefined
+                : checkout.metadata?.stagingE2ERunId === state.runId
+                    && stripeSubscription.metadata.stagingE2ERunId === state.runId;
             if (
                 checkout.payment_status !== 'paid'
                 || checkout.status !== 'complete'
@@ -740,7 +752,7 @@ async function waitForPurchase(context: RealContext, state: StagingCheckoutV2Run
                 || checkout.currency !== currency
                 || checkout.client_reference_id !== studentId
                 || checkoutSubscriptionId !== state.stripeSubscriptionId
-                || checkout.metadata?.stagingE2ERunId !== state.runId
+                || !runIdMatchesJourney
                 || checkout.metadata?.userId !== studentId
                 || checkout.metadata?.slotPublicId !== state.slotPublicId
                 || checkout.metadata?.initialPriceId !== fixtures.initialPriceId
@@ -749,7 +761,6 @@ async function waitForPurchase(context: RealContext, state: StagingCheckoutV2Run
                 || intentSessions.length !== 1
                 || intentSessions[0]?.id !== checkout.id
                 || stripeSubscription.status !== 'trialing'
-                || stripeSubscription.metadata.stagingE2ERunId !== state.runId
                 || stripeSubscription.items.data.length !== 1
                 || stripeSubscription.items.data[0]?.price.id !== fixtures.recurringPriceId
                 || stripeSubscription.items.data[0]?.price.recurring?.interval !== 'day'
@@ -1082,7 +1093,7 @@ const realJourney: StagingCheckoutV2Journey = {
             log(`[staging-checkout-v2] checkout=created run_id=${state.runId} idempotent_retry=same_session`);
             await completeCheckout(checkoutUrl, context, state);
         }
-        await waitForPurchase(context, state);
+        await waitForPurchase(context, state, options.journey);
         log(`[staging-checkout-v2] purchase=verified journey=${options.journey} declined_card=recovered unique_checkout=true amount=25900 sessions=4 renewal=28-days fulfillment=succeeded`);
         if (options.guarantee) await accreditGuarantee(env, context, state, log);
     },

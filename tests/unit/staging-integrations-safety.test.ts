@@ -26,7 +26,7 @@ function stagingEnv(): Record<string, string> {
     return {
         CHECKOUT_ENABLED: 'true',
         CHECKOUT_ENABLED_OVERRIDE: 'true',
-        EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+        EMAIL_DAILY_RECIPIENT_LIMIT: '20',
         EMAIL_DELIVERY_MODE: 'allowlist',
         EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
         EMAIL_RECIPIENT_ALLOWLIST: 'admin@example.com,student@example.com,teacher@example.com',
@@ -66,7 +66,7 @@ describe('focused staging integration safety gates', () => {
         );
         const gate = validateStagingGates({ args: approvedArgs(), env: stagingEnv(), workspaceRoot });
         expect(gate.baseHost).toBe(STAGING_SITE_HOST);
-        expect(gate.dailyEmailLimit).toBe(10);
+        expect(gate.dailyEmailLimit).toBe(20);
         expect(gate.monthlyEmailLimit).toBe(100);
         expect(() => parseRunnerArgs(['--execute', '--dry-run'])).toThrow('cannot be combined');
     });
@@ -104,9 +104,9 @@ describe('focused staging integration safety gates', () => {
         })).toThrow('must be allowlist');
         expect(() => validateStagingGates({
             args,
-            env: { ...stagingEnv(), EMAIL_DAILY_RECIPIENT_LIMIT: '11' },
+            env: { ...stagingEnv(), EMAIL_DAILY_RECIPIENT_LIMIT: '21' },
             workspaceRoot,
-        })).toThrow('between 1 and 10');
+        })).toThrow('between 1 and 20');
     });
 
     it('only accepts the workspace .env.staging file and all three allowlisted test users', () => {

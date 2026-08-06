@@ -29,7 +29,7 @@ const baseEnv: Record<string, string> = {
     CHECKOUT_ENABLED: 'true',
     CHECKOUT_ENABLED_OVERRIDE: 'true',
     CRON_SECRET: 'staging-cron-secret',
-    EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+    EMAIL_DAILY_RECIPIENT_LIMIT: '20',
     EMAIL_DELIVERY_MODE: 'allowlist',
     EMAIL_FROM: 'Staging <staging@espanolhonesto.com>',
     EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',

@@ -108,9 +108,9 @@ export function assertExpectedStagingRuntimeInput(input: {
     if (requireValue(env, 'EMAIL_DELIVERY_MODE') !== 'allowlist') {
         throw new Error('EMAIL_DELIVERY_MODE must be allowlist in staging');
     }
-    if (requireValue(env, 'EMAIL_DAILY_RECIPIENT_LIMIT') !== '10'
+    if (requireValue(env, 'EMAIL_DAILY_RECIPIENT_LIMIT') !== '20'
         || requireValue(env, 'EMAIL_MONTHLY_RECIPIENT_LIMIT') !== '100') {
-        throw new Error('Staging email budgets must be exactly 10 daily and 100 monthly');
+        throw new Error('Staging email budgets must be exactly 20 daily and 100 monthly');
     }
 
     const allowlist = new Set(

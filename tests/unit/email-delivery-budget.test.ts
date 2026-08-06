@@ -283,7 +283,7 @@ describe('persistent email recipient budget gate', () => {
             PUBLIC_APP_ENV: 'staging',
             EMAIL_DELIVERY_MODE: 'allowlist',
             EMAIL_RECIPIENT_ALLOWLIST: 'allowed@example.com',
-            EMAIL_DAILY_RECIPIENT_LIMIT: '10',
+            EMAIL_DAILY_RECIPIENT_LIMIT: '20',
             EMAIL_MONTHLY_RECIPIENT_LIMIT: '100',
             EMAIL_FROM: 'Academia <hello@example.com>',
             RESEND_API_KEY: 're_test',

@@ -53,7 +53,7 @@ type StagingVersionBindingContract = StagingVersionBinding & {
 const WEB_VERSION_PLAIN_TEXT_BINDINGS = [
     ['CHECKOUT_ENABLED', 'true'],
     ['CHECKOUT_ENABLED_OVERRIDE', 'true'],
-    ['EMAIL_DAILY_RECIPIENT_LIMIT', '10'],
+    ['EMAIL_DAILY_RECIPIENT_LIMIT', '20'],
     ['EMAIL_DELIVERY_MODE', 'allowlist'],
     ['EMAIL_MONTHLY_RECIPIENT_LIMIT', '100'],
     ['FULFILLMENT_WORKER_URL', 'https://espanol-honesto-fulfillment-staging.alindev95.workers.dev'],
@@ -70,7 +70,7 @@ const WEB_VERSION_PLAIN_TEXT_BINDINGS = [
 const FULFILLMENT_VERSION_PLAIN_TEXT_BINDINGS = [
     ['CHECKOUT_ENABLED', 'true'],
     ['CHECKOUT_ENABLED_OVERRIDE', 'true'],
-    ['EMAIL_DAILY_RECIPIENT_LIMIT', '10'],
+    ['EMAIL_DAILY_RECIPIENT_LIMIT', '20'],
     ['EMAIL_DELIVERY_MODE', 'allowlist'],
     ['EMAIL_MONTHLY_RECIPIENT_LIMIT', '100'],
     ['FULFILLMENT_RUNTIME_MODE', 'active'],

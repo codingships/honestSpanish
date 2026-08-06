@@ -6,7 +6,7 @@ export const STAGING_FULFILLMENT_HOST = 'espanol-honesto-fulfillment-staging.ali
 export const STAGING_WEB_IDENTITY = 'espanolhonesto-staging';
 export const STAGING_FULFILLMENT_IDENTITY = 'espanol-honesto-fulfillment-staging';
 export const STAGING_SMOKE_LEASE_NAME = 'google-resend-write-smoke';
-export const STAGING_DAILY_EMAIL_LIMIT = 10;
+export const STAGING_DAILY_EMAIL_LIMIT = 20;
 export const STAGING_MONTHLY_EMAIL_LIMIT = 100;
 
 export type RunnerArgs = {
