@@ -1,7 +1,10 @@
 ---
 import CampusLayout from '../../../../layouts/CampusLayout.astro';
+import CampusLoadError from '../../../../components/campus/CampusLoadError.astro';
 import PaymentRecoveryActions from '../../../../components/admin/PaymentRecoveryActions';
 import { getLangFromParam, useTranslations } from '../../../../i18n/utils';
+import { reportCampusReadError } from '../../../../lib/campus-load-state';
+import { createSupabaseAdminClient } from '../../../../lib/supabase-admin';
 import { createSupabaseServerClient } from '../../../../lib/supabase-server';
 
 export const prerender = false;
@@ -29,8 +32,20 @@ if (!profile || profile.role !== 'admin') {
     return Astro.redirect(`/${lang}/campus`);
 }
 
-// Get all payments with related data
-const { data: paymentsRaw } = await supabase
+// package_prices is service-role only (REVOKEd from authenticated). After the
+// finance capability gate, load the ledger through the admin client so the
+// immutable stripe_livemode join keeps working for Stripe dashboard links.
+const { data: canReadFinance, error: financeCapabilityError } = await supabase
+    .rpc('has_my_admin_capability', { p_capability: 'finance.read' });
+if (financeCapabilityError) {
+    reportCampusReadError('admin_payments.finance_capability', financeCapabilityError);
+}
+if (canReadFinance !== true) {
+    return Astro.redirect(`/${lang}/campus/admin`);
+}
+
+const supabaseAdmin = createSupabaseAdminClient();
+const { data: paymentsRaw, error: paymentsError } = await supabaseAdmin
     .from('payments')
     .select(`
         id,
@@ -57,6 +72,11 @@ const { data: paymentsRaw } = await supabase
         )
     `)
     .order('created_at', { ascending: false });
+
+if (paymentsError) {
+    reportCampusReadError('admin_payments.list', paymentsError);
+    Astro.response.status = 503;
+}
 
 const payments = (paymentsRaw || []).map((pay) => ({
     id: pay.id,
@@ -168,6 +188,9 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
     user={{ ...user, ...profile }}
     lang={lang}
 >
+    {paymentsError ? (
+        <CampusLoadError lang={lang} />
+    ) : (
     <!-- Header with Metrics -->
     <div class="mb-8">
         <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -316,6 +339,7 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
             </div>
         )}
     </div>
+    )}
 </CampusLayout>
 
 <script>
