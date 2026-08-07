@@ -21,6 +21,8 @@ describe('admin payment accounting', () => {
     it('builds Stripe links from the immutable offer mode instead of always using test mode', () => {
         expect(paymentsPage).toContain('package_prices (');
         expect(paymentsPage).toContain('stripe_livemode');
+        expect(paymentsPage).toContain('createSupabaseAdminClient');
+        expect(paymentsPage).toContain("has_my_admin_capability', { p_capability: 'finance.read' }");
         expect(paymentsPage).toContain("const modePath = livemode ? '' : 'test/'");
         expect(paymentsPage).not.toContain('https://dashboard.stripe.com/test/payments/${paymentIntentId}');
     });
