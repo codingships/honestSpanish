@@ -11,6 +11,7 @@ interface Package {
 interface PricingSectionProps {
     packages: Package[];
     lang: 'es' | 'en' | 'ru';
+    purchaseEnabled?: boolean;
     translations: {
         title: string;
         subtitle: string;
@@ -23,6 +24,7 @@ interface PricingSectionProps {
         month: string;
         select: string;
         recommended: string;
+        contactCta?: string;
         applicationNote?: string;
         plans: Record<string, { name: string; description: string; features: string[] }>;
         modal: Partial<PricingModalTranslations>;
@@ -40,7 +42,12 @@ const s = {
     secondaryBg: 'bg-white',
 };
 
-export default function PricingSection({ packages, lang, translations: t }: PricingSectionProps) {
+export default function PricingSection({
+    packages,
+    lang,
+    purchaseEnabled = true,
+    translations: t,
+}: PricingSectionProps) {
     const [selectedPlan, setSelectedPlan] = useState<{
         name: string;
         displayName: string;
@@ -62,10 +69,15 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
         month: t.month || 'cada 28 días',
         select: t.select || 'Seleccionar',
         recommended: t.recommended || 'Recomendado',
+        contactCta: t.contactCta || {
+            es: 'HABLEMOS',
+            en: "LET'S TALK",
+            ru: 'ПОГОВОРИМ',
+        }[lang],
         applicationNote: t.applicationNote || {
-            es: 'Las plazas reales con profesor y horario aparecen aquí a medida que se publican. El pago seguirá cerrado hasta que lo habilitemos.',
-            en: 'Real places with a teacher and schedule appear here as they are published. Payment remains closed until we enable it.',
-            ru: 'Реальные места с преподавателем и расписанием появляются здесь по мере публикации. Оплата останется закрытой, пока мы её не включим.',
+            es: 'El precio y la oferta están publicados. Escríbenos para comprobar disponibilidad y empezar. La compra directa se abrirá cuando habilitemos el pago.',
+            en: 'Price and offer are published. Write to us to check availability and get started. Direct purchase opens when we enable payment.',
+            ru: 'Цена и предложение опубликованы. Напишите нам, чтобы уточнить наличие мест и начать. Прямая покупка откроется, когда мы включим оплату.',
         }[lang],
         plans: t.plans || {},
         modal: {
@@ -128,6 +140,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
     }, []);
 
     useEffect(() => {
+        if (!purchaseEnabled) return;
         if (typeof window === 'undefined') return;
 
         const url = new URL(window.location.href);
@@ -144,7 +157,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
         url.searchParams.delete('checkoutSlot');
         window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
         handleSelectPlan(packages[0], slotPublicId);
-    }, [handleSelectPlan, packages]);
+    }, [handleSelectPlan, packages, purchaseEnabled]);
 
     const getPriceDisplay = (pkg: Package | undefined): { label: string; hasPrice: boolean } => {
         if (!pkg || !Number.isInteger(pkg.price_monthly) || pkg.price_monthly <= 0) {
@@ -212,6 +225,8 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
         ];
     };
 
+    const showDiscoveryNote = !purchaseEnabled || checkoutState === 'closed';
+
     return (
         <>
             <section id="planes" aria-labelledby="plans-heading" className={`border-b-2 bg-white px-4 py-24 md:px-8 ${s.border}`}>
@@ -277,39 +292,53 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                                     </div>
 
                                     <div className="col-span-2 flex justify-center">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleSelectPlan(pkg)}
-                                            disabled={!priceDisplay.hasPrice}
-                                            data-plan={key}
-                                            data-testid={`select-plan-${key}`}
-                                            aria-describedby={checkoutState === 'closed' ? 'pricing-availability-note' : undefined}
-                                            className={actionClass}
-                                        >
-                                            {copy.modal.viewAvailability}
-                                        </button>
+                                        {purchaseEnabled ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleSelectPlan(pkg)}
+                                                disabled={!priceDisplay.hasPrice}
+                                                data-plan={key}
+                                                data-testid={`select-plan-${key}`}
+                                                aria-describedby={checkoutState === 'closed' ? 'pricing-availability-note' : undefined}
+                                                className={actionClass}
+                                            >
+                                                {copy.modal.viewAvailability}
+                                            </button>
+                                        ) : (
+                                            <a
+                                                href="#contacto"
+                                                data-plan={key}
+                                                data-testid={`select-plan-${key}`}
+                                                aria-describedby="pricing-availability-note"
+                                                className={actionClass}
+                                            >
+                                                {copy.contactCta}
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
                     </div>
                 </div>
-                {checkoutState === 'closed' && (
+                {showDiscoveryNote && (
                     <p id="pricing-availability-note" className="mx-auto mt-6 max-w-3xl text-center text-sm font-bold text-[#006064]">
                         {copy.applicationNote}
                     </p>
                 )}
             </section>
 
-            <PricingModal
-                isOpen={isModalOpen}
-                onClose={closeModal}
-                plan={selectedPlan}
-                lang={lang}
-                onCheckoutStatus={setCheckoutState}
-                initialSlotPublicId={initialSlotPublicId}
-                translations={copy.modal}
-            />
+            {purchaseEnabled && (
+                <PricingModal
+                    isOpen={isModalOpen}
+                    onClose={closeModal}
+                    plan={selectedPlan}
+                    lang={lang}
+                    onCheckoutStatus={setCheckoutState}
+                    initialSlotPublicId={initialSlotPublicId}
+                    translations={copy.modal}
+                />
+            )}
         </>
     );
 }

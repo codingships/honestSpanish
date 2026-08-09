@@ -20,8 +20,10 @@ describe('student campus onboarding surface', () => {
 
     it('sends no-plan students to real availability while keeping contact secondary', () => {
         expect(campusDashboardSource).toContain("viewPlaces: 'View places'");
-        expect(campusDashboardSource).toContain("planStatus === 'unavailable' ? retryHref : `/${lang}/#planes`");
-        expect(campusDashboardSource).toContain('href={`/${lang}/#planes`}');
+        expect(campusDashboardSource).toContain('purchaseOfferHref');
+        expect(campusDashboardSource).toContain("isCheckoutEnabled(Astro) ? `/${lang}/#planes` : `/${lang}/#contacto`");
+        expect(campusDashboardSource).toContain('href: planStatus === \'unavailable\' ? retryHref : purchaseOfferHref');
+        expect(campusDashboardSource).toContain('href={purchaseOfferHref}');
         expect(campusDashboardSource).toContain('{onboardingCopy.viewPlaces}');
         expect(campusDashboardSource).toContain('href={`/${lang}/#contacto`}');
         expect(campusDashboardSource).toContain('{onboardingCopy.contact}');

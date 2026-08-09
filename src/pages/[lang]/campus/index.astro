@@ -8,6 +8,7 @@ import {
     resolveOptionalCampusQuery,
     resolveRequiredCampusQuery,
 } from '../../../lib/campus-load-state';
+import { isCheckoutEnabled } from '../../../lib/checkout-enabled';
 import {
     loadCheckoutV2ProgressForSubscription,
     resolveCheckoutV2AcademicProgress,
@@ -48,6 +49,7 @@ type DashboardSession = {
 
 const lang = getLangFromParam(Astro.params.lang);
 const t = useTranslations(lang);
+const purchaseOfferHref = isCheckoutEnabled(Astro) ? `/${lang}/#planes` : `/${lang}/#contacto`;
 
 const supabase = createSupabaseServerClient(Astro);
 const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -379,7 +381,7 @@ const onboardingItems: OnboardingItem[] = [
     {
         label: onboardingCopy.plan,
         status: planStatus,
-        href: planStatus === 'unavailable' ? retryHref : `/${lang}/#planes`,
+        href: planStatus === 'unavailable' ? retryHref : purchaseOfferHref,
         cta: planStatus === 'unavailable' ? t('campus.loadError.retry') : onboardingCopy.viewPlaces,
     },
     {
@@ -545,7 +547,7 @@ const onboardingHasUnavailable = onboardingItems.some((item) => item.status === 
                            {t('campus.dashboard.manageSub')}
                        </button>
                  ) : (
-                      <a href={`/${lang}/#planes`} class="block w-full text-center py-2 bg-[#006064] text-white text-xs font-bold uppercase border border-[#006064] hover:bg-[#004d40] transition-colors">
+                      <a href={purchaseOfferHref} class="block w-full text-center py-2 bg-[#006064] text-white text-xs font-bold uppercase border border-[#006064] hover:bg-[#004d40] transition-colors">
                           {onboardingCopy.viewPlaces}
                       </a>
                       <a href={`/${lang}/#contacto`} class="mt-2 block w-full text-center py-2 text-[#006064] text-xs font-bold uppercase underline underline-offset-4 hover:opacity-70">

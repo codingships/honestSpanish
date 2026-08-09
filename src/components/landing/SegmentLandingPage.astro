@@ -1,5 +1,6 @@
 ---
 import type { LandingPackage } from '../../lib/landing-data';
+import { isCheckoutEnabled } from '../../lib/checkout-enabled';
 import HeroSection from './HeroSection.astro';
 import ProblemsSection from './ProblemsSection.astro';
 import MethodSection from './MethodSection.astro';
@@ -91,6 +92,8 @@ const {
     pricingTranslations,
 } = Astro.props;
 
+const purchaseEnabled = isCheckoutEnabled(Astro);
+
 const leadTranslations = {
     title: lead.title,
     subtitle: lead.subtitle,
@@ -137,20 +140,38 @@ const leadTranslations = {
     securityError: 'La verificación de seguridad sigue cargando, o ha fallado.',
 };
 
-const purchaseSteps = [
-    {
-        title: 'Elige una plaza',
-        body: 'Antes de pagar ves profesor, franja semanal, zona horaria y primera fecha.',
-    },
-    {
-        title: 'Revisa las condiciones',
-        body: 'La oferta son cuatro clases individuales de 50 minutos por 259 EUR y renovación cada 28 días.',
-    },
-    {
-        title: 'Compra directa',
-        body: 'La disponibilidad y la apertura del pago se comprueban al consultar las plazas. Durante Stripe Checkout, la plaza se retiene y se confirma cuando se completa el pago.',
-    },
-];
+const purchaseSteps = purchaseEnabled
+    ? [
+        {
+            title: 'Elige una plaza',
+            body: 'Antes de pagar ves profesor, franja semanal, zona horaria y primera fecha.',
+        },
+        {
+            title: 'Revisa las condiciones',
+            body: 'La oferta son cuatro clases individuales de 50 minutos por 259 EUR y renovación cada 28 días.',
+        },
+        {
+            title: 'Compra directa',
+            body: 'La disponibilidad y la apertura del pago se comprueban al consultar las plazas. Durante Stripe Checkout, la plaza se retiene y se confirma cuando se completa el pago.',
+        },
+    ]
+    : [
+        {
+            title: 'Cuéntanos qué necesitas',
+            body: 'Nivel aproximado, objetivo y disponibilidad. Respondemos a la consulta.',
+        },
+        {
+            title: 'Revisamos la oferta',
+            body: 'Cuatro clases individuales de 50 minutos por 259 EUR, renovación cada 28 días y garantía proporcional.',
+        },
+        {
+            title: 'Te orientamos',
+            body: 'Te confirmamos plazas reales y siguientes pasos. La compra directa se abrirá cuando habilitemos el pago.',
+        },
+    ];
+
+const heroCtaText = purchaseEnabled ? hero.ctaText : 'HABLEMOS';
+const heroCtaHref = purchaseEnabled ? '#planes' : '#contacto';
 ---
 
 <div class="bg-[#E0F7FA] min-h-screen text-[#006064] font-sans selection:bg-black selection:text-white">
@@ -167,7 +188,7 @@ const purchaseSteps = [
     </nav>
 
     <main id="main-content" tabindex="-1">
-    <HeroSection {...hero} imageAlt="Estudiante practicando español" />
+    <HeroSection {...hero} ctaText={heroCtaText} ctaHref={heroCtaHref} imageAlt="Estudiante practicando español" />
 
     <ProblemsSection {...problems} />
 
@@ -245,8 +266,8 @@ const purchaseSteps = [
     <section id="contacto" class="py-24 px-6 border-b-2 border-[#006064] bg-[#E0F7FA]">
         <div class="max-w-4xl mx-auto">
             <div class="mb-12 border-2 border-[#006064] bg-white p-6 shadow-[6px_6px_0px_0px_#006064]">
-                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">Compra directa</p>
-                <h2 class="font-display text-3xl lg:text-4xl text-[#006064]">Primero plaza real. Después pago.</h2>
+                <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">{purchaseEnabled ? 'Compra directa' : 'Contacto'}</p>
+                <h2 class="font-display text-3xl lg:text-4xl text-[#006064]">{purchaseEnabled ? 'Primero plaza real. Después pago.' : 'Primero conversación. Después plaza.'}</h2>
                 <ol class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
                     {purchaseSteps.map((step, index) => (
                         <li class="border-2 border-[#006064] bg-[#E0F7FA] p-4">
@@ -265,6 +286,7 @@ const purchaseSteps = [
         client:load
         packages={packages}
         lang={lang}
+        purchaseEnabled={purchaseEnabled}
         translations={pricingTranslations}
     />
     </main>

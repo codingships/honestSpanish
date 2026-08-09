@@ -48,24 +48,32 @@ describe('public product surface', () => {
 
     it('publishes one target offer while the runtime gate remains authoritative', () => {
         for (const source of [landing, segmentLanding]) {
-            expect(source).not.toContain('isCheckoutEnabled(Astro)');
+            expect(source).toContain('isCheckoutEnabled(Astro)');
+            expect(source).toContain('purchaseEnabled={purchaseEnabled}');
             expect(source).not.toContain('isLoggedIn');
         }
         expect(landing).toContain("title: 'How purchasing works'");
         expect(landing).toContain('continue when checkout is enabled');
+        expect(landing).toContain("title: 'How we start right now'");
+        expect(landing).toContain('Write to us to check availability');
         expect(segmentLanding).toContain('La disponibilidad y la apertura del pago se comprueban al consultar las plazas');
+        expect(segmentLanding).toContain('Te confirmamos plazas reales y siguientes pasos');
         expect(landing).not.toContain('launch gates');
         expect(segmentLanding).not.toContain('gates de lanzamiento');
         expect(landing).not.toContain('while we connect real teacher and schedule inventory');
         expect(segmentLanding).not.toContain('hasta conectar el inventario real');
 
         expect(pricing).toContain("'unknown' | 'open' | 'closed'");
+        expect(pricing).toContain('purchaseEnabled');
+        expect(pricing).toContain('href="#contacto"');
         expect(pricing).not.toContain('stripe_price_1m');
         expect(pricing).not.toContain('stripe_price_3m');
         expect(pricing).not.toContain('stripe_price_6m');
-        expect(ui.es.pricing.applicationNote).toContain('plazas reales con profesor y horario');
-        expect(ui.en.pricing.applicationNote).toMatch(/real places with a teacher and schedule/iu);
-        expect(ui.ru.pricing.applicationNote).toContain('преподавателем');
+        expect(ui.es.pricing.applicationNote).toContain('Escríbenos para comprobar disponibilidad');
+        expect(ui.en.pricing.applicationNote).toMatch(/write to us to check availability/iu);
+        expect(ui.ru.pricing.applicationNote).toContain('Напишите нам');
+        expect(ui.es.pricing.contactCta).toBe('HABLEMOS');
+        expect(ui.en.pricing.contactCta).toBe("LET'S TALK");
         expect(ui.es.pricing.modal.viewAvailability).toBe('Ver plazas');
         expect(ui.en.pricing.modal.viewAvailability).toBe('View places');
         expect(ui.es.pricing.modal.renewalDisclosure).toContain('259 EUR al reservar');
@@ -125,15 +133,19 @@ describe('public product surface', () => {
         for (const source of [blogIndex, blogLayout, campusDashboard, campusAccount]) {
             expect(source).not.toMatch(/Solicitar plaza|Apply for a place|Оставить заявку/u);
         }
-        expect(blogIndex).toContain('href={`/${lang}/#planes`}');
-        expect(blogLayout).toContain("return '/' + lang + '/#planes'");
-        expect(campusDashboard).toContain("planStatus === 'unavailable' ? retryHref : `/${lang}/#planes`");
-        expect(campusDashboard).toContain('href={`/${lang}/#planes`}');
+        expect(blogIndex).toContain('blogPrimaryHref');
+        expect(blogIndex).toContain('`/${lang}/#planes`');
+        expect(blogIndex).toContain('`/${lang}/#contacto`');
+        expect(blogLayout).toContain("purchaseEnabled ? '#planes' : '#contacto'");
+        expect(campusDashboard).toContain('purchaseOfferHref');
+        expect(campusDashboard).toContain("isCheckoutEnabled(Astro) ? `/${lang}/#planes` : `/${lang}/#contacto`");
+        expect(campusDashboard).toContain('href: planStatus === \'unavailable\' ? retryHref : purchaseOfferHref');
+        expect(campusDashboard).toContain('href={purchaseOfferHref}');
         expect(campusDashboard).not.toMatch(/Coordinamos disponibilidad manualmente|We coordinate availability manually|Мы согласуем время вручную/u);
         expect(campusDashboard).not.toMatch(/coordinar la primera clase|coordinate the first class|согласования первого занятия/u);
         expect(campusDashboard).toContain("teacherPending: 'El profesor se muestra desde la plaza elegida'");
         expect(campusDashboard).toContain("schedulePending: 'Your dates are shown with the place you choose'");
-        expect(campusAccount).toContain('href={`/${lang}/#planes`}');
+        expect(campusAccount).toContain('href={purchaseOfferHref}');
         expect(campusAccount).not.toMatch(/findCheckoutApproval|stripe_price_[136]m|priceTotalsCents/u);
         expect(llms).toContain('four individual online classes of 50 minutes');
         expect(llms).toContain('EUR 259 per 28-day cycle');

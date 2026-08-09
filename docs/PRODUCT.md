@@ -75,9 +75,11 @@ Hasta que se decidan la reserva, los costes compartidos, la fiscalidad y el repa
 
 ## Entrada comercial y CRM
 
-El recorrido principal es oferta → profesor y franja → cuenta/datos imprescindibles → condiciones → Stripe Checkout. El diagnóstico, los objetivos y las preferencias no constituyen una aprobación manual ni bloquean una plaza por criterio comercial; su ubicación exacta en el recorrido se resolverá al diseñar la experiencia sin alterar la compra directa.
+Mientras el checkout de producción permanece cerrado, la captación pública es por contacto: el CTA principal apunta a `#contacto`, el precio de 259 EUR sigue visible como ancla y no se ofrece compra directa en la web. Staging mantiene `CHECKOUT_ENABLED=true` para acreditar el contrato Sandbox; al abrir el pago, el CTA vuelve a plazas y Stripe Checkout.
 
-El formulario de contacto se mantiene como vía secundaria para dudas, lista de espera o casos que requieran intervención. Un contacto no bloquea la compra directa.
+Cuando el checkout está habilitado, el recorrido principal es oferta → profesor y franja → cuenta/datos imprescindibles → condiciones → Stripe Checkout. El diagnóstico, los objetivos y las preferencias no constituyen una aprobación manual ni bloquean una plaza por criterio comercial; su ubicación exacta en el recorrido se resolverá al diseñar la experiencia sin alterar la compra directa.
+
+Con el pago cerrado, el formulario de contacto es la vía primaria para dudas, orientación y disponibilidad. Con el pago abierto, el contacto queda como vía secundaria para lista de espera o casos que requieran intervención y no bloquea la compra directa.
 
 El CRM es propio y vive dentro del admin Astro/Supabase. El contacto es el registro central de la relación; Stripe, sesiones, perfiles y soporte conservan sus fuentes operativas. La atribución mínima conserva landing, referrer y UTM desde la entrada hasta compra, renovación o devolución sin almacenar información excesiva.
 

@@ -462,7 +462,8 @@ export const ui = {
             month: "cada 28 días",
             select: "Ver plazas",
             recommended: "Recomendado",
-            applicationNote: "Las plazas reales con profesor y horario aparecen aquí a medida que se publican. El pago seguirá cerrado hasta que lo habilitemos.",
+            contactCta: "HABLEMOS",
+            applicationNote: "El precio y la oferta están publicados. Escríbenos para comprobar disponibilidad y empezar. La compra directa se abrirá cuando habilitemos el pago.",
             plans: {
                 individual_4x50_28d: {
                     name: "4 clases individuales",
@@ -1191,7 +1192,8 @@ export const ui = {
             month: "every 28 days",
             select: "View places",
             recommended: "Recommended",
-            applicationNote: "Real places with a teacher and schedule appear here as they are published. Payment remains closed until we enable it.",
+            contactCta: "LET'S TALK",
+            applicationNote: "Price and offer are published. Write to us to check availability and get started. Direct purchase opens when we enable payment.",
             plans: {
                 individual_4x50_28d: {
                     name: "4 individual classes",
@@ -1814,7 +1816,8 @@ export const ui = {
             month: "каждые 28 дней",
             select: "Посмотреть места",
             recommended: "Рекомендуемый",
-            applicationNote: "Реальные места с преподавателем и расписанием появляются здесь по мере публикации. Оплата останется закрытой, пока мы её не включим.",
+            contactCta: "ПОГОВОРИМ",
+            applicationNote: "Цена и предложение опубликованы. Напишите нам, чтобы уточнить наличие мест и начать. Прямая покупка откроется, когда мы включим оплату.",
             plans: {
                 individual_4x50_28d: {
                     name: "4 индивидуальных занятия",

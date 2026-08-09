@@ -2,6 +2,7 @@
 import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { ui } from '../i18n/translations';
 import type { LandingPackage } from '../lib/landing-data';
+import { isCheckoutEnabled } from '../lib/checkout-enabled';
 import PricingSection from './PricingSection';
 import madridAtmosphere480 from '../assets/madrid-atmosphere-480.webp';
 import madridAtmosphere768 from '../assets/madrid-atmosphere-768.webp';
@@ -33,6 +34,7 @@ interface Props {
 }
 
 const { lang, packages, content = getDefaultCmsHomeContent(Astro.props.lang) } = Astro.props;
+const purchaseEnabled = isCheckoutEnabled(Astro);
 const managedTranslate = createCmsHomeTranslator(useTranslations(lang), content);
 const t = (key: string): string => String(managedTranslate(key));
 const localizedUi = ui[lang];
@@ -233,7 +235,8 @@ const communityDetails = {
     },
 }[lang];
 
-const purchaseNextSteps = {
+const purchaseNextSteps = purchaseEnabled
+    ? {
     es: {
         eyebrow: 'Compra directa',
         title: 'Así funciona la contratación',
@@ -288,6 +291,65 @@ const purchaseNextSteps = {
             {
                 title: 'Купите через Stripe',
                 body: 'Место удерживается на время checkout и подтверждается только после оплаты.',
+            },
+        ],
+    },
+}[lang]
+    : {
+    es: {
+        eyebrow: 'Contacto',
+        title: 'Así empezamos ahora',
+        intro: 'El precio de 259 EUR está publicado. Escríbenos para comprobar disponibilidad y orientarte antes de abrir la compra directa.',
+        steps: [
+            {
+                title: 'Cuéntanos qué necesitas',
+                body: 'Nivel aproximado, objetivo y disponibilidad. Respondemos a la consulta.',
+            },
+            {
+                title: 'Revisamos la oferta',
+                body: 'Cuatro clases individuales de 50 minutos por 259 EUR, renovación cada 28 días y garantía proporcional.',
+            },
+            {
+                title: 'Te orientamos',
+                body: 'Te confirmamos plazas reales y siguientes pasos. La compra en Stripe se abrirá cuando habilitemos el pago.',
+            },
+        ],
+    },
+    en: {
+        eyebrow: 'Contact',
+        title: 'How we start right now',
+        intro: 'The EUR 259 price is published. Write to us to check availability and get oriented before direct purchase opens.',
+        steps: [
+            {
+                title: 'Tell us what you need',
+                body: 'Approximate level, goal and availability. We reply to your enquiry.',
+            },
+            {
+                title: 'We review the offer',
+                body: 'Four individual 50-minute classes for EUR 259, renewal every 28 days and the proportional guarantee.',
+            },
+            {
+                title: 'We guide you',
+                body: 'We confirm real places and next steps. Stripe purchase opens when we enable payment.',
+            },
+        ],
+    },
+    ru: {
+        eyebrow: 'Контакт',
+        title: 'Как мы начинаем сейчас',
+        intro: 'Цена 259 EUR опубликована. Напишите нам, чтобы уточнить наличие мест и сориентироваться до открытия прямой покупки.',
+        steps: [
+            {
+                title: 'Расскажите, что нужно',
+                body: 'Примерный уровень, цель и доступность. Мы ответим на запрос.',
+            },
+            {
+                title: 'Разбираем предложение',
+                body: 'Четыре индивидуальных занятия по 50 минут за 259 EUR, продление каждые 28 дней и пропорциональная гарантия.',
+            },
+            {
+                title: 'Ориентируем дальше',
+                body: 'Подтверждаем реальные места и следующие шаги. Покупка через Stripe откроется, когда включим оплату.',
             },
         ],
     },
@@ -425,7 +487,8 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
         manifesto={t('hero.manifesto')}
         subtitle={t('hero.subtitle')}
         ready={t('hero.ready')}
-        ctaText={t('hero.cta')}
+        ctaText={purchaseEnabled ? t('hero.cta') : t('common.ctaContact')}
+        ctaHref={purchaseEnabled ? '#planes' : '#contacto'}
         imageAlt={accessibilityCopy.heroAlt}
     />
 
@@ -556,6 +619,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
         client:load
         packages={packages}
         lang={lang}
+        purchaseEnabled={purchaseEnabled}
         translations={pricingTranslations}
     />
 

@@ -6,6 +6,7 @@ import { getLocalizedPath, useTranslations } from '../i18n/utils';
 import { getBlogAuthor, getBlogAuthorSchema } from '../lib/blog-authors';
 import { getBlogImagePresentation } from '../lib/blog-images';
 import { getBlogCategoryLabel, getBlogEntrySlug } from '../lib/blog-routes';
+import { isCheckoutEnabled } from '../lib/checkout-enabled';
 import { serializeJsonForHtml, sha256CspHash } from '../lib/csp';
 import { absolutePublicUrl, publicUrl, type LocalizedPublicPaths, type PublicLang } from '../lib/public-seo';
 import BaseLayout from './BaseLayout.astro';
@@ -26,6 +27,7 @@ interface Props {
 
 const { post, lang, alternatePaths, relatedPosts, headings } = Astro.props;
 const t = useTranslations(lang);
+const purchaseEnabled = isCheckoutEnabled(Astro);
 const { title, description, publishedAt, category, author } = post.data;
 const authorDetails = getBlogAuthor(author);
 const postSlug = getBlogEntrySlug(post);
@@ -77,30 +79,34 @@ const articleSchemaJson = serializeJsonForHtml(articleSchema);
 Astro.csp?.insertScriptHash(await sha256CspHash(articleSchemaJson));
 
 function ctaHref(customLink: string | undefined): string {
-  if (!customLink) return '/' + lang + '/#planes';
+  const anchor = purchaseEnabled ? '#planes' : '#contacto';
+  if (!customLink) return '/' + lang + '/' + anchor;
   if (!customLink.startsWith('/')) return customLink;
   const internalPath = customLink.split(/[?#]/u, 1)[0];
-  return `/${lang}${internalPath}#planes`;
+  return `/${lang}${internalPath}${anchor}`;
 }
 
 const blogCta = {
   es: {
     heading: post.data.ctaText || '¿Quieres llevar esto a una conversación real?',
-    button: 'Ver plazas',
-    contact: 'Hacer una consulta',
+    button: purchaseEnabled ? 'Ver plazas' : 'HABLEMOS',
+    contact: purchaseEnabled ? 'Hacer una consulta' : 'Ver oferta',
     href: ctaHref(post.data.ctaLink),
+    secondaryHref: purchaseEnabled ? `/${lang}/#contacto` : `/${lang}/#planes`,
   },
   en: {
     heading: post.data.ctaText || 'Want to turn this into real conversation?',
-    button: 'View places',
-    contact: 'Ask a question',
+    button: purchaseEnabled ? 'View places' : "LET'S TALK",
+    contact: purchaseEnabled ? 'Ask a question' : 'See the offer',
     href: ctaHref(post.data.ctaLink),
+    secondaryHref: purchaseEnabled ? `/${lang}/#contacto` : `/${lang}/#planes`,
   },
   ru: {
-    heading: post.data.ctaText || 'Хотите перейти к живой разговорной практике?',
-    button: 'Посмотреть места',
-    contact: 'Задать вопрос',
+    heading: post.data.ctaText || 'Хотите превратить это в живой разговор?',
+    button: purchaseEnabled ? 'Посмотреть места' : 'ПОГОВОРИМ',
+    contact: purchaseEnabled ? 'Задать вопрос' : 'Смотреть предложение',
     href: ctaHref(post.data.ctaLink),
+    secondaryHref: purchaseEnabled ? `/${lang}/#contacto` : `/${lang}/#planes`,
   },
 }[lang];
 
@@ -239,7 +245,7 @@ const accessibilityCopy = {
                 {blogCta.button}
             </a>
             <a
-                href={`/${lang}/#contacto`}
+                href={blogCta.secondaryHref}
                 data-preserve-acquisition-attribution
                 class="ml-0 mt-4 inline-block px-6 py-3 text-sm font-bold uppercase tracking-widest underline underline-offset-4 hover:text-[#E0F7FA] sm:ml-4 sm:mt-0"
             >

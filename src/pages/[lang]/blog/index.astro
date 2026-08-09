@@ -5,6 +5,7 @@ import { useTranslations, getLocalizedPath } from '../../../i18n/utils';
 import { getCollection } from 'astro:content';
 import { getBlogImagePresentation } from '../../../lib/blog-images';
 import { getBlogCategoryLabel, getBlogEntrySlug, isPublishedBlogPost } from '../../../lib/blog-routes';
+import { isCheckoutEnabled } from '../../../lib/checkout-enabled';
 import { isPublicLang } from '../../../lib/public-seo';
 
 export const prerender = true;
@@ -20,6 +21,7 @@ export async function getStaticPaths() {
 const { lang } = Astro.params;
 if (!isPublicLang(lang)) throw new Error('Unsupported blog language: ' + lang);
 const t = useTranslations(lang);
+const purchaseEnabled = isCheckoutEnabled(Astro);
 
 const posts = await getCollection('blog', ({ data }) => {
     return data.lang === lang;
@@ -34,23 +36,38 @@ const postCards = sortedPosts.map((post) => ({
 const blogIndexCta = {
     es: {
         heading: '¿Quieres hablar de estos temas en español?',
-        body: 'Si estos artículos encajan con lo que necesitas, consulta las plazas reales con profesor, horario y fechas antes de reservar.',
-        button: 'Ver plazas',
-        contact: 'Hacer una consulta',
+        bodyPurchase: 'Si estos artículos encajan con lo que necesitas, consulta las plazas reales con profesor, horario y fechas antes de reservar.',
+        bodyContact: 'Si estos artículos encajan con lo que necesitas, escríbenos. El precio de 259 EUR está publicado y te orientamos sobre disponibilidad.',
+        buttonPurchase: 'Ver plazas',
+        buttonContact: 'HABLEMOS',
+        secondaryPurchase: 'Hacer una consulta',
+        secondaryContact: 'Ver oferta',
     },
     en: {
         heading: 'Want to discuss these topics in Spanish?',
-        body: 'If these articles match what you need, view real places with their teacher, weekly time and dates before booking.',
-        button: 'View places',
-        contact: 'Ask a question',
+        bodyPurchase: 'If these articles match what you need, view real places with their teacher, weekly time and dates before booking.',
+        bodyContact: 'If these articles match what you need, write to us. The EUR 259 price is published and we will guide you on availability.',
+        buttonPurchase: 'View places',
+        buttonContact: "LET'S TALK",
+        secondaryPurchase: 'Ask a question',
+        secondaryContact: 'See the offer',
     },
     ru: {
         heading: 'Хотите говорить об этом по-испански?',
-        body: 'Если эти статьи похожи на то, что вам нужно, посмотрите реальные места с преподавателем, временем и датами до бронирования.',
-        button: 'Посмотреть места',
-        contact: 'Задать вопрос',
+        bodyPurchase: 'Если эти статьи похожи на то, что вам нужно, посмотрите реальные места с преподавателем, временем и датами до бронирования.',
+        bodyContact: 'Если эти статьи похожи на то, что вам нужно, напишите нам. Цена 259 EUR опубликована, и мы подскажем по наличию мест.',
+        buttonPurchase: 'Посмотреть места',
+        buttonContact: 'ПОГОВОРИМ',
+        secondaryPurchase: 'Задать вопрос',
+        secondaryContact: 'Смотреть предложение',
     },
 }[lang as 'es' | 'en' | 'ru'];
+
+const blogPrimaryHref = purchaseEnabled ? `/${lang}/#planes` : `/${lang}/#contacto`;
+const blogSecondaryHref = purchaseEnabled ? `/${lang}/#contacto` : `/${lang}/#planes`;
+const blogPrimaryButton = purchaseEnabled ? blogIndexCta.buttonPurchase : blogIndexCta.buttonContact;
+const blogSecondaryButton = purchaseEnabled ? blogIndexCta.secondaryPurchase : blogIndexCta.secondaryContact;
+const blogCtaBody = purchaseEnabled ? blogIndexCta.bodyPurchase : blogIndexCta.bodyContact;
 
 const accessibilityCopy = {
     es: { skip: 'Saltar al contenido principal', breadcrumb: 'Ruta de navegación' },
@@ -150,20 +167,20 @@ const accessibilityCopy = {
         <section class="bg-[#006064] text-white py-20 px-6 border-t-2 border-[#006064]">
             <div class="max-w-4xl mx-auto text-center">
                 <h2 class="font-display text-4xl md:text-5xl leading-tight">{blogIndexCta.heading}</h2>
-                <p class="mt-4 text-lg font-bold text-white/85">{blogIndexCta.body}</p>
+                <p class="mt-4 text-lg font-bold text-white/85">{blogCtaBody}</p>
                 <a
-                    href={`/${lang}/#planes`}
+                    href={blogPrimaryHref}
                     data-preserve-acquisition-attribution
                     class="mt-8 inline-block bg-white text-[#006064] px-8 py-4 text-sm font-bold uppercase tracking-widest border-2 border-white hover:bg-[#E0F7FA] transition-all"
                 >
-                    {blogIndexCta.button}
+                    {blogPrimaryButton}
                 </a>
                 <a
-                    href={`/${lang}/#contacto`}
+                    href={blogSecondaryHref}
                     data-preserve-acquisition-attribution
                     class="ml-0 mt-4 inline-block px-6 py-3 text-sm font-bold uppercase tracking-widest underline underline-offset-4 hover:text-[#E0F7FA] sm:ml-4 sm:mt-8"
                 >
-                    {blogIndexCta.contact}
+                    {blogSecondaryButton}
                 </a>
             </div>
         </section>
