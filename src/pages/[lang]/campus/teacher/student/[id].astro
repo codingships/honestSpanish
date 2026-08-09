@@ -100,10 +100,19 @@ if (subscriptionError) {
 }
 
 type TeacherProgress =
-    | { status: 'ready'; consumed: number; total: number }
+    | { status: 'ready'; consumed: number; total: number; cycleId: string }
     | { status: 'pending' | 'legacy' | 'error' | 'none' };
 
+type UpcomingCycleSession = {
+    id: string;
+    scheduled_at: string;
+    duration_minutes: number;
+    meet_link: string | null;
+};
+
 let progress: TeacherProgress = subscription ? { status: 'legacy' } : { status: 'none' };
+let upcomingSessions: UpcomingCycleSession[] = [];
+let upcomingSessionsError = false;
 
 if (subscription?.contract_schema_version === 2) {
     try {
@@ -116,11 +125,12 @@ if (subscription?.contract_schema_version === 2) {
             cycleProgress,
         );
 
-        if (resolvedProgress.state === 'ready') {
+        if (resolvedProgress.state === 'ready' && cycleProgress?.cycle_id) {
             progress = {
                 status: 'ready',
                 consumed: resolvedProgress.consumed,
                 total: resolvedProgress.total,
+                cycleId: cycleProgress.cycle_id,
             };
         } else if (resolvedProgress.state === 'pending') {
             progress = { status: 'pending' };
@@ -136,6 +146,29 @@ if (subscription?.contract_schema_version === 2) {
         reportCampusReadError('teacher_student.cycle_progress', error);
         Astro.response.status = 503;
         progress = { status: 'error' };
+    }
+}
+
+if (progress.status === 'ready') {
+    let upcomingQuery = supabase
+        .from('sessions')
+        .select('id, scheduled_at, duration_minutes, meet_link')
+        .eq('student_id', studentId)
+        .eq('checkout_v2_cycle_id', progress.cycleId)
+        .eq('status', 'scheduled')
+        .gte('scheduled_at', new Date().toISOString())
+        .order('scheduled_at', { ascending: true });
+
+    if (currentProfile.role === 'teacher') {
+        upcomingQuery = upcomingQuery.eq('teacher_id', user.id);
+    }
+
+    const upcomingResult = await upcomingQuery;
+    if (upcomingResult.error) {
+        reportCampusReadError('teacher_student.upcoming_sessions', upcomingResult.error);
+        upcomingSessionsError = true;
+    } else {
+        upcomingSessions = upcomingResult.data ?? [];
     }
 }
 
@@ -166,7 +199,20 @@ const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString(lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US');
 };
 
-// Calculate progress percentage
+const formatSessionWhen = (dateStr: string) => {
+    return new Date(dateStr).toLocaleString(
+        lang === 'es' ? 'es-ES' : lang === 'ru' ? 'ru-RU' : 'en-US',
+        {
+            timeZone: 'Europe/Madrid',
+            weekday: 'short',
+            day: 'numeric',
+            month: 'short',
+            hour: '2-digit',
+            minute: '2-digit',
+        },
+    );
+};
+
 // Language display
 const languageNames: Record<string, string> = {
     es: 'Español',
@@ -269,6 +315,54 @@ const languageNames: Record<string, string> = {
                 </a>
             ) : (
                 <p class="text-[#006064]/60 font-mono">{t('campus.dashboard.folderPending')}</p>
+            )}
+        </div>
+
+        <!-- Upcoming classes -->
+        <div class="bg-white p-6 border-2 border-[#006064] shadow-[4px_4px_0px_0px_#006064] lg:col-span-2">
+            <h2 class="font-display text-xl text-[#006064] uppercase mb-4">
+                {t('campus.teacher.upcomingClasses')}
+            </h2>
+
+            {upcomingSessionsError ? (
+                <CampusLoadError lang={lang} title={t('campus.teacher.upcomingClasses')} />
+            ) : progress.status !== 'ready' ? (
+                <p class="text-[#006064]/60 font-mono" role="status">
+                    {t('campus.student.classes.noUpcoming')}
+                </p>
+            ) : upcomingSessions.length === 0 ? (
+                <p class="text-[#006064]/60 font-mono" role="status">
+                    {t('campus.student.classes.noUpcoming')}
+                </p>
+            ) : (
+                <ul class="space-y-3">
+                    {upcomingSessions.map((session) => (
+                        <li class="flex flex-wrap items-center justify-between gap-3 border border-[#006064]/20 px-4 py-3">
+                            <div>
+                                <p class="font-mono text-sm text-[#006064]">
+                                    {formatSessionWhen(session.scheduled_at)}
+                                </p>
+                                <p class="text-xs text-[#006064]/60">
+                                    {session.duration_minutes} min
+                                </p>
+                            </div>
+                            {session.meet_link ? (
+                                <a
+                                    href={session.meet_link}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    class="inline-flex items-center px-4 py-2 bg-[#006064] text-white font-bold uppercase text-xs border-2 border-[#006064] shadow-[3px_3px_0px_0px_#004d40] hover:shadow-none hover:translate-x-[1px] hover:translate-y-[1px] transition-all"
+                                >
+                                    {t('campus.teacher.calendar.meetLink')}
+                                </a>
+                            ) : (
+                                <span class="text-xs font-mono text-[#006064]/60">
+                                    {t('campus.dashboard.folderPending')}
+                                </span>
+                            )}
+                        </li>
+                    ))}
+                </ul>
             )}
         </div>
 

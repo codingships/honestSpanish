@@ -67,4 +67,13 @@ describe('teacher academic progress source contract', () => {
         expect(teacherStudent).toContain('loadCheckoutV2ProgressForSubscription');
         expect(teacherStudent).toContain('subscription.id');
     });
+
+    it('lists upcoming cycle sessions with Meet on the teacher student file', () => {
+        expect(teacherStudent).toContain("t('campus.teacher.upcomingClasses')");
+        expect(teacherStudent).toContain(".eq('checkout_v2_cycle_id', progress.cycleId)");
+        expect(teacherStudent).toContain(".eq('status', 'scheduled')");
+        expect(teacherStudent).toContain('meet_link');
+        expect(teacherStudent).toContain("t('campus.teacher.calendar.meetLink')");
+        expect(teacherStudent).toContain("timeZone: 'Europe/Madrid'");
+    });
 });
