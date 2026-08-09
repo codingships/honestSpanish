@@ -498,6 +498,10 @@ describe('POST /api/calendar/reschedule-v2', () => {
         const retryable = await post();
 
         expect(retryable.status).toBe(503);
+        await expect(retryable.json()).resolves.toMatchObject({
+            errorCode: 'RESCHEDULE_RETRYABLE',
+            retryable: true,
+        });
         expect(targetMocks.failCheckoutV2ReschedulePreflightConflict).not.toHaveBeenCalled();
 
         targetMocks.assertCheckoutV2RescheduleTargetAvailable.mockRejectedValueOnce(

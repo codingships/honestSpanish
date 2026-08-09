@@ -132,6 +132,7 @@ describe('GET /api/calendar/reschedule-v2', () => {
         await expect(response.json()).resolves.toEqual({
             error: 'Reschedule could not be completed',
             errorCode: 'RESCHEDULE_RETRYABLE',
+            retryable: true,
         });
     });
 });
