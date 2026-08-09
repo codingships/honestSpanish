@@ -24,6 +24,8 @@ export const STAGING_TURNSTILE_ROTATION_FULFILLMENT_VERSION_ID = 'dd668aee-4a49-
 /** Live staging still fingerprints the previous daily Resend recipient ceiling. */
 export const STAGING_PREVIOUS_EMAIL_DAILY_RECIPIENT_LIMIT = '10';
 export const STAGING_EMAIL_DAILY_RECIPIENT_LIMIT = '20';
+/** Irene stand-in external teacher used by the staging founder/external trial. */
+export const STAGING_EXTERNAL_TEACHER_EMAIL = 'aalinn74@gmail.com';
 
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
@@ -123,11 +125,20 @@ export function assertExpectedStagingRuntimeInput(input: {
             .filter(Boolean),
     );
     const roleEmails = input.roleEmails.map(normalizeEmail);
+    const externalTeacherEmail = normalizeEmail(STAGING_EXTERNAL_TEACHER_EMAIL);
+    const allowedExtras = allowlist.size === 4 && allowlist.has(externalTeacherEmail)
+        ? new Set(roleEmails.concat(externalTeacherEmail))
+        : new Set(roleEmails);
     if (roleEmails.length !== 3
         || new Set(roleEmails).size !== 3
-        || allowlist.size !== 3
-        || roleEmails.some((email) => email.endsWith('@example.com') || !allowlist.has(email))) {
-        throw new Error('The deployed runtime preflight requires exactly the three existing allowlisted role accounts');
+        || roleEmails.some((email) => email.endsWith('@example.com') || !allowlist.has(email))
+        || (allowlist.size !== 3 && allowlist.size !== 4)
+        || allowlist.size !== allowedExtras.size
+        || [...allowlist].some((email) => !allowedExtras.has(email))) {
+        throw new Error(
+            'The deployed runtime preflight requires the three role accounts'
+            + `, optionally plus ${STAGING_EXTERNAL_TEACHER_EMAIL}`,
+        );
     }
 
     for (const key of [
