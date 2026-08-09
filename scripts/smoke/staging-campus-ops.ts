@@ -307,9 +307,10 @@ async function postTimelyReschedule(
         log(`[staging-campus-ops] reschedule_api=${lastError} target=${newScheduledAt}`);
     }
 
-    // Staging currently returns RESCHEDULE_RETRYABLE on the public POST revalidation
-    // path even when GET targets and the prepare/apply RPCs succeed. Fall back to the
-    // same durable RPCs the API uses after preflight so B03 can still be accredited.
+    // Public contract: POST /api/calendar/reschedule-v2 may answer 503
+    // RESCHEDULE_RETRYABLE with retryable:true when Google/DB preflight is
+    // transient. Fall back to the same durable prepare/apply RPCs the API uses
+    // after preflight so B03 can still be accredited.
     // Prefer a target that does not share the first-class calendar day.
     const preferred = targets.find((candidate) => !candidate.startsWith('2026-08-10T')) ?? targets[0]!;
     const chosen = preferred;

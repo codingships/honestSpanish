@@ -25,10 +25,24 @@ function json(payload: unknown, status: number): Response {
 
 function rescheduleError(error: unknown): Response {
     if (error instanceof CheckoutV2RescheduleError) {
-        return json({ error: 'Reschedule could not be completed', errorCode: error.code }, error.status);
+        return json(
+            {
+                error: 'Reschedule could not be completed',
+                errorCode: error.code,
+                ...(error.status === 503 ? { retryable: true as const } : {}),
+            },
+            error.status,
+        );
     }
     console.error('[CheckoutV2Reschedule] Unexpected failure');
-    return json({ error: 'Reschedule could not be completed', errorCode: 'RESCHEDULE_RETRYABLE' }, 503);
+    // Explicit public contract: transient Google/DB preflight failures stay 503 with
+    // RESCHEDULE_RETRYABLE. Durable prepare/apply remains the accredited fallback
+    // (see staging-campus-ops B03) until the HTTP preflight converges.
+    return json({
+        error: 'Reschedule could not be completed',
+        errorCode: 'RESCHEDULE_RETRYABLE',
+        retryable: true,
+    }, 503);
 }
 
 export const GET: APIRoute = async (context) => {
