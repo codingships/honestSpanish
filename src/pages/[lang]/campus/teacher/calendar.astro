@@ -82,11 +82,36 @@ if (access === 'campus') {
     return Astro.redirect(`/${lang}/campus`);
 }
 
-const initialWeekStartKey = madridWeekStartDateKey(new Date());
+const canLoadCalendar = access === 'teacher-calendar';
+
+const nowIso = new Date().toISOString();
+const nextScheduledResult = canLoadCalendar
+    ? await supabase
+        .from('sessions')
+        .select('scheduled_at')
+        .eq('teacher_id', authenticatedUserId)
+        .eq('status', 'scheduled')
+        .gte('scheduled_at', nowIso)
+        .order('scheduled_at', { ascending: true })
+        .limit(1)
+        .maybeSingle()
+    : { data: null, error: null };
+
+if (nextScheduledResult.error) {
+    reportCampusReadError('teacher_calendar.next_scheduled', nextScheduledResult.error);
+}
+
+const nextScheduledAt = nextScheduledResult.data?.scheduled_at
+    ? new Date(nextScheduledResult.data.scheduled_at)
+    : null;
+const initialWeekStartKey = madridWeekStartDateKey(
+    nextScheduledAt && Number.isFinite(nextScheduledAt.getTime())
+        ? nextScheduledAt
+        : new Date(),
+);
 const initialWeekRange = madridWeekUtcRange(initialWeekStartKey);
 if (!initialWeekRange) throw new Error('Could not derive the current Madrid week');
 
-const canLoadCalendar = access === 'teacher-calendar';
 const availabilityResult = canLoadCalendar
     ? await supabase
         .from('teacher_availability')
