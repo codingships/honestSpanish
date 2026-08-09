@@ -556,6 +556,8 @@ describe('TeacherCalendar page contract', () => {
         expect(source).toContain("setAttribute('hidden'");
         expect(source).toContain('madridWeekStartDateKey');
         expect(source).toContain('madridWeekUtcRange');
+        expect(source).toContain(".eq('status', 'scheduled')");
+        expect(source).toContain(".gte('scheduled_at', nowIso)");
         expect(source).toContain(".gte('scheduled_at', initialWeekRange.fromUtc)");
         expect(source).toContain(".lt('scheduled_at', initialWeekRange.toUtcExclusive)");
         expect(source).toContain('initialWeekStartKey={initialWeekStartKey}');
