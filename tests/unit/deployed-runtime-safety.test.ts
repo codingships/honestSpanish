@@ -730,6 +730,18 @@ describe('deployed staging runtime safety', () => {
             env: { ...baseEnv, EMAIL_RECIPIENT_ALLOWLIST: `${baseEnv.EMAIL_RECIPIENT_ALLOWLIST},extra@test.invalid` },
             fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
             roleEmails,
-        })).toThrow('exactly the three existing allowlisted role accounts');
+        })).toThrow('three role accounts');
+    });
+
+    it('accepts the Irene stand-in as the only optional fourth allowlisted recipient', () => {
+        expect(() => assertExpectedStagingRuntimeInput({
+            baseOrigin: STAGING_WEB_ORIGIN,
+            env: {
+                ...baseEnv,
+                EMAIL_RECIPIENT_ALLOWLIST: `${baseEnv.EMAIL_RECIPIENT_ALLOWLIST},aalinn74@gmail.com`,
+            },
+            fulfillmentOrigin: STAGING_FULFILLMENT_ORIGIN,
+            roleEmails,
+        })).not.toThrow();
     });
 });
