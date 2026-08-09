@@ -744,4 +744,14 @@ describe('deployed staging runtime safety', () => {
             roleEmails,
         })).not.toThrow();
     });
+
+    it('derives the previous three-inbox allowlist during the Irene deploy transition', async () => {
+        const { stagingAllowlistWithoutExternalTeacher } = await import(
+            '../../scripts/smoke/deployed-runtime-safety'
+        );
+        expect(stagingAllowlistWithoutExternalTeacher(
+            `${roleEmails.join(',')},aalinn74@gmail.com`,
+        )).toBe(roleEmails.join(','));
+        expect(stagingAllowlistWithoutExternalTeacher(roleEmails.join(','))).toBeNull();
+    });
 });

@@ -27,6 +27,23 @@ export const STAGING_EMAIL_DAILY_RECIPIENT_LIMIT = '20';
 /** Irene stand-in external teacher used by the staging founder/external trial. */
 export const STAGING_EXTERNAL_TEACHER_EMAIL = 'aalinn74@gmail.com';
 
+function normalizeEmail(value: string): string {
+    return value.trim().toLowerCase();
+}
+
+/** Live baseline still fingerprints the three role inboxes before Irene is deployed. */
+export function stagingAllowlistWithoutExternalTeacher(allowlist: string): string | null {
+    const emails = [...new Set(
+        allowlist
+            .split(/[,;\n]/u)
+            .map(normalizeEmail)
+            .filter(Boolean),
+    )];
+    const external = normalizeEmail(STAGING_EXTERNAL_TEACHER_EMAIL);
+    if (emails.length !== 4 || !emails.includes(external)) return null;
+    return emails.filter((email) => email !== external).join(',');
+}
+
 const VERSION_ID_PATTERN = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 const PROOF_PATTERN = /^[a-f0-9]{64}$/;
@@ -71,10 +88,6 @@ function exactOrigin(raw: string, expected: string, label: string): string {
         throw new Error(`${label} must be the exact staging origin`);
     }
     return parsed.origin;
-}
-
-function normalizeEmail(value: string): string {
-    return value.trim().toLowerCase();
 }
 
 export function assertExpectedStagingRuntimeInput(input: {
@@ -667,6 +680,32 @@ async function discoverAndVerifyOneBaseline(input: {
             role: input.role,
             schema: envelope.schema,
         }, secret);
+    }
+    if (!valid) {
+        // One-shot deploy transition: add Irene stand-in to the allowlist while the
+        // live baseline still fingerprints only the three role inboxes.
+        const previousAllowlist = stagingAllowlistWithoutExternalTeacher(
+            requireValue(input.env, 'EMAIL_RECIPIENT_ALLOWLIST'),
+        );
+        if (previousAllowlist) {
+            const previousAllowlistConfig = await buildRuntimeAttestationConfigForSchema(input.role, {
+                ...input.env,
+                CHECKOUT_ENABLED: 'true',
+                CHECKOUT_ENABLED_OVERRIDE: 'true',
+                EMAIL_RECIPIENT_ALLOWLIST: previousAllowlist,
+                FULFILLMENT_RUNTIME_MODE: input.role === 'fulfillment' ? 'active' : 'absent',
+                PUBLIC_APP_ENV: 'staging',
+                SUPABASE_EXPECTED_PROJECT_REF: STAGING_SUPABASE_REF,
+                WORKER_IDENTITY: input.expectedIdentity,
+                WORKER_VERSION_ID: input.expectedVersionId,
+            }, envelope.schema as SupportedRollbackAttestationSchema, new Set(bindingNames));
+            valid = await verifyRuntimeAttestation(envelope, {
+                config: previousAllowlistConfig,
+                nonce,
+                role: input.role,
+                schema: envelope.schema,
+            }, secret);
+        }
     }
     let verificationMode: StagingRollbackRoleContract['verificationMode'] = 'configuration-hmac';
     if (!valid) {
