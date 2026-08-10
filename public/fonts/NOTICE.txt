@@ -3,6 +3,10 @@ Version: v6.10-repair
 Family CSS: Boldonese Cyrillic
 File: BoldoneseCyrillic-Regular.woff2
 
+Covers Cyrillic display and Latin brand/ASCII notes from the same face
+(unicode-range Basic Latin + Latin-1 + Cyrillic). Brand mark stays
+"ESPAÑOL HONESTO" in Latin characters.
+
 This face embeds material derived under the SIL Open Font License 1.1:
 - Boldonse — see licenses/Boldonse-OFL.txt
 - Onest — see licenses/Onest-OFL.txt
