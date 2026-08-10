@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
@@ -29,9 +29,15 @@ describe('self-hosted multilingual typography', () => {
         expect(fontCss).toContain("@fontsource/boldonse/400.css");
         expect(fontCss).toContain("@fontsource/unbounded/700.css");
         expect(fontCss).toContain("@fontsource-variable/inter/wght.css");
+        expect(fontCss).toContain("font-family: 'Boldonese Cyrillic'");
+        expect(fontCss).toContain("/fonts/BoldoneseCyrillic-Regular.woff2");
         expect(fontCss).toContain(":root:lang(ru)");
-        expect(fontCss).toContain("--font-eh-display: 'Unbounded'");
+        expect(fontCss).toContain("--font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
         expect(fontCss).toContain("--font-eh-body: 'Inter Variable', Arial, sans-serif");
+        expect(existsSync('public/fonts/BoldoneseCyrillic-Regular.woff2')).toBe(true);
+        expect(existsSync('public/fonts/NOTICE.txt')).toBe(true);
+        expect(existsSync('public/fonts/licenses/Boldonse-OFL.txt')).toBe(true);
+        expect(existsSync('public/fonts/licenses/Onest-OFL.txt')).toBe(true);
     });
 
     it('routes Tailwind typography through the locale-aware tokens', () => {

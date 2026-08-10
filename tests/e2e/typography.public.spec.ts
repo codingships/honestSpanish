@@ -34,9 +34,12 @@ for (const locale of ['es', 'ru'] as const) {
         });
 
         expect(typography.body).toContain('Inter Variable');
-        expect(typography.display).toContain(locale === 'ru' ? 'Unbounded' : 'Boldonse');
+        expect(typography.display).toContain(locale === 'ru' ? 'Boldonese Cyrillic' : 'Boldonse');
         expect(typography.loadedFamilies).toContain('Inter Variable');
-        expect(typography.loadedFamilies).toContain(locale === 'ru' ? 'Unbounded' : 'Boldonse');
+        expect(typography.loadedFamilies).toContain(locale === 'ru' ? 'Boldonese Cyrillic' : 'Boldonse');
+        if (locale === 'ru') {
+            expect(fontRequests.some((url) => url.includes('/fonts/BoldoneseCyrillic-Regular.woff2'))).toBe(true);
+        }
         expect(fontRequests.length).toBeGreaterThan(0);
         expect(fontRequests.every((url) => new URL(url).origin === new URL(page.url()).origin)).toBe(true);
         expect(thirdPartyRequests).toEqual([]);

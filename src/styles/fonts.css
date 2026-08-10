@@ -4,11 +4,21 @@
 @import '@fontsource/unbounded/900.css';
 @import '@fontsource-variable/inter/wght.css';
 
+/* Boldonese Cyrillic — display face for locale ru (v6.10-repair). */
+@font-face {
+    font-family: 'Boldonese Cyrillic';
+    src: url('/fonts/BoldoneseCyrillic-Regular.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0400-04FF, U+0500-052F, U+2DE0-2DFF, U+A640-A69F;
+}
+
 :root {
     --font-eh-display: 'Boldonse', 'Unbounded', sans-serif;
     --font-eh-body: 'Inter Variable', Arial, sans-serif;
 }
 
 :root:lang(ru) {
-    --font-eh-display: 'Unbounded', 'Boldonse', sans-serif;
+    --font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif;
 }

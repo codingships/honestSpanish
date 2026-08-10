@@ -1,0 +1,11 @@
+Boldonese Cyrillic (display, locale ru)
+Version: v6.10-repair
+Family CSS: Boldonese Cyrillic
+File: BoldoneseCyrillic-Regular.woff2
+
+This face embeds material derived under the SIL Open Font License 1.1:
+- Boldonse — see licenses/Boldonse-OFL.txt
+- Onest — see licenses/Onest-OFL.txt
+
+Name "Boldonese Cyrillic" is used without a Reserved Font Name restriction from Boldonse.
+The font may be embedded in Español Honesto; it must not be sold as a standalone font product.
