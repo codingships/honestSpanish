@@ -38,6 +38,7 @@ function renderPricingSection(packages = [targetPackage], props: Partial<Pricing
         <PricingSection
             packages={packages}
             lang="es"
+            purchaseEnabled
             translations={translations}
             {...props}
         />,
@@ -87,6 +88,17 @@ describe('PricingSection', () => {
         expect(screen.getByRole('dialog', { name: '4 clases individuales' })).toBeInTheDocument();
         expect(screen.getByRole('status')).toHaveTextContent(translations.modal.checkoutClosed!);
         expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('routes discovery traffic to contact when purchase is closed', () => {
+        renderPricingSection([targetPackage], { purchaseEnabled: false });
+
+        const contactCta = screen.getByTestId('select-plan-individual_4x50_28d');
+        expect(contactCta).toHaveAttribute('href', '#contacto');
+        expect(contactCta).toHaveTextContent(translations.contactCta!);
+        expect(screen.getByText(translations.applicationNote!)).toBeInTheDocument();
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('reopens a returned selection only after revalidating it against current availability', async () => {

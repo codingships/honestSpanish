@@ -90,7 +90,8 @@ describe('adult account attestation', () => {
     it('keeps no-plan purchase direct and removes the retired approval catalogue', () => {
         const page = readFileSync('src/pages/[lang]/campus/account.astro', 'utf8');
 
-        expect(page).toContain('href={`/${lang}/#planes`}');
+        expect(page).toContain('href={purchaseOfferHref}');
+        expect(page).toContain("isCheckoutEnabled(Astro) ? `/${lang}/#planes` : `/${lang}/#contacto`");
         expect(page).not.toContain('findCheckoutApproval');
         expect(page).not.toMatch(/stripe_price_[136]m|priceTotalsCents/u);
     });

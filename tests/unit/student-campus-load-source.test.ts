@@ -40,11 +40,12 @@ describe('student campus read truth', () => {
 
     it('suppresses account purchase, Stripe and guarantee actions when subscription loading fails', () => {
         const errorBranch = account.indexOf("subscriptionState.status === 'error' ?");
-        const purchaseLink = account.indexOf('href={`/${lang}/#planes`}');
+        const purchaseLink = account.indexOf('href={purchaseOfferHref}');
         expect(errorBranch).toBeGreaterThan(-1);
         expect(purchaseLink).toBeGreaterThan(errorBranch);
         expect(account).toContain("subscriptionState.status === 'ready' && subscription");
         expect(account).toContain("profilePrivateState.status === 'error' ?");
+        expect(account).toContain("isCheckoutEnabled(Astro) ? `/${lang}/#planes` : `/${lang}/#contacto`");
     });
 
     it('loads independent dashboard reads concurrently and renders errors per surface', () => {
