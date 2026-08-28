@@ -28,7 +28,7 @@ describe('self-hosted multilingual typography', () => {
         expect(astroConfig).toContain('resources: ["\'self\'"]');
     });
 
-    it('keeps the Latin identity and selects complete Cyrillic families explicitly', () => {
+    it('keeps equivalent display roles across Latin and Russian typography', () => {
         expect(fontCss).toContain("@fontsource/boldonse/400.css");
         expect(fontCss).toContain("@fontsource/unbounded/700.css");
         expect(fontCss).toContain("@fontsource-variable/inter/wght.css");
@@ -36,17 +36,19 @@ describe('self-hosted multilingual typography', () => {
         expect(fontCss).toContain("/fonts/BoldoneseCyrillic-Regular.woff2?v=91");
         expect(fontCss).not.toContain('unicode-range');
         expect(fontCss).toContain(":root:lang(ru)");
-        expect(fontCss).toContain("--font-eh-display: 'Unbounded', Arial, sans-serif");
+        expect(fontCss).toContain("--font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
         expect(fontCss).toContain("--font-eh-brand-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
         expect(fontCss).toContain("--font-eh-wordmark: 'Boldonse', 'Unbounded', sans-serif");
         expect(fontCss).not.toMatch(/:root:lang\(ru\)\s+\.font-display\s*\{/);
         expect(fontCss).not.toContain('letter-spacing');
         expect(fontCss).not.toContain('line-height');
         expect(fontCss).not.toContain('!important');
-        expect(globalCss).toContain(':root:lang(ru) .font-brand-display');
-        expect(globalCss).toContain('letter-spacing: -0.02em');
-        expect(globalCss).toContain('line-height: 1.3');
-        expect(globalCss).toContain(':root:lang(ru) .brand-display-stack');
+        expect(globalCss).not.toContain(':root:lang(ru) .font-brand-display');
+        expect(globalCss).not.toContain(':root:lang(ru) .hero-headline');
+        expect(globalCss).not.toContain(':root:lang(ru) .brand-display-stack');
+        expect(globalCss).not.toMatch(
+            /:root:lang\(ru\)[^{]*\{[^}]*(?:letter-spacing|line-height|overflow-wrap|word-break)/s,
+        );
         expect(fontCss).toContain("--font-eh-body: 'Inter Variable', Arial, sans-serif");
         expect(existsSync('public/fonts/BoldoneseCyrillic-Regular.woff2')).toBe(true);
         expect(existsSync('public/fonts/NOTICE.txt')).toBe(true);
