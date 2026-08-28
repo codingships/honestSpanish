@@ -261,7 +261,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                                     )}
 
                                     <div className="col-span-3 min-w-0">
-                                        <h3 className={`break-words ${highlight ? 'font-brand-display text-4xl' : 'font-display text-3xl'}`}>{canonicalPlanName}</h3>
+                                        <h3 className={`hyphens-auto break-words ${highlight ? 'font-brand-display text-4xl' : 'font-display text-3xl'}`}>{canonicalPlanName}</h3>
                                         <p className="mt-1 text-sm">{planTranslations.description}</p>
                                     </div>
 

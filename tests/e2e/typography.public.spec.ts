@@ -9,7 +9,7 @@ const thirdPartyFontHosts = new Set([
     'cdnjs.cloudflare.com',
 ]);
 
-type SupportedLocale = 'es' | 'ru';
+type SupportedLocale = 'es' | 'en' | 'ru';
 
 async function primeFullPageRendering(page: Page) {
     await page.evaluate(async () => {
@@ -81,21 +81,29 @@ async function appendTypographySpecimen(page: Page, locale: SupportedLocale) {
             section.appendChild(wrapper);
         };
 
-        const copy = activeLocale === 'ru'
-            ? {
-                hero: 'ЖИТЬ В ИСПАНИИ',
-                focus: 'Лл · Зз · Шш · Щщ · Фф · Ёё',
-                words: 'ЛАЗУРЬ · ПЛАНЫ · ЗАЩИТА · ЩУКА · ФИЛОСОФИЯ',
-                compact: 'Съешь ещё этих мягких французских булок, да выпей чаю.',
-                body: 'Площадь, ощущение и защищённый разговор без спешки.',
-            }
-            : {
+        const copy = {
+            es: {
                 hero: 'VIVIR EN ESPAÑA',
                 focus: 'Aa · Gg · Mm · Rr · Ss · Ññ',
                 words: 'GENTE · ESCUELA · FORMA · CONVERSACIÓN',
                 compact: 'El veloz murciélago hindú comía feliz cardillo y kiwi.',
                 body: 'Conversación, filosofía y aprendizaje sin prisa.',
-            };
+            },
+            en: {
+                hero: 'LIVE IN SPAIN',
+                focus: 'Aa · Gg · Mm · Rr · Ss · Ññ',
+                words: 'PEOPLE · SCHOOL · SHAPE · CONVERSATION',
+                compact: 'The quick brown fox jumps over the lazy dog.',
+                body: 'Conversation, culture and learning without haste.',
+            },
+            ru: {
+                hero: 'ЖИТЬ В ИСПАНИИ',
+                focus: 'Лл · Зз · Шш · Щщ · Фф · Ёё',
+                words: 'ЛАЗУРЬ · ПЛАНЫ · ЗАЩИТА · ЩУКА · ФИЛОСОФИЯ',
+                compact: 'Съешь ещё этих мягких французских булок, да выпей чаю.',
+                body: 'Площадь, ощущение и защищённый разговор без спешки.',
+            },
+        }[activeLocale];
 
         addSample('Marca grande · titular', copy.hero, 'font-brand-display hero-headline', {
             fontSize: 'clamp(44px,8vw,96px)',
@@ -126,7 +134,7 @@ async function appendTypographySpecimen(page: Page, locale: SupportedLocale) {
     await page.evaluate(() => document.fonts.ready);
 }
 
-for (const locale of ['es', 'ru'] as const) {
+for (const locale of ['es', 'en', 'ru'] as const) {
     test(`${locale} uses deterministic same-origin typography`, async ({ page }, testInfo) => {
         const thirdPartyRequests: string[] = [];
         const fontRequests: string[] = [];
@@ -168,6 +176,20 @@ for (const locale of ['es', 'ru'] as const) {
             const brandStyle = style(brandDisplay);
             const compactStyle = style(compactDisplay);
             const wordmarkStyle = style(wordmark);
+            const layoutStyle = (selector: string) => {
+                const element = document.querySelector<HTMLElement>(selector);
+                if (!element) return null;
+                const computed = getComputedStyle(element);
+                return {
+                    fontSize: Number.parseFloat(computed.fontSize),
+                    lineHeight: Number.parseFloat(computed.lineHeight),
+                    letterSpacing: computed.letterSpacing,
+                    overflowWrap: computed.overflowWrap,
+                    wordBreak: computed.wordBreak,
+                    hyphens: computed.hyphens,
+                    horizontalOverflow: element.scrollWidth > element.clientWidth + 1,
+                };
+            };
             return {
                 body: getComputedStyle(document.body).fontFamily,
                 brandDisplay: brandStyle?.fontFamily || '',
@@ -176,8 +198,16 @@ for (const locale of ['es', 'ru'] as const) {
                 wordmark: wordmarkStyle?.fontFamily || '',
                 coverage: {
                     brandCyrillic: document.fonts.check('48px "Boldonese Cyrillic"', 'ЛЗШЩфё'),
-                    compactCyrillic: document.fonts.check('24px "Unbounded"', 'Это вам подходит?'),
+                    displayCyrillic: document.fonts.check('24px "Boldonese Cyrillic"', 'Это вам подходит?'),
                     latin: document.fonts.check('48px "Boldonse"', 'VIVIR EN ESPAÑA'),
+                },
+                layout: {
+                    hero: layoutStyle('.hero-headline'),
+                    method: layoutStyle('#metodo h2.font-brand-display'),
+                    community: layoutStyle('#comunidad h2.font-brand-display'),
+                    highlightedPlan: layoutStyle('#planes h3.font-brand-display'),
+                    team: layoutStyle('#equipo h2.font-brand-display'),
+                    footer: layoutStyle('.brand-display-stack'),
                 },
                 loadedFamilies: Array.from(document.fonts)
                     .filter((font) => font.status === 'loaded')
@@ -186,8 +216,10 @@ for (const locale of ['es', 'ru'] as const) {
         });
 
         expect(typography.body).toContain('Inter Variable');
-        expect(typography.brandDisplay).toContain(locale === 'ru' ? 'Boldonese Cyrillic' : 'Boldonse');
-        expect(typography.compactDisplay).toContain(locale === 'ru' ? 'Unbounded' : 'Boldonse');
+        const expectedDisplayFamily = locale === 'ru' ? 'Boldonese Cyrillic' : 'Boldonse';
+        expect(typography.brandDisplay).toContain(expectedDisplayFamily);
+        expect(typography.compactDisplay).toContain(expectedDisplayFamily);
+        expect(typography.compactDisplay).toBe(typography.brandDisplay);
         expect(typography.compactSize).not.toBeNull();
         expect(typography.compactSize!).toBeLessThan(32);
         expect(typography.wordmark).toContain('Boldonse');
@@ -196,11 +228,29 @@ for (const locale of ['es', 'ru'] as const) {
         expect(typography.coverage.latin).toBe(true);
         if (locale === 'ru') {
             expect(typography.loadedFamilies).toContain('Boldonese Cyrillic');
-            expect(typography.loadedFamilies).toContain('Unbounded');
             expect(typography.coverage.brandCyrillic).toBe(true);
-            expect(typography.coverage.compactCyrillic).toBe(true);
+            expect(typography.coverage.displayCyrillic).toBe(true);
             expect(fontRequests.some((url) => url.includes('/fonts/BoldoneseCyrillic-Regular.woff2'))).toBe(true);
         }
+        expect(typography.layout.hero).not.toBeNull();
+        expect(typography.layout.method).not.toBeNull();
+        expect(typography.layout.community).not.toBeNull();
+        expect(typography.layout.highlightedPlan).not.toBeNull();
+        expect(typography.layout.team).not.toBeNull();
+        expect(typography.layout.footer).not.toBeNull();
+        expect(typography.layout.hero!.lineHeight / typography.layout.hero!.fontSize).toBeCloseTo(1.1, 2);
+        expect(Number.parseFloat(typography.layout.hero!.letterSpacing) / typography.layout.hero!.fontSize).toBeCloseTo(-0.05, 2);
+        expect(typography.layout.hero!.overflowWrap).toBe('break-word');
+        const expectedMethodLineHeight = testInfo.project.name === 'mobile' ? 1.25 : 1;
+        expect(typography.layout.method!.lineHeight / typography.layout.method!.fontSize).toBeCloseTo(expectedMethodLineHeight, 2);
+        expect(['normal', '0px']).toContain(typography.layout.method!.letterSpacing);
+        expect(typography.layout.community!.hyphens).toBe('auto');
+        expect(typography.layout.community!.horizontalOverflow).toBe(false);
+        expect(typography.layout.highlightedPlan!.hyphens).toBe('auto');
+        expect(typography.layout.highlightedPlan!.overflowWrap).toBe('break-word');
+        expect(typography.layout.highlightedPlan!.horizontalOverflow).toBe(false);
+        expect(typography.layout.team!.overflowWrap).toBe('break-word');
+        expect(typography.layout.footer!.lineHeight / typography.layout.footer!.fontSize).toBeCloseTo(0.8, 2);
         expect(fontResponses.every((response) => response.status === 200)).toBe(true);
         expect(fontResponses.every((response) => /(?:font\/woff2|application\/font-woff2)/i.test(response.contentType))).toBe(true);
         expect(fontRequests.length).toBeGreaterThan(0);

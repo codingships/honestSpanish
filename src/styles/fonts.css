@@ -4,10 +4,9 @@
 @import '@fontsource/unbounded/900.css';
 @import '@fontsource-variable/inter/wght.css';
 
-/* Boldonese Cyrillic v9.1 — brand display face for locale ru.
- * Use it for large editorial headings. Compact headings use Unbounded and
- * body/UI text uses Inter so the condensed display drawing is not forced
- * into raster-sensitive sizes.
+/* Boldonese Cyrillic v9.1 — display face for locale ru.
+ * Both display roles use the same locale-specific identity, while Unbounded
+ * and Boldonse remain explicit fallbacks. Body/UI text continues to use Inter.
  */
 @font-face {
     font-family: 'Boldonese Cyrillic';
@@ -25,6 +24,6 @@
 }
 
 :root:lang(ru) {
-    --font-eh-display: 'Unbounded', Arial, sans-serif;
+    --font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif;
     --font-eh-brand-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif;
 }
