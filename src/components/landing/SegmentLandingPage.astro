@@ -158,7 +158,7 @@ const purchaseSteps = [
         Saltar al contenido principal
     </a>
     <nav aria-label="Navegación principal" class="h-16 border-b-2 border-[#006064] flex justify-between items-center px-4 md:px-8 sticky top-0 z-50 bg-[#E0F7FA]">
-        <a href="/es" class="font-display text-lg md:text-xl tracking-tighter truncate mr-2 hover:opacity-70 transition-opacity">
+        <a href="/es" class="font-wordmark text-lg md:text-xl tracking-tighter truncate mr-2 hover:opacity-70 transition-opacity">
             Español Honesto <span class="text-xs uppercase font-mono bg-[#006064] text-white px-2 py-1 ml-2 rounded-sm hidden md:inline-block">{navLabel}</span>
         </a>
         <div class="flex items-center gap-4">
@@ -167,7 +167,7 @@ const purchaseSteps = [
     </nav>
 
     <main id="main-content" tabindex="-1">
-    <HeroSection {...hero} imageAlt="Estudiante practicando español" />
+    <HeroSection {...hero} lang={lang} imageAlt="Estudiante practicando español" />
 
     <ProblemsSection {...problems} />
 
@@ -176,7 +176,7 @@ const purchaseSteps = [
     <section class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
         <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-2">
             <div>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{fit.title}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{fit.title}</h2>
                 <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{fit.intro}</p>
             </div>
             <div class="space-y-3">
@@ -192,7 +192,7 @@ const purchaseSteps = [
     <section class="bg-white py-24 px-6 border-b-2 border-[#006064]">
         <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-5">
             <div class="lg:col-span-2">
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{community.title}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{community.title}</h2>
                 <p class="mt-4 text-lg leading-8 text-[#006064]/80 font-bold">{community.body}</p>
             </div>
             <div class="lg:col-span-3 grid grid-cols-1 gap-4">
@@ -209,7 +209,7 @@ const purchaseSteps = [
         <div class="max-w-6xl mx-auto">
             <div class="max-w-3xl mb-12">
                 <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">Contextos de uso</p>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{contexts.title}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{contexts.title}</h2>
                 <p class="mt-4 text-lg leading-8 text-[#006064] font-bold">{contexts.intro}</p>
             </div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -228,7 +228,7 @@ const purchaseSteps = [
         <div class="max-w-6xl mx-auto">
             <div class="max-w-3xl mb-12">
                 <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">Respuestas para decidir</p>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{answers.title}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{answers.title}</h2>
                 <p class="mt-4 text-lg leading-8 text-[#006064] font-bold">{answers.intro}</p>
             </div>
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -246,7 +246,7 @@ const purchaseSteps = [
         <div class="max-w-4xl mx-auto">
             <div class="mb-12 border-2 border-[#006064] bg-white p-6 shadow-[6px_6px_0px_0px_#006064]">
                 <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-3">Compra directa</p>
-                <h2 class="font-display text-3xl lg:text-4xl text-[#006064]">Primero plaza real. Después pago.</h2>
+                <h2 class="font-display text-3xl lg:font-brand-display lg:text-4xl text-[#006064]">Primero plaza real. Después pago.</h2>
                 <ol class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
                     {purchaseSteps.map((step, index) => (
                         <li class="border-2 border-[#006064] bg-[#E0F7FA] p-4">

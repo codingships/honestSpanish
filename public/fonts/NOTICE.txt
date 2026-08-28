@@ -1,0 +1,17 @@
+Boldonese Cyrillic (display, locale ru)
+Version: v9.1
+Family CSS: Boldonese Cyrillic
+File: BoldoneseCyrillic-Regular.woff2
+
+Covers large Cyrillic brand/display headings, Latin notes, punctuation and
+pedagogical combining acute accents from the same face. Compact headings use
+Unbounded and body/UI text uses Inter. The "ESPAÑOL HONESTO" wordmark stays
+in the original Latin Boldonse. U+2116 NUMERO SIGN is intentionally supplied
+by the complete Unbounded fallback because it is not present in this binary.
+
+This face embeds material derived under the SIL Open Font License 1.1:
+- Boldonse — see licenses/Boldonse-OFL.txt
+- Onest — see licenses/Onest-OFL.txt
+
+Name "Boldonese Cyrillic" is used without a Reserved Font Name restriction from Boldonse.
+The font may be embedded in Español Honesto; it must not be sold as a standalone font product.
