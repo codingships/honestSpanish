@@ -186,6 +186,7 @@ for (const locale of ['es', 'en', 'ru'] as const) {
                     letterSpacing: computed.letterSpacing,
                     overflowWrap: computed.overflowWrap,
                     wordBreak: computed.wordBreak,
+                    hyphens: computed.hyphens,
                     horizontalOverflow: element.scrollWidth > element.clientWidth + 1,
                 };
             };
@@ -243,7 +244,9 @@ for (const locale of ['es', 'en', 'ru'] as const) {
         const expectedMethodLineHeight = testInfo.project.name === 'mobile' ? 1.25 : 1;
         expect(typography.layout.method!.lineHeight / typography.layout.method!.fontSize).toBeCloseTo(expectedMethodLineHeight, 2);
         expect(['normal', '0px']).toContain(typography.layout.method!.letterSpacing);
+        expect(typography.layout.community!.hyphens).toBe('auto');
         expect(typography.layout.community!.horizontalOverflow).toBe(false);
+        expect(typography.layout.highlightedPlan!.hyphens).toBe('auto');
         expect(typography.layout.highlightedPlan!.overflowWrap).toBe('break-word');
         expect(typography.layout.highlightedPlan!.horizontalOverflow).toBe(false);
         expect(typography.layout.team!.overflowWrap).toBe('break-word');
