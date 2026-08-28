@@ -337,7 +337,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     
     {/* Navbar */}
     <nav data-testid="primary-navigation" aria-label={accessibilityCopy.primaryNav} class={`public-primary-navigation h-16 border-b-2 ${s.border} flex justify-between items-center px-4 md:px-8 sticky z-[70] ${s.bg}`}>
-        <div class="font-display text-lg md:text-xl tracking-tighter mr-2 w-full md:w-auto whitespace-nowrap overflow-visible leading-tight py-1">{t('nav.brand')}</div>
+        <div class="font-wordmark text-lg md:text-xl tracking-tighter mr-2 w-full md:w-auto whitespace-nowrap overflow-visible leading-tight py-1">{t('nav.brand')}</div>
 
         {/* Desktop Navigation Links (Hidden on Mobile) */}
         <div class="hidden md:flex gap-6 items-center">
@@ -484,7 +484,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     <section id="incluye" class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
         <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-2">
             <div>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{courseDetails.includesTitle}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{courseDetails.includesTitle}</h2>
                 <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{courseDetails.includesIntro}</p>
                 <div class="mt-8 space-y-3">
                     {courseDetails.includes.map((item) => (
@@ -495,7 +495,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
                 </div>
             </div>
             <div>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{courseDetails.audienceTitle}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{courseDetails.audienceTitle}</h2>
                 <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{courseDetails.audienceIntro}</p>
                 <div class="mt-8 space-y-3">
                     {courseDetails.audience.map((item) => (
@@ -513,7 +513,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
         <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-5">
             <div class="lg:col-span-2">
                 <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">{communityDetails.eyebrow}</p>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{communityDetails.title}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{communityDetails.title}</h2>
                 <p class="mt-4 text-lg leading-8 text-[#006064]/80 font-bold">{communityDetails.intro}</p>
             </div>
             <div class="lg:col-span-3 grid grid-cols-1 gap-4">
@@ -531,7 +531,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
             <div class="max-w-6xl mx-auto grid grid-cols-1 gap-12 lg:grid-cols-3">
                 <div>
                     <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">Rutas de entrada</p>
-                    <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">Encuentra tu punto de partida</h2>
+                    <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">Encuentra tu punto de partida</h2>
                     <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">
                         Si ya sabes por qué necesitas español, entra por la página que mejor encaja contigo.
                     </p>
@@ -564,7 +564,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     <section id="equipo" class="bg-white py-24 px-6 border-b-2 border-[#006064]">
         <div class="max-w-6xl mx-auto">
             <div class="text-center mb-16">
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064] mb-8 hyphens-auto break-words">{t('team.headline')}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064] mb-8 hyphens-auto break-words">{t('team.headline')}</h2>
 
                 <div class="max-w-md mx-auto mb-8">
                     <p class="text-[#006064] font-mono text-sm md:text-base uppercase tracking-wide mb-4">{t('team.manifesto')}</p>
@@ -599,7 +599,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
                                     class="w-full h-full bg-[#E0F7FA] text-[#006064] flex items-center justify-center"
                                     aria-hidden="true"
                                 >
-                                    <span class="font-display text-6xl">{fallbackInitials}</span>
+                                    <span class="font-brand-display text-6xl">{fallbackInitials}</span>
                                 </div>
                             )}
                         </div>
@@ -626,7 +626,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     <section id="faq" class="bg-[#E0F7FA] py-24 px-6 border-b-2 border-[#006064]">
         <div class="max-w-4xl mx-auto">
             <div class="text-center mb-16">
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{t('faq.headline')}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{t('faq.headline')}</h2>
             </div>
 
             <div class="space-y-4">
@@ -668,7 +668,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
         <div class="max-w-6xl mx-auto grid grid-cols-1 gap-10 lg:grid-cols-[1fr_28rem] lg:items-start">
             <div>
                 <p class="font-mono text-xs uppercase tracking-widest text-[#006064] mb-4">{purchaseNextSteps.eyebrow}</p>
-                <h2 class="font-display text-4xl lg:text-5xl text-[#006064]">{purchaseNextSteps.title}</h2>
+                <h2 class="font-brand-display text-4xl lg:text-5xl text-[#006064]">{purchaseNextSteps.title}</h2>
                 <p class="mt-4 max-w-xl text-lg leading-8 text-[#006064]">{purchaseNextSteps.intro}</p>
                 <div class="mt-8 grid grid-cols-1 gap-4">
                     {purchaseNextSteps.steps.map((step, index) => (
@@ -695,8 +695,8 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     <footer class={`${s.accent} ${s.accentText} py-24 px-6 border-t-2 ${s.border}`}>
         <div class="max-w-7xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-12">
             <div>
-                <h2 class="font-display text-[12vw] md:text-[8vw] leading-[0.8] tracking-tighter">{t('footer.cta1')}</h2>
-                <h2 class="font-display text-[12vw] md:text-[8vw] leading-[0.8] tracking-tighter opacity-50">{t('footer.cta2')}</h2>
+                <h2 class="brand-display-stack font-brand-display text-[12vw] md:text-[8vw] leading-[0.8] tracking-tighter">{t('footer.cta1')}</h2>
+                <h2 class="brand-display-stack font-brand-display text-[12vw] md:text-[8vw] leading-[0.8] tracking-tighter opacity-50">{t('footer.cta2')}</h2>
             </div>
             <div class="flex flex-col justify-end items-start md:items-end">
                 <div class="font-mono text-sm uppercase tracking-widest mb-8 text-left md:text-right">

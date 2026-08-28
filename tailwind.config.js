@@ -21,6 +21,8 @@ export default {
         extend: {
             fontFamily: {
                 display: ['var(--font-eh-display)'],
+                'brand-display': ['var(--font-eh-brand-display)'],
+                wordmark: ['var(--font-eh-wordmark)'],
                 sans: ['var(--font-eh-body)'],
             },
             colors: {

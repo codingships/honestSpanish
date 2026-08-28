@@ -1,9 +1,12 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const read = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
 
 const fontCss = read('src/styles/fonts.css');
+const globalCss = read('src/styles/global.css');
+const fontNotice = read('public/fonts/NOTICE.txt');
 const baseLayout = read('src/layouts/BaseLayout.astro');
 const legalLayout = read('src/layouts/LegalLayout.astro');
 const notFoundPage = read('src/pages/404.astro');
@@ -30,20 +33,44 @@ describe('self-hosted multilingual typography', () => {
         expect(fontCss).toContain("@fontsource/unbounded/700.css");
         expect(fontCss).toContain("@fontsource-variable/inter/wght.css");
         expect(fontCss).toContain("font-family: 'Boldonese Cyrillic'");
-        expect(fontCss).toContain("/fonts/BoldoneseCyrillic-Regular.woff2");
-        expect(fontCss).toContain('U+0020-007E');
+        expect(fontCss).toContain("/fonts/BoldoneseCyrillic-Regular.woff2?v=91");
+        expect(fontCss).not.toContain('unicode-range');
         expect(fontCss).toContain(":root:lang(ru)");
-        expect(fontCss).toContain("--font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
-        expect(fontCss).toContain(':root:lang(ru) .font-display');
+        expect(fontCss).toContain("--font-eh-display: 'Unbounded', Arial, sans-serif");
+        expect(fontCss).toContain("--font-eh-brand-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
+        expect(fontCss).toContain("--font-eh-wordmark: 'Boldonse', 'Unbounded', sans-serif");
+        expect(fontCss).not.toMatch(/:root:lang\(ru\)\s+\.font-display\s*\{/);
+        expect(fontCss).not.toContain('letter-spacing');
+        expect(fontCss).not.toContain('line-height');
+        expect(fontCss).not.toContain('!important');
+        expect(globalCss).toContain(':root:lang(ru) .font-brand-display');
+        expect(globalCss).toContain('letter-spacing: -0.02em');
+        expect(globalCss).toContain('line-height: 1.3');
+        expect(globalCss).toContain(':root:lang(ru) .brand-display-stack');
         expect(fontCss).toContain("--font-eh-body: 'Inter Variable', Arial, sans-serif");
         expect(existsSync('public/fonts/BoldoneseCyrillic-Regular.woff2')).toBe(true);
         expect(existsSync('public/fonts/NOTICE.txt')).toBe(true);
         expect(existsSync('public/fonts/licenses/Boldonse-OFL.txt')).toBe(true);
         expect(existsSync('public/fonts/licenses/Onest-OFL.txt')).toBe(true);
+        expect(fontNotice).toContain('Version: v9.1');
+
+        const fontHash = createHash('sha256')
+            .update(readFileSync('public/fonts/BoldoneseCyrillic-Regular.woff2'))
+            .digest('hex');
+        expect(fontHash).toBe('4fca33b1a2401423e9d9aa0b354fc408ff0506001a5b3244aeb2dbdc06e03608');
     });
 
     it('routes Tailwind typography through the locale-aware tokens', () => {
         expect(tailwindConfig).toContain("display: ['var(--font-eh-display)']");
+        expect(tailwindConfig).toContain("'brand-display': ['var(--font-eh-brand-display)']");
+        expect(tailwindConfig).toContain("wordmark: ['var(--font-eh-wordmark)']");
         expect(tailwindConfig).toContain("sans: ['var(--font-eh-body)']");
+    });
+
+    it('keeps the hero middle word in italic for every public locale', () => {
+        const hero = read('src/components/landing/HeroSection.astro');
+        expect(hero).toContain('italic inline-block py-[0.06em]');
+        expect(hero).toContain('hero-headline font-brand-display');
+        expect(hero).toContain('font-display text-3xl lg:font-brand-display lg:text-4xl');
     });
 });

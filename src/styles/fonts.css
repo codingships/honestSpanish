@@ -4,41 +4,27 @@
 @import '@fontsource/unbounded/900.css';
 @import '@fontsource-variable/inter/wght.css';
 
-/* Boldonese Cyrillic — display face for locale ru (v6.10-repair).
- * Includes Latin glyphs for brand/ASCII notes in the same voice.
+/* Boldonese Cyrillic v9.1 — brand display face for locale ru.
+ * Use it for large editorial headings. Compact headings use Unbounded and
+ * body/UI text uses Inter so the condensed display drawing is not forced
+ * into raster-sensitive sizes.
  */
 @font-face {
     font-family: 'Boldonese Cyrillic';
-    src: url('/fonts/BoldoneseCyrillic-Regular.woff2') format('woff2');
+    src: url('/fonts/BoldoneseCyrillic-Regular.woff2?v=91') format('woff2');
     font-weight: 400;
     font-style: normal;
     font-display: swap;
-    unicode-range:
-        U+0020-007E,
-        U+00A0-00FF,
-        U+0400-04FF,
-        U+0500-052F,
-        U+2DE0-2DFF,
-        U+A640-A69F;
 }
 
 :root {
     --font-eh-display: 'Boldonse', 'Unbounded', sans-serif;
+    --font-eh-brand-display: 'Boldonse', 'Unbounded', sans-serif;
+    --font-eh-wordmark: 'Boldonse', 'Unbounded', sans-serif;
     --font-eh-body: 'Inter Variable', Arial, sans-serif;
 }
 
 :root:lang(ru) {
-    --font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif;
-}
-
-/* Cyrillic display metrics need more leading than the Latin Boldonse stack.
- * Important beats Tailwind leading utilities on the same element.
- */
-:root:lang(ru) .font-display {
-    line-height: 1.2 !important;
-    letter-spacing: -0.02em;
-}
-
-:root:lang(ru) h1.font-display {
-    line-height: 1.35 !important;
+    --font-eh-display: 'Unbounded', Arial, sans-serif;
+    --font-eh-brand-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif;
 }

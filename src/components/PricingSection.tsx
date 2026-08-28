@@ -218,7 +218,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                 <span id="pricing" className="block scroll-mt-20" aria-hidden="true" />
                 <div className="mx-auto max-w-7xl">
                     <div className={`mb-12 flex items-end justify-between border-b-4 pb-4 ${s.border}`}>
-                        <h2 id="plans-heading" className="font-display text-6xl tracking-tighter md:text-8xl">{copy.title}</h2>
+                        <h2 id="plans-heading" className="font-brand-display text-6xl tracking-tighter md:text-8xl">{copy.title}</h2>
                         <span className="mb-2 hidden font-mono text-sm md:block">{copy.subtitle}</span>
                     </div>
 
@@ -252,7 +252,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                             return (
                                 <div
                                     key={key}
-                                    className={`pricing-plan-card relative grid grid-cols-1 items-center gap-6 border-t-2 md:grid-cols-12 md:gap-4 ${highlight ? `border-b-2 py-12 ${s.secondaryBg}` : 'py-8'} ${s.border}`}
+                                    className={`pricing-plan-card relative grid grid-cols-1 items-start gap-6 border-t-2 md:grid-cols-12 md:gap-4 ${highlight ? `border-b-2 py-12 ${s.secondaryBg}` : 'py-8'} ${s.border}`}
                                 >
                                     {highlight && (
                                         <div className={`absolute left-0 top-0 px-2 py-1 text-[10px] font-bold uppercase tracking-widest ${s.accent} ${s.accentText}`}>
@@ -260,12 +260,12 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                                         </div>
                                     )}
 
-                                    <div className="col-span-3">
-                                        <h3 className={`font-display ${highlight ? 'text-4xl' : 'text-3xl'}`}>{canonicalPlanName}</h3>
+                                    <div className="col-span-3 min-w-0">
+                                        <h3 className={`break-words ${highlight ? 'font-brand-display text-4xl' : 'font-display text-3xl'}`}>{canonicalPlanName}</h3>
                                         <p className="mt-1 text-sm">{planTranslations.description}</p>
                                     </div>
 
-                                    <div className={`col-span-2 font-mono font-bold ${highlight ? 'text-3xl' : 'text-2xl'}`}>
+                                    <div className={`col-span-2 min-w-0 font-mono font-bold ${highlight ? 'text-3xl' : 'text-2xl'}`}>
                                         {priceDisplay.label}
                                         {priceDisplay.hasPrice && <span className="block text-[11px] uppercase tracking-wide">{copy.month}</span>}
                                     </div>

@@ -93,6 +93,20 @@
     }
 }
 
+@layer utilities {
+    :root:lang(ru) .font-brand-display {
+        letter-spacing: -0.02em;
+        line-height: 1.3;
+        overflow-wrap: normal;
+        word-break: normal;
+    }
+
+    :root:lang(ru) .hero-headline,
+    :root:lang(ru) .brand-display-stack {
+        line-height: 1.1;
+    }
+}
+
 html {
     scroll-behavior: smooth;
 }
