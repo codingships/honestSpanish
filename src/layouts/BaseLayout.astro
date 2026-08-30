@@ -4,6 +4,7 @@ import '../styles/global.css';
 import CookieBanner from '../components/CookieBanner.astro';
 import DemoGuide from '../components/DemoGuide.astro';
 import EnvironmentBanner from '../components/EnvironmentBanner.astro';
+import FontPreloads from '../components/FontPreloads.astro';
 import {
   PUBLIC_LANGS,
   absolutePublicUrl,
@@ -87,6 +88,7 @@ const getAlternateUrl = (targetLang: PublicLang): string => {
 
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <FontPreloads lang={pageLang} />
 
     <title>{title}</title>
     <meta name="description" content={description} />

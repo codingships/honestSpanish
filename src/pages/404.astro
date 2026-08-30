@@ -1,18 +1,49 @@
 ---
 import '../styles/fonts.css';
+import FontPreloads from '../components/FontPreloads.astro';
 
-// 404 page - detects language or defaults to Spanish
 Astro.response.status = 404;
 Astro.response.headers.set('x-robots-tag', 'noindex, nofollow');
+
+type PageLang = 'es' | 'en' | 'ru';
+
+const pathLang = Astro.url.pathname.match(/^\/(es|en|ru)(?:\/|$)/u)?.[1];
+const acceptedLangs = (Astro.request.headers.get('accept-language') || '')
+    .toLowerCase()
+    .split(',')
+    .map((entry) => entry.trim().split(';')[0]?.split('-')[0])
+    .filter((entry): entry is PageLang => entry === 'es' || entry === 'en' || entry === 'ru');
+const pageLang: PageLang = pathLang === 'es' || pathLang === 'en' || pathLang === 'ru'
+    ? pathLang
+    : acceptedLangs[0] || 'es';
+const texts = {
+    es: {
+        title: 'Página no encontrada',
+        message: '¡Vaya! Parece que esta página se ha perdido en la traducción. No te preocupes, incluso los mejores lingüistas se pierden a veces.',
+        button: 'Volver al inicio',
+    },
+    en: {
+        title: 'Page not found',
+        message: 'Oops! It seems this page got lost in translation. Don\'t worry, even the best linguists get lost sometimes.',
+        button: 'Back to home',
+    },
+    ru: {
+        title: 'Страница не найдена',
+        message: 'Упс! Похоже, эта страница потерялась в переводе. Не волнуйтесь, даже лучшие лингвисты иногда теряются.',
+        button: 'На главную',
+    },
+} as const;
+const copy = texts[pageLang];
 ---
 
 <!DOCTYPE html>
-<html lang="es">
+<html lang={pageLang}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="robots" content="noindex, nofollow">
-    <title>Página no encontrada | Español Honesto</title>
+    <title>{copy.title} | Español Honesto</title>
+    <FontPreloads lang={pageLang} />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -34,6 +65,8 @@ Astro.response.headers.set('x-robots-tag', 'noindex, nofollow');
         
         .error-code {
             font-family: var(--font-eh-display);
+            font-style: normal;
+            font-weight: 400;
             font-size: 120px;
             color: #006064;
             line-height: 1;
@@ -46,6 +79,8 @@ Astro.response.headers.set('x-robots-tag', 'noindex, nofollow');
         
         .title {
             font-family: var(--font-eh-display);
+            font-style: normal;
+            font-weight: 400;
             font-size: 24px;
             color: #006064;
             margin-bottom: 15px;
@@ -103,60 +138,10 @@ Astro.response.headers.set('x-robots-tag', 'noindex, nofollow');
     <main class="container">
         <div class="emoji">🤷‍♂️</div>
         <div class="error-code">404</div>
-        <h1 class="title">Página no encontrada</h1>
-        <p class="message">
-            ¡Vaya! Parece que esta página se ha perdido en la traducción. 
-            No te preocupes, incluso los mejores lingüistas se pierden a veces.
-        </p>
-        <a href="/es" class="btn" id="home-btn">Volver al inicio</a>
+        <h1 class="title">{copy.title}</h1>
+        <p class="message">{copy.message}</p>
+        <a href={`/${pageLang}`} class="btn" id="home-btn">{copy.button}</a>
         <p class="brand">ESPAÑOL HONESTO</p>
     </main>
-
-    <script>
-        // Try to detect language from URL or browser
-        const path = window.location.pathname;
-        const langMatch = path.match(/^\/(es|en|ru)/);
-        type PageLang = 'es' | 'en' | 'ru';
-        const detectedLang = langMatch?.[1];
-        const lang: PageLang = detectedLang === 'es' || detectedLang === 'en' || detectedLang === 'ru'
-            ? detectedLang
-            :
-            (navigator.language.startsWith('ru') ? 'ru' : 
-             navigator.language.startsWith('en') ? 'en' : 'es');
-        
-        const btn = document.getElementById('home-btn');
-        if (btn instanceof HTMLAnchorElement) {
-            btn.href = '/' + lang;
-        }
-        
-        // Update text based on language
-        const texts = {
-            es: {
-                title: 'Página no encontrada',
-                message: '¡Vaya! Parece que esta página se ha perdido en la traducción. No te preocupes, incluso los mejores lingüistas se pierden a veces.',
-                btn: 'Volver al inicio'
-            },
-            en: {
-                title: 'Page not found',
-                message: 'Oops! It seems this page got lost in translation. Don\'t worry, even the best linguists get lost sometimes.',
-                btn: 'Back to home'
-            },
-            ru: {
-                title: 'Страница не найдена',
-                message: 'Упс! Похоже, эта страница потерялась в переводе. Не волнуйтесь, даже лучшие лингвисты иногда теряются.',
-                btn: 'На главную'
-            }
-        };
-        
-        const t = texts[lang];
-        const title = document.querySelector<HTMLElement>('.title');
-        const message = document.querySelector<HTMLElement>('.message');
-        const homeButton = document.getElementById('home-btn');
-        if (title) title.textContent = t.title;
-        if (message) message.textContent = t.message;
-        if (homeButton) homeButton.textContent = t.btn;
-        document.documentElement.lang = lang;
-        document.title = `${t.title} | Español Honesto`;
-    </script>
 </body>
 </html>

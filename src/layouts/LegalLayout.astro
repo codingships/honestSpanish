@@ -1,5 +1,7 @@
 ---
 import '../styles/fonts.css';
+import FontPreloads from '../components/FontPreloads.astro';
+import { isPublicLang, type PublicLang } from '../lib/public-seo';
 
 interface Props {
     title: string;
@@ -9,6 +11,8 @@ interface Props {
 }
 
 const { title, description, lastUpdated, lang } = Astro.props;
+if (!isPublicLang(lang)) throw new Error('Unsupported legal page language: ' + lang);
+const pageLang: PublicLang = lang;
 
 const legalLinks = {
     es: [
@@ -45,7 +49,7 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
 ---
 
 <!DOCTYPE html>
-<html lang={lang}>
+<html lang={pageLang}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -53,6 +57,7 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
     <meta name="description" content={description}>
     <meta name="robots" content={stagingNoindex ? 'noindex, nofollow' : 'noindex, follow'}>
     <link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png">
+    <FontPreloads lang={pageLang} />
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -157,6 +162,8 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         
         .article-header h1 {
             font-family: var(--font-eh-display);
+            font-style: normal;
+            font-weight: 400;
             font-size: 1.875rem;
             color: #006064;
             margin-bottom: 0.5rem;
@@ -173,6 +180,8 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         
         .content h2 {
             font-family: var(--font-eh-display);
+            font-style: normal;
+            font-weight: 400;
             font-size: 1.25rem;
             color: #006064;
             margin-top: 2rem;
@@ -181,6 +190,8 @@ const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase
         
         .content h3 {
             font-family: var(--font-eh-display);
+            font-style: normal;
+            font-weight: 400;
             font-size: 1.125rem;
             color: #006064;
             margin-top: 1.5rem;

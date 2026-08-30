@@ -48,8 +48,21 @@ test.describe('Legal and system public pages', () => {
 
         expect(response?.status()).toBe(404);
         expect(response?.headers()['x-robots-tag']).toContain('noindex');
+        await expect(page.locator('html')).toHaveAttribute('lang', 'en');
         await expect(page.locator('.error-code')).toHaveText('404');
+        await expect(page.locator('.title')).toHaveText('Page not found');
         await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
         await expect(page.locator('#home-btn')).toHaveAttribute('href', '/en');
+    });
+
+    test('Russian 404 is localized before paint and preloads its display face', async ({ page }) => {
+        const response = await page.goto('/ru/strict-qa-missing-page', { waitUntil: 'domcontentloaded' });
+
+        expect(response?.status()).toBe(404);
+        await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
+        await expect(page.locator('.title')).toHaveText('Страница не найдена');
+        await expect(page.locator('#home-btn')).toHaveAttribute('href', '/ru');
+        await expect(page.locator('link[rel~="preload"][as="font"][href*="BoldoneseCyrillic-Regular"]'))
+            .toHaveCount(1);
     });
 });

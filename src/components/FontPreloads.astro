@@ -1,0 +1,17 @@
+---
+import boldonseLatinUrl from '@fontsource/boldonse/files/boldonse-latin-400-normal.woff2?url';
+import boldoneseCyrillicUrl from '../assets/fonts/BoldoneseCyrillic-Regular.woff2?url';
+
+interface Props {
+  lang: 'es' | 'en' | 'ru';
+}
+
+const { lang } = Astro.props;
+const fontUrls = lang === 'ru'
+  ? [boldoneseCyrillicUrl, boldonseLatinUrl]
+  : [boldonseLatinUrl];
+---
+
+{fontUrls.map((href) => (
+  <link rel="preload" href={href} as="font" type="font/woff2" crossorigin="anonymous" />
+))}

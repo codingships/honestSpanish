@@ -230,7 +230,7 @@ for (const locale of ['es', 'en', 'ru'] as const) {
             expect(typography.loadedFamilies).toContain('Boldonese Cyrillic');
             expect(typography.coverage.brandCyrillic).toBe(true);
             expect(typography.coverage.displayCyrillic).toBe(true);
-            expect(fontRequests.some((url) => url.includes('/fonts/BoldoneseCyrillic-Regular.woff2'))).toBe(true);
+            expect(fontRequests.some((url) => url.includes('BoldoneseCyrillic-Regular'))).toBe(true);
         }
         expect(typography.layout.hero).not.toBeNull();
         expect(typography.layout.method).not.toBeNull();
@@ -258,7 +258,9 @@ for (const locale of ['es', 'en', 'ru'] as const) {
         expect(thirdPartyRequests).toEqual([]);
 
         if (locale === 'ru') {
-            const deployedFont = await page.request.get('/fonts/BoldoneseCyrillic-Regular.woff2?v=91');
+            const deployedFontUrl = fontRequests.find((url) => url.includes('BoldoneseCyrillic-Regular'));
+            expect(deployedFontUrl).toBeDefined();
+            const deployedFont = await page.request.get(deployedFontUrl!);
             expect(deployedFont.ok()).toBe(true);
             expect(deployedFont.headers()['content-type']).toMatch(/(?:font\/woff2|application\/font-woff2)/i);
             const deployedHash = createHash('sha256').update(await deployedFont.body()).digest('hex');
