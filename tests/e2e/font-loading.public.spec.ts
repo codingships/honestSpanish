@@ -190,7 +190,7 @@ test('ES to RU keeps the Cyrillic hero invisible until the preloaded face is rea
             'text-shadow:none!important;',
             '}',
         ].join('');
-        document.head.append(style);
+        document.head.appendChild(style);
     }, heroSelector);
     await waitForTwoFrames(page);
     const transparentControlPixels = await captureClip(session, heroClip);
