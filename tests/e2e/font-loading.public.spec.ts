@@ -2,9 +2,8 @@ import { expect, test, type CDPSession, type Page } from '@playwright/test';
 
 const cyrillicDisplayFontName = 'BoldoneseCyrillic-Regular';
 const cyrillicDisplayFamily = 'Boldonese Cyrillic';
-// Keep the synthetic delay below Chromium's short `font-display: fallback`
-// block period. A slower response may legitimately reveal the fallback face.
-const moderateFontDelayMs = 75;
+const heroSelector = '.hero-headline';
+const delayedFontMs = 800;
 
 type PlatformFont = {
     familyName: string;
@@ -12,9 +11,12 @@ type PlatformFont = {
     isCustomFont: boolean;
 };
 
-type PlatformFontSample = {
-    elapsedMs: number;
-    fonts: PlatformFont[];
+type ScreenshotClip = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    scale: number;
 };
 
 async function platformFontsForSelector(
@@ -35,76 +37,196 @@ async function platformFontsForSelector(
     return fonts as PlatformFont[];
 }
 
-async function waitForCyrillicDisplayFont(
-    page: Page,
-    session: CDPSession,
-): Promise<PlatformFontSample[]> {
-    const startedAt = Date.now();
-    const samples: PlatformFontSample[] = [];
-
-    while (Date.now() - startedAt < 3000) {
-        try {
-            const fonts = (await platformFontsForSelector(session, '.hero-headline'))
-                .filter((font) => font.glyphCount > 0);
-            samples.push({
-                elapsedMs: Date.now() - startedAt,
-                fonts,
-            });
-            if (fonts.some((font) => font.familyName === cyrillicDisplayFamily && font.isCustomFont)) {
-                return samples;
-            }
-        } catch {
-            // The document or CSS agent can be between states during a full navigation.
-        }
-        await page.waitForTimeout(5);
-    }
-
-    return samples;
+async function screenshotClipForSelector(page: Page, selector: string): Promise<ScreenshotClip> {
+    return page.locator(selector).evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const x = Math.floor(bounds.left + window.scrollX);
+        const y = Math.floor(bounds.top + window.scrollY);
+        const right = Math.ceil(bounds.right + window.scrollX);
+        const bottom = Math.ceil(bounds.bottom + window.scrollY);
+        return {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+            scale: 1,
+        };
+    });
 }
 
-test('ES to RU preloads the Cyrillic display face before first paint', async ({
+async function captureClip(session: CDPSession, clip: ScreenshotClip): Promise<string> {
+    const { data } = await session.send('Page.captureScreenshot', {
+        format: 'png',
+        fromSurface: true,
+        captureBeyondViewport: true,
+        clip,
+    });
+    return data;
+}
+
+async function waitForTwoFrames(page: Page): Promise<void> {
+    await page.evaluate(() => new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }));
+}
+
+test('ES to RU keeps the Cyrillic hero invisible until the preloaded face is ready', async ({
     browserName,
     context,
     page,
 }, testInfo) => {
     test.skip(
         browserName !== 'chromium' || testInfo.project.name !== 'public',
-        'Platform-font inspection and stable paint timing require desktop Chromium.',
+        'Pixel capture and platform-font inspection require desktop Chromium.',
     );
 
     await page.goto('/es');
     await page.evaluate(() => document.fonts.ready);
 
     const session = await context.newCDPSession(page);
+    await session.send('Page.enable');
     await session.send('DOM.enable');
     await session.send('CSS.enable');
     await session.send('Network.enable');
     await session.send('Network.setCacheDisabled', { cacheDisabled: true });
 
+    let resolveFontRequestStarted!: (url: string) => void;
+    const fontRequestStarted = new Promise<string>((resolve) => {
+        resolveFontRequestStarted = resolve;
+    });
+    let resolveFontResponseFinished!: () => void;
+    const fontResponseFinished = new Promise<void>((resolve) => {
+        resolveFontResponseFinished = resolve;
+    });
+    let releaseFontAfterControl!: () => void;
+    const transparentControlCaptured = new Promise<void>((resolve) => {
+        releaseFontAfterControl = resolve;
+    });
+    let fontResponseCompleted = false;
+
     await page.route(`**/*${cyrillicDisplayFontName}*.woff2*`, async (route) => {
-        await new Promise((resolve) => setTimeout(resolve, moderateFontDelayMs));
+        resolveFontRequestStarted(route.request().url());
+        await Promise.all([
+            new Promise((resolve) => setTimeout(resolve, delayedFontMs)),
+            transparentControlCaptured,
+        ]);
         await route.continue();
+    });
+    page.on('response', (response) => {
+        if (!response.url().includes(cyrillicDisplayFontName)) return;
+        void response.finished().then(() => {
+            fontResponseCompleted = true;
+            resolveFontResponseFinished();
+        });
     });
 
     await Promise.all([
         page.waitForURL('**/ru', { waitUntil: 'commit' }),
         page.locator('a[hreflang="ru"]:visible').first().click({ noWaitAfter: true }),
     ]);
-    await page.locator('.hero-headline').waitFor({ state: 'attached' });
+    const requestedFontUrl = await fontRequestStarted;
+    await page.locator(heroSelector).waitFor({ state: 'attached' });
 
-    const platformFontSamples = await waitForCyrillicDisplayFont(page, session);
+    await page.addStyleTag({
+        content: [
+            '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}',
+            'html{scroll-behavior:auto!important}',
+        ].join(''),
+    });
+    await waitForTwoFrames(page);
+
+    const fontFaceDisplay = await page.evaluate((family) => {
+        const normalizedFamily = family.toLowerCase();
+        const visit = (rules: CSSRuleList): string | null => {
+            for (const rule of Array.from(rules)) {
+                if (rule.type === CSSRule.FONT_FACE_RULE) {
+                    const style = (rule as CSSFontFaceRule).style;
+                    const ruleFamily = style.getPropertyValue('font-family')
+                        .replace(/["']/g, '')
+                        .trim()
+                        .toLowerCase();
+                    if (ruleFamily === normalizedFamily) {
+                        return style.getPropertyValue('font-display').trim();
+                    }
+                }
+                const nestedRules = (rule as CSSRule & { cssRules?: CSSRuleList }).cssRules;
+                if (nestedRules) {
+                    const result = visit(nestedRules);
+                    if (result) return result;
+                }
+            }
+            return null;
+        };
+
+        for (const stylesheet of Array.from(document.styleSheets)) {
+            try {
+                const result = visit(stylesheet.cssRules);
+                if (result) return result;
+            } catch {
+                // Ignore stylesheets whose rules are unavailable to the page.
+            }
+        }
+        return null;
+    }, cyrillicDisplayFamily);
+    expect(requestedFontUrl).toContain(cyrillicDisplayFontName);
+    expect(fontFaceDisplay).toBe('block');
+    expect(fontResponseCompleted).toBe(false);
+
+    const heroClip = await screenshotClipForSelector(page, heroSelector);
+    const blockedHeroPixels = await captureClip(session, heroClip);
+
+    await page.evaluate((selector) => {
+        const target = document.querySelector<HTMLElement>(selector);
+        if (!target) throw new Error(`Missing font-loading target: ${selector}`);
+        target.dataset.fontLoadingTransparentControl = 'true';
+        const style = document.createElement('style');
+        style.id = 'font-loading-transparent-control';
+        style.textContent = [
+            '[data-font-loading-transparent-control="true"],',
+            '[data-font-loading-transparent-control="true"] *{',
+            'color:transparent!important;',
+            '-webkit-text-fill-color:transparent!important;',
+            '-webkit-text-stroke-color:transparent!important;',
+            'text-shadow:none!important;',
+            '}',
+        ].join('');
+        document.head.append(style);
+    }, heroSelector);
+    await waitForTwoFrames(page);
+    const transparentControlPixels = await captureClip(session, heroClip);
+
+    expect(
+        blockedHeroPixels,
+        'The delayed hero painted visible fallback glyphs during the font-display block period.',
+    ).toBe(transparentControlPixels);
+    releaseFontAfterControl();
+
+    await page.evaluate((selector) => {
+        document.querySelector('#font-loading-transparent-control')?.remove();
+        delete document.querySelector<HTMLElement>(selector)?.dataset.fontLoadingTransparentControl;
+    }, heroSelector);
+
+    await fontResponseFinished;
     await page.evaluate(() => document.fonts.ready);
+    await page.waitForFunction(
+        ([family, text]) => document.fonts.check(`400 96px "${family}"`, text),
+        [cyrillicDisplayFamily, 'ЖИТЬ В ИСПАНИИ'],
+    );
+    await waitForTwoFrames(page);
+
+    const loadedHeroPixels = await captureClip(session, heroClip);
+    const loadedPlatformFonts = (await platformFontsForSelector(session, heroSelector))
+        .filter((font) => font.glyphCount > 0);
+
     await page.waitForFunction(
         () => performance.getEntriesByName('first-contentful-paint').length > 0,
     );
-
-    const loadingEvidence = await page.evaluate((fontName) => {
+    const loadingEvidence = await page.evaluate((fontUrl) => {
         const preload = Array.from(
             document.querySelectorAll<HTMLLinkElement>('link[rel~="preload"][as="font"]'),
-        ).find((link) => new URL(link.href).pathname.includes(fontName));
-        const preloadUrl = preload?.href;
+        ).find((link) => link.href === fontUrl);
         const resource = (performance.getEntriesByType('resource') as PerformanceResourceTiming[])
-            .find((entry) => entry.name === preloadUrl);
+            .find((entry) => entry.name === fontUrl);
         const firstContentfulPaint = performance.getEntriesByName('first-contentful-paint')[0];
 
         return {
@@ -114,20 +236,21 @@ test('ES to RU preloads the Cyrillic display face before first paint', async ({
                 type: preload.type,
             } : null,
             resource: resource ? {
+                duration: resource.duration,
                 initiatorType: resource.initiatorType,
+                responseEnd: resource.responseEnd,
                 startTime: resource.startTime,
             } : null,
             firstContentfulPaint: firstContentfulPaint?.startTime ?? null,
         };
-    }, cyrillicDisplayFontName);
+    }, requestedFontUrl);
 
-    const fontsSeenBeforeTarget = platformFontSamples
-        .slice(0, Math.max(platformFontSamples.length - 1, 0))
-        .flatMap((sample) => sample.fonts);
-    const targetWasPainted = platformFontSamples.some((sample) => sample.fonts.some(
-        (font) => font.familyName === cyrillicDisplayFamily && font.isCustomFont,
-    ));
-
+    expect(
+        loadedHeroPixels,
+        'The hero remained visually empty after the Cyrillic display font loaded.',
+    ).not.toBe(blockedHeroPixels);
+    expect(loadedPlatformFonts.some((font) =>
+        font.familyName === cyrillicDisplayFamily && font.isCustomFont)).toBe(true);
     expect(loadingEvidence.preload).not.toBeNull();
     expect(loadingEvidence.preload!.type).toBe('font/woff2');
     expect(loadingEvidence.preload!.crossOrigin).toBe('anonymous');
@@ -138,12 +261,8 @@ test('ES to RU preloads the Cyrillic display face before first paint', async ({
     expect(loadingEvidence.resource!.startTime).toBeLessThanOrEqual(
         loadingEvidence.firstContentfulPaint!,
     );
-    expect(
-        fontsSeenBeforeTarget,
-        `A system fallback was selected before ${cyrillicDisplayFamily}: ${JSON.stringify(platformFontSamples)}`,
-    ).toEqual([]);
-    expect(
-        targetWasPainted,
-        `${cyrillicDisplayFamily} was not painted: ${JSON.stringify(platformFontSamples)}`,
-    ).toBe(true);
+    expect(loadingEvidence.resource!.responseEnd).toBeGreaterThan(
+        loadingEvidence.resource!.startTime,
+    );
+    expect(loadingEvidence.resource!.duration).toBeGreaterThanOrEqual(delayedFontMs);
 });
