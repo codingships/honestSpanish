@@ -36,7 +36,7 @@ describe('self-hosted multilingual typography', () => {
         expect(fontCss).toContain("@fontsource-variable/inter/wght.css");
         expect(fontCss).toContain("font-family: 'Boldonese Cyrillic'");
         expect(fontCss).toContain("../assets/fonts/BoldoneseCyrillic-Regular.woff2");
-        expect(fontCss.match(/font-display: fallback/gu)).toHaveLength(3);
+        expect(fontCss.match(/font-display: block/gu)).toHaveLength(3);
         expect(fontCss).toContain('unicode-range');
         expect(fontCss).toContain(":root:lang(ru)");
         expect(fontCss).toContain("--font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
