@@ -25,10 +25,11 @@ describe('hosted response security headers', () => {
             .map((section) => section.trim())
             .filter(Boolean);
 
-        expect(sections).toHaveLength(15);
+        expect(sections).toHaveLength(16);
         expect(sections[0]).toMatch(/^\/\*\r?\n/u);
-        expect(sections[1]).toMatch(/^\/api\/\*\r?\n/u);
-        expect(sections[2]).toMatch(/^\/og\/\*\r?\n/u);
+        expect(sections[1]).toMatch(/^\/_astro\/\*\r?\n/u);
+        expect(sections[2]).toMatch(/^\/api\/\*\r?\n/u);
+        expect(sections[3]).toMatch(/^\/og\/\*\r?\n/u);
 
         for (const [name, value] of Object.entries(HOSTED_SECURITY_HEADERS)) {
             expect(sections[0]).toContain(`${name}: ${value}`);
@@ -38,11 +39,13 @@ describe('hosted response security headers', () => {
         expect(sections[0]).toContain(`Content-Security-Policy: ${CSP_HEADER_BASELINE}`);
         expect(sections[0]).not.toContain("'unsafe-inline'");
         expect(sections[0]).not.toContain('Cache-Control:');
-        expect(sections[1]).toContain(`Cache-Control: ${API_CACHE_CONTROL}`);
+        expect(sections[1]).toContain('Cache-Control: public, max-age=31536000, immutable');
         expect(sections[1].match(/Cache-Control:/gu)).toHaveLength(1);
-        expect(sections[2]).toContain('Cache-Control: public, max-age=86400, stale-while-revalidate=604800');
+        expect(sections[2]).toContain(`Cache-Control: ${API_CACHE_CONTROL}`);
         expect(sections[2].match(/Cache-Control:/gu)).toHaveLength(1);
-        for (const section of sections.slice(3)) {
+        expect(sections[3]).toContain('Cache-Control: public, max-age=86400, stale-while-revalidate=604800');
+        expect(sections[3].match(/Cache-Control:/gu)).toHaveLength(1);
+        for (const section of sections.slice(4)) {
             expect(section).toContain(`Cache-Control: ${PUBLIC_SHELL_CACHE_CONTROL}`);
         }
     });

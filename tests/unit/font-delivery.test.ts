@@ -7,6 +7,7 @@ const read = (path: string) => readFileSync(path, 'utf8').replace(/\r\n/g, '\n')
 const fontCss = read('src/styles/fonts.css');
 const globalCss = read('src/styles/global.css');
 const fontNotice = read('public/fonts/NOTICE.txt');
+const fontPreloads = read('src/components/FontPreloads.astro');
 const baseLayout = read('src/layouts/BaseLayout.astro');
 const legalLayout = read('src/layouts/LegalLayout.astro');
 const notFoundPage = read('src/pages/404.astro');
@@ -29,12 +30,14 @@ describe('self-hosted multilingual typography', () => {
     });
 
     it('keeps equivalent display roles across Latin and Russian typography', () => {
-        expect(fontCss).toContain("@fontsource/boldonse/400.css");
+        expect(fontCss).toContain("@fontsource/boldonse/files/boldonse-latin-400-normal.woff2");
+        expect(fontCss).toContain("@fontsource/boldonse/files/boldonse-latin-ext-400-normal.woff2");
         expect(fontCss).toContain("@fontsource/unbounded/700.css");
         expect(fontCss).toContain("@fontsource-variable/inter/wght.css");
         expect(fontCss).toContain("font-family: 'Boldonese Cyrillic'");
-        expect(fontCss).toContain("/fonts/BoldoneseCyrillic-Regular.woff2?v=91");
-        expect(fontCss).not.toContain('unicode-range');
+        expect(fontCss).toContain("../assets/fonts/BoldoneseCyrillic-Regular.woff2");
+        expect(fontCss.match(/font-display: fallback/gu)).toHaveLength(3);
+        expect(fontCss).toContain('unicode-range');
         expect(fontCss).toContain(":root:lang(ru)");
         expect(fontCss).toContain("--font-eh-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
         expect(fontCss).toContain("--font-eh-brand-display: 'Boldonese Cyrillic', 'Unbounded', 'Boldonse', sans-serif");
@@ -50,14 +53,20 @@ describe('self-hosted multilingual typography', () => {
             /:root:lang\(ru\)[^{]*\{[^}]*(?:letter-spacing|line-height|overflow-wrap|word-break)/s,
         );
         expect(fontCss).toContain("--font-eh-body: 'Inter Variable', Arial, sans-serif");
-        expect(existsSync('public/fonts/BoldoneseCyrillic-Regular.woff2')).toBe(true);
+        expect(existsSync('src/assets/fonts/BoldoneseCyrillic-Regular.woff2')).toBe(true);
+        expect(fontPreloads).toContain("../assets/fonts/BoldoneseCyrillic-Regular.woff2?url");
+        expect(fontPreloads).toContain("@fontsource/boldonse/files/boldonse-latin-400-normal.woff2?url");
+        expect(fontPreloads).toContain("lang === 'ru'");
+        for (const layout of [baseLayout, legalLayout, notFoundPage]) {
+            expect(layout).toContain('FontPreloads');
+        }
         expect(existsSync('public/fonts/NOTICE.txt')).toBe(true);
         expect(existsSync('public/fonts/licenses/Boldonse-OFL.txt')).toBe(true);
         expect(existsSync('public/fonts/licenses/Onest-OFL.txt')).toBe(true);
         expect(fontNotice).toContain('Version: v9.1');
 
         const fontHash = createHash('sha256')
-            .update(readFileSync('public/fonts/BoldoneseCyrillic-Regular.woff2'))
+            .update(readFileSync('src/assets/fonts/BoldoneseCyrillic-Regular.woff2'))
             .digest('hex');
         expect(fontHash).toBe('4fca33b1a2401423e9d9aa0b354fc408ff0506001a5b3244aeb2dbdc06e03608');
     });
