@@ -191,6 +191,7 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
     {paymentsError ? (
         <CampusLoadError lang={lang} />
     ) : (
+    <>
     <!-- Header with Metrics -->
     <div class="mb-8">
         <div class="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -339,6 +340,7 @@ const getStripeUrl = (paymentIntentId: string | null, livemode: boolean | null |
             </div>
         )}
     </div>
+    </>
     )}
 </CampusLayout>
 

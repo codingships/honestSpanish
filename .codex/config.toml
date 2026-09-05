@@ -1,0 +1,15 @@
+[mcp_servers.espanolhonesto_searchconsole]
+command = "C:/Program Files/nodejs/node.exe"
+args = ["C:/Users/Alin/Desktop/Academia/pruebas/tools/searchconsole-mcp/dist/server.js"]
+cwd = "C:/Users/Alin/Desktop/Academia/pruebas/tools/searchconsole-mcp"
+env = { GOOGLE_APPLICATION_CREDENTIALS = "C:/Users/Alin/AppData/Roaming/gcloud/application_default_credentials.json" }
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+enabled_tools = [
+  "gsc_mcp_server_ping",
+  "gsc_search_analytics",
+  "gsc_inspect_url",
+  "gsc_list_sitemaps",
+]

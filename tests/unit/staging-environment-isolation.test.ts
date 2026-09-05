@@ -27,11 +27,16 @@ describe('staging environment isolation', () => {
         expect(astroConfig).toContain("'@marsidev/react-turnstile'");
         expect(astroConfig).toContain("'@supabase/ssr'");
         expect(astroConfig).toContain("'react/jsx-dev-runtime'");
+        expect(astroConfig).toContain("'react-dom/server'");
+        expect(astroConfig).toContain(
+            "noExternal: ['react', 'react-dom', '@marsidev/react-turnstile']",
+        );
         expect(astroConfig).toContain('include: e2eSsrOptimizedDependencies');
         expect(astroConfig).toContain("'./src/components/PublicHomePage.astro'");
         expect(astroConfig).toContain("'./src/components/PricingSection.tsx'");
         expect(astroConfig).toContain("'./src/components/LeadCaptureForm.tsx'");
         expect(astroConfig).toContain('preTransformRequests: true');
+        expect(e2eServer).toContain("process.env.E2E_SERVER_MODE || 'built'");
         expect(e2eServer).toContain("? [astroCli, 'build']");
         expect(e2eServer).toContain(": [astroCli, 'sync']");
         expect(e2eServer).toContain("[astroCli, 'dev']");

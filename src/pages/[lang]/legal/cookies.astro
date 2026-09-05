@@ -31,6 +31,11 @@ const content = {
 };
 
 const t = content[lang as keyof typeof content] || content.es;
+const draftNotice = lang === 'en'
+    ? 'DRAFT PENDING LEGAL REVIEW — not valid for enabling real payments.'
+    : lang === 'ru'
+        ? 'ПРОЕКТ ОЖИДАЕТ ЮРИДИЧЕСКОЙ ПРОВЕРКИ — недействителен для включения реальных платежей.'
+        : 'BORRADOR PENDIENTE DE REVISIÓN JURÍDICA — no válido para habilitar pagos reales.';
 ---
 
 <LegalLayout 
@@ -39,6 +44,8 @@ const t = content[lang as keyof typeof content] || content.es;
     lastUpdated={t.lastUpdated}
     lang={lang!}
 >
+    <p><strong>{draftNotice}</strong></p>
+
     {lang === 'es' && (
         <>
             <h2>1. ¿Qué son las cookies?</h2>

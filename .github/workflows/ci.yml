@@ -252,6 +252,9 @@ jobs:
       - name: Run unit tests
         run: pnpm run test:run
 
+      - name: Verify Search Console MCP
+        run: pnpm --filter @espanol-honesto/searchconsole-mcp test
+
       - name: Check fulfillment Worker types
         run: pnpm run fulfillment:typecheck
 

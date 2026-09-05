@@ -28,7 +28,7 @@ describe('runAfterResponse', () => {
         vi.restoreAllMocks();
     });
 
-    it('uses Cloudflare waitUntil from the Astro 6 cfContext without touching the removed runtime.ctx getter', async () => {
+    it('uses Cloudflare waitUntil from the Astro 7 cfContext without touching the removed runtime.ctx getter', async () => {
         const waitUntil = vi.fn();
         const work = Promise.resolve('done');
         const removedRuntime = {};

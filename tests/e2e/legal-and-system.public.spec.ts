@@ -8,6 +8,7 @@ test.describe('Legal and system public pages', () => {
         expect(response?.status()).toBe(200);
         await expect(page.locator('article header h1')).toHaveText('Información legal');
         await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+        await expect(page.locator('article .content > p').first()).toContainText('borradores informativos pendientes');
         await expect(page.locator('article a[href="/es/legal/aviso-legal"]')).toContainText('Aviso Legal');
         await expect(page.locator('article a[href="/es/legal/cookies"]')).toContainText('Política de Cookies');
         await expect(page.locator('article a[href="/es/legal/privacidad"]')).toContainText('Política de Privacidad');
@@ -25,6 +26,7 @@ test.describe('Legal and system public pages', () => {
             expect(response?.status()).toBe(200);
             await expect(page.locator('article header h1')).toBeVisible();
             await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /noindex/);
+            await expect(page.locator('article .content > p').first()).toContainText(/EJEMPLO|PENDIENTE/);
             await expect(page.locator('nav.legal-nav a[href="/es/legal/aviso-legal"]')).toBeVisible();
             await expect(page.locator('nav.legal-nav a[href="/es/legal/cookies"]')).toBeVisible();
             await expect(page.locator('nav.legal-nav a[href="/es/legal/privacidad"]')).toBeVisible();

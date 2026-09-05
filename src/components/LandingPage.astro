@@ -3,9 +3,7 @@ import { useTranslations, getLocalizedPath } from '../i18n/utils';
 import { ui } from '../i18n/translations';
 import type { LandingPackage } from '../lib/landing-data';
 import PricingSection from './PricingSection';
-import madridAtmosphere480 from '../assets/madrid-atmosphere-480.webp';
-import madridAtmosphere768 from '../assets/madrid-atmosphere-768.webp';
-import madridAtmosphere1024 from '../assets/madrid-atmosphere-1024.webp';
+import AtmospherePhoto from './landing/AtmospherePhoto.astro';
 import avatarAlejandro320 from '../assets/avatar-alejandro-team-320.webp';
 import avatarAlejandro480 from '../assets/avatar-alejandro-team-480.webp';
 import avatarAlejandro640 from '../assets/avatar-alejandro-team-640.webp';
@@ -118,7 +116,7 @@ const accessibilityCopy = {
         closeMenu: 'Cerrar menú',
         mobileMenu: 'Menú principal',
         heroAlt: 'Estudiante practicando español',
-        atmosphereAlt: 'Vista urbana de Madrid',
+        atmosphereAlt: 'Personas paseando por la Plaza Mayor de Madrid, ante su fachada y la estatua de Felipe III.',
     },
     en: {
         skip: 'Skip to main content',
@@ -127,7 +125,7 @@ const accessibilityCopy = {
         closeMenu: 'Close menu',
         mobileMenu: 'Main menu',
         heroAlt: 'Student practising Spanish',
-        atmosphereAlt: 'Urban view of Madrid',
+        atmosphereAlt: 'People walking through Madrid’s Plaza Mayor, beside its façades and the statue of Philip III.',
     },
     ru: {
         skip: 'Перейти к основному содержанию',
@@ -136,7 +134,7 @@ const accessibilityCopy = {
         closeMenu: 'Закрыть меню',
         mobileMenu: 'Главное меню',
         heroAlt: 'Ученик практикует испанский язык',
-        atmosphereAlt: 'Городской вид Мадрида',
+        atmosphereAlt: 'Люди гуляют по площади Пласа-Майор в Мадриде, рядом с фасадами зданий и памятником Филиппу III.',
     },
 }[lang];
 
@@ -147,7 +145,7 @@ const courseDetails = {
         includes: [
             'Cuatro clases individuales en directo de 50 minutos por ciclo de 28 días.',
             'Documento vivo de clase con errores, vocabulario y deberes.',
-            'Worksheets y materiales propios sobre vida, trabajo y cultura en España.',
+            'Materiales y tareas conectados con vida, trabajo y cultura en España.',
             'Calendario, enlace de Meet y recordatorios desde el campus.',
             'Profesor y franja semanal identificados antes de pagar.',
         ],
@@ -166,7 +164,7 @@ const courseDetails = {
         includes: [
             'Four live individual 50-minute classes per 28-day cycle.',
             'A living class document with mistakes, vocabulary and homework.',
-            'Original worksheets about life, work and culture in Spain.',
+            'Materials and assignments connected to life, work and culture in Spain.',
             'Calendar, Meet link and reminders from the campus.',
             'Teacher and weekly time identified before payment.',
         ],
@@ -185,7 +183,7 @@ const courseDetails = {
         includes: [
             'Четыре индивидуальных занятия по 50 минут за цикл из 28 дней.',
             'Живой документ урока с ошибками, лексикой и домашними заданиями.',
-            'Авторские worksheets о жизни, работе и культуре в Испании.',
+            'Материалы и задания о жизни, работе и культуре в Испании.',
             'Calendar, ссылка Meet и напоминания из кампуса.',
             'Преподаватель и еженедельное время известны до оплаты.',
         ],
@@ -420,6 +418,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     {/* Hero */}
     <HeroSection 
         lang={lang}
+        photoCarousel
         headline1={t('hero.headline1')}
         headline2={t('hero.headline2')}
         headline3={t('hero.headline3')}
@@ -455,20 +454,7 @@ const getLangLink = (targetLang: Props['lang']) => `/${targetLang}`;
     />
 
     {/* Atmosphere Break */}
-    <div class={`w-full h-64 md:h-96 overflow-hidden border-b-2 ${s.border} relative`}>
-        <img
-            src={madridAtmosphere768.src}
-            srcset={`${madridAtmosphere480.src} 480w, ${madridAtmosphere768.src} 768w, ${madridAtmosphere1024.src} 1024w`}
-            sizes="100vw"
-            alt={accessibilityCopy.atmosphereAlt}
-            width="1024"
-            height="1024"
-            class="w-full h-full object-cover grayscale"
-            loading="lazy"
-            decoding="async"
-        />
-        <div class="absolute inset-0 bg-[#006064]/20 mix-blend-multiply"></div>
-    </div>
+    <AtmospherePhoto imageAlt={accessibilityCopy.atmosphereAlt} />
 
     {/* Tu Progreso / Niveles */}
     <LevelsSection 

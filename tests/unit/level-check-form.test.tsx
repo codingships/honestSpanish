@@ -116,6 +116,25 @@ describe('LevelCheckForm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('localizes API failures instead of exposing raw provider messages', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: false,
+            json: async () => ({ error: 'Raw database failure' }),
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        renderLevelCheckForm();
+        fillRequiredDiagnosticFields();
+        fireEvent.click(document.querySelector('input[name="adultConfirmed"]') as HTMLInputElement);
+        fireEvent.click(consentCheckbox());
+        fireEvent.click(screen.getByRole('button', { name: 'Complete level security check' }));
+        fireEvent.click(screen.getByRole('button', { name: translations.button }));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent(translations.error);
+        expect(alert).not.toHaveTextContent('Raw database failure');
+    });
+
     it('submits diagnostic context with busy semantics and announces success', async () => {
         let resolveFetch: (value: { ok: boolean; json: () => Promise<{ message: string }> }) => void = () => {};
         const pendingFetch = new Promise<{ ok: boolean; json: () => Promise<{ message: string }> }>((resolve) => {
@@ -141,6 +160,8 @@ describe('LevelCheckForm', () => {
         });
 
         const submit = screen.getByRole('button', { name: translations.button });
+        expect(submit).toHaveClass('disabled:bg-[#004d40]', 'disabled:text-white', 'disabled:opacity-100');
+        expect(submit).not.toHaveClass('disabled:opacity-50');
         fireEvent.click(submit);
 
         expect(submit).toBeDisabled();

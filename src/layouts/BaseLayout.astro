@@ -80,7 +80,11 @@ const getAlternateUrl = (targetLang: PublicLang): string => {
 ---
 
 <!doctype html>
-<html lang={pageLang} data-environment-banner={showEnvironmentBanner ? 'true' : undefined}>
+<html
+  lang={pageLang}
+  data-app-environment={appEnvironment || undefined}
+  data-environment-banner={showEnvironmentBanner ? 'true' : undefined}
+>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

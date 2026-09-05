@@ -10,6 +10,15 @@
 - Blog: https://espanolhonesto.com/es/blog
 - Sitemap: https://espanolhonesto.com/sitemap.xml
 
+## Agent-assisted booking
+
+- Compatible browsers can discover page-scoped WebMCP tools on the public academy page.
+- These tools can explain the canonical offer, check explicit fit boundaries, list current public places in a requested time zone, prepare an editable local learning brief and open one place in the visible booking review.
+- Current availability from the public booking endpoint is authoritative and is revalidated before checkout.
+- The learner controls sign-in, the adult declaration, legal and service-start acknowledgements, the anti-abuse check and Stripe-hosted payment.
+- A WebMCP result that prepares a review is not a hold, reservation, purchase or payment confirmation.
+- Browsers without WebMCP retain the complete ordinary booking interface.
+
 ## Initial offer
 
 - One offer only: four individual online classes of 50 minutes.
@@ -27,7 +36,7 @@ The platform does not sell anonymous lesson credits and is not a teacher marketp
 
 The intended journey is offer, available teacher and weekly slot, essential account details and terms, then direct Stripe Checkout. Contact and a light diagnostic remain optional support routes; they are not a mandatory commercial approval.
 
-Checkout stays unavailable while the new contract, real slot inventory, Stripe test flow and launch gates are unfinished. Do not claim that a visitor can currently pay unless the live page visibly offers an enabled checkout for a real slot.
+This static file does not state whether a place is available or whether checkout is open. The live availability shown after selecting "View places" is authoritative: a visitor can continue to payment only when the site returns a currently available teacher-and-time slot and visibly enables checkout for it.
 
 ## Class policies
 
@@ -35,14 +44,15 @@ Checkout stays unavailable while the new contract, real slot inventory, Stripe t
 - A late cancellation or no-show consumes the class unless support records a justified reclassification.
 - If the academy or teacher cancels, the student keeps the class.
 - The academy may propose a substitute teacher and the student may reject that substitution.
-- After completing the first class and before the second begins, the student may request a refund for the remaining three classes. For the EUR 259 version, the contractual reference amount is EUR 194.25.
-- Rescheduling the second class with at least 24 hours' notice preserves the guarantee window. A late cancellation or no-show consumes that second class and closes the window.
-- Using the guarantee invalidates the three remaining sessions, cancels future renewals and cannot be applied twice.
+- In any paid cycle, after one or more classes have been consumed and before the next class begins, the student may end the service and request the contractual value of every class in that cycle that has not been consumed.
+- For the current EUR 259 cycle, the reference refund is EUR 194.25 after one consumed class, EUR 129.50 after two and EUR 64.75 after three. No refund remains after all four classes have been consumed.
+- Rescheduling with at least 24 hours' notice keeps that class unconsumed. A late cancellation or no-show counts as consumed unless support records a justified reclassification.
+- A proportional refund invalidates only the unconsumed sessions in that cycle, cancels future renewals and cannot be applied twice to the same contractual units.
 
 ## Audience boundary
 
 - The service is for adults who want to use Spanish in real situations through individual classes.
-- Initial acquisition is in English for adults who live, work or plan to move to Spain. Spanish is a support language, and Russian is limited to a measured pilot rather than a separate offer.
+- Initial acquisition is in English for adults living in the United States who want to use Spanish in real situations, especially people who live, work, travel or plan to move to Spain. Spanish is a support language, and Russian is limited to a measured pilot rather than a separate offer.
 - Do not impose an unpublished minimum level or claim that one profession or nationality is the exclusive target.
 
 ## Teaching team

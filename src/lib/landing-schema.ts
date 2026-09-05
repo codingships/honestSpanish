@@ -42,7 +42,6 @@ function courseNodes(
             '@type': 'Offer',
             price: String(pkg.price_monthly / 100),
             priceCurrency: 'EUR',
-            availability: 'https://schema.org/OutOfStock',
             url: `${siteUrl}/${lang}#planes`,
         },
         potentialAction: {

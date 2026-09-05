@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useId, useRef, useState } from 'react';
 import type { TurnstileInstance } from '@marsidev/react-turnstile';
 import ResponsiveTurnstile from './ResponsiveTurnstile';
 import { formatPackagePrice } from '../lib/package-pricing';
-import { buildCheckoutLoginUrl, parseBookableSlotsResponse } from '../lib/public-checkout-ui';
+import { buildCheckoutLoginUrl } from '../lib/public-checkout-ui';
+import { fetchPublicAvailability } from '../lib/public-availability-client';
 import {
     captureAcquisitionAttribution,
     type AcquisitionAttribution,
@@ -217,17 +218,7 @@ export default function PricingModal({
 
         void (async () => {
             try {
-                const response = await fetch('/api/bookable-slots', {
-                    method: 'GET',
-                    cache: 'no-store',
-                    headers: { Accept: 'application/json' },
-                    signal: controller.signal,
-                });
-                const payload: unknown = await response.json().catch(() => null);
-                if (!response.ok) throw new Error(t.availabilityError);
-
-                const parsed = parseBookableSlotsResponse(payload);
-                if (!parsed) throw new Error(t.availabilityError);
+                const parsed = await fetchPublicAvailability({ signal: controller.signal });
                 setCheckoutEnabled(parsed.checkoutEnabled);
                 onCheckoutStatus?.(parsed.checkoutEnabled ? 'open' : 'closed');
                 const nextSlots = parsed.slots.filter(
@@ -388,9 +379,8 @@ export default function PricingModal({
         };
     }, [closeModal, isOpen, plan]);
 
-    if (!isOpen || !plan) return null;
-
     const selectedSlot = slots.find((slot) => slot.publicId === selectedSlotPublicId) ?? null;
+    if (!isOpen || !plan) return null;
 
     const loginWithSelection = (attribution?: AcquisitionAttribution | null) => {
         if (!selectedSlot) return;

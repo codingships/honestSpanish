@@ -1,7 +1,6 @@
 import { defineConfig, sessionDrivers } from 'astro/config';
 import cloudflare from '@astrojs/cloudflare';
 import react from '@astrojs/react';
-import tailwind from '@astrojs/tailwind';
 import keystatic from '@keystatic/astro';
 
 import markdoc from '@astrojs/markdoc';
@@ -28,7 +27,7 @@ const e2eSsrOptimizedDependencies = [
     'react-dom/server',
 ];
 if (!e2eRuntimeIsolated && !process.env.CLOUDFLARE_ENV) {
-    // Astro 6/@astrojs-cloudflare selects Wrangler environments with
+    // @astrojs/cloudflare selects Wrangler environments with
     // CLOUDFLARE_ENV. Local commands must fail safe to staging.
     process.env.CLOUDFLARE_ENV = 'staging';
 }
@@ -183,6 +182,9 @@ export default defineConfig({
     // middleware correctly snapshots PUBLIC_APP_ENV_INVALID into static pages.
     site: e2eRuntimeIsolated ? 'http://localhost:4321' : 'https://espanolhonesto.com',
     output: 'server',
+    // Preserve Astro 6 whitespace semantics while the public surface is
+    // visually revalidated under Astro 7.
+    compressHTML: true,
     markdown: {
         // Shiki emits inline styles that cannot satisfy Astro's hash-based CSP.
         syntaxHighlight: 'prism',
@@ -235,7 +237,14 @@ export default defineConfig({
         ...(e2eRuntimeIsolated ? {
             envDir: fileURLToPath(e2eRuntimeRoot),
             cacheDir: path.join(process.cwd(), 'node_modules', '.vite-e2e'),
-            environments: {
+        } : {}),
+        environments: {
+            prerender: {
+                resolve: {
+                    noExternal: ['react', 'react-dom', '@marsidev/react-turnstile'],
+                },
+            },
+            ...(e2eRuntimeIsolated ? {
                 ssr: {
                     optimizeDeps: {
                         include: e2eSsrOptimizedDependencies,
@@ -250,8 +259,8 @@ export default defineConfig({
                         ],
                     },
                 },
-            },
-        } : {}),
+            } : {}),
+        },
         define: {
             __SENTRY_DSN__: JSON.stringify(sentryDsn),
             __SENTRY_ENVIRONMENT__: JSON.stringify(sentryEnvironment),
@@ -286,9 +295,7 @@ export default defineConfig({
             remoteBindings: false,
         } : {}),
     }),
-    integrations: [...(e2eRuntimeIsolated ? [e2eRuntimeProcessGuard] : []), react(), markdoc(), ...(keystaticEnabled ? [keystatic()] : []), tailwind({
-        applyBaseStyles: false,
-    }),
+    integrations: [...(e2eRuntimeIsolated ? [e2eRuntimeProcessGuard] : []), react(), markdoc(), ...(keystaticEnabled ? [keystatic()] : []),
     ...(sentryIntegrationEnabled ? [sentry({
         org: env.SENTRY_ORG,
         project: env.SENTRY_PROJECT,

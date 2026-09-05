@@ -27,6 +27,7 @@ test.describe('Residual public routes', () => {
         const robotsText = await robots.text();
         const sitemapText = await sitemap.text();
 
+        expect(robotsText).toContain('User-agent: OAI-SearchBot');
         expect(robotsText).toContain('Sitemap: https://espanolhonesto.com/sitemap.xml');
         expect(sitemap.status()).toBe(200);
         expect(sitemap.headers()['content-type']).toContain('application/xml');
@@ -215,6 +216,16 @@ test.describe('Residual public routes', () => {
         await expect(page.getByRole('heading', { level: 1, name: 'Pago cancelado' })).toBeVisible();
         await expect(page.getByRole('link', { name: 'Volver a precios' })).toHaveAttribute('href', '/es/#pricing');
         await expectPageHasNoMojibake(page);
+    });
+
+    test('logout remains a private noindex action route', async ({ page }) => {
+        const response = await page.request.get('/en/logout');
+        const html = await response.text();
+
+        expect(response.status()).toBe(200);
+        expect(response.headers()['x-robots-tag']).toContain('noindex');
+        expect(html).toContain('<meta name="robots" content="noindex, nofollow"');
+        expect(html).not.toContain('rel="canonical"');
     });
 
     test('demo routes are noindex 404s when the guided demo is disabled', async ({ page }) => {

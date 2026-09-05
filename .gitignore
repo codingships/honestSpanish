@@ -38,6 +38,7 @@ tests/e2e/.auth/
 coverage/
 playwright-report/
 test-results/
+output/
 .temp-execution-*.js
 .gemini
 tmp/

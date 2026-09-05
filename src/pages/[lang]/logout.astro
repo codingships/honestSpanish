@@ -1,25 +1,36 @@
 ---
-import { getLocalizedPath } from '../../i18n/utils';
+import { getLangFromParam } from '../../i18n/utils';
 
 export const prerender = false;
 
-const { lang } = Astro.params;
-const stagingNoindex = (import.meta.env.PUBLIC_APP_ENV || '').trim().toLowerCase() === 'staging';
+const lang = getLangFromParam(Astro.params.lang);
+const title = {
+    es: 'Cerrando sesión',
+    en: 'Signing out',
+    ru: 'Выход из аккаунта',
+}[lang];
+Astro.response.headers.set('x-robots-tag', 'noindex, nofollow');
 ---
 
-{stagingNoindex && <meta name="robots" content="noindex, nofollow" />}
+<!doctype html>
+<html lang={lang}>
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="robots" content="noindex, nofollow" />
+        <title>{title} | Español Honesto</title>
+    </head>
+    <body>
+        <script>
+            import { supabase } from '../../lib/supabase';
 
-<script>
-    import { supabase } from '../../lib/supabase';
-    
-    // Perform logout
-    await supabase.auth.signOut();
-    
-    // Redirect to home
-    // We get the lang from the URL to redirect correctly
-    const path = window.location.pathname;
-    const lang = path.split('/')[1] || 'es';
-    window.location.href = `/${lang}`;
-</script>
+            await supabase.auth.signOut();
 
-<p>Logging out...</p>
+            const path = window.location.pathname;
+            const lang = path.split('/')[1] || 'es';
+            window.location.href = `/${lang}`;
+        </script>
+
+        <p>{title}...</p>
+    </body>
+</html>

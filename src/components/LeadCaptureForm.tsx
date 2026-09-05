@@ -58,10 +58,6 @@ interface LeadCaptureFormProps {
     onSuccess?: () => void;
 }
 
-type LeadCaptureResponse = {
-    error?: string;
-};
-
 export default function LeadCaptureForm({ lang, translations: t, onSuccess }: LeadCaptureFormProps) {
     const [formData, setFormData] = useState({
         name: '',
@@ -185,10 +181,8 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                 }),
             });
 
-            const data = await response.json() as LeadCaptureResponse;
-
             if (!response.ok) {
-                throw new Error(data.error || 'Error subscribing');
+                throw new Error(t.error);
             }
 
             setStatus('success');
@@ -212,9 +206,9 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
             } catch {
                 // Session storage can be unavailable in strict privacy modes.
             }
-        } catch (err: unknown) {
+        } catch {
             setStatus('error');
-            setErrorMessage(err instanceof Error ? err.message : t.error);
+            setErrorMessage(t.error);
         }
     };
 
@@ -429,14 +423,14 @@ export default function LeadCaptureForm({ lang, translations: t, onSuccess }: Le
                             hover:bg-[#004d40] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)]
                             active:translate-y-[1px] active:translate-x-[1px] active:shadow-none
                             transition-all
-                            disabled:opacity-50 disabled:cursor-not-allowed
+                            disabled:cursor-not-allowed disabled:bg-[#004d40] disabled:text-white disabled:opacity-100
                         `}
                     >
                         {status === 'loading' ? t.loading : t.button}
                     </button>
 
                     <p className="text-[10px] text-[#006064] text-center">
-                        {lang === 'es' ? '100% privacidad. Cero spam.' : lang === 'en' ? '100% privacy. Zero spam.' : '100% конфиденциальность. Ноль спама.'}
+                        {lang === 'es' ? 'Usaremos tus datos para responder a esta consulta.' : lang === 'en' ? 'We will use your details to respond to this enquiry.' : 'Мы используем ваши данные, чтобы ответить на этот запрос.'}
                     </p>
                 </form>
             )}
