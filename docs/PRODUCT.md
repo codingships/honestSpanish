@@ -8,7 +8,7 @@ El código integrado todavía implementa parte de la oferta anterior en superfic
 
 Español Honesto ofrece clases individuales de español para adultos, orientadas a conversación, cultura y uso real del idioma. El alumno compra una plaza semanal concreta con un profesor identificado; no compra un banco anónimo de horas ni entra en un marketplace.
 
-La captación inicial se realiza en inglés y se dirige a adultos que viven, trabajan o van a trasladarse a España. El español funciona como idioma de apoyo, no como mercado principal de adquisición. El ruso queda limitado a un piloto medido: solo se amplía si sus resultados justifican dedicarle contenido o publicidad. La web puede conservar rutas en español, inglés y ruso, pero todas deben describir el mismo producto.
+La captación inicial se realiza en inglés y se dirige primero a adultos que viven en Estados Unidos y están interesados en usar el español en situaciones reales, con especial relevancia para quienes viven, trabajan, viajan o van a trasladarse a España. El español funciona como idioma de apoyo, no como mercado principal de adquisición. El ruso queda limitado a un piloto medido: solo se amplía si sus resultados justifican dedicarle contenido o publicidad. La web puede conservar rutas en español, inglés y ruso, pero todas deben describir el mismo producto.
 
 El servicio es exclusivamente para mayores de 18 años. Registro y compra exigen una declaración expresa de mayoría de edad; no se recoge fecha de nacimiento ni existe un flujo para menores.
 
@@ -77,9 +77,19 @@ Hasta que se decidan la reserva, los costes compartidos, la fiscalidad y el repa
 
 El recorrido principal es oferta → profesor y franja → cuenta/datos imprescindibles → condiciones → Stripe Checkout. El diagnóstico, los objetivos y las preferencias no constituyen una aprobación manual ni bloquean una plaza por criterio comercial; su ubicación exacta en el recorrido se resolverá al diseñar la experiencia sin alterar la compra directa.
 
+Los agentes pueden participar en ese recorrido mediante WebMCP: consultar la oferta y la disponibilidad pública, comprobar los límites explícitos de encaje, preparar un brief local y abrir una plaza concreta en la revisión visible. La persona mantiene el control de las acciones con efectos jurídicos o económicos: debe identificarse, declarar que es mayor de edad, aceptar las condiciones y el inicio del servicio cuando corresponda, superar el control antiabuso y autorizar el pago alojado en Stripe. El agente no puede completar ni simular esos actos. WebMCP reutiliza la misma oferta, disponibilidad, interfaz y validación del recorrido humano; no crea un motor de reservas paralelo.
+
 El formulario de contacto se mantiene como vía secundaria para dudas, lista de espera o casos que requieran intervención. Un contacto no bloquea la compra directa.
 
 El CRM es propio y vive dentro del admin Astro/Supabase. El contacto es el registro central de la relación; Stripe, sesiones, perfiles y soporte conservan sus fuentes operativas. La atribución mínima conserva landing, referrer y UTM desde la entrada hasta compra, renovación o devolución sin almacenar información excesiva.
+
+## Campus y material de clase
+
+El estado objetivo mantiene el material canónico restringido al equipo. Para cada alumno crea una copia o carpeta de trabajo individual y la comparte con la dirección de correo de su matrícula. Los documentos de trabajo usan el rol de editor cuando la actividad exige escribir; los materiales de referencia usan comentarista o lector según la tarea. El alumno puede mantener el documento abierto durante la clase, interactuar con él y descargar los archivos individuales que tenga permitidos.
+
+No se exige una dirección de Gmail. El alumno puede asociar gratuitamente su correo habitual a una cuenta de Google, que es la opción preferida para el uso continuado. Si no desea una cuenta de Google, el estado objetivo usa el acceso de visitante de Google Drive con verificación por PIN, siempre que la política de Google Workspace de la organización lo permita. La sesión verificada dura siete días; al caducar no se borra el material ni el permiso, pero el alumno debe volver a abrir la invitación original y solicitar otro PIN. La descarga se garantiza por archivo, no como descarga completa de una carpeta.
+
+Esta capacidad está pendiente de desarrollo y acreditación. El flujo integrado actual crea carpetas con permiso `anyone/reader`, añade como máximo un lector nominal sobre la raíz y todavía no implementa roles de editor o comentarista por documento ni la revocación completa de accesos anteriores. El permiso público solo se retira después de crear el acceso nominal equivalente, enviar la invitación necesaria y probar con una identidad externa sin cuenta de Google que apertura, edición o comentario, descarga y reverificación funcionan según el rol asignado. La migración debe conservar una vía de rollback y no puede elevar toda la raíz del alumno a editor.
 
 ## Pagos y proveedores
 
@@ -121,4 +131,6 @@ No son un bloqueo general; detienen únicamente la tarea que dependa de ellos:
 - Cinco franjas concretas de Álex e Irene antes de publicar disponibilidad.
 - Canal y compromiso realista de soporte antes de cobrar.
 - Textos legales, desistimiento, cancelación tardía, privacidad, cookies y retención antes de producción real.
+- Política de Visitor Sharing habilitada por el superadministrador y una dirección externa sin cuenta de Google para acreditar el recorrido de invitación por PIN.
+- Arquitectura de permisos de Drive revisada y migración nominal probada antes de retirar cualquier enlace público.
 - Stripe live, producción, DNS y dinero real siempre requieren autorización explícita.

@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import AcademyWebMcpPanel from './AcademyWebMcpPanel';
 import PricingModal, { type PricingModalTranslations } from './PricingModal';
-import { formatPackagePrice } from '../lib/package-pricing';
+import { formatPackagePrice, INITIAL_INDIVIDUAL_OFFER } from '../lib/package-pricing';
+import type { PublicBookableSlot } from '../lib/public-bookable-slots';
 
 interface Package {
     name: string;
@@ -22,7 +24,6 @@ interface PricingSectionProps {
         };
         month: string;
         select: string;
-        recommended: string;
         applicationNote?: string;
         plans: Record<string, { name: string; description: string; features: string[] }>;
         modal: Partial<PricingModalTranslations>;
@@ -61,7 +62,6 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
         },
         month: t.month || 'cada 28 días',
         select: t.select || 'Seleccionar',
-        recommended: t.recommended || 'Recomendado',
         applicationNote: t.applicationNote || {
             es: 'Las plazas reales con profesor y horario aparecen aquí a medida que se publican. El pago seguirá cerrado hasta que lo habilitemos.',
             en: 'Real places with a teacher and schedule appear here as they are published. Payment remains closed until we enable it.',
@@ -127,6 +127,13 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
         setInitialSlotPublicId(null);
     }, []);
 
+    const webMcpPackage = packages.find((pkg) => pkg.name === INITIAL_INDIVIDUAL_OFFER.packageKey) ?? null;
+    const prepareWebMcpReview = useCallback((slot: PublicBookableSlot) => {
+        if (!webMcpPackage) return false;
+        handleSelectPlan(webMcpPackage, slot.publicId);
+        return true;
+    }, [handleSelectPlan, webMcpPackage]);
+
     useEffect(() => {
         if (typeof window === 'undefined') return;
 
@@ -153,7 +160,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
         return { label: formatPackagePrice(pkg.price_monthly, lang), hasPrice: true };
     };
 
-    const recommendedPlanName = packages[0]?.name;
+    const primaryOfferName = packages[0]?.name;
 
     const getLaunchFeatures = (pkg: Package): string[] => {
         const labels = {
@@ -163,7 +170,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                 cadence: 'Renovación automática cada 28 días',
                 capacity: 'Profesor y franja semanal identificados antes de pagar',
                 guarantee: 'Garantía proporcional sobre las clases no consumidas',
-                materials: 'Documento vivo, worksheets y carpeta de Drive',
+                materials: 'Documento vivo, tareas y carpeta de Drive',
                 calendar: 'Meet y Calendar preparados desde el campus',
                 support: 'Soporte dentro del campus',
             },
@@ -173,7 +180,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                 cadence: 'Automatic renewal every 28 days',
                 capacity: 'Teacher and weekly time identified before payment',
                 guarantee: 'Proportional guarantee for unconsumed classes',
-                materials: 'Live document, worksheets and Drive folder',
+                materials: 'Live document, assignments and Drive folder',
                 calendar: 'Meet and Calendar prepared from the campus',
                 support: 'In-campus support',
             },
@@ -183,7 +190,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                 cadence: 'Автоматическое продление каждые 28 дней',
                 capacity: 'Преподаватель и еженедельное время известны до оплаты',
                 guarantee: 'Пропорциональная гарантия за неиспользованные занятия',
-                materials: 'Живой документ, worksheets и папка Drive',
+                materials: 'Живой документ, задания и папка Drive',
                 calendar: 'Meet и Calendar готовятся из кампуса',
                 support: 'Поддержка внутри кампуса',
             },
@@ -236,7 +243,7 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                             </div>
                         ) : packages.map((pkg, index) => {
                             const key = pkg.name || `plan-${index}`;
-                            const highlight = pkg.name === recommendedPlanName;
+                            const primaryOffer = pkg.name === primaryOfferName;
                             const planTranslations = copy.plans[key as PlanKey] ?? {
                                 name: key,
                                 description: '',
@@ -245,32 +252,26 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                             const canonicalPlanName = planTranslations.name || pkg.name;
                             const planFeatures = getPlanFeatures(pkg, planTranslations.features);
                             const priceDisplay = getPriceDisplay(pkg);
-                            const actionClass = `w-auto border px-6 ${highlight ? 'py-4' : 'py-2'} ${highlight
+                            const actionClass = `w-auto border px-6 ${primaryOffer ? 'py-4' : 'py-2'} ${primaryOffer
                                 ? `${s.accent} ${s.accentText} text-sm shadow-[4px_4px_0px_0px_currentColor] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-none`
                                 : 'text-xs hover:bg-[#006064] hover:text-white'} ${s.border} font-bold uppercase transition-all disabled:cursor-not-allowed disabled:opacity-50`;
 
                             return (
                                 <div
                                     key={key}
-                                    className={`pricing-plan-card relative grid grid-cols-1 items-start gap-6 border-t-2 md:grid-cols-12 md:gap-4 ${highlight ? `border-b-2 py-12 ${s.secondaryBg}` : 'py-8'} ${s.border}`}
+                                    className={`pricing-plan-card relative grid grid-cols-1 items-start gap-6 border-t-2 md:grid-cols-12 md:gap-4 ${primaryOffer ? `border-b-2 py-12 ${s.secondaryBg}` : 'py-8'} ${s.border}`}
                                 >
-                                    {highlight && (
-                                        <div className={`absolute left-0 top-0 px-2 py-1 text-[10px] font-bold uppercase tracking-widest ${s.accent} ${s.accentText}`}>
-                                            {copy.recommended}
-                                        </div>
-                                    )}
-
                                     <div className="col-span-3 min-w-0">
-                                        <h3 className={`hyphens-auto break-words ${highlight ? 'font-brand-display text-4xl' : 'font-display text-3xl'}`}>{canonicalPlanName}</h3>
+                                        <h3 className={`hyphens-auto break-words ${primaryOffer ? 'font-brand-display text-4xl' : 'font-display text-3xl'}`}>{canonicalPlanName}</h3>
                                         <p className="mt-1 text-sm">{planTranslations.description}</p>
                                     </div>
 
-                                    <div className={`col-span-2 min-w-0 font-mono font-bold ${highlight ? 'text-3xl' : 'text-2xl'}`}>
+                                    <div className={`col-span-2 min-w-0 font-mono font-bold ${primaryOffer ? 'text-3xl' : 'text-2xl'}`}>
                                         {priceDisplay.label}
                                         {priceDisplay.hasPrice && <span className="block text-[11px] uppercase tracking-wide">{copy.month}</span>}
                                     </div>
 
-                                    <div className={`col-span-5 space-y-1 text-sm ${highlight ? 'font-bold' : 'font-medium'}`}>
+                                    <div className={`col-span-5 space-y-1 text-sm ${primaryOffer ? 'font-bold' : 'font-medium'}`}>
                                         {planFeatures.map((feature, featureIndex) => (
                                             <p key={featureIndex}><span aria-hidden="true">•</span> {feature}</p>
                                         ))}
@@ -299,6 +300,13 @@ export default function PricingSection({ packages, lang, translations: t }: Pric
                         {copy.applicationNote}
                     </p>
                 )}
+                <div className="mx-auto max-w-7xl">
+                    <AcademyWebMcpPanel
+                        lang={lang}
+                        onPrepareBookingReview={prepareWebMcpReview}
+                        onClearBookingDraft={closeModal}
+                    />
+                </div>
             </section>
 
             <PricingModal

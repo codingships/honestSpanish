@@ -1,0 +1,179 @@
+---
+import valencia480 from '../../assets/home-photography/valencia-480.webp';
+import valencia768 from '../../assets/home-photography/valencia-768.webp';
+import valencia1024 from '../../assets/home-photography/valencia-1024.webp';
+import bilbao480 from '../../assets/home-photography/bilbao-480.webp';
+import bilbao768 from '../../assets/home-photography/bilbao-768.webp';
+import bilbao1024 from '../../assets/home-photography/bilbao-1024.webp';
+import sevilla480 from '../../assets/home-photography/sevilla-480.webp';
+import sevilla768 from '../../assets/home-photography/sevilla-768.webp';
+import sevilla1024 from '../../assets/home-photography/sevilla-1024.webp';
+import oviedo480 from '../../assets/home-photography/oviedo-480.webp';
+import oviedo768 from '../../assets/home-photography/oviedo-768.webp';
+import oviedo1024 from '../../assets/home-photography/oviedo-1024.webp';
+
+interface Props { lang: 'es' | 'en' | 'ru'; }
+const { lang } = Astro.props;
+const copy = {
+    es: {
+        label: 'Vida cotidiana en España', carousel: 'carrusel', slide: 'diapositiva',
+        controls: 'Controles de las fotografías', show: 'Mostrar foto',
+        pause: 'Pausar carrusel', play: 'Reanudar carrusel',
+        error: 'No se pudo cargar la foto. Puedes volver a intentarlo.',
+        alts: [
+            'Personas comprando entre los puestos del Mercado Central de Valencia.',
+            'Peatones paseando por una calle de Bilbao.',
+            'Una calle de Sevilla, con motos aparcadas y la Giralda al fondo.',
+            'Calle peatonal de Oviedo después de la lluvia, entre árboles y terrazas.',
+        ],
+    },
+    en: {
+        label: 'Everyday life in Spain', carousel: 'carousel', slide: 'slide',
+        controls: 'Photo controls', show: 'Show photo',
+        pause: 'Pause slideshow', play: 'Resume slideshow',
+        error: 'The photo could not load. You can try again.',
+        alts: [
+            'People shopping among the stalls of the Central Market in Valencia.',
+            'Pedestrians walking along a street in Bilbao.',
+            'A street in Seville, with parked scooters and the Giralda in the distance.',
+            'A pedestrian street in Oviedo after rain, lined with trees and café terraces.',
+        ],
+    },
+    ru: {
+        label: 'Повседневная жизнь в Испании', carousel: 'карусель', slide: 'слайд',
+        controls: 'Управление фотографиями', show: 'Показать фото',
+        pause: 'Приостановить показ', play: 'Продолжить показ',
+        error: 'Не удалось загрузить фото. Попробуйте ещё раз.',
+        alts: [
+            'Люди делают покупки в Центральном рынке Валенсии.',
+            'Прохожие гуляют по улице Бильбао.',
+            'Улица Севильи с припаркованными скутерами и Хиральдой вдали.',
+            'Пешеходная улица Овьедо после дождя, с деревьями и террасами кафе.',
+        ],
+    },
+}[lang];
+const slides = [
+    { city: 'Valencia', images: [valencia480, valencia768, valencia1024] },
+    { city: 'Bilbao', images: [bilbao480, bilbao768, bilbao1024] },
+    { city: 'Sevilla', images: [sevilla480, sevilla768, sevilla1024] },
+    { city: 'Oviedo', images: [oviedo480, oviedo768, oviedo1024] },
+].map((slide, index) => ({
+    ...slide,
+    alt: copy.alts[index],
+    srcset: slide.images.map((asset) => `${asset.src} ${asset.width}w`).join(', '),
+}));
+---
+
+<spain-photo-carousel
+    class="photo-carousel h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 border-[#006064]"
+    role="region"
+    aria-roledescription={copy.carousel}
+    aria-label={copy.label}
+    data-current-photo="0"
+    data-error-message={copy.error}
+>
+    <div id="home-photo-viewport" class="photo-viewport" data-photo-viewport>
+        {slides.map((slide, index) => (
+            <figure
+                class="photo-slide"
+                data-photo-slide
+                data-city={slide.city}
+                role="group"
+                aria-roledescription={copy.slide}
+                aria-label={`${index + 1} / ${slides.length} — ${slide.city}`}
+                aria-hidden={index !== 0 ? 'true' : 'false'}
+                hidden={index !== 0}
+            >
+                <img
+                    src={index === 0 ? slide.images[1].src : undefined}
+                    srcset={index === 0 ? slide.srcset : undefined}
+                    data-src={index !== 0 ? slide.images[1].src : undefined}
+                    data-srcset={index !== 0 ? slide.srcset : undefined}
+                    sizes="(min-width: 1024px) 42vw, 100vw"
+                    width={slide.images[2].width}
+                    height={slide.images[2].height}
+                    alt={slide.alt}
+                    loading="eager"
+                    decoding="async"
+                    fetchpriority={index === 0 ? 'high' : 'low'}
+                    draggable="false"
+                />
+            </figure>
+        ))}
+    </div>
+    <div class="photo-controls" role="group" aria-label={copy.controls} data-photo-controls hidden>
+        <button
+            type="button"
+            class="photo-toggle"
+            data-photo-toggle
+            data-play-label={copy.play}
+            data-pause-label={copy.pause}
+            aria-label={copy.pause}
+            aria-controls="home-photo-viewport"
+        >
+            <span class="photo-playback-icon" aria-hidden="true"></span>
+        </button>
+        <div class="photo-indicators">
+            {slides.map((slide, index) => (
+                <button
+                    type="button"
+                    class="photo-dot"
+                    data-photo-indicator={index}
+                    aria-label={`${copy.show} ${index + 1}: ${slide.city}`}
+                    aria-current={index === 0 ? 'true' : 'false'}
+                    aria-controls="home-photo-viewport"
+                ><span aria-hidden="true"></span></button>
+            ))}
+        </div>
+    </div>
+    <p class="photo-error font-mono text-xs" data-photo-error hidden>{copy.error}</p>
+    <p class="sr-only" data-photo-status aria-live="off" aria-atomic="true"></p>
+</spain-photo-carousel>
+
+<style>
+    .photo-carousel { display: block; position: relative; overflow: hidden; background: #e0f7fa; color: #006064; }
+    [hidden] { display: none !important; }
+    .photo-viewport { position: absolute; inset: 0; overflow: hidden; touch-action: pan-y pinch-zoom; }
+    .photo-slide { position: absolute; inset: 0; margin: 0; }
+    .photo-slide img { display: block; width: 100%; height: 100%; object-fit: cover; filter: grayscale(1); transition: filter 700ms ease; }
+    /* Preserve the market sign's original cut at the left edge at every size. */
+    [data-city="Valencia"] img { object-position: 0% 75%; }
+    [data-city="Bilbao"] img { object-position: 50% 75%; }
+    [data-city="Sevilla"] img { object-position: 50% 55%; }
+    [data-city="Oviedo"] img { object-position: 35% 60%; }
+    .photo-carousel:hover img, .photo-carousel:focus-within img { filter: grayscale(0); }
+    .photo-slide.is-entering { z-index: 1; animation: photo-reveal 600ms ease-in-out; }
+    .photo-controls { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+    .photo-indicators { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); display: flex; }
+    button { display: grid; place-items: center; width: 32px; height: 44px; padding: 0; border: 0; background: transparent; color: #006064; cursor: pointer; pointer-events: auto; }
+    button:focus-visible { outline: 2px solid #e0f7fa; outline-offset: -4px; box-shadow: inset 0 0 0 2px #006064; }
+    button[aria-disabled="true"] { cursor: progress; opacity: .5; }
+    .photo-dot span { width: 10px; height: 10px; border-radius: 50%; background: #e0f7fa; border: 2px solid #006064; box-shadow: 0 0 0 1px #e0f7fa; transition: background-color 150ms; }
+    .photo-dot[aria-current="true"] span, .photo-dot:hover span { background: #006064; }
+    .photo-toggle { position: absolute; bottom: 6px; right: 8px; width: 44px; }
+    .photo-playback-icon { display: block; width: 22px; height: 22px; border: 1px solid #006064; background: #e0f7fa; position: relative; }
+    .photo-playback-icon::before, .photo-playback-icon::after { content: ''; position: absolute; top: 5px; width: 2px; height: 10px; background: #006064; }
+    .photo-playback-icon::before { left: 6px; }
+    .photo-playback-icon::after { right: 6px; }
+    .photo-toggle[data-paused="true"] .photo-playback-icon::before { top: 5px; left: 8px; width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-left: 7px solid #006064; background: transparent; }
+    .photo-toggle[data-paused="true"] .photo-playback-icon::after { display: none; }
+    .photo-error { position: absolute; z-index: 2; bottom: 54px; inset-inline: 0; padding: 8px 12px; background: #e0f7fa; }
+    @keyframes photo-reveal { from { opacity: 0; } to { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) {
+        .photo-slide img, .photo-dot span { transition: none; }
+        .photo-slide.is-entering { animation: none; }
+    }
+</style>
+
+<script>
+    import { initializePhotoCarousel } from '../../lib/photo-carousel';
+
+    class SpainPhotoCarousel extends HTMLElement {
+        private cleanup?: () => void;
+        connectedCallback() { this.cleanup ??= initializePhotoCarousel(this); }
+        disconnectedCallback() { this.cleanup?.(); this.cleanup = undefined; }
+    }
+    if (!customElements.get('spain-photo-carousel')) {
+        customElements.define('spain-photo-carousel', SpainPhotoCarousel);
+    }
+</script>

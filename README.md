@@ -1,52 +1,112 @@
 # Español Honesto
 
-Aplicación SSR de una academia de español. Incluye web pública, campus, administración/CRM, pagos preparados en modo seguro y un Worker separado para tareas de Google Workspace y Resend.
+Español Honesto is a Spanish academy application for adults preparing for production launch. Its initial offer is one-to-one online Spanish: four 50-minute classes for EUR 259, renewing every 28 days from the first class. Before payment, a learner sees the teacher, weekly schedule, timezone, all four class dates, and the exact renewal date.
 
-## Stack
+The application is server-rendered with Astro and React. Supabase provides Auth and Postgres. Staging uses Stripe Sandbox, and its separate Cloudflare Worker handles Google Workspace and Resend fulfillment. Production is currently the Cloudflare Pages project `espanolhonesto`; checkout remains closed and production fulfillment Workers are outside the repository's current deployment scope.
 
-- Astro 6, React y TypeScript.
-- Cloudflare Pages en producción; Workers web y fulfillment separados en staging.
-- Supabase: Auth y Postgres con RLS.
-- Stripe para catálogo, checkout y suscripciones.
-- Google Workspace para calendario/documentos y Resend para email.
-- Turnstile y Sentry.
+## Agent-assisted booking with WebMCP
 
-Docker no forma parte del stack actual: el desarrollo usa Node/pnpm y los servicios gestionados de staging. No se añade una infraestructura local paralela sin una necesidad concreta.
+Staging URL: [staging.espanolhonesto.com](https://staging.espanolhonesto.com)
 
-## Desarrollo
+The WebMCP integration extends the existing product instead of introducing a separate booking engine. The same canonical offer, public availability endpoint, slot validation, visible review modal, account boundary, legal acknowledgements, Turnstile, and Stripe path remain authoritative for people and agents.
 
-Requisitos: Node 22.12 y pnpm 10.33.
+### Integration
 
-Crear `.env.staging` desde `.env.example` y sustituir todos los placeholders por los recursos de staging indicados en `docs/ENVIRONMENTS.md`. `.env.test` se crea desde `.env.test.example` solo para demo o seed explícitos; la suite pública no lee ninguno de los dos archivos.
+The product contains public availability, atomic slot holds, four-date and renewal validation, account recovery, legal review, Stripe checkout, subscription operations, a student campus, teacher/admin operations, fulfillment, and an ordinary non-agent booking flow.
+
+WebMCP adds:
+
+- top-level imperative WebMCP registration through `document.modelContext.registerTool(...)`;
+- six small tools over the real offer and public booking flow;
+- bounded availability pagination with exact dates converted to a requested IANA timezone;
+- a visible, editable, local-only learning brief shared by the person and agent;
+- visible, reversible handoff into the existing booking review;
+- cancellation, stale-data, untrusted-content, fallback, and safety contracts.
+
+The implementation lives primarily in `src/lib/academy-webmcp.ts`, `src/lib/public-availability-client.ts`, and `src/components/AcademyWebMcpPanel.tsx`.
+
+### Site tools
+
+| Tool | Effect |
+|---|---|
+| `get_academy_offer` | Reads the canonical offer, fit boundaries, guarantee, and human checkout requirements. |
+| `check_fit` | Applies explicit adult/language/lesson-format boundaries without ranking or persuasion. |
+| `list_bookable_slots` | Reads one current public place per page, including source schedule, requested-timezone dates, renewal, and checkout state. |
+| `draft_learning_brief` | Populates an editable goal/context brief that remains only in the current page. |
+| `prepare_booking_review` | Revalidates one public place and opens it in the ordinary visible review or login flow. |
+| `clear_booking_draft` | Clears the local brief, closes the review, and restores the neutral page. |
+
+Live teacher and database strings are marked as untrusted content. Runtime validation is independent of the JSON Schemas, volatile results include their source and observation time, and availability calls receive the agent's cancellation signal.
+
+### Human safety boundary
+
+WebMCP can read public product facts and prepare visible, reversible page state. It cannot:
+
+- sign in or access the private campus;
+- attest that the learner is an adult;
+- accept terms, privacy, service-start, or withdrawal acknowledgements;
+- solve or bypass Turnstile;
+- create a hidden hold or Checkout Session;
+- authorize payment or claim that a purchase succeeded.
+
+Those actions remain in the existing visible interface and server-side authorization path. If WebMCP is unavailable or registration fails, the complete human booking flow still works.
+
+### Example scenario
+
+Open the English page in ChatGPT's built-in browser or a WebMCP-enabled compatible browser, then ask:
+
+> I am an adult at B1 moving to Madrid. I want individual online Spanish lessons and I am available on Monday evenings in Europe/London. Check whether the academy fits, compare current places in my timezone, draft a short learning brief for workplace conversations, and prepare the place I choose for review. Do not accept terms, pass a security check, reserve, or pay for anything.
+
+The shared outcome is an honest fit decision, current bounded inventory, four exact dates and renewal in the learner's timezone, an editable on-page brief, a revalidated visible review, and a clear stop before consent or payment.
+
+### Current preview limits
+
+- WebMCP is an experimental, page-scoped browser API and is feature-detected at runtime.
+- Staging remains a non-indexed test environment and uses Stripe Sandbox rather than live customer payments.
+- A place is not held by a WebMCP tool; availability is revalidated when review opens and again by the existing checkout backend.
+- Discovery and recommendation from a blank chat also depend on normal crawlability, structured data, reputation, and agent policy. WebMCP alone does not guarantee ranking.
+
+The acceptance specification and remaining human/external gates are in `docs/LAUNCH_WEBMCP_SPEC.md`.
+
+## Development and verification
+
+Requirements: Node 22.12 or later and pnpm 10.33. Use pnpm only.
+
+Install dependencies and run the public, credential-free checks:
 
 ```bash
 pnpm install
+pnpm run secrets:check
+pnpm run typecheck
+pnpm run lint
+pnpm run test:run
+pnpm run test:e2e
+```
+
+The public test suite uses inert local values and does not read staging credentials. Full staging development and builds require credentials for the exact resources documented in `docs/ENVIRONMENTS.md`. First copy `.env.example` to `.env.staging`, then run:
+
+```bash
 pnpm run env:staging:sync
 pnpm run dev
 ```
 
-Durante el trabajo se ejecuta únicamente la comprobación focal que corresponde al cambio. Por ejemplo:
+Replace every placeholder locally before starting the integrated staging application. Never commit `.env.staging`, `.dev.vars.staging`, `.env.test`, or any provider secret. Deployment is manual from `main` through `.github/workflows/deploy-staging.yml`; there is no automatic production deployment.
 
-```bash
-pnpm run typecheck
-pnpm exec vitest run tests/unit/fulfillment-jobs.test.ts
-```
+## Architecture and durable sources
 
-Para un cambio transversal se añaden las pruebas afectadas y `pnpm run build`. La CI de la PR ejecuta la suite completa; no se replica localmente por costumbre. Cobertura, todos los navegadores y benchmarks son diagnósticos explícitos, no pasos predeterminados.
+- `docs/PRODUCT.md`: offer, learner experience, and product boundaries.
+- `docs/ENVIRONMENTS.md`: exact environment and provider map.
+- `docs/OPERATIONS.md`: development, deployment, recovery, and incident operations.
+- `docs/LAUNCH_WEBMCP_SPEC.md`: production launch, discovery, WebMCP, verification, and rollback requirements.
+- `ARCHITECTURE.md`: structural boundaries.
+- `docs/crm/custom-crm-model.md`: CRM model.
+- `docs/crm/privacy-operations.md`: CRM privacy operations.
 
-## Forma de trabajar
+The current code, migrations, executable configuration, and tests remain the primary source of truth.
 
-`origin/main` es el producto canónico. Cada tarea parte de un `main` limpio, usa una rama aislada, entrega un resultado por PR y deja que GitHub ejecute la CI. Las reglas completas están en `AGENTS.md`.
+## Official WebMCP references
 
-El despliegue de staging se despacha manualmente desde `main` mediante `.github/workflows/deploy-staging.yml`; GitHub fija automáticamente el SHA del evento y exige que su CI esté verde. No existe despliegue automático a producción.
-
-## Fuentes duraderas
-
-- `docs/PRODUCT.md`: producto, oferta y límites actuales.
-- `docs/ENVIRONMENTS.md`: mapa inequívoco de recursos.
-- `docs/OPERATIONS.md`: desarrollo, despliegue y recuperación.
-- `ARCHITECTURE.md`: arquitectura técnica.
-- `docs/crm/custom-crm-model.md`: modelo CRM.
-- `docs/crm/privacy-operations.md`: operación de privacidad CRM.
-
-Las conversaciones, ramas antiguas y staging no sustituyen estas fuentes ni `main`.
+- [OpenAI site tools documentation](https://learn.chatgpt.com/docs/webmcp)
+- [Chrome WebMCP imperative API](https://developer.chrome.com/docs/ai/webmcp/imperative-api)
+- [Chrome WebMCP best practices](https://developer.chrome.com/docs/ai/webmcp/best-practices)
+- [Chrome WebMCP security guidance](https://developer.chrome.com/docs/ai/webmcp/secure-tools)

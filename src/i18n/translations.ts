@@ -396,8 +396,8 @@ export const ui = {
             // Columns and richer content might need different handling if passed as raw objects, 
             // but for now keeping structure similar to JSON.
             columns: [
-                { number: "01", title: "CLASE INVERTIDA", description: "La teoría, en tu casa. La práctica, con nosotros. Así aprovechas cada minuto de clase para hablar." },
-                { number: "02", title: "SPACING EFFECT", description: "Repasamos en el momento exacto antes de que lo olvides. Ciencia, no intuición." },
+                { number: "01", title: "CLASE INVERTIDA", description: "La teoría, en casa. En clase priorizamos la práctica oral para dedicar más tiempo a conversar." },
+                { number: "02", title: "REPASO ESPACIADO", description: "Volvemos a lo trabajado a intervalos y ajustamos el repaso según lo que necesita refuerzo." },
                 { number: "03", title: "ESPAÑA CON CONTEXTO", description: "Madrid, Oviedo, Toledo, Barcelona, trabajo, burocracia y cultura. El idioma como forma de entrar en el país." }
             ],
             closing: "No prometemos hablar sin esfuerzo. Prometemos que tu esfuerzo tenga conversación, estructura y sentido."
@@ -421,7 +421,7 @@ export const ui = {
             manifesto: "/ MANIFIESTO 004",
             label: "/ SOBRE NOSOTROS",
             headline: "TRES PROFESORES. UNA IDEA.",
-            subtitle: "Enseñar español como una entrada real a España: lengua, conversación, cultura y comunidad con encaje.",
+            subtitle: "Enseñar español como una entrada real a España: lengua, conversación, cultura y contexto.",
             closing: "No somos una academia masiva. Trabajamos con alumnos que quieren estar presentes en la conversación.",
             members: [
                 {
@@ -461,7 +461,6 @@ export const ui = {
             },
             month: "cada 28 días",
             select: "Ver plazas",
-            recommended: "Recomendado",
             applicationNote: "Las plazas reales con profesor y horario aparecen aquí a medida que se publican. El pago seguirá cerrado hasta que lo habilitemos.",
             plans: {
                 individual_4x50_28d: {
@@ -1109,7 +1108,7 @@ export const ui = {
                 securityError: "The security verification is still loading, or failed.",
             },
         },
-        ticker: "Real Spain • Adult conversation • Culture • Community • ",
+        ticker: "Real Spain • Adult conversation • Culture • Practical Spanish • ",
         problems: {
             headline: "YOU DO NOT NEED ANOTHER GENERIC COURSE",
             subtext: "You need better conversation.",
@@ -1125,8 +1124,8 @@ export const ui = {
             headline: "HOW IT WORKS",
             subtitle: "Real work, real conversation.",
             columns: [
-                { number: "01", title: "FLIPPED CLASSROOM", description: "Theory at home. Practice with us. Every minute of class is for speaking." },
-                { number: "02", title: "SPACING EFFECT", description: "We review at the exact moment before you forget it. Science, not intuition." },
+                { number: "01", title: "FLIPPED CLASSROOM", description: "Study the theory at home, then use class time primarily for guided speaking practice." },
+                { number: "02", title: "SPACED REVIEW", description: "We revisit previous material at intervals and adjust each review to what needs reinforcement." },
                 { number: "03", title: "SPAIN WITH CONTEXT", description: "Madrid, Oviedo, Toledo, Barcelona, work, bureaucracy and culture. Language as a way into the country." }
             ],
             closing: "We do not promise speaking without effort. We promise that your effort has conversation, structure and meaning."
@@ -1150,7 +1149,7 @@ export const ui = {
             manifesto: "/ MANIFESTO 004",
             label: "/ ABOUT US",
             headline: "THREE TEACHERS. ONE IDEA.",
-            subtitle: "Teaching Spanish as a real way into Spain: language, conversation, culture and community.",
+            subtitle: "Teaching Spanish as a real way into Spain: language, conversation, culture and context.",
             closing: "We are not a massive academy. We work with students who want to be present in the conversation.",
             members: [
                 {
@@ -1190,7 +1189,6 @@ export const ui = {
             },
             month: "every 28 days",
             select: "View places",
-            recommended: "Recommended",
             applicationNote: "Real places with a teacher and schedule appear here as they are published. Payment remains closed until we enable it.",
             plans: {
                 individual_4x50_28d: {
@@ -1732,7 +1730,7 @@ export const ui = {
                 securityError: "Проверка безопасности еще загружается или не прошла.",
             },
         },
-        ticker: "Настоящая Испания • Взрослый разговор • Культура • Сообщество • ",
+        ticker: "Настоящая Испания • Взрослый разговор • Культура • Испанский для жизни • ",
         problems: {
             headline: "ВАМ НЕ НУЖЕН ЕЩЕ ОДИН ОБЩИЙ КУРС",
             subtext: "Вам нужен хороший разговор.",
@@ -1748,8 +1746,8 @@ export const ui = {
             headline: "КАК ЭТО РАБОТАЕТ",
             subtitle: "Реальная работа, реальный разговор.",
             columns: [
-                { number: "01", title: "ПЕРЕВЕРНУТЫЙ КЛАСС", description: "Теорию изучаешь дома. Практикуешь с нами. Каждая минута урока — для разговора." },
-                { number: "02", title: "ИНТЕРВАЛЬНОЕ ПОВТОРЕНИЕ", description: "Повторяем в точный момент, прежде чем забудешь. Наука, а не интуиция." },
+                { number: "01", title: "ПЕРЕВЁРНУТЫЙ УРОК", description: "Теория — дома, а на занятии мы уделяем больше времени разговорной практике." },
+                { number: "02", title: "ИНТЕРВАЛЬНОЕ ПОВТОРЕНИЕ", description: "Мы возвращаемся к материалу через интервалы и меняем сроки повторения в зависимости от того, что требует закрепления." },
                 { number: "03", title: "ИСПАНИЯ С КОНТЕКСТОМ", description: "Мадрид, Овьедо, Толедо, Барселона, работа, бюрократия и культура. Язык как способ войти в страну." }
             ],
             closing: "Мы не обещаем говорить без усилий. Мы обещаем, что ваши усилия будут иметь разговор, структуру и смысл."
@@ -1773,7 +1771,7 @@ export const ui = {
             manifesto: "/ МАНИФЕСТ 004",
             label: "/ О НАС",
             headline: "ТРИ ПРЕПОДАВАТЕЛЯ. ОДНА ИДЕЯ.",
-            subtitle: "Преподавать испанский как реальный вход в Испанию: язык, разговор, культура и сообщество.",
+            subtitle: "Преподавать испанский как способ лучше понимать жизнь в Испании: язык, разговор, культура и контекст.",
             closing: "Мы не массовая школа. Мы работаем со студентами, которые хотят присутствовать в разговоре.",
             members: [
                 {
@@ -1813,7 +1811,6 @@ export const ui = {
             },
             month: "каждые 28 дней",
             select: "Посмотреть места",
-            recommended: "Рекомендуемый",
             applicationNote: "Реальные места с преподавателем и расписанием появляются здесь по мере публикации. Оплата останется закрытой, пока мы её не включим.",
             plans: {
                 individual_4x50_28d: {

@@ -25,11 +25,31 @@ Un dispatch manual, un diff vacío o un cambio en workflows/clasificador fuerza 
 
 ## Entorno Codex
 
-El perfil versionado de `.codex/config.toml` solo se aplica a este repositorio confiable. Mantiene intacto el perfil global, cierra apps ajenas, limita Supabase al staging `mzjyvmlxfpzdfdjzxxyj` en modo de solo lectura y Sentry a la inspección del proyecto canónico, y deja disponibles GitHub, Cloudflare y Browser. Stripe permanece cerrado hasta una tarea dedicada de pagos de prueba. Los IDs y límites completos están en `docs/ENVIRONMENTS.md`.
+El perfil versionado de `.codex/config.toml` solo se aplica a este repositorio confiable y mantiene intacto el perfil global. Registra el MCP local de Search Console con cuatro herramientas de lectura y lo deja desactivado hasta completar su consentimiento OAuth y habilitar la API. No cambia la disponibilidad de Google Drive, GitHub, Cloudflare, Sentry, Supabase, Stripe ni otros conectores; cada uno conserva sus permisos del perfil global y sus gates de proveedor. Los IDs y límites completos están en `docs/ENVIRONMENTS.md`.
 
 Las skills permanecen instaladas porque se cargan de forma progresiva solo cuando una tarea las activa. No se crean agentes persistentes: el agente principal ejecuta el trabajo y usa como máximo tres subagentes para superficies realmente independientes.
 
-Una tarea ya abierta puede conservar el catálogo anterior. La comprobación funcional consiste en abrir una tarea nueva en este repositorio, confirmar por lectura las identidades y modos permitidos sin mostrar secretos, y abrir otra tarea en un proyecto distinto para comprobar que su catálogo global no cambió. El rollback es `git revert` del commit del perfil y una tarea nueva.
+Una tarea ya abierta puede conservar el catálogo anterior. Después de activar Search Console, la comprobación funcional consiste en abrir una tarea nueva en este repositorio, ejecutar primero el ping local y confirmar por lectura la propiedad fija sin mostrar credenciales. El rollback es volver a `enabled=false`, revertir el cambio si corresponde y abrir una tarea nueva.
+
+## Google Drive y alumnos sin cuenta de Google
+
+El campus usa actualmente una raíz en My Drive administrada por `alejandro@espanolhonesto.com`; no se observaron unidades compartidas. Para el primer lanzamiento se conserva esa topología y se limita cada permiso al árbol del alumno. Una migración futura a unidad compartida requiere confirmar que la edición de Workspace la admite y añadir `supportsAllDrives` a todas las operaciones afectadas.
+
+El flujo integrado todavía usa `anyone/reader`. No se presenta como acceso nominal terminado y no se retira ningún permiso público hasta completar esta secuencia sobre una carpeta de prueba:
+
+1. El superadministrador abre Admin Console → Apps → Google Workspace → Drive y Docs → Sharing settings y confirma que el acceso externo y Visitor Sharing están permitidos para la unidad organizativa de la academia.
+2. Se usa un correo externo controlado que no esté asociado a una cuenta de Google. No se pega ninguna credencial ni código PIN en Codex.
+3. El código crea primero el permiso nominal y deja que Google envíe la invitación. El visitante abre el enlace, recibe el PIN y prueba una nueva verificación después del periodo de sesión indicado por Google.
+4. La raíz del alumno concede como máximo lectura. Cada documento de trabajo añade escritura directa; un material que solo admita observaciones añade comentarista, y el resto permanece lector. No se eleva toda la raíz a escritura.
+5. Se comprueban desde la identidad externa apertura, edición o comentario, descarga de un archivo individual y rechazo de cualquier original o carpeta ajena.
+6. Se enumeran los permisos de la raíz y descendientes, se registran los IDs nominales actuales y solo entonces se elimina `anyone` y cualquier destinatario anterior que ya no corresponda.
+7. Si falla apertura o recuperación, se conserva temporalmente el acceso anterior, se revierte la concesión nueva y se corrige antes de probar otro alumno. Nunca se hace una retirada masiva como primer ensayo.
+
+Un alumno puede usar una dirección no Gmail de dos formas distintas: creando gratuitamente una cuenta de Google con esa dirección, o como visitante sin cuenta mediante PIN. La cuenta de Google con el correo habitual es la opción preferida para una relación larga porque evita la reverificación semanal; no requiere Gmail ni una licencia Workspace de la academia. Visitor Sharing queda como alternativa. Depende de la política de Workspace, requiere que Google envíe la invitación y permite descargar archivos individuales; no promete descargar una carpeta completa ni crear o subir elementos dentro de My Drive. La sesión verificada de visitante dura siete días: al caducar no se borra el archivo, la carpeta ni el permiso. El alumno vuelve a abrir el enlace de la invitación original y solicita otro PIN.
+
+## DMARC
+
+Los informes agregados pueden llegar a `dmarc@espanolhonesto.com` como alias gratuito del usuario `alejandro@espanolhonesto.com`; no hace falta crear otra licencia ni otro buzón. El alias entrega en la bandeja principal y se separa con un filtro de Gmail por destinatario. Después de confirmar de nuevo SPF y DKIM de Google Workspace y Resend, el despliegue empieza con un TXT `_dmarc.espanolhonesto.com` en modo de observación (`p=none`) y `rua` dirigido al alias. Se revisan los informes durante al menos una semana antes de aplicar gradualmente `quarantine` o `reject`. Crear el alias y modificar DNS son gates externos separados.
 
 ## Inputs humanos del primer lanzamiento
 

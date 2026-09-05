@@ -1,0 +1,28 @@
+---
+import plaza768 from '../../assets/home-photography/plaza-mayor-768.webp';
+import plaza1280 from '../../assets/home-photography/plaza-mayor-1280.webp';
+import plaza1920 from '../../assets/home-photography/plaza-mayor-1920.webp';
+
+interface Props { imageAlt: string; }
+const { imageAlt } = Astro.props;
+---
+
+<div class="atmosphere-photo w-full h-64 md:h-96 overflow-hidden border-b-2 border-[#006064] relative">
+    <img
+        src={plaza1280.src}
+        srcset={`${plaza768.src} 768w, ${plaza1280.src} 1280w, ${plaza1920.src} 1920w`}
+        sizes="100vw"
+        alt={imageAlt}
+        width={plaza1920.width}
+        height={plaza1920.height}
+        loading="lazy"
+        decoding="async"
+    />
+</div>
+
+<style>
+    img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: 50% 95%; filter: grayscale(1); transition: filter 700ms ease; }
+    .atmosphere-photo:hover img { filter: grayscale(0); }
+    @media (hover: none) { img { filter: none; } }
+    @media (prefers-reduced-motion: reduce) { img { transition: none; } }
+</style>

@@ -51,7 +51,7 @@ const wranglerArgs = [
     '--dry-run',
 ];
 
-console.log(`[validate-built-worker] Validated Astro 6 staging package for ${String(config.name)}.`);
+console.log(`[validate-built-worker] Validated Astro 7 staging package for ${String(config.name)}.`);
 console.log(`[validate-built-worker] Cloudflare account=${accountId}; write=false; checkout=false.`);
 
 const result = spawnSync(pnpm, wranglerArgs, {

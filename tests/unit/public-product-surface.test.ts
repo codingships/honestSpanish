@@ -63,6 +63,8 @@ describe('public product surface', () => {
         expect(pricing).not.toContain('stripe_price_1m');
         expect(pricing).not.toContain('stripe_price_3m');
         expect(pricing).not.toContain('stripe_price_6m');
+        expect(pricing).not.toContain('{copy.recommended}');
+        expect(pricing).not.toContain('recommendedPlanName');
         expect(ui.es.pricing.applicationNote).toContain('plazas reales con profesor y horario');
         expect(ui.en.pricing.applicationNote).toMatch(/real places with a teacher and schedule/iu);
         expect(ui.ru.pricing.applicationNote).toContain('преподавателем');
@@ -138,16 +140,48 @@ describe('public product surface', () => {
         expect(llms).toContain('four individual online classes of 50 minutes');
         expect(llms).toContain('EUR 259 per 28-day cycle');
         expect(llms).toContain('days 0, 7, 14 and 21');
-        expect(llms).toContain('Initial acquisition is in English for adults who live, work or plan to move to Spain');
+        expect(llms).toContain('Initial acquisition is in English for adults living in the United States');
         expect(llms).toContain('Russian is limited to a measured pilot');
+        expect(llms).toContain('The live availability shown after selecting "View places" is authoritative');
+        expect(llms).toContain('## Agent-assisted booking');
+        expect(llms).toContain('Current availability from the public booking endpoint is authoritative');
+        expect(llms).toContain('The learner controls sign-in, the adult declaration');
+        expect(llms).toContain('is not a hold, reservation, purchase or payment confirmation');
+        expect(llms).not.toMatch(/Challenge URL|WebMCP Challenge|Devpost/iu);
+        expect(llms).toContain('EUR 129.50 after two');
+        expect(llms).toContain('EUR 64.75 after three');
+        expect(llms).not.toContain('Checkout stays unavailable');
+        expect(llms).not.toContain('closes the window');
         expect(llms).not.toMatch(/Grupal Externo|Mensual Estándar|Híbrido Mensual|Intensivo Bootcamp|application-only at launch/iu);
+    });
+
+    it('keeps public launch copy concrete and inside the individual-offer boundary', () => {
+        const translations = JSON.stringify({
+            es: { ticker: ui.es.ticker, method: ui.es.method, team: ui.es.team },
+            en: { ticker: ui.en.ticker, method: ui.en.method, team: ui.en.team },
+            ru: { ticker: ui.ru.ticker, method: ui.ru.method, team: ui.ru.team },
+        });
+        const publicCopy = [landing, pricing, ...spanishSegmentLandings, translations].join('\n');
+
+        expect(publicCopy).not.toMatch(/Science, not intuition|Ciencia, no intuición|Наука, а не интуиция/iu);
+        expect(publicCopy).not.toMatch(/exact moment before you forget|momento exacto antes de que lo olvides|в точный момент, прежде чем забудешь/iu);
+        expect(publicCopy).not.toMatch(/Every minute of class|cada minuto de clase|Каждая минута урока/iu);
+        expect(publicCopy).not.toMatch(/Original worksheets|worksheets propios|Autorские worksheets|worksheets y materiales propios/iu);
+        expect(ui.en.ticker).not.toContain('Community');
+        expect(ui.ru.ticker).not.toContain('Сообщество');
+        expect(ui.es.team.subtitle).not.toContain('comunidad');
+        expect(ui.en.team.subtitle).not.toContain('community');
+        expect(ui.ru.team.subtitle).not.toContain('сообщество');
+        expect(spanishSegmentLandings.join('\n')).not.toContain('La página responde a búsquedas');
+        expect(read('src/pages/es/espanol-para-vivir-en-espana.astro')).not.toContain('con otros alumnos');
     });
 
     it('keeps robots and the public sitemap limited to indexable public routes', () => {
         const robots = read('public/robots.txt');
 
-        expect(robots).toContain('User-agent: *');
-        expect(robots).toContain('Allow: /');
+        expect(robots).toMatch(
+            /User-agent: \*\r?\nUser-agent: OAI-SearchBot\r?\nAllow: \//u,
+        );
         expect(robots).toContain('Sitemap: https://espanolhonesto.com/sitemap.xml');
         for (const privatePath of [
             '/api/',
@@ -157,6 +191,9 @@ describe('public product surface', () => {
             '/es/login',
             '/en/login',
             '/ru/login',
+            '/es/logout',
+            '/en/logout',
+            '/ru/logout',
             '/demo',
             '/keystatic/',
         ]) {
@@ -234,5 +271,9 @@ describe('public product surface', () => {
             expect(source).toContain("x-robots-tag', 'noindex, nofollow'");
             expect(source).toContain('name="robots" content="noindex, nofollow"');
         }
+
+        const logout = read('src/pages/[lang]/logout.astro');
+        expect(logout).toContain("x-robots-tag', 'noindex, nofollow'");
+        expect(logout).toContain('name="robots" content="noindex, nofollow"');
     });
 });

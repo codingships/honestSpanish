@@ -37,6 +37,10 @@ Los identificadores confidenciales viven una sola vez en el GitHub Environment o
 - Único runtime público y canónico: Pages project `espanolhonesto`, dominios `espanolhonesto.com` y `www.espanolhonesto.com`.
 - Deploy público observado: Pages deployment `3bd00cbf-7abe-465b-a809-821e8fd721d5`, asociado al commit `060b029ef5326cb390b69a8932940191cfd87034`, de 8 de marzo de 2026.
 - Supabase: ref `vkkahxsybhbutszerawz`.
+- Cloudflare Web Analytics: instalación automática habilitada para el Pages project `espanolhonesto`; la recepción de datos todavía debe acreditarse después de un despliegue autorizado.
+- DNS público comprobado por lectura el 4 de septiembre de 2026: la zona está activa y contiene un TXT de verificación de Google, SPF/DKIM para Google Workspace y SPF/DKIM para Resend. No se observó un registro DMARC en `_dmarc.espanolhonesto.com`; debe definirse y validarse antes de usar correo transaccional real. Esta lectura no acredita por sí sola que la propiedad esté dada de alta en Search Console.
+- Google Search Console: la propiedad `sc-domain:espanolhonesto.com` está verificada y el acceso OAuth de usuario de solo lectura quedó validado en vivo el 4 de septiembre de 2026. El MCP local respondió desde una tarea nueva de Codex con ping, listado de sitemaps, Search Analytics e inspección de URL. La portada canónica inspeccionada fue `https://espanolhonesto.com/es`; `https://espanolhonesto.com/` figura como página con redirección.
+- Google Cloud: el informe de la cuenta de facturación `010386-61B339-CDC1E7` está filtrado al proyecto `stunning-tract-481609-p7` de la organización `750769867979`, muestra un único proyecto en el filtro y coste acumulado de 0,00 EUR. Esto acredita el contexto de facturación observado, no un tope de gasto futuro; la vinculación exacta se confirma en Administración de cuenta antes de conservarla o retirarla.
 - El repositorio no contiene configuración, build ni validación ejecutable para desplegar Workers o colas de producción.
 - Producción no se modifica desde el workflow de staging ni por continuidad implícita de una tarea.
 
@@ -76,14 +80,18 @@ La ausencia de una credencial detiene el despliegue. No se copia una clave de ot
 
 ## Perfil Codex del proyecto
 
-`.codex/config.toml` es un override local y versionado. No desinstala ni modifica plugins, skills, OAuth, hooks o MCP del perfil global, por lo que los demás proyectos conservan todas sus capacidades.
+`.codex/config.toml` es un override local y versionado. No desinstala ni modifica plugins, skills, OAuth, hooks, conectores o MCP del perfil global, por lo que los demás proyectos conservan sus capacidades.
 
-Para el desarrollo normal de HonestSpanish quedan habilitados Browser, GitHub, Cloudflare, el MCP de Sentry restringido a inspección de `honestspanish/espanol-honesto-astro` y un MCP de Supabase restringido a `mzjyvmlxfpzdfdjzxxyj`, de solo lectura y con lista de herramientas. La identidad de Sentry se comprobó por lectura el 31 de julio de 2026. Stripe permanece deshabilitado hasta una tarea dedicada de pagos de prueba que verifique primero `acct_1TruqOC22M3erP0j` y `livemode=false`. Todas las demás apps quedan cerradas por defecto, incluido el conector Supabase genérico.
+El único override que este repositorio define actualmente es `espanolhonesto_searchconsole`. Apunta al servidor local de `tools/searchconsole-mcp`, está habilitado y limita la superficie a cuatro herramientas de lectura: ping, Search Analytics, inspección de URL y listado de sitemaps. No contiene credenciales; solo pasa al proceso la ruta local del ADC privado almacenado fuera del repositorio. El servidor fija la propiedad `sc-domain:espanolhonesto.com`, exige ADC de tipo `authorized_user` con `webmasters.readonly` y no puede enviar ni borrar sitemaps. El 4 de septiembre de 2026 superó typecheck, 11/11 pruebas, handshake y una prueba live desde una tarea nueva de Codex: ping correcto, un sitemap sin errores ni advertencias, Analytics con datos e inspección de la portada. El cliente OAuth y el ADC permanecen fuera del repositorio.
+
+Google Drive, Docs, Sheets, GitHub, Cloudflare, Sentry, Supabase, Stripe y los demás conectores se gobiernan en el perfil global y por su autorización en cada proveedor. Su presencia en una tarea no acredita la identidad ni autoriza escrituras. El conector de Google Drive está operativo con `alejandro@espanolhonesto.com`; no se observaron unidades compartidas, y la raíz y plantilla del campus permanecen en My Drive. Los cambios de permisos siguen sujetos al gate de Visitor Sharing y a una prueba externa.
+
+El conector de Resend se comprobó por lectura el 4 de septiembre de 2026: muestra `espanolhonesto.com` verificado en `eu-west-1`, con envío habilitado, recepción deshabilitada y seguimiento de aperturas y clics desactivado. El grant de ChatGPT tiene alcance amplio; cualquier envío o cambio administrativo conserva el preflight y la aprobación manual por recurso exacto.
 
 El perfil reduce errores de contexto, pero no puede limitar por sí mismo GitHub, Stripe o Cloudflare a una única cuenta. Antes de escribir siguen siendo obligatorios los preflights de este documento: GitHub `codingships/honestSpanish`, Stripe `acct_1TruqOC22M3erP0j` con `livemode=false` y Cloudflare `d1a22bcf6477ff2ff31d2bfb83084e44`. El aislamiento fuerte depende además de permisos OAuth o tokens limitados en el proveedor.
 
 Recuperación y reutilización:
 
-- Para volver al comportamiento global, se retiran de `.codex/config.toml` las secciones `apps.*`, `plugins.*` y `mcp_servers.*` y se abre una tarea nueva de Codex.
-- Para aplicar el mismo aislamiento a otro repositorio, se copia el perfil y se sustituyen sus allowlists e identidades por las de ese proyecto.
+- Para retirar el MCP local se elimina su sección `mcp_servers.*` y se abre una tarea nueva de Codex.
+- La ruta ejecutable es local a este equipo; si se clona el repositorio en otro host se ajustan `command`, `args` y `cwd` antes de habilitarlo.
 - Git conserva el perfil anterior y cada cambio posterior. No se mantiene una segunda configuración global ni una copia con secretos.

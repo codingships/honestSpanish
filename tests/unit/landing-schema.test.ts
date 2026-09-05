@@ -29,7 +29,7 @@ function faqNode(schema: ReturnType<typeof buildLandingSchema>) {
 }
 
 describe('buildLandingSchema', () => {
-    it('publishes the exact target offer as unavailable until checkout is ready', () => {
+    it('publishes the exact target offer without inventing static availability', () => {
         const course = courseNodes(buildLandingSchema('es', translate, [targetPackage]))[0];
 
         expect(course).toMatchObject({
@@ -40,7 +40,6 @@ describe('buildLandingSchema', () => {
             offers: {
                 price: '259',
                 priceCurrency: 'EUR',
-                availability: 'https://schema.org/OutOfStock',
                 url: 'https://espanolhonesto.com/es#planes',
             },
             potentialAction: {
@@ -49,6 +48,7 @@ describe('buildLandingSchema', () => {
                 target: 'https://espanolhonesto.com/es#planes',
             },
         });
+        expect(course).not.toHaveProperty('offers.availability');
     });
 
     it('localizes the offer without changing its commercial contract', () => {

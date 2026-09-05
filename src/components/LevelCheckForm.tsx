@@ -55,10 +55,6 @@ interface LevelCheckFormProps {
     translations: LevelCheckTranslations;
 }
 
-type LevelCheckResponse = {
-    error?: string;
-};
-
 type LevelCheckPrefillResponse = {
     email?: string;
 };
@@ -174,16 +170,14 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                     'cf-turnstile-response': turnstileToken,
                 }),
             });
-            const data = await response.json() as LevelCheckResponse;
-
             if (!response.ok) {
-                throw new Error(data.error || t.error);
+                throw new Error(t.error);
             }
 
             setStatus('success');
-        } catch (error) {
+        } catch {
             setStatus('error');
-            setErrorMessage(error instanceof Error ? error.message : t.error);
+            setErrorMessage(t.error);
         }
     };
 
@@ -359,7 +353,7 @@ export default function LevelCheckForm({ lang, translations: t }: LevelCheckForm
                     type="submit"
                     disabled={status === 'loading' || inviteState === 'loading'}
                     aria-busy={status === 'loading' || inviteState === 'loading'}
-                    className="mt-2 w-full border-2 border-[#006064] bg-[#006064] py-3 text-sm font-bold uppercase tracking-widest text-white transition-all hover:bg-[#004d40] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
+                    className="mt-2 w-full border-2 border-[#006064] bg-[#006064] py-3 text-sm font-bold uppercase tracking-widest text-white transition-all hover:bg-[#004d40] hover:shadow-[2px_2px_0px_0px_rgba(0,0,0,0.2)] active:translate-x-[1px] active:translate-y-[1px] active:shadow-none disabled:cursor-not-allowed disabled:bg-[#004d40] disabled:text-white disabled:opacity-100"
                 >
                     {status === 'loading' || inviteState === 'loading' ? t.loading : t.button}
                 </button>

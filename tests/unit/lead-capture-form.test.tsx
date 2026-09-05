@@ -90,6 +90,25 @@ describe('LeadCaptureForm', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    it('localizes API failures instead of exposing raw provider messages', async () => {
+        const fetchMock = vi.fn().mockResolvedValue({
+            ok: false,
+            json: async () => ({ error: 'Raw database failure' }),
+        });
+        vi.stubGlobal('fetch', fetchMock);
+
+        renderLeadCaptureForm();
+        fillRequiredContactFields();
+        fireEvent.click(screen.getByLabelText(translations.adultConfirmation));
+        fireEvent.click(screen.getByLabelText(new RegExp(translations.consent)));
+        fireEvent.click(screen.getByRole('button', { name: 'Complete security check' }));
+        fireEvent.click(screen.getByRole('button', { name: translations.button }));
+
+        const alert = await screen.findByRole('alert');
+        expect(alert).toHaveTextContent(translations.error);
+        expect(alert).not.toHaveTextContent('Raw database failure');
+    });
+
     it('applies URL preferred package data, submits full lead context and announces success', async () => {
         window.history.pushState(null, '', '/es?preferredPackage=hybrid&preferredPackageLabel=Plan%20Hybrid&utm_source=google&utm_medium=cpc#contacto');
         let resolveFetch: (value: { ok: boolean; json: () => Promise<{ message: string }> }) => void = () => {};
@@ -120,6 +139,8 @@ describe('LeadCaptureForm', () => {
         });
 
         const submit = screen.getByRole('button', { name: translations.button });
+        expect(submit).toHaveClass('disabled:bg-[#004d40]', 'disabled:text-white', 'disabled:opacity-100');
+        expect(submit).not.toHaveClass('disabled:opacity-50');
         fireEvent.click(submit);
 
         expect(submit).toBeDisabled();

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { resolve } from 'node:path';
 
 const cwd = process.cwd();
-const serverMode = process.env.E2E_SERVER_MODE || 'dev';
+const serverMode = process.env.E2E_SERVER_MODE || 'built';
 if (serverMode !== 'dev' && serverMode !== 'built') {
     throw new Error(`[e2e-env] Unsupported E2E_SERVER_MODE: ${serverMode}.`);
 }
@@ -120,9 +120,9 @@ const astroCli = resolve(cwd, 'node_modules', 'astro', 'bin', 'astro.mjs');
 const prepareArgs = serverMode === 'built'
     ? [astroCli, 'build']
     : [astroCli, 'sync'];
-// Public E2E keeps the fast dev server. Performance audits select `built` so
-// Lighthouse measures the generated Cloudflare Worker instead of Vite's
-// transform and compilation latency.
+// The Cloudflare Vite dev runner can let CommonJS dependencies escape the SSR
+// optimizer (workers-sdk#14891). The default suite therefore exercises the
+// generated Worker; `E2E_SERVER_MODE=dev` remains an explicit diagnostic mode.
 const prepare = spawnSync(process.execPath, prepareArgs, {
     cwd,
     env: childEnvironment,

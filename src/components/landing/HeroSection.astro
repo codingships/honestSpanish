@@ -2,6 +2,7 @@
 import hero480 from '../../assets/hero-480.webp';
 import hero768 from '../../assets/hero-768.webp';
 import hero1024 from '../../assets/hero-1024.webp';
+import SpainPhotoCarousel from './SpainPhotoCarousel.astro';
 
 interface Props {
   headline1: string;
@@ -14,6 +15,7 @@ interface Props {
   ctaHref?: string;
   imageAlt: string;
   lang?: 'es' | 'en' | 'ru';
+  photoCarousel?: boolean;
 }
 
 const {
@@ -27,6 +29,7 @@ const {
   ctaHref = '#planes',
   imageAlt,
   lang = 'es',
+  photoCarousel = false,
 } = Astro.props;
 
 const s = {
@@ -55,7 +58,7 @@ const s = {
             </div>
         </div>
         <div class="lg:col-span-5 flex flex-col h-auto lg:h-full overflow-hidden min-h-0">
-            <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
+            {photoCarousel ? <SpainPhotoCarousel lang={lang} /> : <div class={`h-48 md:h-64 lg:h-[40vh] min-h-0 border-b-2 ${s.border} relative overflow-hidden group`}>
                 <img
                     src={hero768.src}
                     srcset={`${hero480.src} 480w, ${hero768.src} 768w, ${hero1024.src} 1024w`}
@@ -68,7 +71,7 @@ const s = {
                     decoding="async"
                     fetchpriority="high"
                 />
-            </div>
+            </div>}
             <div class={`flex-1 ${s.secondaryBg} p-8 lg:p-12 flex flex-col justify-center items-center text-center`}>
                 <h2 class="font-display text-3xl lg:font-brand-display lg:text-4xl mb-4 lg:mb-6">{ready}</h2>
                 <a

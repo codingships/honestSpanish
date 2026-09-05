@@ -38,6 +38,12 @@ function readFlatWorkspaceSection(source: string, section: string): Record<strin
     return entries;
 }
 
+function readOptionalFlatWorkspaceSection(source: string, section: string): Record<string, string> {
+    return source.split(/\r?\n/).includes(`${section}:`)
+        ? readFlatWorkspaceSection(source, section)
+        : {};
+}
+
 function readRootImporterSpecifiers(source: string): Record<string, string> {
     const lines = source.split(/\r?\n/);
     const start = lines.findIndex((line) => line === '  .:');
@@ -95,8 +101,8 @@ describe('pnpm metadata consistency', () => {
 
     it('mirrors canonical workspace overrides for pnpm 10 dependency verification', () => {
         expect(packageJson.pnpm?.overrides).toEqual(readFlatWorkspaceSection(workspace, 'overrides'));
-        expect(packageJson.pnpm?.patchedDependencies).toEqual(
-            readFlatWorkspaceSection(workspace, 'patchedDependencies'),
+        expect(packageJson.pnpm?.patchedDependencies ?? {}).toEqual(
+            readOptionalFlatWorkspaceSection(workspace, 'patchedDependencies'),
         );
     });
 
